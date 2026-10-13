@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from dokimi.eval.diagnoser import retrieval_hit
 from dokimi.llm import llm_call
+from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 
 logger = logging.getLogger(__name__)
 
@@ -245,8 +246,8 @@ class JudgePanel:
     def __init__(
         self,
         judges: Optional[List[JudgeConfig]] = None,
-        default_model: str = "gpt-4o-mini",
-        default_provider: str = "openai",
+        default_model: str = DEFAULT_JUDGE_MODEL,
+        default_provider: str = DEFAULT_JUDGE_PROVIDER,
         concurrency: int = 6,
         temperature: Optional[float] = None,
         seed: Optional[int] = None,

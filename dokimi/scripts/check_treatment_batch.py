@@ -43,8 +43,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-JUDGE_MODEL = "global.anthropic.claude-sonnet-4-6"
-JUDGE_PROVIDER = "amazon-bedrock"
+from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER  # noqa: E402
+
+# The judge a batch run with default flags records. A batch judged otherwise (older
+# batches used amazon-bedrock/global.anthropic.claude-sonnet-4-6) passes --judge-model /
+# --judge-provider.
+JUDGE_MODEL = DEFAULT_JUDGE_MODEL
+JUDGE_PROVIDER = DEFAULT_JUDGE_PROVIDER
 # Question-set sizes keyed by the filename suffix the run_*.sh scripts use. These are one
 # product's sizes and nothing more — observed golden sets have run 20, 24 and 111 questions
 # depending on the product — so a batch over another product must pass --expect-n. The suffix

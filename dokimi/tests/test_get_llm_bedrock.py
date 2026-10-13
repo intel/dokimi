@@ -1,12 +1,14 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""get_llm maps only bare model names to ANTHROPIC_DEFAULT_SONNET_MODEL on Bedrock."""
+"""Bedrock model ids: bare names map to an inference profile, real ids pass through."""
 
 from __future__ import annotations
 
 import pytest
 
+from dokimi.defaults import DEFAULT_JUDGE_MODEL
+from dokimi.llm import _build_litellm_model
 from dokimi.utils import get_llm
 
 
@@ -23,3 +25,26 @@ def test_bedrock_model_id_is_not_replaced(monkeypatch, model):
 def test_bare_model_name_is_mapped_to_the_default_sonnet(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "us.anthropic.sonnet")
     assert get_llm("amazon-bedrock", "claude-sonnet-4-5").litellm_model == "bedrock/us.anthropic.sonnet"
+
+
+@pytest.mark.parametrize("bare, profile", [
+    ("claude-sonnet-5-5", "us.anthropic.claude-sonnet-5-5"),
+    ("claude-opus-5-5", "us.anthropic.claude-opus-5-5"),
+    ("claude-haiku-5-5", "us.anthropic.claude-haiku-5-5"),
+])
+def test_a_known_bare_name_maps_to_its_own_profile_not_the_env_sonnet(monkeypatch, bare, profile):
+    # A haiku must not silently become the box's default Sonnet.
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "us.anthropic.sonnet")
+    assert get_llm("amazon-bedrock", bare).litellm_model == f"bedrock/{profile}"
+    assert _build_litellm_model(bare, "amazon-bedrock") == f"bedrock/{profile}"
+
+
+def test_the_default_judge_resolves_on_bedrock(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_DEFAULT_SONNET_MODEL", raising=False)
+    assert get_llm("amazon-bedrock", DEFAULT_JUDGE_MODEL).litellm_model.startswith("bedrock/us.anthropic.")
+
+
+def test_the_answer_path_leaves_an_unknown_bare_name_alone():
+    assert _build_litellm_model("some-model", "amazon-bedrock") == "bedrock/some-model"
+    assert _build_litellm_model("us.anthropic.claude-sonnet-5-5", "amazon-bedrock") == \
+        "bedrock/us.anthropic.claude-sonnet-5-5"

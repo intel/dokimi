@@ -72,7 +72,7 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
     from dokimi.eval.panel import JudgePanel, JudgeConfig, DEFAULT_PANEL, JUDGE_ROLES
 
     # --judge-configs takes priority over --model/--provider/--roles
-    # Format: "technical_expert:gpt-4o:openai,developer_advocate:claude-sonnet-4:anthropic,doc_reviewer:gemini-2.0-flash:google"
+    # Format: "technical_expert:claude-sonnet-5-5:anthropic,developer_advocate:claude-opus-5-5:anthropic,doc_reviewer:gemini-2.0-flash:google"
     if getattr(args, "judge_configs", None):
         judges = []
         for entry in args.judge_configs.split(","):
@@ -522,8 +522,8 @@ def register(sub, positive_int) -> None:
         help=(
             "Per-role model config (overrides --model/--provider/--roles). "
             "Format: 'role:model:provider,...' "
-            "e.g. 'technical_expert:gpt-4o:openai,"
-            "developer_advocate:claude-sonnet-4:anthropic,"
+            "e.g. 'technical_expert:claude-sonnet-5-5:anthropic,"
+            "developer_advocate:claude-opus-5-5:anthropic,"
             "doc_reviewer:gemini-2.0-flash:google'"
         ),
     )

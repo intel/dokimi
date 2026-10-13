@@ -18,7 +18,7 @@ from dokimi.questions.llm_gen import QuestionGenerator
 def _make_generator():
     with patch("dokimi.questions.llm_gen.ChatOpenAI"), \
          patch("dokimi.questions.llm_gen.ChatAnthropic"):
-        return QuestionGenerator(model="gpt-4o-mini", provider="openai")
+        return QuestionGenerator(model="gpt-6.1-sol", provider="openai")
 
 
 def _fake_persona(name="dev", skill="intermediate"):
@@ -146,7 +146,7 @@ def test_save_questions_correct_structure(tmp_path):
     gen.save_questions(questions, out)
     data = json.loads(out.read_text())
     assert data["total_questions"] == 1
-    assert data["model"] == "gpt-4o-mini"
+    assert data["model"] == "gpt-6.1-sol"
     assert data["provider"] == "openai"
     assert len(data["questions"]) == 1
     assert "generated_at" in data

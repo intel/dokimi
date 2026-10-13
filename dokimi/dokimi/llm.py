@@ -5,7 +5,7 @@
 
 Usage:
     from dokimi.llm import llm_call
-    text = llm_call("Your prompt", model="gpt-4o-mini", provider="openai")
+    text = llm_call("Your prompt", model="gpt-6.1-sol", provider="openai")
 """
 import os
 import re
@@ -14,6 +14,7 @@ import logging
 from typing import Callable, Optional, Protocol
 
 from dokimi import caching
+from dokimi.defaults import BEDROCK_MODEL_IDS
 from dokimi.metrics.usage import UsageRecord
 
 logger = logging.getLogger(__name__)
@@ -252,7 +253,7 @@ def _build_litellm_model(model: str, provider: str) -> str:
         # models on Bedrock work fine either way, so this is scoped narrowly).
         if "openai." in model:
             return f"bedrock/converse/{model}"
-        return f"bedrock/{model}"
+        return f"bedrock/{BEDROCK_MODEL_IDS.get(model, model)}"
     else:
         return f"{provider}/{model}"
 
@@ -364,7 +365,7 @@ def llm_call(
 
     Args:
         prompt: User prompt string.
-        model: Model name (e.g. "gpt-4o-mini", "claude-3-5-sonnet-20241022").
+        model: Model name (e.g. "gpt-6.1-sol", "claude-sonnet-5-5").
         provider: Provider name — "openai", "anthropic", "openrouter", "bedrock".
         api_key: Optional API key (falls back to env var).
         max_retries: Max retry attempts on transient errors (default 3).

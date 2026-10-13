@@ -12,6 +12,13 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.commands import novelty as novelty_cmd
+from dokimi.defaults import (
+    DEFAULT_ANSWER_MODEL,
+    DEFAULT_GENERATOR_MODEL,
+    DEFAULT_GENERATOR_PROVIDER,
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_PROVIDER,
+)
 
 
 def _parse(*argv):
@@ -28,10 +35,27 @@ def test_every_subcommand_is_registered():
 
 
 def test_the_judge_defaults_to_a_different_model_than_the_answerer():
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", "gpt-4o-mini")
+    args = _parse("novelty", "analyze", "--artifact", "skill:x")
     extractor, answerer, judge = novelty_cmd._clients(args)
-    assert judge.model != answerer.model
+    assert answerer.model == DEFAULT_ANSWER_MODEL
+    assert (judge.model, judge.provider) == (DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER)
     assert extractor.role == "extractor" and judge.role == "judge"
+
+
+@pytest.mark.parametrize("model", [DEFAULT_JUDGE_MODEL, f"us.anthropic.{DEFAULT_JUDGE_MODEL}"])
+def test_measuring_the_default_judge_moves_the_judge_to_the_other_family(model):
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", model,
+                  "--provider", "amazon-bedrock")
+    _extractor, answerer, judge = novelty_cmd._clients(args)
+    assert answerer.model == model
+    assert (judge.model, judge.provider) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
+
+
+def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--provider", "openrouter",
+                  "--judge-model", "j")
+    _extractor, _answerer, judge = novelty_cmd._clients(args)
+    assert (judge.model, judge.provider) == ("j", "openrouter")
 
 
 def test_the_extractor_follows_the_judge_not_the_answerer():
@@ -97,11 +121,17 @@ def test_atoms_subcommand_writes_atoms_and_span_stats(tmp_path, monkeypatch, cap
     assert payload["atoms"][0]["faithfulness"] == "supported"
     assert any("negation" in span["protection"] for span in payload["spans"])
     assert "Saved 1 atoms" in capsys.readouterr().out
-    assert (payload["extractor"], payload["cap"]) == ("gpt-4o-mini", 120)
+    # `atoms` extracts with the default judge, as `analyze` does, not with the answerer.
+    assert (payload["extractor"], payload["cap"]) == (DEFAULT_JUDGE_MODEL, 120)
 
-    # With defaults the model under measurement wrote this answer key; probe says so.
-    args = _parse("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(out),
-                  "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json"))
+    probe = ["novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(out),
+             "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json")]
+    args = _parse(*probe)
+    args.func(args)
+    assert "own answer key" not in capsys.readouterr().err
+
+    # Measuring the model that extracted the atoms means it wrote its own answer key.
+    args = _parse(*probe, "--model", DEFAULT_JUDGE_MODEL, "--provider", DEFAULT_JUDGE_PROVIDER)
     args.func(args)
     assert "own answer key" in capsys.readouterr().err
 

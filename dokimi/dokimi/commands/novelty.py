@@ -19,6 +19,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dokimi.defaults import (
+    DEFAULT_ANSWER_MODEL,
+    DEFAULT_ANSWER_PROVIDER,
+    DEFAULT_GENERATOR_MODEL,
+    DEFAULT_GENERATOR_PROVIDER,
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_PROVIDER,
+)
+
 PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"]
 
 
@@ -828,10 +837,13 @@ def register(sub, positive_int) -> None:
 
     atoms_p = novelty_sub.add_parser("atoms", help="Extract knowledge atoms and spans only")
     _add_common(atoms_p, positive_int)
-    atoms_p.add_argument("--model", default="gpt-4o-mini",
-                         help="Extractor model when --extract-model is not given")
+    # The extractor writes the answer key; `analyze` gives that role to the judge, so the
+    # two paths default to the same model and a saved atom set matches an analyze run.
+    atoms_p.add_argument("--model", default=DEFAULT_JUDGE_MODEL,
+                         help="Extractor model when --extract-model is not given "
+                              f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)")
     atoms_p.add_argument("--extract-model", default=None, dest="extract_model")
-    atoms_p.add_argument("--provider", default="openai", choices=PROVIDERS)
+    atoms_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=PROVIDERS)
     atoms_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
     atoms_p.add_argument("--no-verify", action="store_true", dest="no_verify")
     atoms_p.add_argument("--out", default=None)
@@ -851,9 +863,13 @@ def register(sub, positive_int) -> None:
     )
     _add_common(shorten_p, positive_int)
     shorten_p.add_argument("--atoms", required=True, help="atoms.json from `novelty atoms`")
-    shorten_p.add_argument("--model", default="gpt-4o-mini", help="Retention adjudicator model")
+    # Same model as the retention oracle inside `analyze` (its extractor, i.e. the judge):
+    # adjudications are cached per model, and a different one would score other verdicts.
+    shorten_p.add_argument("--model", default=DEFAULT_JUDGE_MODEL,
+                           help="Retention adjudicator model "
+                                f"(default: {DEFAULT_JUDGE_MODEL}, the default judge)")
     shorten_p.add_argument("--extract-model", default=None, dest="extract_model")
-    shorten_p.add_argument("--provider", default="openai", choices=PROVIDERS)
+    shorten_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=PROVIDERS)
     shorten_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
     shorten_p.add_argument("--lexical-only", action="store_true", dest="lexical_only",
                            help="Run the retention oracle without an LLM adjudicator. Cheap and "
@@ -889,7 +905,7 @@ def register(sub, positive_int) -> None:
     routing_p.add_argument("--model", default=None,
                            help="Also ask this model to pick from the same cards. Optional: "
                                 "without it only the free lexical floor is computed")
-    routing_p.add_argument("--provider", default="openai", choices=PROVIDERS)
+    routing_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
     routing_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
     routing_p.add_argument("--seed", type=int, default=0,
                            help="Seeds the per-query card permutation, so a position-biased "
@@ -968,12 +984,16 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
 
 
 def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
-    parser.add_argument("--model", default="gpt-4o-mini",
+    parser.add_argument("--model", default=DEFAULT_ANSWER_MODEL,
                         help="The model under measurement — novelty is a property of the "
                              "(artifact, model) pair, not of the file")
-    parser.add_argument("--provider", default="openai", choices=PROVIDERS)
+    parser.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
     parser.add_argument("--judge-model", default=None, dest="judge_model",
-                        help="Grading model; must differ from --model")
+                        help="Grading model; must differ from --model (default: "
+                             f"{DEFAULT_JUDGE_PROVIDER}/{DEFAULT_JUDGE_MODEL}, or "
+                             f"{DEFAULT_GENERATOR_PROVIDER}/{DEFAULT_GENERATOR_MODEL} when "
+                             "--model is that judge). A --judge-model without "
+                             "--judge-provider runs on --provider")
     parser.add_argument("--judge-provider", default=None, dest="judge_provider", choices=PROVIDERS)
     parser.add_argument("--extract-model", default=None, dest="extract_model",
                         help="Extractor/adjudicator model (defaults to --judge-model, so the "
@@ -1000,8 +1020,11 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
 
 def _clients(args: argparse.Namespace):
     """Build the three role clients, defaulting so roles never silently collapse."""
-    judge_model = args.judge_model or _default_judge(args.model)
-    judge_provider = args.judge_provider or args.provider
+    if args.judge_model:
+        judge_model, judge_provider = args.judge_model, args.judge_provider or args.provider
+    else:
+        judge_model, default_provider = _default_judge(args.model)
+        judge_provider = args.judge_provider or default_provider
     extract_model = args.extract_model or judge_model
     extract_provider = args.extract_provider or judge_provider
     return (
@@ -1064,9 +1087,17 @@ def _add_spend_cap(parser: argparse.ArgumentParser) -> None:
                              "under the same cap. Default: no cap")
 
 
-def _default_judge(model: str) -> str:
-    """A judge that is not the answerer, when the caller did not name one."""
-    return "gpt-4o-mini" if model != "gpt-4o-mini" else "gpt-4o"
+def _default_judge(model: str) -> tuple[str, str]:
+    """A (model, provider) judge that is not the answerer, when the caller did not name one.
+
+    The default judge, unless it is the model under measurement (by bare name, so a
+    Bedrock ``us.anthropic.claude-...`` id counts too); then the default generator,
+    which is of the other family.
+    """
+    bare = model.rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1]
+    if bare != DEFAULT_JUDGE_MODEL:
+        return DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+    return DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 
 def _arms(spec: str) -> list[str]:

@@ -70,25 +70,55 @@ make benchmark-compare BASE=path/to/base.json
 Use the LLM benchmark when the question is "does documentation or another
 context artifact improve answers?"
 
+### Default models
+
+Every command takes its models from `dokimi/defaults.py`, and every surface
+(`benchmark`, `answers`, `eval`, `arms`, `subjects`, `evaluate`, `questions`,
+`personas`, `novelty`) uses the same three:
+
+| Role | Default | List price, input/output per MTok |
+| --- | --- | --- |
+| Answer model (the model under test) | `openai/gpt-6.1-sol` | $2 / $10 |
+| Judge (also RAGAS, `eval panel-score`, novelty extractor and retention adjudicator) | `anthropic/claude-sonnet-5-5` | $2 / $10 |
+| Generator (personas, questions, validation, panel review, gap fill) | `openai/gpt-6.1-sol` | $2 / $10 |
+
+The judge is a different family from the answerer, so the judge-independence
+warning stays quiet on default flags; answering with `claude-sonnet-5-5` moves the
+novelty judge to `openai/gpt-6.1-sol` and makes the other commands warn. Escalation
+judges (`--escalate-model`) have no default; `claude-opus-5-5` ($4 / $20) is the
+natural tie-break above the Sonnet judge. On `--provider amazon-bedrock` the bare
+names `claude-sonnet-5-5`, `claude-opus-5-5` and `claude-haiku-5-5` resolve to the
+`us.anthropic.*` inference profiles of the same name.
+
+**Defaults changed on 2026-10-13: results are not comparable with older baselines;
+re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and
+judged with `claude-sonnet-4-5-20250929`, while `arms`, `subjects`, `evaluate`,
+`questions`, `personas` and `novelty` answered, judged and generated with an
+obsolete small OpenAI model. A score, delta or cost produced with default flags before that date
+is not comparable with one produced after: re-run the baseline (the same question
+set via `--questions-from`, the same arms) under the new defaults, or pin the old
+models with `--model`/`--judge-model` to extend an old series. On the surfaces
+that used the small model, a default-flag run now costs roughly 13-17x more per token.
+
 For registered libraries, prefer the one-command wrapper:
 
 ```bash
 python cli.py benchmark run \
   --library onetbb \
-  --model gpt-5.5 \
+  --model gpt-6.1-sol \
   --provider openai \
-  --judge-model claude-sonnet-4-5-20250929 \
+  --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --output-dir results/onetbb_gpt55
+  --output-dir results/onetbb_sol
 ```
 
 The run writes:
 
-- `results/onetbb_gpt55/personas/onetbb.json`
-- `results/onetbb_gpt55/questions/onetbb.json`
-- `results/onetbb_gpt55/answers/onetbb.json`
-- `results/onetbb_gpt55/eval/onetbb.json`
-- `results/onetbb_gpt55/reports/onetbb.md`
+- `results/onetbb_sol/personas/onetbb.json`
+- `results/onetbb_sol/questions/onetbb.json`
+- `results/onetbb_sol/answers/onetbb.json`
+- `results/onetbb_sol/eval/onetbb.json`
+- `results/onetbb_sol/reports/onetbb.md`
 
 The comparison inside one run is always:
 
@@ -105,11 +135,11 @@ For stability-sensitive claims, run the same configuration several times:
 ```bash
 python cli.py benchmark run \
   --library onetbb \
-  --model gpt-5.5 \
-  --judge-model claude-sonnet-4-5-20250929 \
+  --model gpt-6.1-sol \
+  --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
   --multi-run 3 \
-  --output-dir results/onetbb_gpt55
+  --output-dir results/onetbb_sol
 ```
 
 Multi-run mode creates numbered run directories and prints the mean and
@@ -123,8 +153,8 @@ create or choose a seed run:
 ```bash
 python cli.py benchmark run \
   --library onedal \
-  --model gpt-5.5 \
-  --judge-model claude-sonnet-4-5-20250929 \
+  --model gpt-6.1-sol \
+  --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
   --output-dir results/onedal_seed
 ```
@@ -135,20 +165,20 @@ Then reuse that question set for each model:
 python cli.py benchmark run \
   --library onedal \
   --questions-from results/onedal_seed \
-  --model gpt-5.1 \
+  --model gpt-6-astra \
   --provider openai \
-  --judge-model claude-sonnet-4-5-20250929 \
+  --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --output-dir results/onedal_gpt51
+  --output-dir results/onedal_astra
 
 python cli.py benchmark run \
   --library onedal \
   --questions-from results/onedal_seed \
-  --model anthropic/claude-sonnet-4-6 \
-  --provider openrouter \
-  --judge-model claude-sonnet-4-5-20250929 \
+  --model claude-opus-5-5 \
+  --provider anthropic \
+  --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --output-dir results/onedal_sonnet46
+  --output-dir results/onedal_opus55
 ```
 
 Interpret model comparisons using two separate signals:
@@ -179,7 +209,7 @@ python cli.py answers generate \
   --product oneTBB \
   --questions <content-checkout>/questions/onetbb_golden.json \
   --output results/onetbb_golden/answers/onetbb.json \
-  --model gpt-5.5 \
+  --model gpt-6.1-sol \
   --provider openai \
   --debug-retrieval
 
@@ -187,7 +217,7 @@ python cli.py eval score \
   --product oneTBB \
   --answers results/onetbb_golden/answers/onetbb.json \
   --output results/onetbb_golden/eval/onetbb.json \
-  --judge-model claude-sonnet-4-5-20250929 \
+  --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic
 
 python cli.py report eval \
@@ -413,7 +443,7 @@ validity report was measured on another model's answers.
 
 ```bash
 python cli.py eval cross-judge --answers run.json --questions golden.json --grounded --both \
-  --judges amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0,amazon-bedrock/openai.gpt-oss-120b-1:0 \
+  --judges amazon-bedrock/us.anthropic.claude-haiku-5-5,amazon-bedrock/openai.gpt-oss-120b-1:0 \
   --pairwise run_pairwise.json --validity validity_haiku.json --validity validity_pairwise.json
 ```
 
@@ -635,7 +665,7 @@ Save meaningful eval outputs as named baselines:
 
 ```bash
 python cli.py baseline save \
-  --from-eval results/onetbb_gpt55/eval/onetbb.json \
+  --from-eval results/onetbb_sol/eval/onetbb.json \
   --name onetbb-gpt55-docs
 ```
 

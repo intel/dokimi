@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from dokimi.utils import question_id  # noqa: F401  (re-exported: callers import it from here)
 from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
+from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.arm_summary import (
     cost_summary, summarize_agentic_usage, summarize_skill_selection,
@@ -115,8 +116,8 @@ class ArmRunner:
     def __init__(
         self,
         treatments: List[Treatment],
-        model: str = "gpt-4o-mini",
-        provider: str = "openai",
+        model: str = DEFAULT_ANSWER_MODEL,
+        provider: str = DEFAULT_ANSWER_PROVIDER,
         api_key: Optional[str] = None,
         max_iterations: int = 6,
         harness: str = "arms-runner",

@@ -127,14 +127,14 @@ cat > results/arms/matrix.json <<'JSON'
     "cells": [
       {
         "id": "openclaw-no-plugin",
-        "model": "gpt-4o-mini",
+        "model": "gpt-6.1-sol",
         "provider": "openai",
         "harness": "arms-runner",
         "plugins": []
       },
       {
         "id": "openclaw-caveman",
-        "model": "gpt-4o-mini",
+        "model": "gpt-6.1-sol",
         "provider": "openai",
         "harness": "arms-runner",
         "plugins": ["plugin:caveman"]

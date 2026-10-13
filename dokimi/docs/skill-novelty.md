@@ -236,8 +236,9 @@ for what each output means.
 ### 1. Whole-artifact triage
 
 ```bash
-python cli.py novelty analyze --artifact skill:path/to/skill --model claude-opus-5 \
-    --judge-model gpt-5.6-luna [--include-resources]
+python cli.py novelty analyze --artifact skill:path/to/skill \
+    --model claude-opus-5-5 --provider anthropic \
+    --judge-model gpt-6.1-sol --judge-provider openai [--include-resources]
 ```
 
 Without `--include-resources` this measures `SKILL.md` alone and prints, before spending

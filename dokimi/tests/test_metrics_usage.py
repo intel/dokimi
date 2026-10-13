@@ -269,7 +269,7 @@ def test_no_cache_prefix_keeps_the_plain_single_string_request(monkeypatch):
     calls: list = []
     _stub_completion(monkeypatch, calls)
 
-    llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai", api_key="k")
+    llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai", api_key="k")
 
     assert calls[0]["messages"] == [{"role": "user", "content": "ask"}]
 
@@ -281,8 +281,8 @@ def test_response_cache_replays_without_calling_the_provider(monkeypatch, tmp_pa
     calls: list = []
     _stub_completion(monkeypatch, calls)
 
-    first = llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai", api_key="k")
-    second = llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai", api_key="k")
+    first = llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai", api_key="k")
+    second = llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai", api_key="k")
 
     assert len(calls) == 1               # second call served from disk
     assert second[0] == first[0]
@@ -298,8 +298,8 @@ def test_response_cache_distinguishes_different_prompts(monkeypatch, tmp_path):
     calls: list = []
     _stub_completion(monkeypatch, calls)
 
-    llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai", api_key="k")
-    llm_mod.llm_call_with_usage("ask?", model="gpt-4o-mini", provider="openai", api_key="k")
+    llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai", api_key="k")
+    llm_mod.llm_call_with_usage("ask?", model="gpt-6.1-sol", provider="openai", api_key="k")
 
     assert len(calls) == 2
 
@@ -377,7 +377,7 @@ def test_streaming_call_forwards_sampling_params(monkeypatch):
         return iter([_Chunk("ok", usage=_Usage(prompt=1, completion=1, total=2))])
 
     monkeypatch.setattr(litellm, "completion", fake_stream)
-    text, _ = llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai",
+    text, _ = llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai",
                                           api_key="k", stream=True, temperature=0.0, seed=7)
     assert text == "ok" and (calls[0]["temperature"], calls[0]["seed"]) == (0.0, 7)
 
@@ -388,9 +388,9 @@ def test_response_cache_still_hits_entries_written_before_sampling_params(monkey
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
     calls: list = []
     _stub_completion(monkeypatch, calls)
-    old_key = caching.response_cache_key(litellm_model="gpt-4o-mini",
+    old_key = caching.response_cache_key(litellm_model="gpt-6.1-sol",
                                          messages=[{"role": "user", "content": "ask"}],
                                          extra={"stream": False, "max_tokens": None})
     caching.store_response(old_key, "cached", llm_mod.UsageRecord())
-    text, _ = llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai", api_key="k")
+    text, _ = llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai", api_key="k")
     assert (text, calls) == ("cached", [])

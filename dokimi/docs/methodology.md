@@ -33,8 +33,8 @@ Use `benchmark run` for registered libraries:
 ```bash
 python cli.py benchmark run \
   --library onetbb \
-  --model gpt-4o-mini \
-  --judge-model claude-sonnet-4 \
+  --model gpt-6.1-sol \
+  --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
   --multi-run 3
 ```
@@ -61,10 +61,12 @@ Outputs are written under `results/<library>/` or the requested `--output-dir`:
 
 The benchmark separates model responsibilities because self-judging can inflate scores.
 
-- **Generator model**: creates personas and questions. Default CLI value is `gpt-4o-mini` unless overridden.
-- **Answer model**: answers every question in both conditions. `benchmark run` uses `--model`; standalone `answers generate` defaults to `gpt-4o`.
-- **Judge model**: scores answers. It should differ from the answer model/provider for stronger evaluator independence.
+- **Generator model**: creates personas and questions. Default `openai/gpt-6.1-sol` on every command.
+- **Answer model**: answers every question in both conditions (`--model`). Default `openai/gpt-6.1-sol` on every command.
+- **Judge model**: scores answers. It should differ from the answer model/provider for stronger evaluator independence. Default `anthropic/claude-sonnet-5-5` on every command.
 - **Panel judges**: optional role-diverse judges for stricter review.
+
+The defaults live in `dokimi/defaults.py` and changed on 2026-10-13; scores from earlier default-flag runs are not comparable with later ones — re-baseline ([Default models](benchmarking-and-comparison.md#default-models)).
 
 The CLI emits a warning when the normalized answer model and judge model match. Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
 
