@@ -27,9 +27,10 @@ disagreements concentrated on useful-vs-inert (Â±3 points) and known-vs-novel (Â
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .atoms import Atom
+from .batching import ask_in_batches
 from .client import LLMClient
 
 CATEGORIES = (
@@ -106,8 +107,54 @@ class AtomVerdict:
         }
 
 
+@dataclass
+class ClassifyReport:
+    """Which atoms the judged stages could not answer for, so none reads as a verdict.
+
+    Attributes:
+        unjudged: Atoms with no need/scaffolding verdict (the call failed even alone,
+            or the reply skipped them). They are left out of the category counts.
+        unchecked: Atoms the conflict check never saw, for the same reason.
+        pairs_total: Atom pairs that could conflict.
+        pairs_compared: Pairs that shared a conflict-check call. Pairs split across
+            calls are never compared, so this bounds what ``conflicts`` can find.
+        retried_batches: Calls that failed to parse and were split and re-asked.
+        last_error: The last failure, for the warning text.
+    """
+
+    unjudged: list[str] = field(default_factory=list)
+    unchecked: list[str] = field(default_factory=list)
+    pairs_total: int = 0
+    pairs_compared: int = 0
+    retried_batches: int = 0
+    last_error: str = ""
+
+    def warnings(self, n_atoms: int) -> list[str]:
+        """Artifact warnings for what was not judged or not compared."""
+        out = []
+        if self.unjudged:
+            out.append(
+                f"{len(self.unjudged)} of {n_atoms} atoms got no need/scaffolding verdict "
+                f"and are left out of the content categories unless they conflict "
+                f"(last error: {self.last_error})"
+            )
+        if self.unchecked:
+            out.append(
+                f"{len(self.unchecked)} of {n_atoms} atoms were not checked for conflicts "
+                f"(last error: {self.last_error})"
+            )
+        if self.pairs_total and self.pairs_compared < self.pairs_total:
+            out.append(
+                f"conflicts were looked for within batches: {self.pairs_compared} of "
+                f"{self.pairs_total} atom pairs shared a call, so a contradiction between "
+                f"atoms in different batches is not detected"
+            )
+        return out
+
+
 def judge_value(
-    atoms: list[Atom], *, client: LLMClient, task: str, batch: int = 25
+    atoms: list[Atom], *, client: LLMClient, task: str, batch: int = 25,
+    report: ClassifyReport | None = None,
 ) -> dict[str, AtomVerdict]:
     """Judge need and scaffolding per atom.
 
@@ -115,21 +162,34 @@ def judge_value(
     description, or a need graph built from them. Letting the body state the task is what
     allows an artifact to define its own relevance and score itself useful by
     construction.
+
+    An atom the judge did not answer for gets no verdict, rather than ``needed=False``:
+    a default would read as *inert* and bias the category table toward cutting. Its id
+    goes to ``report.unjudged``.
     """
+    from dokimi.llm import extract_json_array
+
+    report = report if report is not None else ClassifyReport()
+    result = ask_in_batches(
+        client, atoms, size=batch,
+        prompt=lambda chunk: _VALUE_PROMPT.format(task=task, statements=_numbered(chunk)),
+        parse=extract_json_array,
+    )
+    report.retried_batches += result.retried_batches
+    if result.last_error:
+        report.last_error = result.last_error
+    report.unjudged.extend(a.id for a in result.failed)
     verdicts: dict[str, AtomVerdict] = {}
-    for start in range(0, len(atoms), batch):
-        chunk = atoms[start:start + batch]
-        numbered = "\n".join(f"{i + 1}. {a.statement}" for i, a in enumerate(chunk))
-        try:
-            rows = client.json_array(_VALUE_PROMPT.format(task=task, statements=numbered))
-        except Exception:
-            rows = []
+    for chunk, rows in result.answered:
         by_index = {
             int(row["n"]): row for row in rows
             if isinstance(row, dict) and str(row.get("n", "")).isdigit()
         }
         for index, atom in enumerate(chunk, start=1):
-            row = by_index.get(index, {})
+            row = by_index.get(index)
+            if row is None:
+                report.unjudged.append(atom.id)
+                continue
             verdicts[atom.id] = AtomVerdict(
                 atom_id=atom.id,
                 needed=bool(row.get("needed", False)),
@@ -139,22 +199,32 @@ def judge_value(
 
 
 def detect_conflicts(
-    atoms: list[Atom], *, client: LLMClient, batch: int = 40
+    atoms: list[Atom], *, client: LLMClient, batch: int = 40,
+    report: ClassifyReport | None = None,
 ) -> list[dict]:
     """Find mutually incompatible atoms.
 
     Scoped to *internal* consistency: a conflict says "these two disagree", not "this one
     is wrong". Deciding which side is right needs a primary source, which this layer
-    deliberately does not claim to consult.
+    deliberately does not claim to consult. Only atoms that share a call are compared;
+    ``report.pairs_compared`` says how much of the pair space that covered.
     """
+    from dokimi.llm import extract_json_object
+
+    report = report if report is not None else ClassifyReport()
+    result = ask_in_batches(
+        client, atoms, size=batch,
+        prompt=lambda chunk: _CONFLICT_PROMPT.format(statements=_numbered(chunk)),
+        parse=extract_json_object,
+    )
+    report.retried_batches += result.retried_batches
+    if result.last_error:
+        report.last_error = result.last_error
+    report.unchecked.extend(a.id for a in result.failed)
+    report.pairs_total = len(atoms) * (len(atoms) - 1) // 2
+    report.pairs_compared = sum(len(c) * (len(c) - 1) // 2 for c, _ in result.answered)
     conflicts: list[dict] = []
-    for start in range(0, len(atoms), batch):
-        chunk = atoms[start:start + batch]
-        numbered = "\n".join(f"{i + 1}. {a.statement}" for i, a in enumerate(chunk))
-        try:
-            rows = client.json_object(_CONFLICT_PROMPT.format(statements=numbered))
-        except Exception:
-            continue
+    for chunk, rows in result.answered:
         for row in rows.get("conflicts", []) or []:
             try:
                 a_index, b_index = int(row["a"]) - 1, int(row["b"]) - 1
@@ -170,14 +240,26 @@ def detect_conflicts(
     return conflicts
 
 
+def _numbered(atoms: list[Atom]) -> str:
+    return "\n".join(f"{i + 1}. {a.statement}" for i, a in enumerate(atoms))
+
+
 def apply_conflicts(verdicts: dict[str, AtomVerdict], conflicts: list[dict]) -> None:
-    """Mark both sides of every conflict (in place)."""
+    """Mark both sides of every conflict (in place).
+
+    A conflicting atom the value judge did not answer for still gets a verdict: the
+    conflict alone decides its category, and it is the one category that must not drop.
+    """
     for conflict in conflicts:
         for side in ("a", "b"):
-            verdict = verdicts.get(conflict.get(side, ""))
-            if verdict is not None:
-                verdict.conflict = True
-                verdict.conflict_why = conflict.get("why", "")
+            atom_id = conflict.get(side, "")
+            if not atom_id:
+                continue
+            verdict = verdicts.setdefault(
+                atom_id, AtomVerdict(atom_id=atom_id, needed=False, scaffolding=False)
+            )
+            verdict.conflict = True
+            verdict.conflict_why = conflict.get("why", "")
 
 
 def categorize(

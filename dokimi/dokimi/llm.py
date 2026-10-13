@@ -43,6 +43,9 @@ _RETRYABLE_SUBSTRINGS = (
 
 # Status codes only next to a status word: a bare "500" also matches
 # "context length 1500 exceeded", which is permanent.
+# finish_reason values that mean "cut at the output ceiling": litellm normalizes to
+# "length"; some provider passthroughs keep Anthropic's "max_tokens".
+_TRUNCATED = frozenset({"length", "max_tokens"})
 _RETRYABLE_STATUS = re.compile(r"\b(?:status|code|http|error)\W{0,3}(?:500|502|503|529)\b")
 
 # litellm's typed exceptions are a more reliable signal than prose. Matched by
@@ -476,6 +479,14 @@ def llm_call_with_usage(
             text = resp.choices[0].message.content
             usage = _extract_usage(resp, model, provider, latency_sec=latency,
                                    litellm_model=litellm_model)
+            if getattr(resp.choices[0], "finish_reason", None) in _TRUNCATED:
+                # A reply cut at the output ceiling looks like an ordinary reply to every
+                # caller; a JSON one usually fails to parse, a prose one is just short.
+                logger.warning(
+                    f"LLM reply hit the output ceiling ({model}, max_tokens="
+                    f"{max_tokens or 'provider default'}, {usage.completion_tokens} tokens); "
+                    "pass a higher --max-tokens if this repeats"
+                )
             if caching.keeps(cache_if, text):
                 caching.store_response(cache_key, text, usage)
             return text, usage

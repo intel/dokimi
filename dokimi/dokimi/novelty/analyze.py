@@ -267,12 +267,14 @@ def analyze(
     categories: dict[str, str] = {}
     conflicts: list[dict] = []
     if config.classify_content and atom_list:
+        judged = classify.ClassifyReport()
         verdicts = classify.judge_value(
-            atom_list, client=extractor, task=graph.task_statement()
+            atom_list, client=extractor, task=graph.task_statement(), report=judged
         )
-        conflicts = classify.detect_conflicts(atom_list, client=extractor)
+        conflicts = classify.detect_conflicts(atom_list, client=extractor, report=judged)
         classify.apply_conflicts(verdicts, conflicts)
         categories = classify.categorize(atom_list, verdicts, outcomes)
+        warnings.extend(judged.warnings(len(atom_list)))
     elif not config.classify_content:
         warnings.append("content categories were not judged (--no-classify)")
 
@@ -358,6 +360,13 @@ def analyze(
                 "measured text (see bundle.excluded for each reason); they are counted in "
                 "resource_words_on_disk but carry no atoms"
             )
+
+    if oracle.errors:
+        warnings.append(
+            f"{oracle.errors} of {oracle.escalations} retention adjudications failed and were "
+            "answered `absent` (not cached); carrier confirmation and shortening scores "
+            "under-count retention by up to that many decisions"
+        )
 
     payload = report.build_novelty_artifact(
         artifact_kind=config.artifact_kind,

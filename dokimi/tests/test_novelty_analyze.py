@@ -314,6 +314,29 @@ def test_an_extractor_that_fails_every_batch_fails_the_run(tmp_path):
         analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
 
 
+def test_a_failed_value_judge_leaves_atoms_out_of_the_categories_and_says_so(tmp_path):
+    scripted = _scripted("informed")
+
+    def judge_down(prompt, system):
+        if "judge how it functions" in prompt:
+            raise RuntimeError("throttled")
+        return scripted(prompt, system)
+
+    path = tmp_path / "s" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(SKILL, encoding="utf-8")
+    kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    config = AnalyzeConfig(artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
+                           description=description, frontmatter=frontmatter, concurrency=1)
+    _, answerer, judge = _clients()
+    extractor = LLMClient(model="extractor-m", role="extractor", transport=judge_down)
+    artifact = analyze(body, config, extractor=extractor, answerer=answerer,
+                       judge=judge).artifact
+    assert sum(artifact["categories"].values()) == 0
+    assert any(w.startswith(f"{len(_ATOMS)} of {len(_ATOMS)} atoms got no need/scaffolding")
+               for w in artifact["warnings"])
+
+
 def test_a_truncating_extractor_is_recovered_and_an_unreadable_span_is_a_warning(tmp_path):
     import re
 

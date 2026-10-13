@@ -342,6 +342,7 @@
         "decisions": {"type": "integer", "minimum": 0},
         "llm_escalations": {"type": "integer", "minimum": 0},
         "escalation_rate": {"type": "number"},
+        "llm_errors": {"type": "integer", "minimum": 0, "description": "Escalations whose adjudicator call failed; answered absent for that decision and not cached."},
         "band": {"type": "array", "items": {"type": "number"}},
         "adjudicator": {"type": ["string", "null"]}
       }

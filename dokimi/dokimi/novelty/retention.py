@@ -60,7 +60,7 @@ class RetentionVerdict:
     """One oracle answer, with the method that produced it recorded."""
 
     verdict: str
-    method: str  # "lexical" | "llm" | "cache"
+    method: str  # "lexical" | "llm" | "cache" | "error"
     score: float
 
     @property
@@ -95,6 +95,7 @@ class RetentionOracle:
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.escalations = 0
         self.decisions = 0
+        self.errors = 0
         self._memo: dict[str, RetentionVerdict] = {}
 
     def verdict(self, atom: Atom, text: str) -> RetentionVerdict:
@@ -115,7 +116,15 @@ class RetentionOracle:
             result = RetentionVerdict(ABSENT, "lexical", round(score, 4))
         else:
             self.escalations += 1
-            result = RetentionVerdict(self._adjudicate(atom, text), "llm", round(score, 4))
+            verdict = self._adjudicate(atom, text)
+            if verdict is None:
+                # The adjudicator failed: answer `absent` for this decision, but neither
+                # memoize nor store it, so a transient error does not become a cached
+                # verdict that every later run replays.
+                self.errors += 1
+                self.decisions += 1
+                return RetentionVerdict(ABSENT, "error", round(score, 4))
+            result = RetentionVerdict(verdict, "llm", round(score, 4))
 
         self.decisions += 1
         self._memo[key] = result
@@ -137,18 +146,20 @@ class RetentionOracle:
             "escalation_rate": (
                 round(self.escalations / self.decisions, 4) if self.decisions else 0.0
             ),
+            "llm_errors": self.errors,
             "band": [self.low, self.high],
             "adjudicator": self.client.model if self.client else None,
         }
 
-    def _adjudicate(self, atom: Atom, text: str) -> str:
+    def _adjudicate(self, atom: Atom, text: str) -> str | None:
+        """The adjudicator's verdict, or ``None`` when the call or its parse failed."""
         assert self.client is not None
         try:
             verdict = str(self.client.json_object(
                 _ADJUDICATE_PROMPT.format(statement=atom.statement, text=text[:12000])
             ).get("verdict", "")).strip()
         except Exception:
-            return ABSENT
+            return None
         return verdict if verdict in (RETAINED, ABSENT, CONTRADICTED) else ABSENT
 
     def _path(self, key: str) -> Path | None:
