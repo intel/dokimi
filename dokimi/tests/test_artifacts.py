@@ -204,6 +204,45 @@ def test_save_does_not_mutate_caller():
     assert "schema_version" not in data  # caller dict untouched
 
 
+def test_save_puts_the_current_version_first_and_returns_what_it_wrote(tmp_path):
+    out = tmp_path / "deep" / "q.json"
+    written = save_artifact("questions", {"questions": [], "schema_version": "questions.v0"}, out)
+    on_disk = json.loads(out.read_text(encoding="utf-8"))
+    assert on_disk == written
+    assert list(on_disk) == ["schema_version", "questions"]
+    assert on_disk["schema_version"] == SCHEMA_VERSIONS["questions"]
+    assert [p.name for p in out.parent.iterdir()] == ["q.json"]  # the .tmp sibling is gone
+
+
+def test_a_rejected_save_leaves_the_target_alone_and_keeps_the_payload(tmp_path):
+    out = tmp_path / "answers.json"
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, out)
+    before = out.read_text(encoding="utf-8")
+    with pytest.raises(ArtifactValidationError, match=r"(?s)answers/0: 'question_id'.*answers\.json\.rejected"):
+        save_artifact("answers", {"answers": [{"question_text": "Q?"}]}, out)
+    assert out.read_text(encoding="utf-8") == before
+    kept = json.loads((tmp_path / "answers.json.rejected").read_text(encoding="utf-8"))
+    assert kept["answers"] == [{"question_text": "Q?"}]
+
+
+def test_save_rejects_an_unknown_kind_before_writing(tmp_path):
+    with pytest.raises(KeyError):
+        save_artifact("nope", {}, tmp_path / "x.json")
+    assert not list(tmp_path.iterdir())
+
+
+def test_schema_errors_by_name_and_by_path(tmp_path):
+    from dokimi.artifacts import SCHEMA_DIR, schema_errors
+
+    bad = {"claims": [{"file": 1}]}
+    by_name = schema_errors("repo_static.v1", bad)
+    assert by_name and by_name == schema_errors(SCHEMA_DIR / "repo_static.v1.json", bad)
+    assert all(": " in e for e in by_name)
+    assert schema_errors("repo_static.v1", {"schema": "repo_static.v1", "claims": []}) == []
+    with pytest.raises(OSError):
+        schema_errors(tmp_path / "missing.json", {})
+
+
 def test_schema_version_const_rejects_wrong_value():
     with pytest.raises(ArtifactValidationError):
         validate_artifact("questions", {"schema_version": "questions.v2", "questions": []})

@@ -14,7 +14,6 @@ so the user's own settings and memory cannot leak into a run.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import signal
@@ -26,7 +25,7 @@ from typing import Any
 
 import yaml
 
-from dokimi.artifacts import SCHEMA_DIR
+from dokimi.artifacts import schema_errors
 
 PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
 PLACEHOLDERS = frozenset({"bin", "prompt", "model", "max_turns", "budget"})
@@ -213,13 +212,7 @@ def load_profile(name_or_path: str | Path) -> HarnessProfile:
 
 
 def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
-    from jsonschema import Draft202012Validator
-
-    schema = json.loads((SCHEMA_DIR / "harness_profile.v1.json").read_text(encoding="utf-8"))
-    errors = [
-        f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}"
-        for e in sorted(Draft202012Validator(schema).iter_errors(raw), key=lambda e: list(e.path))
-    ]
+    errors = schema_errors("harness_profile.v1", raw)
     if errors:
         raise ProfileError(f"{path}: " + "; ".join(errors))
     for key in ("invoke", "version_cmd"):

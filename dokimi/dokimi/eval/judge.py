@@ -7,7 +7,6 @@ import hashlib
 import logging
 import json
 import math
-import os
 import re
 import time
 import threading
@@ -17,6 +16,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose, retrieval_hit
 # One calibration scale for both the single judge and the panel, so their
@@ -689,7 +689,6 @@ class Judge:
     def _build_evaluation_output(self, evaluations: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Build the serialisable output structure for a set of evaluations."""
         output = {
-            "schema_version": "eval.v1",
             "evaluated_at": self._get_timestamp(),
             "judge_model": self.model,
             "judge_provider": self.provider,
@@ -711,11 +710,7 @@ class Judge:
 
     def _save_incremental(self, evaluations: List[Dict[str, Any]], output_path: Path) -> None:
         """Write current evaluations to disk atomically (called after each question)."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            json.dump(self._build_evaluation_output(evaluations), f, indent=2)
-        os.replace(tmp_path, output_path)
+        save_artifact("eval", self._build_evaluation_output(evaluations), output_path)
 
     def save_evaluations(
         self,
@@ -723,9 +718,7 @@ class Judge:
         output_path: Path
     ):
         """Save evaluations to JSON file."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(self._build_evaluation_output(evaluations), f, indent=2)
+        save_artifact("eval", self._build_evaluation_output(evaluations), output_path)
         logger.info(f"✓ Saved evaluations for {len(evaluations)} answers to {output_path}")
     
     @staticmethod

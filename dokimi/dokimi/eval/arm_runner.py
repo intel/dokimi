@@ -9,7 +9,6 @@ injection, MCP-served docs, agent persona prompts, and skills — scored by the
 same LLM-as-judge used elsewhere.
 """
 
-import json
 import logging
 import threading
 import time
@@ -19,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.arm_summary import (
@@ -614,7 +614,5 @@ class ArmRunner:
 
     @staticmethod
     def save(output: Dict[str, Any], path: Path) -> None:
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+        save_artifact("arms", output, path)
         logger.info("Saved arms comparison to %s", path)

@@ -43,21 +43,18 @@ def validate_spec(spec: dict, schema_path: Path | None = None) -> None:
     """
     import json
 
-    from jsonschema import Draft202012Validator
+    from dokimi.artifacts import schema_errors
 
     schema_path = schema_path or DEFAULT_SCHEMA_PATH
     try:
-        schema = json.loads(Path(schema_path).read_text(encoding="utf-8"))
+        errors = schema_errors(Path(schema_path), spec)
     except OSError as exc:
         raise SpecValidationError(f"Failed to read spec schema: {schema_path}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise SpecValidationError(f"Invalid JSON in spec schema: {schema_path}: {exc}") from exc
 
-    errors = sorted(Draft202012Validator(schema).iter_errors(spec), key=lambda e: list(e.path))
     if errors:
-        details = "\n".join(
-            f"  - {'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in errors
-        )
+        details = "\n".join(f"  - {e}" for e in errors)
         raise SpecValidationError(f"Benchmark spec validation failed:\n{details}")
 
 

@@ -11,12 +11,19 @@ model), ``guidance_reach`` (L1 reach probes) and ``repo_readiness`` (L0 claim
 checks). This module stamps each with a ``schema_version`` and
 validates it against the JSON Schema in ``dokimi/schemas/`` on save
 and load, so fixtures and baselines stay forward-compatible and self-describing.
+
+Every artifact of a registered kind is written through :func:`save_artifact`, partial
+(incremental) saves included: a run that would write an invalid artifact fails on its first
+save, not after the last paid model call. :func:`schema_errors` is the one place a JSON Schema
+is applied, for artifacts and for validated *inputs* (manifests, profiles, specs) alike.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+from typing import Any
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
@@ -68,18 +75,31 @@ def schema_version_for(kind: str, data: dict) -> str:
     return SCHEMA_VERSIONS[kind]
 
 
-def validate_artifact(kind: str, data: dict) -> None:
-    """Validate ``data`` against the schema for ``kind`` (raises on failure)."""
+def schema_errors(schema: str | Path, instance: Any) -> list[str]:
+    """Every way ``instance`` violates a JSON Schema (draft 2020-12); empty when it conforms.
+
+    ``schema`` is a schema name in :data:`SCHEMA_DIR` (``"repo_static.v1"``) or the path of a
+    schema file elsewhere. Each problem reads ``<path>: <message>``, ``<path>`` being the
+    ``/``-joined location in ``instance`` (``<root>`` for the top level), sorted by location.
+    An unreadable or malformed schema file raises ``OSError`` / ``json.JSONDecodeError``: that
+    is a packaging fault, not a problem with ``instance``.
+    """
     from jsonschema import Draft202012Validator
 
-    schema = json.loads(
-        _schema_path(kind, schema_version_for(kind, data)).read_text(encoding="utf-8")
-    )
-    errors = sorted(Draft202012Validator(schema).iter_errors(data), key=lambda e: list(e.path))
+    path = SCHEMA_DIR / f"{schema}.json" if isinstance(schema, str) else Path(schema)
+    document = json.loads(path.read_text(encoding="utf-8"))
+    return [
+        f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}"
+        for e in sorted(Draft202012Validator(document).iter_errors(instance),
+                        key=lambda e: list(e.path))
+    ]
+
+
+def validate_artifact(kind: str, data: dict) -> None:
+    """Validate ``data`` against the schema for ``kind`` (raises on failure)."""
+    errors = schema_errors(_schema_path(kind, schema_version_for(kind, data)), data)
     if errors:
-        details = "\n".join(
-            f"  - {'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in errors
-        )
+        details = "\n".join(f"  - {e}" for e in errors)
         raise ArtifactValidationError(f"{kind} artifact validation failed:\n{details}")
 
 
@@ -91,18 +111,37 @@ def stamp(kind: str, data: dict) -> dict:
     return data
 
 
-def save_artifact(kind: str, data: dict, path: Path, *, validate: bool = True) -> None:
-    """Stamp, (optionally) validate, and write an artifact to ``path``.
+def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
+    """Write ``data`` to ``path`` as a ``kind`` artifact; return exactly what was written.
 
-    Operates on a shallow copy so the caller's dict is not mutated.
+    - ``schema_version`` is set to the current version for ``kind`` and leads the document
+      (a value already in ``data`` is replaced); ``data`` itself is not mutated.
+    - The payload is validated first. :class:`ArtifactValidationError` means nothing was
+      written at ``path`` (a file already there is untouched); the rejected payload is kept
+      at ``<name>.rejected`` so a paid run is not lost to a schema problem. ``KeyError``
+      means ``kind`` is not registered in :data:`SCHEMA_VERSIONS`.
+    - The write is atomic (a ``<name>.tmp`` sibling, then ``os.replace``), so a reader or a
+      crash never sees half a file, and repeated incremental saves to one path are safe.
+      Missing parent directories are created.
+    - JSON with ``indent=2``, ASCII-escaped, UTF-8.
     """
-    payload = dict(data)
-    stamp(kind, payload)
-    if validate:
-        validate_artifact(kind, payload)
+    if kind not in SCHEMA_VERSIONS:
+        raise KeyError(f"Unknown artifact kind: {kind!r}")
+    payload = {"schema_version": SCHEMA_VERSIONS[kind],
+               **{k: v for k, v in data.items() if k != "schema_version"}}
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    text = json.dumps(payload, indent=2)
+    try:
+        validate_artifact(kind, payload)
+    except ArtifactValidationError as exc:
+        rejected = path.with_name(path.name + ".rejected")
+        rejected.write_text(text, encoding="utf-8")
+        raise ArtifactValidationError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+    return payload
 
 
 def load_artifact(kind: str, path: Path, *, validate: bool = True) -> dict:

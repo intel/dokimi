@@ -5,7 +5,6 @@
 
 import logging
 import json
-import os
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,6 +13,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage, ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.metrics.usage import UsageRecord, to_record
 
@@ -431,7 +431,6 @@ class Answerer:
                     total_usage[k] += v
 
         return {
-            "schema_version": "answers.v1",
             "generated_at": self._get_timestamp(),
             "model": self.model,
             "provider": self.provider,
@@ -442,11 +441,7 @@ class Answerer:
 
     def _save_incremental(self, answers: List[Dict[str, Any]], output_path: Path) -> None:
         """Write current answers to disk atomically (called after each question)."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            json.dump(self._build_output(answers), f, indent=2)
-        os.replace(tmp_path, output_path)
+        save_artifact("answers", self._build_output(answers), output_path)
 
     def save_answers(
         self,
@@ -455,12 +450,10 @@ class Answerer:
         question_set_hash: str = None,
     ):
         """Save answers to JSON file."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
         data = self._build_output(answers)
         if question_set_hash:
             data["question_set_hash"] = question_set_hash
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
+        save_artifact("answers", data, output_path)
         logger.info(f"✓ Saved answers for {len(answers)} questions to {output_path}")
     
     @staticmethod

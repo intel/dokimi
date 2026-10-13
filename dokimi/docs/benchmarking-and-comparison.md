@@ -652,4 +652,9 @@ fixtures: keep them under `results/`, `reports/`, `answers/`, `eval/` or
 `baselines/`, which are git-ignored. Their schemas are locked by
 `dokimi/schemas/*.json` and `tests/test_artifacts.py`; the only
 committed artifacts are the one-per-schema fixtures in `tests/fixtures/artifacts/`,
-which every later edit of that schema version must still accept.
+which every later edit of that schema version must still accept. Producers write a
+registered kind only through `dokimi.artifacts.save_artifact`, which
+validates before an atomic write, so an invalid run fails on its first incremental
+save. A reader's test builds its input with `tests/artifact_fixtures.py`, which also
+rejects keys the schema does not declare: the schema lists every record key its
+producers write, so a fixture cannot invent one.

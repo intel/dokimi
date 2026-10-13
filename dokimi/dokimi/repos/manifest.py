@@ -24,10 +24,12 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any, Callable
 
 import yaml
+
+from dokimi.artifacts import schema_errors
 
 from .source import RepoTree
 
@@ -47,7 +49,6 @@ _HOST_RE = re.compile(HOST_PATTERN)
 _BASE_RE = re.compile(r"^([0-9a-f]{7,40})(\^?)$")
 TASK_REQUIRED = ("id", "family", "base", "prompt", "grader")
 _PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
-_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / f"{SCHEMA_VERSION}.json"
 
 
 # Run-dir entries the framework creates itself and the agent's container does not mount. An `image.env`
@@ -207,13 +208,7 @@ def load_manifest(tree: RepoTree, path: str = DEFAULT_MANIFEST_PATH) -> RepoMani
 
 def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
     """Validate an already-parsed manifest mapping."""
-    from jsonschema import Draft202012Validator
-
-    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
-    errors = [
-        f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}"
-        for e in sorted(Draft202012Validator(schema).iter_errors(raw), key=lambda e: list(e.path))
-    ]
+    errors = schema_errors(SCHEMA_VERSION, raw)
     if errors:
         raise ManifestError(path, errors)
 
