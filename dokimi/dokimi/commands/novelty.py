@@ -155,6 +155,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     """Extract atoms and spans only — the expensive stage, cached for reuse."""
     from dokimi.novelty.atoms import (
         ExtractionError,
+        ExtractionReport,
         extract_atoms,
         save_atoms,
         verify_atoms,
@@ -166,10 +167,14 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     extractor = _client(args.extract_model or args.model, args.provider, "extractor", args)
     spans = segment(body)
     cap = None if args.all_atoms else _atom_cap(args)
+    extraction = ExtractionReport()
     try:
-        atoms = extract_atoms(spans, client=extractor, cap=cap)
+        atoms = extract_atoms(spans, client=extractor, cap=cap, report=extraction)
     except ExtractionError as exc:
         raise SystemExit(str(exc)) from None
+    dropped = extraction.warning(len(spans))
+    if dropped:
+        print(f"WARNING {dropped}", file=sys.stderr)
     if not args.no_verify:
         verify_atoms(atoms, spans, client=extractor)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "atoms.json"

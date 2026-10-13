@@ -645,6 +645,16 @@ And the retention oracle runs retrieval → NLI locally, escalating to an LLM on
 ambiguous band, with a disk cache keyed on (atom, text). Full sweeps stay opt-in
 (`--all-atoms`).
 
+**Pass `--max-tokens` when the provider has a low default output ceiling.** litellm sends
+4096 to Bedrock-hosted Claude when none is given, and one 25-span extraction batch needs
+~3,900 tokens on a dense skill, so replies get cut mid-array. Extraction recovers by
+splitting an unparseable batch in half and re-asking, down to one span per call, so a
+truncation costs extra calls rather than atoms; `--max-tokens 16000` avoids those calls.
+Spans that still cannot be read are named in a warning (`atom extraction failed on N of M
+spans`) instead of reading as text that carries nothing. Before this check, a run over 38
+skills lost at least one batch in 17 of them, silently, with ~33k of 62.8k tokens never
+extracted.
+
 ## Limits to state when quoting these numbers
 
 - **Extractor coverage reproduces; atom *granularity* does not.** Three extractors over the same

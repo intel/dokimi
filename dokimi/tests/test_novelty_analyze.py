@@ -314,6 +314,37 @@ def test_an_extractor_that_fails_every_batch_fails_the_run(tmp_path):
         analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
 
 
+def test_a_truncating_extractor_is_recovered_and_an_unreadable_span_is_a_warning(tmp_path):
+    import re
+
+    scripted = _scripted("informed")
+
+    def ceiling(prompt, system):
+        # Truncates any multi-span extraction reply, as a 4096-token default does on a
+        # long batch, and never parses the background span at all.
+        if "Extract the checkable knowledge" not in prompt:
+            return scripted(prompt, system)
+        ids = set(re.findall(r"^\[(s\d+)\]", prompt, flags=re.M))
+        rows = json.dumps([a for a in _ATOMS if set(a["span_ids"]) & ids])
+        if len(ids) > 1 or "research prototype" in prompt:
+            rows = rows[: len(rows) // 2] or "["
+        return rows, None
+
+    path = tmp_path / "s" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(SKILL, encoding="utf-8")
+    kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    config = AnalyzeConfig(artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
+                           description=description, frontmatter=frontmatter, concurrency=1)
+    _, answerer, judge = _clients()
+    extractor = LLMClient(model="extractor-m", role="extractor", transport=ceiling)
+    artifact = analyze(body, config, extractor=extractor, answerer=answerer,
+                       judge=judge).artifact
+    assert artifact["atoms"]["n"] == len(_ATOMS)
+    lost = [w for w in artifact["warnings"] if w.startswith("atom extraction failed on 1 of")]
+    assert len(lost) == 1
+
+
 def test_no_atoms_is_not_reported_as_a_skipped_classification(tmp_path):
     transport = _scripted("informed")
     empty = LLMClient(model="extractor-m", role="extractor", transport=lambda p, s: (

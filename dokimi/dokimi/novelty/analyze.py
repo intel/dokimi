@@ -156,9 +156,13 @@ def analyze(
     """
     warnings: list[str] = []
     span_list = spans.segment(text)
+    extraction = atoms_mod.ExtractionReport()
     atom_list = atoms_mod.extract_atoms(
-        span_list, client=extractor, cap=config.max_atoms
+        span_list, client=extractor, cap=config.max_atoms, report=extraction
     )
+    dropped = extraction.warning(len(span_list))
+    if dropped:
+        warnings.append(dropped)
     if tier:
         # From what this run did, not the tier's text: an override or an atom set under
         # the cap changes which claims are forfeit.

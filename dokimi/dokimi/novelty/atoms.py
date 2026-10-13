@@ -155,14 +155,51 @@ def render_spans(spans: list[Span]) -> str:
     return "\n".join(f"[{span.id}] ({span.kind}) {span.text}" for span in spans)
 
 
+@dataclass
+class ExtractionReport:
+    """What extraction could not read, so a partial atom set is never quoted as whole.
+
+    Attributes:
+        dropped_span_ids: Spans whose extraction call failed even on its own. No atom
+            can come from them, so they read as carrying nothing.
+        dropped_tokens: Token cost of those spans.
+        retried_batches: Batches that failed whole and were split and re-asked.
+        last_error: The last failure, for the warning text.
+    """
+
+    dropped_span_ids: list[str] = field(default_factory=list)
+    dropped_tokens: int = 0
+    retried_batches: int = 0
+    last_error: str = ""
+
+    def warning(self, n_spans: int) -> str | None:
+        """The artifact warning, or ``None`` when every span was read."""
+        if not self.dropped_span_ids:
+            return None
+        return (
+            f"atom extraction failed on {len(self.dropped_span_ids)} of {n_spans} spans "
+            f"({self.dropped_tokens} tokens), even one span per call; those spans read as "
+            f"carrying nothing, so every rate and `frac_carrying_nothing` excludes them; "
+            f"a reply cut off mid-JSON means the output ceiling is too low for one span, "
+            f"so raise --max-tokens (last error: {self.last_error})"
+        )
+
+
 def extract_atoms(
     spans: list[Span],
     *,
     client: LLMClient,
     batch_spans: int = 25,
     cap: int | None = None,
+    report: ExtractionReport | None = None,
 ) -> list[Atom]:
     """Extract atoms from spans, batched, keeping only atoms with valid provenance.
+
+    A batch whose reply does not parse is split in half and re-asked, down to one span
+    per call. The common cause is an output ceiling: a provider that defaults to 4096
+    output tokens truncates a 25-span reply mid-array, and a truncated array does not
+    parse. Splitting recovers without knowing the ceiling. Any other failure (transport,
+    auth) is not retried here, because re-asking smaller would only multiply it.
 
     Args:
         spans: Spans from :func:`~dokimi.novelty.spans.segment`.
@@ -171,27 +208,44 @@ def extract_atoms(
             affordable; too large and the model starts skipping spans.
         cap: Stop after this many atoms. Recorded in the artifact as the sampling
             rule, so a capped run is never quoted as a full sweep.
+        report: Filled in place with the spans that could not be read at all.
 
     Returns:
         Atoms in extraction order, de-duplicated by id.
     """
+    from dokimi.llm import extract_json_array
+
+    report = report if report is not None else ExtractionReport()
     valid_ids = {span.id for span in spans}
     seen: set[str] = set()
     atoms: list[Atom] = []
     failure: Exception | None = None
-    for start in range(0, len(spans), batch_spans):
+    pending = [spans[start:start + batch_spans] for start in range(0, len(spans), batch_spans)]
+    while pending:
         if cap is not None and len(atoms) >= cap:
             break
-        batch = spans[start:start + batch_spans]
+        batch = pending.pop(0)
         prompt = _EXTRACT_PROMPT.format(
             kinds=", ".join(ATOM_KINDS), tags=", ".join(ATOM_TAGS), spans=render_spans(batch)
         )
+        unparseable = False
         try:
-            rows = client.json_array(prompt, system=_EXTRACT_SYSTEM)
+            reply = client.text(prompt, system=_EXTRACT_SYSTEM)
+            unparseable = True
+            rows = extract_json_array(reply)
         except Exception as exc:
-            # One unparseable batch must not lose the other batches; the artifact's
-            # atom count and the span coverage both make the gap visible.
             failure = exc
+            report.last_error = f"{type(exc).__name__}: {str(exc)[:120]}"
+            if unparseable and len(batch) > 1:
+                # Unparseable, most often truncated: re-ask the two halves, in place,
+                # so atoms keep document order.
+                half = len(batch) // 2
+                pending[:0] = [batch[:half], batch[half:]]
+                report.retried_batches += 1
+            else:
+                # One lost batch must not lose the others; the report names it.
+                report.dropped_span_ids.extend(span.id for span in batch)
+                report.dropped_tokens += sum(span.tokens for span in batch)
             continue
         for row in rows:
             atom = _atom_from_row(row, valid_ids)
