@@ -30,7 +30,7 @@ DOCS = [
     PROJECT / "README.md",
     PROJECT / "CONTRIBUTING.md",
     PROJECT.parent / "README.md",
-    PROJECT.parent / "CLAUDE.md",
+    PROJECT.parent / "AGENTS.md",
 ]
 DOCS = [d for d in DOCS if d.exists()]
 
