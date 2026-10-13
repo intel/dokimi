@@ -496,6 +496,16 @@ Three things to know before reading a bundle result:
   A file that is mostly printable text but does not decode as UTF-8 (latin-1, cp1252, UTF-16)
   is reported `unreadable` whatever its suffix, and the coverage check then says `measured=False`;
   only a NUL-bearing non-UTF-16 file, or a blob that is not mostly printable, is silently "not text".
+- **One rule decides what an exclusion means.** Every row's `kind` has one class
+  (`novelty/bundle.py`, `EXCLUSION_CLASS`): `budget` and `not_requested` are a *gap* — the words
+  in `unmeasured_words`, the files a warning or the gate calls "excluded"; `policy` is a
+  *decision*, outside the coverage denominator; `unreadable` is *unknown*; `symlink` and
+  `not_text` are *not content*. The CLI note, the analyzer's warnings, the gate's
+  `artifact_coverage` and the report all read the record through the same `Coverage`, so the
+  gate judges the figure the analyzer warns about: the share of *readable* words not read
+  (for an entry-point run, `measurable_outside_share`). An exclusion is a *file* the run did
+  not select; text it selected that no extraction call could read is an *unread span*
+  (`spans.n_unread`, below), which narrows the dead-token figure and not coverage.
 
 The payoff is `bundle.by_source`: the paired 2×2 cut by the file that carried each atom. A
 reference whose atoms are all `redundant` is a file the model already knows; one full of
@@ -788,9 +798,13 @@ python cli.py novelty probe --artifact skill:path/to/skill --atoms atoms.json --
 file set rather than trusting flags: probing bundle-derived atoms against an
 entry-point-only context would score every atom from a reference file `still_missing` for
 the wrong reason. If the artifact's files changed since extraction — edited, removed, or a
-new text file added — `probe` refuses instead of mis-scoring. The entry point alone may
+new text file added — `probe` refuses instead of mis-scoring (a new image or symlink is not
+text any mode reads, so it does not). The entry point alone may
 change (that is the re-measure step); the result's `ref_digest` and `bundle` then describe
-the text that was probed, and `atoms_ref_digest` the text the atoms came from. `shorten`
+the text that was probed, and `atoms_ref_digest` the text the atoms came from. Every novelty
+`ref_digest` is the bundle's `measured_digest` (the measured files' paths and text digests);
+the subject scorecard's `subject.ref_digest` is a different hash, of every file under the
+subject path, and the two are not meant to match. `shorten`
 rewrites one file, so with a bundle-derived atom set it scores only the entry point's spans
 and says so.
 

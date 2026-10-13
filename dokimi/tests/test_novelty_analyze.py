@@ -247,6 +247,9 @@ def test_a_bundle_run_reports_which_file_carried_each_atom(tmp_path):
                                                                 "references/tuning.md"}
     assert sum(row["n_atoms"] for row in reported["by_source"]) == artifact["atoms"]["n"]
     assert artifact["run_config"]["include_resources"] is True
+    # One meaning for `ref_digest`: the files this cell measured, as the record says.
+    assert artifact["artifact"]["ref_digest"] == bundle.measured_digest()
+    assert reported["measured_digest"] == bundle.measured_digest()
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
 
 

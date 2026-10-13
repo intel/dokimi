@@ -21,6 +21,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from dokimi.novelty.bundle import Coverage
+
 # ── Thresholds (override per call) ────────────────────────────────────────────
 
 DEFAULTS: dict[str, Any] = {
@@ -260,14 +262,11 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
         ))
 
     # ── 3b. Was the whole artifact measured, or only its entry point? ───────
-    bundle = artifact.get("bundle") or {}
-    # Presence is keyed on the fields the arithmetic actually reads, not on one sentinel:
-    # a partial block used to produce "0% was not read" from a record that said 0.99.
-    has_counts = all(
-        key in bundle for key in
-        ("entry_point_words", "resource_words_on_disk", "resource_words_measured")
-    )
-    if not bundle or not has_counts:
+    # The record owns its arithmetic: which excluded rows are a gap, what the denominator
+    # is, and when no figure can be computed. The gate only judges the result.
+    coverage = Coverage.from_record(artifact.get("bundle"))
+    unmeasured = None if coverage is None else coverage.unmeasured_share
+    if coverage is None:
         checks.append(NoveltyCheck(
             name="artifact_coverage", passed=True, value=None,
             threshold=cfg["max_unmeasured_outside_share"], severity="info", measured=False,
@@ -276,44 +275,38 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
                 "measured the whole artifact is unknown"
             ),
         ))
-    elif bundle.get("unreadable_files"):
+    elif unmeasured is None:
         checks.append(NoveltyCheck(
             name="artifact_coverage", passed=True, value=None,
             threshold=cfg["max_unmeasured_outside_share"], severity="info", measured=False,
             message=(
-                f"{bundle['unreadable_files']} bundled files could not be decoded, so their "
+                f"{coverage.unreadable_files} bundled files could not be decoded, so their "
                 "word counts are unknown and the share of this artifact that was read "
                 "cannot be computed; fix the encoding, or exclude them explicitly, before "
                 "reading any coverage figure"
             ),
         ))
     else:
-        # The share of the artifact's words that were NOT read, in either mode. An
-        # entry-point run leaves all of them out; a bundle run leaves out whatever the
-        # role filter and the word budgets dropped -- which on a 30k-word bundle is most
-        # of it at the default 4,000/20,000 caps. The check that exists to catch a
-        # measurement of a fraction of an artifact must catch both.
-        on_disk = bundle.get("resource_words_on_disk", 0)
-        measured = bundle.get("resource_words_measured", 0)
-        total = bundle.get("entry_point_words", 0) + on_disk
-        # Files excluded by policy (a skill's own `evals/`) are a decision, not a gap, so
-        # they do not count against coverage.
-        policy = bundle.get("policy_excluded_words", 0)
-        unmeasured = max(0.0, (on_disk - measured - policy) / total) if total else 0.0
-        excluded_content = [
-            row for row in (bundle.get("excluded") or [])
-            if row.get("reason") != "not text"
-        ]
+        # The share of the artifact's readable words that were NOT read, in either mode.
+        # An entry-point run leaves all of them out; a bundle run leaves out whatever the
+        # word budgets dropped -- which on a 30k-word bundle is most of it at the default
+        # 4,000/20,000 caps. Role decisions (a skill's own `evals/`) are neither a gap nor
+        # in the denominator, so for an entry-point run this is the analyzer's
+        # `measurable_outside_share` and the two cannot disagree.
+        decided = (f", {coverage.decision_files} not measured by role"
+                   if coverage.decision_files else "")
         mode = (
-            f"the bundle was measured ({bundle.get('n_files')} files, {measured} of "
-            f"{on_disk} bundled words, {len(excluded_content)} files excluded)"
-            if bundle.get("include_resources")
+            f"the bundle was measured ({coverage.n_files} files, "
+            f"{coverage.resource_words_measured} of {coverage.measurable_resource_words} "
+            f"readable bundled words, {coverage.gap_files} files excluded by the word "
+            f"budgets{decided})"
+            if coverage.include_resources
             else "only the entry point was measured"
         )
         advice = (
             "raise --max-file-words / --max-resource-words, or narrow --resource-roles, "
             "before reading these rates as a property of the artifact"
-            if bundle.get("include_resources")
+            if coverage.include_resources
             else "re-run with --include-resources before reading these rates as a "
                  "property of the artifact"
         )

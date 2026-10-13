@@ -14,6 +14,17 @@ This module renders a bundle into one text with an offset→file map, so spans k
 provenance and the 2×2 can be cut by *which file* carried the knowledge — the number an
 author needs to decide what belongs in the body and what can stay a reference.
 
+It also owns the bundle **record** (``Bundle.summary()``), which every later reader
+consumes: ``atoms.json`` carries it so ``novelty probe`` can replay the selection, the
+``novelty.v1`` artifact carries it so the gate and the report can say how much of the
+artifact was read. Readers do not interpret the record themselves:
+
+* :func:`exclusion_class` is the one rule for which ``excluded`` rows count as what;
+* :class:`Coverage` (``Coverage.from_record``) is the one place the coverage figures are
+  computed, for a live bundle and for a stored record of any age alike;
+* :func:`check_answer_key` decides whether a saved answer key is still valid for the
+  artifact as it is now, and returns a verdict instead of exiting.
+
 One caveat rides along with every bundle run, and the analyzer states it: injecting the
 whole bundle measures what the artifact *could* deliver if the agent read all of it. It is
 an upper bound. Whether the agent chooses to load a given file at runtime is the agentic
@@ -26,6 +37,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .spans import dangling_fence, protection_tags
 
@@ -80,6 +92,158 @@ BUNDLE_HEADER_PREFIX = "## "
 DEFAULT_MAX_FILE_WORDS = 4_000
 DEFAULT_MAX_TOTAL_WORDS = 20_000
 
+#: Every ``excluded`` row's ``kind`` belongs to exactly one class, and every reader decides
+#: what a row means by its class -- never by its own reading of ``kind`` or ``reason``:
+#:
+#: * ``gap`` -- text the run could have measured and did not (over a word budget, or
+#:   resources not requested). Its words are ``unmeasured_words``; it is what a warning
+#:   about excluded files, and the gate's ``artifact_coverage``, are about.
+#: * ``decision`` -- a role decision (a skill's own ``evals/`` by default, or a
+#:   ``--resource-roles`` filter). Counted on disk, never charged as a gap, and outside
+#:   the coverage denominator: no rerun with ``--include-resources`` would read it.
+#: * ``unknown`` -- text that did not decode. Its size is unknown, so no coverage figure
+#:   can be computed while one exists.
+#: * ``not_content`` -- a non-text file, or a symlink (recorded, never followed). Not the
+#:   skill's own text in any mode, so it carries no words and is never a reason to warn.
+EXCLUSION_CLASS: dict[str, str] = {
+    "budget": "gap",
+    "not_requested": "gap",
+    "policy": "decision",
+    "unreadable": "unknown",
+    "symlink": "not_content",
+    "not_text": "not_content",
+}
+EXCLUSION_CLASSES = ("gap", "decision", "unknown", "not_content")
+
+
+def exclusion_kind(row: dict) -> str:
+    """The row's ``kind``, recovered from its ``reason`` for records written before kinds.
+
+    An unrecognised row is a ``budget`` row: content the run did not read is the
+    conservative reading, because it is charged against coverage rather than hidden.
+    """
+    kind = row.get("kind")
+    if kind in EXCLUSION_CLASS:
+        return str(kind)
+    reason = str(row.get("reason") or "")
+    if reason == "not text":
+        return "not_text"
+    if reason in ("symlink", "unreadable"):
+        return reason
+    if reason == "resources not requested":
+        return "not_requested"
+    if reason.startswith("role "):
+        return "policy"
+    return "budget"
+
+
+def exclusion_class(row: dict) -> str:
+    """Which of :data:`EXCLUSION_CLASSES` an ``excluded`` row belongs to."""
+    return EXCLUSION_CLASS[exclusion_kind(row)]
+
+
+def excluded_of(rows: list[dict] | None, cls: str) -> list[dict]:
+    """The ``excluded`` rows of one class, in record order."""
+    if cls not in EXCLUSION_CLASSES:
+        raise ValueError(f"unknown exclusion class {cls!r}; known: {EXCLUSION_CLASSES}")
+    return [row for row in rows or [] if exclusion_class(row) == cls]
+
+
+#: The record fields the coverage arithmetic reads. A record missing any of them (a
+#: partial block, or a run that predates bundles) has no coverage figure at all: a
+#: partial block once produced "0% was not read" from a record that said 0.99.
+COVERAGE_FIELDS = ("entry_point_words", "resource_words_on_disk", "resource_words_measured")
+
+
+def _share(part: int, whole: int) -> float:
+    return round(part / whole, 4) if whole else 0.0
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """How much of an artifact one run read, from a live bundle or a stored record.
+
+    The one place these figures are computed, so the CLI note, the analyzer's warnings,
+    the gate and the report cannot disagree about them. Shares are rounded to 4 places.
+    """
+
+    include_resources: bool
+    n_files: int
+    entry_point_words: int
+    resource_words_on_disk: int
+    resource_words_measured: int
+    #: Words in ``decision`` rows: on disk, not a gap, outside the denominator.
+    policy_excluded_words: int
+    unreadable_files: int
+    gap_files: int
+    decision_files: int
+
+    @classmethod
+    def from_record(cls, record: dict | None) -> "Coverage | None":
+        """Read a bundle record of any age; ``None`` when it lacks the counts."""
+        record = record or {}
+        if not all(key in record for key in COVERAGE_FIELDS):
+            return None
+        rows = record.get("excluded") or []
+        decisions = excluded_of(rows, "decision")
+        policy = record.get("policy_excluded_words")
+        unreadable = record.get("unreadable_files")
+        return cls(
+            include_resources=bool(record.get("include_resources")),
+            n_files=int(record.get("n_files") or len(record.get("files") or []) or 1),
+            entry_point_words=int(record["entry_point_words"]),
+            resource_words_on_disk=int(record["resource_words_on_disk"]),
+            resource_words_measured=int(record["resource_words_measured"]),
+            policy_excluded_words=int(
+                policy if policy is not None
+                else sum(int(row.get("words") or 0) for row in decisions)),
+            unreadable_files=int(
+                unreadable if unreadable is not None else len(excluded_of(rows, "unknown"))),
+            gap_files=len(excluded_of(rows, "gap")),
+            decision_files=len(decisions),
+        )
+
+    @property
+    def measurable_resource_words(self) -> int:
+        """Bundled words some run could read: on disk minus the role decisions."""
+        return max(0, self.resource_words_on_disk - self.policy_excluded_words)
+
+    @property
+    def unmeasured_words(self) -> int:
+        """Bundled words in ``gap`` rows: what a run with larger budgets would add."""
+        return max(0, self.measurable_resource_words - self.resource_words_measured)
+
+    @property
+    def outside_share(self) -> float:
+        """Share of the on-disk words that are not in the entry point (describes the tree)."""
+        return _share(self.resource_words_on_disk,
+                      self.entry_point_words + self.resource_words_on_disk)
+
+    @property
+    def measurable_outside_share(self) -> float:
+        """Share of the readable words that are not in the entry point.
+
+        `outside_share` describes the tree; this describes the measurement, so it is the
+        figure to quote when telling a user what `--include-resources` would add. For a
+        skill whose only resources are its own evals the two are 0.9 and 0.0.
+        """
+        return _share(self.measurable_resource_words,
+                      self.entry_point_words + self.measurable_resource_words)
+
+    @property
+    def unmeasured_share(self) -> float | None:
+        """Share of the readable words this run did not read; ``None`` when unknowable.
+
+        Same denominator as :attr:`measurable_outside_share`, so for an entry-point run the
+        two are equal and the gate judges exactly the figure the analyzer warns about.
+        ``None`` while any file is ``unknown``: its words are not in the total, so a share
+        computed without them would be a lower bound reported as a measurement.
+        """
+        if self.unreadable_files:
+            return None
+        return _share(self.unmeasured_words,
+                      self.entry_point_words + self.measurable_resource_words)
+
 
 @dataclass
 class BundleFile:
@@ -121,11 +285,8 @@ class Bundle:
     frontmatter: str
     text: str
     files: list[BundleFile]
-    #: Each row names the file, its role, why it was left out and a ``kind`` the counts are
-    #: derived from: ``symlink`` and ``not_text`` are not content; ``unreadable`` is text
-    #: that did not decode, counted in ``unreadable_files``; ``policy`` is a role
-    #: decision (evals by default, or a ``--resource-roles`` filter); ``budget`` and
-    #: ``not_requested`` are content the run could have read.
+    #: Each row names the file, its role, why it was left out and a ``kind``; what a row
+    #: *means* is its class (:data:`EXCLUSION_CLASS`), never a reader's own rule.
     excluded: list[dict] = field(default_factory=list)
     include_resources: bool = False
     #: Words outside the entry point in the bundle *on disk*, whether included or not.
@@ -134,19 +295,22 @@ class Bundle:
     #: reproduce the same selection instead of guessing it from the result.
     max_file_words: int = DEFAULT_MAX_FILE_WORDS
     max_total_words: int = DEFAULT_MAX_TOTAL_WORDS
-    #: Files that are text by extension but could not be decoded or opened. Their words are
-    #: unknown, so a coverage figure computed without them is a lower bound on what was
-    #: missed, not a measurement -- which is why the count travels with the summary.
-    unreadable_files: int = 0
     #: The roles the walk was asked to measure (the default set, or ``--resource-roles``),
     #: recorded because the roles of the files that happened to be selected are not the
     #: same thing: a role whose files were all over budget selects nothing.
     resource_roles: tuple[str, ...] = ()
+    #: The reference the bundle was loaded from (``skill:<path>``), recorded with it.
+    ref: str = ""
 
     @property
     def body(self) -> str:
         """The entry point's own text (``SKILL.md`` body), without bundled files."""
         return self.files[0].text if self.files else ""
+
+    @property
+    def unreadable_files(self) -> int:
+        """Files in the ``unknown`` class: text whose words could not be counted."""
+        return len(excluded_of(self.excluded, "unknown"))
 
     def source_of(self, offset: int) -> str:
         """Which file the character at ``offset`` came from."""
@@ -155,30 +319,50 @@ class Bundle:
                 return item.path
         return self.files[0].path if self.files else ""
 
-    def policy_excluded_words(self) -> int:
-        """Words in files excluded by a role decision, not by budget.
+    def coverage(self) -> Coverage:
+        """The coverage figures, computed exactly as they will be read back from the record."""
+        coverage = Coverage.from_record(self._counts())
+        assert coverage is not None        # _counts always carries COVERAGE_FIELDS
+        return coverage
 
-        A skill's own `evals/` are counted on disk (they are text in the artifact's tree)
-        but are not measured by default, and a `--resource-roles` filter is the user's own
-        choice, so a coverage figure that charges the run for either is reporting a
-        decision as a gap. The role is decided when the tree is walked, so this is the same
-        number whether or not the resources were requested.
+    def coverage_note(self) -> str | None:
+        """What a command should say before it measures, or ``None``.
+
+        A bundle run names the files its budgets left out; an entry-point run says how much
+        a bundle run would add -- counting readable words only, since a skill's own evals
+        are measured in neither mode and a rerun would read nothing more.
         """
-        return sum(int(row["words"]) for row in self.excluded if row["kind"] == "policy")
+        coverage, gaps = self.coverage(), excluded_of(self.excluded, "gap")
+        if self.include_resources and gaps:
+            return (f"{len(gaps)} bundled files will not be measured "
+                    f"({coverage.unmeasured_words} words over the budgets); see "
+                    "bundle.excluded in the result for each reason")
+        if not self.include_resources and coverage.unmeasured_words:
+            return (f"{coverage.measurable_outside_share:.0%} of this artifact's words are in "
+                    f"{len(gaps)} bundled files that will not be measured; pass "
+                    "--include-resources to measure them")
+        return None
 
-    def unmeasured_words(self) -> int:
-        """Bundled words that were neither measured nor excluded by policy."""
-        measured = sum(f.words for f in self.files[1:])
-        return max(0, self.resource_words_on_disk - measured - self.policy_excluded_words())
-
-    def excluded_content(self) -> list[dict]:
-        """Excluded rows this run could have measured and did not.
-
-        A bundled `.png` is not content the measurement could have read, and an `evals/`
-        file is a decision, so neither must make a run warn about excluded files; a
-        reference skipped over a word budget, or not requested at all, must.
-        """
-        return [row for row in self.excluded if row["kind"] in ("budget", "not_requested")]
+    def coverage_warnings(self) -> list[str]:
+        """The warnings a result measured on this bundle must carry."""
+        coverage, gaps = self.coverage(), excluded_of(self.excluded, "gap")
+        out: list[str] = []
+        # The measurable share, not the on-disk one: a skill whose resources are all its
+        # own evals has nothing a bundle run would add, so pointing at the flag would be
+        # advice that cannot be followed.
+        if not self.include_resources and coverage.measurable_outside_share >= 0.5:
+            out.append(
+                f"{coverage.measurable_outside_share:.0%} of this artifact's words are in "
+                "bundled files that were not measured (--include-resources); every rate "
+                "here describes the entry point only"
+            )
+        if self.include_resources and gaps:
+            out.append(
+                f"{len(gaps)} bundled files were excluded from the measured text (see "
+                "bundle.excluded for each reason); they are counted in "
+                "resource_words_on_disk but carry no atoms"
+            )
+        return out
 
     def measured_digest(self) -> str:
         """Digest of exactly the files this bundle measured, and of nothing else.
@@ -192,46 +376,49 @@ class Bundle:
         rows = "\n".join(f"{item.path}:{item.sha256}" for item in self.files)
         return "sha256:" + hashlib.sha256(rows.encode("utf-8")).hexdigest()
 
-    def outside_share(self) -> float:
-        """Share of the bundle's on-disk words that are not in the entry point."""
-        body_words = len(self.body.split())
-        total = body_words + self.resource_words_on_disk
-        return round(self.resource_words_on_disk / total, 4) if total else 0.0
-
-    def measurable_outside_share(self) -> float:
-        """Share of the words a bundle run can read that are not in the entry point.
-
-        `outside_share` describes the tree; this describes the measurement, so it is the
-        figure to quote when telling a user what `--include-resources` would add. For a
-        skill whose only resources are its own evals the two are 0.9 and 0.0.
-        """
-        outside = self.resource_words_on_disk - self.policy_excluded_words()
-        total = len(self.body.split()) + outside
-        return round(outside / total, 4) if total else 0.0
-
-    def summary(self) -> dict:
-        """Serializable description of what was measured and what was left out."""
-        roles: dict[str, int] = {}
-        for item in self.files[1:]:
-            roles[item.role] = roles.get(item.role, 0) + 1
+    def _counts(self) -> dict:
+        """The record's raw counts, from which every coverage figure is derived."""
         return {
             "include_resources": self.include_resources,
             "n_files": len(self.files),
             "entry_point_words": len(self.body.split()),
             "resource_words_measured": sum(f.words for f in self.files[1:]),
             "resource_words_on_disk": self.resource_words_on_disk,
-            "outside_share": self.outside_share(),
-            "measurable_outside_share": self.measurable_outside_share(),
-            "max_file_words": self.max_file_words,
-            "max_total_words": self.max_total_words,
             "unreadable_files": self.unreadable_files,
-            "resource_roles": list(self.resource_roles),
-            "policy_excluded_words": self.policy_excluded_words(),
-            "unmeasured_words": self.unmeasured_words(),
-            "roles": roles,
-            "files": [f.as_dict() for f in self.files],
+            # A skill's own `evals/` are text in the tree but a decision, not a gap. The
+            # role is decided when the tree is walked, so this is the same number whether
+            # or not the resources were requested.
+            "policy_excluded_words": sum(
+                int(row.get("words") or 0) for row in excluded_of(self.excluded, "decision")),
             "excluded": self.excluded,
         }
+
+    def summary(self) -> dict:
+        """The bundle record: what was measured, what was left out, and its digest.
+
+        Written into ``atoms.json``, ``probes.json`` and the ``novelty.v1`` artifact alike,
+        so every reader sees one shape. The derived shares are written for a human reading
+        the JSON; readers recompute them from the counts with :meth:`Coverage.from_record`.
+        """
+        roles: dict[str, int] = {}
+        for item in self.files[1:]:
+            roles[item.role] = roles.get(item.role, 0) + 1
+        record = self._counts()
+        coverage = self.coverage()
+        record.update({
+            "artifact_name": self.name,
+            "artifact_ref": self.ref,
+            "measured_digest": self.measured_digest(),
+            "outside_share": coverage.outside_share,
+            "measurable_outside_share": coverage.measurable_outside_share,
+            "unmeasured_words": coverage.unmeasured_words,
+            "max_file_words": self.max_file_words,
+            "max_total_words": self.max_total_words,
+            "resource_roles": list(self.resource_roles),
+            "roles": roles,
+            "files": [f.as_dict() for f in self.files],
+        })
+        return record
 
 
 def load_bundle(
@@ -350,9 +537,227 @@ def load_bundle(
                   text=text, files=files, excluded=excluded,
                   include_resources=include_resources, resource_words_on_disk=on_disk,
                   max_file_words=max_file_words, max_total_words=max_total_words,
-                  resource_roles=tuple(selected_roles),
-                  unreadable_files=sum(
-                      1 for row in excluded if row["reason"] == "unreadable"))
+                  resource_roles=tuple(selected_roles), ref=ref)
+
+
+#: Why a saved answer key was refused. ``unloadable``: the artifact cannot be read now;
+#: ``no_file_rows``: the record names no usable files, so its provenance cannot be checked;
+#: ``wrong_artifact``: the atoms were extracted from another artifact; ``files_changed``:
+#: a bundled file was removed, edited or added since extraction.
+ANSWER_KEY_PROBLEMS = ("unloadable", "no_file_rows", "wrong_artifact", "files_changed")
+
+
+@dataclass(frozen=True)
+class AnswerKeyVerdict:
+    """Whether a saved answer key may be probed against an artifact as it is now.
+
+    ``problem`` is ``None`` for a valid key; ``text`` and ``bundle`` are then the context to
+    inject (``bundle`` is ``None`` for a record that predates bundle provenance, which is
+    probed against the entry point alone). ``notes`` are the things the caller must say
+    even when the key is valid: a legacy assumption, an edited entry point.
+    """
+
+    problem: str | None = None
+    message: str = ""
+    text: str = ""
+    bundle: Bundle | None = None
+    notes: tuple[str, ...] = ()
+    #: The file sets that were compared (``files_changed`` explains itself with these).
+    recorded: tuple[str, ...] = ()
+    rebuilt: tuple[str, ...] = ()
+    edited: tuple[str, ...] = ()
+    added: tuple[str, ...] = ()
+    entry_point_changed: bool = False
+
+    @property
+    def ok(self) -> bool:
+        """True when the key is valid for the artifact as it is now."""
+        return self.problem is None
+
+
+def _replay_selection(record: dict) -> dict[str, Any]:
+    """The ``load_bundle`` arguments that reproduce a recorded selection."""
+    rows = record["files"]
+    # The roles the extraction asked for, not the roles of the files it happened to select:
+    # a role whose files were all over budget selects nothing, and a rebuild narrowed to the
+    # selected roles would call those files policy and lose the gap.
+    requested = record.get("resource_roles")
+    if requested is None:       # a record from before the roles were recorded
+        requested = sorted({row["role"] for row in rows[1:]}) or None
+    # Prefer the budgets the extraction actually used. Older records do not carry them, and
+    # for those the selection is reproduced from its result: capping at the largest
+    # selected file and at the selected total makes the same greedy pick.
+    budgets: dict[str, int] = {}
+    if record.get("max_file_words") and record.get("max_total_words"):
+        budgets = {"max_file_words": int(record["max_file_words"]),
+                   "max_total_words": int(record["max_total_words"])}
+    elif record.get("include_resources") and all("words" in r for r in rows[1:]):
+        selected = [int(row["words"]) for row in rows[1:]]
+        budgets = {"max_file_words": max(selected, default=0),
+                   "max_total_words": sum(selected)}
+    include = bool(record.get("include_resources"))
+    return {"include_resources": include,
+            "roles": tuple(requested) if requested is not None and include else None,
+            **budgets}
+
+
+def _changes_answer_key(row: dict, asked_roles: list | None) -> bool:
+    """Whether a file that appeared since extraction invalidates the answer key.
+
+    ``not_content`` never does -- a new image or symlink is not text any mode would read.
+    A ``decision`` row does only when the record does not say which roles were asked for:
+    then the rebuild was narrowed to the selected roles, and a file in a default role that
+    simply had no file at extraction time (a first ``scripts/run.sh``) would be read by a
+    re-extraction. Every other new row is text a re-extraction would measure.
+    """
+    cls = exclusion_class(row)
+    if cls == "not_content":
+        return False
+    if cls == "decision":
+        return asked_roles is None
+    return True
+
+
+def check_answer_key(ref: str, record: dict | None, *,
+                     source: str = "atoms.json") -> AnswerKeyVerdict:
+    """Is the answer key extracted under ``record`` still valid for ``ref`` as it is now?
+
+    The bundle mode is taken from the record, not from flags: if atoms came from a bundle
+    and the probe injected only ``SKILL.md``, every atom extracted from a reference file
+    would score ``still_missing`` because the context never contained it -- a measurement
+    error that looks like a result. So the selection is replayed and any difference in the
+    *bundled* files is refused rather than reconciled. The entry point alone may change:
+    re-measuring a shortened ``SKILL.md`` against the original atoms is the authoring
+    path's last step, so that is a note, not a refusal.
+
+    Args:
+        ref: The artifact reference to probe (``skill:<path>``).
+        record: The ``bundle`` block of the saved atoms (empty or ``None`` for a file
+            written before bundle provenance).
+        source: How to name the record in messages (the atoms file's path).
+
+    Returns:
+        A verdict; never raises for a stale or foreign key. ``problem`` is one of
+        :data:`ANSWER_KEY_PROBLEMS`.
+    """
+    record = record or {}
+    if not record:
+        from .analyze import load_artifact_text
+
+        try:
+            body = load_artifact_text(ref)[4]
+        except (FileNotFoundError, ValueError) as exc:
+            return AnswerKeyVerdict(problem="unloadable", message=f"cannot load {ref}: {exc}")
+        return AnswerKeyVerdict(text=body, notes=(
+            f"WARNING: {source} predates bundle provenance; assuming the entry point only. "
+            "Re-run `novelty atoms` if the atoms came from bundled files.",))
+
+    rows = record.get("files") or []
+    if not rows or any("role" not in row or "path" not in row for row in rows):
+        return AnswerKeyVerdict(problem="no_file_rows", message=(
+            f"{source} records a bundle without usable file rows; re-run `novelty atoms` "
+            "rather than probing against an answer key whose provenance cannot be checked"))
+    try:
+        now = load_bundle(ref, **_replay_selection(record))
+    except (FileNotFoundError, ValueError) as exc:
+        return AnswerKeyVerdict(problem="unloadable", message=f"cannot load {ref}: {exc}")
+
+    # An answer key is for one artifact. Without this, skill A's atoms were accepted
+    # against skill B whenever the relative paths lined up -- unconditionally so for
+    # entry-point-only recordings, where both sides are just ["SKILL.md"].
+    recorded_name = record.get("artifact_name")
+    if recorded_name and recorded_name != now.name:
+        return AnswerKeyVerdict(problem="wrong_artifact", message=(
+            f"these atoms were extracted from `{recorded_name}` and --artifact is "
+            f"`{now.name}`: an answer key belongs to one artifact. Extract atoms for this "
+            "one instead."))
+
+    recorded = [row["path"] for row in rows]
+    rebuilt = [item.path for item in now.files]
+    # Same path, different bytes: still a stale key, and a word count cannot see it (`64`
+    # to `128` keeps the count). The digest does; the word count is the fallback for a
+    # record written before digests. The entry point is exempt (see the docstring).
+    edited = [
+        row["path"]
+        for row, item in zip(rows[1:], now.files[1:], strict=False)
+        if (row.get("sha256") and item.sha256 and row["sha256"] != item.sha256)
+        or (not row.get("sha256") and "words" in row and row["words"] != item.words)
+    ]
+    # The rebuild is filtered to the roles the extraction measured, so a file added since
+    # in a role that had no file then would be filtered out of `rebuilt` and pass
+    # unnoticed. Compare every path the walk saw against every path the extraction saw.
+    added: list[str] = []
+    if record.get("include_resources") and "excluded" in record:
+        seen = set(recorded) | {row.get("path") for row in record.get("excluded") or []}
+        asked = record.get("resource_roles")
+        added = sorted(
+            {row["path"] for row in now.excluded
+             if row["path"] not in seen and _changes_answer_key(row, asked)}
+            | (set(rebuilt) - set(recorded)))
+    if rebuilt != recorded or edited or added:
+        return AnswerKeyVerdict(
+            problem="files_changed",
+            message=(
+                "the artifact's files changed since these atoms were extracted "
+                f"(atoms.json: {recorded}; now: {rebuilt}; edited: {edited}; "
+                f"added: {added}). Re-run `novelty atoms`; probing a different file set "
+                "against this answer key would mis-score every moved atom."),
+            recorded=tuple(recorded), rebuilt=tuple(rebuilt), edited=tuple(edited),
+            added=tuple(added))
+
+    notes: list[str] = []
+    # Allowed to differ, not allowed to differ silently: atoms extracted from text that is
+    # gone will read as `still_missing`, a result about the edit that must be recognisable.
+    entry_recorded = rows[0].get("sha256")
+    entry_changed = bool(entry_recorded and entry_recorded != now.files[0].sha256)
+    if entry_changed:
+        notes.append(
+            f"NOTE: {now.files[0].path} has changed since these atoms were extracted. That "
+            "is the re-measure step, so the run proceeds; atoms whose text was removed will "
+            "score `still_missing` because of the edit, not because of the model.")
+    if record.get("include_resources"):
+        notes.append(f"Measuring the bundle recorded in {source}: {len(recorded)} files, "
+                     f"{record.get('resource_words_measured', 0)} bundled words")
+    return AnswerKeyVerdict(text=now.text, bundle=now, notes=tuple(notes),
+                            recorded=tuple(recorded), rebuilt=tuple(rebuilt),
+                            entry_point_changed=entry_changed)
+
+
+def entry_point_only(record: dict | None, spans: list, atoms: list) -> tuple[list, list, str | None]:
+    """Restrict spans and atoms to the entry point when they came from a bundle.
+
+    Shortening rewrites one file. A candidate built over bundle spans would propose
+    dropping sentences that live in `references/`, and a rendered candidate would carry
+    them into the shortened `SKILL.md`. So bundle spans are dropped, loudly: shortening a
+    bundle is a different question than shortening a file. An atom must have every cited
+    span inside the entry point, since half its evidence cannot be scored.
+
+    Returns:
+        ``(spans, atoms, note)``; ``note`` is ``None`` when nothing was dropped.
+
+    Raises:
+        ValueError: A bundle record without the file rows or the entry point's range.
+    """
+    record = record or {}
+    if not record.get("include_resources"):
+        return spans, atoms, None
+    if not record.get("files"):
+        raise ValueError("the atoms record a bundle run without file rows; re-run "
+                         "`novelty atoms`")
+    entry = record["files"][0]
+    if "end" not in entry:
+        raise ValueError(f"the atoms record no span range for {entry.get('path')}")
+    kept = [span for span in spans if span.start < entry["end"]]
+    kept_ids = {span.id for span in kept}
+    kept_atoms = [atom for atom in atoms
+                  if atom.span_ids and all(sid in kept_ids for sid in atom.span_ids)]
+    note = (
+        f"NOTE these atoms were extracted from a {record.get('n_files')}-file bundle. "
+        f"Shortening rewrites one file, so only the {len(kept)} spans of {entry['path']} and "
+        f"the {len(kept_atoms)} atoms they carry are scored ({len(spans) - len(kept)} bundle "
+        "spans and their atoms dropped); knowledge scores here say nothing about the "
+        "bundled files.")
+    return kept, kept_atoms, note
 
 
 def pointer_spans(spans: list, bundle: Bundle) -> set[str]:
