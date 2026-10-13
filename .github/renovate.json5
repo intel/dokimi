@@ -1,0 +1,84 @@
+// Copyright (C) 2026 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+
+// Dependency updates: the SHA-pinned actions in .github/workflows, the Python
+// lock (dokimi/requirements.lock.txt) and the tool pins the workflows install.
+//
+// Once a week, every minor and patch update lands in one PR; a major update
+// gets a PR of its own. Advisories (vulnerabilityAlerts) skip the schedule.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:recommended",
+    ":semanticCommits",
+    // Pin any new action to a SHA with the exact release in the trailing comment.
+    "helpers:pinGitHubActionDigestsToSemver",
+  ],
+  schedule: ["* 0-3 * * 1"],
+  timezone: "UTC",
+  // A release has to be a week old before it is proposed, so a compromised
+  // or yanked tag has time to be noticed upstream.
+  minimumReleaseAge: "7 days",
+  labels: ["dependencies"],
+
+  // The lock is a uv --universal compile of requirements.txt +
+  // requirements-test.txt. pip-compile re-runs the command in its header with
+  // --upgrade-package, which keeps the per-interpreter markers; pip_requirements
+  // would edit the pins in place without re-resolving, so it is left off.
+  // pyproject.toml repeats the ranges of requirements.txt; pep621 keeps the two
+  // in step when a range has to move (same dependency, same branch, one PR).
+  enabledManagers: ["github-actions", "pip-compile", "pep621", "custom.regex"],
+  "pip-compile": {
+    managerFilePatterns: ["/(^|/)requirements\\.lock\\.txt$/"],
+  },
+  // Inside a range: bump the lock only. Outside it: move the range too.
+  rangeStrategy: "update-lockfile",
+  // Direct dependencies follow the weekly schedule; this refreshes the
+  // transitive pins the lock carries.
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["* 0-3 1 * *"],
+  },
+
+  customManagers: [
+    {
+      // `pip install tool==X.Y.Z` in workflow steps (zizmor, bandit, pip-audit).
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      matchStringsStrategy: "recursive",
+      matchStrings: [
+        "pip install [^\\n]*",
+        "(?<depName>[A-Za-z0-9][A-Za-z0-9._-]*)==(?<currentValue>\\d[^\\s'\"]*)",
+      ],
+      datasourceTemplate: "pypi",
+    },
+  ],
+
+  packageRules: [
+    {
+      groupName: "non-major dependencies",
+      groupSlug: "non-major",
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+    },
+    {
+      matchManagers: ["github-actions"],
+      semanticCommitType: "ci",
+    },
+    {
+      // The Python setup-python installs is a CI choice, not a dependency.
+      matchManagers: ["github-actions"],
+      matchDepNames: ["python"],
+      enabled: false,
+    },
+    {
+      // ragas 0.4 is a migration, not a bump (see SECURITY.md), and every
+      // ragas release imports a module langchain-community 0.4.2 removed.
+      matchDepNames: ["ragas"],
+      allowedVersions: "<0.4",
+    },
+    {
+      matchDepNames: ["langchain-community"],
+      allowedVersions: "<0.4.2",
+    },
+  ],
+}

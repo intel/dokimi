@@ -52,7 +52,9 @@ CI additionally holds a PR to:
   edit a workflow.
 
 Dependencies install from `requirements.lock.txt`. When you change a range in
-`requirements*.txt`, regenerate the lock (command in its header).
+`requirements*.txt`, regenerate the lock (command in its header). Renovate
+(`.github/renovate.json5`) proposes updates weekly: one PR for every minor and
+patch bump, one per major.
 
 Guidelines:
 
