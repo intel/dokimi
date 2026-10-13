@@ -15,6 +15,7 @@ from dokimi.metrics.example_runner import (
     run_example,
     score_examples,
 )
+from dokimi.process import FakeRunner, Limits, reply
 
 
 def test_extract_examples_with_metadata():
@@ -26,19 +27,12 @@ def test_extract_examples_with_metadata():
 def test_default_backend_does_not_execute(tmp_path, monkeypatch):
     """Default policy is 'none': nothing runs, examples are skipped."""
     monkeypatch.delenv("DOC_BENCH_EXAMPLE_BACKEND", raising=False)
-    called = {"ran": False}
-    import dokimi.metrics.example_runner as er
+    runner = FakeRunner()
 
-    def _boom(*a, **k):
-        called["ran"] = True
-        raise AssertionError("subprocess must not run under backend=none")
-
-    monkeypatch.setattr(er.subprocess, "run", _boom)
-
-    res = run_example("python", "print('hi')", ExecutionPolicy(backend="none"))
+    res = run_example("python", "print('hi')", ExecutionPolicy(backend="none"), runner)
     assert res.status == "skipped"
     assert res.passed is None
-    assert called["ran"] is False
+    assert runner.calls == []
 
 
 def test_subprocess_refuses_without_allow_host():
@@ -129,17 +123,37 @@ def test_from_config_nested_and_legacy():
     assert legacy.backend == "none" and legacy.timeout == 7
 
 
-def test_docker_backend_missing_docker(monkeypatch):
+def test_docker_backend_missing_docker():
     """Docker backend surfaces a clear error if docker is absent."""
-    import dokimi.metrics.example_runner as er
+    def _no_docker(call):
+        raise FileNotFoundError(call.argv[0])
 
-    def _no_docker(*a, **k):
-        raise FileNotFoundError("docker")
-
-    monkeypatch.setattr(er.subprocess, "run", _no_docker)
-    res = run_example("python", "print(1)", ExecutionPolicy(backend="docker"))
+    res = run_example("python", "print(1)", ExecutionPolicy(backend="docker"), FakeRunner(_no_docker))
     assert res.status == "failed"
     assert "docker is not installed" in (res.error or "")
+
+
+def test_docker_backend_locks_the_container_down():
+    runner = FakeRunner(lambda call: reply(stderr="Traceback: boom", returncode=1))
+    res = run_example("python", "print(1)", ExecutionPolicy(backend="docker", timeout=7), runner)
+    assert res.status == "failed" and "Exit code 1: Traceback: boom" in (res.error or "")
+    (call,) = runner.calls
+    argv = call.argv
+    assert argv[:3] == ("docker", "run", "--rm")
+    assert argv[argv.index("--network") + 1] == "none" and "--read-only" in argv
+    assert argv[argv.index("timeout") + 1] == "7" and call.timeout == 37
+
+
+def test_subprocess_backend_asks_for_limits_and_a_scrubbed_env(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "x")
+    runner = FakeRunner()
+    res = run_example("python", "print(1)",
+                      ExecutionPolicy(backend="subprocess", allow_host=True, timeout=3, mem_mb=64), runner)
+    assert res.status == "passed"
+    (call,) = runner.calls
+    assert call.limits == Limits(cpu_sec=3, memory_bytes=64 * 1024 * 1024)
+    assert "OPENAI_API_KEY" not in call.env and call.env["HOME"] == str(call.cwd)
+    assert call.capture_stdout is False
 
 
 def test_error_status_counts_as_failure(tmp_path):

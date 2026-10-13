@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import hashlib
 import platform
-import subprocess
 from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
+
+from dokimi import process
 
 # Direct dependencies whose versions materially affect results.
 TRACKED_DEPS = (
@@ -27,12 +28,10 @@ TRACKED_DEPS = (
 
 def _git(*args: str) -> str | None:
     try:
-        out = subprocess.run(
-            ["git", *args], capture_output=True, text=True, timeout=5, check=False
-        )
-    except (OSError, subprocess.SubprocessError):
+        out = process.git(*args, timeout=5)
+    except OSError:
         return None
-    return out.stdout.strip() if out.returncode == 0 else None
+    return out.stdout.strip() if out.ok else None
 
 
 def file_sha256(path: Path) -> str | None:

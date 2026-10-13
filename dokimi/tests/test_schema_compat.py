@@ -175,7 +175,7 @@ def test_main_against_a_base(monkeypatch, tmp_path, capsys):
         if rel.startswith(sc.FIXTURE_DIR + "/"):
             name = rel.rsplit("/", 1)[1]
             if name not in fixtures:
-                raise subprocess.CalledProcessError(128, ["git", *args])
+                raise sc.GitError("no such path")
             return json.dumps(fixtures[name])
         return json.dumps(base[rel])
 

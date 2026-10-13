@@ -270,6 +270,14 @@ still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
 
 ## Shared building blocks
 
+- `dokimi/process.py` — the process runner that spawning code goes
+  through (git, `gh`, doc snippets, harness profiles; the task harnesses and
+  the repository-mode docker runner still spawn on their own). A timeout or
+  the command's exit kills its whole process group / job object, a timeout is a
+  result (`returncode` 124, partial output kept) not an exception, output is
+  read as UTF-8, and every call states its environment policy (`Env.inherit` or
+  an `Env.only` allow-list). `FakeRunner` is its test adapter: code that spawns
+  takes a `runner` argument.
 - `dokimi/llm.py` — provider-neutral LLM call wrapper (LiteLLM-based)
   with retry, token accounting, and concurrency.
 - `dokimi/registry.py` — product registry loaded from

@@ -861,3 +861,20 @@ def test_state_sees_a_file_the_agent_writes_under_a_dot_skill_dir():
         assert ws.state() != before
     finally:
         ws.cleanup()
+
+
+def test_run_probe_timeout_raises_and_runs_with_exactly_the_agent_env(tmp_path):
+    """A hung probe check showed nothing closed: the caller records every class untested."""
+    from dokimi import process
+
+    fake = process.FakeRunner(lambda call: process.reply('{"env": "closed"}', timed_out=True))
+    ws = AgentWorkspace.create()
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            run_probe(ws, {"PATH": "/usr/bin:/bin", "DOKIMI_TEST_ONLY_TOKEN": "ghp_secret"},
+                      timeout=5, runner=fake)
+    finally:
+        ws.cleanup()
+    (call,) = fake.calls
+    assert call.argv[:2] == ("sh", "-c") and call.timeout == 5 and call.cwd == ws.work
+    assert "DOKIMI_TEST_ONLY_TOKEN" not in call.env and call.env["PATH"] == "/usr/bin:/bin"

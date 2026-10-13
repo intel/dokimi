@@ -17,6 +17,7 @@ if 'github' not in sys.modules:
     sys.modules['github'] = mock_github_module
 
 from dokimi.personas.analyzer import PersonaAnalyzer
+from dokimi.process import FakeRunner
 
 
 @pytest.fixture
@@ -254,9 +255,11 @@ tbb::task_arena arena;
     
     def test_analyze_repository_github_unavailable(self):
         """Test analysis when GitHub client is unavailable."""
-        with patch('dokimi.personas.analyzer.GITHUB_AVAILABLE', False), \
-             patch('subprocess.run', side_effect=FileNotFoundError):
-            analyzer = PersonaAnalyzer()
+        def no_gh(call):
+            raise FileNotFoundError(call.argv[0])
+
+        with patch('dokimi.personas.analyzer.GITHUB_AVAILABLE', False):
+            analyzer = PersonaAnalyzer(runner=FakeRunner(no_gh))
             result = analyzer.analyze_repository("uxlfoundation/oneTBB")
             # Should return empty analysis
             assert result == analyzer._empty_analysis()

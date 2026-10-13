@@ -425,3 +425,23 @@ def test_a_docker_kill_that_times_out_still_ends_the_run(tmp_path, monkeypatch):
     spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x")
     res = DockerRunner(str(docker)).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=1)
     assert res.timed_out and res.returncode is None
+
+
+def test_workspace_git_never_prompts_and_a_timeout_is_a_prep_error(monkeypatch, tmp_path):
+    """A clone of a private remote must not wait on a credential prompt until the 30-min timeout;
+    the clone keeps the caller's env (credential helpers), a snapshot step gets exactly its own."""
+    import dokimi.repos.workspace as workspace
+    from dokimi import process
+
+    fake = process.FakeRunner(lambda call: process.reply(timed_out=True) if "fetch" in call.argv else None)
+    monkeypatch.setattr(workspace.process, "run", fake)
+    monkeypatch.setenv("DOKIMI_TEST_ONLY_HELPER", "x")
+    bare = str(tmp_path / "x")  # never created: the fake runner spawns nothing
+    workspace._run(["git", "clone", "--bare", "--", "https://example.invalid/r.git", bare])
+    workspace._run(["git", "-C", bare, "status"], env={"PATH": "/usr/bin"})
+    with pytest.raises(PrepError, match="timed out"):
+        workspace._run(["git", "-C", bare, "fetch", "origin"])
+    clone, status, _ = fake.calls
+    assert clone.env["GIT_TERMINAL_PROMPT"] == "0" and clone.env["DOKIMI_TEST_ONLY_HELPER"] == "x"
+    assert status.env == {"PATH": "/usr/bin", "GIT_TERMINAL_PROMPT": "0"}
+    assert {c.timeout for c in fake.calls} == {workspace._GIT_TIMEOUT_S}

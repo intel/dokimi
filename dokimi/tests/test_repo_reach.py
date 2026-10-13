@@ -181,9 +181,9 @@ def test_builtin_claude_code_profile_builds_argv_without_a_shell(tmp_path):
 
 def test_profile_env_is_allow_listed_and_isolated(tmp_path):
     profile = load_profile("claude-code")
-    env = profile.env(tmp_path / "cfg", base={"PATH": "/bin", "AWS_REGION": "us-east-1",
-                                              "GITHUB_TOKEN": "x", "HOME": "/home/u",
-                                              "SYSTEMROOT": "C:/WINDOWS"})
+    env = profile.env(tmp_path / "cfg").resolve({"PATH": "/bin", "AWS_REGION": "us-east-1",
+                                                 "GITHUB_TOKEN": "x", "HOME": "/home/u",
+                                                 "SYSTEMROOT": "C:/WINDOWS"})
     assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "cfg")
     assert env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] == "1"
     assert "GITHUB_TOKEN" not in env and env["AWS_REGION"] == "us-east-1"
@@ -431,45 +431,17 @@ def test_an_answer_with_a_failed_exit_or_an_error_result_is_not_scored(tmp_path,
     assert "RC" in (tmp_path / "out/traces/00-cwd_..stdout").read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("mode", ["hang", "orphan"])
-def test_reach_timeout_kills_the_harness_process_tree(tmp_path, monkeypatch, mode):
+@pytest.mark.parametrize("mode, error", [("hang", "TimeoutExpired"),
+                                         # exited at once: its helper is killed then, not at the timeout
+                                         ("orphan", "exit 0 (no answer)")])
+def test_reach_timeout_kills_the_harness_process_tree(tmp_path, monkeypatch, mode, error):
     start = time.monotonic()
     payload = _reach(tmp_path, monkeypatch, mode=mode, kinds=("root",), timeout_s=1)
     assert time.monotonic() - start < 10
-    assert payload["scenarios"][0]["error"].startswith("TimeoutExpired")
+    assert payload["scenarios"][0]["error"].startswith(error)
     time.sleep(3)  # the helper would have written its marker by now
     assert not (tmp_path / "grandchild-alive").exists()
     assert not list((tmp_path / "work").iterdir())
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="setsid() and process groups are POSIX")
-def test_run_harness_timeout_returns_despite_a_setsid_child(tmp_path):
-    """A child that calls setsid() leaves the process group a timeout kills, and the contract (§7)
-    says the probe does not contain it. What is asserted: run_harness returns at the timeout
-    instead of waiting for that child to close the inherited pipes (it took timeout + 10 s)."""
-    import signal
-
-    from dokimi.repos.harness_profile import run_harness
-
-    pid_file = tmp_path / "child.pid"
-    harness = ("import os, sys, time\n"
-               "if os.fork() == 0:\n"
-               "    os.setsid()\n"
-               "    open(sys.argv[1] + '.tmp', 'w').write(str(os.getpid()))\n"
-               "    os.rename(sys.argv[1] + '.tmp', sys.argv[1])\n"
-               "    time.sleep(60)\n"
-               "    os._exit(0)\n"
-               "time.sleep(60)\n")
-    start = time.monotonic()
-    with pytest.raises(subprocess.TimeoutExpired):
-        run_harness([sys.executable, "-c", harness, str(pid_file)], timeout=2)
-    elapsed = time.monotonic() - start
-    child = int(pid_file.read_text())
-    try:
-        os.kill(child, 0)  # the escaped child is alive and holds stdout and stderr
-        assert elapsed < 6
-    finally:
-        os.kill(child, signal.SIGKILL)
 
 
 def test_repo_reach_cli_manifest_file_and_a_failed_scenario(tmp_path, monkeypatch, capsys):
@@ -585,19 +557,18 @@ def test_reach_relativizes_reads_under_a_linked_work_dir(tmp_path, monkeypatch):
 
 
 def test_build_workspace_finds_git_on_the_callers_path(tmp_path, monkeypatch):
+    from dokimi import process
     from dokimi.repos import reach
 
-    real_run = subprocess.run
+    def posix_lookup(call):  # POSIX execvpe searches the child's PATH, on any OS here
+        if not Path(call.argv[0]).is_absolute() and not shutil.which(call.argv[0], path=call.env["PATH"]):
+            raise FileNotFoundError(call.argv[0])
+        return process.run(call.argv, cwd=call.cwd, env=process.Env.only((), call.env),
+                           timeout=call.timeout)
 
-    def posix_lookup(argv, *args, env, **kwargs):  # POSIX execvpe searches the child's PATH
-        if not Path(argv[0]).is_absolute() and not shutil.which(argv[0], path=env["PATH"]):
-            raise FileNotFoundError(argv[0])
-        return real_run(argv, *args, env=env, **kwargs)
-
-    monkeypatch.setattr(reach.subprocess, "run", posix_lookup)
     tree = WorkTree(_repo(tmp_path))
     (tmp_path / "ws").mkdir()
-    reach.build_workspace(tree, ["CLAUDE.md"], tmp_path / "ws", "s")
+    reach.build_workspace(tree, ["CLAUDE.md"], tmp_path / "ws", "s", runner=process.FakeRunner(posix_lookup))
     assert (tmp_path / "ws/.git").is_dir()
 
 

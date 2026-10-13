@@ -491,8 +491,10 @@ Protocol:
     - `cwd=<dir>`: started in each guidance directory, tools off.
     - `read=<dir>`: started at the root, read tool on. The agent is told to
       read `<dir>/REACH_PROBE.txt`, then list tokens.
-    - A scenario that runs past `--timeout` is an `error`. Its harness is
-      killed with its process group (POSIX) or job object (Windows). A process
+    - A scenario that runs past `--timeout` is an `error`; its raw stdout up
+      to the kill is kept in the trace. Its harness is killed with its process
+      group (POSIX) or job object (Windows), and so is anything left in that
+      group when the harness exits on its own. A process
       that leaves the group, such as one that calls `setsid()` or daemonizes,
       is not contained. It can outlive the run with the harness's environment,
       credentials included.

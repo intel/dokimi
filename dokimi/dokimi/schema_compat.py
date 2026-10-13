@@ -34,11 +34,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from dokimi import process
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
@@ -221,10 +222,15 @@ def _compare(old: Any, new: Any, path: str, diff: Diff, seen: list[Any],
                                  "(not modelled here, so it cannot be shown to widen)")
 
 
+class GitError(RuntimeError):
+    """A git command that failed, e.g. a path the base revision does not have."""
+
+
 def _git(*args: str) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=SCHEMA_DIR, check=True, capture_output=True, encoding="utf-8"
-    ).stdout
+    proc = process.git(*args, cwd=SCHEMA_DIR, timeout=60)
+    if not proc.ok:
+        raise GitError(f"git {' '.join(args)}: {'timed out' if proc.timed_out else proc.stderr.strip()}")
+    return proc.stdout
 
 
 FIXTURE_DIR = "../../tests/fixtures/artifacts"
@@ -266,7 +272,7 @@ def _base_fixture(base: str, name: str, fixture_dir: str = f"./{FIXTURE_DIR}/") 
     """The artifact fixture for schema ``name`` as of ``base``, if it had one."""
     try:
         return json.loads(_git("show", f"{base}:{fixture_dir}{name}"))
-    except (subprocess.CalledProcessError, json.JSONDecodeError):
+    except (GitError, json.JSONDecodeError):
         return _NO_FIXTURE
 
 

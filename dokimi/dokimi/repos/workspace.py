@@ -33,11 +33,12 @@ import hashlib
 import json
 import os
 import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+from dokimi import process
 
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
@@ -276,9 +277,7 @@ def _has_commit(git_dir: Path, sha: str) -> bool:
 
 
 def _has_object(git_dir: Path, rev: str) -> bool:
-    proc = subprocess.run(["git", "-C", str(git_dir), "cat-file", "-e", rev], capture_output=True,
-                          timeout=_GIT_TIMEOUT_S)
-    return proc.returncode == 0
+    return process.git("-C", str(git_dir), "cat-file", "-e", rev, timeout=_GIT_TIMEOUT_S).ok
 
 
 def _git_env(author: tuple[str, str]) -> dict[str, str]:
@@ -298,11 +297,15 @@ def _git(ws: Path, env: dict[str, str], *args: str, check: bool = True) -> str:
 
 
 def _run(argv: list[str], env: dict[str, str] | None = None, check: bool = True) -> str:
+    """``argv`` (a git command) with exactly ``env``, or the caller's env when it is ``None``
+    (a clone or fetch needs its credential helpers); git never prompts either way."""
+    policy = process.GIT_ENV if env is None else process.Env.only((), {**env, "GIT_TERMINAL_PROMPT": "0"})
     try:
-        proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              env=env, timeout=_GIT_TIMEOUT_S)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        proc = process.run(argv, env=policy, timeout=_GIT_TIMEOUT_S)
+    except OSError as exc:
         raise PrepError(f"{' '.join(argv[:4])}: {exc}") from exc
+    if proc.timed_out:
+        raise PrepError(f"{' '.join(argv[:4])}: timed out after {_GIT_TIMEOUT_S} seconds")
     if check and proc.returncode:
         detail = (proc.stderr or proc.stdout).strip().splitlines()[-3:]
         raise PrepError(f"{' '.join(argv[:5])} exited {proc.returncode}: {' | '.join(detail)}")

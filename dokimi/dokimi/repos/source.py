@@ -18,10 +18,11 @@ import os
 import posixpath
 import re
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable, Protocol
+
+from dokimi import process
 
 # A revision is a SHA, tag or single-segment branch, optionally with ^ / ~N
 # suffixes. No "/" (so "user@host:path" URLs are not split) and no leading "-"
@@ -426,28 +427,23 @@ def _norm(path: str) -> str:
 
 
 def _git(git_dir: Path | None, *args: str, check: bool = True) -> str:
-    cmd = ["git"] + (["-C", str(git_dir)] if git_dir is not None else []) + list(args)
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", env=env,
-                              timeout=_GIT_TIMEOUT_S, check=False)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise SourceError(f"git {args[0]} failed: {exc}") from exc
-    if proc.returncode != 0 and check:
-        detail = proc.stderr.strip().splitlines()[-1:] or [f"exit {proc.returncode}"]
-        raise SourceError(f"git {args[0]} failed: {detail[0]}")
-    return proc.stdout
+    return _run_git(git_dir, list(args), None, check).stdout
 
 
 def _git_bytes(git_dir: Path, args: list[str], stdin: bytes) -> bytes:
     """``git -C git_dir *args`` with binary stdin and stdout."""
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    return _run_git(git_dir, args, stdin, True).stdout_bytes
+
+
+def _run_git(git_dir: Path | None, args: list[str], stdin: bytes | None, check: bool) -> process.Completed:
+    where = ["-C", str(git_dir)] if git_dir is not None else []
     try:
-        proc = subprocess.run(["git", "-C", str(git_dir), *args], input=stdin, capture_output=True, env=env,
-                              timeout=_GIT_TIMEOUT_S, check=False)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        proc = process.git(*where, *args, input=stdin, timeout=_GIT_TIMEOUT_S)
+    except OSError as exc:
         raise SourceError(f"git {args[0]} failed: {exc}") from exc
-    if proc.returncode != 0:
-        detail = proc.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or [f"exit {proc.returncode}"]
+    if proc.timed_out:
+        raise SourceError(f"git {args[0]} failed: timed out after {_GIT_TIMEOUT_S} seconds")
+    if proc.returncode != 0 and check:
+        detail = proc.stderr.strip().splitlines()[-1:] or [f"exit {proc.returncode}"]
         raise SourceError(f"git {args[0]} failed: {detail[0]}")
-    return proc.stdout
+    return proc
