@@ -34,8 +34,28 @@ injected chunks for `docs`, the skill body plus its bundled-file list for
 only through a tool. A `skill-catalog:` arm gives the bodies of the skills its agent
 loaded plus every catalog file list (see [Skill selection](#skill-selection-does-the-agent-load-the-right-skill)).
 `baseline`, `mcp_agent:` and `profile:` arms give it none.
-The output records this as `judge_context: treatment_material.v1`; runs judged
-before it saw 200-character snippets, so re-judge them before comparing.
+The output records this as `judge_context: treatment_material.v1` when every
+score saw the stored material, and `judge_context_sources` counts the scores by
+source. The material is kept in memory for the answering run only, so it reaches
+the judge only when answering and judging happen in the same `arms` run with
+unique question ids (a question with no id is given a positional one; duplicated
+ids are refused). Scores that fell back to the 200-character report snippets
+leave the run unstamped if all of them did — the protocol runs used before the
+stamp existed — and stamp it `treatment_material.v1+snippet_fallback` if only some
+did, which pools with nothing. To compare with an older run, run answering and
+judging again; re-judging an answers file sees only the snippets.
+
+What this changes is the evidence the judge has, not how well it separates good
+answers from bad ones. On 81 skill-arm answers to the perf golden set (Haiku 4.5
+judge, 24 bases, one run), the full material raised the mean intact score from
+85.9 to 89.9, while pairwise accuracy on deterministic degradations went from
+0.869 to 0.808: better on an appended contradiction of the skill (score drop
++11.5, 20/24 pairs, sign test p = 0.002), worse on wrong tool names (0.891 →
+0.674, not significant at this size), unchanged on wrong numbers. A skill arm's
+delta measured with the material is therefore on a higher level than one
+measured without it, and the difference between the two is not evidence that
+the skill helps. `eval judge-validity` passes no context, so it does not
+measure this setting.
 
 Runtime plugins are a separate run dimension, not arms. They modify every arm
 inside the same `(model, harness, plugin_set)` cell, and the JSON/Markdown

@@ -94,6 +94,13 @@ def _validate_pair(control: Dict[str, Any], plugin: Dict[str, Any]) -> None:
         # What the judge was shown. Unstamped runs predate the stamp and were all
         # judged on report snippets, so two of them pair; a stamped and an
         # unstamped one used different judge protocols and do not.
+        from dokimi.eval.judge_context import PROTOCOL_MIXED
+
+        if PROTOCOL_MIXED in (control.get("judge_context"), plugin.get("judge_context")):
+            raise PluginDeltaError(
+                "cannot compute judged plugin delta from a run whose scores mix stored "
+                f"treatment material and report snippets (judge_context {PROTOCOL_MIXED!r})"
+            )
         if control.get("judge_context") != plugin.get("judge_context"):
             raise PluginDeltaError(
                 "cannot compute judged plugin delta across different judge_context: "

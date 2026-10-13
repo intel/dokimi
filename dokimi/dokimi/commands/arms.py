@@ -428,8 +428,41 @@ def _load_questions(path: str) -> list[dict]:
     bad_idx = next((i for i, q in enumerate(questions) if not isinstance(q, dict)), None)
     if bad_idx is not None:
         raise ValueError(f"expected question at index {bad_idx} in {path} to be an object")
+    _check_question_ids(questions, path)
     print(f"Loaded {len(questions)} questions from {path}")
     return questions
+
+
+def _check_question_ids(questions: list[dict], path: str) -> None:
+    """Every question needs its own id: the judge's context is keyed by it.
+
+    `questions.v1` requires `id`, but this loader never checked, and the arm
+    runner falls back to `"unknown_q"`. With a shared key the judge cannot tell
+    which question's treatment material belongs to which answer, so every
+    answer is judged on 200-char report snippets instead. Duplicated ids are
+    refused, since there is no right answer to which question they mean; a
+    missing id is filled from the question's position, which is unique.
+    """
+    ids = [q.get("id") or q.get("question_id") for q in questions]
+    seen: dict = {}
+    for i, qid in enumerate(ids):
+        if qid:
+            seen.setdefault(qid, []).append(i)
+    dupes = {qid: idx for qid, idx in seen.items() if len(idx) > 1}
+    if dupes:
+        sample = ", ".join(f"{qid!r} at {idx}" for qid, idx in list(dupes.items())[:5])
+        raise ValueError(f"duplicate question ids in {path}: {sample}")
+    missing = [i for i, qid in enumerate(ids) if not qid]
+    if missing:
+        taken = set(seen)
+        for i in missing:
+            qid = f"q{i:04d}"
+            while qid in taken:
+                qid = f"_{qid}"
+            questions[i]["id"] = qid
+            taken.add(qid)
+        print(f"Warning: {len(missing)} of {len(questions)} questions in {path} had no id; "
+              f"assigned positional ids (q0000, ...)", file=sys.stderr)
 
 
 def _validate_expected_skills(questions: list[dict], treatments) -> None:

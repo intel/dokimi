@@ -944,3 +944,48 @@ def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypa
 
     assert [m for m in checked if m.startswith("bedrock/")] == [f"bedrock/{mapped}"]
     assert sent == [(f"bedrock/{mapped}", 0.0), (f"bedrock/{mapped}", 0.0)]
+
+
+# ── The stamp follows what the judge actually saw ─────────────────────────
+
+class _DocsPerQuestion:
+    name = "docs-q"
+
+    def prepare(self, question_text, library_name, library_id=None):
+        from dokimi.treatments.base import AgentConfig
+
+        return AgentConfig(injected_context=[{"content": f"docs for {question_text}"}],
+                           context_is_static=False)
+
+
+@pytest.mark.parametrize("questions, from_disk, stamp, sources", [
+    ([{"id": "a", "question": "q1?"}, {"id": "b", "question": "q2?"}], False,
+     "treatment_material.v1", {"stored": 2}),
+    # Measured before stamp_for: these three were stamped v1 with 100% fallback.
+    ([{"question": "q1?"}, {"question": "q2?"}], False, None, {"snippet_fallback": 2}),
+    ([{"id": "a", "question": "q1?"}, {"id": "a", "question": "q2?"}], False,
+     None, {"snippet_fallback": 2}),
+    ([{"id": "a", "question": "q1?"}, {"id": "b", "question": "q2?"}], True,
+     None, {"snippet_fallback": 2}),
+])
+def test_stamp_follows_the_score_sources(monkeypatch, questions, from_disk, stamp, sources):
+    _patch_llm(monkeypatch, [])
+    runner = ArmRunner([_DocsPerQuestion()])
+    records = runner.run("oneTBB", questions, concurrency=1)
+    if from_disk:
+        runner = ArmRunner([_DocsPerQuestion()])  # a new process: empty store
+    evaluations = runner.judge(_FakeJudge(), "oneTBB", records, baseline_arm="docs-q")
+    out = runner.build_output("oneTBB", records, evaluations, baseline_arm="docs-q",
+                              judge=_FakeJudge())
+    assert out.get("judge_context") == stamp
+    assert out["judge_context_sources"] == sources
+
+
+def test_stamp_for_mixed_and_empty_sources():
+    from dokimi.eval.judge_context import PROTOCOL, PROTOCOL_MIXED, stamp_for
+
+    assert stamp_for(["stored", "snippet_fallback"]) == PROTOCOL_MIXED
+    assert stamp_for(["stored", None]) == PROTOCOL
+    assert stamp_for([None]) == PROTOCOL       # nothing judged: keep the protocol
+    assert stamp_for([]) == PROTOCOL
+    assert stamp_for(["snippet_fallback", None]) is None

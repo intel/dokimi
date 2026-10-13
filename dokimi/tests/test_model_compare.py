@@ -786,6 +786,20 @@ def test_consistency_refuses_judge_context_that_differs(stamp_a, stamp_b):
         check_run_consistency(runs, "regular")
 
 
+@pytest.mark.parametrize("other", [None, _V1, _V1 + "+snippet_fallback"])
+def test_consistency_refuses_a_mixed_run_even_against_another_mixed_one(other):
+    """Two mixed runs fell back on different answers; they share a label, not evidence."""
+    runs = [_stamped("a", _V1 + "+snippet_fallback"), _stamped("b", other)]
+    with pytest.raises(SystemExit, match="pools with nothing"):
+        check_run_consistency(runs, "regular")
+
+
+def test_consistency_message_says_to_rerun_not_rejudge():
+    runs = [_stamped("a", None), _stamped("b", _V1)]
+    with pytest.raises(SystemExit, match="Re-run answering and judging"):
+        check_run_consistency(runs, "regular")
+
+
 @pytest.mark.parametrize("stamp", [None, _V1])
 def test_consistency_allows_judge_context_that_matches(stamp):
     runs = [_stamped("a", stamp), _stamped("b", stamp)]

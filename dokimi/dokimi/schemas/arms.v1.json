@@ -48,8 +48,16 @@
       ]
     },
     "judge_context": {
-      "description": "Protocol for what the judge was shown about each arm's treatment material (e.g. treatment_material.v1). Absent on runs judged on 200-char report snippets, before the stamp existed.",
+      "description": "Protocol for what the judge was shown about each arm's treatment material. treatment_material.v1 when every score saw the stored material; treatment_material.v1+snippet_fallback when only some did (pools with nothing). Absent when every score used the 200-char report snippets — the protocol of runs judged before the stamp existed.",
       "type": "string"
+    },
+    "judge_context_sources": {
+      "description": "Judged scores counted by judge_context_source (stored / snippet_fallback).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
     },
     "arms": {
       "type": "array",

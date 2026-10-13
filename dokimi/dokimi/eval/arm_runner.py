@@ -13,6 +13,7 @@ import json
 import logging
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,7 @@ from dokimi.eval.arm_summary import (
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
+from dokimi.eval.judge_context import stamp_for as judge_context_stamp
 from dokimi.eval.judge_context import JudgeContextStore
 from dokimi.eval.judge_context import build as build_judge_context
 from dokimi.eval.judge_context import join_injected
@@ -522,7 +524,24 @@ class ArmRunner:
         if evaluations is not None:
             out["evaluations"] = evaluations
             out["summary"] = self._summarize(evaluations, baseline_arm)
-            out["judge_context"] = JUDGE_CONTEXT_PROTOCOL
+            sources = [
+                s.get("judge_context_source")
+                for ev in evaluations for s in (ev.get("scores") or {}).values()
+                if isinstance(s, dict)
+            ]
+            out["judge_context_sources"] = dict(sorted(Counter(
+                s for s in sources if s is not None).items()))
+            stamp = judge_context_stamp(sources)
+            if stamp is not None:
+                out["judge_context"] = stamp
+            if stamp != JUDGE_CONTEXT_PROTOCOL:
+                logger.warning(
+                    "Judge context for this run: %s — %s. Answer and judge in one "
+                    "process, with unique question ids, for treatment-material scores.",
+                    out["judge_context_sources"],
+                    "unstamped, so it pools only with pre-treatment-material runs"
+                    if stamp is None else f"stamped {stamp!r}, which pools with nothing",
+                )
             if judge is not None:
                 out["judge_model"] = getattr(judge, "model", None)
                 out["judge_provider"] = getattr(judge, "provider", None)
