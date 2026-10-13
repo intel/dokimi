@@ -42,6 +42,97 @@ verdict scale only 66% of the time, but 85% on the correct-ish binary collapse. 
 and the rankings; do not trust the second decimal of a level.** Every number is therefore reported
 twice, under a lenient and a strict grading.
 
+## Reading the output: what each label is, and who decided it
+
+Every label in a `novelty.v1` artifact is either **measured** (two answers to the same probe,
+graded) or **judged** (one model's call about an atom). The two kinds fail differently, so each
+entry below says which it is.
+
+### Strict and lenient (measured)
+
+The judge grades each answer on six verdicts (`VERDICTS` in `novelty/measure.py`):
+`correct_complete`, `correct_missing_qualifier`, `partially_correct`, `wrong_other`,
+`wrong_reversed`, `abstained`. The two scorings collapse them differently:
+
+| scoring | counts as correct |
+|---|---|
+| strict | `correct_complete` |
+| lenient | `correct_complete`, `correct_missing_qualifier`, `partially_correct` |
+
+The gap between them is information, not noise. Lenient `added` is knowledge the model did not
+have at all. Strict `added` adds the cases where the model had the gist and the artifact supplied
+the exact qualifier, value or ordering. **Prefer strict for any decision.** Strict `added` tracked
+the measured task delta (ρ 0.620 pooled, 0.625 ranking models within an artifact); lenient did not
+(0.126 and 0.000; [evidence §10.8](skill-novelty-evidence.md)). The two graders' bias also runs in
+opposite directions under the two scorings (+7.7pp strict, −11.6pp lenient), so **quote no
+`added` difference below 0.15** ([§10.21](skill-novelty-evidence.md)).
+
+### Content categories (one axis measured, one judged)
+
+| | needed for the task | not needed |
+|---|---|---|
+| **new to the model** | `novel_useful` | `novel_inert` |
+| **already known** | `known_useful` | `known_inert` |
+
+plus `scaffolding` (structure, navigation, restated headings, workflow framing: text that cannot
+be right or wrong) and `harmful_conflicting` (below), which overrides the other five.
+
+- **Known vs new is measured.** It comes from the atom's paired probes under lenient grading,
+  taking the worst outcome in the order `degraded` → `added` → `still_missing` → `redundant`.
+  `redundant` or `degraded` means known. An atom that was never probed counts as new, which is
+  the direction that does not claim the model knew something nobody asked it. The model is never
+  asked whether it knew something.
+- **Needed vs inert is judged.** The extractor model sees the task and answers, per atom, *"can
+  acting on this task go wrong, or be much slower, without knowing it?"* The task is built from
+  the artifact's `name` and `description` plus the need graph's `core` and `rare_critical` nodes,
+  never from the body, so an artifact cannot make itself relevant by containing a sentence.
+  Eval files are not part of it either.
+- **Reliability.** An independent reviewer agreed with 71.6% of assignments (853 atoms); read
+  useful-vs-inert as ±3 points and known-vs-novel as ±2. `scaffolding` is the most stable share
+  ([§4](skill-novelty-evidence.md)).
+- **Inert is not "safe to delete".** Dropping all inert atoms at once was non-inferior on pooled
+  data and *worse* on the smallest model for one skill ([§10.6](skill-novelty-evidence.md)).
+- An atom the value judge did not answer for gets no category. The artifact says how many, rather
+  than counting them as inert.
+
+### `harmful_conflicting` (judged)
+
+The extractor model is shown batches of 40 atom statements and asked for pairs that *"cannot both
+be true, or give incompatible instructions for the same situation"*. Both atoms of a pair are
+marked. Read it as a review queue:
+
+- **Internal only.** It says the two statements disagree, not which is wrong. That needs a
+  primary source, which this layer does not consult.
+- **Lower bound.** Only atoms in the same call are compared. Above 40 atoms, most pairs are never
+  compared, and the artifact states the share (`X of Y atom pairs shared a call`).
+- **Common false positives:** steps of one procedure read as alternatives ("watch it fail" …
+  "watch it pass"), and a rule next to its stated exception. Check each pair against the text
+  before editing.
+
+It is reported first because it is the only category that can make an artifact worse than no
+artifact. `degraded` (right without the artifact, wrong with it) is the measured counterpart.
+
+### Atom kinds and tags (judged, at extraction)
+
+The extractor labels every atom with one `kind` (`proposition`, `edge`, `motif`, `contract`,
+`example`) and any number of tags (`local`, `public`, `procedural`, `routing`,
+`negative_constraint`, `version_bound`, `rare_critical`, `temporal`, `evidence`). The per-tag
+tables slice the same 2×2 by label. Tags overlap, so their rows do not sum, and an atom may carry
+neither `local` nor `public`. Relabelled by two other models ([§10.9](skill-novelty-evidence.md)):
+
+| labels | κ against the reference |
+|---|---|
+| `routing`, `negative_constraint`, `version_bound` | 0.61–0.73 |
+| `procedural`, `evidence` | 0.60–0.65 |
+| `local`, `public` | 0.52–0.62, the least reproducible tags |
+| `rare_critical` | 0.39–0.45 |
+| `kind` (5-way) | 0.32–0.38 |
+
+So gate on the protection tags or on nothing, and quote `local`/`public` splits as labels. A high
+`added` on `local` atoms means the artifact transmits its own conventions (names, layouts, the
+next step to take), which no model could know. It does not mean those conventions beat the
+model's default; only the task arm can say that.
+
 ## Novelty is a property of the pair, not of the file
 
 The same artifact is worth very different amounts to different models:
