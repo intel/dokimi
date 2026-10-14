@@ -310,7 +310,7 @@ directory works without it.
 
 ## 6. Products this repository has never heard of
 
-The committed registry is the top-level `products.yaml`. A product outside it
+The committed registry is the bundled `dokimi/products.yaml`. A product outside it
 is unknown, and `benchmark` says so rather than inventing one:
 
 ```console

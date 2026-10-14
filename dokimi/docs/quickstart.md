@@ -231,7 +231,7 @@ per answer in `answers/<product>.json`.
 | LLM calls fail / wrong provider | All providers go through LiteLLM (`dokimi/llm.py`); set the matching `*_API_KEY` and pass `--provider`/`--model`. LangChain is used only by `eval ragas`, which wraps its judge in `ChatOpenAI`/`ChatAnthropic` (`langchain-openai` comes with ragas; `langchain-anthropic` is a direct dependency). |
 | `No module named numpy` | Pipeline falls back to exact-text dedup; install numpy for embedding-based dedup |
 | `GitHub client not available` | Pipeline uses `gh` CLI fallback; `pip install PyGithub` to silence |
-| Context7 timeout | Raise `context7.timeout` in `config/products.yaml` |
+| Context7 timeout | Raise `context7.timeout` in `dokimi/config/products.yaml` (or in a config/products.yaml of your own in the working directory) |
 | Rate limiting | OpenAI 10K TPM default, Anthropic 10K TPM default; lower `--concurrency` |
 
 ## Where to look next

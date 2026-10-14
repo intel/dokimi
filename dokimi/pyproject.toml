@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,11 +8,13 @@ version = "0.1.0"
 description = "Measures whether a skill, MCP doc source, documentation set or agent profile actually improves AI-agent answers and task outcomes"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Intel Corporation" }]
 keywords = ["documentation", "benchmark", "evaluation", "llm", "rag"]
 classifiers = [
-  "License :: OSI Approved :: Apache Software License",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -50,6 +52,7 @@ dev = [
   "mypy>=1.8",
   "types-PyYAML",
   "types-jsonschema",
+  "scriv>=1.5",
 ]
 ocr = ["docling>=2.0"]
 mcp = ["mcp>=1.0"]
@@ -64,16 +67,40 @@ dokimi = "dokimi.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/intel/dokimi"
+Documentation = "https://intel.github.io/dokimi/"
 Repository = "https://github.com/intel/dokimi"
-
-[tool.setuptools]
-py-modules = ["cli"]
+Issues = "https://github.com/intel/dokimi/issues"
+Changelog = "https://github.com/intel/dokimi/blob/main/dokimi/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["dokimi*"]
 
 [tool.setuptools.package-data]
-dokimi = ["schemas/*.json", "repos/profiles/*.yaml", "repos/support/*.py"]
+# Everything the package reads at run time from next to its own modules. A file
+# missing here works from a checkout and breaks only in an installed wheel;
+# tests/test_packaging.py and the CI `package` job catch that.
+dokimi = [
+  "products.yaml",
+  "intents.yaml",
+  "config/*.yaml",
+  "runner/spec.schema.json",
+  "schemas/*.json",
+  "repos/profiles/*.yaml",
+  "repos/support/*.py",
+]
+
+[tool.scriv]
+# Changelog fragments: every PR adds its own changelog.d/<name>.md instead of
+# editing CHANGELOG.md, so concurrent PRs never conflict there. See
+# changelog.d/README.md.
+format = "md"
+fragment_directory = "changelog.d"
+new_fragment_template = "file: fragment_template.md.j2"
+categories = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security", "Documentation"]
+output_file = "CHANGELOG.md"
+md_header_level = "2"
+entry_title_template = "[{{ version }}] — {{ date.strftime('%Y-%m-%d') }}"
+version = "literal: pyproject.toml: project.version"
 
 [tool.ruff]
 line-length = 100

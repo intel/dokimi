@@ -44,7 +44,7 @@ def _load_spec(spec_path: Path) -> dict:
     """Load a benchmark spec YAML with explicit, descriptive failures.
 
     Full v1 specs (those declaring ``version``/``golden_manifest``) are
-    validated against ``benchmarks/spec.schema.json``. Minimal/legacy specs
+    validated against ``dokimi/runner/spec.schema.json``. Minimal/legacy specs
     skip schema validation but still get the lightweight presence checks below.
     """
     data = load_spec(spec_path)

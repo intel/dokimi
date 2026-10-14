@@ -23,7 +23,11 @@ def cmd_explore_list(args: argparse.Namespace) -> None:
 
     root = Path(args.tasks_root) if args.tasks_root else None
     default_repo_root = Path(args.repo_root) if getattr(args, "repo_root", None) else None
-    for task in discover_explore_tasks(root, default_repo_root=default_repo_root):
+    try:
+        tasks = discover_explore_tasks(root, default_repo_root=default_repo_root)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+    for task in tasks:
         n_refs = len(task.references)
         print(f"{task.id}\t{task.product}\t{n_refs} ref(s)\t{task.query[:60]}")
 
@@ -77,13 +81,16 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
 
     root = Path(args.tasks_root) if args.tasks_root else None
     default_repo_root = Path(args.repo_root) if getattr(args, "repo_root", None) else None
-    if args.all:
-        tasks = discover_explore_tasks(root, default_repo_root=default_repo_root)
-    else:
-        ids = [t.strip() for t in (args.tasks or "").split(",") if t.strip()]
-        tasks = [
-            load_explore_task(t, root=root, default_repo_root=default_repo_root) for t in ids
-        ]
+    try:
+        if args.all:
+            tasks = discover_explore_tasks(root, default_repo_root=default_repo_root)
+        else:
+            ids = [t.strip() for t in (args.tasks or "").split(",") if t.strip()]
+            tasks = [
+                load_explore_task(t, root=root, default_repo_root=default_repo_root) for t in ids
+            ]
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
     if not tasks:
         raise SystemExit("No tasks selected. Pass --tasks <id[,id]> or --all.")
 

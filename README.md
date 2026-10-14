@@ -117,8 +117,9 @@ read on GitHub under [`dokimi/docs/`](dokimi/docs/README.md).
 | How coding agents are run against executable Docker tasks | [`dokimi/docs/coding-harnesses.md`](dokimi/docs/coding-harnesses.md) |
 | What a skill actually adds to a model, and what can be cut | [`dokimi/docs/skill-novelty.md`](dokimi/docs/skill-novelty.md) |
 | How a whole repository is evaluated as a subject | [`dokimi/docs/repo-evaluation-contract.md`](dokimi/docs/repo-evaluation-contract.md) |
-| What products are registered | [`dokimi/products.yaml`](dokimi/products.yaml) |
-| What user problems map to which product | [`dokimi/intents.yaml`](dokimi/intents.yaml) |
+| What products are registered | [`dokimi/dokimi/products.yaml`](dokimi/dokimi/products.yaml) |
+| What user problems map to which product | [`dokimi/dokimi/intents.yaml`](dokimi/dokimi/intents.yaml) |
+| What changed in each release | [`dokimi/CHANGELOG.md`](dokimi/CHANGELOG.md) |
 
 ## License
 

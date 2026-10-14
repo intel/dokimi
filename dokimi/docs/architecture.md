@@ -4,7 +4,7 @@
 executable-task suite, and two tracks that change the *question* rather than the
 pipeline: content novelty (what does an artifact add to a model?) and
 repositories as evaluation subjects (can a repo supply its own tasks?). They
-share configuration (`config/products.yaml`, `products.yaml`, `intents.yaml`)
+share configuration (`dokimi/config/products.yaml`, `products.yaml`, `intents.yaml`)
 and a single CLI entry point (`cli.py`) but otherwise operate independently.
 
 ```text
@@ -277,9 +277,9 @@ still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
   the problem/intent space mapping domains (data science, debugging,
   optimization, …) to the products that serve them. Consistency with
   `products.yaml` is enforced by `python -m dokimi.config_check`.
-- `config/products.yaml` — per-product config: GitHub repo, Context7 ID,
+- `dokimi/config/products.yaml` — per-product config: GitHub repo, Context7 ID,
   retrieval defaults, judge model, persona count.
-- `benchmarks/spec.v1.yaml` + `benchmarks/spec.schema.json` — declarative
+- `benchmarks/spec.v1.yaml` + `dokimi/runner/spec.schema.json` — declarative
   static-benchmark configuration.
 
 ## CI
@@ -297,7 +297,7 @@ label.
 2. **mypy** — type check of the whole package (modules listed in the
    `pyproject.toml` override are exempt until fixed).
 3. **schema** — `schema_check` validates `benchmarks/spec.v1.yaml`;
-   `config_check` checks `products.yaml`/`intents.yaml`/`config/products.yaml`
+   `config_check` checks `products.yaml`/`intents.yaml`/`dokimi/config/products.yaml`
    drift.
 4. **test** — pytest from `requirements.lock.txt`, offline, with coverage
    (Python 3.11–3.14); on a PR, 80% of the changed lines must be covered.

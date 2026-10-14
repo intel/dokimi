@@ -29,11 +29,11 @@ It compares against the remote whose URL is `intel/dokimi` (printed first; overr
 - The Python package is `dokimi/dokimi/` (package inside the project directory),
   organized by pipeline stage (`metrics/`, `questions/`, `eval/`, `gate/`, `treatments/`, …).
   See `dokimi/docs/architecture.md` for the module map.
-- Key registries (top level of `dokimi/`):
-  - `dokimi/products.yaml` — product identity + doc sources (what products exist).
-  - `dokimi/intents.yaml` — problem/intent domains mapped to products (what user
+- Key registries (bundled in the package, so they ship in the wheel):
+  - `dokimi/dokimi/products.yaml` — product identity + doc sources (what products exist).
+  - `dokimi/dokimi/intents.yaml` — problem/intent domains mapped to products (what user
     problems exist). The domain→product mapping lives only here.
-  - `dokimi/config/products.yaml` — LLM/runtime config for the eval track only;
+  - `dokimi/dokimi/config/products.yaml` — LLM/runtime config for the eval track only;
     identity stated there must not drift from `products.yaml`.
 - Executable tasks (Docker + oracle solution + pytest verifier) are evaluation
   content and live in a separate content repository. Point the framework at a
@@ -51,6 +51,11 @@ It compares against the remote whose URL is `intel/dokimi` (printed first; overr
   evaluation content, passed in by path from a content checkout. Captured runs
   stay out of the tree and their formats are locked by
   `dokimi/dokimi/schemas/`.
+- A PR that changes `dokimi/dokimi/` adds a changelog fragment under
+  `dokimi/changelog.d/` (`scriv create`), never an edit to `CHANGELOG.md`; the
+  `changelog` workflow enforces it. A file the package reads at run time goes
+  inside `dokimi/dokimi/` and into `[tool.setuptools.package-data]`.
+  Versioning and releases: `dokimi/docs/releasing.md`.
 - Status reports and phase plans do not belong in the repo — use PR
   descriptions and issues.
 - All changes to `main` go through pull requests, opened from a fork. Add the

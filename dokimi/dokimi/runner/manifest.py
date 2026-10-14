@@ -3,7 +3,7 @@
 
 """Reproducibility manifest for a benchmark run.
 
-Captures enough provenance to replay a run: the git commit, Python/platform,
+Captures enough provenance to replay a run: the dokimi version, the git commit, Python/platform,
 resolved versions of key dependencies, hashes of the spec and the selected
 document set, and any models/providers used. Emitted alongside artifacts so a
 result can be tied back to exactly what produced it.
@@ -17,6 +17,8 @@ import subprocess
 from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
+
+from dokimi import __version__
 
 # Direct dependencies whose versions materially affect results.
 TRACKED_DEPS = (
@@ -78,6 +80,7 @@ def build_run_manifest(
     """Assemble a provenance manifest for the current run."""
     manifest: dict = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "dokimi_version": __version__,
         "git": {
             "sha": _git("rev-parse", "HEAD"),
             "dirty": bool(_git("status", "--porcelain")),

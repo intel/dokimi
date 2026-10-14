@@ -3,7 +3,7 @@
 # how documentation is retrieved. Every block below is read at run time.
 #
 # Product *identity* (name, description, repo, context7_id, doc sources) lives
-# in the top-level `products.yaml` registry and is not restated here.
+# in the `products.yaml` registry next to this directory and is not restated here.
 #
 # An optional `products:` block is still honoured, for a caller who keeps
 # eval-track overrides per product:

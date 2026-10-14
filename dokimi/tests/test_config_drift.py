@@ -38,7 +38,7 @@ def test_load_products_config():
     assert cfg.llm  # answerer/judge/generator block present
     assert cfg.llm["answerer"]["default"]
     assert cfg.raw["retrieval"]["top_k"] >= 1
-    # Product identity lives in the top-level products.yaml, not here.
+    # Product identity lives in the products.yaml registry, not here.
     assert cfg.products == {}
 
 

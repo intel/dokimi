@@ -32,7 +32,9 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     )
 
     # Load config
-    config_path = Path("config/products.yaml")
+    from dokimi.config import runtime_config_path
+
+    config_path = runtime_config_path()
     config: dict = {}
     if config_path.exists():
         try:

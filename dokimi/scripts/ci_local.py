@@ -181,6 +181,7 @@ class Context:
             "github.workspace": str(REPO),
             "needs.changes.outputs.code": "true",
             "contains(github.event.pull_request.labels.*.name, 'schema-break-ok')": "false",
+            "contains(github.event.pull_request.labels.*.name, 'skip-changelog')": "false",
         }
 
     def expand(self, text: str) -> str:

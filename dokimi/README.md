@@ -151,7 +151,8 @@ dashboards, and baselines, see
 
 ## Product and intent registries
 
-Two top-level YAML registries describe what the benchmark can evaluate:
+Two YAML registries, bundled in the package (`dokimi/products.yaml`,
+`dokimi/intents.yaml`), describe what the benchmark can evaluate:
 
 - **`products.yaml`** — *what products exist*: identity, description, repo, and
   doc sources for each product (oneTBB, oneMKL, VTune, dpnp, …). Used by
@@ -164,7 +165,7 @@ Two top-level YAML registries describe what the benchmark can evaluate:
 
 The domain→product mapping lives only in `intents.yaml`;
 `python -m dokimi.config_check` (run in CI) fails if it references an
-unregistered product, or if `config/products.yaml` drifts from `products.yaml`.
+unregistered product, or if `dokimi/config/products.yaml` drifts from `products.yaml`.
 Explore the mapping with:
 
 ```bash

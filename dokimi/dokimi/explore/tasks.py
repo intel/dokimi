@@ -35,6 +35,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 EXPLORE_TASKS_ROOT = REPO_ROOT / "data" / "explore_tasks"
 
 
+def _tasks_root(root: Path | None) -> Path:
+    """``root``, else the bundled tasks — which exist only in a source checkout."""
+    if root is not None:
+        return Path(root)
+    if not EXPLORE_TASKS_ROOT.is_dir():
+        raise FileNotFoundError(
+            f"No bundled explore tasks at {EXPLORE_TASKS_ROOT}: they ship with a source "
+            "checkout of dokimi, not with the installed package. Pass --tasks-root <dir>."
+        )
+    return EXPLORE_TASKS_ROOT
+
+
 @dataclass(frozen=True)
 class ExploreReference:
     """One ground-truth location: a path and an optional inclusive line range."""
@@ -142,12 +154,12 @@ def load_explore_task(
             ``repo_root:`` (defaults to this repository, which is only right
             for the self-dogfooding tasks bundled here).
     """
-    root = Path(root or EXPLORE_TASKS_ROOT)
     candidate = Path(ref)
     if candidate.is_file():
         data = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
         return _task_from_data(data, candidate, default_repo_root)
 
+    root = _tasks_root(root)
     files = _task_files(root)
     loaded = [(path, yaml.safe_load(path.read_text(encoding="utf-8")) or {}) for path in files]
     id_matches = [(path, data) for path, data in loaded if str(data.get("id")) == ref]
@@ -172,7 +184,7 @@ def discover_explore_tasks(
     ``default_repo_root`` is the tree a task scores against when its YAML omits
     ``repo_root:``; it defaults to this repository.
     """
-    root = Path(root or EXPLORE_TASKS_ROOT)
+    root = _tasks_root(root)
     tasks = []
     for path in _task_files(root):
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}

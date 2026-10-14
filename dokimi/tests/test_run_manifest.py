@@ -5,12 +5,14 @@
 
 from __future__ import annotations
 
+from dokimi import __version__
 from dokimi.runner.manifest import build_run_manifest, hash_files, dep_versions
 
 
 def test_manifest_core_fields():
     m = build_run_manifest()
     assert "generated_at" in m
+    assert m["dokimi_version"] == __version__
     assert set(m["git"]) == {"sha", "dirty", "branch"}
     assert m["python"]
     assert "jsonschema" in m["dependencies"]

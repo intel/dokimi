@@ -1,4 +1,6 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-__all__ = []
+from dokimi._version import __version__
+
+__all__ = ["__version__"]

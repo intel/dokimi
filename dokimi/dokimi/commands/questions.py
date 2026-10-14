@@ -214,7 +214,9 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
     from dokimi.questions import RagasSeedExtractor, QuestionGenerator, QuestionValidator
 
     # Load config
-    config_path = Path("config/products.yaml")
+    from dokimi.config import runtime_config_path
+
+    config_path = runtime_config_path()
     if config_path.exists():
         config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     else:

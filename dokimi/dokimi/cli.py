@@ -30,6 +30,7 @@ from dokimi.commands import (
     subjects,
     tasks,
 )
+from dokimi import __version__
 from dokimi.console import tolerate_console_encoding
 
 
@@ -47,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         return ivalue
 
     p = argparse.ArgumentParser(prog="dokimi")
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     # Order preserved to keep --help output stable.

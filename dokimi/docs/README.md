@@ -273,6 +273,8 @@ code.
 - [contributing-terminal-bench-task.md](contributing-terminal-bench-task.md)
   — the executable task format (directory layout, `task.toml` fields, verifier
   and oracle contract) that tasks in the external content repository follow.
+- [releasing.md](releasing.md) — version numbers, changelog fragments, cutting
+  a release, and the PyPI and conda-forge path.
 
 ## Methodology
 

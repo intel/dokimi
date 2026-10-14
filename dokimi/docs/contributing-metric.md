@@ -76,7 +76,7 @@ metrics:
 Re-normalize the other weights so they sum to 1.0 over the enabled set, or
 let the runner do it (it normalizes across active metrics at score time).
 
-Update `benchmarks/spec.schema.json` to declare any new config keys your
+Update `dokimi/runner/spec.schema.json` to declare any new config keys your
 metric reads — the runner validates the spec against the schema and will
 refuse to start if required keys are missing.
 
