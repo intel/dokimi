@@ -106,5 +106,11 @@
       matchDepNames: ["langchain-community"],
       allowedVersions: "<0.4.2",
     },
+    {
+      // litellm (up to 1.105.1) requires openai<3; v3 resolves to an
+      // old, vulnerable litellm. Lift once litellm accepts openai 3.
+      matchDepNames: ["openai"],
+      allowedVersions: "<3",
+    },
   ],
 }
