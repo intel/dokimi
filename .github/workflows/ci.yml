@@ -26,6 +26,11 @@ defaults:
   run:
     working-directory: dokimi
 
+# Single-version jobs (here, in agent-quality.yml, contracts.yml, docs.yml and
+# stack-health.yml), the coverage-gate leg and `make dev` use Python 3.13, not
+# 3.14: scikit-network (pulled in by ragas) has no cp314 wheels yet, so on 3.14
+# every install builds it from source (C++ with OpenMP, unpinned build deps).
+# Move them to 3.14 once scikit-network ships cp314 wheels.
 jobs:
   lint:
     # Lint only: most of the tree predates the formatter (205 of 276 files would
@@ -38,8 +43,9 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: '3.11'
-      - run: pip install 'ruff>=0.6'
+          python-version: '3.13'
+      # 0.12: per-file-target-version, and the version syntax errors it enables.
+      - run: pip install 'ruff>=0.12'
       - name: ruff check
         run: ruff check .
 
@@ -52,7 +58,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - run: pip install -r requirements.lock.txt
       - run: pip install 'mypy>=1.8' types-PyYAML types-jsonschema
       - name: mypy
@@ -67,7 +73,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - run: pip install PyYAML jsonschema
       - name: schema-check
         run: python -m dokimi.schema_check benchmarks/spec.v1.yaml
@@ -82,7 +88,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -104,7 +110,7 @@ jobs:
       # Below 20 measurable changed lines one missed line swings the percentage
       # by 5+ points, so small PRs get the report without the gate.
       - name: Coverage of changed lines
-        if: github.event_name == 'pull_request' && matrix.python-version == '3.11'
+        if: github.event_name == 'pull_request' && matrix.python-version == '3.13'
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
@@ -122,7 +128,7 @@ jobs:
               sys.exit(f"coverage of changed lines {pct}% < 80% (see the step summary)")
           PY
       - name: Upload coverage
-        if: always() && matrix.python-version == '3.11'
+        if: always() && matrix.python-version == '3.13'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: coverage
@@ -137,7 +143,7 @@ jobs:
   # breaks the framework -- the signal to fix the code or the range and then
   # regenerate requirements.lock.txt -- without failing anyone's PR.
   test-latest:
-    name: Tests (latest deps, py3.12)
+    name: Tests (latest deps, py3.13)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -146,7 +152,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: '3.12'
+          python-version: '3.13'
       - name: Install newest allowed deps
         run: pip install --upgrade -r requirements.txt -r requirements-test.txt
       - name: Run tests
@@ -166,7 +172,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - run: pip install zizmor==1.30.1
       - name: zizmor
         run: zizmor --offline --min-severity medium .github/workflows
@@ -182,7 +188,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - run: pip install bandit==1.9.4 pip-audit==2.10.1
       - name: bandit
         run: bandit -r . -ll -q
@@ -190,9 +196,9 @@ jobs:
       # documentation site), so --no-deps --disable-pip audits them as written
       # without resolving or installing anything. Each --ignore-vuln is
       # an advisory SECURITY.md documents; add or drop them together.
-      # pip-audit skips a pin whose marker is false on this 3.11 runner (the 3.10
-      # pins, for one), so markers are stripped, a pin both locks share is kept
-      # once, and a name pinned twice goes to a second file.
+      # pip-audit skips a pin whose marker is false on this 3.13 runner (the
+      # pins for older interpreters, for one), so markers are stripped, a pin
+      # both locks share is kept once, and a name pinned twice goes to a second file.
       # !cancelled(): a bandit finding must not hide an advisory. Without it a
       # failing bandit step skips this one and the job reports one problem of two.
       - name: pip-audit
@@ -206,16 +212,22 @@ jobs:
               --ignore-vuln PYSEC-2026-3046
           done
 
+  # Installs the built package with a fresh resolve of its dependency ranges, not
+  # the lock: the floor version checks what `pip install dokimi` gives a 3.11 user.
   package-smoke:
-    name: Package install smoke test
+    name: Package install smoke test (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
       - name: Build & install from sdist/wheel
         run: |
           python -m pip install --upgrade pip build

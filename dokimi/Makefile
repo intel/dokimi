@@ -16,9 +16,11 @@ BASE ?= baselines/baseline.json
 .PHONY: validate-benchmark-spec benchmark-run benchmark-compare dev ci-local hooks
 
 # `make dev` venv: at the repo root, outside this directory, so `bandit -r .`
-# and the docs benchmark (both run from here) do not scan it. CI's Python.
+# and the docs benchmark (both run from here) do not scan it. CI's Python:
+# 3.13 until scikit-network ships cp314 wheels (see the top of ci.yml). An
+# existing venv on another Python is converted in place by re-running `make dev`.
 VENV ?= ../.venv
-PYTHON_VERSION ?= 3.11
+PYTHON_VERSION ?= 3.13
 VENV_ABS := $(abspath $(VENV))
 VPY := $(VENV_ABS)/bin/python
 

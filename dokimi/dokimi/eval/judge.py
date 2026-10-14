@@ -18,7 +18,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
-from dokimi.eval.diagnoser import diagnose
+from dokimi.eval.diagnoser import diagnose, retrieval_hit
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
 from dokimi.eval.panel import SCORE_ANCHORS
@@ -427,6 +427,9 @@ class Judge:
 
         # Classify retrieval outcome (why docs helped or didn't)
         result["diagnosis"] = diagnose(answer, result)
+        # Carried onto the eval record because the trust gate reads eval.v1, not
+        # the answers it was judged from.
+        result["retrieval_hit"] = retrieval_hit(answer)
         return result
     
     # Dimensions for standard (no ground truth) evaluation

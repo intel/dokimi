@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from dokimi.commands.evaluate import _warn_judge_independence
+from dokimi.eval.judge import JUDGE_PROVIDERS
 
 
 def cmd_evaluate(args: argparse.Namespace) -> None:
@@ -106,7 +107,7 @@ def register(sub, positive_int) -> None:
     eval_p.add_argument("--model", default="gpt-4o-mini", help="LLM model for generation/answering")
     eval_p.add_argument("--provider", default="openai", choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
     eval_p.add_argument("--judge-model", default="gpt-4o-mini", help="LLM model for evaluation")
-    eval_p.add_argument("--judge-provider", default="openai", choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    eval_p.add_argument("--judge-provider", default="openai", choices=JUDGE_PROVIDERS)
     eval_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                         help="Judge sampling temperature, recorded as judge_temperature in the eval output")
     eval_p.add_argument("--personas-count", type=positive_int, default=5, help="Target number of personas")

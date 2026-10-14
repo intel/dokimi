@@ -51,7 +51,7 @@ The project is pre-1.0; interfaces and artifact schemas may still change.
 
 ## Requirements and setup
 
-- Python 3.10–3.13.
+- Python 3.11–3.14.
 - API keys for the models you run, read from the environment:
   `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or any other
   [LiteLLM](https://docs.litellm.ai/docs/providers) provider (for example

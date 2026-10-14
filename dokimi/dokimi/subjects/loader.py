@@ -6,15 +6,11 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 from typing import Any
 
 from .models import NON_ARM_KINDS, SUBJECT_KINDS, SubjectArtifact, SubjectDescriptor, SubjectMember, SubjectSuite
-
-try:  # pragma: no cover - exercised via whichever parser the interpreter has
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover
-    import tomli as tomllib
 
 
 def load_subject(path: str | Path) -> SubjectDescriptor:

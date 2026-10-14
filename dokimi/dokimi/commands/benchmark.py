@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from dokimi.commands.evaluate import _warn_judge_independence
+from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -73,6 +74,7 @@ def _api_key_name(provider: str) -> str:
         "anthropic": "ANTHROPIC_API_KEY",
         "openrouter": "OPENROUTER_API_KEY",
         "amazon-bedrock": "AWS_BEARER_TOKEN_BEDROCK",
+        "google": "GEMINI_API_KEY",
         "google-vertex": "GEMINI_API_KEY",
         "openai-codex": "OPENAI_API_KEY",
     }.get(provider, "OPENAI_API_KEY")
@@ -321,7 +323,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
     bench_run_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
     bench_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
-                             choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+                             choices=JUDGE_PROVIDERS)
     bench_run_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_run_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
                              help="Max tokens to retrieve per question from doc source (default: 4000)")
@@ -355,7 +357,7 @@ def register(sub, positive_int) -> None:
     bench_pre_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
     bench_pre_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
-    bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
     bench_pre_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_pre_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
     bench_pre_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency")
@@ -377,7 +379,7 @@ def register(sub, positive_int) -> None:
     bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
     bench_batch_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
     bench_batch_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
-                               choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+                               choices=JUDGE_PROVIDERS)
     bench_batch_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
                                help="Max tokens to retrieve per question from doc source (default: 4000)")
     bench_batch_p.add_argument("--force-regen", action="store_true", dest="force_regen",

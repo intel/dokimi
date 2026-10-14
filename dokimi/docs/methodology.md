@@ -164,8 +164,10 @@ Every serious run should answer "Can we trust this run?" before interpreting del
 - average delta,
 - score coefficient of variation,
 - inter-rater agreement when panel data exists,
-- retrieval hit rate,
+- retrieval hit rate — the share of questions where at least one document reached the `with_docs` prompt, from the per-evaluation `retrieval_hit` the judge and panel record; eval files judged before that field existed show it as not measured, and so do files where fewer than 80% of evaluations record it (`min_retrieval_coverage`), since the rate would then describe a subset,
 - multi-run variance when `--multi-run N` is used.
+
+A check whose input the run did not produce passes without blocking or warning, but is shown as not measured, never as a pass: the verdict line reads e.g. `PASS (1 of 7 not measured)`, and the JSON report lists those checks under `trust.not_measured`.
 
 For reproducibility:
 

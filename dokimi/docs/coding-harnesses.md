@@ -590,6 +590,12 @@ python cli.py tasks run \
   --model my-model
 ```
 
+The command runs from the directory above the tasks root, so `{output_dir}`
+and the `DOKIMI_OUTPUT_DIR` / `DOKIMI_OPERATIONS_FILE` environment variables
+are absolute paths even when `--output-dir` is relative. A `reward.txt` the
+command writes under that directory is the cell's reward; without one, the
+cell falls back to the exit code.
+
 Use `--dry-run` to validate matrix expansion and artifact shape without invoking
 external agents.
 

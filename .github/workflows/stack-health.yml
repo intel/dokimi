@@ -3,10 +3,11 @@
 
 name: stack-health
 
-# Daily report of the open PRs as stacks: dangling bases, PRs that no longer
-# merge onto their base, stack roots behind main, and shared files (schemas,
-# pyproject, workflows) edited by several PRs at once. Read-only; the report
-# is the job summary. See dokimi/scripts/stack_health.py.
+# Daily report of the open PRs: shared files (schemas, pyproject, workflows)
+# edited by several PRs at once, and PRs behind main or no longer merging onto
+# it. PRs are based on main (no stacking, see dokimi/CONTRIBUTING.md); older
+# stacked PRs with a dangling or moved base are flagged too. Read-only; the
+# report is the job summary. See dokimi/scripts/stack_health.py.
 on:
   schedule:
     - cron: '23 6 * * *'
@@ -27,7 +28,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       - name: Report
         env:
           GITHUB_TOKEN: ${{ github.token }}

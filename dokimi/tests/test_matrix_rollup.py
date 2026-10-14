@@ -390,3 +390,32 @@ def test_arms_matrix_run_writes_cells_rollup_and_plugin_delta(tmp_path: Path, mo
     assert (out_dir / "cells" / "agent-caveman.json").is_file()
     assert (out_dir / "matrix-rollup.json").is_file()
     assert list(out_dir.glob("plugin-delta-agent-none-to-agent-caveman-*.json"))
+
+
+def test_load_questions_refuses_duplicate_ids(tmp_path: Path):
+    """A shared id makes the judge's context ambiguous for every answer under it."""
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps([{"id": "a", "text": "x"}, {"id": "a", "text": "y"}]))
+    with pytest.raises(ValueError, match="duplicate question ids"):
+        _load_questions(str(questions))
+
+
+def test_load_questions_assigns_unique_ids_where_missing(tmp_path: Path, capsys):
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps([{"text": "x"}, {"id": "q0001", "text": "y"}, {"text": "z"}]))
+    loaded = _load_questions(str(questions))
+    ids = [q["id"] for q in loaded]
+    assert ids[1] == "q0001" and len(set(ids)) == 3
+    assert "had no id" in capsys.readouterr().err
+
+
+def test_load_questions_keeps_integer_id_zero(tmp_path: Path):
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps([{"id": 0, "text": "x"}, {"id": 1, "text": "y"}]))
+    assert [q["id"] for q in _load_questions(str(questions))] == [0, 1]
+
+
+def test_question_id_keeps_integer_id_zero():
+    assert arm_runner_mod.question_id({"id": 0}) == 0
+    assert arm_runner_mod.question_id({"id": "", "question_id": "b"}) == "b"
+    assert arm_runner_mod.question_id({}) is None

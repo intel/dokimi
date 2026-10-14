@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -157,6 +159,44 @@ def test_command_harness_collects_reward_and_operations(tmp_path, monkeypatch):
     assert by_type["harness"] == 1
     assert by_type["tool"] == 1
     assert by_type["loop"] == 1
+
+
+def test_command_harness_relative_output_dir_reads_the_agents_failing_reward(
+    tmp_path, monkeypatch
+):
+    """`tasks run` defaults to a relative --output-dir, and the agent runs in the
+    task checkout's parent. The agent's reward 0.0 (written where
+    $DOKIMI_OUTPUT_DIR points, exit 0, as Harbor-style agents do) must be the
+    one the framework reads, not lost so the cell falls back to rc == 0."""
+    task = load_task(_fixture_task(tmp_path / "content" / "tasks"))
+    operator_cwd = tmp_path / "operator"
+    operator_cwd.mkdir()
+    monkeypatch.chdir(operator_cwd)
+    script = (
+        "import os, pathlib; "
+        "d = pathlib.Path(os.environ['DOKIMI_OUTPUT_DIR']); "
+        "d.mkdir(parents=True, exist_ok=True); "
+        "(d / 'reward.txt').write_text('0.0'); "
+        "pathlib.Path(os.environ['DOKIMI_OPERATIONS_FILE']).write_text("
+        "'{\"type\": \"tool\", \"name\": \"edit\"}' + chr(10))"
+    )
+    template = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)} {{output_dir}}"
+    harness = CommandHarness("fake", template)
+
+    result = harness.run(task, output_dir=Path("results") / "task-runs" / "cell")
+
+    assert result.returncode == 0
+    assert (result.passed, result.reward) == (False, 0.0), (
+        f"agent wrote reward 0.0 and exited 0, cell read as passed={result.passed} "
+        f"reward={result.reward}"
+    )
+    assert (operator_cwd / "results" / "task-runs" / "cell" / "reward.txt").is_file()
+    assert not (tmp_path / "content" / "results").exists()
+    assert any(op.type == "tool" for op in result.operations)
+    # The {output_dir} placeholder is absolute too (Harbor's --jobs-dir); the
+    # artifact keeps the path as the caller gave it.
+    assert result.command[-1] == (operator_cwd / "results" / "task-runs" / "cell").as_posix()
+    assert result.output_dir == str(Path("results") / "task-runs" / "cell")
 
 
 def test_command_harness_uses_finite_timeout_when_task_has_none(tmp_path, monkeypatch):
@@ -642,3 +682,21 @@ def test_harness_significance_uses_the_unrounded_adjusted_p():
     for cr in comparisons.values():
         assert cr["mcnemar"]["p_adjusted"] == 0.05
         assert cr["mcnemar"]["significant_adjusted"] is True
+
+
+def test_command_harness_ignores_a_reward_left_by_a_previous_run(tmp_path):
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+    cell = tmp_path / "out" / "cell"
+    (cell / "a-old-job").mkdir(parents=True)
+    (cell / "a-old-job" / "reward.txt").write_text("1.0")
+    script = (
+        "import os, pathlib; "
+        "d = pathlib.Path(os.environ['DOKIMI_OUTPUT_DIR']) / 'b-new-job'; "
+        "d.mkdir(parents=True); (d / 'reward.txt').write_text('0.0')"
+    )
+    harness = CommandHarness("fake", f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}")
+
+    result = harness.run(task, output_dir=cell)
+
+    assert (result.passed, result.reward) == (False, 0.0)
+    assert not (cell / "a-old-job").exists()

@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import argparse
 import functools
+from collections import Counter
 import json
 import sys
 from pathlib import Path
+
+from dokimi.eval.judge import JUDGE_PROVIDERS
 
 # Run-configuration fields the arms commands read off parsed args, shared with
 # any other command that drives an arms run by constructing its own Namespace.
@@ -238,7 +241,7 @@ def register(sub, positive_int) -> None:
                             help="Also score each arm with the LLM-as-judge")
     arms_run_p.add_argument("--judge-model", default="gpt-4o-mini", dest="judge_model")
     arms_run_p.add_argument("--judge-provider", default="openai", dest="judge_provider",
-                            choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+                            choices=JUDGE_PROVIDERS)
     arms_run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
                             help="Docs to retrieve before reranking, for doc/MCP arms (default: 5)")
     arms_run_p.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
@@ -377,7 +380,7 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
                         help="Also score each arm with the LLM-as-judge")
     parser.add_argument("--judge-model", default="gpt-4o-mini", dest="judge_model")
     parser.add_argument("--judge-provider", default="openai", dest="judge_provider",
-                        choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+                        choices=JUDGE_PROVIDERS)
     parser.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
                         help="Docs to retrieve before reranking, for doc/MCP arms (default: 5)")
     parser.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
@@ -428,8 +431,49 @@ def _load_questions(path: str) -> list[dict]:
     bad_idx = next((i for i, q in enumerate(questions) if not isinstance(q, dict)), None)
     if bad_idx is not None:
         raise ValueError(f"expected question at index {bad_idx} in {path} to be an object")
+    _check_question_ids(questions, path)
     print(f"Loaded {len(questions)} questions from {path}")
     return questions
+
+
+def _check_question_ids(questions: list[dict], path: str) -> None:
+    """Every question needs its own id: the judge's context is keyed by it.
+
+    `questions.v1` requires `id`, but this loader never checked, and the arm
+    runner falls back to `"unknown_q"`. With a shared key the judge cannot tell
+    which question's treatment material belongs to which answer, so every
+    answer is judged on 200-char report snippets instead. Duplicated ids are
+    refused, since there is no right answer to which question they mean; a
+    missing id is filled from the question's position, which is unique.
+    """
+    from dokimi.eval.arm_runner import question_id
+
+    ids = [question_id(q) for q in questions]
+    taken = _refuse_duplicate_ids(ids, path)
+    missing = [i for i, qid in enumerate(ids) if qid is None]
+    for i in missing:
+        questions[i]["id"] = _positional_id(i, taken)
+    if missing:
+        print(f"Warning: {len(missing)} of {len(questions)} questions in {path} had no id; "
+              f"assigned positional ids (q0000, ...)", file=sys.stderr)
+
+
+def _refuse_duplicate_ids(ids: list, path: str) -> set:
+    """Raise on a repeated id; return the set of ids in use."""
+    counts = Counter(qid for qid in ids if qid is not None)
+    dupes = sorted(qid for qid, n in counts.items() if n > 1)
+    if dupes:
+        raise ValueError(f"duplicate question ids in {path}: {', '.join(map(repr, dupes[:5]))}")
+    return set(counts)
+
+
+def _positional_id(index: int, taken: set) -> str:
+    """`q0007` for the 8th question, prefixed until it collides with nothing."""
+    qid = f"q{index:04d}"
+    while qid in taken:
+        qid = f"_{qid}"
+    taken.add(qid)
+    return qid
 
 
 def _validate_expected_skills(questions: list[dict], treatments) -> None:

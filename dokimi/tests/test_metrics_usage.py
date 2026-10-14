@@ -76,26 +76,17 @@ def test_extract_missing_usage_is_zeroed(monkeypatch):
     assert rec.total_tokens == 0 and rec.cost_usd is None
 
 
-def test_cost_none_when_no_pricing():
-    # _safe_completion_cost swallows any failure (raise OR litellm absent) → None.
+def test_cost_none_when_no_pricing(monkeypatch):
+    # A model litellm has no price for makes completion_cost raise; the helper → None.
+    import litellm
+
     from dokimi.llm import _safe_completion_cost
-    pytest_litellm = None
-    try:
-        import litellm as pytest_litellm  # noqa: F401
-    except ImportError:
-        pass
-    if pytest_litellm is not None:
-        # litellm present: a junk response makes completion_cost raise → None.
-        orig = pytest_litellm.completion_cost
-        try:
-            pytest_litellm.completion_cost = lambda **kw: (_ for _ in ()).throw(
-                Exception("no pricing"))
-            assert _safe_completion_cost(_Resp(_Usage()), "made-up-model") is None
-        finally:
-            pytest_litellm.completion_cost = orig
-    else:
-        # litellm absent: import inside the helper fails → None.
-        assert _safe_completion_cost(_Resp(_Usage()), "made-up-model") is None
+
+    def no_pricing(**kw):
+        raise Exception("no pricing")
+
+    monkeypatch.setattr(litellm, "completion_cost", no_pricing)
+    assert _safe_completion_cost(_Resp(_Usage()), "made-up-model") is None
 
 
 # ── accumulation ─────────────────────────────────────────────────────────────
@@ -245,18 +236,7 @@ class _FullResp:
 
 def _stub_completion(monkeypatch, calls, content="answer"):
     """Replace litellm.completion; record the kwargs each call receives."""
-    try:
-        import litellm
-    except ImportError as exc:  # pragma: no cover - depends on the interpreter
-        # Not just "litellm is optional": on 3.10 it is not importable at all.
-        # litellm's anthropic pass-through module does `from typing import
-        # NotRequired`, which lands in typing only in 3.11, so `import litellm`
-        # raises ImportError under the 3.10 leg of the test matrix even though
-        # the package installed fine. This repo declares requires-python
-        # ">=3.10", so treat an unimportable litellm the way the rest of this
-        # file already does (see test_cost_none_when_no_pricing): skip the
-        # assertion, do not fail the suite.
-        pytest.skip(f"litellm is not importable here: {exc}")
+    import litellm
 
     def fake_completion(**kwargs):
         calls.append(kwargs)

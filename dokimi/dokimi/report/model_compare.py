@@ -38,6 +38,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import stats as arm_stats
 
 #: Mirrors :data:`dokimi.eval.stats.HAS_SCIPY` — the hypothesis tests
@@ -286,6 +287,28 @@ def pool_replicate_scores(
     return pooled
 
 
+def _check_judge_context(runs: list[tuple[str, dict]], group_name: str) -> None:
+    """Refuse to pool runs whose judge saw different evidence (see `judge_context.stamp_for`)."""
+    stamps = {rid: data.get("judge_context") for rid, data in runs if "evaluations" in data}
+    mixed = sorted(rid for rid, s in stamps.items() if s == JUDGE_CONTEXT_MIXED)
+    if mixed:
+        raise SystemExit(
+            f"Error [{group_name}]: {', '.join(mixed)} judged some answers on the stored "
+            "treatment material and some on report snippets (judge_context "
+            f"{JUDGE_CONTEXT_MIXED!r}); such a run pools with nothing, not even another "
+            "mixed one. Re-run answering and judging together, with unique question ids."
+        )
+    if len(set(stamps.values())) > 1:
+        detail = ", ".join(f"{rid}={s or '<unstamped>'}" for rid, s in stamps.items())
+        raise SystemExit(
+            f"Error [{group_name}]: runs were judged under different judge_context "
+            f"protocols ({detail}). The judge saw different evidence for the same "
+            "answers, so the scores cannot be pooled. Re-run answering and judging "
+            "together for the older runs: re-judging an answers file only sees the "
+            "200-char report snippets, which is the unstamped protocol again."
+        )
+
+
 def check_run_consistency(
     runs: list[tuple[str, dict]],
     group_name: str,
@@ -395,14 +418,7 @@ def check_run_consistency(
     # report snippets, so two unstamped runs pool, but a stamped and an unstamped
     # run (or two different stamps) scored the same answers on different evidence.
     # Unjudged runs carry no stamp by construction and are left out.
-    stamps = {rid: data.get("judge_context") for rid, data in runs if "evaluations" in data}
-    if len(set(stamps.values())) > 1:
-        detail = ", ".join(f"{rid}={s or '<unstamped>'}" for rid, s in stamps.items())
-        raise SystemExit(
-            f"Error [{group_name}]: runs were judged under different judge_context "
-            f"protocols ({detail}). The judge saw different evidence for the same "
-            "answers, so the scores cannot be pooled. Re-judge the older runs."
-        )
+    _check_judge_context(runs, group_name)
 
     # 5. duplicate configurations are replicates, not rival models. Ranking them
     #    against each other reports sampling noise as a model difference, so this

@@ -113,9 +113,13 @@ class ReportGenerator:
                 "trust": {
                     "verdict": trust_verdict.status,
                     "trusted": trust_verdict.trusted,
+                    # Read with "verdict": a PASS with entries here passed without
+                    # running those checks (the novelty gate's as_dict carries the same).
+                    "not_measured": trust_verdict.not_measured,
                     "checks": [
                         {"name": c.name, "passed": c.passed, "value": c.value,
-                         "threshold": c.threshold, "message": c.message, "severity": c.severity}
+                         "threshold": c.threshold, "message": c.message, "severity": c.severity,
+                         "measured": c.measured}
                         for c in trust_verdict.checks
                     ],
                 },

@@ -26,17 +26,13 @@ from __future__ import annotations
 
 import datetime
 import re
+import tomllib
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback
-    import tomli as tomllib  # type: ignore[no-redef]
 
 
 # Executable tasks live in a separate evaluation-content checkout, so there is

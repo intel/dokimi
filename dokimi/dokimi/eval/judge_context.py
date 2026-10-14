@@ -34,7 +34,7 @@ loaded names are enough to rebuild what was read.
 
 import logging
 import threading
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,33 @@ PROTOCOL = "treatment_material.v1"
 #: material, or fell back to the record's 200-char report snippets.
 SOURCE_STORED = "stored"
 SOURCE_SNIPPET_FALLBACK = "snippet_fallback"
+
+#: Stamped when some of a run's scores saw the stored material and some fell
+#: back to snippets. It equals neither protocol, so it pools with nothing.
+PROTOCOL_MIXED = PROTOCOL + "+snippet_fallback"
+
+
+def stamp_for(sources: Iterable[Optional[str]]) -> Optional[str]:
+    """The ``judge_context`` stamp a judged run has actually earned.
+
+    The stamp says what the judge was shown, so it has to follow the per-score
+    sources rather than the code path that ran. Every score on stored material
+    -> :data:`PROTOCOL`. Every score on snippets -> ``None``: that is exactly the
+    protocol unstamped runs used before the stamp existed, so leaving it off
+    lets the run pool with them, which is correct. A mix -> :data:`PROTOCOL_MIXED`,
+    which pools with nothing. Scores without a source (none were judged) do not
+    count either way; a run with no counted scores keeps :data:`PROTOCOL`.
+
+    Measured before this existed: a question set without ids, one with
+    duplicated ids, and an answers file judged in a new process all produced
+    100% ``snippet_fallback`` scores under a ``treatment_material.v1`` stamp.
+    """
+    seen = {s for s in sources if s in (SOURCE_STORED, SOURCE_SNIPPET_FALLBACK)}
+    if seen == {SOURCE_SNIPPET_FALLBACK}:
+        return None
+    if seen == {SOURCE_STORED, SOURCE_SNIPPET_FALLBACK}:
+        return PROTOCOL_MIXED
+    return PROTOCOL
 
 #: Cap on the injected part when the caller does not pass the answerer's own cap.
 #: Matches ``arm_runner.MAX_CONTEXT_CHARS``; ``ArmRunner`` passes that constant

@@ -189,6 +189,14 @@ def test_compare_plugin_runs_refuses_judge_context_that_differs(control_stamp, p
         compare_plugin_runs(baseline, plugin)
 
 
+def test_compare_plugin_runs_refuses_a_mixed_run_even_against_another_mixed_one():
+    baseline = _arms_artifact()
+    plugin = _arms_artifact("caveman:full")
+    baseline["judge_context"] = plugin["judge_context"] = _V1 + "+snippet_fallback"
+    with pytest.raises(PluginDeltaError, match="mix stored"):
+        compare_plugin_runs(baseline, plugin)
+
+
 @pytest.mark.parametrize("stamp", [None, _V1])
 def test_compare_plugin_runs_allows_judge_context_that_matches(stamp):
     baseline = _arms_artifact()

@@ -1026,7 +1026,11 @@ def test_probe_finds_a_proxy_that_forwards_plain_http(tmp_path, monkeypatch):
                 conn, _ = srv.accept()
             except OSError:
                 return
-            head = conn.recv(4096)
+            # Read the whole head: bash's printf writes it a line at a time, and closing
+            # with lines still unread sends an RST that can drop the reply below.
+            head = b""
+            while b"\r\n\r\n" not in head and (chunk := conn.recv(4096)):
+                head += chunk
             conn.sendall(b"HTTP/1.1 403 Forbidden\r\n\r\n" if head.startswith(b"CONNECT")
                          else b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
             conn.close()

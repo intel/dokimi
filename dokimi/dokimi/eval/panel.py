@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dokimi.eval.diagnoser import retrieval_hit
 from dokimi.llm import llm_call
 
 logger = logging.getLogger(__name__)
@@ -440,6 +441,7 @@ class JudgePanel:
                 "with_docs": _verdict_to_dict(with_v),
                 "without_docs": _verdict_to_dict(without_v),
                 "delta": delta,
+                "retrieval_hit": retrieval_hit(answer),
             })
             if output_path:
                 _save_incremental(results, output_path, library_name, self)

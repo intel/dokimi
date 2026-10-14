@@ -357,3 +357,20 @@ def test_evaluate_answers_limit(tmp_path):
     with patch("dokimi.eval.panel.llm_call", return_value=FAKE_LLM_RESPONSE):
         results = panel.evaluate_answers(_fake_answers(5), library_name="oneTBB", limit=2)
     assert len(results) == 2
+
+
+def test_evaluate_answers_records_retrieval_hit():
+    """The trust gate reads retrieval_hit off the eval record; the panel writes it too."""
+    answers = _fake_answers(2)
+    answers[0]["with_docs"].update(
+        retrieved_docs=[{"source": "context7", "content": "parallel_for ..."}],
+        doc_source="context7",
+    )
+    answers[1]["with_docs"].update(
+        answer="[FALLBACK: No relevant documentation found]",
+        retrieved_docs=[], doc_source="fallback_none",
+    )
+    panel = JudgePanel()
+    with patch("dokimi.eval.panel.llm_call", return_value=FAKE_LLM_RESPONSE):
+        results = panel.evaluate_answers(answers, library_name="oneTBB")
+    assert [r["retrieval_hit"] for r in results] == [True, False]

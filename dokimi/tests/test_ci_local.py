@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -78,11 +79,13 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(cl, "network_ok", lambda: True)
     monkeypatch.setattr(cl, "make_isolated_env", lambda t, py: (tmp_path, {"PATH": ""}))
     monkeypatch.setattr(cl.shutil, "which", lambda _: None)
+    monkeypatch.setattr(cl, "upstream_remote", lambda override: override or "origin")
+    monkeypatch.setattr(cl, "resolve_base", lambda base, remote: (f"{remote}/{base}", None))
     return {"calls": calls, "root": tmp_path}
 
 
 def ns(**kw: Any) -> argparse.Namespace:
-    d: dict[str, Any] = dict(jobs=None, base="main", offline=False, with_docker=False)
+    d: dict[str, Any] = dict(jobs=None, base="main", remote=None, offline=False, with_docker=False)
     d.update(kw)
     return argparse.Namespace(**d)
 
@@ -134,3 +137,131 @@ def test_pip_install_line_dropped_rest_of_step_runs(env: dict[str, Any]) -> None
     (cl.WORKFLOWS / "x.yml").write_text(wf)
     cl.run(ns())
     assert [c["cmd"][-1].strip() for c in env["calls"]] == ["echo after"]
+
+
+PY_WF = """on: pull_request
+jobs:
+  lint:
+    steps:
+      - uses: actions/setup-python@v1
+        with:
+          python-version: '{single}'
+      - run: echo lint
+  other:
+    steps:
+      - uses: actions/setup-python@v1
+        with:
+          python-version: '{single}'
+  test:
+    strategy:
+      matrix:
+        python-version: ['3.96', '{here}', '3.99']
+    steps:
+      - uses: actions/setup-python@v1
+        with:
+          python-version: ${{{{ matrix.python-version }}}}
+  odd:
+    steps:
+      - uses: actions/setup-python@v1
+        with:
+          python-version: '3.98'
+"""
+
+
+def test_ci_pythons_reads_single_version_and_matrix_legs(env: dict[str, Any]) -> None:
+    """The most-named literal setup-python version, and every matrix leg once."""
+    (cl.WORKFLOWS / "x.yml").write_text(PY_WF.format(single="3.97", here=PYV))
+    assert cl.ci_pythons() == ("3.97", ["3.96", PYV, "3.99"])
+
+
+def test_summary_names_the_uncovered_legs_and_a_python_mismatch(
+        env: dict[str, Any], capsys: Any) -> None:
+    """Legs not run are the matrix minus this venv's Python; a venv on another
+    Python than CI's single-version jobs gets a notice, at the start and the end."""
+    (cl.WORKFLOWS / "x.yml").write_text(PY_WF.format(single="3.97", here=PYV))
+    cl.run(ns())
+    out = capsys.readouterr().out
+    others = ", ".join(v for v in ("3.96", PYV, "3.99") if v != PYV)
+    assert f"matrix legs on other Pythons ({others})" in out
+    assert out.count(f"this venv runs Python {PYV}, CI's single-version jobs 3.97") == 2
+
+    (cl.WORKFLOWS / "x.yml").write_text(PY_WF.format(single=PYV, here=PYV))
+    cl.run(ns())
+    assert "this venv runs Python" not in capsys.readouterr().out
+
+
+BASE_WF = """on: pull_request
+jobs:
+  a:
+    steps:
+      - run: diff-cover c.xml --compare-branch="origin/$BASE_REF"
+      - run: git diff "origin/${BASE_REF}"...HEAD
+      - run: echo origin/main
+"""
+
+
+def test_base_steps_use_the_resolved_remote(env: dict[str, Any]) -> None:
+    """`origin/$BASE_REF` in a step reads the resolved remote; other text is untouched."""
+    (cl.WORKFLOWS / "x.yml").write_text(BASE_WF)
+    assert cl.run(ns(remote="intel")) == 0
+    assert [c["cmd"][-1] for c in env["calls"]] == [
+        'diff-cover c.xml --compare-branch="intel/$BASE_REF"',
+        'git diff "intel/${BASE_REF}"...HEAD',
+        "echo origin/main",
+    ]
+
+
+def test_unusable_base_fails_its_steps_without_running_them(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """No base ref: the diffing steps FAIL with the reason; the rest still run."""
+    (cl.WORKFLOWS / "x.yml").write_text(BASE_WF)
+    monkeypatch.setattr(cl, "resolve_base", lambda base, remote: (f"{remote}/{base}", "no such ref"))
+    assert cl.run(ns()) == 1
+    assert [c["cmd"][-1] for c in env["calls"]] == ["echo origin/main"]
+    out = capsys.readouterr().out
+    assert "Base: origin/main" in out and out.count("ERROR: no such ref") == 3
+
+
+@pytest.fixture
+def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """A real git repo with one commit; returns a git runner for it."""
+    for k, v in {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+                 "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                 "GIT_COMMITTER_EMAIL": "t@t"}.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(cl, "REPO", tmp_path)
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], cwd=tmp_path, check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    git("init", "-q")
+    git("commit", "-q", "--allow-empty", "-m", "c")
+    return git
+
+
+def test_upstream_remote_is_the_intel_dokimi_url(repo: Any) -> None:
+    """origin pointing elsewhere does not win; an override always does."""
+    assert cl.upstream_remote(None) == "origin"  # no remotes at all
+    repo("remote", "add", "origin", "https://github.com/someone/other")
+    repo("remote", "add", "fork", "https://github.com/me/dokimi")
+    assert cl.upstream_remote(None) == "origin"  # nothing matches: fall back
+    repo("remote", "add", "intel", "git@github.com:Intel/dokimi.git")
+    assert cl.upstream_remote(None) == "intel"
+    assert cl.upstream_remote("fork") == "fork"
+    repo("remote", "set-url", "origin", "https://github.com/intel/dokimi")
+    assert cl.upstream_remote(None) == "origin"  # several match: origin first
+
+
+def test_resolve_base_reports_missing_and_unrelated_refs(repo: Any) -> None:
+    """A usable base passes; a missing ref or one with no shared history says why."""
+    head = repo("rev-parse", "HEAD")
+    repo("update-ref", "refs/remotes/intel/main", head)
+    assert cl.resolve_base("main", "intel") == ("intel/main", None)
+    ref, err = cl.resolve_base("main", "origin")
+    assert ref == "origin/main" and err and "does not exist" in err and "git fetch origin" in err
+    tree = repo("hash-object", "-t", "tree", "-w", os.devnull)  # the empty tree
+    repo("update-ref", "refs/remotes/origin/main", repo("commit-tree", tree, "-m", "other"))
+    ref, err = cl.resolve_base("main", "origin")
+    assert err and "no merge base" in err and "--remote" in err

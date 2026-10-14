@@ -218,13 +218,19 @@ class ValidityReport:
                 # The test, not the interval, decides here: a variant stopped
                 # early has a wide interval by design.
                 stats["straddles_gate"] = seq["decision"] == "continue"
-                stats["bases_for_resolution"] = None
+                stats["pairs_for_resolution"] = None
             else:
                 stats["straddles_gate"] = ci_low < self.min_accuracy <= ci_high
-                stats["bases_for_resolution"] = (
+                stats["pairs_for_resolution"] = (
                     _pairs_for_resolution(gate_accuracy, n + n_errors, self.min_accuracy)
                     if stats["straddles_gate"] else None
                 )
+            if "pairs_for_resolution" in stats:
+                # The old name, kept for stored reports and their readers. The
+                # value is a pair count. Each base gives at most one pair per
+                # variant, so it is also the number of bases to ask for, plus
+                # those the variant leaves unchanged (no-ops give no pair).
+                stats["bases_for_resolution"] = stats["pairs_for_resolution"]
             out[variant] = stats
         return out
 
@@ -308,7 +314,7 @@ class ValidityReport:
                     f"    {variant:20s} {v['gate_accuracy']:.2f} after {int(v['n'] + v['n_errors'])} pairs ({why})"
                 )
                 continue
-            need = v["bases_for_resolution"]
+            need = v["pairs_for_resolution"]
             lines.append(
                 f"    {variant:20s} {v['gate_accuracy']:.2f} vs gate {s['min_accuracy']:.2f}"
                 + (f" — needs {'over ' if need >= PAIRS_SEARCH_LIMIT else '~'}{need} pairs "

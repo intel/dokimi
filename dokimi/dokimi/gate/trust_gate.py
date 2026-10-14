@@ -33,6 +33,11 @@ DEFAULTS = {
     "min_agreement": 0.50,
     # Minimum fraction of questions where retrieval returned at least one doc
     "min_retrieval_hit_rate": 0.60,
+    # Share of evaluations that must record a retrieval outcome (``retrieval_hit``) before
+    # the hit rate is judged. Below it the rate describes a subset (e.g. 5 recorded of 20
+    # reads as 100%), so the check is reported as not measured. The complement of
+    # ``max_zero_fraction``: the gate already lets at most a fifth of rows be unusable.
+    "min_retrieval_coverage": 0.80,
     # Maximum allowed variance across multi-run scores (std of per-run WITH averages)
     "max_multirun_std": 5.0,
 }
@@ -48,6 +53,10 @@ class TrustCheck:
     threshold: Any
     message: str
     severity: str = "warn"  # "fail" | "warn" | "info"
+    #: False when the artifact does not carry the check's input. Such a check
+    #: passes (it cannot block or warn) but is rendered as not measured, never as
+    #: a pass — as in ``novelty_gate``.
+    measured: bool = True
 
 
 @dataclass
@@ -68,6 +77,11 @@ class TrustVerdict:
     @property
     def failures(self) -> List[TrustCheck]:
         return [c for c in self.checks if not c.passed and c.severity == "fail"]
+
+    @property
+    def not_measured(self) -> List[str]:
+        """Checks whose input this run did not produce; they pass without having been run."""
+        return [c.name for c in self.checks if not c.measured]
 
     @property
     def status(self) -> str:
@@ -183,21 +197,52 @@ def evaluate_trust(
         ))
 
     # ── 7. Retrieval hit rate ─────────────────────────────────────────────
-    # A question "hit" retrieval if with_docs answer is not "no relevant docs" fallback
-    retrieval_hits = sum(
-        1 for e in valid
-        if e.get("with_docs", {}).get("retrieval_hit") is not False
-        and e.get("with_docs", {}).get("aggregate", 0) > 0
-    )
-    hit_rate = retrieval_hits / n
-    checks.append(TrustCheck(
-        name="retrieval_hit_rate",
-        passed=hit_rate >= cfg["min_retrieval_hit_rate"],
-        value=round(hit_rate, 3),
-        threshold=cfg["min_retrieval_hit_rate"],
-        message=f"Retrieval hit rate = {hit_rate:.1%} ({retrieval_hits}/{n}) (min {cfg['min_retrieval_hit_rate']:.0%})",
-        severity="warn",
-    ))
+    # A question "hit" retrieval when at least one document reached the
+    # context-arm prompt. The judge stamps that per evaluation as
+    # ``retrieval_hit`` (from the answer's retrieved_docs / doc_source); eval
+    # artifacts judged before that carry no retrieval outcome at all, and the
+    # check reports "not measured" for them rather than a pass. So does a mix of
+    # the two below ``min_retrieval_coverage``: the rate would describe a subset.
+    measured = [e["retrieval_hit"] for e in valid if isinstance(e.get("retrieval_hit"), bool)]
+    if measured and len(measured) / n < cfg["min_retrieval_coverage"]:
+        checks.append(TrustCheck(
+            name="retrieval_hit_rate",
+            passed=True,
+            value=None,
+            threshold=cfg["min_retrieval_hit_rate"],
+            message=(
+                f"Not measured: only {len(measured)} of {n} evaluations record a retrieval "
+                f"outcome (retrieval_hit), under the {cfg['min_retrieval_coverage']:.0%} coverage "
+                f"floor; {sum(measured)} of those {len(measured)} hit"
+            ),
+            severity="warn",
+            measured=False,
+        ))
+    elif measured:
+        retrieval_hits = sum(measured)
+        hit_rate = retrieval_hits / len(measured)
+        coverage = "" if len(measured) == n else f"; {n - len(measured)} unrecorded"
+        checks.append(TrustCheck(
+            name="retrieval_hit_rate",
+            passed=hit_rate >= cfg["min_retrieval_hit_rate"],
+            value=round(hit_rate, 3),
+            threshold=cfg["min_retrieval_hit_rate"],
+            message=(
+                f"Retrieval hit rate = {hit_rate:.1%} ({retrieval_hits}/{len(measured)}{coverage}) "
+                f"(min {cfg['min_retrieval_hit_rate']:.0%})"
+            ),
+            severity="warn",
+        ))
+    else:
+        checks.append(TrustCheck(
+            name="retrieval_hit_rate",
+            passed=True,
+            value=None,
+            threshold=cfg["min_retrieval_hit_rate"],
+            message="Not measured: the evaluations record no retrieval outcome (retrieval_hit)",
+            severity="warn",
+            measured=False,
+        ))
 
     # ── 8. Multi-run variance (optional) ─────────────────────────────────
     multirun_std = None
@@ -223,13 +268,18 @@ def format_trust_block(verdict: TrustVerdict) -> str:
     lines = [
         "## Can We Trust This Run?",
         "",
-        f"**Verdict: {verdict.status}**",
+        f"**Verdict: {verdict.status}**"
+        + (f" ({len(verdict.not_measured)} of {len(verdict.checks)} not measured)"
+           if verdict.not_measured else ""),
         "",
         "| Check | Status | Value | Threshold | Notes |",
         "|-------|--------|-------|-----------|-------|",
     ]
     for c in verdict.checks:
-        icon = "✅" if c.passed else ("❌" if c.severity == "fail" else "⚠️")
+        if not c.measured:
+            icon = "➖"
+        else:
+            icon = "✅" if c.passed else ("❌" if c.severity == "fail" else "⚠️")
         lines.append(
             f"| {c.name} | {icon} | {c.value} | {c.threshold} | {c.message} |"
         )

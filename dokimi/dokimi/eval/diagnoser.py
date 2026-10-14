@@ -33,10 +33,29 @@ insufficient_data
     Delta could not be computed (one or both answers missing).
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 # Keyword-overlap score below which retrieved docs are considered off-topic
 LOW_RELEVANCE_CUTOFF = 0.3
+
+# ``doc_source`` values the answerer writes when no document reached the prompt
+NO_RETRIEVAL_SOURCES = ("fallback_none", "none")
+
+
+def retrieval_hit(answer: Dict[str, Any]) -> Optional[bool]:
+    """Whether retrieval put at least one document into the context-arm prompt.
+
+    Derived from what ``Answerer`` records on the answers.v1 record: the
+    ``retrieved_docs`` it passed to the model and the ``doc_source`` it stamps
+    (``fallback_none`` when retrieval or reranking returned nothing). ``None``
+    when the record has no context arm, so there was no retrieval to score.
+    """
+    with_docs = answer.get("with_docs")
+    if not isinstance(with_docs, dict):
+        return None
+    if with_docs.get("doc_source") in NO_RETRIEVAL_SOURCES:
+        return False
+    return bool(with_docs.get("retrieved_docs"))
 
 # Diagnosis labels (exported for reporting)
 DOCS_HELPED = "docs_helped"

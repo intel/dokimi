@@ -428,7 +428,7 @@ def register(sub, positive_int) -> None:
                          help="Run tag (e.g. gpt4o). Sets output to results/{product}_{run_id}/eval/{product}.json")
     score_p.add_argument("--output", default=None, help="Output file (default: eval/{product}.json)")
     score_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="LLM model for judging")
-    score_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google", "google-vertex", "openrouter"])
+    score_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     score_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, help="Parallel judge calls (default: 5)")
     score_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                          help="Judge sampling temperature, recorded as judge_temperature in the output")

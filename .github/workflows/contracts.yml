@@ -38,7 +38,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.13'
       # A reviewer who has decided a narrowing is safe (it states an invariant
       # every written artifact already met) applies the `schema-break-ok` label;
       # the findings are still printed, the job just does not fail on them.

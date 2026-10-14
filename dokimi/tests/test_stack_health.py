@@ -84,5 +84,5 @@ def test_a_pipe_in_a_title_stays_inside_its_cell(repo, monkeypatch, capsys):
     monkeypatch.setenv("GITHUB_TOKEN", "x")
     assert sh.main(["--repo", "o/r"]) == 0
     row = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("| #1"))
-    assert row.replace("\|", "").count("|") == 8  # the table's 7 columns
+    assert row.replace(r"\|", "").count("|") == 8  # the table's 7 columns
     assert "| yes |" in row

@@ -10,6 +10,8 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.eval.judge import JUDGE_PROVIDERS
+
 
 def cmd_subjects_list(args: argparse.Namespace) -> None:
     """List subject descriptors below a root directory."""
@@ -203,7 +205,7 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--judge", action="store_true")
     run_p.add_argument("--judge-model", default="gpt-4o-mini", dest="judge_model")
     run_p.add_argument("--judge-provider", default="openai", dest="judge_provider",
-                       choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+                       choices=JUDGE_PROVIDERS)
     run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k")
     run_p.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
     run_p.add_argument("--max-iterations", type=positive_int, default=6, dest="max_iterations")
