@@ -293,7 +293,10 @@ def detect_conflicts(
                 a_index, b_index = int(row["a"]) - 1, int(row["b"]) - 1
             except (KeyError, TypeError, ValueError):
                 continue
-            if not (0 <= a_index < len(chunk) and 0 <= b_index < len(chunk)):
+            # A statement cannot contradict itself; a == b would flag one atom harmful.
+            if a_index == b_index or not (
+                0 <= a_index < len(chunk) and 0 <= b_index < len(chunk)
+            ):
                 continue
             conflicts.append({
                 "a": chunk[a_index].id,

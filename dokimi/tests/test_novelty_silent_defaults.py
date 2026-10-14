@@ -696,3 +696,29 @@ def test_a_real_false_is_a_verdict_and_raises_no_warning():
     )
     assert [verdicts[a.id].needed for a in atoms] == [False, False]
     assert report.unjudged == [] and report.warnings(len(atoms)) == []
+
+
+@pytest.mark.parametrize("a, b", [(2, 2), ("2", "2"), (2.0, 2), (2, "2"), (True, True), (True, 1)])
+def test_an_atom_does_not_conflict_with_itself(a, b):
+    atoms = _atoms(3)
+    reply = json.dumps({"conflicts": [{"a": a, "b": b, "why": "x"}]})
+    conflicts = detect_conflicts(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (reply, None))
+    )
+    assert conflicts == []
+    verdicts: dict = {}
+    apply_conflicts(verdicts, conflicts)
+    assert verdicts == {}
+
+
+def test_two_different_atoms_still_conflict():
+    atoms = _atoms(3)
+    reply = json.dumps({"conflicts": [{"a": 2, "b": 3, "why": "x"}, {"a": 2, "b": 2, "why": "y"}]})
+    conflicts = detect_conflicts(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (reply, None))
+    )
+    assert conflicts == [{"a": atoms[1].id, "b": atoms[2].id, "why": "x"}]
+    verdicts: dict = {}
+    apply_conflicts(verdicts, conflicts)
+    assert categorize(atoms, verdicts, {}) == {
+        atoms[1].id: "harmful_conflicting", atoms[2].id: "harmful_conflicting"}
