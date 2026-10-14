@@ -1026,8 +1026,8 @@ def test_probe_finds_a_proxy_that_forwards_plain_http(tmp_path, monkeypatch):
                 conn, _ = srv.accept()
             except OSError:
                 return
-            # Read the whole head: bash's printf writes it a line at a time, and closing
-            # with lines still unread sends an RST that can drop the reply below.
+            # Read the whole head before answering, as a real proxy does: bash's printf
+            # writes it a line at a time, and closing early resets the connection.
             head = b""
             while b"\r\n\r\n" not in head and (chunk := conn.recv(4096)):
                 head += chunk
