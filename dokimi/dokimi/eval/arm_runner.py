@@ -102,6 +102,14 @@ def _static_arm_kind(treatment: Treatment) -> Dict[str, Any]:
     return {"arm_kind": getattr(t, "arm_kind", None)}
 
 
+def question_id(q: Dict[str, Any]) -> Any:
+    """The question's ``id`` or ``question_id``; ``None`` when neither is set. ``0`` is an id."""
+    for key in ("id", "question_id"):
+        if q.get(key) not in (None, ""):
+            return q[key]
+    return None
+
+
 class ArmRunner:
     """Generate answers for each treatment arm and (optionally) judge them."""
 
@@ -217,7 +225,9 @@ class ArmRunner:
         self, library_name: str, library_id: Optional[str], q: Dict[str, Any]
     ) -> Dict[str, Any]:
         question_text = q.get("question") or q.get("text") or q.get("question_text", "")
-        qid = q.get("id") or q.get("question_id") or "unknown_q"
+        qid = question_id(q)
+        if qid is None:
+            qid = "unknown_q"
 
         arms: Dict[str, Any] = {}
         for treatment in self.treatments:

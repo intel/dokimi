@@ -42,8 +42,10 @@ unique question ids (a question with no id is given a positional one; duplicated
 ids are refused). Scores that fell back to the 200-character report snippets
 leave the run unstamped if all of them did — the protocol runs used before the
 stamp existed — and stamp it `treatment_material.v1+snippet_fallback` if only some
-did, which pools with nothing. To compare with an older run, run answering and
-judging again; re-judging an answers file sees only the snippets.
+did, which pools with nothing. A `baseline` arm's empty material always counts as
+stored, so with a baseline arm a fallback gives the mixed stamp. To compare with
+an older run, run answering and judging again; re-judging an answers file sees
+only the snippets.
 
 What this changes is the evidence the judge has, not how well it separates good
 answers from bad ones. On 81 skill-arm answers to the perf golden set (Haiku 4.5

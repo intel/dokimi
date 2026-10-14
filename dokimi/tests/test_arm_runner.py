@@ -981,6 +981,20 @@ def test_stamp_follows_the_score_sources(monkeypatch, questions, from_disk, stam
     assert out["judge_context_sources"] == sources
 
 
+def test_baseline_arm_makes_missing_ids_a_mixed_stamp(monkeypatch):
+    """The baseline's empty material is never ambiguous, so it counts as stored."""
+    from dokimi.eval.judge_context import PROTOCOL_MIXED
+
+    _patch_llm(monkeypatch, [])
+    runner = ArmRunner([BaselineTreatment(), _DocsPerQuestion()])
+    records = runner.run("oneTBB", [{"question": "q1?"}, {"question": "q2?"}], concurrency=1)
+    evaluations = runner.judge(_FakeJudge(), "oneTBB", records, baseline_arm="baseline")
+    out = runner.build_output("oneTBB", records, evaluations, baseline_arm="baseline",
+                              judge=_FakeJudge())
+    assert out["judge_context"] == PROTOCOL_MIXED
+    assert out["judge_context_sources"] == {"stored": 2, "snippet_fallback": 2}
+
+
 def test_stamp_for_mixed_and_empty_sources():
     from dokimi.eval.judge_context import PROTOCOL, PROTOCOL_MIXED, stamp_for
 

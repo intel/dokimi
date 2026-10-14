@@ -408,3 +408,14 @@ def test_load_questions_assigns_unique_ids_where_missing(tmp_path: Path, capsys)
     assert ids[1] == "q0001" and len(set(ids)) == 3
     assert "had no id" in capsys.readouterr().err
 
+
+def test_load_questions_keeps_integer_id_zero(tmp_path: Path):
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps([{"id": 0, "text": "x"}, {"id": 1, "text": "y"}]))
+    assert [q["id"] for q in _load_questions(str(questions))] == [0, 1]
+
+
+def test_question_id_keeps_integer_id_zero():
+    assert arm_runner_mod.question_id({"id": 0}) == 0
+    assert arm_runner_mod.question_id({"id": "", "question_id": "b"}) == "b"
+    assert arm_runner_mod.question_id({}) is None

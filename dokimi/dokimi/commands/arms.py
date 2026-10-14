@@ -444,9 +444,11 @@ def _check_question_ids(questions: list[dict], path: str) -> None:
     refused, since there is no right answer to which question they mean; a
     missing id is filled from the question's position, which is unique.
     """
-    ids = [q.get("id") or q.get("question_id") for q in questions]
+    from dokimi.eval.arm_runner import question_id
+
+    ids = [question_id(q) for q in questions]
     taken = _refuse_duplicate_ids(ids, path)
-    missing = [i for i, qid in enumerate(ids) if not qid]
+    missing = [i for i, qid in enumerate(ids) if qid is None]
     for i in missing:
         questions[i]["id"] = _positional_id(i, taken)
     if missing:
@@ -456,7 +458,7 @@ def _check_question_ids(questions: list[dict], path: str) -> None:
 
 def _refuse_duplicate_ids(ids: list, path: str) -> set:
     """Raise on a repeated id; return the set of ids in use."""
-    counts = Counter(qid for qid in ids if qid)
+    counts = Counter(qid for qid in ids if qid is not None)
     dupes = sorted(qid for qid, n in counts.items() if n > 1)
     if dupes:
         raise ValueError(f"duplicate question ids in {path}: {', '.join(map(repr, dupes[:5]))}")
