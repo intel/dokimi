@@ -88,6 +88,20 @@ def test_ask_in_batches_does_not_split_an_empty_reply():
 def test_ask_in_batches_does_not_send_a_chunk_below_min_size():
     sizes: list[int] = []
 
+    def answers(prompt, system):
+        sizes.append(len(prompt.splitlines()))
+        return "[]", None
+
+    result = ask_in_batches(LLMClient(model="x", transport=answers), list(range(5)), size=2,
+                            prompt=lambda chunk: "\n".join("x" for _ in chunk),
+                            parse=json.loads, min_size=2)
+    assert sizes == [2, 2]  # the one-item remainder is never asked
+    assert result.too_small == [4] and result.failed == []
+
+
+def test_ask_in_batches_fails_a_chunk_it_cannot_halve_above_min_size():
+    sizes: list[int] = []
+
     def garbled(prompt, system):
         sizes.append(len(prompt.splitlines()))
         return "not json", None
@@ -95,9 +109,10 @@ def test_ask_in_batches_does_not_send_a_chunk_below_min_size():
     result = ask_in_batches(LLMClient(model="x", transport=garbled), list(range(5)), size=5,
                             prompt=lambda chunk: "\n".join("x" for _ in chunk),
                             parse=json.loads, min_size=2)
-    assert min(sizes) == 2
-    assert sorted(result.failed + result.too_small) == list(range(5))
-    assert result.too_small  # the singletons a split left behind were never asked
+    # 5 splits into 2 + 3; neither halves into two chunks of 2, so neither is re-asked.
+    assert sizes == [5, 2, 3] and result.calls == 3 and result.retried_batches == 1
+    assert result.failed == list(range(5)) and result.too_small == []
+    assert result.last_error.startswith("JSONDecodeError: ")
 
 
 def test_ask_in_batches_does_not_split_a_transport_failure():
@@ -246,9 +261,16 @@ def test_conflict_chunks_are_not_split_into_single_statements():
     detect_conflicts(atoms, client=LLMClient(model="x", transport=garbled_above_one),
                      report=report)
     assert min(sizes) == 2  # a one-statement call has no pair to check
-    assert len(report.unchecked) == 40 and report.pairs_compared == 0
-    assert any(w.startswith("40 of 40 atoms were not checked for conflicts")
-               for w in report.warnings(len(atoms)))
+    # 40 -> 20 -> 10 -> 5 -> 2 + 3: the 2s and 3s cannot halve into pairs, so they fail
+    # with the parse error rather than becoming singletons "alone in a batch".
+    assert len(sizes) == report.calls == 31 and report.retried_batches == 15
+    assert len(report.unchecked) == 40 and report.unchecked_alone == 0
+    assert report.pairs_compared == 0
+    assert report.conflict_error.startswith("ValueError: ")
+    assert (
+        f"40 of 40 atoms were not checked for conflicts (40 in calls that failed "
+        f"(last error: {report.conflict_error}))"
+    ) in report.warnings(len(atoms))
 
 
 def test_the_response_cache_still_replays_a_parseable_batch(monkeypatch, tmp_path):

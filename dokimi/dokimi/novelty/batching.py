@@ -7,10 +7,11 @@ Several novelty stages ask one model about many items per call (atoms to classif
 to check for conflicts). A reply that does not parse — most often one cut off by an output
 ceiling — used to become ``[]`` or ``continue``, and the items in that batch then read as
 an answer: *not needed*, *no conflict*. :func:`ask_in_batches` splits an unparseable batch
-in half and re-asks, down to ``min_size`` items, and returns the items it still could not
-get an answer for, so the caller can exclude them and say so. A transport failure or an
-empty reply is not split: re-asking smaller would only multiply an outage, and a
-reasoning model that spent its ceiling before answering does so on half a batch too.
+in half and re-asks, as long as each half keeps ``min_size`` items, and returns the items
+it still could not get an answer for, so the caller can exclude them and say so. A
+transport failure or an empty reply is not split: re-asking smaller would only multiply
+an outage, and a reasoning model that spent its ceiling before answering does so on half
+a batch too.
 """
 
 from __future__ import annotations
@@ -30,9 +31,11 @@ class BatchResult(Generic[T]):
 
     Attributes:
         answered: ``(chunk, parsed reply)`` pairs, in item order.
-        failed: Items whose call failed, came back empty, or never parsed.
-        too_small: Items left in a chunk below ``min_size``, which is never sent (a
-            conflict check of one statement has no pair to look at).
+        failed: Items whose call failed, came back empty, or never parsed (including a
+            chunk too small to split into two halves of ``min_size``).
+        too_small: Items in an initial chunk below ``min_size`` (the remainder after
+            cutting ``items`` into ``size`` chunks), which is never sent: a conflict
+            check of one statement has no pair to look at. A split never produces one.
         retried_batches: Chunks whose reply did not parse and were split.
         calls: Calls made, splits included.
         last_error: The last error on an item that ended in ``failed``. Errors that a
@@ -63,8 +66,10 @@ def ask_in_batches(
     Answers come back in item order: a split chunk's halves are re-asked in its place.
     ``parse`` must raise on a reply it cannot use (the JSON extractors in
     :mod:`dokimi.llm` raise ``ValueError``); it doubles as the response-cache acceptance
-    test, so a reply it rejects is never stored or replayed. A chunk with fewer than
-    ``min_size`` items is not sent; its items go to ``too_small``.
+    test, so a reply it rejects is never stored or replayed. A chunk whose reply won't
+    parse is split only if both halves keep ``min_size`` items; otherwise its items go to
+    ``failed`` with the parse error. An initial chunk with fewer than ``min_size`` items
+    is not sent; its items go to ``too_small``.
     """
     result: BatchResult[T] = BatchResult()
     usable = accepting(parse)
@@ -83,8 +88,8 @@ def ask_in_batches(
             replied = True
             result.answered.append((chunk, parse(reply)))
         except Exception as exc:
-            if replied and len(chunk) > 1:
-                half = len(chunk) // 2
+            half = len(chunk) // 2
+            if replied and half >= max(min_size, 1):
                 pending[:0] = [chunk[:half], chunk[half:]]
                 result.retried_batches += 1
             else:
