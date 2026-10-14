@@ -77,7 +77,7 @@ def test_a_bare_category_heading_has_no_content():
     assert not ccf.has_content("### Fixed\n\n<!-- - **x** — y. -->\n")
 
 
-def test_main_against_git(tmp_path, monkeypatch, capsys):
+def test_main_exit_codes(monkeypatch, capsys):
     monkeypatch.setattr(ccf, "changed_files", lambda base, head: [CODE])
     assert ccf.main(["--base", "b", "--head", "h"]) == 1
     assert "skip-changelog" in capsys.readouterr().err

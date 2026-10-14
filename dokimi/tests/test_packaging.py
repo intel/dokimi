@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 import dokimi
-from dokimi import config, intents, registry
+from dokimi import _version, config, intents, registry
 from dokimi.cli import build_parser
 from dokimi.runner import spec
 
@@ -36,6 +36,33 @@ def test_cli_prints_the_version(capsys):
         build_parser().parse_args(["--version"])
     assert exc.value.code == 0
     assert capsys.readouterr().out.strip() == f"dokimi {dokimi.__version__}"
+
+
+def test_version_without_pyproject_reads_the_metadata(tmp_path, monkeypatch):
+    # An installed wheel: no pyproject.toml next to the package.
+    monkeypatch.setattr(_version, "_PYPROJECT", tmp_path / "pyproject.toml")
+    monkeypatch.setattr(_version.metadata, "version", lambda name: "9.8.7")
+    assert _version._read_version() == "9.8.7"
+
+
+def test_version_ignores_another_projects_pyproject(tmp_path, monkeypatch):
+    other = tmp_path / "pyproject.toml"
+    other.write_text('[project]\nname = "other"\nversion = "1.0"\n', encoding="utf-8")
+    monkeypatch.setattr(_version, "_PYPROJECT", other)
+
+    def missing(name):
+        raise _version.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(_version.metadata, "version", missing)
+    assert _version._read_version() == "0+unknown"
+
+
+def test_a_local_runtime_config_overrides_the_bundled_one(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert config.runtime_config_path() == config.DEFAULT_PRODUCTS_PATH
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "products.yaml").write_text("llm: {}\n", encoding="utf-8")
+    assert config.runtime_config_path() == config.LOCAL_PRODUCTS_PATH
 
 
 def _shipped(path: Path) -> bool:

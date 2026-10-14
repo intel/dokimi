@@ -25,8 +25,12 @@ PROJECT = Path(__file__).resolve().parents[1]
 
 
 def release_notes(changelog: str, version: str) -> str | None:
-    """The body of the ``## [version]`` section, or None if there is none."""
-    match = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## |\Z)",
+    """The body of the ``## [version]`` section, or None if there is none.
+
+    The section ends at the next heading or at the ``<a id=...>`` anchor scriv
+    writes above each version.
+    """
+    match = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## |^<a id=|\Z)",
                       changelog, re.MULTILINE | re.DOTALL)
     return match.group(1).strip() if match else None
 

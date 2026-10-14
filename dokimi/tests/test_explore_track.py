@@ -194,6 +194,31 @@ def test_explore_list_passes_repo_root_from_cli(tmp_path, capsys):
     assert "t\tp\t1 ref(s)" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("argv", [
+    ["explore", "list"],
+    ["explore", "run", "--all"],
+    ["explore", "run", "--tasks", "t"],
+])
+def test_explore_without_bundled_tasks_says_so(tmp_path, monkeypatch, argv):
+    # An installed wheel has no data/explore_tasks: say so, do not find nothing.
+    import dokimi.explore.tasks as tasks_mod
+    from dokimi.cli import build_parser
+
+    monkeypatch.setattr(tasks_mod, "EXPLORE_TASKS_ROOT", tmp_path / "absent")
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit, match="ship with a source checkout.*--tasks-root"):
+        args.func(args)
+
+
+def test_a_task_file_path_needs_no_bundled_tasks(tmp_path, monkeypatch):
+    import dokimi.explore.tasks as tasks_mod
+
+    monkeypatch.setattr(tasks_mod, "EXPLORE_TASKS_ROOT", tmp_path / "absent")
+    path = tmp_path / "t.yaml"
+    path.write_text("id: t\nquery: q\nreferences:\n  - path: a.py\n", encoding="utf-8")
+    assert load_explore_task(str(path)).id == "t"
+
+
 def test_seed_tasks_load_and_reference_real_files():
     # The shipped seed set must parse and its references must exist in the repo.
     tasks = discover_explore_tasks()
