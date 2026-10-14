@@ -2,18 +2,18 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Report the state of every open PR as a stack, for the job summary.
+"""Report the state of every open PR, for the job summary.
 
-Most work here lands as stacked PRs (a PR's base is another PR's branch), often several
-deep, and review lags the stacks. What goes wrong in that shape is not visible from any
-one PR's checks:
+Every PR is meant to be based on ``main`` (CONTRIBUTING.md: no stacked PRs). With several
+PRs open at once, what goes wrong is still not visible from any one PR's checks:
 
-- a PR whose base branch was merged or deleted, so it targets nothing (it needs a retarget
-  to whatever its base merged into);
-- a PR that no longer merges cleanly onto its base, because the base moved under it;
-- a stack root that has fallen far behind ``main``;
 - a file edited by several open PRs at once -- a schema, ``pyproject.toml``, a workflow --
-  where whichever merges second inherits a conflict or a silent semantic clash.
+  where whichever merges second inherits a conflict or a silent semantic clash;
+- a PR that has fallen far behind ``main``, or no longer merges cleanly onto it.
+
+Stacked PRs still in flight from before that rule are reported too: a PR whose base
+branch was merged or deleted, so it targets nothing (it needs a retarget to ``main``),
+and a PR that no longer merges onto its base branch.
 
 Read-only: it fetches branches and computes merges with ``git merge-tree``; it does not
 comment, push or label. Needs ``GITHUB_TOKEN`` (pull-requests: read) and a full clone.

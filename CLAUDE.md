@@ -53,10 +53,12 @@ It compares against the remote whose URL is `intel/dokimi` (printed first; overr
   `dokimi/dokimi/schemas/`.
 - Status reports and phase plans do not belong in the repo — use PR
   descriptions and issues.
-- All changes to `main` go through pull requests, opened from a fork: push the
-  branch to your fork and open the PR against `intel/dokimi` `main`
-  (`gh pr create -R intel/dokimi --base main --head <you>:<branch>`). Do not
-  push branches to `intel/dokimi`, even with write access. Base every PR on
+- All changes to `main` go through pull requests, opened from a fork. Add the
+  fork as its own remote so `origin` keeps pointing at `intel/dokimi`:
+  `gh repo fork --remote --remote-name fork`, then `git push -u fork <branch>`
+  and `gh pr create -R intel/dokimi --base main --head <you>:<branch>`. Do not
+  push branches to `intel/dokimi`, even with write access (bot update branches,
+  `dependabot/*` and `renovate/*`, are the only exception). Base every PR on
   `main`; do not stack PRs on each other's branches — if a change depends on
   an open PR, wait for it to merge or put both in one PR.
 - Persisted answer/eval JSON keeps legacy `with_docs`/`without_docs` keys for

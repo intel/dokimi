@@ -59,9 +59,21 @@ Dependencies install from `requirements.lock.txt`. When you change a range in
 
 Guidelines:
 
-- **Open PRs from a fork.** Fork `intel/dokimi`, push your branch to the fork,
-  and open the PR against `main`. Don't push branches to `intel/dokimi` itself,
-  even if you have write access; it keeps the upstream branch list to `main`.
+- **Open PRs from a fork.** Push your branch to your fork of `intel/dokimi`
+  and open the PR against `main`. Don't push branches to `intel/dokimi`
+  itself, even if you have write access. The rule is for contributors and
+  agents; bot update branches (`dependabot/*`, `renovate/*`) are the
+  exception. From a clone of `intel/dokimi`:
+
+  ```bash
+  gh repo fork --remote --remote-name fork   # adds the fork as `fork`; origin stays intel/dokimi
+  git push -u fork <branch>
+  gh pr create -R intel/dokimi --base main --head <you>:<branch>
+  ```
+
+  Without `--remote-name fork`, `gh repo fork --remote` renames `origin` to
+  `upstream` and makes the fork `origin`, so `origin/main` is the fork's
+  `main`, not `intel/dokimi`'s.
 - **Base every PR on `main`.** Don't stack PRs on each other's branches; if a
   change depends on an open PR, wait for it to merge or combine the two.
 - **Keep changes focused.** One logical change per PR; it makes review and
