@@ -19,9 +19,10 @@ That last one is the only category which can make an artifact worse than nothing
 is reported first regardless of size.
 
 The known/new axis comes from the measurement, never from asking the model whether it
-knew something. The needed/not-needed axis is judged, and it is the axis that moved: an
-independent reviewer agreed with 71.6% of assignments in the study, with the
-disagreements concentrated on useful-vs-inert (±3 points) and known-vs-novel (±2).
+knew something. The needed/not-needed axis is judged. In the study both axes were judged,
+and an independent reviewer agreed with 71.6% of assignments, with the disagreements
+concentrated on useful-vs-inert (±3 points) and known-vs-novel (±2); here only the first
+of those figures applies, since known/new is read off the paired probes instead.
 """
 
 from __future__ import annotations
@@ -112,42 +113,74 @@ class ClassifyReport:
     """Which atoms the judged stages could not answer for, so none reads as a verdict.
 
     Attributes:
-        unjudged: Atoms with no need/scaffolding verdict (the call failed even alone,
-            or the reply skipped them). They are left out of the category counts.
-        unchecked: Atoms the conflict check never saw, for the same reason.
+        unjudged: Atoms with no need/scaffolding verdict. They are left out of the
+            category counts.
+        unjudged_skipped: How many of those the judge's reply skipped (the call worked
+            and had no row for them); the rest were in calls that failed even alone.
+        unchecked: Atoms the conflict check never compared with anything: in a call that
+            failed, or alone in a chunk (a one-statement call has no pair to look at).
+        unchecked_alone: How many of those were alone in a chunk.
         pairs_total: Atom pairs that could conflict.
-        pairs_compared: Pairs that shared a conflict-check call. Pairs split across
-            calls are never compared, so this bounds what ``conflicts`` can find.
+        pairs_compared: Pairs that shared an answered conflict-check call. Pairs split
+            across calls are never compared, so this bounds what ``conflicts`` can find.
         retried_batches: Calls that failed to parse and were split and re-asked.
-        last_error: The last failure, for the warning text.
+        calls: Calls both stages made, splits included.
+        value_error: The last value-judge failure that lost atoms.
+        conflict_error: The last conflict-check failure that lost atoms. Kept apart from
+            ``value_error``, and neither records an error a split recovered from, so a
+            warning never quotes another stage's error or one that lost nothing.
     """
 
     unjudged: list[str] = field(default_factory=list)
+    unjudged_skipped: int = 0
     unchecked: list[str] = field(default_factory=list)
+    unchecked_alone: int = 0
     pairs_total: int = 0
     pairs_compared: int = 0
     retried_batches: int = 0
-    last_error: str = ""
+    calls: int = 0
+    value_error: str = ""
+    conflict_error: str = ""
 
     def warnings(self, n_atoms: int) -> list[str]:
         """Artifact warnings for what was not judged or not compared."""
         out = []
         if self.unjudged:
+            failed = len(self.unjudged) - self.unjudged_skipped
+            causes = []
+            if failed:
+                causes.append(f"{failed} in calls that failed (last error: {self.value_error})")
+            if self.unjudged_skipped:
+                causes.append(f"{self.unjudged_skipped} skipped by the judge's reply")
             out.append(
                 f"{len(self.unjudged)} of {n_atoms} atoms got no need/scaffolding verdict "
                 f"and are left out of the content categories unless they conflict "
-                f"(last error: {self.last_error})"
+                f"({'; '.join(causes)})"
             )
         if self.unchecked:
+            failed = len(self.unchecked) - self.unchecked_alone
+            causes = []
+            if failed:
+                causes.append(
+                    f"{failed} in calls that failed (last error: {self.conflict_error})"
+                )
+            if self.unchecked_alone:
+                causes.append(f"{self.unchecked_alone} alone in a batch, with no pair to check")
             out.append(
                 f"{len(self.unchecked)} of {n_atoms} atoms were not checked for conflicts "
-                f"(last error: {self.last_error})"
+                f"({'; '.join(causes)})"
             )
         if self.pairs_total and self.pairs_compared < self.pairs_total:
             out.append(
                 f"conflicts were looked for within batches: {self.pairs_compared} of "
                 f"{self.pairs_total} atom pairs shared a call, so a contradiction between "
                 f"atoms in different batches is not detected"
+            )
+        if self.retried_batches:
+            out.append(
+                f"content classification re-asked {self.retried_batches} unparseable "
+                f"batches as halves ({self.calls} calls in all); a higher --max-tokens "
+                f"avoids the extra calls"
             )
         return out
 
@@ -176,8 +209,9 @@ def judge_value(
         parse=extract_json_array,
     )
     report.retried_batches += result.retried_batches
+    report.calls += result.calls
     if result.last_error:
-        report.last_error = result.last_error
+        report.value_error = result.last_error
     report.unjudged.extend(a.id for a in result.failed)
     verdicts: dict[str, AtomVerdict] = {}
     for chunk, rows in result.answered:
@@ -189,6 +223,7 @@ def judge_value(
             row = by_index.get(index)
             if row is None:
                 report.unjudged.append(atom.id)
+                report.unjudged_skipped += 1
                 continue
             verdicts[atom.id] = AtomVerdict(
                 atom_id=atom.id,
@@ -196,6 +231,21 @@ def judge_value(
                 scaffolding=bool(row.get("scaffolding", False)),
             )
     return verdicts
+
+
+def _conflict_rows(reply: str) -> list:
+    """The ``conflicts`` list of a conflict-check reply; ``ValueError`` if there is none.
+
+    A reply of ``[]``, ``null`` or an object without a ``conflicts`` list is not "no
+    conflicts": it is a reply this stage cannot read, and must go down the split /
+    unchecked path instead of counting as checked.
+    """
+    from .client import parse_json_object
+
+    rows = parse_json_object(reply).get("conflicts")
+    if not isinstance(rows, list):
+        raise ValueError(f"no `conflicts` list in the reply: {reply[:120]!r}")
+    return rows
 
 
 def detect_conflicts(
@@ -207,25 +257,30 @@ def detect_conflicts(
     Scoped to *internal* consistency: a conflict says "these two disagree", not "this one
     is wrong". Deciding which side is right needs a primary source, which this layer
     deliberately does not claim to consult. Only atoms that share a call are compared;
-    ``report.pairs_compared`` says how much of the pair space that covered.
+    ``report.pairs_compared`` says how much of the pair space that covered. A chunk is
+    never split below two atoms, since one statement has no pair to check; an atom left
+    alone is reported unchecked.
     """
-    from dokimi.llm import extract_json_object
-
     report = report if report is not None else ClassifyReport()
     result = ask_in_batches(
         client, atoms, size=batch,
         prompt=lambda chunk: _CONFLICT_PROMPT.format(statements=_numbered(chunk)),
-        parse=extract_json_object,
+        parse=_conflict_rows, min_size=2,
     )
     report.retried_batches += result.retried_batches
+    report.calls += result.calls
     if result.last_error:
-        report.last_error = result.last_error
+        report.conflict_error = result.last_error
     report.unchecked.extend(a.id for a in result.failed)
+    if len(atoms) > 1:
+        # One atom in all has nothing to conflict with; that is not a gap in the check.
+        report.unchecked.extend(a.id for a in result.too_small)
+        report.unchecked_alone += len(result.too_small)
     report.pairs_total = len(atoms) * (len(atoms) - 1) // 2
     report.pairs_compared = sum(len(c) * (len(c) - 1) // 2 for c, _ in result.answered)
     conflicts: list[dict] = []
     for chunk, rows in result.answered:
-        for row in rows.get("conflicts", []) or []:
+        for row in rows:
             try:
                 a_index, b_index = int(row["a"]) - 1, int(row["b"]) - 1
             except (KeyError, TypeError, ValueError):

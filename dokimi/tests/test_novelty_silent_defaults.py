@@ -56,6 +56,50 @@ def test_ask_in_batches_splits_an_unparseable_reply_and_keeps_order():
     assert result.failed == [] and result.retried_batches > 0
 
 
+def test_ask_in_batches_re_asks_in_place_when_only_the_first_half_fails():
+    def first_item_breaks(prompt, system):
+        items = [int(m) for m in re.findall(r"^item (\d+)$", prompt, flags=re.M)]
+        return ("[" if 0 in items and len(items) > 1 else json.dumps(items)), None
+
+    items = list(range(8))
+    result = ask_in_batches(
+        LLMClient(model="x", transport=first_item_breaks), items, size=8, parse=json.loads,
+        prompt=lambda chunk: "\n".join(f"item {i}" for i in chunk),
+    )
+    # Re-asking at the end of the queue would answer 4..7 before 0..3.
+    assert [i for chunk, _ in result.answered for i in chunk] == items
+    assert [reply for _, reply in result.answered] == [[0], [1], [2, 3], [4, 5, 6, 7]]
+    assert result.failed == [] and result.last_error == ""  # recovered: nothing to blame
+
+
+def test_ask_in_batches_does_not_split_an_empty_reply():
+    calls: list[int] = []
+
+    def starved(prompt, system):
+        calls.append(1)
+        return "", None
+
+    result = ask_in_batches(LLMClient(model="x", transport=starved), list(range(10)),
+                            size=5, prompt=lambda chunk: "p", parse=json.loads)
+    assert len(calls) == result.calls == 2
+    assert result.failed == list(range(10)) and "empty reply" in result.last_error
+
+
+def test_ask_in_batches_does_not_send_a_chunk_below_min_size():
+    sizes: list[int] = []
+
+    def garbled(prompt, system):
+        sizes.append(len(prompt.splitlines()))
+        return "not json", None
+
+    result = ask_in_batches(LLMClient(model="x", transport=garbled), list(range(5)), size=5,
+                            prompt=lambda chunk: "\n".join("x" for _ in chunk),
+                            parse=json.loads, min_size=2)
+    assert min(sizes) == 2
+    assert sorted(result.failed + result.too_small) == list(range(5))
+    assert result.too_small  # the singletons a split left behind were never asked
+
+
 def test_ask_in_batches_does_not_split_a_transport_failure():
     calls: list[int] = []
 
@@ -100,13 +144,38 @@ def test_a_row_the_judge_skipped_is_unjudged():
                            task="t", report=report)
     assert report.unjudged == [atoms[1].id]
     assert atoms[1].id not in verdicts
+    # No call failed, so there is no error to quote ("(last error: )" before).
+    [warning] = report.warnings(len(atoms))
+    assert warning.endswith("(1 skipped by the judge's reply)")
+
+
+def test_each_stage_quotes_its_own_error_not_one_a_split_recovered_from():
+    atoms = _atoms(4)
+
+    def transport(prompt, system):
+        if "judge how it functions" in prompt:
+            raise TimeoutError("judge timed out")
+        if len(_numbers(prompt)) > 2:
+            return "{\"conflicts\": [", None  # recovered by splitting
+        return json.dumps({"conflicts": []}), None
+
+    client = LLMClient(model="x", transport=transport)
+    report = ClassifyReport()
+    judge_value(atoms, client=client, task="t", report=report)
+    detect_conflicts(atoms, client=client, report=report)
+    [unjudged] = [w for w in report.warnings(len(atoms)) if "no need/scaffolding" in w]
+    assert "TimeoutError: judge timed out" in unjudged
+    assert "ValueError" not in unjudged and "JSONDecodeError" not in unjudged
+    assert report.unchecked == [] and report.conflict_error == ""
 
 
 def test_an_unjudged_atom_that_conflicts_is_still_harmful():
     atoms = _atoms(2)
     verdicts: dict = {}
-    apply_conflicts(verdicts, [{"a": atoms[0].id, "b": atoms[1].id, "why": "x"}])
+    apply_conflicts(verdicts, [{"a": atoms[0].id, "b": atoms[1].id, "why": "x"},
+                               {"a": "", "b": atoms[1].id}])  # a side with no id is skipped
     assert set(categorize(atoms, verdicts, outcomes={}).values()) == {"harmful_conflicting"}
+    assert "" not in verdicts
 
 
 def test_conflict_coverage_states_pairs_across_batches_were_not_compared():
@@ -131,6 +200,74 @@ def test_a_failed_conflict_batch_is_reported_unchecked():
     assert detect_conflicts(atoms, client=LLMClient(model="x", transport=down),
                             report=report) == []
     assert report.unchecked == [a.id for a in atoms]
+    assert (report.pairs_compared, report.pairs_total) == (0, 6)  # a failed call compared none
+    warnings = report.warnings(len(atoms))
+    assert any(w.startswith("4 of 4 atoms were not checked for conflicts (4 in calls that "
+                            "failed (last error: RuntimeError: throttled)") for w in warnings)
+    assert any("0 of 6 atom pairs shared a call" in w for w in warnings)
+
+
+def test_a_conflict_row_names_the_atoms_of_its_own_chunk():
+    atoms = _atoms(4)
+
+    def second_chunk_conflicts(prompt, system):
+        if "Setting 3 " in prompt:
+            return json.dumps({"conflicts": [{"a": 1, "b": 2, "why": "x"}]}), None
+        return json.dumps({"conflicts": []}), None
+
+    conflicts = detect_conflicts(
+        atoms, client=LLMClient(model="x", transport=second_chunk_conflicts), batch=2
+    )
+    assert conflicts == [{"a": atoms[2].id, "b": atoms[3].id, "why": "x"}]
+
+
+@pytest.mark.parametrize("reply", ["[]", "null", '[{"a": 1, "b": 2, "why": "x"}]',
+                                   '{"conflicts": null}', '{"found": []}'])
+def test_a_conflict_reply_without_a_conflicts_list_is_unchecked_not_a_crash(reply):
+    atoms = _atoms(4)
+    report = ClassifyReport()
+    conflicts = detect_conflicts(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (reply, None)),
+        report=report,
+    )
+    assert conflicts == [] and sorted(report.unchecked) == sorted(a.id for a in atoms)
+    assert report.pairs_compared == 0
+
+
+def test_conflict_chunks_are_not_split_into_single_statements():
+    atoms = _atoms(40)
+    sizes: list[int] = []
+
+    def garbled_above_one(prompt, system):
+        sizes.append(len(_numbers(prompt)))
+        return "{\"conflicts\": [", None
+
+    report = ClassifyReport()
+    detect_conflicts(atoms, client=LLMClient(model="x", transport=garbled_above_one),
+                     report=report)
+    assert min(sizes) == 2  # a one-statement call has no pair to check
+    assert len(report.unchecked) == 40 and report.pairs_compared == 0
+    assert any(w.startswith("40 of 40 atoms were not checked for conflicts")
+               for w in report.warnings(len(atoms)))
+
+
+def test_the_response_cache_still_replays_a_parseable_batch(monkeypatch, tmp_path):
+    calls = _completion_counter(monkeypatch, tmp_path, '[{"n": 1, "needed": true}]')
+    for _ in range(2):
+        verdicts = judge_value(_atoms(1), client=LLMClient(model="m", provider="openai"),
+                               task="t")
+        assert len(verdicts) == 1
+    assert len(calls) == 1
+
+
+def test_the_response_cache_does_not_replay_an_unparseable_batch(monkeypatch, tmp_path):
+    calls = _completion_counter(monkeypatch, tmp_path, '[{"n": 1, "needed": tr')
+    for _ in range(2):
+        report = ClassifyReport()
+        judge_value(_atoms(1), client=LLMClient(model="m", provider="openai"), task="t",
+                    report=report)
+        assert len(report.unjudged) == 1
+    assert len(calls) == 2
 
 
 def test_a_failed_adjudication_is_not_cached_as_absent(tmp_path):

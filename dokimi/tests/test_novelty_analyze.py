@@ -337,6 +337,21 @@ def test_a_failed_value_judge_leaves_atoms_out_of_the_categories_and_says_so(tmp
                for w in artifact["warnings"])
 
 
+def test_a_failed_conflict_check_reaches_the_artifact(tmp_path):
+    scripted = _scripted("informed")
+
+    def conflicts_down(prompt, system):
+        if "Find pairs of statements" in prompt:
+            raise RuntimeError("throttled")
+        return scripted(prompt, system)
+
+    artifact = _analyze_with(tmp_path, conflicts_down)
+    n = len(_ATOMS)
+    assert any(w.startswith(f"{n} of {n} atoms were not checked for conflicts")
+               for w in artifact["warnings"])
+    assert any("0 of 1 atom pairs shared a call" in w for w in artifact["warnings"])
+
+
 def test_a_truncating_extractor_is_recovered_and_an_unreadable_span_is_a_warning(tmp_path):
     import re
 
