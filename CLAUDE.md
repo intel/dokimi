@@ -51,7 +51,12 @@ Before pushing: `make dev` once (repo root, builds CI's `.venv`), then `make ci-
   `dokimi/dokimi/schemas/`.
 - Status reports and phase plans do not belong in the repo — use PR
   descriptions and issues.
-- All changes to `main` go through pull requests.
+- All changes to `main` go through pull requests, opened from a fork: push the
+  branch to your fork and open the PR against `intel/dokimi` `main`
+  (`gh pr create -R intel/dokimi --base main --head <you>:<branch>`). Do not
+  push branches to `intel/dokimi`, even with write access. Base every PR on
+  `main`; do not stack PRs on each other's branches — if a change depends on
+  an open PR, wait for it to merge or put both in one PR.
 - Persisted answer/eval JSON keeps legacy `with_docs`/`without_docs` keys for
   the two answer conditions — do not rename them in data files.
 - Docs: `dokimi/docs/README.md` is the documentation index; record

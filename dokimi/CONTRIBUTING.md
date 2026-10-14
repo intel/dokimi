@@ -56,6 +56,11 @@ Dependencies install from `requirements.lock.txt`. When you change a range in
 
 Guidelines:
 
+- **Open PRs from a fork.** Fork `intel/dokimi`, push your branch to the fork,
+  and open the PR against `main`. Don't push branches to `intel/dokimi` itself,
+  even if you have write access; it keeps the upstream branch list to `main`.
+- **Base every PR on `main`.** Don't stack PRs on each other's branches; if a
+  change depends on an open PR, wait for it to merge or combine the two.
 - **Keep changes focused.** One logical change per PR; it makes review and
   bisecting easier.
 - **Add tests** for behavioral changes. The suite lives in `tests/` and runs
