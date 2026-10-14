@@ -5,6 +5,8 @@
 import json
 from unittest.mock import patch
 
+import pytest
+
 
 from dokimi.questions.chunk_gen import (
     ChunkBasedQuestionGenerator,
@@ -69,6 +71,18 @@ def test_strip_html_removes_script():
     result = _strip_html(html)
     assert "alert" not in result
     assert "Hello" in result
+
+
+@pytest.mark.parametrize("end_tag", ["</script >", "</SCRIPT>", "</script\n>"])
+def test_strip_html_removes_script_whatever_its_end_tag_looks_like(end_tag):
+    # Browsers close a script on all of these; a `</script>` regex leaked the body.
+    result = _strip_html(f"<p>Hello</p><script>alert('x'){end_tag}<p>World</p>")
+    assert "alert" not in result
+    assert "Hello" in result and "World" in result
+
+
+def test_strip_html_keeps_text_that_only_looks_like_a_tag():
+    assert _strip_html("<p>if a < b and c > d</p>") == "if a < b and c > d"
 
 
 # ── _chunk_text ───────────────────────────────────────────────────────────────

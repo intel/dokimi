@@ -112,7 +112,7 @@ class ReportGenerator:
                 "failure_analysis": failure_summary,
                 "trust": {
                     "verdict": trust_verdict.status,
-                    "trusted": trust_verdict.trusted,
+                    "trusted": trust_verdict.is_trusted,
                     # Read with "verdict": a PASS with entries here passed without
                     # running those checks (the novelty gate's as_dict carries the same).
                     "not_measured": trust_verdict.not_measured,

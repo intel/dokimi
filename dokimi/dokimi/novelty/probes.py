@@ -61,7 +61,9 @@ _ANCHOR_PATTERNS = (
                r"\b[A-Z]{6,}\b"),
     # Identifiers and file names carry a fact the same way a number does, and they survive
     # losing their backticks.
-    re.compile(r"\b[A-Za-z][\w]*(?:_[\w]+)+\b"),
+    # Split at the first underscore: `(?:_\w+)+` is ambiguous (\w holds `_` too) and
+    # gives CodeQL py/redos an exponential path. Same matches.
+    re.compile(r"\b[A-Za-z][^\W_]*_\w+\b"),
     re.compile(r"\b[\w.-]+\.(?:md|py|sh|c|cc|cpp|h|json|ya?ml|toml|txt|so|a)\b"),
     # Letter-and-digit value tokens (bf16, B60, W4A8, L0; 7B, 100us, 6980P) and dotted
     # names (dpnp.asnumpy, torch.profiler). A flag's tail (-j8) and a version's prefix

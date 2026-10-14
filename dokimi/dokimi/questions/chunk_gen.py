@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 from urllib.request import urlopen, Request
 
 from dokimi.llm import llm_call, extract_json_array
+from dokimi.mcp.utils import html_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +85,7 @@ def _fetch_url(url: str, timeout: int = 20) -> str:
 
 
 def _strip_html(html: str) -> str:
-    html = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.DOTALL | re.I)
-    text = re.sub(r"<[^>]+>", " ", html)
+    text = html_to_text(html)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()

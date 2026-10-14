@@ -189,7 +189,7 @@ def lexical_routing(
     }
 
 
-def _as_card_number(value: object) -> int:
+def _as_pick_position(value: object) -> int:
     """Card number from a model's ``pick``, or 0 when it is not one (null, prose, 2.9, true)."""
     if isinstance(value, bool):
         return 0
@@ -239,7 +239,7 @@ def model_routing(
         # A reply that is not a usable pick is the model declining to route, not a
         # transport failure: it stays in the denominator like an explicit abstention.
         try:
-            raw = _as_card_number(extract_json_object(reply).get("pick", 0))
+            raw = _as_pick_position(extract_json_object(reply).get("pick", 0))
         except ValueError:
             raw = 0
         if raw < 1 or raw > len(order):
