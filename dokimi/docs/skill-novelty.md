@@ -241,6 +241,9 @@ python cli.py novelty analyze --artifact skill:path/to/skill \
     --judge-model gpt-6.1-sol --judge-provider openai [--include-resources]
 ```
 
+With no `--judge-model`/`--judge-provider`, the judge is `anthropic/claude-sonnet-5-5`
+whatever `--provider` is; a Bedrock-only run adds `--judge-provider amazon-bedrock`.
+
 Without `--include-resources` this measures `SKILL.md` alone and prints, before spending
 anything, what share of the artifact that leaves out — see
 [the artifact is the bundle](#the-artifact-is-the-bundle-not-the-file).

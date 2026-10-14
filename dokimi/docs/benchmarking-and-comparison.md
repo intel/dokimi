@@ -88,7 +88,10 @@ novelty judge to `openai/gpt-6.1-sol` and makes the other commands warn. Escalat
 judges (`--escalate-model`) have no default; `claude-opus-5-5` ($4 / $20) is the
 natural tie-break above the Sonnet judge. On `--provider amazon-bedrock` the bare
 names `claude-sonnet-5-5`, `claude-opus-5-5` and `claude-haiku-5-5` resolve to the
-`us.anthropic.*` inference profiles of the same name.
+`us.anthropic.*` inference profiles of the same name. The `novelty` judge no
+longer follows `--provider`: with no judge flags it runs on `anthropic`, so a
+Bedrock-only run passes `--judge-provider amazon-bedrock` (and `atoms`/`shorten`
+`--provider amazon-bedrock`).
 
 **Defaults changed on 2026-10-13: results are not comparable with older baselines;
 re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and
