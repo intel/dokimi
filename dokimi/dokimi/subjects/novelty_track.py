@@ -63,6 +63,9 @@ def novelty_cell(artifact: dict, *, source: str | None = None) -> dict[str, Any]
             "tokens": spans.get("tokens"),
             "frac_carrying_nothing": spans.get("frac_carrying_nothing"),
             "capped_atom_set": spans.get("capped_atom_set"),
+            # The fraction is over the read text only, so the unread part rides along.
+            "n_unread": spans.get("n_unread"),
+            "tokens_unread": spans.get("tokens_unread"),
         },
         "gate": verdict.as_dict(),
         # The artifact's own warnings ride along: a cell that skipped a stage must not read as a

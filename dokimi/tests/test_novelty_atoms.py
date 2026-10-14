@@ -203,8 +203,9 @@ def test_a_capped_extraction_counts_only_the_batches_it_reached():
 
     def three_per_span_cut_above_13(prompt, system):
         ids = re.findall(r"^\[(s\d+)\]", prompt, flags=re.M)
-        rows = [dict(row, statement=f"{row['statement']} ({k})", question=f"q{k} {sid}")
-                for sid, row in zip(ids, _rows(prompt)) for k in range(3)]
+        rows = [dict(row, statement=f"{row['statement']} ({k})",
+                     question=f"q{k} {row['span_ids'][0]}")
+                for row in _rows(prompt) for k in range(3)]
         reply = json.dumps(rows)
         return (reply[:-2] if len(ids) > 13 else reply), None
 
@@ -220,16 +221,18 @@ def test_a_capped_extraction_counts_only_the_batches_it_reached():
     ) in report.warnings(len(spans))
 
 
-def _half_lost(n: int = 50):
-    """``n`` one-sentence spans, every one carrying an atom, the first batch lost."""
+def _half_lost(n: int = 50, silent: frozenset[int] = frozenset()):
+    """``n`` one-sentence spans, the first batch lost; every read span carries an atom
+    except those at the ``silent`` indexes, which are read and assert nothing."""
     doc = "\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, n + 1))
     spans = segment(doc)
     first_batch = {s.id for s in spans[:25]}
+    quiet = {spans[i].id for i in silent}
 
     def throttled_first(prompt, system):
         if first_batch & set(re.findall(r"^\[(s\d+)\]", prompt, flags=re.M)):
             raise RuntimeError("RateLimitError: slow down")
-        return json.dumps(_rows(prompt)), None
+        return json.dumps([r for r in _rows(prompt) if r["span_ids"][0] not in quiet]), None
 
     report = ExtractionReport()
     atoms = extract_atoms(spans, client=LLMClient(model="x", transport=throttled_first),
@@ -252,10 +255,24 @@ def test_unread_spans_are_not_counted_as_carrying_nothing():
     assert dead_weight(rows) == []
     assert {r.label for r in rows[:25]} == {"unread"}
 
+    # Half the text unread is below the gate's read-share floor: reported, not judged.
     check = next(c for c in evaluate_novelty({"spans": summary}).checks
                  if c.name == "dead_tokens")
-    assert check.passed and check.measured
-    assert "25 spans" in check.message and "never read by extraction" in check.message
+    assert check.passed and not check.measured
+    assert "25 spans" in check.message and "tokens unread; floor 80%" in check.message
+
+
+def test_the_dead_token_share_is_over_the_read_text_only():
+    from dokimi.novelty.spans import span_summary
+
+    spans, atoms, _report = _half_lost(silent=frozenset({49}))
+
+    summary = span_summary(spans, atoms)
+    read = sum(s.tokens for s in spans[25:])
+    assert summary["tokens_carrying_nothing"] == spans[49].tokens
+    # Over the whole text it would be half this: the unread half is not in the denominator.
+    assert summary["frac_carrying_nothing"] == round(spans[49].tokens / read, 4)
+    assert summary["frac_carrying_nothing"] != round(spans[49].tokens / summary["tokens"], 4)
 
 
 def test_the_shortener_never_cuts_an_unread_span():

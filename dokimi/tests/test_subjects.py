@@ -366,6 +366,28 @@ def test_a_novelty_cell_that_skipped_stages_does_not_render_a_bare_pass(tmp_path
     assert "| PASS (8 not measured) |" in render_subject_scorecard(scorecard)
 
 
+def test_a_novelty_cell_marks_the_text_extraction_never_read(tmp_path: Path):
+    partial = {"n": 50, "tokens": 900, "frac_carrying_nothing": 0.0, "capped_atom_set": False,
+               "n_unread": 49, "tokens_unread": 882}
+    scorecard = build_subject_scorecard(
+        _minimal_subject(tmp_path), awareness_runs=[], out_dir=tmp_path,
+        novelty_artifacts=[_novelty_artifact(spans=partial), _novelty_artifact()],
+    )
+    validate_artifact("subject_scorecard", scorecard)
+    cells = scorecard["novelty"]["cells"]
+    assert (cells[0]["spans"]["n_unread"], cells[0]["spans"]["tokens_unread"]) == (49, 882)
+    assert "dead_tokens" in cells[0]["gate"]["not_measured"]
+    md = render_subject_scorecard(scorecard)
+    assert "| 0.000 (98% unread) |" in md
+    assert "| 0.120 |" in md  # a fully read cell carries no marker
+    tiny = dict(partial, n_unread=1, tokens_unread=3)
+    scorecard = build_subject_scorecard(
+        _minimal_subject(tmp_path), awareness_runs=[], out_dir=tmp_path,
+        novelty_artifacts=[_novelty_artifact(spans=tiny)],
+    )
+    assert "| 0.000 (<1% unread) |" in render_subject_scorecard(scorecard)
+
+
 def test_a_novelty_artifact_warning_reaches_the_scorecard_warnings(tmp_path: Path):
     note = "judge and answerer are the same model (--allow-self-judge): scores are inflated"
     scorecard = build_subject_scorecard(

@@ -354,11 +354,32 @@ def test_two_files_in_one_arm_are_judged_on_the_worse_one():
 
 def test_dead_tokens_says_what_extraction_never_read():
     spans = {"frac_carrying_nothing": 0.1, "capped_atom_set": False, "tokens": 100,
-             "n_unread": 3, "tokens_unread": 40}
+             "n_unread": 3, "tokens_unread": 20}
     check = _named(evaluate_novelty(_artifact(spans=spans)), "dead_tokens")
-    assert check.measured and check.passed
-    assert "3 spans (40 of 100 tokens) were never read by extraction" in check.message
+    assert check.measured and check.passed  # 0.80 read: at the floor, so judged
+    assert "3 spans (20 of 100 tokens) were never read by extraction" in check.message
     nothing_read = dict(spans, frac_carrying_nothing=0.0, tokens_unread=100)
     check = _named(evaluate_novelty(_artifact(spans=nothing_read)), "dead_tokens")
     assert not check.measured and check.value is None
-    assert check.message.startswith("not checked: extraction read none")
+    # No "outside this figure": with nothing read there is no figure to be outside of.
+    assert check.message == ("not checked: extraction read none of the artifact's text "
+                             "(3 spans, 100 tokens unread)")
+
+
+def test_dead_tokens_is_not_judged_on_a_remnant_of_the_text():
+    # 49 of 50 spans unread; the one read span carries an atom, so the fraction is 0.0.
+    spans = {"frac_carrying_nothing": 0.0, "capped_atom_set": False, "tokens": 100,
+             "n_unread": 49, "tokens_unread": 98}
+    verdict = evaluate_novelty(_artifact(spans=spans))
+    check = _named(verdict, "dead_tokens")
+    assert not check.measured and check.passed and check.value == 0.0
+    assert "dead_tokens" in verdict.not_measured
+    assert check.message == (
+        "not checked: extraction read 2% of the artifact's tokens (49 spans, 98 of 100 tokens "
+        "unread; floor 80%), so the 0.000 carrying no atom is a figure about the read remnant, "
+        "not the artifact"
+    )
+    just_under = dict(spans, n_unread=3, tokens_unread=21)
+    assert not _named(evaluate_novelty(_artifact(spans=just_under)), "dead_tokens").measured
+    looser = evaluate_novelty(_artifact(spans=spans), {"min_frac_read": 0.0})
+    assert _named(looser, "dead_tokens").measured

@@ -228,9 +228,15 @@ def _render_bundle(artifact: dict) -> list[str]:
         "|---|---|---|---|---|---|",
     ]
     for row in bundle.get("by_source", []):
+        if row.get("unread"):
+            atoms_s = "not read"
+        else:
+            atoms_s = str(row.get("n_atoms", 0)) + (
+                f" ({row['n_spans_unread']} spans unread)" if row.get("n_spans_unread") else ""
+            )
         lines.append(
             f"| `{row['source']}` | {row.get('role', '')} | {row.get('words', 0)} | "
-            f"{row['n_atoms']} | {row.get('added', 0)} | {row.get('redundant', 0)} |"
+            f"{atoms_s} | {row.get('added', 0)} | {row.get('redundant', 0)} |"
         )
     lines.append("")
     pointer = bundle.get("pointer_spans") or {}

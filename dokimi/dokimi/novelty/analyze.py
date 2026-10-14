@@ -418,6 +418,11 @@ def _outcomes_by_source(
     of `added` is knowledge that may belong where the agent will actually read it. An atom
     is attributed to the file of its first cited span; an atom citing spans in two files
     is rare and counted once, at the first.
+
+    A file with spans no extraction call read carries ``n_spans_unread`` /
+    ``tokens_unread``, and one that was not read at all has ``n_atoms: null`` and
+    ``unread: true``: zero atoms from a file nobody read is not "this file yields no
+    knowledge".
     """
     source_of_span = {span.id: artifact_bundle.source_of(span.start) for span in span_list}
     rows: dict[str, dict] = {}
@@ -431,14 +436,26 @@ def _outcomes_by_source(
         if verdict:
             row[verdict] = row.get(verdict, 0) + 1
     # A measured file that produced no atom is a result, not an absence: it is either
-    # pointers and prose, or knowledge the extractor could not formalize.
+    # pointers and prose, or knowledge the extractor could not formalize -- unless no
+    # extraction call read it, which is said below.
     for item in artifact_bundle.files:
         rows.setdefault(item.path, {"source": item.path, "n_atoms": 0})
+    spans_of: dict[str, list] = {}
+    for span in span_list:
+        spans_of.setdefault(source_of_span[span.id], []).append(span)
     by_path = {item.path: item for item in artifact_bundle.files}
     for source, row in rows.items():
         item = by_path.get(source)
         row["role"] = item.role if item else "unknown"
         row["words"] = item.words if item else 0
+        own = spans_of.get(source, [])
+        unknown = [span for span in own if span.unknown]
+        if unknown:
+            row["n_spans_unread"] = len(unknown)
+            row["tokens_unread"] = sum(span.tokens for span in unknown)
+        if own and not row["n_atoms"] and all(span.unread for span in own):
+            row["n_atoms"] = None
+            row["unread"] = True
     return sorted(rows.values(), key=lambda r: (-r.get("added", 0), r["source"]))
 
 

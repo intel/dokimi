@@ -46,6 +46,11 @@ def _novelty_section(novelty: dict) -> list[str]:
         spans = cell.get("spans", {}) or {}
         dead = spans.get("frac_carrying_nothing")
         dead_s = _fmt(dead) + (" (capped)" if spans.get("capped_atom_set") else "")
+        unread, tokens = spans.get("tokens_unread") or 0, spans.get("tokens") or 0
+        if unread and tokens:
+            # Over the read text only: a 0.000 on 2% of the text is not a clean artifact.
+            share = unread / tokens
+            dead_s += f" ({share:.0%} unread)" if share >= 0.01 else " (<1% unread)"
         lines.append(
             f"| `{(cell.get('artifact') or {}).get('ref', '?')}` | `{cell.get('model', '?')}` | "
             f"{_fmt(lenient.get('added'))} / {_fmt(strict.get('added'))} | "

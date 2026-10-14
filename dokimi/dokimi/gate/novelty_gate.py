@@ -31,6 +31,11 @@ DEFAULTS: dict[str, Any] = {
     # Dead-token ceiling. 11 of 13 analyzed skills sat at <=0.17; the two outliers (0.50, 0.74)
     # were a judging-cap artifact and are 0.068 and 0.064 on the full atom set (evidence §10.7).
     "max_frac_carrying_nothing": 0.25,
+    # Share of the artifact's tokens extraction must have read for that ceiling to be checked.
+    # Below it the fraction is over a remnant (one read span in fifty passed as "measured"),
+    # so it is reported, not judged. Conventional, not measured: the same 0.80 as the other
+    # share floors here.
+    "min_frac_read": 0.80,
     # Share of atoms confirmed against the span cited for them. 0.907 was achievable with the
     # heading path prepended, and 0.19 of atoms were not recoverable from their cited file at all,
     # so this is set below the measured best rather than at it.
@@ -190,8 +195,11 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     pointers = ((artifact.get("bundle") or {}).get("pointer_spans") or {})
     pointer_n, pointer_tokens = pointers.get("n", 0), pointers.get("tokens", 0)
     # Spans no extraction call read are outside the fraction (it is over the read text),
-    # so the check says how much it could not see rather than passing them as clean.
+    # so the check says how much it could not see rather than passing them as clean, and
+    # does not judge the fraction at all when too little was read.
     unread_n, unread_tokens = spans.get("n_unread") or 0, spans.get("tokens_unread") or 0
+    total_tokens = spans.get("tokens") or 0
+    frac_read = 1 - unread_tokens / total_tokens if total_tokens else 1.0
     unread_note = (
         f". {unread_n} spans ({unread_tokens} of {spans.get('tokens')} tokens) were never "
         "read by extraction and are outside this figure, so it describes the read text only"
@@ -213,11 +221,25 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
                 "as 0.743 on the study's largest artifact"
             ),
         ))
-    elif unread_n and unread_tokens >= (spans.get("tokens") or 0):
+    elif unread_n and frac_read <= 0:
         checks.append(NoveltyCheck(
             name="dead_tokens", passed=True, value=None,
             threshold=cfg["max_frac_carrying_nothing"], severity="info", measured=False,
-            message=f"not checked: extraction read none of the artifact's text{unread_note}",
+            message=(
+                f"not checked: extraction read none of the artifact's text ({unread_n} spans, "
+                f"{unread_tokens} tokens unread)"
+            ),
+        ))
+    elif unread_n and frac_read < cfg["min_frac_read"]:
+        checks.append(NoveltyCheck(
+            name="dead_tokens", passed=True, value=round(frac_dead, 4),
+            threshold=cfg["max_frac_carrying_nothing"], severity="info", measured=False,
+            message=(
+                f"not checked: extraction read {frac_read:.0%} of the artifact's tokens "
+                f"({unread_n} spans, {unread_tokens} of {total_tokens} tokens unread; floor "
+                f"{cfg['min_frac_read']:.0%}), so the {frac_dead:.3f} carrying no atom is a "
+                "figure about the read remnant, not the artifact"
+            ),
         ))
     else:
         checks.append(NoveltyCheck(

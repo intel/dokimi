@@ -250,6 +250,52 @@ def test_a_bundle_run_reports_which_file_carried_each_atom(tmp_path):
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
 
 
+def test_a_bundle_file_extraction_never_read_is_unread_not_empty(tmp_path):
+    import re
+
+    from dokimi.novelty.bundle import load_bundle
+    from dokimi.novelty.spans import segment
+
+    root = tmp_path / "accel-tuning"
+    (root / "references").mkdir(parents=True)
+    (root / "SKILL.md").write_text(SKILL, encoding="utf-8")
+    (root / "references" / "tuning.md").write_text(
+        "# Tuning\n\nSet `--threads` to the core count.\n", encoding="utf-8")
+    bundle = load_bundle(f"skill:{root}", include_resources=True)
+    in_tuning = {s.id for s in segment(bundle.text)
+                 if bundle.source_of(s.start) == "references/tuning.md"}
+    assert in_tuning
+    scripted = _scripted("informed")
+
+    def ceiling(prompt, system):
+        # Every multi-span reply is cut; a span of tuning.md never parses even alone.
+        if "Extract the checkable knowledge" not in prompt:
+            return scripted(prompt, system)
+        ids = set(re.findall(r"^\[(s\d+)\]", prompt, flags=re.M))
+        rows = json.dumps([a for a in _ATOMS if set(a["span_ids"]) & ids])
+        return ((rows[: len(rows) // 2] or "[") if len(ids) > 1 or ids & in_tuning
+                else rows), None
+
+    config = AnalyzeConfig(
+        artifact_ref=f"skill:{root}", artifact_kind=bundle.kind, name=bundle.name,
+        description=bundle.description, frontmatter=bundle.frontmatter, concurrency=1,
+        include_resources=True,
+    )
+    _, answerer, judge = _clients()
+    extractor = LLMClient(model="extractor-m", role="extractor", transport=ceiling)
+    artifact = analyze(bundle.text, config, extractor=extractor, answerer=answerer,
+                       judge=judge, artifact_bundle=bundle).artifact
+    rows = {row["source"]: row for row in artifact["bundle"]["by_source"]}
+    tuning = rows["references/tuning.md"]
+    assert tuning["n_atoms"] is None and tuning["unread"] is True
+    assert tuning["n_spans_unread"] == len(in_tuning)
+    assert rows["SKILL.md"]["n_atoms"] == artifact["atoms"]["n"]
+    assert "unread" not in rows["SKILL.md"] and "n_spans_unread" not in rows["SKILL.md"]
+    validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
+    assert "| `references/tuning.md` | reference |" in render_novelty_markdown(artifact)
+    assert "| not read |" in render_novelty_markdown(artifact)
+
+
 def test_an_entry_point_only_run_says_how_much_of_the_artifact_it_ignored(tmp_path):
     from dokimi.novelty.bundle import load_bundle
 
