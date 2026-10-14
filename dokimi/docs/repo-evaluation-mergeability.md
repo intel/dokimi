@@ -79,6 +79,7 @@ rest of the evaluation directory, the agent never sees it.
 ```
 
 **Glob semantics.**
+
 - `**` crosses `/`; `*` and `?` do not.
 - The dialect is the one guidance globs use (`repos/manifest.py`
   `match_glob`). There is no extglob such as `!(a|b)`: `allowed_globs`
@@ -89,6 +90,7 @@ rest of the evaluation directory, the agent never sees it.
   In the prototype it rejected the maintainer's own reference fix.
 
 **Rules for blockers.**
+
 1. A blocker is something a reviewer would stop on: correctness beyond the
    hidden tests (every affected backend, path and data type), scope,
    public API or ABI breakage, or a convention violation that draws "request
@@ -128,6 +130,7 @@ diff, which the framework takes before `grade` runs. The grader restores the
 hidden test files, so a diff taken after `grade` shows the upstream PR's own
 test edits in place of the agent's. The prototype diffed after the restore,
 which is why it could not measure test integrity. The diff:
+
 - is taken with `--no-renames`, so a moved file shows as a deletion plus an
   addition. With rename detection, `git diff --name-only` names only the
   destination and `--diff-filter=D` misses the deletion;
@@ -144,6 +147,7 @@ which is why it could not measure test integrity. The diff:
 root `conftest.py`, `addopts` in `pytest.ini`, a skip marker, or a BUILD
 edit. The hidden-test restore does not undo any of these. So the check
 covers:
+
 - files matching `tests.globs` or `tests.config_globs`: none deleted. An
   edit to a config file is not failed outright, since adding a test target
   is a normal edit; the judge gets a fixed blocker for it, "does not disable
@@ -254,6 +258,7 @@ The work goes into the rubric, never into grading individual runs.
 
 The prototype's drafts had questionable blockers, which is what maintainer
 review is for:
+
 - a "never clamp" rule where clamping is arguably the correct fix;
 - an O(nnz) cost rule that its own drafter flagged as possibly too strict;
 - an extra-trees blocker that penalized fixing a second, real bug the
@@ -262,10 +267,10 @@ review is for:
 ## 7. Reporting
 
 - **Per arm and model:**
-  - `mergeable` rate, test-pass rate (`pass` plus the other gate entries),
-    and their difference;
-  - mean `merge_score` among mergeable runs;
-  - grader-failure and judge-failure counts.
+    - `mergeable` rate, test-pass rate (`pass` plus the other gate entries),
+      and their difference;
+    - mean `merge_score` among mergeable runs;
+    - grader-failure and judge-failure counts.
 - **Per task:** a histogram of failed blockers. It tells the repository what
   agents get wrong when the tests pass, and so what its guidance should say.
 - **Judge agreement**, and the list of runs where the judges disagreed.

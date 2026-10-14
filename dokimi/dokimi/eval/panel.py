@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -256,17 +257,52 @@ class JudgePanel:
     def _call_judge(self, config: JudgeConfig, question: str, answer: str,
                     library_name: str, context: str) -> JudgeVote:
         prompt = self._build_prompt(config.role, question, answer, library_name, context)
+
+        def parse(raw: str) -> "tuple[Dict[str, Any], Dict[str, float]]":
+            data = self._extract_json(raw)
+            if not isinstance(data, dict):
+                raise ValueError("judge reply is not a JSON object")
+            missing = [k for k in SCORE_FIELDS if k not in data]
+            if missing:
+                raise ValueError(f"Missing keys in judge response: {missing}")
+            # A non-numeric ("N/A"), boolean or non-finite dimension is a
+            # formatting failure too; the clamp alone would turn NaN into 100.
+            raw_scores = {k: data[k] for k in SCORE_FIELDS}
+            if any(isinstance(v, bool) or not math.isfinite(float(v))
+                   for v in raw_scores.values()):
+                raise ValueError("judge reply has a non-numeric or non-finite score")
+            scores = {k: max(0.0, min(100.0, float(v))) for k, v in raw_scores.items()}
+            return data, scores
+
+        def parses(raw: str) -> bool:
+            # Only a reply that yields a vote is cached: a stored unparseable one
+            # would be replayed on every later run with the cache on.
+            try:
+                parse(raw)
+            except Exception:
+                return False
+            return True
+
+        # judge.py imports this module, so its reminder is read here, not at import.
+        from dokimi.eval.judge import _FORMAT_REMINDER
+
+        pinned = config.temperature is not None or config.seed is not None
         try:
             # Retry an unparseable reply rather than losing this role's vote to a
-            # formatting failure. Attempts are independent because no sampling
-            # parameters are pinned.
-            last_parse_exc: Exception | None = None
-            data = None
+            # formatting failure, as ``Judge.score_answer`` does. Each attempt is
+            # its own response-cache draw: under one cache key the retries replayed
+            # the same unparseable reply. With sampling pinned the same prompt
+            # returns the same reply live, so a re-draw then appends a reminder.
+            last_parse_exc: Exception = ValueError("panel retry loop did not execute")
             for attempt in range(3):
-                raw = llm_call(prompt, model=config.model, provider=config.provider,
-                               temperature=config.temperature, seed=config.seed)
+                attempt_prompt = prompt
+                if attempt and pinned:
+                    attempt_prompt = prompt + _FORMAT_REMINDER.format(n=attempt)
+                raw = llm_call(attempt_prompt, model=config.model, provider=config.provider,
+                               temperature=config.temperature, seed=config.seed,
+                               draw=attempt, cache_if=parses)
                 try:
-                    data = self._extract_json(raw)
+                    data, scores = parse(raw)
                     break
                 except Exception as parse_exc:
                     last_parse_exc = parse_exc
@@ -274,12 +310,8 @@ class JudgePanel:
                         "Judge '%s' reply unparseable (attempt %d/3): %s",
                         config.role, attempt + 1, parse_exc,
                     )
-            if data is None:
-                raise last_parse_exc  # type: ignore[misc]
-            scores: Dict[str, float] = {}
-            for k in SCORE_FIELDS:
-                if k in data:
-                    scores[k] = max(0.0, min(100.0, float(data[k])))
+            else:
+                raise last_parse_exc
             # Python computes aggregate (ignores any aggregate LLM might have returned)
             agg = self._compute_aggregate(config.role, scores) if scores else None
             return JudgeVote(
@@ -370,7 +402,14 @@ class JudgePanel:
                             library_name: str) -> Optional[PanelVerdict]:
         if not ans_data or not ans_data.get("answer"):
             return None
-        ctx = "\n".join(d.get("content", "") for d in ans_data.get("retrieved_docs", []))
+        # answers.v1 keeps only each doc's 200-char ``snippet``; the full text the
+        # answerer was given is not persisted. That is also what the single judge
+        # shows (``Judge._format_context``), so both judges see the same material.
+        # ``content`` is read as a fallback for records that do carry it.
+        ctx = "\n".join(
+            d.get("snippet") or d.get("content", "")
+            for d in ans_data.get("retrieved_docs") or [] if d
+        )
         return self.evaluate(question, ans_data["answer"], library_name, ctx)
 
     def evaluate_answers(self, answers: List[Dict[str, Any]], library_name: str,
@@ -382,7 +421,11 @@ class JudgePanel:
         n = len(answers)
         for i, answer in enumerate(answers, 1):
             q_id = answer.get("question_id", answer.get("id", f"q{i}"))
-            question = answer.get("question") or answer.get("text", "")
+            # answers.v1 writes ``question_text``; ``question``/``text`` are the
+            # question-set spellings, accepted for hand-built inputs.
+            question = (
+                answer.get("question_text") or answer.get("question") or answer.get("text", "")
+            )
             print(f"[{i}/{n}] Panel: {q_id}…", flush=True)
             with_v = self._score_answer_entry(answer.get("with_docs"), question, library_name)
             without_v = self._score_answer_entry(answer.get("without_docs"), question, library_name)

@@ -201,7 +201,11 @@ content it measures comes from.
 # Documentation index
 
 Start with the top-level [README](../README.md) for the project overview and
-CLI surface. The files in this directory go deeper:
+CLI surface. The files in this directory go deeper. They are also published at
+<https://intel.github.io/dokimi/>, grouped as below, together with a
+[CLI reference](https://intel.github.io/dokimi/reference/cli/) and an
+[API reference](https://intel.github.io/dokimi/reference/api/) generated from the
+code.
 
 ## Using Dokimi
 
@@ -213,6 +217,8 @@ CLI surface. The files in this directory go deeper:
 - [quickstart.md](quickstart.md) — end-to-end LLM evaluation pipeline:
   personas → questions → answers → judge → report. Includes troubleshooting
   and a cost estimate.
+- [user-flow.md](user-flow.md) — the canonical end-to-end path: pick a target,
+  preflight, run, then pin the question set so runs stay comparable.
 - [benchmarking-and-comparison.md](benchmarking-and-comparison.md) — how to
   run static benchmarks, LLM context benchmarks, fair multi-model comparisons,
   treatment-arm comparisons, dashboards, baselines, and comparison
@@ -222,6 +228,12 @@ CLI surface. The files in this directory go deeper:
 - [evaluating-treatments.md](evaluating-treatments.md) — compare
   context-augmentation arms (docs, MCP, skills, agent persona prompts) with
   `cli.py arms run`.
+- [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
+  through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
+  verifier pass rate against a baseline.
+
+## Content novelty
+
 - [skill-novelty.md](skill-novelty.md) — what a skill *adds* to a given model
   rather than what it scores: the added/redundant/degraded/still-missing 2×2 per
   knowledge atom, span/topic/term attribution with colour legend, and
@@ -234,19 +246,9 @@ CLI surface. The files in this directory go deeper:
   the novelty numbers come from: method, K0 per model, the 2×2, need-graph
   statistics, content categories, shortening with measured behaviour, and the
   caveats each result carries.
-- [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
-  through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
-  verifier pass rate against a baseline.
 
-## Extending Dokimi
+## Repository evaluation
 
-- [architecture.md](architecture.md) — module map and data flow across the
-  static, LLM, and executable-task tracks.
-- [contributing-metric.md](contributing-metric.md) — add a new static
-  documentation metric (module + spec + tests + docs).
-- [contributing-terminal-bench-task.md](contributing-terminal-bench-task.md)
-  — the executable task format (directory layout, `task.toml` fields, verifier
-  and oracle contract) that tasks in the external content repository follow.
 - [repo-evaluation-contract.md](repo-evaluation-contract.md) — *(proposed,
   partly implemented)* what a repository provides to be evaluated as a whole:
   `repo-eval.yaml`, `task.json`, the `grade` entry point and `grade.json`,
@@ -262,16 +264,24 @@ CLI surface. The files in this directory go deeper:
   *(proposed)* how a repository task states its agent mode, effort, perf
   protocol and team rules, split from the mergeability proposal (#67).
 
-## Reference
+## Extending Dokimi
 
-- [user-flow.md](user-flow.md) — the canonical end-to-end path: pick a target,
-  preflight, run, then pin the question set so runs stay comparable.
-- [example-execution.md](example-execution.md) — how the `example_pass_rate`
-  metric extracts and runs fenced code examples in isolation.
-- [ingestion-docling.md](ingestion-docling.md) — ingesting non-Markdown
-  documents (PDF, HTML, …) via Docling, installed with the optional `ocr` extra.
+- [architecture.md](architecture.md) — module map and data flow across the
+  static, LLM, and executable-task tracks.
+- [contributing-metric.md](contributing-metric.md) — add a new static
+  documentation metric (module + spec + tests + docs).
+- [contributing-terminal-bench-task.md](contributing-terminal-bench-task.md)
+  — the executable task format (directory layout, `task.toml` fields, verifier
+  and oracle contract) that tasks in the external content repository follow.
+
+## Methodology
+
 - [methodology.md](methodology.md) — operational methodology: model roles,
   question types, difficulty levels, answer generation, judging, trust checks,
   and executable agent tasks.
 - [difficulty-rubric.md](difficulty-rubric.md) — the difficulty/level rubric
   used to grade performance-skill questions and tasks.
+- [example-execution.md](example-execution.md) — how the `example_pass_rate`
+  metric extracts and runs fenced code examples in isolation.
+- [ingestion-docling.md](ingestion-docling.md) — ingesting non-Markdown
+  documents (PDF, HTML, …) via Docling, installed with the optional `ocr` extra.

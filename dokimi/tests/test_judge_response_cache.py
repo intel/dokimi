@@ -209,3 +209,40 @@ def test_checklist_retries_an_unparseable_reply_and_never_caches_it(cache_dir, m
     assert len(list(cache_dir.glob("*.json"))) == 2
     (v,) = ck.check_answer(ask, "q", "a", ["point"])
     assert (v.covered, v.absent, len(calls)) == (True, False, 4)
+
+
+def test_panel_retry_escapes_a_cached_unparseable_reply(cache_dir, monkeypatch):
+    """The panel retried under one cache key, so with the cache on all three attempts
+    replayed the first unparseable reply and the role's vote was lost."""
+    from dokimi.eval.panel import JudgeConfig, JudgePanel
+
+    good = (
+        '{"reasoning": "ok", "correctness": 80, "completeness": 80, "specificity": 80, '
+        '"code_quality": 80, "actionability": 80}'
+    )
+    completion, calls = _completion(["not json", good, good])
+    monkeypatch.setattr("litellm.completion", completion)
+    cfg = JudgeConfig(role="technical_expert", model="gpt-x", provider="openai")
+    panel = JudgePanel(judges=[cfg])
+    vote = panel._call_judge(cfg, "q", "a", "L", "")
+    assert (vote.error, vote.aggregate, len(calls)) == (None, 80.0, 2)
+    assert calls[1]["messages"] == calls[0]["messages"]  # the same prompt, a new draw
+    assert len(list(cache_dir.glob("*.json"))) == 1  # "not json" was not stored
+    # The re-run asks draw 0 live (nothing usable stored there); then it is free.
+    assert panel._call_judge(cfg, "q", "a", "L", "").aggregate == 80.0
+    assert len(calls) == 3
+    assert panel._call_judge(cfg, "q", "a", "L", "").aggregate == 80.0
+    assert len(calls) == 3
+
+
+def test_panel_non_numeric_dimension_is_retried_and_not_cached(cache_dir, monkeypatch):
+    from dokimi.eval.panel import JudgeConfig, JudgePanel
+
+    bad = '{"correctness": "N/A", "completeness": 80}'
+    completion, calls = _completion([bad, bad, bad])
+    monkeypatch.setattr("litellm.completion", completion)
+    cfg = JudgeConfig(role="doc_reviewer", model="gpt-x", provider="openai")
+    vote = JudgePanel(judges=[cfg])._call_judge(cfg, "q", "a", "L", "")
+    assert vote.aggregate is None and vote.error
+    assert len(calls) == 3
+    assert not list(cache_dir.glob("*.json"))

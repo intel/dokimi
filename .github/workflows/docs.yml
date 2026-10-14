@@ -1,0 +1,73 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Documentation site: dokimi/mkdocs.yml, built from dokimi/docs/ plus the CLI and
+# API reference generated from the code. Every PR builds it with --strict, so a
+# broken link or anchor between pages, a missing link target, or a list that
+# nests differently on the site than on GitHub fails the check; a push to main
+# publishes it to GitHub Pages (repository Settings -> Pages -> Source: GitHub
+# Actions).
+
+name: docs
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One group per ref, unlike ci.yml's per-run groups: Pages takes one deployment at a
+# time and the newest push should win. A per-run group would let a slow older build
+# deploy over a newer one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: dokimi
+
+env:
+  # MkDocs 2.0 notices from Material and from ProperDocs (pulled in by
+  # gen-files and literate-nav); requirements-docs.txt pins mkdocs<2.
+  NO_MKDOCS_2_WARNING: 'true'
+  DISABLE_MKDOCS_2_WARNING: 'true'
+
+jobs:
+  build:
+    name: Build docs (strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.11'
+      # The locks, not the ranges, as in ci.yml: a PR's result should not depend on
+      # what was released upstream that morning.
+      - run: pip install -r requirements.lock.txt -r requirements-docs.lock.txt
+      - name: mkdocs build
+        run: mkdocs build --strict
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: dokimi/site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write     # to deploy to Pages
+      id-token: write  # OIDC token the Pages API verifies
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1

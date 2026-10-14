@@ -39,7 +39,8 @@ The project is pre-1.0; only the latest `main` is supported. Fixes land on
 
 ## Known advisories in dependencies
 
-`pip-audit` against `requirements.lock.txt` reports two advisories with no
+`pip-audit` against the locks (`requirements.lock.txt` and
+`requirements-docs.lock.txt`) reports two advisories with no
 upstream fix as of 2026-10-05:
 
 - **diskcache 5.6.3 — PYSEC-2026-2447** (CVE-2025-69872, GHSA-w8v5-vhqr-4h9v;

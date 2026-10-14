@@ -54,5 +54,6 @@ Before pushing: `make dev` once (repo root, builds CI's `.venv`), then `make ci-
 - All changes to `main` go through pull requests.
 - Persisted answer/eval JSON keeps legacy `with_docs`/`without_docs` keys for
   the two answer conditions — do not rename them in data files.
-- Docs: `dokimi/docs/README.md` is the documentation index; record
-  design rationale in PR descriptions and issues, not as in-repo ADRs.
+- Docs: `dokimi/docs/README.md` is the documentation index; a new page also goes
+  in the `nav:` of `dokimi/mkdocs.yml`, the published site. Record design
+  rationale in PR descriptions and issues, not as in-repo ADRs.

@@ -6,9 +6,10 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
+from dokimi.artifacts import validate_artifact
 from dokimi.eval.panel import (
     DEFAULT_PANEL,
     ROLE_WEIGHTS,
@@ -241,15 +242,76 @@ def test_verdict_to_dict_structure():
 # ── evaluate_answers end-to-end ───────────────────────────────────────────────
 
 def _fake_answers(n=2):
-    return [
+    """Answer records in the shape ``Answerer`` writes (validated as answers.v1)."""
+    answers = [
         {
             "question_id": f"q{i}",
-            "question": f"Question {i}?",
-            "with_docs": {"answer": f"Answer {i} with context.", "retrieved_docs": []},
+            "question_text": f"Question {i}?",
+            "library_name": "oneTBB",
+            "with_docs": {
+                "answer": f"Answer {i} with context.",
+                "retrieved_docs": [
+                    {"source": "context7", "snippet": f"Doc snippet {i}.", "relevance_score": 0.9},
+                ],
+                "doc_source": "context7",
+            },
             "without_docs": {"answer": f"Answer {i} baseline."},
         }
         for i in range(n)
     ]
+    validate_artifact("answers", {"schema_version": "answers.v1", "answers": answers})
+    return answers
+
+
+def _real_answerer_output(tmp_path):
+    """An answers.v1 artifact written by the real ``Answerer`` (LLM and MCP mocked)."""
+    from dokimi.eval.answerer import Answerer
+    from dokimi.eval.reranker import SimpleReranker
+
+    mcp = MagicMock()
+    mcp.get_library_docs.return_value = [{
+        "content": "Use tbb::parallel_for(range, body) to split a loop. " * 10,
+        "source": "context7",
+    }]
+    answerer = Answerer.__new__(Answerer)
+    answerer.mcp_client = mcp
+    answerer.model, answerer.provider, answerer.api_key = "m", "openai", None
+    answerer.top_k, answerer.debug_retrieval = 5, False
+    answerer.reranker = SimpleReranker(threshold=0.0)
+    questions = [{"id": "q_pf", "text": "How do I parallelize a loop with parallel_for?"}]
+    with patch("dokimi.eval.answerer.llm_call_with_usage",
+               return_value=("an answer", {"prompt_tokens": 1, "completion_tokens": 1,
+                                           "total_tokens": 2})):
+        answers = answerer.generate_answers("oneTBB", "uxlfoundation/oneTBB", questions)
+    out = tmp_path / "answers.json"
+    answerer.save_answers(answers, out)
+    data = json.loads(out.read_text())
+    validate_artifact("answers", data)
+    return data
+
+
+def test_panel_judges_real_answerer_output_with_question_and_context(tmp_path):
+    """The panel read ``question``/``retrieved_docs[].content``, which the answerer
+    never writes, so every answer was judged on an empty question and no context."""
+    data = _real_answerer_output(tmp_path)
+    record = data["answers"][0]
+    snippet = record["with_docs"]["retrieved_docs"][0]["snippet"]
+    prompts = []
+
+    def fake_llm(prompt, **kw):
+        prompts.append(prompt)
+        return FAKE_LLM_RESPONSE
+
+    panel = JudgePanel(judges=[JudgeConfig("doc_reviewer", "gpt-4o-mini", "openai")])
+    with patch("dokimi.eval.panel.llm_call", side_effect=fake_llm):
+        results = panel.evaluate_answers(data["answers"], library_name="oneTBB")
+
+    assert results[0]["question"] == record["question_text"]
+    with_prompt, without_prompt = prompts  # one judge, two arms (sequential)
+    assert f"Question: {record['question_text']}\n" in with_prompt
+    assert f"Question: {record['question_text']}\n" in without_prompt
+    assert f"Documentation context: {snippet}" in with_prompt
+    assert "Documentation context: (No documentation provided)" in without_prompt
 
 
 def test_evaluate_answers_returns_all():

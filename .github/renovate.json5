@@ -41,6 +41,8 @@
   // would edit the pins in place without re-resolving, so it is left off.
   // pyproject.toml repeats the ranges of requirements.txt; pep621 keeps the two
   // in step when a range has to move (same dependency, same branch, one PR).
+  // requirements-docs.lock.txt is not matched yet: its header is not uv's, and it
+  // is compiled against the main lock with -c. pip-audit in ci.yml audits it.
   enabledManagers: ["github-actions", "pip-compile", "pep621", "custom.regex"],
   "pip-compile": {
     managerFilePatterns: ["/(^|/)requirements\\.lock\\.txt$/"],

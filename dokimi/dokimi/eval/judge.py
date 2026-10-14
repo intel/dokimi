@@ -6,12 +6,13 @@
 import hashlib
 import logging
 import json
+import math
 import os
 import re
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Iterable, Optional
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -488,6 +489,29 @@ class Judge:
                 scores["caps"] = {"correctness": {"judged": judged, "rule": "wrong_figure"}}
 
     @staticmethod
+    def _check_scores(scores: Dict[str, Any], dims: Iterable[str]) -> None:
+        """Make each of *dims* in *scores* a float on the 0-100 scale, in place.
+
+        A non-numeric value ("N/A", true, NaN, Infinity) is a formatting failure,
+        so it raises and the reply is re-drawn. A numeric string ("7") is read as
+        a number, and a finite number off the scale is clamped, as panel.py does.
+        Every score is stored as a float, so 80 and "80" end up the same.
+        """
+        for dim in dims:
+            value = scores[dim]
+            if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+                raise ValueError(f"Judge score {dim!r} is not a number: {value!r}")
+            try:
+                number = float(value)
+            except ValueError:
+                raise ValueError(f"Judge score {dim!r} is not a number: {value!r}") from None
+            except OverflowError:  # an integer literal past the float range
+                number = math.inf
+            if not math.isfinite(number):
+                raise ValueError(f"Judge score {dim!r} is not finite: {value!r}")
+            scores[dim] = min(max(number, 0.0), 100.0)
+
+    @staticmethod
     def _compute_aggregate(scores: Dict[str, Any], weights: Dict[str, float]) -> float:
         """Weighted mean of the scored dimensions — never trust the LLM to do math."""
         return round(
@@ -550,7 +574,7 @@ class Judge:
             missing = required - scores.keys()
             if missing:
                 raise ValueError(f"Missing keys in judge response: {missing}")
-            # A non-numeric dimension ("N/A") is a formatting failure too.
+            self._check_scores(scores, weights.keys() | {"specificity"})
             self._cap_for_wrong_figures(scores)
             return scores, self._compute_aggregate(scores, weights)
 

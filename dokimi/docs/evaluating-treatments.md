@@ -148,12 +148,13 @@ artifact per cell, a `matrix_rollup.v1` JSON/Markdown report, and paired
   `docs` uses Context7.
 - **`mcp:<ref>`** — retrieve through a real MCP server. `<ref>` is
   `<transport>=<target>[;opt=val...]`:
-  - `mcp:cmd=npx -y @upstash/context7-mcp` (stdio)
-  - `mcp:http=https://mcp.context7.com/mcp;tool=get-library-docs` (streamable HTTP)
-  - `mcp:sse=https://example.com/sse;id=uxlfoundation/oneTBB` (SSE)
+    - `mcp:cmd=npx -y @upstash/context7-mcp` (stdio)
+    - `mcp:http=https://mcp.context7.com/mcp;tool=get-library-docs` (streamable HTTP)
+    - `mcp:sse=https://example.com/sse;id=uxlfoundation/oneTBB` (SSE)
 
-  Options: `tool=` (docs tool name), `resolve=` (resolve tool), `id=` (fixed
-  library id). Requires the optional `mcp` SDK: `pip install mcp`.
+    Options: `tool=` (docs tool name), `resolve=` (resolve tool), `id=` (fixed
+    library id). Requires the optional `mcp` SDK: `pip install mcp`.
+
 - **`profile:<path>`** — a Markdown file; the body (frontmatter stripped) is the
   system prompt. See [`data/agent_profiles/concise_expert.md`](../data/agent_profiles/concise_expert.md).
   The arm is **named after the frontmatter `id`, not the path**: an arm passed as
@@ -163,63 +164,64 @@ artifact per cell, a `matrix_rollup.v1` JSON/Markdown report, and paired
   frontmatter — or with malformed YAML, which is ignored silently — the id falls back to
   the filename stem, so name profile files after their id.
 
-  Because the arm name comes from the id, **editing a profile in place does not change the
-  arm name**: old and new cells look identical in a report. Each answer therefore records
-  `profile_path`, `profile_prompt_chars`, and `profile_prompt_sha256` (a digest of the
-  prompt text, not the file, since the text is what reaches the model). Compare that digest
-  across a batch before pooling cells — differing digests mean two different prompts were
-  measured under one arm name. On a **combined** arm the same three fields live one level
-  down, under the matching entry of `metadata["treatments"]` rather than at the top of the
-  metadata — so anything reading them has to look in both places, `prompt_digests()`
-  included.
+    Because the arm name comes from the id, **editing a profile in place does not change the
+    arm name**: old and new cells look identical in a report. Each answer therefore records
+    `profile_path`, `profile_prompt_chars`, and `profile_prompt_sha256` (a digest of the
+    prompt text, not the file, since the text is what reaches the model). Compare that digest
+    across a batch before pooling cells — differing digests mean two different prompts were
+    measured under one arm name. On a **combined** arm the same three fields live one level
+    down, under the matching entry of `metadata["treatments"]` rather than at the top of the
+    metadata — so anything reading them has to look in both places, `prompt_digests()`
+    included.
 
-  The prompt is capped at **12,000 characters**, the same cap `skill:` applies to a skill
-  body. The parity is the point: comparing the system-prompt channel against the context
-  channel only means something if one side cannot carry a payload the other would have had
-  truncated. A capped arm records `profile_prompt_truncated: true` alongside
-  `profile_prompt_chars` (sent) and `profile_prompt_chars_source` (on disk), logs a warning,
-  and digests the *rendered* text — so a truncated cell is visibly a different treatment
-  rather than a quietly shorter one. `skill:` arms record `skill_truncated` on the same
-  terms, with three sizes rather than two: `skill_chars` (body after the cap) pairs with
-  `skill_chars_source` (body on disk) the way the profile fields do, while
-  `skill_chars_injected` is the whole rendered block — header and description included,
-  which is why it exceeds the source for a skill that was never truncated and is not the
-  number to compare against the cap. `ViewSkillTool` records `skill_file_truncated` /
-  `skill_file_chars_source` when an agent views a bundled file that exceeds the cap.
+    The prompt is capped at **12,000 characters**, the same cap `skill:` applies to a skill
+    body. The parity is the point: comparing the system-prompt channel against the context
+    channel only means something if one side cannot carry a payload the other would have had
+    truncated. A capped arm records `profile_prompt_truncated: true` alongside
+    `profile_prompt_chars` (sent) and `profile_prompt_chars_source` (on disk), logs a warning,
+    and digests the *rendered* text — so a truncated cell is visibly a different treatment
+    rather than a quietly shorter one. `skill:` arms record `skill_truncated` on the same
+    terms, with three sizes rather than two: `skill_chars` (body after the cap) pairs with
+    `skill_chars_source` (body on disk) the way the profile fields do, while
+    `skill_chars_injected` is the whole rendered block — header and description included,
+    which is why it exceeds the source for a skill that was never truncated and is not the
+    number to compare against the cap. `ViewSkillTool` records `skill_file_truncated` /
+    `skill_file_chars_source` when an agent views a bundled file that exceeds the cap.
 
-  `profile_prompt_sha256` is the profile's *contribution*, not always the whole prompt sent:
-  a `prompt_middleware` plugin appends to the system prompt after the arm has already
-  digested it. `PluginWrappedTreatment` therefore also records `system_prompt_sha256` (the
-  prompt as it leaves the wrapper) and `system_prompt_extended_by_plugins`, so a caveman
-  cell and a bare profile cell are distinguishable in the artifact instead of sharing one
-  profile digest.
+    `profile_prompt_sha256` is the profile's *contribution*, not always the whole prompt sent:
+    a `prompt_middleware` plugin appends to the system prompt after the arm has already
+    digested it. `PluginWrappedTreatment` therefore also records `system_prompt_sha256` (the
+    prompt as it leaves the wrapper) and `system_prompt_extended_by_plugins`, so a caveman
+    cell and a bare profile cell are distinguishable in the artifact instead of sharing one
+    profile digest.
 
-  Where 12,000 comes from: it is the default the skill loader has always carried
-  (≈3k tokens), an inherited convention rather than a tuned figure — no design note or commit
-  justifies the number, and profiles adopted it for parity, not because it is optimal.
-  Read it as a guardrail against a fixture that would dominate the prompt. If you change
-  it, change it in **all** channels at once (`skills/loader.py`,
-  `agent_profiles/loader.py`, `treatments/arms.py`, `treatments/tools.py`,
-  `scripts/sync_skilltext_profile.py`): an unequal cap turns the channel comparison into a
-  payload comparison. Raising it also re-truncates nothing retroactively — already-scored
-  cells keep their old digests.
+    Where 12,000 comes from: it is the default the skill loader has always carried
+    (≈3k tokens), an inherited convention rather than a tuned figure — no design note or commit
+    justifies the number, and profiles adopted it for parity, not because it is optimal.
+    Read it as a guardrail against a fixture that would dominate the prompt. If you change
+    it, change it in **all** channels at once (`skills/loader.py`,
+    `agent_profiles/loader.py`, `treatments/arms.py`, `treatments/tools.py`,
+    `scripts/sync_skilltext_profile.py`): an unequal cap turns the channel comparison into a
+    payload comparison. Raising it also re-truncates nothing retroactively — already-scored
+    cells keep their old digests.
 
-  Two tests guard the cap, and it is worth knowing exactly what each covers:
+    Two tests guard the cap, and it is worth knowing exactly what each covers:
 
-  - `test_no_injected_fixture_is_within_5_percent_of_the_cap` scans the **injected**
-    payloads — every profile body and every `SKILL.md` body under `data/` — and fails at
-    95%, so a fixture is caught while it is still growing rather than after it truncates.
-    Its message prints the current largest fixture, so no percentage is hardcoded anywhere.
-    It also fails when either channel has no fixture at all: a scan over an empty directory
-    would otherwise report success while measuring nothing.
-  - `test_over_cap_bundled_resources_are_known` covers the third channel, the bundled
-    files `ViewSkillTool` serves. These are **not** in the injected scan. Its
-    `OVER_CAP_RESOURCES` allowlist is currently empty — no committed resource exceeds the
-    cap — and anything new going over fails the test until it is split or listed there with
-    a reason, which keeps a truncation visible in code instead of silent.
-  - Neither test sees a skill in an external content checkout. A skill you pass as
-    `skill:<path>` is capped the same way at run time and records
-    `skill_truncated` / `skill_chars_source`, so check those fields in the artifact.
+    - `test_no_injected_fixture_is_within_5_percent_of_the_cap` scans the **injected**
+      payloads — every profile body and every `SKILL.md` body under `data/` — and fails at
+      95%, so a fixture is caught while it is still growing rather than after it truncates.
+      Its message prints the current largest fixture, so no percentage is hardcoded anywhere.
+      It also fails when either channel has no fixture at all: a scan over an empty directory
+      would otherwise report success while measuring nothing.
+    - `test_over_cap_bundled_resources_are_known` covers the third channel, the bundled
+      files `ViewSkillTool` serves. These are **not** in the injected scan. Its
+      `OVER_CAP_RESOURCES` allowlist is currently empty — no committed resource exceeds the
+      cap — and anything new going over fails the test until it is split or listed there with
+      a reason, which keeps a truncation visible in code instead of silent.
+    - Neither test sees a skill in an external content checkout. A skill you pass as
+      `skill:<path>` is capped the same way at run time and records
+      `skill_truncated` / `skill_chars_source`, so check those fields in the artifact.
+
 - **`skill:<path>`** — a `SKILL.md` file or its directory, following the Agent
   Skills convention (frontmatter `name`/`description` + Markdown body). See
   [`data/skills/fastcontext/SKILL.md`](../data/skills/fastcontext/SKILL.md) for the shape;

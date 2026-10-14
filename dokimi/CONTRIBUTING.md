@@ -48,20 +48,34 @@ CI additionally holds a PR to:
   `pytest --cov=dokimi --cov-branch --cov-report=xml`.
 - **mypy on the whole package.** Modules listed under `[[tool.mypy.overrides]]` in
   `pyproject.toml` are exempt until fixed; do not add to that list.
+- **Docs build** — `mkdocs build --strict`, from `dokimi/`. `make dev` already
+  installs its packages and `make ci-local` runs it; by hand, install them with
+  `pip install -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
+  a link or `#anchor` between pages that does not resolve, on a link into the
+  source tree whose file does not exist (an anchor into such a file is not
+  checked), and on a list that nests differently on the site than on GitHub
+  (Python-Markdown wants nested items indented 4 spaces and a blank line before
+  a list). A new page goes in two places: the `docs/README.md` index
+  (`tests/test_docs_links.py` checks it) and `nav:` in `mkdocs.yml` (the
+  build fails on a page missing from it). `mkdocs serve` previews the site.
 - **Workflow lint** — `zizmor --offline --min-severity medium .github/workflows` when you
   edit a workflow.
 
-Dependencies install from `requirements.lock.txt`. When you change a range in
+Dependencies install from `requirements.lock.txt`, and the docs build's from
+`requirements-docs.lock.txt` on top of it. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
 from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
 keeps the current pins). The command's `--exclude-newer=P7D` skips releases
 less than 7 days old; if a security fix is newer than that, its vulnerability PR
-fails to resolve, so regenerate the lock by hand without the flag.
+fails to resolve, so regenerate the lock by hand without the flag. The docs lock
+is constrained to the main one, so regenerate it (command in its header) after
+the main lock changes too.
 
 Renovate (`.github/renovate.json5`) proposes updates on Mondays for releases at
 least 7 days old: one grouped PR for all minor and patch updates, one PR per
 major, a monthly lock refresh, and security fixes as soon as an advisory
-appears.
+appears. It does not update `requirements-docs.lock.txt` yet; pip-audit in CI
+still audits it.
 
 Guidelines:
 

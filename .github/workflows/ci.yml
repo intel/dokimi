@@ -186,18 +186,19 @@ jobs:
       - run: pip install bandit==1.9.4 pip-audit==2.10.1
       - name: bandit
         run: bandit -r . -ll -q
-      # The lock is the full closure, so --no-deps --disable-pip audits it as
-      # written without resolving or installing anything. Each --ignore-vuln is
+      # The locks are the full closure (requirements-docs.lock.txt for the
+      # documentation site), so --no-deps --disable-pip audits them as written
+      # without resolving or installing anything. Each --ignore-vuln is
       # an advisory SECURITY.md documents; add or drop them together.
       # pip-audit skips a pin whose marker is false on this 3.11 runner (the 3.10
-      # pins, for one), so markers are stripped and a name pinned twice goes to
-      # a second file.
+      # pins, for one), so markers are stripped, a pin both locks share is kept
+      # once, and a name pinned twice goes to a second file.
       # !cancelled(): a bandit finding must not hide an advisory. Without it a
       # failing bandit step skips this one and the job reports one problem of two.
       - name: pip-audit
         if: ${{ !cancelled() }}
         run: |
-          sed 's/ *;.*//' requirements.lock.txt \
+          sed 's/ *;.*//' requirements.lock.txt requirements-docs.lock.txt | sort -u \
             | awk -F'==' '/^[A-Za-z0-9]/ { print > (ENVIRON["RUNNER_TEMP"] "/pins" seen[$1]++ ".txt") }'
           for f in "$RUNNER_TEMP"/pins*.txt; do
             pip-audit -r "$f" --no-deps --disable-pip --progress-spinner off \
