@@ -38,10 +38,10 @@ def cmd_run(args: argparse.Namespace) -> None:
         elif not isinstance(spec, dict):
             raise ValueError("Spec must be a YAML mapping/dict")
 
-        from dokimi.gate.hard_gate import check_hard_gate
+        from dokimi.gate.score_gate import check_gate
         from dokimi.gate.critical_bands import check_critical_bands
 
-        hard_gate = check_hard_gate(result["summary"], spec)
+        hard_gate = check_gate(result["summary"], spec, "hard")
         bands = check_critical_bands(result["summary"], spec)
 
         # Exit 1 if hard gate fails

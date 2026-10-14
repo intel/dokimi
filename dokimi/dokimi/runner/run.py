@@ -13,7 +13,7 @@ from dokimi.ingest.chunker import chunk_text
 from dokimi.ingest.loader import discover_markdown, load_docs
 from dokimi.metrics import coverage, freshness_lite, readability
 from dokimi.metrics.example_runner import ExampleResult, ExecutionPolicy, score_examples
-from dokimi.gate.soft_gate import check_soft_gate
+from dokimi.gate.score_gate import check_gate
 from dokimi.runner.spec import load_spec, select_docs
 from dokimi.runner.manifest import build_run_manifest
 
@@ -143,7 +143,7 @@ def run_benchmark(root: Path, spec_path: Path) -> dict:
             ]
         docs_out.append(d)
 
-    gate_result = check_soft_gate({"score": total_score}, spec)
+    gate_result = check_gate({"score": total_score}, spec, "soft")
 
     return {
         "summary": {"docs": len(rows), "score": total_score, **agg},
