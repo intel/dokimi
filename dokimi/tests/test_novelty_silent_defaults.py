@@ -471,8 +471,12 @@ def _route():
     return model_routing(cards, ["do alpha"], client=LLMClient(model="m", provider="openai"))
 
 
-@pytest.mark.parametrize("reply, asked", [('{"pick":', 2), ('{"choice": 1}', 2),
-                                          ('{"pick": 1}', 1), ('{"pick": 0}', 1)])
+@pytest.mark.parametrize("reply, asked", [
+    ('{"pick":', 2), ('{"choice": 1}', 2), ('{"pick": 1}', 1), ('{"pick": 0}', 1),
+    ('{"pick": null}', 1), ('{"pick": "2"}', 1),
+    ('{"pick": "abc"}', 2), ('{"pick": 2.9}', 2), ('{"pick": [1]}', 2), ('{"pick": 999}', 2),
+    ('{"pick": -1}', 2), ('{"pick": true}', 2),
+])
 def test_routing_caches_only_a_reply_that_names_a_pick(monkeypatch, tmp_path, reply, asked):
     calls = _completion_counter(monkeypatch, tmp_path, reply)
     for _ in range(2):
@@ -499,6 +503,15 @@ def test_the_answerer_caches_only_an_answer_that_reached_its_confidence_line(
     for _ in range(2):
         _measure_once()
     assert len(calls) == asked  # two arms; a cut answer is asked again on every run
+
+
+def test_an_answer_with_no_text_at_all_gets_the_max_tokens_hint(monkeypatch, tmp_path):
+    calls = _completion_counter(monkeypatch, tmp_path, None)
+    result = _measure_once()
+    assert all(run.errored for run in result.runs)
+    assert "raise --max-tokens" in result.runs[0].response
+    _measure_once()
+    assert len(calls) == 4  # nothing was stored
 
 
 def test_a_cut_answer_logs_the_truncation_on_every_run(monkeypatch, tmp_path, caplog):

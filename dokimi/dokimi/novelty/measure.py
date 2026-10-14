@@ -287,7 +287,8 @@ def _is_complete_answer(reply: str) -> bool:
     (the truncation warning is logged with it) but never stored and replayed without the
     warning. A complete answer that omits the line is only not cached.
     """
-    return bool(reply.strip()) and _parse_confidence(reply) is not None
+    # A reasoning model that spends its ceiling can return ``None`` for the text.
+    return isinstance(reply, str) and bool(reply.strip()) and _parse_confidence(reply) is not None
 
 
 def _grade(probe: Probe, response: str, judge: LLMClient) -> str:

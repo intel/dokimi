@@ -35,6 +35,7 @@ import random
 import re
 from collections import Counter
 from dataclasses import dataclass
+from functools import partial
 
 
 from .client import LLMClient, parse_json_object
@@ -188,17 +189,29 @@ def lexical_routing(
     }
 
 
-def _is_pick_reply(reply: str) -> bool:
-    """A reply worth caching: an object naming a ``pick`` (``0`` and ``null`` abstain).
+def _is_pick_reply(reply: str, n_cards: int) -> bool:
+    """A reply worth caching: a ``pick`` that is ``null`` or a card number in ``0..n_cards``.
 
-    A reply cut at ``{"pick":`` still counts as an abstention for this run, but is not
-    stored, so a later run with ``DOKIMI_RESPONSE_CACHE`` set asks again instead of
-    replaying it.
+    ``0`` and ``null`` are explicit abstentions. A reply cut at ``{"pick":``, or a pick that
+    names no card (``"abc"``, ``2.9``, ``[1]``, ``999``) still counts as an abstention for
+    this run, but is not stored, so a later run with ``DOKIMI_RESPONSE_CACHE`` set asks again.
     """
     try:
-        return "pick" in parse_json_object(reply)
+        obj = parse_json_object(reply)
     except ValueError:
         return False
+    if "pick" not in obj:
+        return False
+    pick = obj["pick"]
+    if pick is None:
+        return True
+    if isinstance(pick, bool) or not isinstance(pick, int | float | str):
+        return False
+    if isinstance(pick, float) and not pick.is_integer():
+        return False
+    if isinstance(pick, str) and not pick.strip().isdigit():
+        return False
+    return 0 <= _as_card_number(pick) <= n_cards
 
 
 def _as_card_number(value: object) -> int:
@@ -245,7 +258,8 @@ def model_routing(
         )
         try:
             reply = client.text(
-                _SELECT_PROMPT.format(query=query, cards=cards), accept=_is_pick_reply
+                _SELECT_PROMPT.format(query=query, cards=cards),
+                accept=partial(_is_pick_reply, n_cards=len(order)),
             )
         except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
             picks.append({"query": query, "picked": None, "error": str(exc)[:200]})
