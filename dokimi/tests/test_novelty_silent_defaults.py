@@ -647,3 +647,52 @@ def test_the_response_cache_still_replays_a_legitimately_empty_extraction(monkey
     for _ in range(2):
         assert extract_atoms(_one_span(), client=LLMClient(model="m", provider="openai")) == []
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("row", [
+    {"n": 1},
+    {"n": 1, "needed": None},
+    {"n": 1, "need": True, "scaffold": False},
+    {"n": 1, "needed": "false"},
+    {"n": 1, "needed": "no"},
+    {"n": 1, "needed": 0},
+    {"n": 1, "needed": True, "scaffolding": "false"},
+    {"n": 1, "needed": True, "scaffolding": None},
+    {"n": "\u00b2", "needed": True},
+])
+def test_a_judge_row_without_a_real_verdict_is_unjudged_not_a_default(row):
+    atoms = _atoms(1)
+    report = ClassifyReport()
+    verdicts = judge_value(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (json.dumps([row]), None)),
+        task="t", report=report,
+    )
+    assert verdicts == {} and report.unjudged == [atoms[0].id]
+    assert report.unjudged_skipped == 1
+
+
+def test_a_malformed_judge_row_does_not_cost_the_atoms_beside_it():
+    atoms = _atoms(3)
+    reply = json.dumps([{"n": 1, "needed": True}, {"n": 2, "needed": "yes"},
+                        {"n": 3, "needed": False, "scaffolding": True}])
+    report = ClassifyReport()
+    verdicts = judge_value(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (reply, None)),
+        task="t", report=report,
+    )
+    assert sorted(verdicts) == sorted([atoms[0].id, atoms[2].id])
+    assert (verdicts[atoms[0].id].needed, verdicts[atoms[0].id].scaffolding) == (True, False)
+    assert (verdicts[atoms[2].id].needed, verdicts[atoms[2].id].scaffolding) == (False, True)
+    assert report.unjudged == [atoms[1].id]
+
+
+def test_a_real_false_is_a_verdict_and_raises_no_warning():
+    atoms = _atoms(2)
+    reply = json.dumps([{"n": 1, "needed": False, "scaffolding": False}, {"n": 2, "needed": False}])
+    report = ClassifyReport()
+    verdicts = judge_value(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (reply, None)),
+        task="t", report=report,
+    )
+    assert [verdicts[a.id].needed for a in atoms] == [False, False]
+    assert report.unjudged == [] and report.warnings(len(atoms)) == []
