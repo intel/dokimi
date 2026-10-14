@@ -322,7 +322,8 @@ _AMBIGUOUS = (Atom(statement="alpha beta gamma delta", question="q", answer="a",
 
 @pytest.mark.parametrize("reply", [
     '{"verdict": null}', '{"why": "no verdict key"}', '{"verdict": "maybe"}',
-    '{"verdict": 1}', "[]", '{"verdict": "reta',
+    '{"verdict": 1}', "[]", '{"verdict": "reta', '{"verdict": "retained?"}',
+    '{"verdict": "Retained ?"}',
 ])
 def test_a_reply_with_no_usable_verdict_is_an_error_not_a_cached_absent(tmp_path, reply):
     atom, text = _AMBIGUOUS

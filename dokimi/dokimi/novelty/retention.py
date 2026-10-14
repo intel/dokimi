@@ -216,7 +216,9 @@ def parse_verdict(reply: str) -> str | None:
     """The verdict an adjudicator reply names, or ``None`` when it names none.
 
     Case and surrounding punctuation are normalised first (``"Retained"``,
-    ``"retained."``), because those replies do carry a verdict.
+    ``"retained."``), because those replies do carry a verdict. A question mark is not
+    stripped: ``"retained?"`` is a hedge, not a verdict, and reading it as ``retained``
+    would err in the direction that over-counts retention.
     """
     from .client import parse_json_object
 
@@ -226,7 +228,7 @@ def parse_verdict(reply: str) -> str | None:
         return None
     if not isinstance(raw, str):
         return None
-    verdict = raw.strip().strip(".,;:!?'\"`*").strip().lower()
+    verdict = raw.strip().strip(".,;:!'\"`*").strip().lower()
     return verdict if verdict in _VERDICTS else None
 
 
