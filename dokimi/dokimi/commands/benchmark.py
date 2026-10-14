@@ -68,7 +68,7 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
     return {"library": entry.key, "name": entry.name, "status": "ok", "result": result}
 
 
-def _api_key_name(provider: str) -> str:
+def _credential_env_var(provider: str) -> str:
     return {
         "openai": "OPENAI_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
@@ -127,7 +127,7 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     warnings: list[str] = []
 
     for provider in {args.provider, args.judge_provider}:
-        key = _api_key_name(provider)
+        key = _credential_env_var(provider)
         if not os.environ.get(key):
             errors.append(f"missing {key} for provider {provider}")
 

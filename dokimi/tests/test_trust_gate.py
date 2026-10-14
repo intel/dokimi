@@ -100,11 +100,11 @@ class TestMultiRunVariance:
 class TestTrustVerdict:
     def test_trusted_all_pass(self):
         v = evaluate_trust(_evals(20, with_score=70, without_score=50))
-        assert v.trusted
+        assert v.is_trusted
 
     def test_not_trusted_fail_severity(self):
         v = evaluate_trust(_evals(5))  # fails min_questions (fail severity)
-        assert not v.trusted
+        assert not v.is_trusted
 
     def test_status_pass(self):
         v = evaluate_trust(_evals(20, with_score=70, without_score=50))
@@ -199,7 +199,7 @@ class TestRetrievalHitRate:
         check = next(c for c in v.checks if c.name == "retrieval_hit_rate")
         assert not check.measured
         assert check.value is None
-        assert check not in v.warnings and v.trusted
+        assert check not in v.warnings and v.is_trusted
         row = next(line for line in format_trust_block(v).splitlines()
                    if line.startswith("| retrieval_hit_rate"))
         assert "✅" not in row and "Not measured" in row

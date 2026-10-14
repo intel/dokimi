@@ -67,7 +67,7 @@ class TrustVerdict:
     multirun_std: Optional[float] = None
 
     @property
-    def trusted(self) -> bool:
+    def is_trusted(self) -> bool:
         return all(c.passed for c in self.checks if c.severity == "fail")
 
     @property

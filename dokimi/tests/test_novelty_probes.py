@@ -212,6 +212,15 @@ def test_the_new_anchor_classes_leave_flags_versions_urls_and_abbreviations_alon
     }
 
 
+def test_an_identifier_anchor_splits_at_its_first_underscore():
+    # One way to split `a_b_c` (CodeQL py/redos on the old `(?:_\w+)+`); the matches are
+    # unchanged, doubled underscores included, and a long `0_` run is not a slow path.
+    assert anchors("Set tbb__pool_size and KMP_x before x_ runs.") == {
+        "tbb__pool_size", "kmp_x",
+    }
+    assert len(anchors("a" + "0_" * 20000 + "!")) == 1
+
+
 def test_the_reversal_prompt_asks_for_what_the_check_requires():
     from dokimi.novelty.probes import _REVERSAL_PROMPT
 

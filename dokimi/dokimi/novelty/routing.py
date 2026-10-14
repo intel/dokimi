@@ -211,10 +211,10 @@ def _is_pick_reply(reply: str, n_cards: int) -> bool:
         return False
     if isinstance(pick, str) and not pick.strip().isdigit():
         return False
-    return 0 <= _as_card_number(pick) <= n_cards
+    return 0 <= _as_pick_position(pick) <= n_cards
 
 
-def _as_card_number(value: object) -> int:
+def _as_pick_position(value: object) -> int:
     """Card number from a model's ``pick``, or 0 when it is not one (null, prose, 2.9, true)."""
     if isinstance(value, bool):
         return 0
@@ -267,7 +267,7 @@ def model_routing(
         # A reply that is not a usable pick is the model declining to route, not a
         # transport failure: it stays in the denominator like an explicit abstention.
         try:
-            raw = _as_card_number(parse_json_object(reply).get("pick", 0))
+            raw = _as_pick_position(parse_json_object(reply).get("pick", 0))
         except ValueError:
             raw = 0
         if raw < 1 or raw > len(order):

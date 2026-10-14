@@ -68,8 +68,19 @@ CI additionally holds a PR to:
 
 Dependencies install from `requirements.lock.txt`, and the docs build's from
 `requirements-docs.lock.txt` on top of it. When you change a range in
-`requirements*.txt`, regenerate the lock (command in its header); the docs lock is
-constrained to the main one, so regenerate it after the main lock changes too.
+`requirements*.txt`, regenerate the lock with the command in its header: run it
+from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
+keeps the current pins). The command's `--exclude-newer=P7D` skips releases
+less than 7 days old; if a security fix is newer than that, its vulnerability PR
+fails to resolve, so regenerate the lock by hand without the flag. The docs lock
+is constrained to the main one, so regenerate it (command in its header) after
+the main lock changes too.
+
+Renovate (`.github/renovate.json5`) proposes updates on Mondays for releases at
+least 7 days old: one grouped PR for all minor and patch updates, one PR per
+major, a monthly lock refresh, and security fixes as soon as an advisory
+appears. It does not update `requirements-docs.lock.txt` yet; pip-audit in CI
+still audits it.
 
 Guidelines:
 

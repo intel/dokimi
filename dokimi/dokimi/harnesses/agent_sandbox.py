@@ -298,11 +298,15 @@ fi
 # Raw sockets need no client at all: a CONNECT through the proxy the agent was
 # given, a plain-HTTP absolute-form GET through its HTTP proxy (a different code
 # path in a forward proxy), and a direct TCP connect that ignores both
-# ($PROBE_DIRECT is "ip port").
+# ($PROBE_DIRECT is "ip port"). They share one bash, which ignores SIGPIPE: a proxy
+# that answers or closes before the request is all written resets the connection,
+# and the next printf to it would end every check left, the direct connect too,
+# with a "closed" nothing proved.
 if command -v bash >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
   [ "$net" = "untested" ] && net="closed"
   raw=$(PROBE_PROXY="${HTTPS_PROXY:-${https_proxy:-}}" PROBE_HTTP_PROXY="${HTTP_PROXY:-${http_proxy:-}}" \
         timeout 12 bash -c '
+    trap "" PIPE
     if [ -n "$PROBE_PROXY" ]; then
       hp="${PROBE_PROXY#*://}"; hp="${hp%%/*}"; h="${hp%:*}"; p="${hp##*:}"
       if exec 3<>"/dev/tcp/$h/$p" 2>/dev/null; then
