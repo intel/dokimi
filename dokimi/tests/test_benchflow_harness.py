@@ -707,6 +707,33 @@ def test_rerun_that_crashes_does_not_reuse_the_previous_reward(tmp_path, monkeyp
     assert res.metrics["error"] == "no BenchFlow result.json (exit 1)"
 
 
+def test_rerun_whose_previous_jobs_dir_cannot_be_cleared_does_not_run(tmp_path, monkeypatch):
+    """A rollout that cannot be deleted (root-owned) must not be read back as this run's."""
+    import shutil
+
+    task = load_task(_task(tmp_path))
+    runs = tmp_path / "runs"
+    stale = runs / "sb-task" / "benchflow_claude-agent-acp" / "jobs" / "2026-10-01" / "sb-task__old"
+    stale.mkdir(parents=True)
+    (stale / "result.json").write_text(json.dumps(_RESULT), encoding="utf-8")
+    seen = _fake_bench(monkeypatch, None, returncode=1)
+
+    def cannot_delete(path, ignore_errors=False, **kwargs):
+        if not ignore_errors:
+            raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(shutil, "rmtree", cannot_delete)
+    output = TaskSuiteRunner(
+        tasks=[task], harnesses=["benchflow:claude-agent-acp"], output_root=runs
+    ).run()
+
+    [row] = output["results"]
+    assert (row["passed"], row["reward"]) == (False, None), "the stale rollout was read as this run's"
+    assert "could not clear" in row["metrics"]["error"]
+    assert "cmd" not in seen  # bench never ran
+    assert output["summary"]["per_harness"]["benchflow:claude-agent-acp"]["errored"] == 1
+
+
 def test_result_without_reward_says_so(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
     _fake_bench(monkeypatch, {**_RESULT, "rewards": {}}, returncode=0)

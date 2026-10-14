@@ -700,3 +700,42 @@ def test_command_harness_ignores_a_reward_left_by_a_previous_run(tmp_path):
 
     assert (result.passed, result.reward) == (False, 0.0)
     assert not (cell / "a-old-job").exists()
+
+
+def _rmtree_that_cannot_delete(path, ignore_errors=False, **kwargs):
+    """``shutil.rmtree`` on a tree it may not delete (root-owned, written by a container)."""
+    if not ignore_errors:
+        raise PermissionError(13, "Permission denied", str(path))
+
+
+def test_cell_whose_previous_run_dir_cannot_be_cleared_is_errored_not_scored(
+    tmp_path, monkeypatch
+):
+    import shutil
+
+    from dokimi.harnesses.runner import _safe_id
+
+    _fixture_task(tmp_path / "tasks")
+    # The agent writes no reward and exits 0; it runs from tmp_path (the dir above the tasks root).
+    (tmp_path / "agent.py").write_text("open('agent-ran', 'w').close()\n", encoding="utf-8")
+    harness_id = f"command:{Path(sys.executable).as_posix()} agent.py"
+    runs = tmp_path / "runs"
+    cell = runs / "toy-task" / _safe_id(harness_id)
+    (cell / "old-job").mkdir(parents=True)
+    (cell / "old-job" / "reward.txt").write_text("1.0")
+    ran = tmp_path / "agent-ran"
+    monkeypatch.setattr(shutil, "rmtree", _rmtree_that_cannot_delete)
+
+    output = TaskSuiteRunner(
+        tasks=discover_tasks(tmp_path / "tasks"), harnesses=[harness_id], output_root=runs
+    ).run()
+
+    validate_artifact("task_runs", output)
+    [row] = output["results"]
+    assert (row["passed"], row["reward"]) == (False, None), "the stale 1.0 was read as this run's"
+    assert "could not clear" in row["metrics"]["error"]
+    assert str(cell.absolute()) in row["metrics"]["error"]
+    assert not ran.exists(), "the agent ran on top of the previous run's files"
+    stats = output["summary"]["per_harness"][harness_id]
+    assert (stats["errored"], stats["scored"]) == (1, 0)
+    assert (cell / "old-job" / "reward.txt").read_text() == "1.0"  # left for the operator
