@@ -66,7 +66,7 @@ PIP_INSTALL = re.compile(r"^\s*(python -m )?pip install\b")
 PAIRED = {"-r": "-r", "--requirement": "-r", "-c": "-c", "--constraint": "-c",
           "-e": "-e", "--editable": "-e"}
 URL = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")  # `-e git+https://...` is not a path
-UPSTREAM_URL = re.compile(r"github\.com[:/]intel/dokimi(\.git)?/?$", re.IGNORECASE)
+UPSTREAM_URL = re.compile(r"(^|[/@])github\.com[:/]intel/dokimi(\.git)?/?$", re.IGNORECASE)
 ORIGIN_BASE = re.compile(r"\borigin/(?=\$\{?BASE_REF\b)")  # `origin/$BASE_REF` in a step
 
 
@@ -76,14 +76,20 @@ def _git(*args: str) -> subprocess.CompletedProcess:
 
 def upstream_remote(override: str | None) -> str:
     """The remote standing in for CI's origin: the override, else the remote whose
-    URL is intel/dokimi (origin first if several are), else origin."""
+    URL is intel/dokimi (origin first if several are), else origin. The URL is the one
+    git fetches from, so `url.<base>.insteadOf` aliases are expanded first."""
     if override:
         return override
-    lines = _git("config", "--get-regexp", r"^remote\..*\.url$").stdout.splitlines()
-    names = [key[len("remote."):-len(".url")]
-             for key, _, url in (line.partition(" ") for line in lines)
-             if UPSTREAM_URL.search(url.strip())]
+    names = [name for name in _git("remote").stdout.split()
+             if UPSTREAM_URL.search(_git("remote", "get-url", name).stdout.strip())]
     return "origin" if "origin" in names or not names else names[0]
+
+
+def diffs_against_base(workflows: list[tuple[str, dict]], want: set[str] | None) -> bool:
+    """Whether a selected job has a step that diffs against `origin/$BASE_REF`."""
+    return any(ORIGIN_BASE.search(str(step.get("run", "")))
+               for _, wf in workflows for job_id, job in wf["jobs"].items()
+               if want is None or job_id in want for step in job.get("steps", []))
 
 
 def resolve_base(base: str, remote: str) -> tuple[str, str | None]:
@@ -225,16 +231,17 @@ def run(args: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory(prefix="ci-local-") as t:
         tmp = Path(t)
         ctx = Context(args.base, py, tmp)
+        workflows = load_workflows()
         remote = upstream_remote(args.remote)
         base_ref, base_err = resolve_base(args.base, remote)
         print(f"Base: {base_ref} (CI's origin/{args.base})")
-        if base_err:
+        if base_err and diffs_against_base(workflows, want):
             print(f"ERROR: {base_err}\n  Steps that diff against the base will fail.")
         summary = tmp / "step-summary.md"
         base_env = dict(os.environ, RUNNER_TEMP=str(tmp), GITHUB_STEP_SUMMARY=str(summary),
                         GITHUB_OUTPUT=str(tmp / "github-output"), GITHUB_WORKSPACE=str(REPO),
                         CI="true")
-        for wf_name, wf in load_workflows():
+        for wf_name, wf in workflows:
             default_wd = wf.get("defaults", {}).get("run", {}).get("working-directory", ".")
             for job_id, job in wf["jobs"].items():
                 label = f"{wf_name}:{job_id}"

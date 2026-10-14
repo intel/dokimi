@@ -172,6 +172,17 @@ def test_unusable_base_fails_its_steps_without_running_them(
     assert "Base: origin/main" in out and out.count("ERROR: no such ref") == 3
 
 
+def test_unusable_base_is_not_an_error_when_no_selected_job_diffs(
+    env: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """With only jobs that never diff against the base selected, nothing reports it."""
+    (cl.WORKFLOWS / "x.yml").write_text(BASE_WF + "  b:\n    steps:\n      - run: echo b\n")
+    monkeypatch.setattr(cl, "resolve_base", lambda base, remote: (f"{remote}/{base}", "no such ref"))
+    assert cl.run(ns(jobs="b")) == 0
+    assert [c["cmd"][-1] for c in env["calls"]] == ["echo b"]
+    assert "ERROR" not in capsys.readouterr().out
+
+
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     """A real git repo with one commit; returns a git runner for it."""
@@ -195,12 +206,24 @@ def test_upstream_remote_is_the_intel_dokimi_url(repo: Any) -> None:
     assert cl.upstream_remote(None) == "origin"  # no remotes at all
     repo("remote", "add", "origin", "https://github.com/someone/other")
     repo("remote", "add", "fork", "https://github.com/me/dokimi")
+    repo("remote", "add", "lookalike", "https://notgithub.com/intel/dokimi")
+    repo("remote", "add", "renamed", "https://github.com/intel/dokimi-fork")
     assert cl.upstream_remote(None) == "origin"  # nothing matches: fall back
     repo("remote", "add", "intel", "git@github.com:Intel/dokimi.git")
+    assert cl.upstream_remote(None) == "intel"
+    repo("remote", "set-url", "intel", "ssh://git@github.com/intel/dokimi")
     assert cl.upstream_remote(None) == "intel"
     assert cl.upstream_remote("fork") == "fork"
     repo("remote", "set-url", "origin", "https://github.com/intel/dokimi")
     assert cl.upstream_remote(None) == "origin"  # several match: origin first
+
+
+def test_upstream_remote_expands_insteadof_aliases(repo: Any) -> None:
+    """A remote written as an insteadOf alias matches by the URL git fetches from."""
+    repo("config", "url.https://github.com/.insteadOf", "gh:")
+    repo("remote", "add", "origin", "https://github.com/me/dokimi")
+    repo("remote", "add", "upstream", "gh:intel/dokimi")
+    assert cl.upstream_remote(None) == "upstream"
 
 
 def test_resolve_base_reports_missing_and_unrelated_refs(repo: Any) -> None:
