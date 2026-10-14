@@ -70,6 +70,7 @@ def build_novelty_artifact(
     sole_carriers: list | None = None,
     topics: list | None = None,
     conflicts: list | None = None,
+    extraction: dict | None = None,
     cost: dict | None = None,
     warnings: list[str] | None = None,
 ) -> dict:
@@ -121,6 +122,7 @@ def build_novelty_artifact(
         "categories": categories or {},
         "conflicts": conflicts or [],
         "spans": span_summary,
+        **({"extraction": extraction} if extraction is not None else {}),
         "attribution": attribution_summary,
         "needs": graph_summary or {},
         "relevance": relevance or {},
@@ -324,6 +326,12 @@ def render_novelty_markdown(artifact: dict) -> str:
         f"| dead tokens | {spans.get('frac_carrying_nothing', 0.0)} | "
         "share of tokens no atom came from — upper bound on waste |"
     )
+    if spans.get("n_unread"):
+        lines.append(
+            f"| unread spans | {spans['n_unread']} ({spans.get('tokens_unread', 0)} tok) | "
+            "extraction never read them; outside the dead-token share, kept by every "
+            "shortening |"
+        )
     lines.append(
         f"| protected spans | {spans.get('protected', 0)} | negations / gates / orderings; "
         "a shortening that drops one is not smaller, it is different |"
@@ -440,6 +448,9 @@ body { font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; max-width:
 .green { background: #d7f5dc; } .grey  { background: #ececec; color: #555; }
 .red   { background: #fbd5d5; } .amber { background: #fdecc8; }
 .dim   { background: transparent; color: #999; }
+.blue  { background: #dbe7fb; } .plain { background: transparent; }
+.hatched { background: repeating-linear-gradient(45deg, #f3f3f3 0 4px, #fff 4px 8px);
+           color: #777; }
 .meta  { color: #888; font-size: 11px; }
 """
 

@@ -171,3 +171,28 @@ def test_views_render_every_span_and_escape_html():
     markdown = render_annotated_markdown(rows, title="t")
     assert "--accel" in markdown
     assert "**green**" in markdown  # the legend travels with the view
+
+
+def test_an_unjudged_atom_gets_no_fallback_label():
+    spans, atoms, _ = _attributed()
+    accel = next(s for s in spans if "--accel" in s.text)
+    # Classified run, but the value judge never answered for this atom (no category).
+    labels = {r.span.id: r.label for r in attribute_spans(
+        spans, atoms, outcomes={atoms[0].id: "still_missing"}, categories={})}
+    assert labels[accel.id] == "still_missing"  # not "redundant": nobody knew it
+    labels = {r.span.id: r.label for r in attribute_spans(spans, atoms)}
+    assert labels[accel.id] == "unscored"  # unprobed and unjudged: not "inert"
+    labels = {r.span.id: r.label for r in attribute_spans(
+        spans, atoms, categories={atoms[0].id: "novel_inert"})}
+    assert labels[accel.id] == "inert"  # judged inert still reads as inert
+
+
+def test_an_unread_span_is_labelled_unread_not_empty():
+    spans, atoms, _ = _attributed()
+    background = next(s for s in spans if "research prototype" in s.text)
+    background.unread = True
+    rows = attribute_spans(spans, atoms)
+    row = next(r for r in rows if r.span.id == background.id)
+    assert (row.label, row.colour) == ("unread", "hatched")
+    assert all(r["span_id"] != background.id for r in dead_weight(rows))
+    assert "hatched" in render_annotated_html(rows, title="t")

@@ -61,6 +61,10 @@ class Span:
         end: Character offset one past the span.
         heading_path: Enclosing headings, outermost first — the "where am I" trail.
         protection: Protection tags (see :data:`_PROTECTION_RULES`); empty for most spans.
+        atom_ids: Atoms extracted from this span (see :func:`index_atoms`).
+        unread: No extraction call could read this span (see
+            :class:`~dokimi.novelty.atoms.ExtractionReport`). Carrying no atom then says
+            nothing about the text, so it is not counted as carrying nothing.
     """
 
     id: str
@@ -71,6 +75,7 @@ class Span:
     heading_path: tuple[str, ...] = ()
     protection: tuple[str, ...] = ()
     atom_ids: list[str] = field(default_factory=list)
+    unread: bool = False
 
     @property
     def tokens(self) -> int:
@@ -86,6 +91,11 @@ class Span:
     def protected(self) -> bool:
         """True when dropping this span can change an outcome, not just a phrasing."""
         return bool(self.protection)
+
+    @property
+    def unknown(self) -> bool:
+        """Unread and carrying no atom: what this span asserts is not known."""
+        return self.unread and not self.atom_ids
 
     def as_dict(self) -> dict:
         """Serializable form (used by the ``novelty.v1`` artifact and the views)."""
@@ -248,7 +258,11 @@ def span_summary(spans: list[Span], atoms: list | None = None, *, atom_cap: int 
     """Aggregate span statistics for the ``novelty.v1`` ``spans{}`` block.
 
     ``tokens_carrying_nothing`` counts tokens in spans from which the extractor drew no
-    atom, so it is an upper bound on waste rather than a measurement of it.
+    atom, so it is an upper bound on waste rather than a measurement of it. Spans no
+    extraction call could read (``unread``) are left out of it and of the denominator,
+    and reported as ``n_unread`` / ``tokens_unread``: a span nobody read carries no atom
+    for a reason that says nothing about the text, and counting it inflated the fraction
+    one-for-one with the extraction loss.
 
     **It must be derived from the full atom set.** Computing it from a capped or
     otherwise sampled subset does not approximate the full-set figure, it inverts it: in
@@ -277,14 +291,19 @@ def span_summary(spans: list[Span], atoms: list | None = None, *, atom_cap: int 
         for atom_id in span.atom_ids:
             carrier_count[atom_id] = carrier_count.get(atom_id, 0) + 1
     sole = [s.id for s in spans if any(carrier_count.get(a) == 1 for a in s.atom_ids)]
-    empty = [s for s in spans if not s.atom_ids]
+    unknown = [s for s in spans if s.unknown]
+    empty = [s for s in spans if not s.atom_ids and not s.unknown]
     total_tokens = sum(s.tokens for s in spans)
+    unknown_tokens = sum(s.tokens for s in unknown)
+    read_tokens = total_tokens - unknown_tokens
     empty_tokens = sum(s.tokens for s in empty)
     return {
         "n": len(spans),
         "tokens": total_tokens,
         "tokens_carrying_nothing": empty_tokens,
-        "frac_carrying_nothing": round(empty_tokens / total_tokens, 4) if total_tokens else 0.0,
+        "frac_carrying_nothing": round(empty_tokens / read_tokens, 4) if read_tokens else 0.0,
+        "n_unread": len(unknown),
+        "tokens_unread": unknown_tokens,
         "n_atoms_indexed": len(atoms) if atoms is not None else None,
         "capped_atom_set": bool(atom_cap and atoms is not None and len(atoms) >= atom_cap),
         "sole_carrier": len(sole),

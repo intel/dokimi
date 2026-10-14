@@ -189,6 +189,14 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     frac_dead = spans.get("frac_carrying_nothing")
     pointers = ((artifact.get("bundle") or {}).get("pointer_spans") or {})
     pointer_n, pointer_tokens = pointers.get("n", 0), pointers.get("tokens", 0)
+    # Spans no extraction call read are outside the fraction (it is over the read text),
+    # so the check says how much it could not see rather than passing them as clean.
+    unread_n, unread_tokens = spans.get("n_unread") or 0, spans.get("tokens_unread") or 0
+    unread_note = (
+        f". {unread_n} spans ({unread_tokens} of {spans.get('tokens')} tokens) were never "
+        "read by extraction and are outside this figure, so it describes the read text only"
+        if unread_n else ""
+    )
     if frac_dead is None:
         checks.append(NoveltyCheck(
             name="dead_tokens", passed=True, value=None,
@@ -205,6 +213,12 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
                 "as 0.743 on the study's largest artifact"
             ),
         ))
+    elif unread_n and unread_tokens >= (spans.get("tokens") or 0):
+        checks.append(NoveltyCheck(
+            name="dead_tokens", passed=True, value=None,
+            threshold=cfg["max_frac_carrying_nothing"], severity="info", measured=False,
+            message=f"not checked: extraction read none of the artifact's text{unread_note}",
+        ))
     else:
         checks.append(NoveltyCheck(
             name="dead_tokens",
@@ -219,6 +233,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
                     "file, which is a loading instruction rather than waste"
                     if pointer_n else ""
                 )
+                + unread_note
             ),
         ))
 

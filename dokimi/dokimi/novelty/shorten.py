@@ -151,6 +151,10 @@ def build_candidates(
             report the token fraction they actually reached.
         pin_kinds: Span kinds always kept (headings, so the document stays navigable and
             routing stays comparable).
+
+    Spans no extraction call could read (``Span.unread`` with no atom) are kept by every
+    strategy. They carry no atom because nobody read them, so a cut could not be scored:
+    the knowledge axis would read 1.0 over a candidate that dropped whatever they say.
     """
     atoms_by_span: dict[str, list[Atom]] = {span.id: [] for span in spans}
     for atom in atoms:
@@ -167,6 +171,7 @@ def build_candidates(
 
     tokens_full = sum(span.tokens for span in spans)
     protected_ids = {span.id for span in spans if span.protected}
+    unread_ids = {span.id for span in spans if span.unread and not atoms_by_span[span.id]}
     candidates: list[Candidate] = []
 
     for strategy in strategies:
@@ -175,6 +180,7 @@ def build_candidates(
                 strategy, spans, atoms_by_span,
                 budget=budget, tokens_full=tokens_full, pin_kinds=pin_kinds,
                 protected_ids=protected_ids, sole_span_ids=sole_span_ids,
+                unread_ids=unread_ids,
                 relevance=relevance, outcomes=outcomes, categories=categories, seed=seed,
             )
             candidates.append(_score(
@@ -201,10 +207,11 @@ def _select(
     outcomes: dict[str, str] | None,
     categories: dict[str, str] | None,
     seed: int,
+    unread_ids: set[str] | frozenset[str] = frozenset(),
 ) -> list[str]:
     target = budget * tokens_full
     by_id = {span.id: span for span in spans}
-    pinned = [s.id for s in spans if s.kind in pin_kinds]
+    pinned = [s.id for s in spans if s.kind in pin_kinds or s.id in unread_ids]
     if strategy == "greedy_value_safe":
         pinned += [s for s in protected_ids] + [s for s in sole_span_ids]
     pinned_set = set(pinned)

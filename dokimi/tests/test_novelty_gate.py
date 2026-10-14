@@ -350,3 +350,15 @@ def test_two_files_in_one_arm_are_judged_on_the_worse_one():
     }}))
     check = _named(verdict, "probe_kind_agreement")
     assert (check.passed, check.value) == (False, 0.2)
+
+
+def test_dead_tokens_says_what_extraction_never_read():
+    spans = {"frac_carrying_nothing": 0.1, "capped_atom_set": False, "tokens": 100,
+             "n_unread": 3, "tokens_unread": 40}
+    check = _named(evaluate_novelty(_artifact(spans=spans)), "dead_tokens")
+    assert check.measured and check.passed
+    assert "3 spans (40 of 100 tokens) were never read by extraction" in check.message
+    nothing_read = dict(spans, frac_carrying_nothing=0.0, tokens_unread=100)
+    check = _named(evaluate_novelty(_artifact(spans=nothing_read)), "dead_tokens")
+    assert not check.measured and check.value is None
+    assert check.message.startswith("not checked: extraction read none")

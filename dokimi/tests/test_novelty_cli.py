@@ -606,3 +606,86 @@ def test_items_refuses_runs_of_different_artifacts(tmp_path, field):
     args = _parse("novelty", "items", "--probes", *files)
     with pytest.raises(SystemExit, match=f"different texts \\({field}"):
         args.func(args)
+
+
+_UNREAD_SKILL = (
+    "---\nname: s\ndescription: d\n---\n\n# H\n\n"
+    "Enable the accelerator with the accel flag.\n\n"
+    "The project began as a research prototype with many contributors over the years.\n\n"
+    "Do not enable the legacy driver.\n"
+)
+
+
+def _unread_transport(prompt, system=None):
+    """Extraction never parses the background span; the adjudicator is throttled."""
+    import re
+
+    if "Extract the checkable knowledge" in prompt:
+        if "research prototype" in prompt:
+            return '[{"statement": "The project', None
+        rows = []
+        for sid, text in re.findall(r"^\[(s\d+)\] \(\w+\) (.*)$", prompt, flags=re.M):
+            if "accel flag" in text:
+                rows.append({"statement": "The accelerator is enabled with the accel flag "
+                             "in production.", "question": "How?", "answer": "accel",
+                             "kind": "proposition", "tags": [], "span_ids": [sid]})
+        return json.dumps(rows), None
+    if "Can the STATEMENT be recovered" in prompt:
+        raise RuntimeError("throttled")
+    return json.dumps({"verdict": "supported"}), None
+
+
+def test_unread_spans_travel_from_novelty_atoms_to_shorten(tmp_path, monkeypatch, capsys):
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(_UNREAD_SKILL, encoding="utf-8")
+    real_client = novelty_cmd._client
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args:
+                        _with_transport(real_client(model, provider, role, args),
+                                        _unread_transport))
+    atoms = tmp_path / "atoms.json"
+    args = _parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(atoms))
+    args.func(args)
+    captured = capsys.readouterr()
+    assert "WARNING atom extraction could not read 1 of" in captured.err
+    summary = json.loads(captured.out[captured.out.index("{"):])
+    assert summary["n_unread"] == 1  # and the printed share leaves it out
+    record = json.loads(atoms.read_text())["extraction"]
+    assert len(record["unread_span_ids"]) == 1
+
+    args = _parse("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms),
+                  "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json"))
+    args.func(args)
+    assert "the atoms probed here leave out" in capsys.readouterr().err
+
+    out = tmp_path / "short.md"
+    args = _parse("novelty", "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms),
+                  "--budgets", "0.5", "--allow-unsafe", "--out", str(out))
+    args.func(args)
+    captured = capsys.readouterr()
+    assert "1 of" in captured.err and "were never read by extraction" in captured.err
+    assert "retention adjudications got no usable verdict" in captured.err
+    assert "knowledge under-counted" in captured.out
+    assert "research prototype" in out.read_text()  # an unread span is never cut
+
+
+def test_view_and_probe_repeat_the_unread_warning(tmp_path, capsys):
+    from dokimi.artifacts import save_artifact
+    from dokimi.novelty.atoms import Atom, save_atoms
+    from dokimi.novelty.spans import index_atoms, segment
+
+    spans = segment("# H\n\nDo not enable the legacy driver.\n\nSome history here.\n")
+    spans[2].unread = True
+    atom = Atom(statement="No legacy driver.", question="q", answer="No.",
+                span_ids=(spans[1].id,))
+    index_atoms(spans, [atom])
+    atoms_path = tmp_path / "atoms.json"
+    save_atoms([atom], spans, atoms_path)
+    novelty_path = tmp_path / "novelty.json"
+    save_artifact("novelty", _minimal_artifact(), novelty_path)
+    out = tmp_path / "annotated.md"
+    args = _parse("novelty", "view", "--novelty", str(novelty_path), "--atoms",
+                  str(atoms_path), "--format", "md", "--out", str(out))
+    args.func(args)
+    assert "render as `unread`" in capsys.readouterr().err
+    assert f"`{spans[2].id}` [unread/hatched]" in out.read_text()

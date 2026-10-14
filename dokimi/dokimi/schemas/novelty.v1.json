@@ -265,8 +265,14 @@
         "tokens_carrying_nothing": {"type": "integer", "minimum": 0},
         "frac_carrying_nothing": {
           "type": "number",
-          "description": "Upper bound on dead weight, not a measurement of it. Read it only together with capped_atom_set: derived from a capped atom set it does not approximate the full-set figure but inverts it (0.064 became 0.743 on the study's largest artifact). Extractor recall is not the limit here: three extractors cited the same spans, Jaccard 0.87-0.99."
+          "description": "Upper bound on dead weight, not a measurement of it. Over the text extraction read: spans no extraction call could read (n_unread) are outside both the numerator and the denominator. Read it only together with capped_atom_set: derived from a capped atom set it does not approximate the full-set figure but inverts it (0.064 became 0.743 on the study's largest artifact). Extractor recall is not the limit here: three extractors cited the same spans, Jaccard 0.87-0.99."
         },
+        "n_unread": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Spans no extraction call could read, even one span per call, and that carry no atom. What they assert is unknown, so they are not counted as carrying nothing; extraction.unread_span_ids names them."
+        },
+        "tokens_unread": {"type": "integer", "minimum": 0},
         "n_atoms_indexed": {
           "type": ["integer", "null"],
           "minimum": 0,
@@ -282,6 +288,27 @@
           "type": "object",
           "additionalProperties": {"type": "integer"}
         }
+      }
+    },
+    "extraction": {
+      "type": "object",
+      "description": "What atom extraction could not read, and what re-asking cost. An unparseable batch is split in half and re-asked down to one span per call; a failed call or an empty reply is not. Absent from artifacts written before it existed.",
+      "properties": {
+        "unread_span_ids": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Spans no extraction call could read, in document order. Labelled `unread` in the span views, left out of frac_carrying_nothing and dead weight, and kept by every shortening candidate."
+        },
+        "unread_tokens": {"type": "integer", "minimum": 0},
+        "unparseable_span_ids": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "The unread spans whose reply arrived but did not parse even alone: an output ceiling too low for one span (raise --max-tokens). The rest were lost to a failed call or an empty reply."
+        },
+        "retried_batches": {"type": "integer", "minimum": 0, "description": "Batches whose reply did not parse and were split and re-asked."},
+        "calls": {"type": "integer", "minimum": 0, "description": "Extraction calls made, splits included. An n-span batch that never parses costs up to 2n-1 calls."},
+        "batches": {"type": "integer", "minimum": 0, "description": "Calls the same extraction would make with no splitting."},
+        "last_error": {"type": "string", "description": "The last error on a span that stayed unread; errors a split recovered from are not recorded."}
       }
     },
     "attribution": {

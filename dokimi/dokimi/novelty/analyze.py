@@ -160,9 +160,7 @@ def analyze(
     atom_list = atoms_mod.extract_atoms(
         span_list, client=extractor, cap=config.max_atoms, report=extraction
     )
-    dropped = extraction.warning(len(span_list))
-    if dropped:
-        warnings.append(dropped)
+    warnings.extend(extraction.warnings(len(span_list)))
     if tier:
         # From what this run did, not the tier's text: an override or an atom set under
         # the cap changes which claims are forfeit.
@@ -394,6 +392,7 @@ def analyze(
         sole_carriers=attribute.sole_carriers(attributions),
         topics=attribute.topic_rollup(attributions),
         conflicts=conflicts,
+        extraction=extraction.as_dict(),
         cost=roll_up_cost([extractor, answerer, judge]),
         warnings=warnings,
     )

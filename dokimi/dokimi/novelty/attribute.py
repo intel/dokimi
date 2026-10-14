@@ -11,7 +11,8 @@ Two derived listings do most of the work in practice:
 
 * **dead weight** — spans no atom came from, sorted by token cost. In the study eleven of
   thirteen skills sat at ≤0.17 of tokens; the two outliers (0.50, 0.74) were a judging-cap
-  artifact and are 0.068 and 0.064 on the full atom set (evidence §10.7).
+  artifact and are 0.068 and 0.064 on the full atom set (evidence §10.7). A span no
+  extraction call could read is ``unread``, not dead weight: nothing is known about it.
 * **sole carriers** — spans that are the only source of some atom. These are what a
   careless edit silently deletes, so the shortener pins them.
 
@@ -38,21 +39,32 @@ from .spans import Span
 
 # Label precedence, worst first. `colour` is the rendered signal; the labels are stable
 # names the JSON artifact carries so a viewer can restyle without re-measuring.
-LABELS = ("harmful", "degraded", "added", "protected", "redundant", "inert", "empty")
+LABELS = (
+    "harmful", "degraded", "added", "unread", "protected", "redundant", "still_missing",
+    "inert", "unscored", "empty",
+)
 COLOURS = {
     "harmful": "red",
     "degraded": "red",
     "added": "green",
+    "unread": "hatched",
     "protected": "amber",
     "redundant": "grey",
+    "still_missing": "blue",
     "inert": "grey",
+    "unscored": "plain",
     "empty": "dim",
 }
 LEGEND = {
     "green": "carries knowledge the model did not have without this artifact",
-    "grey": "carries only knowledge the model already produced unprompted",
+    "grey": "carries only knowledge the model already produced unprompted, or judged inert",
     "red": "carries a conflicting atom, or one the artifact made the model get wrong",
     "amber": "protected: a negation, version gate, ordering constraint or threshold",
+    "blue": "states something the model got wrong with and without it: rephrase or promote it",
+    "plain": "carries atoms with no measured outcome and no judged category, so no colour is "
+             "claimed",
+    "hatched": "not read: every extraction call for this span failed, so what it carries "
+               "is unknown",
     "dim": "no extracted atom — an upper bound on dead weight, not proof of it",
 }
 
@@ -136,12 +148,24 @@ def attribute_spans(
 def _label(
     span: Span, atoms: list[Atom], outcomes: dict[str, int], categories: dict[str, int]
 ) -> str:
+    """One label per span, worst first; measured outcomes before judged categories.
+
+    No label is a fallback. An atom with neither a decisive outcome nor a category (one
+    the value judge did not answer for, on a span that was not probed or stayed
+    ``still_missing``) gives ``unscored`` or ``still_missing``, never ``redundant`` or
+    ``inert``: those say "the model knew it" and "the task does not need it", and
+    nobody measured or judged either.
+    """
     if categories.get("harmful_conflicting"):
         return "harmful"
     if outcomes.get("degraded"):
         return "degraded"
     if outcomes.get("added"):
         return "added"
+    if span.unread and not atoms:
+        # Before protected: the extraction loss is the thing to fix, and the shortener
+        # keeps both kinds of span anyway.
+        return "unread"
     if span.protected:
         # Protected before redundant on purpose: a negation the model "already knew" in a
         # probe is still the line that stops a wrong default in a real run.
@@ -150,13 +174,20 @@ def _label(
         return "empty"
     if outcomes.get("redundant"):
         return "redundant"
-    if categories.get("novel_inert") or categories.get("known_inert"):
+    if outcomes.get("still_missing"):
+        return "still_missing"
+    if categories.get("novel_inert") or categories.get("known_inert") \
+            or categories.get("scaffolding"):
         return "inert"
-    return "redundant" if outcomes else "inert"
+    return "unscored"
 
 
 def dead_weight(attributions: list[SpanAttribution], *, limit: int = 20) -> list[dict]:
-    """Spans no atom came from, most expensive first."""
+    """Spans no atom came from, most expensive first.
+
+    Unread spans are not listed: they carry no atom because no call read them, which is
+    an extraction loss (reported in ``extraction``), not dead weight.
+    """
     empty = [a for a in attributions if a.label == "empty"]
     empty.sort(key=lambda a: a.span.tokens, reverse=True)
     return [
@@ -305,6 +336,7 @@ def topic_rollup(attributions: list[SpanAttribution], *, depth: int = 2) -> list
             "labels": counts,
             "added_spans": counts.get("added", 0),
             "dead_tokens": sum(r.span.tokens for r in rows if r.label == "empty"),
+            "unread_tokens": sum(r.span.tokens for r in rows if r.label == "unread"),
         })
     out.sort(key=lambda row: row["tokens"], reverse=True)
     return out

@@ -172,9 +172,8 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
         atoms = extract_atoms(spans, client=extractor, cap=cap, report=extraction)
     except ExtractionError as exc:
         raise SystemExit(str(exc)) from None
-    dropped = extraction.warning(len(spans))
-    if dropped:
-        print(f"WARNING {dropped}", file=sys.stderr)
+    for warning in extraction.warnings(len(spans)):
+        print(f"WARNING {warning}", file=sys.stderr)
     if not args.no_verify:
         verify_atoms(atoms, spans, client=extractor)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "atoms.json"
@@ -182,7 +181,8 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
                bundle=dict(artifact_bundle.summary(),
                            artifact_name=artifact_bundle.name,
                            artifact_ref=args.artifact,
-                           measured_digest=artifact_bundle.measured_digest()))
+                           measured_digest=artifact_bundle.measured_digest()),
+               extraction=extraction)
     print(f"OK Saved {len(atoms)} atoms over {len(spans)} spans: {out}")
     print(json.dumps(span_summary(spans, atoms, atom_cap=cap), indent=2))
 
@@ -193,7 +193,8 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     from dokimi.novelty.measure import SelfJudgeError, run_measurement
     from dokimi.novelty.probes import build_probe_set
 
-    atoms, _spans = load_atoms(args.atoms)
+    atoms, saved_spans = load_atoms(args.atoms)
+    _warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
     saved = json.loads(Path(args.atoms).read_text(encoding="utf-8"))
     body, probed = _saved_atoms_bundle(args, saved)
     extractor, answerer, judge = _clients(args)
@@ -479,6 +480,7 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     atoms, spans = load_atoms(args.atoms)
     _kind, _name, _description, frontmatter, _body = load_artifact_text(args.artifact)
     spans, atoms = _entry_point_only(args.atoms, spans, atoms)
+    _warn_unread(spans, "every candidate keeps them, since what they carry is unknown")
     client = _client(args.extract_model or args.model, args.provider, "oracle", args) \
         if not args.lexical_only else None
     oracle = RetentionOracle(
@@ -534,6 +536,7 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
 
     artifact = load_artifact("novelty", Path(args.novelty))
     atoms, spans = load_atoms(args.atoms)
+    _warn_unread(spans, "they render as `unread`, not as text that carries nothing")
     # Re-rendering needs per-atom outcomes; the artifact carries aggregates, so a view
     # rebuilt from it alone would colour by category only. Say so instead of implying the
     # colours mean more than they do.
@@ -548,6 +551,20 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
         "NOTE colours here come from spans and categories only. For outcome colouring "
         "(added / degraded), render during `novelty analyze`, which has the paired runs."
     )
+
+
+def _warn_unread(spans: list, consequence: str) -> None:
+    """Say on stderr that ``atoms.json`` records spans extraction never read.
+
+    The record is the only trace of them after ``novelty atoms``, so each stage that
+    reads the file repeats it, with what it means for that stage.
+    """
+    unread = [span for span in spans if span.unread]
+    if unread:
+        print(f"WARNING: {len(unread)} of {len(spans)} spans "
+              f"({sum(span.tokens for span in unread)} tokens) were never read by "
+              f"extraction (see `extraction` in the atoms file); {consequence}",
+              file=sys.stderr)
 
 
 def _bundle_from_args(args: argparse.Namespace):
