@@ -23,6 +23,8 @@ python cli.py --help                     # single CLI entry point
 CI also runs `ruff check .`, `mypy`, and `python -m dokimi.schema_check`.
 See `dokimi/CONTRIBUTING.md` for the full set of checks to run before a PR.
 Before pushing: `make dev` once (repo root, builds CI's `.venv`), then `make ci-local` (every PR CI step).
+It compares against the remote whose URL is `intel/dokimi` (printed first; override with
+`CI_LOCAL_ARGS='--remote <name>'`), whatever that remote is called.
 
 - The Python package is `dokimi/dokimi/` (package inside the project directory),
   organized by pipeline stage (`metrics/`, `questions/`, `eval/`, `gate/`, `treatments/`, …).
