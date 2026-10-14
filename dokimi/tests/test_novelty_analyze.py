@@ -549,3 +549,32 @@ def test_estimate_brackets_counted_calls(tmp_path):
         if not (estimate["total_calls"] <= len(calls)
                 <= estimate["total_calls_if_every_pair_escalates"]):
             pytest.fail(f"{tier}: counted {len(calls)} outside {estimate}")
+
+
+def _analyze_with(tmp_path, transport):
+    path = tmp_path / "s" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(SKILL, encoding="utf-8")
+    kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    config = AnalyzeConfig(artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
+                           description=description, frontmatter=frontmatter, concurrency=1)
+    _, answerer, judge = _clients()
+    extractor = LLMClient(model="extractor-m", role="extractor", transport=transport)
+    return analyze(body, config, extractor=extractor, answerer=answerer,
+                   judge=judge).artifact
+
+
+def test_a_failed_adjudication_is_a_warning_and_a_count(tmp_path):
+    scripted = _scripted("informed")
+
+    def adjudicator_down(prompt, system):
+        if "Can the STATEMENT be recovered" in prompt:
+            raise RuntimeError("throttled")
+        return scripted(prompt, system)
+
+    artifact = _analyze_with(tmp_path, adjudicator_down)
+    errors = artifact["retention"]["llm_errors"]
+    assert errors >= 1
+    assert any(w.startswith(f"{errors} of {artifact['retention']['llm_escalations']} "
+                            "retention adjudications got no usable verdict")
+               for w in artifact["warnings"])

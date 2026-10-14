@@ -30,6 +30,8 @@ from .client import LLMClient
 RETAINED = "retained"
 ABSENT = "absent"
 CONTRADICTED = "contradicted"
+_VERDICTS = (RETAINED, ABSENT, CONTRADICTED)
+_CACHE_VERSION = b"retention-cache-v2\0"
 
 _STOP = frozenset("""
 a an the and or but if then than that this these those is are was were be been being
@@ -118,9 +120,10 @@ class RetentionOracle:
             self.escalations += 1
             verdict = self._adjudicate(atom, text)
             if verdict is None:
-                # The adjudicator failed: answer `absent` for this decision, but neither
-                # memoize nor store it, so a transient error does not become a cached
-                # verdict that every later run replays.
+                # No usable verdict (failed call, unparseable reply, or one naming no
+                # verdict): answer `absent` for this decision, but neither memoize nor
+                # store it, so a transient error does not become a cached verdict that
+                # every later run replays.
                 self.errors += 1
                 self.decisions += 1
                 return RetentionVerdict(ABSENT, "error", round(score, 4))
@@ -152,15 +155,23 @@ class RetentionOracle:
         }
 
     def _adjudicate(self, atom: Atom, text: str) -> str | None:
-        """The adjudicator's verdict, or ``None`` when the call or its parse failed."""
+        """The adjudicator's verdict, or ``None`` when there is no usable one.
+
+        ``None`` covers a failed call, a reply that does not parse, and a reply that
+        parses but names no verdict (``{"verdict": null}``, no key, an unknown word).
+        Reading the last kind as ``absent`` made it a real-looking verdict: uncounted in
+        ``llm_errors`` and written to the disk cache. The same test gates the response
+        cache, so an unusable reply is not replayed from there either.
+        """
         assert self.client is not None
         try:
-            verdict = str(self.client.json_object(
-                _ADJUDICATE_PROMPT.format(statement=atom.statement, text=text[:12000])
-            ).get("verdict", "")).strip()
+            reply = self.client.text(
+                _ADJUDICATE_PROMPT.format(statement=atom.statement, text=text[:12000]),
+                accept=lambda raw: parse_verdict(raw) is not None,
+            )
         except Exception:
             return None
-        return verdict if verdict in (RETAINED, ABSENT, CONTRADICTED) else ABSENT
+        return parse_verdict(reply)
 
     def _path(self, key: str) -> Path | None:
         return (self.cache_dir / f"{key}.json") if self.cache_dir else None
@@ -171,8 +182,10 @@ class RetentionOracle:
             return None
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+            if data["verdict"] not in _VERDICTS:
+                return None
             return RetentionVerdict(data["verdict"], "cache", float(data.get("score", 0.0)))
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, TypeError):
             return None
 
     def _store(self, key: str, result: RetentionVerdict) -> None:
@@ -181,6 +194,40 @@ class RetentionOracle:
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"verdict": result.verdict, "score": result.score}), "utf-8")
+
+
+def error_warning(oracle: RetentionOracle) -> str | None:
+    """The warning for adjudications with no usable verdict, or ``None`` when there were none.
+
+    Shared by ``analyze`` and ``novelty shorten``, which both score candidates with the
+    oracle, so a throttled adjudicator is never silent in either.
+    """
+    if not oracle.errors:
+        return None
+    return (
+        f"{oracle.errors} of {oracle.escalations} retention adjudications got no usable "
+        "verdict (failed call, unparseable reply, or no verdict named) and were answered "
+        "`absent` (not cached); carrier confirmation and shortening scores under-count "
+        "retention by up to that many decisions"
+    )
+
+
+def parse_verdict(reply: str) -> str | None:
+    """The verdict an adjudicator reply names, or ``None`` when it names none.
+
+    Case and surrounding punctuation are normalised first (``"Retained"``,
+    ``"retained."``), because those replies do carry a verdict.
+    """
+    from .client import parse_json_object
+
+    try:
+        raw = parse_json_object(reply).get("verdict")
+    except ValueError:
+        return None
+    if not isinstance(raw, str):
+        return None
+    verdict = raw.strip().strip(".,;:!?'\"`*").strip().lower()
+    return verdict if verdict in _VERDICTS else None
 
 
 def lexical_overlap(statement: str, text: str) -> float:
@@ -203,6 +250,10 @@ def _content_words(text: str) -> set[str]:
 
 def _key(atom: Atom, text: str) -> str:
     digest = hashlib.sha256()
+    # Bumped when what a cache entry means changes. v2: entries written before failed or
+    # verdict-less adjudications were kept out of the cache can hold such a failure
+    # stored as `absent`, indistinguishable from a real one, so they are not read.
+    digest.update(_CACHE_VERSION)
     digest.update(atom.statement.strip().encode("utf-8"))
     digest.update(b"\0")
     digest.update(text.encode("utf-8"))

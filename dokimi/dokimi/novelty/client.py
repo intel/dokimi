@@ -20,6 +20,9 @@ from dokimi.metrics.usage import UsageRecord
 
 # A transport takes (prompt, system) and returns (text, usage).
 Transport = Callable[[str, "str | None"], "tuple[str, UsageRecord | None]"]
+# An acceptance test for a reply: False means "unusable", so the response cache neither
+# stores it nor replays it (see :func:`dokimi.caching.keeps`).
+Accept = Callable[[str], bool]
 
 
 @dataclass
@@ -45,10 +48,21 @@ class LLMClient:
     usage: list[UsageRecord] = field(default_factory=list)
     calls: int = 0
 
-    def text(self, prompt: str, *, system: str | None = None) -> str:
-        """Return the model's reply as plain text."""
-        transport = self.transport or self._default_transport
-        reply, usage = transport(prompt, system)
+    def text(
+        self, prompt: str, *, system: str | None = None, accept: Accept | None = None
+    ) -> str:
+        """Return the model's reply as plain text.
+
+        ``accept`` is the caller's test for a usable reply. The default transport passes
+        it to the response cache as ``cache_if``: without it, with
+        ``DOKIMI_RESPONSE_CACHE`` set, a cut-off or unparseable reply is stored and every
+        later run replays the failure without calling the model. An injected transport
+        is the caller's own and is not given it.
+        """
+        if self.transport is not None:
+            reply, usage = self.transport(prompt, system)
+        else:
+            reply, usage = self._default_transport(prompt, system, accept=accept)
         self.calls += 1
         if usage is not None:
             # UsageRecord is frozen; re-stamp the role so cost rolls up per role.
@@ -56,16 +70,18 @@ class LLMClient:
         return reply or ""
 
     def json_object(self, prompt: str, *, system: str | None = None) -> dict[str, Any]:
-        """Return the model's reply parsed as a JSON object."""
-        from dokimi.llm import extract_json_object
-
-        return extract_json_object(self.text(prompt, system=system))
+        """Return the model's reply parsed as a JSON object; raise ``ValueError`` otherwise."""
+        return parse_json_object(
+            self.text(prompt, system=system, accept=accepting(parse_json_object))
+        )
 
     def json_array(self, prompt: str, *, system: str | None = None) -> list[Any]:
-        """Return the model's reply parsed as a JSON array."""
+        """Return the model's reply parsed as a JSON array; raise ``ValueError`` otherwise."""
         from dokimi.llm import extract_json_array
 
-        return extract_json_array(self.text(prompt, system=system))
+        return extract_json_array(
+            self.text(prompt, system=system, accept=accepting(extract_json_array))
+        )
 
     def cost_summary(self) -> dict[str, Any]:
         """Roll up this client's usage.
@@ -88,7 +104,9 @@ class LLMClient:
             "usd": usd,
         }
 
-    def _default_transport(self, prompt: str, system: str | None) -> tuple[str, UsageRecord | None]:
+    def _default_transport(
+        self, prompt: str, system: str | None, *, accept: Accept | None = None
+    ) -> tuple[str, UsageRecord | None]:
         from dokimi.llm import llm_call_with_usage
 
         return llm_call_with_usage(
@@ -97,7 +115,36 @@ class LLMClient:
             provider=self.provider,
             system=system,
             max_tokens=self.max_tokens,
+            cache_if=accept,
         )
+
+
+def parse_json_object(reply: str) -> dict[str, Any]:
+    """The reply as a JSON object. A list, ``null`` or scalar raises ``ValueError``.
+
+    :func:`dokimi.llm.extract_json_object` returns whatever ``json.loads`` gives, so a
+    ``[]`` reply used to come back as a list and fail later, at a ``.get``, outside any
+    handler that knew it was a bad reply.
+    """
+    from dokimi.llm import extract_json_object
+
+    value = extract_json_object(reply)
+    if not isinstance(value, dict):
+        raise ValueError(f"expected a JSON object, got {type(value).__name__}: {reply[:120]!r}")
+    return value
+
+
+def accepting(parse: Callable[[str], Any]) -> Accept:
+    """``parse`` as a response-cache acceptance test: usable means it does not raise."""
+
+    def accept(reply: str) -> bool:
+        try:
+            parse(reply)
+        except Exception:
+            return False
+        return True
+
+    return accept
 
 
 def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:

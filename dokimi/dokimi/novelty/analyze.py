@@ -361,12 +361,9 @@ def analyze(
                 "resource_words_on_disk but carry no atoms"
             )
 
-    if oracle.errors:
-        warnings.append(
-            f"{oracle.errors} of {oracle.escalations} retention adjudications failed and were "
-            "answered `absent` (not cached); carrier confirmation and shortening scores "
-            "under-count retention by up to that many decisions"
-        )
+    oracle_warning = retention.error_warning(oracle)
+    if oracle_warning:
+        warnings.append(oracle_warning)
 
     payload = report.build_novelty_artifact(
         artifact_kind=config.artifact_kind,

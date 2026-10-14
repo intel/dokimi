@@ -10,10 +10,13 @@ adjudication cached as *absent*, a reply cut at the output ceiling with no trace
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
 from types import SimpleNamespace
+
+import pytest
 
 from dokimi.novelty.atoms import Atom
 from dokimi.novelty.batching import ask_in_batches
@@ -25,7 +28,7 @@ from dokimi.novelty.classify import (
     judge_value,
 )
 from dokimi.novelty.client import LLMClient
-from dokimi.novelty.retention import ABSENT, RetentionOracle
+from dokimi.novelty.retention import ABSENT, RETAINED, RetentionOracle, _key
 
 
 def _atoms(n: int) -> list[Atom]:
@@ -146,11 +149,111 @@ def test_a_failed_adjudication_is_not_cached_as_absent(tmp_path):
     first = oracle.verdict(atom, text)
     assert (first.verdict, first.method) == (ABSENT, "error")
     assert oracle.stats()["llm_errors"] == 1 and not list(tmp_path.iterdir())
+    # Not memoized either: the same oracle asks again, and both decisions count.
+    second = oracle.verdict(atom, text)
+    assert (second.verdict, second.method) == (RETAINED, "llm")
+    assert oracle.stats()["decisions"] == 2 and len(calls) == 2
     again = RetentionOracle(client=LLMClient(model="x", transport=flaky), cache_dir=tmp_path)
     assert again.verdict(atom, text).retained
 
 
-def test_a_reply_cut_at_the_output_ceiling_is_logged(monkeypatch, caplog):
+_AMBIGUOUS = (Atom(statement="alpha beta gamma delta", question="q", answer="a",
+                   span_ids=("s1",)), "alpha beta epsilon zeta")
+
+
+@pytest.mark.parametrize("reply", [
+    '{"verdict": null}', '{"why": "no verdict key"}', '{"verdict": "maybe"}',
+    '{"verdict": 1}', "[]", '{"verdict": "reta',
+])
+def test_a_reply_with_no_usable_verdict_is_an_error_not_a_cached_absent(tmp_path, reply):
+    atom, text = _AMBIGUOUS
+    oracle = RetentionOracle(client=LLMClient(model="x", transport=lambda p, s: (reply, None)),
+                             cache_dir=tmp_path)
+    result = oracle.verdict(atom, text)
+    assert (result.verdict, result.method) == (ABSENT, "error")
+    assert oracle.stats()["llm_errors"] == 1 and not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("reply", ['{"verdict": "Retained"}', '{"verdict": "retained."}',
+                                   '{"verdict": " RETAINED! "}'])
+def test_a_verdict_is_read_through_case_and_punctuation(reply):
+    atom, text = _AMBIGUOUS
+    oracle = RetentionOracle(client=LLMClient(model="x", transport=lambda p, s: (reply, None)))
+    result = oracle.verdict(atom, text)
+    assert (result.verdict, result.method) == (RETAINED, "llm")
+
+
+def test_a_cache_entry_from_before_the_error_fix_is_not_replayed(tmp_path):
+    atom, text = _AMBIGUOUS
+    # The pre-fix key: no version salt. An error then was stored as a plain `absent`.
+    digest = hashlib.sha256()
+    digest.update(atom.statement.strip().encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(text.encode("utf-8"))
+    (tmp_path / f"{digest.hexdigest()[:32]}.json").write_text(
+        json.dumps({"verdict": "absent", "score": 0.5}), encoding="utf-8")
+    oracle = RetentionOracle(
+        client=LLMClient(model="x", transport=lambda p, s: ('{"verdict": "retained"}', None)),
+        cache_dir=tmp_path,
+    )
+    result = oracle.verdict(atom, text)
+    assert (result.verdict, result.method) == (RETAINED, "llm")
+
+
+@pytest.mark.parametrize("stored", ['{"verdict": "maybe", "score": 0.5}', "{not json",
+                                    '{"verdict": ["absent"]}'])
+def test_an_unusable_disk_cache_entry_is_asked_again(tmp_path, stored):
+    atom, text = _AMBIGUOUS
+    oracle = RetentionOracle(
+        client=LLMClient(model="x", transport=lambda p, s: ('{"verdict": "retained"}', None)),
+        cache_dir=tmp_path,
+    )
+    (tmp_path / f"{_key(atom, text)}.json").write_text(stored, encoding="utf-8")
+    assert oracle.verdict(atom, text).method == "llm"
+
+
+def _completion_counter(monkeypatch, tmp_path, content: str) -> list[int]:
+    """Route the real default transport into a fake completion, with the response cache on."""
+    import litellm
+
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "responses"))
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    calls: list[int] = []
+
+    def completion(model, messages, api_key=None, **kw):
+        calls.append(1)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=content),
+                                     finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+
+    monkeypatch.setattr(litellm, "completion", completion)
+    return calls
+
+
+def test_the_response_cache_does_not_replay_a_failed_adjudication(monkeypatch, tmp_path):
+    calls = _completion_counter(monkeypatch, tmp_path, '{"verdict": "reta')
+    atom, text = _AMBIGUOUS
+    for _ in range(3):
+        oracle = RetentionOracle(client=LLMClient(model="m", provider="openai"))
+        assert oracle.verdict(atom, text).method == "error"
+    assert len(calls) == 3  # every run asks again; a cached failure would make this 1
+
+
+def test_the_response_cache_still_replays_a_usable_adjudication(monkeypatch, tmp_path):
+    calls = _completion_counter(monkeypatch, tmp_path, '{"verdict": "retained"}')
+    atom, text = _AMBIGUOUS
+    for _ in range(2):
+        oracle = RetentionOracle(client=LLMClient(model="m", provider="openai"))
+        assert oracle.verdict(atom, text).method == "llm"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("finish_reason, logged",
+                         [("length", True), ("max_tokens", True), ("stop", False)])
+def test_a_reply_cut_at_the_output_ceiling_is_logged(monkeypatch, caplog, finish_reason,
+                                                       logged):
     import litellm
 
     from dokimi import llm
@@ -160,12 +263,37 @@ def test_a_reply_cut_at_the_output_ceiling_is_logged(monkeypatch, caplog):
     def cut(model, messages, api_key=None, **kw):
         return SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content="[{\"a\": 1"),
-                                     finish_reason="length")],
+                                     finish_reason=finish_reason)],
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=4096),
         )
 
     monkeypatch.setattr(litellm, "completion", cut)
     with caplog.at_level(logging.WARNING, logger=llm.__name__):
         text, _ = llm.llm_call_with_usage("p", model="m", provider="openai", api_key="k")
+    assert text == "[{\"a\": 1"
+    assert any("output ceiling" in r.getMessage() for r in caplog.records) is logged
+
+
+def test_a_streamed_reply_cut_at_the_output_ceiling_is_logged(monkeypatch, caplog):
+    import litellm
+
+    from dokimi import llm
+
+    monkeypatch.delenv("DOKIMI_RESPONSE_CACHE", raising=False)
+
+    def chunk(content, finish_reason=None, usage=None):
+        delta = SimpleNamespace(content=content)
+        return SimpleNamespace(choices=[SimpleNamespace(delta=delta, finish_reason=finish_reason)],
+                               usage=usage)
+
+    def streamed(model, messages, api_key=None, **kw):
+        return iter([chunk("[{\"a\""), chunk(": 1", finish_reason="length"),
+                     chunk(None, usage=SimpleNamespace(prompt_tokens=10,
+                                                       completion_tokens=4096))])
+
+    monkeypatch.setattr(litellm, "completion", streamed)
+    with caplog.at_level(logging.WARNING, logger=llm.__name__):
+        text, _ = llm.llm_call_with_usage("p", model="m", provider="openai", api_key="k",
+                                          stream=True)
     assert text == "[{\"a\": 1"
     assert any("output ceiling" in r.getMessage() for r in caplog.records)

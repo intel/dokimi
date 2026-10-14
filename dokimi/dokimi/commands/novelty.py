@@ -473,7 +473,7 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     """Score shortening candidates on the five axes and optionally write the best one."""
     from dokimi.novelty.analyze import load_artifact_text
     from dokimi.novelty.atoms import load_atoms
-    from dokimi.novelty.retention import RetentionOracle
+    from dokimi.novelty.retention import RetentionOracle, error_warning
     from dokimi.novelty.shorten import build_candidates, pick_best
 
     atoms, spans = load_atoms(args.atoms)
@@ -487,6 +487,9 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     candidates = build_candidates(
         spans, atoms, oracle=oracle, budgets=tuple(args.budgets), seed=args.seed
     )
+    oracle_warning = error_warning(oracle)
+    if oracle_warning:
+        print(f"WARNING {oracle_warning}", file=sys.stderr)
     print(
         f"{'strategy':20s} {'budget':>7s} {'tok':>6s} {'know':>6s} "
         f"{'value':>6s} {'prot':>6s} safe"
@@ -509,6 +512,8 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     print(
         f"Best safe candidate: {best.strategy} @ {best.budget_frac} → {best.token_frac} tokens, "
         f"knowledge {best.knowledge}, protection {best.protection}"
+        + (f" (knowledge under-counted: {oracle.errors} adjudications failed)"
+           if oracle.errors else "")
     )
     if args.out:
         from dokimi.novelty.shorten import render

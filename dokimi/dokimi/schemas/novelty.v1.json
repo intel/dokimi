@@ -342,7 +342,7 @@
         "decisions": {"type": "integer", "minimum": 0},
         "llm_escalations": {"type": "integer", "minimum": 0},
         "escalation_rate": {"type": "number"},
-        "llm_errors": {"type": "integer", "minimum": 0, "description": "Escalations whose adjudicator call failed; answered absent for that decision and not cached."},
+        "llm_errors": {"type": "integer", "minimum": 0, "description": "Escalations with no usable adjudicator verdict: the call failed, the reply did not parse, or it parsed and named no verdict. Each is answered absent for that decision and is not cached, on disk or in the response cache."},
         "band": {"type": "array", "items": {"type": "number"}},
         "adjudicator": {"type": ["string", "null"]}
       }

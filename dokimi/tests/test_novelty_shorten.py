@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import json
+
 from dokimi.novelty.atoms import Atom
+from dokimi.novelty.client import LLMClient
 from dokimi.novelty.retention import (
     ABSENT,
     RETAINED,
@@ -74,10 +77,9 @@ def test_lexical_only_knowledge_is_a_floor_not_a_verdict():
     kept = "Set the thread count to the core count."
     assert not oracle.verdict(atom, kept).retained          # 0.75 overlap, band unresolved
     assert oracle.verdict(atom, kept).verdict == ABSENT
-    with_llm = RetentionOracle(
-        client=type("C", (), {"json_object": staticmethod(
-            lambda prompt, system=None: {"verdict": RETAINED})})()
-    )
+    with_llm = RetentionOracle(client=LLMClient(
+        model="m", transport=lambda prompt, system: (json.dumps({"verdict": RETAINED}), None)
+    ))
     assert with_llm.verdict(atom, kept).retained
     assert with_llm.escalations == 1
 
