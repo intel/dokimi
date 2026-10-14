@@ -447,9 +447,10 @@ def test_exec_env_can_drop_proxy_credentials(tmp_path, monkeypatch):
     _credentialed_proxy(monkeypatch)
     task = load_task(_task_md(tmp_path))
     kept = " ".join(_exec_env(task, "verifier"))
-    dropped = " ".join(_exec_env(task, "verifier", credentials=False))
+    dropped_args = _exec_env(task, "verifier", credentials=False)
+    dropped = " ".join(dropped_args)
     assert "s3cret" in kept and "s3cret" not in dropped
-    assert "http://proxy.example:912/" in dropped and "=proxy.example:912" in dropped
+    assert {"https_proxy=http://proxy.example:912/", "http_proxy=proxy.example:912"} <= set(dropped_args)
 
 
 @pytest.mark.parametrize("mode, location, credentials", [
