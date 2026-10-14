@@ -272,20 +272,47 @@ def _answer(question: str, context: str | None, answerer: LLMClient) -> tuple[st
         prompt = f"Reference material:\n\n{context}\n\n---\n\nQuestion: {question}"
     else:
         prompt = f"Question: {question}"
-    reply = answerer.text(prompt, system=_ANSWER_SYSTEM)
+    reply = answerer.text(prompt, system=_ANSWER_SYSTEM, accept=_is_complete_answer)
+    if not reply.strip():
+        # No answer is no datum: graded, it would read as a wrong one. A reasoning model
+        # that spends its output ceiling before answering returns this.
+        raise ValueError("the answerer returned an empty reply; raise --max-tokens")
     return reply, _parse_confidence(reply)
 
 
+def _is_complete_answer(reply: str) -> bool:
+    """A reply worth caching: it reached the closing ``confidence:`` line it was asked for.
+
+    A reply cut at the output ceiling stops before that line, so it is graded on this run
+    (the truncation warning is logged with it) but never stored and replayed without the
+    warning. A complete answer that omits the line is only not cached.
+    """
+    return bool(reply.strip()) and _parse_confidence(reply) is not None
+
+
 def _grade(probe: Probe, response: str, judge: LLMClient) -> str:
+    """The judge's verdict, or ``ERRORED`` when its reply names none.
+
+    A named verdict outside the scale is read as ``wrong_other``, as before; a reply with
+    no verdict at all (``{"verdict": null}``, no key, an empty string) is a failed grade,
+    so the pair is dropped rather than scored wrong. Neither is cached.
+    """
     template = _JUDGE_REFUSAL_PROMPT if probe.expect_refusal else _JUDGE_PROMPT
     prompt = template.format(
         question=probe.question, expected=probe.expected, response=response[:4000]
     )
     try:
-        verdict = str(judge.json_object(prompt).get("verdict", "")).strip()
+        raw = judge.json_object(prompt, usable=_names_a_verdict).get("verdict")
     except Exception:
         return ERRORED
+    verdict = raw.strip() if isinstance(raw, str) else ""
+    if not verdict:
+        return ERRORED
     return verdict if verdict in VERDICTS else "wrong_other"
+
+
+def _names_a_verdict(reply: dict) -> bool:
+    return reply.get("verdict") in VERDICTS
 
 
 def _parse_confidence(text: str) -> float | None:

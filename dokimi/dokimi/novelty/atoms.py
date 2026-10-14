@@ -156,6 +156,8 @@ def render_spans(spans: list[Span]) -> str:
 
 
 _EMPTY_REPLY = "the extractor returned an empty reply"
+# Verdicts verify_atoms can record; anything else is `unchecked`.
+_FAITHFULNESS = ("supported", "distorted", "unsupported")
 
 
 @dataclass
@@ -416,13 +418,19 @@ def verify_atoms(
         source = "\n".join(by_id[s].text for s in atom.span_ids if s in by_id)
         try:
             verdict = str(client.json_object(
-                _VERIFY_PROMPT.format(statement=atom.statement, source=source)
+                _VERIFY_PROMPT.format(statement=atom.statement, source=source),
+                usable=_names_a_faithfulness_verdict,
             ).get("verdict", "")).strip()
         except Exception:
             verdict = ""
         atom.faithfulness = verdict if verdict in tally and verdict != "unchecked" else "unchecked"
         tally[atom.faithfulness] += 1
     return tally
+
+
+def _names_a_faithfulness_verdict(reply: dict) -> bool:
+    """Cache only a reply that names one; ``{"verdict": null}`` replayed reads ``unchecked``."""
+    return reply.get("verdict") in _FAITHFULNESS
 
 
 def save_atoms(

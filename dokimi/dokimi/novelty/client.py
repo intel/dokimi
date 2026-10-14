@@ -69,11 +69,25 @@ class LLMClient:
             self.usage.append(replace(usage, role=self.role))
         return reply or ""
 
-    def json_object(self, prompt: str, *, system: str | None = None) -> dict[str, Any]:
-        """Return the model's reply parsed as a JSON object; raise ``ValueError`` otherwise."""
-        return parse_json_object(
-            self.text(prompt, system=system, accept=accepting(parse_json_object))
-        )
+    def json_object(
+        self, prompt: str, *, system: str | None = None,
+        usable: Callable[[dict[str, Any]], bool] | None = None,
+    ) -> dict[str, Any]:
+        """Return the model's reply parsed as a JSON object; raise ``ValueError`` otherwise.
+
+        ``usable`` is the caller's test for the object's shape (``{"verdict": null}``
+        parses, and is no verdict). It decides only what the response cache keeps: an
+        object it rejects is still returned, for the caller to treat as it treats a bad
+        reply, but is never stored or replayed, so a later run asks again.
+        """
+
+        def shaped(reply: str) -> dict[str, Any]:
+            value = parse_json_object(reply)
+            if usable is not None and not usable(value):
+                raise ValueError("unusable reply")
+            return value
+
+        return parse_json_object(self.text(prompt, system=system, accept=accepting(shaped)))
 
     def json_array(self, prompt: str, *, system: str | None = None) -> list[Any]:
         """Return the model's reply parsed as a JSON array; raise ``ValueError`` otherwise."""

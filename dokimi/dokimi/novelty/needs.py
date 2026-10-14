@@ -153,6 +153,7 @@ def build_need_graph(name: str, description: str, *, client: LLMClient) -> NeedG
                 types=", ".join(NODE_TYPES), classes=", ".join(PATH_CLASSES),
             ),
             system=_GRAPH_SYSTEM,
+            usable=_has_a_node,
         )
     except Exception:
         return graph
@@ -174,6 +175,14 @@ def build_need_graph(name: str, description: str, *, client: LLMClient) -> NeedG
         if isinstance(e, dict) and str(e.get("from")) in known and str(e.get("to")) in known
     ]
     return graph
+
+
+def _has_a_node(reply: dict) -> bool:
+    """Cache only a graph with a node in it: an object with none builds an empty graph."""
+    nodes = reply.get("nodes")
+    return isinstance(nodes, list) and any(
+        isinstance(row, dict) and str(row.get("text", "")).strip() for row in nodes
+    )
 
 
 def match_atoms(atoms: list[Atom], graph: NeedGraph) -> dict[str, dict]:

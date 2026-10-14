@@ -371,7 +371,8 @@ def test_an_unusable_disk_cache_entry_is_asked_again(tmp_path, stored):
     assert oracle.verdict(atom, text).method == "llm"
 
 
-def _completion_counter(monkeypatch, tmp_path, content: str) -> list[int]:
+def _completion_counter(monkeypatch, tmp_path, content: str,
+                        finish_reason: str = "stop") -> list[int]:
     """Route the real default transport into a fake completion, with the response cache on."""
     import litellm
 
@@ -383,7 +384,7 @@ def _completion_counter(monkeypatch, tmp_path, content: str) -> list[int]:
         calls.append(1)
         return SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content=content),
-                                     finish_reason="stop")],
+                                     finish_reason=finish_reason)],
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
         )
 
@@ -456,3 +457,118 @@ def test_a_streamed_reply_cut_at_the_output_ceiling_is_logged(monkeypatch, caplo
                                           stream=True)
     assert text == "[{\"a\": 1"
     assert any("output ceiling" in r.getMessage() for r in caplog.records)
+
+
+# Every other caller of the response cache: routing (text), the answerer (text), and the
+# json_object callers (the grader, verify_atoms, the need graph). Each reply below parses
+# or is prose, so only a shape test keeps it out of the cache.
+
+def _route():
+    from dokimi.novelty.routing import Candidate, model_routing
+
+    cards = [Candidate("alpha", "does alpha things"), Candidate("beta", "does beta things")]
+    return model_routing(cards, ["do alpha"], client=LLMClient(model="m", provider="openai"))
+
+
+@pytest.mark.parametrize("reply, asked", [('{"pick":', 2), ('{"choice": 1}', 2),
+                                          ('{"pick": 1}', 1), ('{"pick": 0}', 1)])
+def test_routing_caches_only_a_reply_that_names_a_pick(monkeypatch, tmp_path, reply, asked):
+    calls = _completion_counter(monkeypatch, tmp_path, reply)
+    for _ in range(2):
+        result = _route()
+        assert result["n_failed"] == 0
+    assert len(calls) == asked  # a cut reply is an abstention this run, not a cached one
+
+
+def _measure_once(judge_reply: str = '{"verdict": "correct_complete"}'):
+    from dokimi.novelty.measure import run_measurement
+    from dokimi.novelty.probes import Probe
+
+    atom = Atom(statement="x is 1", question="What is x?", answer="1", span_ids=("s1",))
+    probe = Probe(atom_id=atom.id, kind="direct", question=atom.question, expected="1")
+    judge = LLMClient(model="j", transport=lambda p, s: (judge_reply, None))
+    return run_measurement([atom], [probe], "x is 1", concurrency=1, judge=judge,
+                           answerer=LLMClient(model="m", provider="openai"))
+
+
+@pytest.mark.parametrize("answer, asked", [("1\nconfidence: 0.9", 2), ("The value of x is", 4)])
+def test_the_answerer_caches_only_an_answer_that_reached_its_confidence_line(
+        monkeypatch, tmp_path, answer, asked):
+    calls = _completion_counter(monkeypatch, tmp_path, answer)
+    for _ in range(2):
+        _measure_once()
+    assert len(calls) == asked  # two arms; a cut answer is asked again on every run
+
+
+def test_a_cut_answer_logs_the_truncation_on_every_run(monkeypatch, tmp_path, caplog):
+    from dokimi import llm
+
+    _completion_counter(monkeypatch, tmp_path, "The value of x is", finish_reason="length")
+    with caplog.at_level(logging.WARNING, logger=llm.__name__):
+        for _ in range(2):
+            _measure_once()
+    assert sum("output ceiling" in r.getMessage() for r in caplog.records) == 4
+
+
+def test_an_empty_answer_is_a_dropped_pair_not_a_wrong_one(monkeypatch, tmp_path):
+    calls = _completion_counter(monkeypatch, tmp_path, "")
+    result = _measure_once()
+    assert all(run.errored for run in result.runs)
+    assert "raise --max-tokens" in result.runs[0].response
+    assert result.paired("lenient")["n_unpaired_dropped"] == 1
+    _measure_once()
+    assert len(calls) == 4  # not cached either
+
+
+def _grade_twice(monkeypatch, tmp_path, reply):
+    from dokimi.novelty.measure import _grade
+    from dokimi.novelty.probes import Probe
+
+    calls = _completion_counter(monkeypatch, tmp_path, reply)
+    probe = Probe(atom_id="a", kind="direct", question="q", expected="1")
+    verdicts = [_grade(probe, "1", LLMClient(model="j", provider="openai")) for _ in range(2)]
+    return verdicts, len(calls)
+
+
+@pytest.mark.parametrize("reply, verdict, asked", [
+    ('{"verdict": null}', "error", 2), ('{"why": "no verdict"}', "error", 2),
+    ('{"verdict": ""}', "error", 2), ('{"verdict": "incorrect"}', "wrong_other", 2),
+    ('{"verdict": "correct_complete"}', "correct_complete", 1),
+])
+def test_the_grader_caches_only_a_named_verdict(monkeypatch, tmp_path, reply, verdict, asked):
+    verdicts, n_calls = _grade_twice(monkeypatch, tmp_path, reply)
+    assert verdicts == [verdict, verdict] and n_calls == asked
+
+
+@pytest.mark.parametrize("reply, label, asked", [
+    ('{"verdict": null}', "unchecked", 2), ('{"verdict": "maybe"}', "unchecked", 2),
+    ('{"verdict": "supported"}', "supported", 1),
+])
+def test_verify_atoms_caches_only_a_faithfulness_verdict(monkeypatch, tmp_path, reply, label,
+                                                         asked):
+    from dokimi.novelty.atoms import verify_atoms
+    from dokimi.novelty.spans import segment
+
+    calls = _completion_counter(monkeypatch, tmp_path, reply)
+    spans = segment("Setting 1 defaults to 10.")
+    for _ in range(2):
+        atom = Atom(statement="Setting 1 defaults to 10.", question="q", answer="10",
+                    span_ids=(spans[0].id,))
+        verify_atoms([atom], spans, client=LLMClient(model="m", provider="openai"))
+        assert atom.faithfulness == label
+    assert len(calls) == asked
+
+
+@pytest.mark.parametrize("reply, n_nodes, asked", [
+    ('{"nodes": []}', 0, 2), ('{"edges": []}', 0, 2), ('{"nodes": [{"text": ""}]}', 0, 2),
+    ('{"nodes": [{"id": "n1", "text": "pick a backend"}]}', 1, 1),
+])
+def test_the_need_graph_caches_only_a_graph_with_a_node(monkeypatch, tmp_path, reply,
+                                                        n_nodes, asked):
+    from dokimi.novelty.needs import build_need_graph
+
+    calls = _completion_counter(monkeypatch, tmp_path, reply)
+    for _ in range(2):
+        graph = build_need_graph("n", "d", client=LLMClient(model="m", provider="openai"))
+        assert len(graph.nodes) == n_nodes
+    assert len(calls) == asked

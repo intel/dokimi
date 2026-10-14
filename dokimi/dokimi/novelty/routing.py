@@ -36,9 +36,8 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 
-from dokimi.llm import extract_json_object
 
-from .client import LLMClient
+from .client import LLMClient, parse_json_object
 
 # Words, with sentence punctuation left out. A version like `2.1` stays one token, and a
 # hyphenated name yields its parts as well as the whole: `dpnp-array-creation` could not
@@ -189,6 +188,19 @@ def lexical_routing(
     }
 
 
+def _is_pick_reply(reply: str) -> bool:
+    """A reply worth caching: an object naming a ``pick`` (``0`` and ``null`` abstain).
+
+    A reply cut at ``{"pick":`` still counts as an abstention for this run, but is not
+    stored, so a later run with ``DOKIMI_RESPONSE_CACHE`` set asks again instead of
+    replaying it.
+    """
+    try:
+        return "pick" in parse_json_object(reply)
+    except ValueError:
+        return False
+
+
 def _as_card_number(value: object) -> int:
     """Card number from a model's ``pick``, or 0 when it is not one (null, prose, 2.9, true)."""
     if isinstance(value, bool):
@@ -232,14 +244,16 @@ def model_routing(
             for position, index in enumerate(order)
         )
         try:
-            reply = client.text(_SELECT_PROMPT.format(query=query, cards=cards))
+            reply = client.text(
+                _SELECT_PROMPT.format(query=query, cards=cards), accept=_is_pick_reply
+            )
         except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
             picks.append({"query": query, "picked": None, "error": str(exc)[:200]})
             continue
         # A reply that is not a usable pick is the model declining to route, not a
         # transport failure: it stays in the denominator like an explicit abstention.
         try:
-            raw = _as_card_number(extract_json_object(reply).get("pick", 0))
+            raw = _as_card_number(parse_json_object(reply).get("pick", 0))
         except ValueError:
             raw = 0
         if raw < 1 or raw > len(order):
