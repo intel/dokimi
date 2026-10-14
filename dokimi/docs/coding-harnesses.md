@@ -216,24 +216,24 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
   which runs the agent's `/app` code as root, gets the host's proxy variables
   without their `user:pw@`: a verify-time install behind a proxy that needs
   credentials fails there, as it did before the proxy was forwarded at all.
-  - **Allowlist.** Entries are `host:port`: the provider's hosts on 443 (the
-    provider chosen as the CLI chooses it: Bedrock, then Foundry, then
-    Vertex, each only for `1`/`true`/`yes`/`on`; Vertex's host follows
-    `CLOUD_ML_REGION` as the CLI maps it, `global`, `us`, `eu` included), the
-    `ANTHROPIC_BASE_URL` host on its own port, and the task's
-    `environment.egress` entries. A bare `host` there means `host:443`; no
-    wildcards, commas or leading/trailing dots.
-  - **Plain HTTP.** An `http://` gateway such as LiteLLM is forwarded only
-    directly. The request is rewritten to origin-form with `Connection: close`,
-    so each connection carries one checked request. Plain HTTP is never
-    chained through an upstream proxy, so a host behind one must be listed
-    in `NO_PROXY`.
-  - **Loopback.** A loopback base URL (`localhost`, `127.*`) fails fast,
-    because no container can reach it; use `docker-claude-host` instead.
-  - **Logging.** Every proxy decision is saved as `egress.jsonl` (an allowed
-    one before the connect, so a pending CONNECT is logged too), and
-    `metrics.egress` carries the `allowed`, `denied` and `errors` host sets
-    and `denied_entries` (`host:port`).
+    - **Allowlist.** Entries are `host:port`: the provider's hosts on 443 (the
+      provider chosen as the CLI chooses it: Bedrock, then Foundry, then
+      Vertex, each only for `1`/`true`/`yes`/`on`; Vertex's host follows
+      `CLOUD_ML_REGION` as the CLI maps it, `global`, `us`, `eu` included), the
+      `ANTHROPIC_BASE_URL` host on its own port, and the task's
+      `environment.egress` entries. A bare `host` there means `host:443`; no
+      wildcards, commas or leading/trailing dots.
+    - **Plain HTTP.** An `http://` gateway such as LiteLLM is forwarded only
+      directly. The request is rewritten to origin-form with `Connection: close`,
+      so each connection carries one checked request. Plain HTTP is never
+      chained through an upstream proxy, so a host behind one must be listed
+      in `NO_PROXY`.
+    - **Loopback.** A loopback base URL (`localhost`, `127.*`) fails fast,
+      because no container can reach it; use `docker-claude-host` instead.
+    - **Logging.** Every proxy decision is saved as `egress.jsonl` (an allowed
+      one before the connect, so a pending CONNECT is logged too), and
+      `metrics.egress` carries the `allowed`, `denied` and `errors` host sets
+      and `denied_entries` (`host:port`).
 - **`network_mode = "public"`.** It applies to the verifier only. The
   container joins the default bridge after the agent exits. Every
   uxlfoundation/skills task declares it, and none of their solutions or tests
@@ -241,19 +241,20 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
   `environment.egress`.
 - **Environment.** HOME is its own tmpfs, `/run/abhome`; the image's `/tmp`
   is left alone. The environment is:
-  - the provider-credential allowlist;
-  - the proxy (also as `ALL_PROXY` and `FTP_PROXY`), and
-    `NO_PROXY=localhost,127.0.0.1,::1`. They replace what the Docker client
-    injects from `proxies.default`: a `NO_PROXY` would send an LLM host around
-    the proxy, an `ALL_PROXY` would hand the agent the client's credentials;
-  - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`;
-  - file-valued variables (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`,
-    `AWS_SHARED_CREDENTIALS_FILE`, `GOOGLE_APPLICATION_CREDENTIALS`, ...),
-    whose file is copied in and re-pointed.
+    - the provider-credential allowlist;
+    - the proxy (also as `ALL_PROXY` and `FTP_PROXY`), and
+      `NO_PROXY=localhost,127.0.0.1,::1`. They replace what the Docker client
+      injects from `proxies.default`: a `NO_PROXY` would send an LLM host around
+      the proxy, an `ALL_PROXY` would hand the agent the client's credentials;
+    - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`;
+    - file-valued variables (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`,
+      `AWS_SHARED_CREDENTIALS_FILE`, `GOOGLE_APPLICATION_CREDENTIALS`, ...),
+      whose file is copied in and re-pointed.
 
-  It reaches `docker exec` in a 0600 `--env-file`, never on argv. The `docker`
-  CLI keeps the operator's environment, so its context and `DOCKER_HOST` stay
-  the operator's.
+    It reaches `docker exec` in a 0600 `--env-file`, never on argv. The `docker`
+    CLI keeps the operator's environment, so its context and `DOCKER_HOST` stay
+    the operator's.
+
 - **Fails before the agent starts.** A setup that cannot work in a container
   errors the cell after its image build: a loopback base URL or upstream
   proxy, Bedrock with only an `AWS_PROFILE` or SSO login, Vertex without
@@ -269,11 +270,11 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
   killed harness can also leave its `dokimi-env-*` dir, whose env file holds the
   agent's credentials. Clean up with:
 
-  ```bash
-  docker ps -aq --filter label=dokimi.run | xargs -r docker rm -f
-  docker network ls -q --filter label=dokimi.run | xargs -r docker network rm
-  rm -rf "${TMPDIR:-/tmp}"/dokimi-env-*
-  ```
+    ```bash
+    docker ps -aq --filter label=dokimi.run | xargs -r docker rm -f
+    docker network ls -q --filter label=dokimi.run | xargs -r docker network rm
+    rm -rf "${TMPDIR:-/tmp}"/dokimi-env-*
+    ```
 
 The launch goes only through the Docker API, never through a bind mount or a
 listener in the harness process. It therefore works the same with a local
@@ -673,10 +674,10 @@ The arms differ by the skill and one notice, and by nothing else:
   skill directory and outside its `evals/`: a link out of the skill could
   ship a task's `solution/` and `tests/`, and a link to an ancestor would copy
   the checkout into itself. Such a skill fails the cell before the image build.
-  - `$CLAUDE_CONFIG_DIR/skills` does not work here: it is not loaded under
-    `--setting-sources ""` (measured, Claude Code 2.1.286).
-  - `--setting-sources project` would also read the task tree's own
-    `.claude/settings.json` and `CLAUDE.md`.
+    - `$CLAUDE_CONFIG_DIR/skills` does not work here: it is not loaded under
+      `--setting-sources ""` (measured, Claude Code 2.1.286).
+    - `--setting-sources project` would also read the task tree's own
+      `.claude/settings.json` and `CLAUDE.md`.
 - **Tool set.** Both arms have the `Skill` tool. With it on, Claude Code also
   offers 13 bundled skills, two built-in plugins' skills, and any managed
   (policy) skill under `/etc/claude-code`. Both arms switch those off. In the
@@ -697,29 +698,29 @@ The arms differ by the skill and one notice, and by nothing else:
   which is a second variable in the reward delta. Measure discoverability
   separately. Changing the notice changes what past deltas mean.
 - **Evidence it reached the agent.** Read from the stream, per cell:
-  - `metrics.offered_plugins` and `metrics.offered_skills` are what the
-    session's `init` event lists, with `metrics.plugin_errors` when it reports
-    any. If the treatment's plugin is not in `offered_plugins`, it did not
-    load, and the cell gets `metrics.solver_error: "treatment not offered:
-    ..."`. (`offered_skills` lists what a user can invoke, so a
-    `user-invocable: false` skill is missing from it even when it loaded.)
-  - `metrics.n_skill_invocations`, on skill-arm rows only, counts `Skill`
-    calls for the treatment that the CLI did not reject: by `<plugin>:<plugin>`
-    or the frontmatter name (a leading `/` is stripped), or by the command the
-    CLI resolved the call to. At 0 the agent never loaded the skill through
-    the `Skill` tool; it may still have `Read` the `SKILL.md` under the plugin
-    directory, which this does not count. BenchFlow rows use the same key but
-    treat every pack in the deployed skills root as the treatment, a
-    distractor placed there included, so the two rates match only for a root
-    that holds the treatment alone.
-  - `metrics.treatment` records the skill's name and the plugin id it was
-    installed under. The plugin id is a slug of the name (`[a-z0-9_-]`),
-    because Claude Code refuses a plugin name with whitespace or any of
-    `@ : / \`.
-  - A solve that timed out keeps the stream it produced before it was killed,
-    so these fields are filled in for it too. It is marked
-    `metrics.solver_timeout`, and counts as a miss unless the plugin also did
-    not load (`solver_error`).
+    - `metrics.offered_plugins` and `metrics.offered_skills` are what the
+      session's `init` event lists, with `metrics.plugin_errors` when it reports
+      any. If the treatment's plugin is not in `offered_plugins`, it did not
+      load, and the cell gets `metrics.solver_error: "treatment not offered:
+      ..."`. (`offered_skills` lists what a user can invoke, so a
+      `user-invocable: false` skill is missing from it even when it loaded.)
+    - `metrics.n_skill_invocations`, on skill-arm rows only, counts `Skill`
+      calls for the treatment that the CLI did not reject: by `<plugin>:<plugin>`
+      or the frontmatter name (a leading `/` is stripped), or by the command the
+      CLI resolved the call to. At 0 the agent never loaded the skill through
+      the `Skill` tool; it may still have `Read` the `SKILL.md` under the plugin
+      directory, which this does not count. BenchFlow rows use the same key but
+      treat every pack in the deployed skills root as the treatment, a
+      distractor placed there included, so the two rates match only for a root
+      that holds the treatment alone.
+    - `metrics.treatment` records the skill's name and the plugin id it was
+      installed under. The plugin id is a slug of the name (`[a-z0-9_-]`),
+      because Claude Code refuses a plugin name with whitespace or any of
+      `@ : / \`.
+    - A solve that timed out keeps the stream it produced before it was killed,
+      so these fields are filled in for it too. It is marked
+      `metrics.solver_timeout`, and counts as a miss unless the plugin also did
+      not load (`solver_error`).
 - **Comparability.** The baseline changed with this delivery: it now has the
   `Skill` tool, with the bundled, built-in-plugin and policy skills off.
   `docker-claude` numbers from before it are not a baseline for runs after it.

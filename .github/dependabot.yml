@@ -5,9 +5,10 @@
 # the SHA and rewrites the trailing "# vX.Y.Z" comment, which is why the pins
 # carry the exact release rather than the major tag.
 #
-# Python dependencies are not listed: requirements.lock.txt is a uv
-# --universal compile, which Dependabot's pip updater would rewrite without
-# the per-interpreter markers. pip-audit in ci.yml watches it instead.
+# Python dependencies are not listed: requirements.lock.txt and
+# requirements-docs.lock.txt are uv --universal compiles, which Dependabot's pip
+# updater would rewrite without the per-interpreter markers. pip-audit in
+# ci.yml watches them instead.
 version: 2
 updates:
   - package-ecosystem: github-actions

@@ -73,15 +73,16 @@ a measurement confirms it.
 - **Not a replacement.** The buggy base passes a speed check, so this sits
   alongside the correctness tests.
 - **Limits:**
-  - Absolute times do not transfer across hardware.
-  - Shared CI runners can only grade large effects (2× or more).
-  - Each task needs a hand-written benchmark whose inputs expose the cost.
-  - Memory blow-ups need a separate measurement.
-  - A one-line change to a widely included header rebuilds the library once
-    per variant, which is expensive on large C++ repositories.
+    - Absolute times do not transfer across hardware.
+    - Shared CI runners can only grade large effects (2× or more).
+    - Each task needs a hand-written benchmark whose inputs expose the cost.
+    - Memory blow-ups need a separate measurement.
+    - A one-line change to a widely included header rebuilds the library once
+      per variant, which is expensive on large C++ repositories.
 
 **Existing benchmark tools.** The framework does not reimplement benchmark
 tools; it owns the protocol around them:
+
 - baseline = oracle;
 - interleaved order and the control run;
 - the noise band and the verdict.
@@ -90,6 +91,7 @@ The repository wraps whatever tool fits behind one entry point,
 `perf: "<command> --variant {variant} --out {out}"`. The command writes
 `repo_perf.v1` (metric name, per-repetition values, unit). Candidates for
 that command:
+
 - a Google Benchmark or plain Bazel target;
 - `asv` or `pyperf` for Python repositories;
 - for scikit-learn-intelex, a scikit-learn_bench (`sklbench`) config
@@ -130,6 +132,7 @@ on. A repository keeps its own rules in `<eval_dir>/review_rules.json`:
 the repository: confirmed rules in `review_rules.json` and, once confirmed,
 in AGENTS.md or CONTRIBUTING.md for every agent and person. Dokimi
 holds only the method:
+
 - the miner;
 - the schema;
 - the checks below.
@@ -138,6 +141,7 @@ Findings from a given repository go to that repository's PRs and to issues
 here, not to documents in this tree.
 
 **Process, as part of preparing a repository for evaluation:**
+
 1. **Mine** review comments with a time cut, excluding task-source and replayed
    PRs.
 2. **Triage.** A maintainer marks each rule `confirmed`, `rejected` or
@@ -151,6 +155,7 @@ here, not to documents in this tree.
    `mergeable`, and the blocker histogram.
 
 **Evaluating the rules themselves:**
+
 - **Predictive coverage.** Use the share of maintainer comments made after
   `cut_date` that some rule matches.
 - **Precision.** Measure the maintainer-confirmed share of a sampled set of

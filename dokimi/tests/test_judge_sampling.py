@@ -258,3 +258,36 @@ def test_unpinned_judge_redraws_the_same_prompt(monkeypatch):
     assert j.score_answer(library_name="L", question="q", answer="a")["aggregate"] == 80
     assert len(sent) == 2 and sent[0] == sent[1] and "temperature" not in sent[0][1]
     assert j._build_evaluation_output([])["judge_metrics"]["redrawn_judgements"] == 1
+
+
+def test_pinned_panel_role_recovers_a_malformed_reply_with_a_different_redraw(monkeypatch):
+    """At pinned sampling a panel retry of the same prompt gets the same malformed
+    reply live; like the single judge, its re-draw appends a format reminder."""
+    import litellm
+    from dokimi.eval.panel import JudgeConfig, JudgePanel
+
+    sent = []
+    monkeypatch.setattr(litellm, "completion", _deterministic_model(sent))
+    cfg = JudgeConfig(role="technical_expert", model="gpt-x", provider="openai",
+                      temperature=0.0, seed=7)
+    vote = JudgePanel(judges=[cfg])._call_judge(cfg, "q", "a", "L", "")
+    assert (vote.error, vote.aggregate, len(sent)) == (None, 80.0, 2)
+    assert [(kw["temperature"], kw["seed"]) for _, kw in sent] == [(0.0, 7), (0.0, 7)]
+    assert sent[1][0].startswith(sent[0][0]) and sent[1][0] != sent[0][0]
+
+
+def test_unpinned_panel_role_redraws_the_same_prompt(monkeypatch):
+    import litellm
+    from dokimi.eval.panel import JudgeConfig, JudgePanel
+
+    sent = []
+
+    def completion(model, messages, **kw):
+        sent.append(messages)
+        return _litellm_resp("not json" if len(sent) == 1 else _GOOD)
+
+    monkeypatch.setattr(litellm, "completion", completion)
+    cfg = JudgeConfig(role="technical_expert", model="gpt-x", provider="openai")
+    vote = JudgePanel(judges=[cfg])._call_judge(cfg, "q", "a", "L", "")
+    assert (vote.error, vote.aggregate, len(sent)) == (None, 80.0, 2)
+    assert sent[0] == sent[1]

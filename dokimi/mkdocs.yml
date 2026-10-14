@@ -1,0 +1,129 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Documentation site, published to GitHub Pages by .github/workflows/docs.yml.
+# Local preview, from this directory (`make dev` already installs both locks):
+#   pip install -r requirements.lock.txt -r requirements-docs.lock.txt
+#   mkdocs serve            # or: mkdocs build --strict (what CI runs)
+site_name: Dokimi
+site_description: Measure whether a skill, MCP doc source, documentation set or agent profile actually improves AI-agent answers and task outcomes
+site_url: https://intel.github.io/dokimi/
+repo_url: https://github.com/intel/dokimi
+repo_name: intel/dokimi
+edit_uri: edit/main/dokimi/docs/
+copyright: Copyright &copy; 2026 Intel Corporation
+
+docs_dir: docs
+site_dir: site
+# The reference pages are generated from these: `mkdocs serve` rebuilds on their edits too.
+watch:
+  - dokimi
+  - scripts/docs
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - navigation.prune
+    - search.suggest
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      # GitHub's heading anchors, so `page.md#anchor` links work on both.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+# Relative links from docs/ into the source tree (../dokimi/..., ../../README.md)
+# work when the Markdown is read on GitHub; the hook points them at GitHub for the
+# site, and warns on a page whose lists nest differently here than on GitHub.
+hooks:
+  - scripts/docs/hooks.py
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - scripts/docs/gen_reference.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: google
+            # Types come from annotations where there are any; a docstring
+            # without them is not an error. Unknown parameter names still warn.
+            docstring_options:
+              warn_missing_types: false
+            show_source: false
+            show_root_heading: true
+            show_submodules: false
+            members_order: source
+            filters: ["!^_"]
+            merge_init_into_class: true
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: README.md
+  - Using Dokimi:
+      - external-content.md
+      - quickstart.md
+      - user-flow.md
+      - benchmarking-and-comparison.md
+      - adding-doc-source.md
+      - evaluating-treatments.md
+      - coding-harnesses.md
+  - Content novelty:
+      - skill-novelty.md
+      - skill-novelty-walkthrough.md
+      - skill-novelty-evidence.md
+  - Repository evaluation:
+      - repo-evaluation-contract.md
+      - repo-evaluation-mergeability.md
+      - repo-evaluation-agent-modes.md
+  - Extending Dokimi:
+      - architecture.md
+      - contributing-metric.md
+      - contributing-terminal-bench-task.md
+  - Methodology:
+      - methodology.md
+      - difficulty-rubric.md
+      - example-execution.md
+      - ingestion-docling.md
+  - CLI reference: reference/cli/
+  - API reference: reference/api/

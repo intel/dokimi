@@ -457,38 +457,38 @@ Protocol:
 1. Build a skeleton workspace in a temporary directory: the guidance files at
    their repository paths, one probe file per guidance directory, and a
    one-commit git repository.
-   - Guidance files are those matching `guidance.globs`, plus every file named
-     like the profile's `guidance.names`, outside `eval_dir`.
-   - Loading depends on paths and names, not on the rest of the tree. A
-     skeleton also keeps a blob-less clone from fetching every blob.
-   - The probe refuses to run if any ancestor of the workspace holds a
-     guidance file.
-   - It also refuses a tree path with a `\`, a `:`, or a `.`, `..` or `.git`
-     component, which would be written outside the workspace or into its git
-     directory.
-   - A symlink is one file, as in a checkout. With `CLAUDE.md -> AGENTS.md`,
-     `AGENTS.md` is seeded once and `CLAUDE.md` is recreated as a link to it,
-     so a harness that loads `CLAUDE.md` loads `AGENTS.md`'s tokens. Where the
-     OS refuses a symlink (Windows without Developer Mode), the link is written
-     as a copy of the seeded file, and `alias_kind: copy` says so: a harness
-     that skips symlinks would then still show the file loaded.
-   - A link that escapes the tree, dangles, loops or names a directory is not
-     seeded. It is listed in `unresolved` with the reason.
+    - Guidance files are those matching `guidance.globs`, plus every file named
+      like the profile's `guidance.names`, outside `eval_dir`.
+    - Loading depends on paths and names, not on the rest of the tree. A
+      skeleton also keeps a blob-less clone from fetching every blob.
+    - The probe refuses to run if any ancestor of the workspace holds a
+      guidance file.
+    - It also refuses a tree path with a `\`, a `:`, or a `.`, `..` or `.git`
+      component, which would be written outside the workspace or into its git
+      directory.
+    - A symlink is one file, as in a checkout. With `CLAUDE.md -> AGENTS.md`,
+      `AGENTS.md` is seeded once and `CLAUDE.md` is recreated as a link to it,
+      so a harness that loads `CLAUDE.md` loads `AGENTS.md`'s tokens. Where the
+      OS refuses a symlink (Windows without Developer Mode), the link is written
+      as a copy of the seeded file, and `alias_kind: copy` says so: a harness
+      that skips symlinks would then still show the file loaded.
+    - A link that escapes the tree, dangles, loops or names a directory is not
+      seeded. It is listed in `unresolved` with the reason.
 2. Seed the workspace. Each guidance file gets a head token, placed after any
    YAML front matter, and a tail token. A token is `RC` plus the first 6 hex
    digits of sha256(salt, path, position).
 3. Run each scenario once per (harness, version, model), with a cheap model.
    Each run gets a fresh config directory. The harness runs on the host, not
    in the agent container (§2), so the profile's `egress` list is not enforced.
-   - `cwd=.`: started at the repository root, tools off.
-   - `cwd=<dir>`: started in each guidance directory, tools off.
-   - `read=<dir>`: started at the root, read tool on. The agent is told to
-     read `<dir>/REACH_PROBE.txt`, then list tokens.
-   - A scenario that runs past `--timeout` is an `error`. Its harness is
-     killed with its process group (POSIX) or job object (Windows). A process
-     that leaves the group, such as one that calls `setsid()` or daemonizes,
-     is not contained. It can outlive the run with the harness's environment,
-     credentials included.
+    - `cwd=.`: started at the repository root, tools off.
+    - `cwd=<dir>`: started in each guidance directory, tools off.
+    - `read=<dir>`: started at the root, read tool on. The agent is told to
+      read `<dir>/REACH_PROBE.txt`, then list tokens.
+    - A scenario that runs past `--timeout` is an `error`. Its harness is
+      killed with its process group (POSIX) or job object (Windows). A process
+      that leaves the group, such as one that calls `setsid()` or daemonizes,
+      is not contained. It can outlive the run with the harness's environment,
+      credentials included.
 4. Ask for every token in the instructions or context, including context
    attached to a tool result. Parse the reported tokens from the answer, and
    the reads from `events.jsonl`.
@@ -498,25 +498,25 @@ per scenario).
 
 - One record is written per (file, scenario):
 
-  ```json
-  {"file": "sub/AGENTS.md", "scenario": "cwd=.", "harness": "claude-code",
-   "harness_version": "2.1.286", "model": "claude-haiku-4-5",
-   "head": false, "tail": false, "read_by_tool": false, "class": "not_loaded"}
-  ```
+    ```json
+    {"file": "sub/AGENTS.md", "scenario": "cwd=.", "harness": "claude-code",
+     "harness_version": "2.1.286", "model": "claude-haiku-4-5",
+     "head": false, "tail": false, "read_by_tool": false, "class": "not_loaded"}
+    ```
 
 - `file` is the link target. Links to it are listed once, as `aliases` of
   its entry in `files`; they share its tokens and its records.
 - `class` is one of:
-  - `loaded`: both tokens reported;
-  - `truncated`: one token reported;
-  - `fetched`: reported only after the agent read the file with a tool;
-  - `not_loaded`;
-  - `error`: the scenario produced no usable answer: no answer, a non-zero
-    exit, or an error result.
+    - `loaded`: both tokens reported;
+    - `truncated`: one token reported;
+    - `fetched`: reported only after the agent read the file with a tool;
+    - `not_loaded`;
+    - `error`: the scenario produced no usable answer: no answer, a non-zero
+      exit, or an error result.
 - Each scenario also records:
-  - `unknown`: tokens the model reported that were never seeded;
-  - `prose`: words besides tokens. A high count usually means an explanation
-    or a refusal, so read that trace before trusting its `not_loaded` cells.
+    - `unknown`: tokens the model reported that were never seeded;
+    - `prose`: words besides tokens. A high count usually means an explanation
+      or a refusal, so read that trace before trusting its `not_loaded` cells.
 - If payload capture is available, a `payload` field records whether each
   token was in the request bytes. This settles cells where the model
   under-reports, which is how a small model produces false `truncated` cells.

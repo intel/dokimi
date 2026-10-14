@@ -108,6 +108,29 @@ def test_unevaluable_condition_runs_step_with_notice(env: dict[str, Any], capsys
     assert "NOTICE: cannot evaluate" in capsys.readouterr().out
 
 
+def test_tool_specs_keep_each_requirement_file_flagged(env: dict[str, Any]) -> None:
+    """Every requirements file keeps its own -r; a repeated file is listed once."""
+    wf = ("on: pull_request\njobs:\n  a:\n    steps:\n      - run: pip install -r one.txt\n"
+          "      - run: pip install -r two.txt ruff\n      - run: pip install -r one.txt ruff\n")
+    (cl.WORKFLOWS / "x.yml").write_text(wf)
+    root = env["root"]
+    assert cl.tool_specs() == ["-r", str(root / "one.txt"), "-r", str(root / "two.txt"), "ruff"]
+
+
+def test_tool_specs_keep_constraint_and_editable_pairs(env: dict[str, Any]) -> None:
+    """-c and -e keep their own flag in every spelling; URLs after -e stay as written."""
+    wf = ("on: pull_request\njobs:\n  a:\n    steps:\n"
+          "      - run: pip install -c a.txt --constraint=b.txt -cb.txt -e . --editable ../x\n"
+          "      - run: pip install --requirement=r.txt -rr.txt -e git+https://h/p.git ruff\n")
+    (cl.WORKFLOWS / "x.yml").write_text(wf)
+    root = env["root"]
+    assert cl.tool_specs() == [
+        "-c", str(root / "a.txt"), "-c", str(root / "b.txt"),
+        "-e", str(root / "."), "-e", str(root / "../x"),
+        "-r", str(root / "r.txt"), "-e", "git+https://h/p.git", "ruff",
+    ]
+
+
 def test_pip_install_line_dropped_rest_of_step_runs(env: dict[str, Any]) -> None:
     """A step that starts with pip install and continues still runs its other lines."""
     wf = "on: pull_request\njobs:\n  a:\n    steps:\n      - run: |\n          pip install x\n          echo after\n      - run: pip install y\n"

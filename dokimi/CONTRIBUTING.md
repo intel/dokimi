@@ -51,11 +51,23 @@ CI additionally holds a PR to:
   `CI_LOCAL_ARGS='--remote <name>'`.
 - **mypy on the whole package.** Modules listed under `[[tool.mypy.overrides]]` in
   `pyproject.toml` are exempt until fixed; do not add to that list.
+- **Docs build** — `mkdocs build --strict`, from `dokimi/`. `make dev` already
+  installs its packages and `make ci-local` runs it; by hand, install them with
+  `pip install -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
+  a link or `#anchor` between pages that does not resolve, on a link into the
+  source tree whose file does not exist (an anchor into such a file is not
+  checked), and on a list that nests differently on the site than on GitHub
+  (Python-Markdown wants nested items indented 4 spaces and a blank line before
+  a list). A new page goes in two places: the `docs/README.md` index
+  (`tests/test_docs_links.py` checks it) and `nav:` in `mkdocs.yml` (the
+  build fails on a page missing from it). `mkdocs serve` previews the site.
 - **Workflow lint** — `zizmor --offline --min-severity medium .github/workflows` when you
   edit a workflow.
 
-Dependencies install from `requirements.lock.txt`. When you change a range in
-`requirements*.txt`, regenerate the lock (command in its header).
+Dependencies install from `requirements.lock.txt`, and the docs build's from
+`requirements-docs.lock.txt` on top of it. When you change a range in
+`requirements*.txt`, regenerate the lock (command in its header); the docs lock is
+constrained to the main one, so regenerate it after the main lock changes too.
 
 Guidelines:
 

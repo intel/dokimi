@@ -27,6 +27,7 @@ coverage.json
 /dokimi/jobs.json
 /dokimi/cr.md
 /dokimi/agent-quality-report/
+/dokimi/site/
 /dokimi/context7_comparison_results.json
 *.log
 *.tar.gz

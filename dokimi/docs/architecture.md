@@ -284,11 +284,12 @@ still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
 
 ## CI
 
-Three GitHub Actions workflows run on PRs (see `.github/workflows/`). The third,
-`contracts.yml`, runs only when a PR touches `dokimi/schemas/`:
+These GitHub Actions workflows run on PRs (see `.github/workflows/`):
+`ci.yml`, `agent-quality.yml` and `docs.yml`, described below, and
+`contracts.yml`, which runs only when a PR touches `dokimi/schemas/`:
 `python -m dokimi.schema_compat` fails an in-place edit that narrows
 an existing schema version, unless a reviewer applies the `schema-break-ok`
-label. The other two:
+label.
 
 **`ci.yml`** — fast code checks:
 
@@ -317,3 +318,11 @@ label. The other two:
 7. **benchmark** — runs the static agent-quality benchmark with `--strict`, so
    a gate or band failure fails the job, and uploads `current.json` /
    `current.md` artifacts.
+
+**`docs.yml`** — the documentation site:
+
+8. **build** — `mkdocs build --strict` of `mkdocs.yml`: `docs/` plus the CLI
+   and API reference generated from the code. A link or anchor between pages
+   that does not resolve, a link to a source file that does not exist, or a
+   list that nests differently on the site than on GitHub fails it. On a push
+   to `main`, **deploy** publishes the build to GitHub Pages.

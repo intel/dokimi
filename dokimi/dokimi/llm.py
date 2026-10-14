@@ -337,6 +337,8 @@ def llm_call(
     cache_prefix: Optional[str] = None,
     temperature: Optional[float] = None,
     seed: Optional[int] = None,
+    draw: int = 0,
+    cache_if: Optional[Callable[[str], bool]] = None,
 ) -> str:
     """Call any LLM via litellm with automatic retry on transient errors.
 
@@ -354,6 +356,8 @@ def llm_call(
         temperature: Optional sampling temperature. Omitted when None, so the
             provider default applies and request shape is unchanged.
         seed: Optional sampling seed, for providers that honour one.
+        draw: Independent-sample index; see :func:`llm_call_with_usage`.
+        cache_if: Response-cache acceptance test; see :func:`llm_call_with_usage`.
 
     Returns:
         Model response as a plain string.
@@ -362,7 +366,7 @@ def llm_call(
         prompt=prompt, model=model, provider=provider,
         api_key=api_key, max_retries=max_retries, retry_delay=retry_delay,
         system=system, cache_prefix=cache_prefix,
-        temperature=temperature, seed=seed,
+        temperature=temperature, seed=seed, draw=draw, cache_if=cache_if,
     )
     return text
 

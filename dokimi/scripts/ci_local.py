@@ -62,6 +62,10 @@ NEEDS_DOCKER = {"external-catalog-smoke"}
 # Jobs that `pip install .`: run on a copy of the tree in a throwaway venv.
 ISOLATED = {"package-smoke"}
 PIP_INSTALL = re.compile(r"^\s*(python -m )?pip install\b")
+# pip options that take a value, by spelling, mapped to the short form `tools` emits.
+PAIRED = {"-r": "-r", "--requirement": "-r", "-c": "-c", "--constraint": "-c",
+          "-e": "-e", "--editable": "-e"}
+URL = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")  # `-e git+https://...` is not a path
 UPSTREAM_URL = re.compile(r"github\.com[:/]intel/dokimi(\.git)?/?$", re.IGNORECASE)
 ORIGIN_BASE = re.compile(r"\borigin/(?=\$\{?BASE_REF\b)")  # `origin/$BASE_REF` in a step
 
@@ -119,12 +123,24 @@ def tool_specs() -> list[str]:
                 for line in str(step.get("run", "")).splitlines():
                     if not PIP_INSTALL.match(line):
                         continue
-                    args = shlex.split(PIP_INSTALL.sub("", line))
-                    for i, a in enumerate(args):
-                        if i and args[i - 1] in ("-r", "--requirement"):
-                            a = str(REPO / wd / a)
-                        if a not in specs:
-                            specs.append(a)
+                    args = iter(shlex.split(PIP_INSTALL.sub("", line)))
+                    for a in args:
+                        # `-r f`, `-rf`, `--requirement f`, `--requirement=f`
+                        flag, eq, value = a.partition("=")
+                        if a[:2] in PAIRED and len(a) > 2 and a[1] != "-":
+                            flag, eq, value = a[:2], "=", a[2:]
+                        if flag not in PAIRED:
+                            if a not in specs:
+                                specs.append(a)
+                            continue
+                        value = value if eq else next(args, "")
+                        if not (PAIRED[flag] == "-e" and URL.match(value)):
+                            value = str(REPO / wd / value)  # a path, from the step's cwd
+                        # Deduplicate the pair: a repeated flag on its own would leave
+                        # its value to be read as a package.
+                        pair = [PAIRED[flag], value]
+                        if not any(specs[j:j + 2] == pair for j in range(len(specs))):
+                            specs.extend(pair)
     return specs
 
 
