@@ -59,13 +59,21 @@ The judge grades each answer on six verdicts (`VERDICTS` in `novelty/measure.py`
 | strict | `correct_complete` |
 | lenient | `correct_complete`, `correct_missing_qualifier`, `partially_correct` |
 
-The gap between them is information, not noise. Lenient `added` is knowledge the model did not
-have at all. Strict `added` adds the cases where the model had the gist and the artifact supplied
-the exact qualifier, value or ordering. **Prefer strict for any decision.** Strict `added` tracked
-the measured task delta (ρ 0.620 pooled, 0.625 ranking models within an artifact); lenient did not
-(0.126 and 0.000; [evidence §10.8](skill-novelty-evidence.md)). The two graders' bias also runs in
-opposite directions under the two scorings (+7.7pp strict, −11.6pp lenient), so **quote no
-`added` difference below 0.15** ([§10.21](skill-novelty-evidence.md)).
+The gap between them is information, not noise, but the two `added` sets are not nested. An
+answer that goes from wrong to `partially_correct` is lenient `added` and strict `still_missing`;
+one that goes from `partially_correct` to `correct_complete` is strict `added` and lenient
+`redundant`, the case where the model had the gist and the artifact supplied the exact qualifier,
+value or ordering. Strict `added` is usually the larger (0.363 against 0.209 lenient on
+`claude-opus-5`) but not always (0.266 against 0.293 on `nemotron-nano-12b`;
+[evidence §3](skill-novelty-evidence.md)). **Prefer strict for any decision.** Strict `added`
+ranks *models* inside one artifact in the order of their measured task delta: ρ 0.625 over 4
+artifacts × 5 models, and +0.875 with all four artifacts positive on the re-run; lenient gave
+0.000 within an artifact ([§10.8](skill-novelty-evidence.md),
+[§10.15](skill-novelty-evidence.md)). It does not rank *artifacts*: pooled over the 24 cells of
+§10.15 ρ is −0.052, and 13 artifacts ranked inside one model give −0.446. §10.8's pooled 0.620 was
+on 12 cells and is superseded by that re-run. The two graders' bias also runs in opposite
+directions under the two scorings (+7.7pp strict, −11.6pp lenient), so **quote no `added`
+difference below 0.15** ([§10.21](skill-novelty-evidence.md)).
 
 ### Content categories (one axis measured, one judged)
 
@@ -87,13 +95,19 @@ be right or wrong) and `harmful_conflicting` (below), which overrides the other 
   the artifact's `name` and `description` plus the need graph's `core` and `rare_critical` nodes,
   never from the body, so an artifact cannot make itself relevant by containing a sentence.
   Eval files are not part of it either.
-- **Reliability.** An independent reviewer agreed with 71.6% of assignments (853 atoms); read
-  useful-vs-inert as ±3 points and known-vs-novel as ±2. `scaffolding` is the most stable share
-  ([§4](skill-novelty-evidence.md)).
-- **Inert is not "safe to delete".** Dropping all inert atoms at once was non-inferior on pooled
-  data and *worse* on the smallest model for one skill ([§10.6](skill-novelty-evidence.md)).
-- An atom the value judge did not answer for gets no category. The artifact says how many, rather
-  than counting them as inert.
+- **Reliability.** In the study both axes were judged, and an independent reviewer agreed with
+  71.6% of assignments (853 atoms), with useful-vs-inert at ±3 points and known-vs-novel at ±2;
+  `scaffolding` was the most stable share ([§4](skill-novelty-evidence.md)). Here only the ±3
+  carries over. Known vs new is read off the paired probes instead, so its error is the probe
+  grading's: two judges agreed on 85% of verdicts on the correct-ish binary collapse (above).
+- **Inert is not "safe to delete".** The `drop-inert 0.60` candidate, which cuts inert text under
+  a 0.60 token budget (the suffix is a budget, as for every §10.6 candidate, not "all inert atoms
+  at once"), was non-inferior on pooled data (+0.005, CI [−0.045, +0.057]) and *worse* on
+  `nemotron-nano-12b` for `dpnp-quickstart` ([§10.6](skill-novelty-evidence.md)).
+- An atom the value judge did not answer for gets no category. The artifact says how many
+  (`N of M atoms got no need/scaffolding verdict`, split into calls that failed and rows the reply
+  skipped), rather than counting them as inert, and its span is labelled from what was measured
+  (`still_missing`, or `unscored` when nothing was) rather than `redundant` or `inert`.
 
 ### `harmful_conflicting` (judged)
 
@@ -103,11 +117,20 @@ marked. Read it as a review queue:
 
 - **Internal only.** It says the two statements disagree, not which is wrong. That needs a
   primary source, which this layer does not consult.
-- **Lower bound.** Only atoms in the same call are compared. Above 40 atoms, most pairs are never
-  compared, and the artifact states the share (`X of Y atom pairs shared a call`).
-- **Common false positives:** steps of one procedure read as alternatives ("watch it fail" …
-  "watch it pass"), and a rule next to its stated exception. Check each pair against the text
-  before editing.
+- **Lower bound.** Only atoms in the same call are compared, in fixed chunks of 40. Above 40
+  atoms some pairs are never compared, and the share falls as the set grows: 41 atoms compare
+  780 of 820 pairs (95%), 77 atoms 1,446 of 2,926 (49%), 120 atoms 2,340 of 7,140 (33%). Fewer than
+  half are compared from 72 atoms (1,276 of 2,556). The artifact states the share (`X of Y atom
+  pairs shared a call`).
+- **Unchecked atoms.** A call whose reply does not parse is split and re-asked, but never below two
+  atoms, since one statement has no pair to look at. Atoms in a call that failed, and an atom left
+  alone in a chunk (the 41st, say), are named in `N of M atoms were not checked for conflicts`.
+- **False positives (anecdotal, not a rate).** Spot-checking 7 of the 31 pairs one run reported
+  ([mattpocock/skills](https://github.com/mattpocock/skills) @ `49dd158`) found 4 real, 1
+  ambiguous and 2 false positives: steps of one procedure read as alternatives ("watch it fail"
+  … "watch it pass", `diagnosing-bugs`), and two compatible options read as exclusive (`grilling`).
+  A rule next to an exception the text did not mark as one was a real finding. Check each pair
+  against the text before editing.
 
 It is reported first because it is the only category that can make an artifact worse than no
 artifact. `degraded` (right without the artifact, wrong with it) is the measured counterpart.
@@ -124,14 +147,19 @@ neither `local` nor `public`. Relabelled by two other models ([§10.9](skill-nov
 |---|---|
 | `routing`, `negative_constraint`, `version_bound` | 0.61–0.73 |
 | `procedural`, `evidence` | 0.60–0.65 |
-| `local`, `public` | 0.52–0.62, the least reproducible tags |
-| `rare_critical` | 0.39–0.45 |
+| `local`, `public` | 0.52–0.62 |
+| `temporal` | 0.40 and 0.64; one labeller assigned it at 2.7× the reference rate. Not gate-grade |
+| `rare_critical` | 0.39–0.45, the lowest tag. Not gate-grade |
 | `kind` (5-way) | 0.32–0.38 |
 
-So gate on the protection tags or on nothing, and quote `local`/`public` splits as labels. A high
-`added` on `local` atoms means the artifact transmits its own conventions (names, layouts, the
-next step to take), which no model could know. It does not mean those conventions beat the
-model's default; only the task arm can say that.
+So gate on `routing`, `negative_constraint` and `version_bound` (the top three by κ, the
+"protection tags" of [§10.9](skill-novelty-evidence.md)) or on nothing, and quote the other tag
+splits as labels. These are not the span protection flags the shortener pins (negation, version
+gate, ordering, threshold), which are lexical and involve no model. A high `added` on `local`
+atoms means the artifact transmits its own conventions (names, layouts, the next step to take),
+which models mostly lack: strict `local` K0 is 0.000–0.259 across five models, against
+0.227–0.545 for `public` ([§10.1](skill-novelty-evidence.md)). It does not mean those
+conventions beat the model's default; only the task arm can say that.
 
 ## Novelty is a property of the pair, not of the file
 
@@ -237,17 +265,21 @@ Read it in this order:
 Each span of the artifact is annotated with the atoms it carries, their outcome, and its token cost,
 then rendered as the artifact's own text with colour:
 
-| colour | meaning |
+| colour (label) | meaning |
 |---|---|
-| green | carries `added` knowledge — the artifact's value |
-| grey | carries only `redundant` knowledge — candidate for deletion |
-| red | carries a `harmful_conflicting` or `degraded` atom |
-| amber | **protected**: expresses a negation, version gate, ordering constraint, or threshold |
-| white/dim | carries no extracted atom at all |
+| green (`added`) | carries `added` knowledge — the artifact's value |
+| grey (`redundant`, `inert`) | carries only `redundant` knowledge, or atoms judged inert or scaffolding — candidate for deletion |
+| red (`harmful`, `degraded`) | carries a `harmful_conflicting` or `degraded` atom |
+| amber (`protected`) | **protected**: expresses a negation, version gate, ordering constraint, or threshold |
+| blue (`still_missing`) | states something the model got wrong with and without it — rephrase or promote it |
+| plain (`unscored`) | carries atoms with no measured outcome and no judged category (unprobed and unjudged), so no colour is claimed |
+| hatched (`unread`) | no extraction call could read it, so what it carries is unknown — not dead weight |
+| dim (`empty`) | carries no extracted atom at all |
 
 Two derived views an author acts on directly:
 
 - **Dead weight**: the dim spans, sorted by token cost. The largest single win in most artifacts.
+  Unread spans are not listed.
 - **Sole carriers**: spans that are the only source of some atom. These are what a careless edit
   silently deletes; the shortener pins them.
 
@@ -737,14 +769,34 @@ ambiguous band, with a disk cache keyed on (atom, text). Full sweeps stay opt-in
 (`--all-atoms`).
 
 **Pass `--max-tokens` when the provider has a low default output ceiling.** litellm sends
-4096 to Bedrock-hosted Claude when none is given, and one 25-span extraction batch needs
-~3,900 tokens on a dense skill, so replies get cut mid-array. Extraction recovers by
-splitting an unparseable batch in half and re-asking, down to one span per call, so a
-truncation costs extra calls rather than atoms; `--max-tokens 16000` avoids those calls.
-Spans that still cannot be read are named in a warning (`atom extraction failed on N of M
-spans`) instead of reading as text that carries nothing. Before this check, a run over 38
-skills lost at least one batch in 17 of them, silently, with ~33k of 62.8k tokens never
-extracted.
+4096 to Bedrock-hosted Claude when none is given, and on a dense skill a 25-span extraction
+batch can need more than that: in the run below, replies came back with `finish_reason=length`
+at exactly 4096 tokens, cut mid-array. Extraction recovers by splitting an unparseable batch in
+half and re-asking, down to one span per call, so a truncation costs extra calls rather than
+atoms: up to 2n−1 calls for an n-span batch that never parses. The artifact's `extraction`
+block counts them (`calls` against `batches`), and a warning (`atom extraction re-asked N
+unparseable batches as halves`) says what they cost; `--max-tokens 16000` avoids them. A call
+that fails or returns an empty reply is not split, since half a batch fails the same way.
+
+Spans that still cannot be read are *unread*, not text that carries nothing. The warning
+(`atom extraction could not read N of M spans`) gives their count and token cost, and separates
+spans whose reply never parsed, even alone (raise `--max-tokens`), from spans lost to a failed
+call (with its error). `extraction.unread_span_ids` names them, in the artifact and in
+`atoms.json`, so `probe`, `shorten` and `view` repeat the warning. Unread spans are left out of
+`frac_carrying_nothing` (numerator and denominator) and dead weight, reported as `spans.n_unread`
+/ `spans.tokens_unread`, labelled `unread` in the span views, and kept by every shortening
+candidate, since a cut could not be scored. Before this check, a run over 38 skills lost at least
+one batch in 17 of them, silently, with ~33k of 62.8k tokens never extracted.
+
+Two more warnings come from the oracle and the judged stages. `N of M retention adjudications got
+no usable verdict` counts adjudicator calls that failed, did not parse, or parsed without naming a
+verdict (`retention.llm_errors`); each is answered `absent` for that decision and is not cached,
+on disk or in `DOKIMI_RESPONSE_CACHE`, so knowledge scores under-count by up to that many.
+`analyze` and `shorten` both print it. The value judge and the conflict check split an
+unparseable batch the same way as extraction, and say so (`content classification re-asked N
+unparseable batches as halves`). Every call that goes through `json_object`, `json_array`,
+extraction, the batched judges or the oracle passes its parse test to the response cache, so a
+reply that does not parse is never stored or replayed.
 
 ## Limits to state when quoting these numbers
 
@@ -782,9 +834,12 @@ extracted.
 - **Need frequency is assumed uniform.** Nothing here measures how often each need actually arises,
   so `value` ranks atoms *within* one artifact and must not be compared across artifacts. Real query
   or issue traffic is what closes that, not another judge.
-- **Category boundaries are judged, not measured.** An independent reviewer agreed with the
-  five-category assignment on 72% of atoms; the disagreements concentrate on useful-vs-inert
-  (±3 points) and known-vs-novel (±2 points). The scaffolding share is the most robust of them.
+- **Category boundaries are partly judged.** In the study, where both axes were judged, an
+  independent reviewer agreed with the five-category assignment on 72% of atoms; the
+  disagreements concentrate on useful-vs-inert (±3 points) and known-vs-novel (±2 points). The
+  scaffolding share is the most robust of them. Here useful-vs-inert is still judged and the ±3
+  applies; known-vs-novel is measured by the paired probes, so it carries the probe grading's
+  error instead.
 - **Per-artifact `added` is a profile, not a ranking.** Paired probes per artifact were 12–29 in the
   study, and subsampling shows the cross-artifact ranking destabilizing below a 0.75 probe budget
   (Spearman ρ 0.43–0.63 at 0.10). Correlating `added` against the measured task delta says the same
