@@ -160,6 +160,10 @@ _EMPTY_REPLY = "the extractor returned an empty reply"
 _FAITHFULNESS = ("supported", "distorted", "unsupported")
 
 
+class _NoUsableRows(ValueError):
+    """The reply parsed and has rows, but none is an atom of this document."""
+
+
 @dataclass
 class ExtractionReport:
     """What extraction could not read, so a partial atom set is never quoted as whole.
@@ -178,6 +182,10 @@ class ExtractionReport:
             :class:`~dokimi.novelty.client.LLMClient`), so these also need a higher
             ``--max-tokens``. Not split: half a batch comes back empty too. Kept for the
             warning; the artifact records only the totals.
+        unusable_span_ids: The subset whose reply parsed and had rows, none of them an
+            atom (wrong keys, strings, span ids that are not this document's). Not "this
+            text asserts nothing": an empty array is that, and is a result. Kept for the
+            warning and, unlike the empty replies, recorded in the artifact.
         retried_batches: Batches whose reply did not parse and were split and re-asked.
         calls: Extraction calls made, splits included, so the cost of re-asking is visible.
         batches: Calls the same run would make with no splitting: a batch counts once it
@@ -193,17 +201,19 @@ class ExtractionReport:
     unread_tokens: int = 0
     unparseable_span_ids: list[str] = field(default_factory=list)
     empty_span_ids: list[str] = field(default_factory=list)
+    unusable_span_ids: list[str] = field(default_factory=list)
     retried_batches: int = 0
     calls: int = 0
     batches: int = 0
     parse_error: str = ""
     call_error: str = ""
+    unusable_error: str = ""
 
     @property
     def last_error(self) -> str:
         """The error behind the unread spans: a failed call first, since it is not a ceiling."""
-        if self.call_error or self.parse_error:
-            return self.call_error or self.parse_error
+        if self.call_error or self.parse_error or self.unusable_error:
+            return self.call_error or self.parse_error or self.unusable_error
         return _EMPTY_REPLY if self.empty_span_ids else ""
 
     def warnings(self, n_spans: int) -> list[str]:
@@ -212,7 +222,8 @@ class ExtractionReport:
         if self.unread_span_ids:
             unparseable = len(self.unparseable_span_ids)
             empty = len(self.empty_span_ids)
-            failed = len(self.unread_span_ids) - unparseable - empty
+            unusable = len(self.unusable_span_ids)
+            failed = len(self.unread_span_ids) - unparseable - empty - unusable
             causes = []
             if unparseable:
                 causes.append(
@@ -225,6 +236,12 @@ class ExtractionReport:
                     f"{empty} got an empty reply, which a reasoning model returns when it "
                     f"spends the output ceiling before answering, so raise --max-tokens "
                     f"(empty replies are not split: half a batch comes back empty too)"
+                )
+            if unusable:
+                causes.append(
+                    f"{unusable} replied with rows but none usable (no statement, question "
+                    f"and span id of this document), which is not an empty result "
+                    f"(last error: {self.unusable_error})"
                 )
             if failed:
                 causes.append(
@@ -253,6 +270,7 @@ class ExtractionReport:
             "unread_span_ids": list(self.unread_span_ids),
             "unread_tokens": self.unread_tokens,
             "unparseable_span_ids": list(self.unparseable_span_ids),
+            "unusable_span_ids": list(self.unusable_span_ids),
             "retried_batches": self.retried_batches,
             "calls": self.calls,
             "batches": self.batches,
@@ -270,7 +288,8 @@ def extract_atoms(
 ) -> list[Atom]:
     """Extract atoms from spans, batched, keeping only atoms with valid provenance.
 
-    A batch whose reply does not parse is split in half and re-asked, down to one span
+    A batch whose reply does not parse, or parses to rows none of which is a usable atom
+    (see :func:`_atom_from_row`), is split in half and re-asked, down to one span
     per call; the halves go back to the front of the queue, so atoms keep document order
     (which is what ``cap`` cuts on). The common cause is an output ceiling: a provider
     that defaults to 4096 output tokens truncates a 25-span reply mid-array, and a
@@ -296,8 +315,16 @@ def extract_atoms(
     from dokimi.llm import extract_json_array
 
     report = report if report is not None else ExtractionReport()
-    usable = accepting(extract_json_array)  # so the response cache never keeps a bad reply
     valid_ids = {span.id for span in spans}
+
+    def parse(reply: str) -> list:
+        rows = extract_json_array(reply)
+        if rows and not any(_atom_from_row(row, valid_ids) for row in rows):
+            # `[]` says the spans assert nothing; rows that are not atoms say nothing.
+            raise _NoUsableRows(f"{len(rows)} rows, none an atom of this document")
+        return rows
+
+    usable = accepting(parse)  # so the response cache never keeps a bad reply
     for span in spans:
         span.unread = False
     seen: set[str] = set()
@@ -331,7 +358,7 @@ def extract_atoms(
                 _mark_unread(batch, report)
                 continue
             unparseable = True
-            rows = extract_json_array(reply)
+            rows = parse(reply)
         except Exception as exc:
             if unparseable and len(batch) > 1:
                 # Unparseable, most often truncated: re-ask the two halves, in place,
@@ -344,7 +371,10 @@ def extract_atoms(
             # One lost batch must not lose the others; the report names it.
             lost = exc
             error = f"{type(exc).__name__}: {str(exc)[:120]}"
-            if unparseable:
+            if isinstance(exc, _NoUsableRows):
+                report.unusable_error = str(exc)[:120]  # no private class name
+                report.unusable_span_ids.extend(span.id for span in batch)
+            elif unparseable:
                 report.parse_error = error
                 report.unparseable_span_ids.extend(span.id for span in batch)
             else:

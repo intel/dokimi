@@ -305,6 +305,11 @@
           "items": {"type": "string"},
           "description": "The unread spans whose reply arrived but did not parse even alone: an output ceiling too low for one span (raise --max-tokens). The rest were lost to a failed call or an empty reply."
         },
+        "unusable_span_ids": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "The unread spans whose reply parsed and had rows, none of them an atom (wrong keys, strings, span ids that are not the document's). An empty array is a result and is not listed."
+        },
         "retried_batches": {"type": "integer", "minimum": 0, "description": "Batches whose reply did not parse and were split and re-asked."},
         "calls": {"type": "integer", "minimum": 0, "description": "Extraction calls made, splits included. An n-span batch that never parses costs up to 2n-1 calls."},
         "batches": {"type": "integer", "minimum": 0, "description": "Calls the same extraction would make with no splitting: batches the run reached (a capped run stops early), each counted once whatever its halves cost."},

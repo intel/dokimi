@@ -602,3 +602,48 @@ def test_the_need_graph_caches_only_a_graph_with_a_node(monkeypatch, tmp_path, r
         graph = build_need_graph("n", "d", client=LLMClient(model="m", provider="openai"))
         assert len(graph.nodes) == n_nodes
     assert len(calls) == asked
+
+
+_UNUSABLE_ROWS = '[{"text": "Setting 1 defaults to 10.", "ids": ["s0001"]}]'
+_USABLE_ROWS = json.dumps([{"statement": "Setting 1 defaults to 10.", "question": "q",
+                            "answer": "10", "span_ids": ["s0001"]}])
+
+
+def _one_span():
+    from dokimi.novelty.spans import segment
+
+    spans = segment("Setting 1 defaults to 10.")
+    assert [s.id for s in spans] == ["s0001"]
+    return spans
+
+
+def test_the_response_cache_does_not_replay_a_reply_with_no_usable_atom(monkeypatch, tmp_path):
+    from dokimi.novelty.atoms import ExtractionError, extract_atoms
+
+    calls = _completion_counter(monkeypatch, tmp_path, _UNUSABLE_ROWS)
+    for _ in range(2):
+        with pytest.raises(ExtractionError):
+            extract_atoms(_one_span(), client=LLMClient(model="m", provider="openai"))
+    assert len(calls) == 2
+
+
+def test_a_healthy_model_is_asked_again_after_a_useless_cached_run(monkeypatch, tmp_path):
+    from dokimi.novelty.atoms import ExtractionError, extract_atoms
+
+    _completion_counter(monkeypatch, tmp_path, _UNUSABLE_ROWS)
+    with pytest.raises(ExtractionError):
+        extract_atoms(_one_span(), client=LLMClient(model="m", provider="openai"))
+    calls = _completion_counter(monkeypatch, tmp_path, _USABLE_ROWS)
+    for _ in range(2):
+        atoms = extract_atoms(_one_span(), client=LLMClient(model="m", provider="openai"))
+        assert len(atoms) == 1
+    assert len(calls) == 1  # asked once, then the usable reply is replayed
+
+
+def test_the_response_cache_still_replays_a_legitimately_empty_extraction(monkeypatch, tmp_path):
+    from dokimi.novelty.atoms import extract_atoms
+
+    calls = _completion_counter(monkeypatch, tmp_path, "[]")
+    for _ in range(2):
+        assert extract_atoms(_one_span(), client=LLMClient(model="m", provider="openai")) == []
+    assert len(calls) == 1
