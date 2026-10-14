@@ -107,7 +107,7 @@ def test_a_partial_transport_failure_names_the_lost_spans():
     assert len(atoms) == 5
     assert set(report.unread_span_ids) == first_batch
     lost = report.warnings(len(spans))[0]
-    assert "5 were lost to calls that failed or came back empty" in lost
+    assert "5 were lost to calls that failed, which are not split" in lost
     assert "RuntimeError: throttled" in lost
     assert "--max-tokens" not in lost  # a failed call is not an output ceiling
 
@@ -164,6 +164,60 @@ def test_an_empty_reply_is_not_split():
                       batch_spans=5, report=report)
     assert len(calls) == 2
     assert len(report.unread_span_ids) == len(spans) and report.unparseable_span_ids == []
+    assert report.empty_span_ids == report.unread_span_ids
+
+
+def test_an_empty_reply_is_its_own_cause_with_the_max_tokens_hint():
+    spans = segment(DOC)
+    first_batch = {s.id for s in spans[:5]}
+
+    def starved_first(prompt, system):
+        if first_batch & set(re.findall(r"^\[(s\d+)\]", prompt, flags=re.M)):
+            return "", None
+        return json.dumps(_rows(prompt)), None
+
+    report = ExtractionReport()
+    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=starved_first),
+                          batch_spans=5, report=report)
+    assert len(atoms) == 5 and set(report.empty_span_ids) == first_batch
+    assert report.calls == 2 and report.retried_batches == 0  # not split
+    tokens = sum(s.tokens for s in spans[:5])
+    assert report.warnings(len(spans)) == [
+        f"atom extraction could not read 5 of {len(spans)} spans ({tokens} tokens): 5 got an "
+        "empty reply, which a reasoning model returns when it spends the output ceiling "
+        "before answering, so raise --max-tokens (empty replies are not split: half a batch "
+        "comes back empty too). Unread spans are left out of `frac_carrying_nothing` and "
+        "dead weight, labelled `unread`, kept by every shortening candidate, and listed in "
+        "`extraction.unread_span_ids`; whatever they assert is missing from every rate"
+    ]
+    # No private class name, and no "failed call" cause for a call that worked.
+    assert "_EmptyReply" not in report.last_error
+    assert report.last_error == "the extractor returned an empty reply"
+    assert report.as_dict()["last_error"] == report.last_error
+
+
+def test_a_capped_extraction_counts_only_the_batches_it_reached():
+    """200 spans, 3 atoms each; every 25-span reply is cut and both halves parse."""
+    doc = "\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, 201))
+    spans = segment(doc)
+
+    def three_per_span_cut_above_13(prompt, system):
+        ids = re.findall(r"^\[(s\d+)\]", prompt, flags=re.M)
+        rows = [dict(row, statement=f"{row['statement']} ({k})", question=f"q{k} {sid}")
+                for sid, row in zip(ids, _rows(prompt)) for k in range(3)]
+        reply = json.dumps(rows)
+        return (reply[:-2] if len(ids) > 13 else reply), None
+
+    report = ExtractionReport()
+    client = LLMClient(model="x", transport=three_per_span_cut_above_13)
+    atoms = extract_atoms(spans, client=client, cap=120, report=report)
+    assert len(atoms) == 120
+    # Two 25-span batches reached the cap: each cost one cut call and two halves.
+    assert (report.calls, report.batches, report.retried_batches) == (6, 2, 2)
+    assert (
+        "atom extraction re-asked 2 unparseable batches as halves: 6 extraction calls where "
+        "2 would do without splitting; a higher --max-tokens avoids the extra calls"
+    ) in report.warnings(len(spans))
 
 
 def _half_lost(n: int = 50):
