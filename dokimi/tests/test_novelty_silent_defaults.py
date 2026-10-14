@@ -514,6 +514,22 @@ def test_an_answer_with_no_text_at_all_gets_the_max_tokens_hint(monkeypatch, tmp
     assert len(calls) == 4  # nothing was stored
 
 
+def test_a_hedged_verdict_stored_by_the_v2_cache_is_not_read(tmp_path, monkeypatch):
+    from dokimi.novelty import retention
+
+    atom, text = _AMBIGUOUS
+    monkeypatch.setattr(retention, "_CACHE_VERSION", b"retention-cache-v2\0")
+    old_key = _key(atom, text)
+    monkeypatch.undo()
+    (tmp_path / f"{old_key}.json").write_text('{"verdict": "retained", "score": 0.4}',
+                                              encoding="utf-8")
+    oracle = RetentionOracle(
+        client=LLMClient(model="x", transport=lambda p, s: ('{"verdict": "absent"}', None)),
+        cache_dir=tmp_path,
+    )
+    assert oracle.verdict(atom, text).method == "llm"
+
+
 def test_a_cut_answer_logs_the_truncation_on_every_run(monkeypatch, tmp_path, caplog):
     from dokimi import llm
 

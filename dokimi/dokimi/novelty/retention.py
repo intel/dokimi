@@ -31,7 +31,7 @@ RETAINED = "retained"
 ABSENT = "absent"
 CONTRADICTED = "contradicted"
 _VERDICTS = (RETAINED, ABSENT, CONTRADICTED)
-_CACHE_VERSION = b"retention-cache-v2\0"
+_CACHE_VERSION = b"retention-cache-v3\0"
 
 _STOP = frozenset("""
 a an the and or but if then than that this these those is are was were be been being
@@ -254,7 +254,8 @@ def _key(atom: Atom, text: str) -> str:
     digest = hashlib.sha256()
     # Bumped when what a cache entry means changes. v2: entries written before failed or
     # verdict-less adjudications were kept out of the cache can hold such a failure
-    # stored as `absent`, indistinguishable from a real one, so they are not read.
+    # stored as `absent`, indistinguishable from a real one, so they are not read. v3: a
+    # hedged `retained?` was stored as `retained` before it counted as no verdict.
     digest.update(_CACHE_VERSION)
     digest.update(atom.statement.strip().encode("utf-8"))
     digest.update(b"\0")
