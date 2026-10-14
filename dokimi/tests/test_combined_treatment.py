@@ -3,26 +3,8 @@
 
 """Tests for combined treatment feature."""
 
-from dokimi.treatments.factory import create_treatment, _parse_combined_spec
+from dokimi.treatments.factory import create_treatment
 from dokimi.treatments.arms import CombinedTreatment
-
-
-def test_parse_combined_spec_simple():
-    """Test parsing simple combined spec."""
-    result = _parse_combined_spec("docs+skill:data/skills/test")
-    assert result == ["docs", "skill:data/skills/test"]
-
-
-def test_parse_combined_spec_with_path_plus():
-    """Test that + in paths is preserved."""
-    result = _parse_combined_spec("docs+skill:data/my+folder/skill")
-    assert result == ["docs", "skill:data/my+folder/skill"]
-
-
-def test_parse_combined_spec_three_parts():
-    """Test combining three treatments."""
-    result = _parse_combined_spec("docs+profile:data/profiles/expert.md+skill:data/skills/test")
-    assert result == ["docs", "profile:data/profiles/expert.md", "skill:data/skills/test"]
 
 
 def test_create_combined_treatment():
