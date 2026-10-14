@@ -6,6 +6,7 @@
 //
 // Once a week, every minor and patch update lands in one PR; a major update
 // gets a PR of its own. Advisories (vulnerabilityAlerts) skip the schedule.
+// pep440 counts 0.x -> 0.y as minor, so those bumps go into the weekly PR too.
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: [
@@ -16,10 +17,23 @@
   ],
   schedule: ["* 0-3 * * 1"],
   timezone: "UTC",
+  // The default of 2 PRs an hour would push some of the first run's PRs, and
+  // the monthly lock refresh, past the 4-hour window.
+  prHourlyLimit: 0,
+  // An open PR changes only on Mondays, not on every run during the week.
+  updateNotScheduled: false,
   // A release has to be a week old before it is proposed, so a compromised
-  // or yanked tag has time to be noticed upstream.
+  // or yanked tag has time to be noticed upstream. This covers only the
+  // version proposed for a direct dependency; the lock refresh and the
+  // transitive pins are held by --exclude-newer=P7D in the lock's header
+  // command. Trade-off: a fix released less than 7 days ago does not resolve
+  // in its vulnerability PR; regenerate the lock by hand without the flag.
   minimumReleaseAge: "7 days",
   labels: ["dependencies"],
+  // Without this, the numpy/scipy rule below would drop their vulnerability
+  // PRs too. enabled: true lets a security fix through a packageRules
+  // enabled: false (as the security:only-security-updates preset does).
+  vulnerabilityAlerts: { enabled: true },
 
   // The lock is a uv --universal compile of requirements.txt +
   // requirements-test.txt. pip-compile re-runs the command in its header with
@@ -58,7 +72,17 @@
     {
       groupName: "non-major dependencies",
       groupSlug: "non-major",
-      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      matchUpdateTypes: ["minor", "patch", "pinDigest", "digest"],
+    },
+    {
+      // Renovate pins the proposed release (--upgrade-package=numpy==X), and
+      // the newest numpy and scipy need a newer Python than the lock's oldest
+      // branch, so the uv run for the whole group would fail. The monthly
+      // lock refresh re-resolves them per Python version instead.
+      matchManagers: ["pip-compile"],
+      matchPackageNames: ["numpy", "scipy"],
+      matchUpdateTypes: ["minor", "patch"],
+      enabled: false,
     },
     {
       matchManagers: ["github-actions"],
