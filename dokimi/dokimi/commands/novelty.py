@@ -514,7 +514,7 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     print(
         f"Best safe candidate: {best.strategy} @ {best.budget_frac} → {best.token_frac} tokens, "
         f"knowledge {best.knowledge}, protection {best.protection}"
-        + (f" (knowledge under-counted: {oracle.errors} adjudications failed)"
+        + (f" (knowledge under-counted: {oracle.errors} adjudications got no usable verdict)"
            if oracle.errors else "")
     )
     if args.out:

@@ -821,8 +821,8 @@ What this changes, and what it does not:
    independent labellers, one of which never saw the reference atom set's provenance, reproduce both
    the direction and roughly the magnitude of §10.1.
 3. **The `protection` axis is still the most trustworthy** — `routing`, `negative-constraint` and
-   `version-bound` are the top three by κ under both labellers, agreeing with §10.7's cross-extractor
-   result from a different direction.
+   `version-bound` are the top three by mean κ and under grok (under luna, `evidence` at 0.650 edges
+   out `routing` at 0.606), agreeing with §10.7's cross-extractor result from a different direction.
 4. **`rare-critical` and `temporal` are not gate-grade.** κ 0.389–0.449 on `rare-critical`; luna
    assigns `temporal` at 2.7× the reference rate. A threshold on either would be a threshold on the
    labeller. Note this is the tag that protects safety text from a token-budget cut, so the weakness

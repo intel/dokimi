@@ -163,7 +163,7 @@
         "pointer_spans": {"type": "object"},
         "by_source": {
           "type": "array",
-          "description": "Per-file atom counts and paired outcomes. An atom is attributed to the file of its first cited span.",
+          "description": "Per-file atom counts and paired outcomes. An atom is attributed to the file of its first cited span. A file with spans no extraction call read carries n_spans_unread and tokens_unread; a file none of whose spans was read has n_atoms null and unread true, rather than reading as a file that yields no knowledge.",
           "items": {"type": "object"}
         }
       }
@@ -292,7 +292,7 @@
     },
     "extraction": {
       "type": "object",
-      "description": "What atom extraction could not read, and what re-asking cost. An unparseable batch is split in half and re-asked down to one span per call; a failed call or an empty reply is not. Absent from artifacts written before it existed.",
+      "description": "What atom extraction could not read, and what re-asking cost. An unparseable batch is split in half and re-asked down to one span per call; a failed call or an empty reply is not (an empty reply is what a reasoning model returns when it spends the output ceiling, so the warning names it with the --max-tokens fix). Absent from artifacts written before it existed.",
       "properties": {
         "unread_span_ids": {
           "type": "array",
@@ -307,7 +307,7 @@
         },
         "retried_batches": {"type": "integer", "minimum": 0, "description": "Batches whose reply did not parse and were split and re-asked."},
         "calls": {"type": "integer", "minimum": 0, "description": "Extraction calls made, splits included. An n-span batch that never parses costs up to 2n-1 calls."},
-        "batches": {"type": "integer", "minimum": 0, "description": "Calls the same extraction would make with no splitting."},
+        "batches": {"type": "integer", "minimum": 0, "description": "Calls the same extraction would make with no splitting: batches the run reached (a capped run stops early), each counted once whatever its halves cost."},
         "last_error": {"type": "string", "description": "The last error on a span that stayed unread; errors a split recovered from are not recorded."}
       }
     },
@@ -412,7 +412,7 @@
       "properties": {
         "dead_weight": {"type": "array", "items": {"type": "object"}},
         "sole_carriers": {"type": "array", "items": {"type": "object"}},
-        "topics": {"type": "array", "items": {"type": "object"}}
+        "topics": {"type": "array", "items": {"type": "object"}, "description": "Spans rolled up by their first two headings, largest first: spans, tokens, label counts, added_spans, dead_tokens (tokens of `empty` spans) and unread_tokens (tokens of `unread` spans, which no extraction call read and which are not dead weight)."}
       }
     },
     "cost": {

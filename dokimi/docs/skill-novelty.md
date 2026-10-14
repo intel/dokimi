@@ -66,12 +66,12 @@ one that goes from `partially_correct` to `correct_complete` is strict `added` a
 value or ordering. Strict `added` is usually the larger (0.363 against 0.209 lenient on
 `claude-opus-5`) but not always (0.266 against 0.293 on `nemotron-nano-12b`;
 [evidence §3](skill-novelty-evidence.md)). **Prefer strict for any decision.** Strict `added`
-ranks *models* inside one artifact in the order of their measured task delta: ρ 0.625 over 4
-artifacts × 5 models, and +0.875 with all four artifacts positive on the re-run; lenient gave
-0.000 within an artifact ([§10.8](skill-novelty-evidence.md),
+ranks *models* inside one artifact in the order of their measured task delta: ρ 0.625 over 12
+(artifact, model) cells grouped by their 4 artifacts, and +0.875 with all four artifacts positive
+on the re-run; lenient gave 0.000 within an artifact ([§10.8](skill-novelty-evidence.md),
 [§10.15](skill-novelty-evidence.md)). It does not rank *artifacts*: pooled over the 24 cells of
-§10.15 ρ is −0.052, and 13 artifacts ranked inside one model give −0.446. §10.8's pooled 0.620 was
-on 12 cells and is superseded by that re-run. The two graders' bias also runs in opposite
+§10.15 ρ is −0.052, and 13 artifacts ranked inside one model give −0.446. §10.8's pooled 0.620,
+over the same 12 cells, is superseded by that re-run. The two graders' bias also runs in opposite
 directions under the two scorings (+7.7pp strict, −11.6pp lenient), so **quote no `added`
 difference below 0.15** ([§10.21](skill-novelty-evidence.md)).
 
@@ -122,9 +122,12 @@ marked. Read it as a review queue:
   780 of 820 pairs (95%), 77 atoms 1,446 of 2,926 (49%), 120 atoms 2,340 of 7,140 (33%). Fewer than
   half are compared from 72 atoms (1,276 of 2,556). The artifact states the share (`X of Y atom
   pairs shared a call`).
-- **Unchecked atoms.** A call whose reply does not parse is split and re-asked, but never below two
-  atoms, since one statement has no pair to look at. Atoms in a call that failed, and an atom left
-  alone in a chunk (the 41st, say), are named in `N of M atoms were not checked for conflicts`.
+- **Unchecked atoms.** A call whose reply does not parse is split and re-asked only while both
+  halves keep two atoms, since one statement has no pair to look at; a chunk of two or three whose
+  reply does not parse fails with its error. Atoms in a call that failed, and an atom left alone in
+  a chunk (the 41st, say), are counted in `N of M atoms were not checked for conflicts`, split by
+  cause (`K in calls that failed (last error: …)`, `K alone in a batch, with no pair to check`).
+  Their ids are not written to the artifact.
 - **False positives (anecdotal, not a rate).** Spot-checking 7 of the 31 pairs one run reported
   ([mattpocock/skills](https://github.com/mattpocock/skills) @ `49dd158`) found 4 real, 1
   ambiguous and 2 false positives: steps of one procedure read as alternatives ("watch it fail"
@@ -152,9 +155,10 @@ neither `local` nor `public`. Relabelled by two other models ([§10.9](skill-nov
 | `rare_critical` | 0.39–0.45, the lowest tag. Not gate-grade |
 | `kind` (5-way) | 0.32–0.38 |
 
-So gate on `routing`, `negative_constraint` and `version_bound` (the top three by κ, the
-"protection tags" of [§10.9](skill-novelty-evidence.md)) or on nothing, and quote the other tag
-splits as labels. These are not the span protection flags the shortener pins (negation, version
+So gate on `routing`, `negative_constraint` and `version_bound` (the top three by mean κ and
+under grok; under luna `evidence`, 0.650, edges out `routing`, 0.606 — the "protection tags" of
+[§10.9](skill-novelty-evidence.md)) or on nothing, and quote the other tag splits as labels,
+except `temporal` and `rare_critical`, which are not quotable either. These are not the span protection flags the shortener pins (negation, version
 gate, ordering, threshold), which are lexical and involve no model. A high `added` on `local`
 atoms means the artifact transmits its own conventions (names, layouts, the next step to take),
 which models mostly lack: strict `local` K0 is 0.000–0.259 across five models, against
@@ -268,13 +272,17 @@ then rendered as the artifact's own text with colour:
 | colour (label) | meaning |
 |---|---|
 | green (`added`) | carries `added` knowledge — the artifact's value |
-| grey (`redundant`, `inert`) | carries only `redundant` knowledge, or atoms judged inert or scaffolding — candidate for deletion |
+| grey (`redundant`, `inert`) | `redundant`: an atom the model already answered without the artifact (this wins over `still_missing`); or `inert`: no atom has a measured outcome and one is judged inert or scaffolding (this wins over an unprobed atom judged useful) — candidate for deletion |
 | red (`harmful`, `degraded`) | carries a `harmful_conflicting` or `degraded` atom |
 | amber (`protected`) | **protected**: expresses a negation, version gate, ordering constraint, or threshold |
-| blue (`still_missing`) | states something the model got wrong with and without it — rephrase or promote it |
-| plain (`unscored`) | carries atoms with no measured outcome and no judged category (unprobed and unjudged), so no colour is claimed |
+| blue (`still_missing`) | states something the model got wrong with and without it, and nothing it already knew — rephrase or promote it |
+| plain (`unscored`) | carries atoms with no measured outcome and none judged inert or scaffolding: unprobed atoms judged useful (including atoms whose probe runs all errored), or atoms the value judge did not answer for — so no colour is claimed |
 | hatched (`unread`) | no extraction call could read it, so what it carries is unknown — not dead weight |
 | dim (`empty`) | carries no extracted atom at all |
+
+The colours are applied in a fixed order, worst first: red, green, hatched, amber, dim, then grey
+(`redundant`), blue, grey (`inert`), plain. A span takes the first that applies, so a span with one
+`added` atom is green whatever else it carries.
 
 Two derived views an author acts on directly:
 
@@ -282,6 +290,10 @@ Two derived views an author acts on directly:
   Unread spans are not listed.
 - **Sole carriers**: spans that are the only source of some atom. These are what a careless edit
   silently deletes; the shortener pins them.
+
+`views.topics` rolls the spans up by their first two headings, with the label counts per section,
+`dead_tokens` (the dim spans' tokens) and `unread_tokens` (the hatched spans' tokens), so a
+section's waste and its extraction loss read apart.
 
 Going finer than a span — highlighting the *words* that carry an atom — was measured before being
 built, by masking them and masking the same number of other words from the same span: the attributed
@@ -475,7 +487,9 @@ Three things to know before reading a bundle result:
 The payoff is `bundle.by_source`: the paired 2×2 cut by the file that carried each atom. A
 reference whose atoms are all `redundant` is a file the model already knows; one full of
 `added` is knowledge that may belong where the agent will actually read it; one with zero
-atoms is pointers and prose. **Pointer spans** — spans whose content is just a path into
+atoms is pointers and prose. A file with spans extraction could not read says how many
+(`n_spans_unread`, `tokens_unread`), and a file it read none of has `n_atoms: null` and `unread:
+true` (rendered `not read`), not zero atoms. **Pointer spans** — spans whose content is just a path into
 the bundle (53 of 2,600 spans in the corpus, 19 of 33 skills), and the per-file headings
 the renderer injects — are named in
 `bundle.pointer_spans` rather than scored, since they carry no knowledge by design. A span that also pins a
@@ -765,8 +779,14 @@ rewrites one file, so with a bundle-derived atom set it scores only the entry po
 and says so.
 
 And the retention oracle runs retrieval → NLI locally, escalating to an LLM only for the
-ambiguous band, with a disk cache keyed on (atom, text). Full sweeps stay opt-in
+ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
 (`--all-atoms`).
+
+The cache key carries a version (`retention-cache-v2`). Entries written before failed
+adjudications were kept out of the cache can hold a failure stored as `absent`, which looks like a
+real one, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
+first run after upgrading therefore pays one adjudication call per pair the old cache held, unless
+`DOKIMI_RESPONSE_CACHE` replays it: the prompt is unchanged, so its entries still hit.
 
 **Pass `--max-tokens` when the provider has a low default output ceiling.** litellm sends
 4096 to Bedrock-hosted Claude when none is given, and on a dense skill a 25-span extraction
@@ -774,29 +794,51 @@ batch can need more than that: in the run below, replies came back with `finish_
 at exactly 4096 tokens, cut mid-array. Extraction recovers by splitting an unparseable batch in
 half and re-asking, down to one span per call, so a truncation costs extra calls rather than
 atoms: up to 2n−1 calls for an n-span batch that never parses. The artifact's `extraction`
-block counts them (`calls` against `batches`), and a warning (`atom extraction re-asked N
+block counts them (`calls` against `batches`, the calls the run would make with no splitting; a
+capped run counts only the batches it reached), and a warning (`atom extraction re-asked N
 unparseable batches as halves`) says what they cost; `--max-tokens 16000` avoids them. A call
 that fails or returns an empty reply is not split, since half a batch fails the same way.
 
 Spans that still cannot be read are *unread*, not text that carries nothing. The warning
 (`atom extraction could not read N of M spans`) gives their count and token cost, and separates
-spans whose reply never parsed, even alone (raise `--max-tokens`), from spans lost to a failed
-call (with its error). `extraction.unread_span_ids` names them, in the artifact and in
-`atoms.json`, so `probe`, `shorten` and `view` repeat the warning. Unread spans are left out of
-`frac_carrying_nothing` (numerator and denominator) and dead weight, reported as `spans.n_unread`
-/ `spans.tokens_unread`, labelled `unread` in the span views, and kept by every shortening
-candidate, since a cut could not be scored. Before this check, a run over 38 skills lost at least
+three causes: spans whose reply never parsed, even alone (raise `--max-tokens`); spans whose call
+came back empty, which is what a reasoning model returns when it spends the output ceiling before
+answering (raise `--max-tokens` too); and spans lost to a failed call (with its error). The
+`extraction` block, in the artifact and in `atoms.json`, records:
+
+| field | meaning |
+|---|---|
+| `unread_span_ids`, `unread_tokens` | spans no call read, in document order, and their token cost |
+| `unparseable_span_ids` | the subset whose reply arrived and never parsed, even alone |
+| `retried_batches` | batches whose reply did not parse and were split and re-asked |
+| `calls`, `batches` | calls made, splits included, against the calls the run would make with no splitting |
+| `last_error` | the error behind the unread spans (a failed call first); errors a split recovered from are not recorded |
+
+`probe`, `shorten` and `view` read `atoms.json` and repeat the warning. Unread spans are left out
+of `frac_carrying_nothing` (numerator and denominator) and dead weight, reported as
+`spans.n_unread` / `spans.tokens_unread`, labelled `unread` in the span views, and kept by every
+shortening candidate, since a cut could not be scored. Below 80% of the tokens read
+(`min_frac_read` in the gate's `DEFAULTS`), the `dead_tokens` check is not judged (`measured:
+false`): the fraction then describes a remnant of the text. The scorecard's `dead tok` column
+marks any unread share, as `0.000 (98% unread)`. Before this check, a run over 38 skills lost at least
 one batch in 17 of them, silently, with ~33k of 62.8k tokens never extracted.
 
 Two more warnings come from the oracle and the judged stages. `N of M retention adjudications got
 no usable verdict` counts adjudicator calls that failed, did not parse, or parsed without naming a
 verdict (`retention.llm_errors`); each is answered `absent` for that decision and is not cached,
-on disk or in `DOKIMI_RESPONSE_CACHE`, so knowledge scores under-count by up to that many.
-`analyze` and `shorten` both print it. The value judge and the conflict check split an
+on disk or in `DOKIMI_RESPONSE_CACHE`, so carrier confirmation and shortening scores under-count
+retention by up to that many decisions. A hedged verdict (`"retained?"`) counts as no verdict.
+`analyze` and `shorten` both print it, and `shorten` repeats it beside its best candidate
+(`knowledge under-counted: N adjudications got no usable verdict`). The value judge and the conflict check split an
 unparseable batch the same way as extraction, and say so (`content classification re-asked N
-unparseable batches as halves`). Every call that goes through `json_object`, `json_array`,
-extraction, the batched judges or the oracle passes its parse test to the response cache, so a
-reply that does not parse is never stored or replayed.
+unparseable batches as halves`). Every novelty call passes a test of a usable reply to the
+response cache, so a reply that fails it is never stored or replayed: extraction, the batched
+judges and the oracle pass their parse test; the probe grader, the faithfulness check and the
+need graph also require the field they read (a named verdict, a node), so `{"verdict": null}`
+or `{"nodes": []}` parses and is still asked again; routing requires a `pick`; and the answerer
+requires the closing `confidence:` line it was asked for, so an answer cut at the ceiling is
+re-asked, and its truncation warning logged, on every run. An empty answer is a failed probe run
+(its pair is dropped), not a wrong answer.
 
 ## Limits to state when quoting these numbers
 

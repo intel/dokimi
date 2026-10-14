@@ -102,14 +102,19 @@ An atom every model knows separates nothing (true, but not worth probe budget); 
 ## 6. Read the view, not the number
 
 `analyze` writes `annotated.html`: the artifact's own text, coloured per span — green
-carries `added`, grey carries only `redundant`, red carries harmful or degraded, amber is
-protected (negation, version gate, ordering, threshold), dim carries no atom at all. Two
-derived lists are where edits start: **dead weight** (dim spans by token cost) and **sole
-carriers** (spans that are the only source of something).
+carries `added`, red carries harmful or degraded, hatched was never read by extraction (not
+dead weight), amber is protected (negation, version gate, ordering, threshold), dim carries
+no atom at all, grey carries `redundant` knowledge or atoms judged inert, blue carries
+knowledge the model got wrong with and without the artifact (`still_missing`), and plain
+carries atoms with nothing measured or judged against them (`unscored`). The full rules are
+in [skill-novelty.md](skill-novelty.md) ("Span attribution"). Two derived
+lists are where edits start: **dead weight** (dim spans by token cost) and **sole carriers**
+(spans that are the only source of something).
 
 With `--include-resources`, `bundle.by_source` says which *file* carried the knowledge. A
 reference whose atoms are all `redundant` is a file the model already knows; one full of
-`added` may belong where the agent will actually read it.
+`added` may belong where the agent will actually read it; one marked `not read` was lost to
+extraction, not empty.
 
 ## 7. Shorten, with the protection axis pinned
 

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -665,7 +666,8 @@ def test_unread_spans_travel_from_novelty_atoms_to_shorten(tmp_path, monkeypatch
     captured = capsys.readouterr()
     assert "1 of" in captured.err and "were never read by extraction" in captured.err
     assert "retention adjudications got no usable verdict" in captured.err
-    assert "knowledge under-counted" in captured.out
+    assert re.search(r"knowledge under-counted: \d+ adjudications got no usable verdict\)",
+                     captured.out)
     assert "research prototype" in out.read_text()  # an unread span is never cut
 
 

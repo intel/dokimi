@@ -57,12 +57,16 @@ COLOURS = {
 }
 LEGEND = {
     "green": "carries knowledge the model did not have without this artifact",
-    "grey": "carries only knowledge the model already produced unprompted, or judged inert",
+    "grey": "redundant: an atom the model already answered without this artifact (this wins "
+            "over still_missing); or inert: no atom has a measured outcome, and one is judged "
+            "inert or scaffolding (this wins over an unprobed useful atom)",
     "red": "carries a conflicting atom, or one the artifact made the model get wrong",
     "amber": "protected: a negation, version gate, ordering constraint or threshold",
-    "blue": "states something the model got wrong with and without it: rephrase or promote it",
-    "plain": "carries atoms with no measured outcome and no judged category, so no colour is "
-             "claimed",
+    "blue": "states something the model got wrong with and without it, and nothing it "
+            "already knew: rephrase or promote it",
+    "plain": "carries atoms with no measured outcome and none judged inert or scaffolding "
+             "(unprobed atoms judged useful, or atoms the value judge did not answer for), "
+             "so no colour is claimed",
     "hatched": "not read: every extraction call for this span failed, so what it carries "
                "is unknown",
     "dim": "no extracted atom — an upper bound on dead weight, not proof of it",

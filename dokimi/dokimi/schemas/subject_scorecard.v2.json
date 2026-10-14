@@ -232,7 +232,7 @@
               },
               "spans": {
                 "type": "object",
-                "description": "Span totals and the dead-token share. Read frac_carrying_nothing only together with capped_atom_set: from a capped atom set it inverts rather than approximates (0.064 read as 0.743 on the study's largest artifact)."
+                "description": "Span totals and the dead-token share. Read frac_carrying_nothing only together with capped_atom_set: from a capped atom set it inverts rather than approximates (0.064 read as 0.743 on the study's largest artifact). It is over the text extraction read: n_unread / tokens_unread (absent from cells written before they existed) are the spans no extraction call read, outside both its numerator and denominator."
               },
               "gate": {
                 "type": "object",
