@@ -35,7 +35,7 @@ dependencies = [
   # eval ragas wraps the judge in ChatAnthropic for the anthropic provider.
   "langchain-anthropic>=1.0,<2",
   "datasets>=2.20,<6",
-  "openai>=1.51,<3",
+  "openai>=3.26,<4",
   "anthropic~=0.34",
 ]
 
