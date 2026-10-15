@@ -153,6 +153,13 @@ class ValidityReport:
     #: Set by :func:`run_sequential`: per graded variant, its SPRT decision,
     #: log-likelihood ratio and the pairs it took. ``None`` for a fixed-n run.
     sequential: Optional[Dict[str, Dict[str, Any]]] = None
+    #: What the judge was shown with each answer: ``none`` (the default; the
+    #: gate's original setting) or ``stored`` (the arm's treatment material from
+    #: the artifact's ``judge_materials`` — the setting arms runs score in).
+    context: str = "none"
+    #: With ``context="stored"``, bases dropped because the file held no material
+    #: for their arm; scoring them without it would mix the two settings.
+    n_without_context: int = 0
 
     @property
     def scored(self) -> List[ValidityRow]:
@@ -286,6 +293,8 @@ class ValidityReport:
             "unmeasured_variants": unmeasured,
             "per_variant": per_variant,
             "n_noop": dict(sorted(self.n_noop.items())),
+            "context": self.context,
+            "n_without_context": self.n_without_context,
             "wall_seconds": self.wall_seconds,
         }
         if self.sequential is not None:
@@ -337,6 +346,9 @@ class ValidityReport:
             f"  length-only  : {s['length_accuracy']:.3f}   (len(answer) alone — not a judge)",
             f"  tie rate     : {s['tie_rate']:.3f}   (saturated scale if high)",
             f"  no-op pairs  : {sum(s['n_noop'].values())} dropped (degradation left the text unchanged)",
+            *(["  context      : stored treatment material (as the arms run judged)"
+               + (f"; {s['n_without_context']} bases dropped, none stored"
+                  if s["n_without_context"] else "")] if s.get("context") == "stored" else []),
         ]
         if s["mode"] == "sequential":
             t = s["sprt"]
@@ -426,12 +438,13 @@ def judge_scorer(judge: Any, *, draw: int = 0) -> Scorer:
     against the excerpt rather than judge the answer itself.
     """
 
-    def score(library: str, question: str, answer: str) -> float:
+    def score(library: str, question: str, answer: str, context: Optional[str] = None) -> float:
+        kwargs: Dict[str, Any] = {"library_name": library, "question": question, "answer": answer}
         if draw:
-            scores = judge.score_answer(library_name=library, question=question, answer=answer, draw=draw)
-        else:
-            scores = judge.score_answer(library_name=library, question=question, answer=answer)
-        return float(scores["aggregate"])
+            kwargs["draw"] = draw
+        if context is not None:
+            kwargs["context"] = context
+        return float(judge.score_answer(**kwargs)["aggregate"])
 
     return score
 
@@ -449,21 +462,49 @@ def run_validity(
     progress: Optional[Callable[[int, int], None]] = None,
     concurrency: int = 1,
     pair_scorer: Optional[PairScorer] = None,
+    store: Optional[Any] = None,
 ) -> ValidityReport:
-    """Build degradation pairs from ``answers`` and measure the judge on them."""
+    """Build degradation pairs from ``answers`` and measure the judge on them.
+
+    With *store* (``JudgeContextStore.from_artifact(data)``) each answer is
+    judged with its arm's stored treatment material, as the arms run judged it.
+    """
     noop: Dict[str, int] = {}
     variants = list(variants or DEGRADATIONS)
-    pairs = _build(answers, noop, n_bases=n_bases, seed=seed, variants=variants, library=library)
+    dropped: List[int] = [0]
+    pairs = _build(answers, noop, n_bases=n_bases, seed=seed, variants=variants, library=library,
+                   store=store, dropped=dropped)
     report = evaluate_pairs(
         scorer, pairs, judge=judge, min_accuracy=min_accuracy, seed=seed, progress=progress,
         concurrency=concurrency, pair_scorer=pair_scorer,
     )
     report.n_noop = noop
     report.variants = variants
+    report.context = "stored" if store is not None else "none"
+    report.n_without_context = dropped[0]
     return report
 
 
-def _build(answers, noop, *, n_bases, seed, variants, library) -> List[Dict[str, Any]]:
+def attach_stored_context(pairs: List[Dict[str, Any]], store: Any) -> Tuple[List[Dict[str, Any]], int]:
+    """Give each pair its arm's stored material; drop bases the store has none for.
+
+    Returns the kept pairs and the number of bases dropped. An arm whose stored
+    material is empty (``baseline``) is judged with the no-context marker, which
+    is what the arms run showed its judge for it.
+    """
+    from dokimi.eval.judge_context import NO_CONTEXT
+
+    kept, missing = [], set()
+    for pair in pairs:
+        text = store.get(pair["base_id"], pair.get("arm", ""))
+        if text is None:
+            missing.add((pair["base_id"], pair.get("arm", "")))
+            continue
+        kept.append({**pair, "context": text or NO_CONTEXT})
+    return kept, len(missing)
+
+
+def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropped=None) -> List[Dict[str, Any]]:
     pairs = build_pairs(
         answers,
         noop=noop,
@@ -479,4 +520,13 @@ def _build(answers, noop, *, n_bases, seed, variants, library) -> List[Dict[str,
             "No usable answers found — need answers longer than the minimum "
             "length with a question_id and question text"
         )
+    if store is not None:
+        pairs, n_missing = attach_stored_context(pairs, store)
+        if dropped is not None:
+            dropped[0] = n_missing
+        if not pairs:
+            raise ValueError(
+                "No answer has stored judge material (judge_materials) — the file was "
+                "written before arms runs kept it, or by a run that did not record it"
+            )
     return pairs

@@ -119,6 +119,7 @@ def run_sequential(
     progress: Optional[Callable[[int, int], None]] = None,
     concurrency: int = 1,
     pair_scorer: Optional[PairScorer] = None,
+    store: Optional[Any] = None,
 ) -> ValidityReport:
     """Like :func:`run_validity`, but add bases until every variant is decided.
 
@@ -130,13 +131,17 @@ def run_sequential(
     """
     sprt_bounds(min_accuracy)  # refuse an undecidable gate before any pair is built or scored
     noop: Dict[str, int] = {}
-    pairs = _build(answers, noop, n_bases=max_bases, seed=seed, variants=variants, library=library)
+    dropped: List[int] = [0]
+    pairs = _build(answers, noop, n_bases=max_bases, seed=seed, variants=variants, library=library,
+                   store=store, dropped=dropped)
     order: List[tuple] = list(dict.fromkeys((p["base_id"], p.get("arm", "")) for p in pairs))
     graded = sorted({p["variant"] for p in pairs if p["variant"] not in NEUTRAL_VARIANTS})
     decisions: Dict[str, Dict[str, Any]] = {v: {"decision": "continue", "llr": 0.0, "n": 0} for v in graded}
     report = ValidityReport(judge=judge, min_accuracy=min_accuracy, seed=seed, sequential=decisions)
     report.n_noop = noop
     report.variants = list(variants or DEGRADATIONS)
+    report.context = "stored" if store is not None else "none"
+    report.n_without_context = dropped[0]
     intact_cache: Dict[tuple, Any] = {}
     started = time.time()
     for start in range(0, len(order), batch):
