@@ -89,6 +89,28 @@ def test_cost_none_when_no_pricing(monkeypatch):
     assert _safe_completion_cost(_Resp(_Usage()), "made-up-model") is None
 
 
+def test_zero_cost_for_a_model_missing_from_the_price_map_is_unknown(monkeypatch):
+    # litellm 1.104 priced claude-sonnet-5-5 at 0.0 with no entry in its map, so a
+    # run's total read as a valid $0. A 0.0 without a price entry is no price.
+    import litellm
+
+    monkeypatch.setattr(litellm, "completion_cost", lambda **kw: 0.0)
+    resp = _Resp(_Usage(prompt=10, completion=5, total=15))
+    rec = _extract_usage(resp, "claude-unpriced-0-0", "anthropic")
+    assert rec.cost_usd is None and rec.cost_known_calls == 0
+    rec = _extract_usage(resp, "claude-unpriced-0-0", "amazon-bedrock")
+    assert rec.cost_usd is None and rec.cost_known_calls == 0
+
+
+def test_zero_cost_for_a_model_in_the_price_map_stays_known(monkeypatch):
+    # A priced model can still cost $0 (an empty completion); that is a known cost.
+    import litellm
+
+    monkeypatch.setattr(litellm, "completion_cost", lambda **kw: 0.0)
+    rec = _extract_usage(_Resp(_Usage()), "gpt-4o", "openai")
+    assert rec.cost_usd == 0.0 and rec.cost_known_calls == 1
+
+
 # ── accumulation ─────────────────────────────────────────────────────────────
 def test_add_sums_tokens_and_keeps_first_ttft():
     a = UsageRecord(prompt_tokens=10, completion_tokens=5, total_tokens=15,
