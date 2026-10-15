@@ -123,7 +123,7 @@ def exclusion_kind(row: dict) -> str:
     conservative reading, because it is charged against coverage rather than hidden.
     """
     kind = row.get("kind")
-    if kind in EXCLUSION_CLASS:
+    if isinstance(kind, str) and kind in EXCLUSION_CLASS:
         return str(kind)
     reason = str(row.get("reason") or "")
     if reason == "not text":
