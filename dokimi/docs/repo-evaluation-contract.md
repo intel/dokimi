@@ -670,4 +670,8 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric icp
   Holm's correction runs over the gate and score comparisons of one call; the
   rest are descriptive. `BATCH/ARM` takes an arm from one batch only, so two
   batches of the same arm (for example two revisions of the guidance) compare
-  too. Tasks with cells in only one arm are listed as unpaired.
+  too. Tasks with cells in only one arm are listed as unpaired. The output
+  names the batches behind each selector and each batch's pin (`tree`,
+  `eval_dir`, `image` from `_eval/batch.json`) with its cells' harness
+  versions, and warns when a bare `ARM` pools several batches or when the two
+  arms ran from different `eval_dir` or `image` pins or harness versions.

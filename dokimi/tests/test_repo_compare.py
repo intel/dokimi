@@ -21,7 +21,7 @@ from dokimi.repos.compare import CompareError, compare, format_compare, parse_se
 
 def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = True, score: float | None = None,
           failure: bool = False, cost: float | None = 0.1, turns: int = 10, metrics: dict | None = None,
-          model: str = "m-1") -> None:
+          model: str = "m-1", harness_version: str = "1.0") -> None:
     rd = batch / f"{task}__{arm.replace(':', '-')}__{model}__r{rep}"
     rd.mkdir(parents=True)
     score_task = score is not None
@@ -29,11 +29,17 @@ def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = 
              "success": False if failure else (None if score_task else success),
              "score": None if failure else score, "score_only": score_task and not failure, "reasons": []}
     rec = {"task": task, "arm": arm, "model": model, "rep": rep, "score_task": score_task, "grade": grade,
+           "harness_version": harness_version,
            "agent": {"cost_usd": cost, "num_turns": turns, "timed_out": False, "is_error": False,
                      "over_budget": False, "network": "none"}}
     (rd / "meta.json").write_text("{}")
     (rd / "result.json").write_text(json.dumps(rec))
     (rd / "grade.json").write_text(json.dumps({"metrics": metrics or {}}))
+
+
+def _stamp(batch: Path, **stamp) -> None:
+    (batch / "_eval").mkdir(parents=True, exist_ok=True)
+    (batch / "_eval" / "batch.json").write_text(json.dumps(stamp))
 
 
 def _row(summary, measure, treatment="guidance:raw", model="m-1"):
@@ -372,3 +378,61 @@ def test_a_model_only_one_arm_ran_is_listed_as_unpaired(tmp_path):
         {"treatment": "guidance:raw", "model": "m-A", "task": "fix_a", "missing_in": "treatment"},
         {"treatment": "guidance:raw", "model": "m-B", "task": "fix_a", "missing_in": "baseline"}]
     assert "fix_a (m-A, none in treatment)" in format_compare(s)
+
+
+def test_each_selector_names_its_batches_and_a_bare_arm_over_several_warns(tmp_path):
+    b1, b2 = tmp_path / "b1", tmp_path / "b2"
+    for b in (b1, b2):
+        _stamp(b, tree="repo@abc", eval_dir="e" * 64, image="dokimi/x:abc")
+        _cell(b, "fix_a", "guidance:none", 1)
+        _cell(b, "fix_a", "guidance:raw", 1)
+    s = compare([b1, b2], "b1/guidance:none", ["guidance:raw"])
+    assert s["sources"] == {"b1/guidance:none": ["b1"], "guidance:raw": ["b1", "b2"]}
+    assert s["warnings"] == ["guidance:raw pools cells of 2 batches (b1, b2); name one as BATCH/ARM"]
+    assert _row(s, "gate")["tasks"][0]["n_treatment"] == 2
+    text = format_compare(s)
+    assert "  guidance:raw: b1, b2" in text and "batch b1: tree repo@abc, eval_dir eeeeeeeeeeee" in text
+    assert "warning: guidance:raw pools cells of 2 batches" in text
+    assert compare([b1, b2], "b1/guidance:none", ["b1/guidance:raw"])["warnings"] == []
+
+
+@pytest.mark.parametrize("key", ["eval_dir", "image"])
+def test_arms_from_differently_stamped_batches_warn(tmp_path, key):
+    old, new = tmp_path / "old", tmp_path / "new"
+    base = {"tree": "repo@abc", "eval_dir": "e1", "image": "img:1"}
+    _stamp(old, **base)
+    _stamp(new, **{**base, "tree": "repo@def", key: "changed"})
+    _cell(old, "fix_a", "guidance:raw", 1)
+    _cell(new, "fix_a", "guidance:raw", 1)
+    s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
+    assert s["warnings"] == [f"new/guidance:raw vs old/guidance:raw: the batches ran from different {key} "
+                             f"({', '.join(sorted([base[key], 'changed']))})"]
+
+
+def test_another_tree_alone_is_not_a_mismatch(tmp_path):
+    old, new = tmp_path / "old", tmp_path / "new"
+    _stamp(old, tree="repo@abc", eval_dir="e1", image="img:1")
+    _stamp(new, tree="repo@def", eval_dir="e1", image="img:1")  # another revision of the guidance: the treatment
+    _cell(old, "fix_a", "guidance:raw", 1)
+    _cell(new, "fix_a", "guidance:raw", 1)
+    s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
+    assert s["warnings"] == [] and s["stamps"]["new"]["tree"] == "repo@def"
+
+
+def test_cells_on_different_harness_versions_warn(tmp_path):
+    b = tmp_path / "b1"
+    _cell(b, "fix_a", "guidance:none", 1, harness_version="2.1.286")
+    _cell(b, "fix_a", "guidance:raw", 1, harness_version="2.1.296")
+    s = compare([b], "guidance:none")
+    assert s["warnings"] == ["guidance:raw vs guidance:none: cells ran on different harness versions "
+                             "(2.1.286, 2.1.296)"]
+    assert s["stamps"] == {"b1": {"harness_versions": ["2.1.286", "2.1.296"]}}  # no batch.json: no pin keys
+
+
+def test_an_unreadable_batch_stamp_is_no_stamp(tmp_path):
+    b = tmp_path / "b1"
+    (b / "_eval").mkdir(parents=True)
+    (b / "_eval" / "batch.json").write_text("[1, 2]")
+    _cell(b, "fix_a", "guidance:none", 1)
+    _cell(b, "fix_a", "guidance:raw", 1)
+    assert compare([b], "guidance:none")["stamps"]["b1"] == {"harness_versions": ["1.0"]}

@@ -24,6 +24,13 @@ deltas, Monte Carlo above. At one cell per task and arm the deltas are -1, 0
 or +1 and the exact p equals McNemar's exact test. Holm's correction runs over
 the gate and score comparisons of one invocation; cost, turns and metrics are
 descriptive and keep their raw p.
+
+Each selector's batches are reported with the stamp ``repo run`` pins a batch
+to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
+cells. A warning is printed, not an error, when a bare ``ARM`` pools cells of
+several batches, or when the two arms of a comparison ran from different
+``eval_dir`` or ``image`` stamps or harness versions: the deltas then mix the
+treatment with whatever else changed between the batches.
 """
 
 from __future__ import annotations
@@ -48,6 +55,9 @@ N_RESAMPLES = 20_000
 EPS = 1e-9
 #: Measures Holm's correction runs over.
 PRIMARY = ("gate", "score")
+#: Batch stamp keys that must agree between the arms of a comparison; ``tree`` is shown but may differ (another
+#: revision of the repository is a treatment of its own).
+STAMP_KEYS = ("eval_dir", "image")
 
 
 class CompareError(ValueError):
@@ -83,10 +93,17 @@ def load_batches(batch_dirs: list[Path], metrics: tuple[str, ...] = ()) -> tuple
     return cells, missing
 
 
+def batch_stamp(batch_dir: Path) -> dict[str, str]:
+    """What ``repo run`` pinned the batch to (``_eval/batch.json``); empty for a batch that has none."""
+    try:
+        stamp = json.loads((batch_dir / "_eval" / "batch.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: str(v) for k, v in stamp.items() if k in ("tree", *STAMP_KEYS)} if isinstance(stamp, dict) else {}
+
+
 def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None = None,
             models: list[str] | None = None, metrics: tuple[str, ...] = (), seed: int = 0) -> dict[str, Any]:
-    if treatments is not None and not treatments:
-        raise CompareError("no treatment arms named; leave --arm out to compare every other arm")
     metrics = tuple(dict.fromkeys(metrics))
     cells, missing = load_batches(batch_dirs, metrics)
     base_sel = parse_selector(baseline)
@@ -99,19 +116,59 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     unpaired: list[dict[str, Any]] = []
     for text in treatments:
         treat_vals = _task_values([c for c in cells if selector_matches(parse_selector(text), c)], metrics)
-        base_models, treat_models = {m for m, _ in base_vals}, {m for m, _ in treat_vals}
-        for model in sorted(base_models ^ treat_models):
-            if not models or model in models:  # a model only one arm ran has no task to pair: list its tasks
-                seen, gone = (base_vals, "treatment") if model in base_models else (treat_vals, "baseline")
-                unpaired += [{"treatment": text, "model": model, "task": t, "missing_in": gone}
-                             for m, t in sorted(seen) if m == model]
-        shared_models = sorted(base_models & treat_models)
+        unpaired += _one_arm_models(text, base_vals, treat_vals, models)
+        shared_models = sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals})
         for model in [m for m in shared_models if not models or m in models]:
             _compare_model(text, model, base_vals, treat_vals, measures, seed, rows, unpaired)
     _check_models(models, rows, unpaired)
     _holm(rows)
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
-            "cells": len(cells), "missing": missing, "comparisons": rows, "unpaired": unpaired}
+            "cells": len(cells), "missing": missing, **_provenance(batch_dirs, cells, baseline, treatments),
+            "comparisons": rows, "unpaired": unpaired}
+
+
+def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, Any]],
+                    treat_vals: dict[tuple[str, str], dict[str, Any]], models: list[str] | None) -> list[dict[str, Any]]:
+    """The tasks of a model only one arm ran: it has no task to pair, so every task is unpaired."""
+    base_models, treat_models = {m for m, _ in base_vals}, {m for m, _ in treat_vals}
+    out = []
+    for model in sorted(base_models ^ treat_models):
+        if not models or model in models:
+            seen, gone = (base_vals, "treatment") if model in base_models else (treat_vals, "baseline")
+            out += [{"treatment": treatment, "model": model, "task": t, "missing_in": gone}
+                    for m, t in sorted(seen) if m == model]
+    return out
+
+
+def _provenance(batch_dirs: list[Path], cells: list[dict[str, Any]], baseline: str,
+                treatments: list[str]) -> dict[str, Any]:
+    """``sources`` (each selector's batches), ``stamps`` (each batch's pin and harness versions), ``warnings``."""
+    names = [d.resolve().name for d in batch_dirs]
+    stamps = {name: {**batch_stamp(d), "harness_versions": sorted({str(c.get("harness_version"))
+                                                                   for c in cells if c["batch"] == name})}
+              for d, name in zip(batch_dirs, names, strict=True)}
+    sources = {text: sorted({c["batch"] for c in cells if selector_matches(parse_selector(text), c)})
+               for text in [baseline, *treatments]}
+    return {"sources": sources, "stamps": stamps,
+            "warnings": _provenance_warnings(cells, baseline, treatments, sources, stamps)}
+
+
+def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments: list[str],
+                         sources: dict[str, list[str]], stamps: dict[str, dict[str, Any]]) -> list[str]:
+    """Pooled batches and stamp mismatches between the arms of each comparison."""
+    out = [f"{text} pools cells of {len(batches)} batches ({', '.join(batches)}); name one as BATCH/ARM"
+           for text, batches in sources.items() if parse_selector(text)[0] is None and len(batches) > 1]
+    for text in treatments:
+        batches = sorted(set(sources[baseline]) | set(sources[text]))
+        for key in STAMP_KEYS:
+            seen = {stamps[b][key] for b in batches if key in stamps[b]}
+            if len(seen) > 1:
+                out.append(f"{text} vs {baseline}: the batches ran from different {key} ({', '.join(sorted(seen))})")
+        versions = {str(c.get("harness_version")) for sel in (baseline, text) for c in cells
+                    if selector_matches(parse_selector(sel), c)}
+        if len(versions) > 1:
+            out.append(f"{text} vs {baseline}: cells ran on different harness versions ({', '.join(sorted(versions))})")
+    return out
 
 
 def _check_models(models: list[str] | None, rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> None:
@@ -149,6 +206,8 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
 def _treatments(cells: list[dict[str, Any]], baseline: str, base_sel: tuple[str | None, str],
                 treatments: list[str] | None) -> list[str]:
     """The treatment selectors to compare, checked: each matches cells, and none of the baseline's."""
+    if treatments is not None and not treatments:
+        raise CompareError("no treatment arms named; leave --arm out to compare every other arm")
     if treatments is None:
         # every other arm that has cells; the baseline's own arm from another batch is named by its batch
         treatments = sorted({f"{c['batch']}/{c['arm']}" if c["arm"] == base_sel[1] else c["arm"]
@@ -224,8 +283,7 @@ def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPL
 
 
 def format_compare(summary: dict[str, Any]) -> str:
-    lines = [f"baseline {summary['baseline']}: {summary['cells']} finished cells in "
-             f"{len(summary['batches'])} batch(es), {len(summary['missing'])} missing"]
+    lines = _format_header(summary)
     groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in summary["comparisons"]:
         groups[(row["treatment"], row["model"])].append(row)
@@ -253,7 +311,19 @@ def format_compare(summary: dict[str, Any]) -> str:
             + (f" and {len(summary['unpaired']) - len(shown)} more" if len(summary["unpaired"]) > 10 else ""))
     if summary["missing"]:
         lines.append(f"{len(summary['missing'])} cells missing (no result.json): `repo report` lists them")
+    lines += [f"warning: {w}" for w in summary["warnings"]]
     return "\n".join(lines)
+
+
+def _format_header(summary: dict[str, Any]) -> list[str]:
+    lines = [f"baseline {summary['baseline']}: {summary['cells']} finished cells in "
+             f"{len(summary['batches'])} batch(es), {len(summary['missing'])} missing"]
+    for text, batches in summary["sources"].items():
+        lines.append(f"  {text}: {', '.join(batches)}")
+    for name, stamp in summary["stamps"].items():
+        shown = [f"{k} {stamp[k][:12] if k == 'eval_dir' else stamp[k]}" for k in ("tree", *STAMP_KEYS) if k in stamp]
+        lines.append(f"  batch {name}: " + ", ".join([*shown, "harness " + ", ".join(stamp["harness_versions"])]))
+    return lines
 
 
 def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[tuple[str, str], dict[str, Any]]:
