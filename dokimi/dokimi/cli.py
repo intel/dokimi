@@ -29,6 +29,7 @@ from dokimi.commands import (
     run,
     subjects,
     tasks,
+    tools,
 )
 from dokimi.console import tolerate_console_encoding
 
@@ -71,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.register(sub, positive_int)          # ingest
     novelty.register(sub, positive_int)         # novelty (content novelty)
     repo.register(sub, positive_int)            # repo (repositories as subjects)
+    tools.register(sub, positive_int)           # tools (tool-choice probes)
 
     return p
 

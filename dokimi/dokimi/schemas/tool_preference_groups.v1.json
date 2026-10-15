@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/tool_preference_groups.v1.json",
+  "title": "Tool-preference groups v1 (input)",
+  "description": "Input to `tools preference`: per group, one user request and a tool list in which two tools (twins A and B) do the job equally well, plus distractors that do not. The probe varies one twin at a time (docs/tool-preference.md).",
+  "type": "object",
+  "required": ["schema_version", "groups"],
+  "properties": {
+    "schema_version": {"const": "tool_preference_groups.v1"},
+    "system": {"type": "string", "description": "System prompt for every item; an empty string sends none. Default: a neutral 'use tools when they help' prompt."},
+    "cues": {
+      "type": "object",
+      "description": "Override the sentence a factor appends to the treated twin's description.",
+      "properties": {
+        "assertive": {"type": "string", "minLength": 1},
+        "social_proof": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "groups": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "query", "twins", "distractors"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "domain": {"type": "string", "description": "Free-form label, carried to the results for slicing."},
+          "query": {"type": "string", "minLength": 1, "description": "The user message."},
+          "expect": {"enum": ["call", "none"], "description": "`none`: no tool is needed (a control group, scored as over-calling). Default `call`."},
+          "twins": {
+            "type": "object",
+            "required": ["A", "B"],
+            "properties": {
+              "A": {"$ref": "#/$defs/twin"},
+              "B": {"$ref": "#/$defs/twin"}
+            },
+            "additionalProperties": false
+          },
+          "distractors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "description"],
+              "properties": {
+                "name": {"$ref": "#/$defs/tool_name"},
+                "description": {"type": "string", "minLength": 1},
+                "parameters": {"type": "object"}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "tool_name": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+    "twin": {
+      "type": "object",
+      "required": ["name", "description"],
+      "properties": {
+        "name": {"$ref": "#/$defs/tool_name"},
+        "description": {"type": "string", "minLength": 1, "description": "Neutral, short: the baseline description."},
+        "parameters": {"type": "object", "description": "JSON Schema of the arguments (OpenAI tools format)."},
+        "vendor_name": {"$ref": "#/$defs/tool_name", "description": "Branded name for the `vendor_name` factor; without it the factor is skipped for this twin."},
+        "detail": {"type": "string", "minLength": 1, "description": "Extra capability sentence for `long_desc`; without it the factor is skipped."},
+        "example": {"type": "string", "minLength": 1, "description": "Usage example appended by `long_desc`."},
+        "exclusion": {"type": "string", "minLength": 1, "description": "'Do NOT use for …' sentence for `exclusion`; without it the factor is skipped."}
+      },
+      "additionalProperties": false
+    }
+  }
+}

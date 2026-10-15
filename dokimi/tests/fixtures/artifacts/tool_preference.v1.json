@@ -1,0 +1,528 @@
+{
+  "schema_version": "tool_preference.v1",
+  "generated_at": "2026-10-14T00:00:00+00:00",
+  "model": "claude-haiku-5-5",
+  "provider": "anthropic",
+  "reps": 1,
+  "factors": [
+    "assertive"
+  ],
+  "groups_sha256": "6eea2c6daacd05e6733a131e48ece7b3998d77dcca9f6e1061752c162883ce21",
+  "items": [
+    {
+      "id": "G01-baseline-Afirst",
+      "group_id": "G01",
+      "kind": "pair",
+      "factor": "baseline",
+      "treated_role": null,
+      "first_role": "A",
+      "twin_names": {
+        "A": "search_docs",
+        "B": "find_documentation"
+      }
+    },
+    {
+      "id": "G01-baseline-Bfirst",
+      "group_id": "G01",
+      "kind": "pair",
+      "factor": "baseline",
+      "treated_role": null,
+      "first_role": "B",
+      "twin_names": {
+        "A": "search_docs",
+        "B": "find_documentation"
+      }
+    },
+    {
+      "id": "G01-assertive-A-first",
+      "group_id": "G01",
+      "kind": "pair",
+      "factor": "assertive",
+      "treated_role": "A",
+      "first_role": "A",
+      "twin_names": {
+        "A": "search_docs",
+        "B": "find_documentation"
+      }
+    },
+    {
+      "id": "G01-assertive-A-last",
+      "group_id": "G01",
+      "kind": "pair",
+      "factor": "assertive",
+      "treated_role": "A",
+      "first_role": "B",
+      "twin_names": {
+        "A": "search_docs",
+        "B": "find_documentation"
+      }
+    },
+    {
+      "id": "G01-assertive-B-first",
+      "group_id": "G01",
+      "kind": "pair",
+      "factor": "assertive",
+      "treated_role": "B",
+      "first_role": "B",
+      "twin_names": {
+        "A": "search_docs",
+        "B": "find_documentation"
+      }
+    },
+    {
+      "id": "G01-assertive-B-last",
+      "group_id": "G01",
+      "kind": "pair",
+      "factor": "assertive",
+      "treated_role": "B",
+      "first_role": "A",
+      "twin_names": {
+        "A": "search_docs",
+        "B": "find_documentation"
+      }
+    },
+    {
+      "id": "G02-baseline-Afirst",
+      "group_id": "G02",
+      "kind": "pair",
+      "factor": "baseline",
+      "treated_role": null,
+      "first_role": "A",
+      "twin_names": {
+        "A": "get_system_info",
+        "B": "describe_hardware"
+      }
+    },
+    {
+      "id": "G02-baseline-Bfirst",
+      "group_id": "G02",
+      "kind": "pair",
+      "factor": "baseline",
+      "treated_role": null,
+      "first_role": "B",
+      "twin_names": {
+        "A": "get_system_info",
+        "B": "describe_hardware"
+      }
+    },
+    {
+      "id": "G02-assertive-A-first",
+      "group_id": "G02",
+      "kind": "pair",
+      "factor": "assertive",
+      "treated_role": "A",
+      "first_role": "A",
+      "twin_names": {
+        "A": "get_system_info",
+        "B": "describe_hardware"
+      }
+    },
+    {
+      "id": "G02-assertive-A-last",
+      "group_id": "G02",
+      "kind": "pair",
+      "factor": "assertive",
+      "treated_role": "A",
+      "first_role": "B",
+      "twin_names": {
+        "A": "get_system_info",
+        "B": "describe_hardware"
+      }
+    },
+    {
+      "id": "G02-assertive-B-first",
+      "group_id": "G02",
+      "kind": "pair",
+      "factor": "assertive",
+      "treated_role": "B",
+      "first_role": "B",
+      "twin_names": {
+        "A": "get_system_info",
+        "B": "describe_hardware"
+      }
+    },
+    {
+      "id": "G02-assertive-B-last",
+      "group_id": "G02",
+      "kind": "pair",
+      "factor": "assertive",
+      "treated_role": "B",
+      "first_role": "A",
+      "twin_names": {
+        "A": "get_system_info",
+        "B": "describe_hardware"
+      }
+    },
+    {
+      "id": "N01-baseline-Afirst",
+      "group_id": "N01",
+      "kind": "control",
+      "factor": "baseline",
+      "treated_role": null,
+      "first_role": "A",
+      "twin_names": {
+        "A": "get_system_info",
+        "B": "describe_hardware"
+      }
+    },
+    {
+      "id": "N01-baseline-Bfirst",
+      "group_id": "N01",
+      "kind": "control",
+      "factor": "baseline",
+      "treated_role": null,
+      "first_role": "B",
+      "twin_names": {
+        "A": "get_system_info",
+        "B": "describe_hardware"
+      }
+    },
+    {
+      "id": "N01-assertive-A-first",
+      "group_id": "N01",
+      "kind": "control",
+      "factor": "assertive",
+      "treated_role": "A",
+      "first_role": "A",
+      "twin_names": {
+        "A": "get_system_info",
+        "B": "describe_hardware"
+      }
+    },
+    {
+      "id": "N01-assertive-B-first",
+      "group_id": "N01",
+      "kind": "control",
+      "factor": "assertive",
+      "treated_role": "B",
+      "first_role": "B",
+      "twin_names": {
+        "A": "get_system_info",
+        "B": "describe_hardware"
+      }
+    }
+  ],
+  "results": [
+    {
+      "item_id": "G01-baseline-Afirst",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "find_documentation"
+        ],
+        "outcome": "B"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "G01-baseline-Bfirst",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "search_docs"
+        ],
+        "outcome": "A"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "G01-assertive-A-first",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "search_docs"
+        ],
+        "outcome": "A"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "G01-assertive-A-last",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "search_docs"
+        ],
+        "outcome": "A"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "G01-assertive-B-first",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "find_documentation"
+        ],
+        "outcome": "B"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "G01-assertive-B-last",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "find_documentation"
+        ],
+        "outcome": "B"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "G02-baseline-Afirst",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "describe_hardware"
+        ],
+        "outcome": "B"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "G02-baseline-Bfirst",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "get_system_info"
+        ],
+        "outcome": "A"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "G02-assertive-A-first",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "get_system_info"
+        ],
+        "outcome": "A"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "G02-assertive-A-last",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "get_system_info"
+        ],
+        "outcome": "A"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "G02-assertive-B-first",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "describe_hardware"
+        ],
+        "outcome": "B"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "G02-assertive-B-last",
+      "rep": 0,
+      "choice": {
+        "called": [
+          "describe_hardware"
+        ],
+        "outcome": "B"
+      },
+      "text_preview": "",
+      "usage": {
+        "prompt_tokens": 180,
+        "completion_tokens": 20,
+        "cost_usd": 0.0002
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "N01-baseline-Afirst",
+      "rep": 0,
+      "choice": {
+        "called": [],
+        "outcome": "none"
+      },
+      "text_preview": "3.5 GiB is 3584 MiB.",
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 9,
+        "cost_usd": 0.0001
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "N01-baseline-Bfirst",
+      "rep": 0,
+      "choice": {
+        "called": [],
+        "outcome": "none"
+      },
+      "text_preview": "3.5 GiB is 3584 MiB.",
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 9,
+        "cost_usd": 0.0001
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "N01-assertive-A-first",
+      "rep": 0,
+      "choice": {
+        "called": [],
+        "outcome": "none"
+      },
+      "text_preview": "3.5 GiB is 3584 MiB.",
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 9,
+        "cost_usd": 0.0001
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    },
+    {
+      "item_id": "N01-assertive-B-first",
+      "rep": 0,
+      "choice": {
+        "called": [],
+        "outcome": "none"
+      },
+      "text_preview": "3.5 GiB is 3584 MiB.",
+      "usage": {
+        "prompt_tokens": 120,
+        "completion_tokens": 9,
+        "cost_usd": 0.0001
+      },
+      "error": null,
+      "elapsed_sec": 0.5
+    }
+  ],
+  "summary": {
+    "n_items": 16,
+    "n_calls": 16,
+    "n_errors": 0,
+    "first_twin_share_baseline": {
+      "mean": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "n_groups": 2
+    },
+    "factor_effects": {
+      "assertive": {
+        "mean": 0.5,
+        "ci95": [
+          0.5,
+          0.5
+        ],
+        "n_groups": 2
+      }
+    },
+    "pair_outcomes": {
+      "both_twins": 0.0,
+      "distractor": 0.0,
+      "none": 0.0
+    },
+    "control_over_call": {
+      "assertive": 0.0,
+      "baseline": 0.0
+    },
+    "same_choice_rate": null,
+    "modal_share": null
+  },
+  "usage": {
+    "n_calls": 16,
+    "prompt_tokens": 2640,
+    "completion_tokens": 276,
+    "cost_usd": 0.0028,
+    "cost_known_calls": 16
+  }
+}

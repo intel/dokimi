@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/tool_preference.v1.json",
+  "title": "Tool-preference probe v1",
+  "description": "What moves one model's first-turn choice between two equal tools (docs/tool-preference.md). `results` holds one record per item and rep; `choice.outcome` is A, B, both (both twins called in one turn), distractor, or none. Factor effects are the treated twin's choice share minus the same tool's share at the same position in the baseline, averaged per group, with a 95% bootstrap CI over groups.",
+  "type": "object",
+  "required": ["schema_version", "model", "provider", "reps", "factors", "groups_sha256", "items", "results", "summary"],
+  "properties": {
+    "schema_version": {"const": "tool_preference.v1"},
+    "generated_at": {"type": "string"},
+    "model": {"type": "string"},
+    "provider": {"type": "string"},
+    "reps": {"type": "integer", "minimum": 1},
+    "factors": {"type": "array", "items": {"enum": ["vendor_name", "assertive", "social_proof", "long_desc", "exclusion"]}},
+    "groups_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Digest of the groups document; results from different groups are not comparable."},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "group_id", "kind", "factor", "first_role", "twin_names"],
+        "properties": {
+          "id": {"type": "string"},
+          "group_id": {"type": "string"},
+          "kind": {"enum": ["pair", "control"]},
+          "factor": {"enum": ["baseline", "vendor_name", "assertive", "social_proof", "long_desc", "exclusion"]},
+          "treated_role": {"enum": ["A", "B", null]},
+          "first_role": {"enum": ["A", "B"]},
+          "twin_names": {
+            "type": "object",
+            "required": ["A", "B"],
+            "properties": {"A": {"type": "string"}, "B": {"type": "string"}}
+          }
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["item_id", "rep", "choice", "error"],
+        "properties": {
+          "item_id": {"type": "string"},
+          "rep": {"type": "integer", "minimum": 0},
+          "choice": {
+            "type": ["object", "null"],
+            "required": ["called", "outcome"],
+            "properties": {
+              "called": {"type": "array", "items": {"type": "string"}, "description": "Tool names of the first turn, in call order; parallel calls included."},
+              "outcome": {"enum": ["A", "B", "both", "distractor", "none"]}
+            }
+          },
+          "text_preview": {"type": "string"},
+          "usage": {"type": ["object", "null"]},
+          "error": {"type": ["string", "null"], "description": "Why the call produced no choice; such records are left out of the summary."},
+          "elapsed_sec": {"type": "number"}
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["n_items", "n_calls", "n_errors", "first_twin_share_baseline", "factor_effects", "pair_outcomes", "control_over_call", "same_choice_rate", "modal_share"],
+      "properties": {
+        "n_items": {"type": "integer"},
+        "n_calls": {"type": "integer"},
+        "n_errors": {"type": "integer"},
+        "first_twin_share_baseline": {"$ref": "#/$defs/estimate"},
+        "factor_effects": {"type": "object", "additionalProperties": {"$ref": "#/$defs/estimate"}},
+        "pair_outcomes": {
+          "type": "object",
+          "properties": {
+            "both_twins": {"type": ["number", "null"]},
+            "distractor": {"type": ["number", "null"]},
+            "none": {"type": ["number", "null"]}
+          }
+        },
+        "control_over_call": {"type": "object", "additionalProperties": {"type": ["number", "null"]}},
+        "same_choice_rate": {"type": ["number", "null"], "description": "Share of items whose first-turn outcome was the same on every rep; null with one rep."},
+        "modal_share": {"type": ["number", "null"]}
+      }
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "n_calls": {"type": "integer"},
+        "prompt_tokens": {"type": "integer"},
+        "completion_tokens": {"type": "integer"},
+        "cost_usd": {"type": ["number", "null"]},
+        "cost_known_calls": {"type": "integer"}
+      }
+    }
+  },
+  "$defs": {
+    "estimate": {
+      "type": "object",
+      "required": ["mean", "ci95", "n_groups"],
+      "properties": {
+        "mean": {"type": ["number", "null"]},
+        "ci95": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+        "n_groups": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}
