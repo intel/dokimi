@@ -75,6 +75,18 @@ def _parse_arguments(args_str: str):
     return args, None
 
 
+def _missing_required(tool: Tool, args: Dict[str, Any]):
+    """Return a problem string when ``args`` lacks a key the tool's schema requires.
+
+    ``{}`` parses, but handing it to a tool whose ``query`` is required runs the
+    same empty search the parse-failure path no longer does.
+    """
+    missing = [k for k in tool.parameters.get("required") or [] if k not in args]
+    if missing:
+        return "missing required argument(s): " + ", ".join(missing)
+    return None
+
+
 def _summarize_tool_usage(
     tools: List[Tool], transcript: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
@@ -233,6 +245,8 @@ def run_agent_loop(
             tc_id, name, args_str = _tool_call_fields(tc)
             args, bad_args = _parse_arguments(args_str)
             tool = by_name.get(name)
+            if tool is not None and not bad_args:
+                bad_args = _missing_required(tool, args)
             t_tool = time.time()
             error = None
             if tool is None:

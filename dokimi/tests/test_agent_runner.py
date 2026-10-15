@@ -5,6 +5,7 @@
 
 import json
 
+import pytest
 from conftest import DEMO_SKILL_MARKER
 
 import dokimi.eval.agent_runner as ar_mod
@@ -310,6 +311,27 @@ def test_malformed_arguments_do_not_run_the_tool(monkeypatch):
     # The model is told, so it can retry with valid arguments.
     tool_msg = [m for m in sent[1] if m["role"] == "tool"][0]
     assert tool_msg["content"].startswith("(invalid tool arguments: ")
+
+
+@pytest.mark.parametrize("arguments", ["{}", "", '{"other": 1}'])
+def test_missing_required_argument_does_not_run_the_tool(monkeypatch, arguments):
+    # `query` is required by the schema; `{}` parses but must not search for "".
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, sent = _run_with_one_call(monkeypatch, tool, "search_documentation", arguments)
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "malformed_args"
+    tool_msg = [m for m in sent[1] if m["role"] == "tool"][0]
+    assert "missing required argument(s): query" in tool_msg["content"]
+
+
+def test_empty_arguments_still_run_a_tool_with_no_required_argument(monkeypatch):
+    class _NoArgs(DocQueryTool):
+        parameters = {"type": "object", "properties": {}}
+
+    tool = _NoArgs(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", "{}")
+    assert tool.calls == [""]
+    assert "error" not in result["transcript"][0]
 
 
 def test_non_object_arguments_are_malformed(monkeypatch):
