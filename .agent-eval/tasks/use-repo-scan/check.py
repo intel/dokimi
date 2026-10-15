@@ -8,8 +8,10 @@ manifest_ok: examples/toy-repo/repo-eval.yaml exists, dokimi's manifest loader a
 repo-eval.yaml --json` exits 0 with AGENTS.md among the scanned files. `repo validate` is not
 required: it also wants eval_dir and the tasks directory to exist, which a scan-only manifest
 (like the framework's own benchmarks/self-scan.repo-eval.yaml) does not have.
-answer_names_claim_1/2: the final answer names each broken claim (the missing path, the dead
-link). The fix suggestions and whether the agent ran `repo scan` are reported, not gated.
+answer_names_claim_1/2: the final answer calls each broken claim (the missing path, the dead
+link) wrong: a paragraph or list item names the file and says it is missing or broken, or gives
+the right path, so "parser.py and releasing.md look fine" passes neither. The fix suggestions
+and whether the agent ran `repo scan` are reported, not gated.
 """
 import json
 import os
@@ -28,6 +30,14 @@ FIXES = {
     "answer_fix_1": r"tokens\.py",
     "answer_fix_2": r"(?<![\w-])release\.md",
 }
+BROKEN = re.compile(r"n[o']t\s+exist|non-?existent|\bis\s+no\b|missing|absent|not\s+found|no\s+such|broken|"
+                    r"dead|stale|wrong|incorrect|outdated|invalid|fail", re.I)
+
+
+def calls_broken(answer: str, claim: str, fix: str) -> bool:
+    """A paragraph or top-level list item names *claim* and says it is broken or gives *fix*."""
+    blocks = re.split(r"\n\s*\n|\n(?=[-*]\s|\d+\.\s)", answer)
+    return any(re.search(claim, b, re.I) and (BROKEN.search(b) or re.search(fix, b, re.I)) for b in blocks)
 
 
 def manifest_metrics() -> dict:
@@ -69,7 +79,9 @@ def main() -> None:
                                   and metrics["scan_covers_agents_md"])
     answer_path = run_dir / "answer.txt"
     answer = answer_path.read_text(encoding="utf-8", errors="replace") if answer_path.is_file() else ""
-    for name, rx in {**CLAIMS, **FIXES}.items():
+    for (name, rx), fix in zip(CLAIMS.items(), FIXES.values(), strict=True):
+        metrics[name] = calls_broken(answer, rx, fix)
+    for name, rx in FIXES.items():
         metrics[name] = bool(re.search(rx, answer, re.I))
     agents_md = TOY / "AGENTS.md"
     metrics["toy_agents_md_unchanged"] = agents_md.is_file() and "docs/releasing.md" in agents_md.read_text(

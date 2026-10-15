@@ -168,12 +168,12 @@ def added_lines(path_re):
 
 @guard("tests_added")
 def _():
-    return any(re.search(r"codex", l, re.I) for l in added_lines(re.compile(r"^dokimi/tests/.*\.py$")))
+    return any(re.search(r"codex", line, re.I) for line in added_lines(re.compile(r"^dokimi/tests/.*\.py$")))
 
 
 @guard("docs_updated")
 def _():
-    return any(re.search(r"codex", l, re.I) for l in added_lines(DOC_FILES))
+    return any(re.search(r"codex", line, re.I) for line in added_lines(DOC_FILES))
 
 
 for n in notes:

@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-import dokimi.harnesses.docker_solver as mod
 from dokimi.harnesses import load_task
 from dokimi.harnesses.command import CommandHarness
 from dokimi.harnesses.docker_solver import DockerSolverHarness
@@ -26,9 +25,14 @@ def _harbor(root: Path, name: str = "hb-task") -> Path:
     return task
 
 
+_REAL_RUN = subprocess.run
+
+
 class _Container:
-    """A fake task container: the verifier (``test.sh``) writes *files* under
-    /logs/verifier and exits *rc*; ``docker cp`` / ``docker exec cat`` read them."""
+    """A fake ``docker`` behind ``subprocess.run``: the verifier (``test.sh``) writes
+    *files* under /logs/verifier and exits *rc*; ``docker cp`` / ``docker exec cat``
+    read them. Every other docker command (build, run, rm, cp in) succeeds. Patched at
+    the subprocess boundary, so a fix may rename or split the harness's helpers."""
 
     def __init__(self, files: dict[str, str], rc: int = 0):
         self.pending = {f"/logs/verifier/{k}": v for k, v in files.items()}
@@ -81,23 +85,20 @@ class _Container:
     def _inspect(self, args: list[str]) -> tuple[int, str]:
         return 0, "true\n"
 
-    def docker(self, args, log=None, *, check=True, timeout=None, **_kw):
-        args = [str(a) for a in args]
-        handler = {"cp": self._cp, "exec": self._exec, "inspect": self._inspect}.get(args[0] if args else "")
-        rc, out = handler(args) if handler else (0, "")
-        proc = subprocess.CompletedProcess(["docker", *args], rc, out, "")
+    def run(self, argv, *args, check=False, **kw):
+        argv = [str(a) for a in argv] if not isinstance(argv, str) else argv
+        if isinstance(argv, str) or not argv or Path(argv[0]).name != "docker":
+            return _REAL_RUN(argv, *args, check=check, **kw)
+        sub = argv[1:]
+        handler = {"cp": self._cp, "exec": self._exec, "inspect": self._inspect}.get(sub[0] if sub else "")
+        rc, out = handler(sub) if handler else (0, "")
         if check and rc != 0:
-            raise RuntimeError(f"docker {args[0]} failed (exit {rc})")
-        return proc
-
+            raise subprocess.CalledProcessError(rc, argv, out, "")
+        return subprocess.CompletedProcess(argv, rc, out, "")
 
 def _run_oracle(tmp_path, monkeypatch, files: dict[str, str], rc: int = 0):
     container = _Container(files, rc)
-    monkeypatch.setattr(mod, "_docker", container.docker)
-    monkeypatch.setattr(DockerSolverHarness, "_build_image", lambda self, t, i, log: None)
-    monkeypatch.setattr(DockerSolverHarness, "_start_container",
-                        lambda self, t, i, c, log, sandbox=None: None)
-    monkeypatch.setattr(DockerSolverHarness, "_solve_oracle", lambda self, t, c, log: None)
+    monkeypatch.setattr(subprocess, "run", container.run)
     task = load_task(_harbor(tmp_path / "tasks"))
     harness = DockerSolverHarness(harness_id="docker-oracle", mode="oracle")
     return harness.run(task, output_dir=tmp_path / "out")

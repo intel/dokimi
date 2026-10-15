@@ -22,7 +22,8 @@ offline. No grader calls an LLM.
 | `use-repo-scan` | use | check a user's AGENTS.md with dokimi | a working scan manifest; both broken claims named |
 
 Every code task also gets these metrics:
-- `regress_pass`: the whole suite, except three timing-sensitive tests
+- `regress_pass`: the whole suite, except timing- and process-sensitive tests: all of
+  `test_example_runner_processes.py` (4 tests, 7 cases) and 2 single tests (`REGRESSION` in `run.py`)
 - `ruff_ok`, `mypy_ok`, `config_ok`, `schema_ok`
 - `compat_ok`: `schema_compat` against the start commit
 - `diffcov_*`: CI's changed-line coverage gate
@@ -60,7 +61,7 @@ A task is a directory under `tasks/` with these files:
 
 | File | Required | What it holds |
 |---|---|---|
-| `task.json` | yes | contract §3 |
+| `task.json` | yes | contract §3; a code task needs a `gate` naming its metrics (`run.py` fails one without) |
 | `setup.patch` | no | puts the tree in its pre-task state |
 | `oracle.patch` | yes | the reference solution |
 | `oracle_answer.md` | review tasks only | the reference review |

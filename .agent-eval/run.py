@@ -162,10 +162,14 @@ def _regression(ws, proj, start, metrics, logs):
     logs["compat_ok"] = out[-3000:]
 
 
-def _hidden_tests(task, tdir, ws, proj, metrics, logs):
+def _hidden_tests(task, tdir, ws, proj, metrics, logs, errors):
     """Hidden tests, as files of their own so the agent's tests are never overwritten."""
     hidden = task.get("hidden_tests", [])
     if not hidden:
+        return
+    taken = [rel for rel in hidden if (ws / rel).exists()]
+    if taken:
+        errors.append(f"the workspace already has a file at a hidden test's path: {', '.join(taken)}")
         return
     for rel in hidden:
         dst = ws / rel
@@ -207,13 +211,30 @@ def grade(rd: Path):
         return {"pass": verdict, "metrics": metrics, "details": details, "errors": errors}
 
     _regression(ws, proj, start, metrics, logs)
-    _hidden_tests(task, tdir, ws, proj, metrics, logs)
+    process = process_metrics(rd, ws, start)   # the agent's changes, before the hidden tests are added
+    _hidden_tests(task, tdir, ws, proj, metrics, logs, errors)
     _task_checks(tdir, rd, proj, metrics, logs, errors)
-    metrics.update(process_metrics(rd, ws, start))
+    metrics.update(process)
     details["logs"] = logs
-    names = [g if isinstance(g, str) else g["metric"] for g in task.get("gate", ["pass"])]
-    ok = all(bool(metrics.get(n)) for n in names if n != "pass")
+    ok = _gate_ok(task, metrics, errors)
     return {"pass": None if errors else ok, "metrics": metrics, "details": details, "errors": errors}
+
+
+def _gate_ok(task, metrics, errors):
+    """The task's gate, read as the framework reads it: a name must be ``true``, a
+    ``{"metric", "min"}`` entry a number >= min. ``pass`` is this verdict, so a gate
+    without any other entry has nothing to decide on, which is a task error."""
+    gate = [g for g in task.get("gate", []) if g != "pass"]
+    if not gate:
+        errors.append("task.json has no gate besides `pass`: name the metrics that decide it")
+        return False
+
+    def passes(g):
+        if isinstance(g, str):
+            return metrics.get(g) is True
+        value = metrics.get(g["metric"])
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and value >= g["min"]
+    return all(passes(g) for g in gate)
 
 
 def oracle(rd: Path):
