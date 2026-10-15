@@ -70,3 +70,22 @@ def test_trigger_set_keeps_question_zero():
     queries = build_trigger_set([([{"id": 0, "question": "How do I profile?"},
                                    {"question": "Another one?"}], "none")], catalog=[])
     assert [q.id for q in queries] == ["0", "q2"]
+
+
+def test_checklist_keeps_question_zero(tmp_path):
+    import json
+
+    from dokimi.eval.checklist import load_points, run_checklist
+
+    path = tmp_path / "questions.json"
+    path.write_text(json.dumps({"questions": [
+        {"id": 0, "question": "q", "expected_topics": ["a point"]},
+        {"id": 1, "question": "q", "expected_topics": ["a point"]}]}), encoding="utf-8")
+    points = load_points(str(path))
+    assert sorted(points) == [0, 1]
+
+    records = [{"question_id": i, "question_text": "q", "arms": {"baseline": {"answer": "an answer"}}}
+               for i in (0, 1)]
+    report = run_checklist(records, points, lambda prompt, **kw: "YES")
+    assert report.n_without_points == 0
+    assert sorted(report.verdicts) == [0, 1]

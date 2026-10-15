@@ -38,6 +38,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.pairwise import ask_parsed, standalone_verdict
 from dokimi.eval.stats import mean_ci
+from dokimi.utils import question_id
 
 logger = logging.getLogger(__name__)
 
@@ -282,8 +283,8 @@ def run_checklist(
     report = ChecklistReport(judge=judge, baseline_arm=baseline_arm)
     jobs = []
     for rec in records:
-        qid = rec.get("question_id") or ""
-        points = points_by_qid.get(qid) or []
+        qid = question_id(rec)
+        points = [] if qid is None else points_by_qid.get(qid) or []
         if not points:
             report.n_without_points += 1
             continue
@@ -310,4 +311,4 @@ def load_points(path: str) -> Dict[str, List[str]]:
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
     questions = data.get("questions", data) if isinstance(data, dict) else data
-    return {q["id"]: points_of(q) for q in questions if q.get("id")}
+    return {question_id(q): points_of(q) for q in questions if question_id(q) is not None}
