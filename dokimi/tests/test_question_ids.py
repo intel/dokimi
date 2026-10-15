@@ -89,3 +89,21 @@ def test_checklist_keeps_question_zero(tmp_path):
     report = run_checklist(records, points, lambda prompt, **kw: "YES")
     assert report.n_without_points == 0
     assert sorted(report.verdicts) == [0, 1]
+
+
+def test_eval_report_accepts_integer_ids(tmp_path):
+    import json
+
+    from dokimi.report.eval_report import generate_report
+
+    evals = [{"question_id": qid, "question_text": "q", "difficulty": "beginner",
+              "with_docs": {"aggregate": 80}, "without_docs": {"aggregate": 60}, "delta": 20.0}
+             for qid in (0, "a-Q001", 7)]
+    src = tmp_path / "eval.json"
+    src.write_text(json.dumps({"library_name": "lib", "evaluations": evals}), encoding="utf-8")
+    out = tmp_path / "report.md"
+    generate_report(str(src), str(out), qa_json_out=str(tmp_path / "qa.json"))
+
+    qa = json.loads((tmp_path / "qa.json").read_text(encoding="utf-8"))
+    assert [r["question_id"] for r in qa["records"]] == [0, "a-Q001", 7]
+    assert "| 0 |" in out.read_text(encoding="utf-8")

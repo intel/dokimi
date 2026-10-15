@@ -119,7 +119,7 @@ def detect_static_prefix(evals):
         qid = e["question_id"]
         # Static questions typically look like 'onedal-Q001', 'onetbb-Q001', etc.
         import re
-        m = re.match(r"^([a-zA-Z]+-Q)\d+$", qid)
+        m = re.match(r"^([a-zA-Z]+-Q)\d+$", str(qid))
         if m:
             return m.group(1)
     return None
@@ -146,8 +146,8 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     library = os.path.basename(eval_path).replace(".json", "")
 
     static_prefix = detect_static_prefix(evals)
-    static_qs = [e for e in evals if static_prefix and e["question_id"].startswith(static_prefix)]
-    dynamic_qs = [e for e in evals if not (static_prefix and e["question_id"].startswith(static_prefix))]
+    static_qs = [e for e in evals if static_prefix and str(e["question_id"]).startswith(static_prefix)]
+    dynamic_qs = [e for e in evals if not (static_prefix and str(e["question_id"]).startswith(static_prefix))]
 
     all_stats = stats(evals)
     static_stats = stats(static_qs)
@@ -312,7 +312,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "|---|---|---:|---:|---:|---|---|",
     ]
     for e in sorted(valid_all, key=lambda x: x["delta"] if isinstance(x["delta"], (int, float)) else 0, reverse=True)[:15]:
-        src = "🔵 static" if static_prefix and e["question_id"].startswith(static_prefix) else "🟡 gen"
+        src = "🔵 static" if static_prefix and str(e["question_id"]).startswith(static_prefix) else "🟡 gen"
         q = fmt_question(e.get("question_text", ""))
         delta = round(e["delta"], 1) if isinstance(e["delta"], float) else e["delta"]
         lines.append(
@@ -329,7 +329,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "|---|---|---:|---:|---:|---|---|",
     ]
     for e in sorted(valid_all, key=lambda x: x["delta"] if isinstance(x["delta"], (int, float)) else 0)[:15]:
-        src = "🔵 static" if static_prefix and e["question_id"].startswith(static_prefix) else "🟡 gen"
+        src = "🔵 static" if static_prefix and str(e["question_id"]).startswith(static_prefix) else "🟡 gen"
         q = fmt_question(e.get("question_text", ""))
         delta = round(e["delta"], 1) if isinstance(e["delta"], float) else e["delta"]
         lines.append(
@@ -352,7 +352,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "|---|---|---:|---:|---|---|",
     ]
     for e in sorted(baseline_sorted, key=lambda x: x["without_docs"]["aggregate"])[:15]:
-        src = "🔵 static" if static_prefix and e["question_id"].startswith(static_prefix) else "🟡 gen"
+        src = "🔵 static" if static_prefix and str(e["question_id"]).startswith(static_prefix) else "🟡 gen"
         without_abs = e["without_docs"]["aggregate"]
         with_abs = e["with_docs"]["aggregate"] if e.get("with_docs") and e["with_docs"].get("aggregate") is not None else "N/A"
         lines.append(
@@ -366,7 +366,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "| QID | Difficulty | Context | Baseline | Delta | Question |",
         "|---|---|---:|---:|---:|---|",
     ]
-    for e in sorted(static_qs, key=lambda x: (x.get("difficulty", ""), x["question_id"])):
+    for e in sorted(static_qs, key=lambda x: (x.get("difficulty", ""), str(x["question_id"]))):
         wd = e["with_docs"]["aggregate"] if e.get("with_docs") and e["with_docs"].get("aggregate") is not None else "N/A"
         wod = e["without_docs"]["aggregate"] if e.get("without_docs") and e["without_docs"].get("aggregate") is not None else "N/A"
         delta = e.get("delta")
@@ -383,7 +383,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "| QID | Difficulty | Context | Baseline | Delta | Question |",
         "|---|---|---:|---:|---:|---|",
     ]
-    for e in sorted(dynamic_qs, key=lambda x: (x.get("difficulty", ""), x["question_id"])):
+    for e in sorted(dynamic_qs, key=lambda x: (x.get("difficulty", ""), str(x["question_id"]))):
         wd = e["with_docs"]["aggregate"] if e.get("with_docs") and e["with_docs"].get("aggregate") is not None else "N/A"
         wod = e["without_docs"]["aggregate"] if e.get("without_docs") and e["without_docs"].get("aggregate") is not None else "N/A"
         delta = e.get("delta")
