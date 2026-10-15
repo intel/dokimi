@@ -66,6 +66,19 @@ CI additionally holds a PR to:
 - **Workflow lint** — `zizmor --offline --min-severity medium .github/workflows` when you
   edit a workflow.
 
+**pre-commit.** `.pre-commit-config.yaml` at the repo root runs the fast
+offline checks on the files a commit stages: `ruff check` (the version and
+config CI uses), zizmor on the workflows, YAML/JSON/TOML syntax, conflict
+markers and files over 500 KB. From the repo root:
+
+```bash
+pip install pre-commit && pre-commit install   # `make dev` already installs pre-commit
+pre-commit run --all-files                     # the whole tree, as CI's pre-commit job does
+```
+
+mypy and pytest are not hooks: they need the full environment and pytest takes
+minutes. `make ci-local` runs both; `make hooks` runs mypy before a push.
+
 Dependencies install from `requirements.lock.txt`, and the docs build's from
 `requirements-docs.lock.txt` on top of it. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
@@ -79,7 +92,8 @@ the main lock changes too.
 Renovate (`.github/renovate.json5`) proposes updates on Mondays for releases at
 least 7 days old: one grouped PR for all minor and patch updates, one PR per
 major, a monthly lock refresh, and security fixes as soon as an advisory
-appears. It does not update `requirements-docs.lock.txt` yet; pip-audit in CI
+appears. A pre-commit hook rev and the pin `ci.yml` installs for the same tool
+(ruff, zizmor) come in one PR of their own. It does not update `requirements-docs.lock.txt` yet; pip-audit in CI
 still audits it.
 
 Guidelines:

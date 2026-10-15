@@ -44,8 +44,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
-      # 0.12: per-file-target-version, and the version syntax errors it enables.
-      - run: pip install 'ruff>=0.12'
+      # At least 0.12: per-file-target-version, and the version syntax errors it
+      # enables. Pinned to the ruff-check rev in .pre-commit-config.yaml, so the
+      # hook and CI report the same findings; Renovate bumps the two together.
+      - run: pip install ruff==0.17.0
       - name: ruff check
         run: ruff check .
 
@@ -173,9 +175,32 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
+      # The zizmor rev in .pre-commit-config.yaml is this version too.
       - run: pip install zizmor==1.30.1
       - name: zizmor
         run: zizmor --offline --min-severity medium .github/workflows
+
+  # The hooks in .pre-commit-config.yaml, so they stay green on main: a change
+  # that fails one fails here, not on the next contributor's commit. ruff-check
+  # and zizmor are skipped: the lint and workflow-lint jobs run the same versions.
+  pre-commit:
+    name: File hygiene (pre-commit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      - run: pip install pre-commit==4.6.2
+      - name: pre-commit
+        env:
+          SKIP: ruff-check,zizmor
+        run: pre-commit run --all-files --show-diff-on-failure --color always
 
   # Holds the baseline SECURITY.md describes: no Medium/High Bandit finding, and
   # no dependency advisory beyond the ones it lists.
