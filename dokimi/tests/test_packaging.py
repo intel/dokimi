@@ -96,3 +96,28 @@ def test_license_files_match_the_repository_root(name):
     # pyproject's license-files cannot reach outside the project directory, so
     # the project keeps copies of the repository-root files.
     assert (PROJECT / name).read_bytes() == (PROJECT.parent / name).read_bytes()
+
+
+class _Resolved(Exception):
+    pass
+
+
+@pytest.mark.parametrize("module, func", [
+    ("dokimi.commands.questions", "cmd_questions_generate"),
+    ("dokimi.commands.answers", "cmd_answers_generate"),
+])
+def test_generate_commands_read_the_resolved_runtime_config(monkeypatch, module, func):
+    # The installed-wheel case: the config comes from runtime_config_path(),
+    # not from a hard-coded config/products.yaml in the working directory.
+    import importlib
+    import types
+
+    import dokimi.config as cfg
+
+    def spy():
+        raise _Resolved
+
+    monkeypatch.setattr(cfg, "runtime_config_path", spy)
+    args = types.SimpleNamespace(product="p", top_k=None)
+    with pytest.raises(_Resolved):
+        getattr(importlib.import_module(module), func)(args)
