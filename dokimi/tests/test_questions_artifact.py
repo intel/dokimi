@@ -525,3 +525,64 @@ def test_questions_from_the_runs_own_output_is_left_unchanged(tmp_path, monkeypa
     result = _pipeline(tmp_path, monkeypatch, questions_from=tmp_path / "run").run(concurrency=1)
     assert own.read_bytes() == before
     assert result["question_set_hash"]
+
+
+def test_a_stamped_v1_set_with_question_records_is_read_with_a_notice(tmp_path, caplog):
+    src = tmp_path / "refined.json"  # what `questions refine` wrote before v2
+    src.write_text(json.dumps({"schema_version": "questions.v1",
+                               "questions": [{"id": "q1", "question": "Q?"}]}), encoding="utf-8")
+    with caplog.at_level("WARNING", logger="dokimi.questions.artifact"):
+        loaded = load_questions(src)
+    assert (loaded.source_version, loaded.legacy) == (None, ("not valid as the questions.v1 it declares",))
+    assert loaded.questions == [{"id": "q1", "question": "Q?"}]
+    assert "legacy questions format (not valid as the questions.v1 it declares)" in caplog.text
+
+
+def test_the_pipeline_merge_without_a_custom_set_keeps_the_generated_questions(tmp_path):
+    from dokimi.orchestrator.pipeline import EvaluationPipeline
+
+    pipe = EvaluationPipeline.__new__(EvaluationPipeline)
+    pipe.product = "oneTBB"
+    pipe.questions_path = tmp_path / "questions" / "oneTBB.json"
+    pipe.custom_questions_path = None
+    generated = [{"id": "g1", "question": "How do I use parallel_for?", "source_type": "generated"}]
+    a, b, c, d = _no_embeddings()
+    with a, b, c, d:
+        assert pipe._merge_questions(generated) == generated
+
+
+def test_answers_generate_refuses_an_unusable_set_before_any_call(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "q.json"
+    src.write_text(json.dumps([{"id": "q1", "text": ""}]), encoding="utf-8")
+
+    def no_client(*a, **kw):
+        raise AssertionError("a doc-source client was made")
+
+    monkeypatch.setattr("dokimi.mcp.factory.create_doc_source_client", no_client)
+    args = build_parser().parse_args(["answers", "generate", "--product", "oneTBB",
+                                      "--questions", str(src)])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    assert "record 0 (id 'q1'), `question`: '' should be non-empty" in capsys.readouterr().err
+
+
+def test_report_generate_reads_a_legacy_set(tmp_path, monkeypatch):
+    seen: dict = {}
+
+    def generate_report(self, eval_data, questions_data, output_format="markdown"):
+        seen.update(questions_data)
+        return "report"
+
+    monkeypatch.setattr("dokimi.report.ReportGenerator.generate_report", generate_report)
+    ev = tmp_path / "eval.json"
+    ev.write_text(json.dumps({"evaluations": []}), encoding="utf-8")
+    src = tmp_path / "q.json"
+    src.write_text(json.dumps([{"text": "How do I use parallel_for?"}]), encoding="utf-8")
+    before = src.read_bytes()
+    out = tmp_path / "report.md"
+    args = build_parser().parse_args(["report", "generate", "--product", "oneTBB", "--eval", str(ev),
+                                      "--questions", str(src), "--output", str(out)])
+    args.func(args)
+    assert seen["questions"] == [{"id": "q0000", "question": "How do I use parallel_for?"}]
+    assert out.read_text(encoding="utf-8") == "report" and src.read_bytes() == before
