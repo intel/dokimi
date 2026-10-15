@@ -25,6 +25,7 @@ Evidence tracks:
 | Exploration (ExploreBench) | Can the agent locate the right files and line ranges? | [external-content.md](docs/external-content.md) |
 | Content novelty | What does a skill *add* to a given model, and what can be cut? | [skill-novelty.md](docs/skill-novelty.md) |
 | Repository subjects | How well does an agent work inside a given repository? | [repo-evaluation-contract.md](docs/repo-evaluation-contract.md) |
+| Context window | What did the agent's context hold: start-up load, growth, compactions, tool-output weight? | [context-window.md](docs/context-window.md) |
 | Static docs checks | Are the docs well-structured, fresh, readable, with runnable examples? | [Static benchmark metrics](#static-benchmark-metrics) |
 
 ### Three questions you can ask
@@ -119,6 +120,7 @@ Executable and agentic tracks
   explore             Run file/line localization tasks (ExploreBench)
   repo                Validate a repository's repo-eval.yaml, fetch pinned sources, probe guidance reach
   catalog             Check which skills/tasks in an external checkout load cleanly
+  context             Read a run's context window from its trace (no LLM call)
 
 Content analysis
   novelty             Measure what an artifact's content adds to a model
@@ -236,6 +238,7 @@ dokimi/                  Main Python package
   agent_profiles/        Agent persona prompt loader
   commands/              CLI subcommand definitions
   dashboard/             Dashboard aggregation/rendering
+  context/               Context window of a run, read from its harness trace
   eval/                  Answer generation, judges, panels, RAGAS, arm runner
   explore/               ExploreBench localization track
   external/              External skill/task catalog scanning
@@ -266,6 +269,7 @@ docs/                    Documentation (full index: docs/README.md)
   evaluating-treatments.md
                          Comparing docs / MCP / skill / profile arms
   coding-harnesses.md    Executable tasks through coding-agent harnesses
+  context-window.md      What a run's context window held, from its trace
   skill-novelty.md       What a skill adds to a model
   repo-evaluation-contract.md
                          Evaluating a whole repository as a subject

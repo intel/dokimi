@@ -109,6 +109,7 @@ nav:
       - evaluating-treatments.md
       - tool-preference.md
       - coding-harnesses.md
+      - context-window.md
   - Content novelty:
       - skill-novelty.md
       - skill-novelty-walkthrough.md

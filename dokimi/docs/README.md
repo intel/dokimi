@@ -234,6 +234,9 @@ code.
 - [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
   through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
   verifier pass rate against a baseline.
+- [context-window.md](context-window.md) — read a run's context window from
+  its Claude Code trace with `cli.py context trace`: start-up load, growth,
+  compactions, tool-result weight. No LLM call.
 
 ## Content novelty
 

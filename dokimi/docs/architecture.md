@@ -268,6 +268,15 @@ codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
 `repo run` needs `--agent-network` for an agent that must reach its model.
 
+## Context window
+
+`dokimi/context/trace.py` reads a Claude Code `stream-json` trace into the
+prompt size of every model call (`input + cache_creation + cache_read`
+tokens, one call per message id), the compaction events, and tool-result sizes,
+failures and repeats per tool. `python cli.py context trace` prints one or more
+traces as a comparison table; it calls no model. Guide:
+[context-window.md](context-window.md).
+
 ## Shared building blocks
 
 - `dokimi/llm.py` — provider-neutral LLM call wrapper (LiteLLM-based)

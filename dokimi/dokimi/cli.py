@@ -14,6 +14,7 @@ from dokimi.commands import (
     baseline,
     benchmark,
     catalog,
+    context,
     dashboard,
     dataset,
     evaluate,
@@ -73,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     novelty.register(sub, positive_int)         # novelty (content novelty)
     repo.register(sub, positive_int)            # repo (repositories as subjects)
     tools.register(sub, positive_int)           # tools (tool-choice probes)
+    context.register(sub, positive_int)         # context (context window of a run)
 
     return p
 
