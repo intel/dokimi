@@ -1,6 +1,11 @@
 # Dokimi — agent measurement framework
 
+[![docs](https://github.com/intel/dokimi/actions/workflows/docs.yml/badge.svg?branch=main)](https://intel.github.io/dokimi/)
 [![codecov](https://codecov.io/gh/intel/dokimi/graph/badge.svg?branch=main)](https://codecov.io/gh/intel/dokimi)
+
+**Documentation: <https://intel.github.io/dokimi/>** — guides, plus a
+[CLI reference](https://intel.github.io/dokimi/reference/cli/) and an
+[API reference](https://intel.github.io/dokimi/reference/api/) generated from the code.
 
 > **dokimi** — Greek *δοκιμή*, "test, proof". The name is the method: an
 > artifact does not get trusted because it was written or because it is popular,

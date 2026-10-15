@@ -4,6 +4,9 @@
 > source / agent profile actually improves agent answers, and produces the
 > evidence (a scorecard) that decides whether the artifact is worth shipping.
 > See the [repository overview](../README.md) for the short version.
+>
+> **Documentation: <https://intel.github.io/dokimi/>** (the [`docs/`](docs/README.md)
+> pages plus a generated CLI and API reference).
 
 `dokimi` measures whether a skill, MCP doc source, documentation set or
 agent profile actually improves a model's or coding agent's answers and task
