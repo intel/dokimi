@@ -55,24 +55,36 @@ class _Container:
         root.mkdir(parents=True, exist_ok=True)
         return 0
 
+    def _cp(self, args: list[str]) -> tuple[int, str]:
+        if len(args) >= 3 and ":" in args[1] and not args[1].startswith("/"):
+            return self._cp_out(args[1].split(":", 1)[1], Path(args[2])), ""
+        return 0, ""
+
+    def _cat(self, cmd: str, rc: int) -> tuple[int, str]:
+        words = set(shlex.split(cmd.replace(";", " ").replace("&&", " ")))
+        hits = [p for p in self.fs if p in words]
+        out = "".join(self.fs[p] for p in hits)
+        if not hits and "test.sh" not in cmd:
+            rc = 1
+        return rc, out
+
+    def _exec(self, args: list[str]) -> tuple[int, str]:
+        cmd = " ".join(args)
+        rc, out = 0, ""
+        if "test.sh" in cmd:
+            self.fs.update(self.pending)
+            rc = self.rc
+        if "cat" in cmd:
+            rc, out = self._cat(cmd, rc)
+        return rc, out
+
+    def _inspect(self, args: list[str]) -> tuple[int, str]:
+        return 0, "true\n"
+
     def docker(self, args, log=None, *, check=True, timeout=None, **_kw):
         args = [str(a) for a in args]
-        rc, out = 0, ""
-        if args and args[0] == "cp" and len(args) >= 3 and ":" in args[1] and not args[1].startswith("/"):
-            rc = self._cp_out(args[1].split(":", 1)[1], Path(args[2]))
-        elif args and args[0] == "exec":
-            cmd = " ".join(args)
-            if "test.sh" in cmd:
-                self.fs.update(self.pending)
-                rc = self.rc
-            if "cat" in cmd:
-                words = set(shlex.split(cmd.replace(";", " ").replace("&&", " ")))
-                hits = [p for p in self.fs if p in words]
-                out = "".join(self.fs[p] for p in hits)
-                if not hits and "test.sh" not in cmd:
-                    rc = 1
-        elif args and args[0] == "inspect":
-            out = "true\n"
+        handler = {"cp": self._cp, "exec": self._exec, "inspect": self._inspect}.get(args[0] if args else "")
+        rc, out = handler(args) if handler else (0, "")
         proc = subprocess.CompletedProcess(["docker", *args], rc, out, "")
         if check and rc != 0:
             raise RuntimeError(f"docker {args[0]} failed (exit {rc})")

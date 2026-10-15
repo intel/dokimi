@@ -75,21 +75,24 @@ def key_paths(node, path=""):
     return out
 
 
-def schema_keys_kept(start):
-    sdir = "dokimi/dokimi/schemas"
-    names = [n.split("/")[-1] for n in git("ls-tree", "--name-only", f"{start}:{sdir}").split()
+SCHEMA_DIR = "dokimi/dokimi/schemas"
+
+
+def start_key_paths(start):
+    """{schema file name: key paths} for the start-commit schemas that define the keys."""
+    names = [n.split("/")[-1] for n in git("ls-tree", "--name-only", f"{start}:{SCHEMA_DIR}").split()
              if n.endswith(".json")]
     base_paths = {}
     for n in names:
-        paths = key_paths(json.loads(git("show", f"{start}:{sdir}/{n}")))
+        paths = key_paths(json.loads(git("show", f"{start}:{SCHEMA_DIR}/{n}")))
         if paths:
             base_paths[n] = paths
-    note("start schemas with the keys:", {k: len(v) for k, v in base_paths.items()})
-    if not base_paths:
-        return False
-    ok = True
-    cur_dir = PROJ / "dokimi" / "schemas"
+    return base_paths
+
+
+def start_schemas_kept(cur_dir, base_paths):
     # every start schema that had the keys still has them, at the same places
+    ok = True
     for n, paths in base_paths.items():
         cur = cur_dir / n
         if not cur.exists():
@@ -100,9 +103,13 @@ def schema_keys_kept(start):
         if missing:
             note(f"schema {n} lost {sorted(missing)[:5]}")
             ok = False
+    return ok
+
+
+def new_schemas_kept(cur_dir, base_paths, kinds):
     # any schema file added since start for one of those kinds keeps them too (a new version
     # that renames the keys is the same break)
-    kinds = {n.split(".v")[0]: paths for n, paths in base_paths.items()}
+    ok = True
     for cur in sorted(cur_dir.glob("*.json")):
         kind = cur.name.split(".v")[0]
         if cur.name in base_paths or kind not in kinds:
@@ -113,10 +120,15 @@ def schema_keys_kept(start):
             ok = False
         else:
             note(f"new schema {cur.name} (keeps the keys)")
+    return ok
+
+
+def current_schemas_kept(cur_dir, kinds):
     # and the version the writers stamp is one of those
     sys.path.insert(0, str(PROJ))
     from dokimi.artifacts import SCHEMA_VERSIONS
 
+    ok = True
     for kind in ("answers", "eval"):
         cur = cur_dir / f"{SCHEMA_VERSIONS[kind]}.json"
         missing = kinds.get(kind, set()) - key_paths(json.loads(cur.read_text(encoding="utf-8")))
@@ -124,6 +136,20 @@ def schema_keys_kept(start):
             note(f"current {kind} schema {cur.name} drops {sorted(missing)[:5]}")
             ok = False
     return ok
+
+
+def schema_keys_kept(start):
+    base_paths = start_key_paths(start)
+    note("start schemas with the keys:", {k: len(v) for k, v in base_paths.items()})
+    if not base_paths:
+        return False
+    cur_dir = PROJ / "dokimi" / "schemas"
+    kinds = {n.split(".v")[0]: paths for n, paths in base_paths.items()}
+    # run every pass, so each one notes what it found
+    kept = start_schemas_kept(cur_dir, base_paths)
+    new_kept = new_schemas_kept(cur_dir, base_paths, kinds)
+    current_kept = current_schemas_kept(cur_dir, kinds)
+    return kept and new_kept and current_kept
 
 
 # ── (b) the writers still emit them ─────────────────────────────────────────
@@ -231,8 +257,7 @@ def both(text):
     return "treatment" in t and "control" in t
 
 
-def display_and_reads(tmp):
-    ok_display, ok_reads = True, True
+def write_inputs(tmp):
     (tmp / "eval").mkdir(parents=True, exist_ok=True)
     ev_path = tmp / "eval" / "X.json"
     ev_path.write_text(json.dumps(sample_eval()), encoding="utf-8")
@@ -240,28 +265,36 @@ def display_and_reads(tmp):
     qs_path.write_text(json.dumps({"questions": [
         {"id": f"q{i}", "text": f"How do I do thing {i}?", "category": "usage"} for i in range(1, 5)]}),
         encoding="utf-8")
+    return ev_path, qs_path
 
-    # report eval: Markdown + console summary
+
+def report_eval_ok(tmp, ev_path):
+    """report eval: Markdown + console summary. Returns (display ok, reads ok)."""
     rc, out, err = cli(["report", "eval", "--product", "X", "--eval", str(ev_path),
                         "--out", str(tmp / "r_eval.md")], tmp)
     note(f"report eval rc={rc}\n{out[-800:]}{err[-800:]}")
     md = (tmp / "r_eval.md").read_text(encoding="utf-8") if rc == 0 else ""
-    ok_display &= rc == 0 and md_ok(md, "report eval")
+    md_good = rc == 0 and md_ok(md, "report eval")
     summary_line = [line for line in out.splitlines() if "delta" in line.lower()]
     console_ok = any(both(line) for line in summary_line) and not re.search(r"\bwith=|\bwithout=", out)
     note(f"report eval console summary ok={console_ok}: {summary_line}")
-    ok_display &= console_ok
-    ok_reads &= rc == 0 and "71.2" in md and "58.8" in md
+    reads = rc == 0 and "71.2" in md and "58.8" in md
+    return md_good and console_ok, reads
 
-    # report generate: Markdown
+
+def report_generate_ok(tmp, ev_path, qs_path):
+    """report generate: Markdown. Returns (display ok, reads ok)."""
     rc, out, err = cli(["report", "generate", "--product", "X", "--eval", str(ev_path),
                         "--questions", str(qs_path), "--output", str(tmp / "r_gen.md")], tmp)
     note(f"report generate rc={rc} {err[-800:]}")
     md = (tmp / "r_gen.md").read_text(encoding="utf-8") if rc == 0 else ""
-    ok_display &= rc == 0 and md_ok(md, "report generate")
-    ok_reads &= rc == 0 and "71.2" in md and "58.8" in md
+    md_good = rc == 0 and md_ok(md, "report generate")
+    reads = rc == 0 and "71.2" in md and "58.8" in md
+    return md_good, reads
 
-    # baseline save / list / compare
+
+def baseline_ok(tmp, ev_path):
+    """baseline save / list / compare."""
     rc1, out1, err1 = cli(["baseline", "save", "--from-eval", str(ev_path), "--product", "X", "--name", "b1"], tmp)
     rc2, out2, err2 = cli(["baseline", "list"], tmp)
     rc3, out3, err3 = cli(["baseline", "compare", "--eval", str(ev_path), "--baseline", "b1"], tmp)
@@ -272,9 +305,11 @@ def display_and_reads(tmp):
     cmp_ok = (rc3 == 0 and both(out3)
               and not re.search(r"baseline avg|context avg|context arm", out3, re.I))
     note(f"baseline save={save_ok} list={list_ok} compare={cmp_ok}")
-    ok_display &= save_ok and list_ok and cmp_ok
+    return save_ok and list_ok and cmp_ok
 
-    # benchmark preflight: the resolved plan (exits 1 without API keys, after printing it)
+
+def preflight_ok(tmp):
+    """benchmark preflight: the resolved plan (exits 1 without API keys, after printing it)."""
     rc, out, err = cli(["benchmark", "preflight", "--library", "onetbb", "--doc-source",
                         "url:http://127.0.0.1:9/docs", "--output-dir", str(tmp / "bench")], tmp)
     note(f"preflight rc={rc}\n{out[-1200:]}")
@@ -282,7 +317,18 @@ def display_and_reads(tmp):
     # that users see treatment/control, not that the key disappears from the plan.
     pre_ok = "Resolved benchmark plan" in out and both(out)
     note(f"preflight ok={pre_ok}")
-    ok_display &= pre_ok
+    return pre_ok
+
+
+def display_and_reads(tmp):
+    ev_path, qs_path = write_inputs(tmp)
+    # run every surface, so each one notes what it found
+    eval_display, eval_reads = report_eval_ok(tmp, ev_path)
+    gen_display, gen_reads = report_generate_ok(tmp, ev_path, qs_path)
+    base_display = baseline_ok(tmp, ev_path)
+    pre_display = preflight_ok(tmp)
+    ok_display = eval_display and gen_display and base_display and pre_display
+    ok_reads = eval_reads and gen_reads
     return bool(ok_display), bool(ok_reads)
 
 
