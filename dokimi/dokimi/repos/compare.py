@@ -99,7 +99,13 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     unpaired: list[dict[str, Any]] = []
     for text in treatments:
         treat_vals = _task_values([c for c in cells if selector_matches(parse_selector(text), c)], metrics)
-        shared_models = sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals})
+        base_models, treat_models = {m for m, _ in base_vals}, {m for m, _ in treat_vals}
+        for model in sorted(base_models ^ treat_models):
+            if not models or model in models:  # a model only one arm ran has no task to pair: list its tasks
+                seen, gone = (base_vals, "treatment") if model in base_models else (treat_vals, "baseline")
+                unpaired += [{"treatment": text, "model": model, "task": t, "missing_in": gone}
+                             for m, t in sorted(seen) if m == model]
+        shared_models = sorted(base_models & treat_models)
         for model in [m for m in shared_models if not models or m in models]:
             _compare_model(text, model, base_vals, treat_vals, measures, seed, rows, unpaired)
     _check_models(models, rows, unpaired)

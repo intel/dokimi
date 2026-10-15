@@ -360,3 +360,15 @@ def test_a_batch_given_as_dot_keeps_its_directory_name(tmp_path, monkeypatch):
     monkeypatch.chdir(b)
     s = compare([Path(".")], "b1/guidance:none", ["b1/guidance:raw"])
     assert _row(s, "gate", treatment="b1/guidance:raw")["delta"]["mean"] == 1.0
+
+
+def test_a_model_only_one_arm_ran_is_listed_as_unpaired(tmp_path):
+    b = tmp_path / "b1"
+    _cell(b, "fix_a", "guidance:none", 1, model="m-A")
+    _cell(b, "fix_a", "guidance:raw", 1, model="m-B")
+    s = compare([b], "guidance:none")
+    assert s["comparisons"] == []
+    assert s["unpaired"] == [
+        {"treatment": "guidance:raw", "model": "m-A", "task": "fix_a", "missing_in": "treatment"},
+        {"treatment": "guidance:raw", "model": "m-B", "task": "fix_a", "missing_in": "baseline"}]
+    assert "fix_a (m-A, none in treatment)" in format_compare(s)
