@@ -12,7 +12,9 @@ stage can be paid for once and reused.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -89,6 +91,10 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         print("Estimate only, nothing was measured. ~4 calls per paired probe is the "
               "measured shape; batch sizes and retries move the real figure.",
               file=sys.stderr)
+        if args.max_usd is None:
+            print("The estimate counts calls, not dollars: what a call costs depends on the "
+                  "artifact's length and the models' prices. Pass --max-usd to stop the run "
+                  "at a dollar figure.", file=sys.stderr)
         return
 
     extractor, answerer, judge = _clients(args)
@@ -377,13 +383,17 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
 
     try:
         gold, body = candidate(args.artifact)
-        competitors = [candidate(ref)[0] for ref in args.competitors]
+        competitors = [candidate(ref)[0] for ref in args.competitors or []]
+        if args.catalog:
+            competitors += _catalog_competitors(args.catalog, gold.name,
+                                                {c.name for c in competitors})
     except (FileNotFoundError, ValueError) as exc:
         raise SystemExit(f"cannot load an artifact: {exc}") from None
     if not competitors:
         raise SystemExit(
-            "routing needs competitors: selecting from one candidate measures whether the "
-            "model will use a tool at all, not whether this artifact wins"
+            "routing needs competitors (--competitors, or --catalog for a skill's siblings): "
+            "selecting from one candidate measures whether the model will use a tool at all, "
+            "not whether this artifact wins"
         )
 
     # The artifact as its own competitor is a measurement that cannot succeed: the tie
@@ -468,6 +478,25 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
               "truncates descriptions in its own listing selects on less text.")
     if self_derived:
         print("Self-derived queries: read as triage only.")
+
+
+def _catalog_competitors(root: str, gold: str, named: set[str]) -> list:
+    """Every skill under ``root`` except the one under test and those already named.
+
+    The field a harness would list next to the artifact, rather than one the caller picks.
+    """
+    from dokimi.novelty.routing import Candidate
+    from dokimi.skills import discover_skills
+
+    if not Path(root).is_dir():
+        raise ValueError(f"--catalog is not a directory: {root}")
+    skills = [s for s in discover_skills(root) if s.name != gold and s.name not in named]
+    no_description = [s.name for s in skills if not s.description]
+    if no_description:
+        print(f"WARNING: {len(no_description)} catalog skill(s) have no description, so their "
+              f"card is a name only: {', '.join(sorted(no_description))}", file=sys.stderr)
+    print(f"--catalog {root}: {len(skills)} competitors", file=sys.stderr)
+    return [Candidate(name=s.name, description=s.description) for s in skills]
 
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
@@ -795,7 +824,7 @@ def register(sub, positive_int) -> None:
                            help="Print the projected model-call bill and exit without "
                                 "spending anything")
     _add_bundle_args(analyze_p, positive_int)
-    analyze_p.set_defaults(func=cmd_novelty_analyze)
+    analyze_p.set_defaults(func=_stops_at_cap(cmd_novelty_analyze))
 
     atoms_p = novelty_sub.add_parser("atoms", help="Extract knowledge atoms and spans only")
     _add_common(atoms_p, positive_int)
@@ -806,15 +835,16 @@ def register(sub, positive_int) -> None:
     atoms_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
     atoms_p.add_argument("--no-verify", action="store_true", dest="no_verify")
     atoms_p.add_argument("--out", default=None)
+    _add_spend_cap(atoms_p)
     _add_bundle_args(atoms_p, positive_int)
-    atoms_p.set_defaults(func=cmd_novelty_atoms)
+    atoms_p.set_defaults(func=_stops_at_cap(cmd_novelty_atoms))
 
     probe_p = novelty_sub.add_parser("probe", help="Run paired probes against a saved atom set")
     _add_common(probe_p, positive_int)
     _add_model_args(probe_p, positive_int)
     probe_p.add_argument("--atoms", required=True, help="atoms.json from `novelty atoms`")
     probe_p.add_argument("--out", default=None)
-    probe_p.set_defaults(func=cmd_novelty_probe)
+    probe_p.set_defaults(func=_stops_at_cap(cmd_novelty_probe))
 
     shorten_p = novelty_sub.add_parser(
         "shorten", help="Score shortening candidates on tokens/knowledge/value/protection/routing"
@@ -831,17 +861,23 @@ def register(sub, positive_int) -> None:
     shorten_p.add_argument("--allow-unsafe", action="store_true", dest="allow_unsafe",
                            help="Allow a best-candidate pick that drops protected spans")
     shorten_p.add_argument("--out", default=None, help="Write the chosen candidate here")
-    shorten_p.set_defaults(func=cmd_novelty_shorten)
+    _add_spend_cap(shorten_p)
+    shorten_p.set_defaults(func=_stops_at_cap(cmd_novelty_shorten))
 
     routing_p = novelty_sub.add_parser(
         "routing", help="Can the artifact be selected against competitors? (name+description)"
     )
     routing_p.add_argument("--artifact", required=True,
                            help="skill:<path> or text:<path> under test")
-    routing_p.add_argument("--competitors", nargs="+", required=True,
+    routing_p.add_argument("--competitors", nargs="+", default=None,
                            help="Other artifacts the selector sees. Selection among one "
                                 "candidate is not routing: the sibling confusion is the "
                                 "failure mode (every `dpnp-*` skill scored 0.0 lexically)")
+    routing_p.add_argument("--catalog", default=None,
+                           help="Directory of skills to take the competitors from: every "
+                                "SKILL.md under it except the artifact itself, i.e. the "
+                                "siblings a harness lists next to it. Combines with "
+                                "--competitors")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")
@@ -859,7 +895,8 @@ def register(sub, positive_int) -> None:
                            help="Seeds the per-query card permutation, so a position-biased "
                                 "model scores ~1/N and the run is reproducible")
     routing_p.add_argument("--out", default=None)
-    routing_p.set_defaults(func=cmd_novelty_routing)
+    _add_spend_cap(routing_p)
+    routing_p.set_defaults(func=_stops_at_cap(cmd_novelty_routing))
 
     items_p = novelty_sub.add_parser(
         "items", help="Item analysis across saved probe runs: which atoms separate the models"
@@ -958,6 +995,7 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                              "as a warning on the artifact")
     parser.add_argument("--no-paraphrase", action="store_true", dest="no_paraphrase")
     parser.add_argument("--no-reversal", action="store_true", dest="no_reversal")
+    _add_spend_cap(parser)
 
 
 def _clients(args: argparse.Namespace):
@@ -979,7 +1017,49 @@ def _client(model: str, provider: str, role: str, args: argparse.Namespace):
     return LLMClient(
         model=model, provider=provider, role=role,
         max_tokens=getattr(args, "max_tokens", None),
+        cap=_spend_cap(args),
     )
+
+
+def _spend_cap(args: argparse.Namespace):
+    """The invocation's one ``--max-usd`` cap, shared by every role client."""
+    from dokimi.novelty.client import SpendCap
+
+    limit = getattr(args, "max_usd", None)
+    if limit is None:
+        return None
+    if getattr(args, "_spend_cap", None) is None:
+        args._spend_cap = SpendCap(limit_usd=limit)
+    return args._spend_cap
+
+
+def _stops_at_cap(command):
+    """Turn a reached spend cap into a clean exit instead of a traceback."""
+    from dokimi.novelty.client import SpendCapReached
+
+    @functools.wraps(command)
+    def run(args: argparse.Namespace) -> None:
+        try:
+            command(args)
+        except SpendCapReached as exc:
+            raise SystemExit(str(exc)) from None
+
+    return run
+
+
+def _usd(text: str) -> float:
+    """A positive, finite USD amount (``0``, negatives, ``nan`` and ``inf`` would disable the cap)."""
+    value = float(text)
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive number of USD, got {text!r}")
+    return value
+
+
+def _add_spend_cap(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--max-usd", type=_usd, default=None, dest="max_usd",
+                        help="Stop the run once its model calls have cost this much (USD, "
+                             "all roles together; calls in flight can overshoot it). A call "
+                             "with no known price also stops it. Default: no cap")
 
 
 def _default_judge(model: str) -> str:

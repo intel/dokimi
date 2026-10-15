@@ -274,6 +274,14 @@ def test_no_claim_for_options_or_operators(tmp_path):
     assert ("pytest_path", "slow_case") not in got
 
 
+def test_a_github_action_reference_is_not_a_path(tmp_path):
+    got = _verdicts(_scan(tmp_path, "Pin `actions/checkout@v6` and `actions/upload-artifact@ea165f8d...`; "
+                          "see `actions/old.yml` and `docs/a@b/x.md`.\n", {"actions/new.yml": ""}))
+    assert not any("@v6" in claim or "@ea165f8d" in claim for _, claim in got)
+    assert got[("path", "actions/old.yml")] == "fail"          # a real path in that directory still is one
+    assert ("path", "docs/a@b/x.md") in got                    # an `@` mid-path is not a ref
+
+
 def test_links_inside_code_spans_are_not_links(tmp_path):
     got = _verdicts(_scan(tmp_path, "Write `[text](docs/guide.md)` in a page.\n"))
     assert not any(kind == "link" for kind, _ in got)

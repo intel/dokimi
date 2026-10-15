@@ -25,9 +25,14 @@ If the artifact is never picked, content work is unrecoverable spend. Write 5–
 
 ```bash
 python cli.py novelty routing --artifact skill:skills/my-skill \
-    --competitors skill:skills/sibling-a skill:skills/sibling-b ... \
+    --catalog skills/ \
     --queries queries.json
 ```
+
+The competitors are the skills a harness lists next to this one: `--catalog <dir>` takes
+every other `SKILL.md` under the directory, and `--competitors` adds or names them one by
+one. With no real siblings at hand, skip this step and say so; a field of competitors made
+up for the run measures nothing.
 
 Read `recall@1` against the competitors, not alone. Measured on the study corpus, every
 `dpnp-*` skill scored 0.0 against its siblings, and `linux-perf` scored 0.0 recall@1 on
@@ -52,6 +57,12 @@ lower without it. It prints the projected model-call bill and exits before build
 ambiguous band — so the output carries both ends, `total_calls` and
 `total_calls_if_every_pair_escalates`. The probe term was validated to within 1–3% of
 counted calls at nine (skill, tier) points, on content that did not escalate.
+
+The bill is in calls, not dollars: a call's price follows the artifact's length and the
+models. Pass `--max-usd <n>` to every step that calls a model: the run stops once its calls
+across all roles have cost that much (calls already in flight can overshoot it), and a call
+with no known price stops it too, since the cap cannot see that spend. One measured pair, a
+19k-token skill: triage 103 calls, about $1.80; `study` 1,901 calls, about $14.50.
 
 ## 3. Triage: is there anything in here? (~100 calls)
 

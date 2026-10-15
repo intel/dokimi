@@ -496,3 +496,72 @@ def test_reserved_run_entries_cover_what_the_runner_writes():
     written = {AGENT_GIT, GRADE_HOME, *HOST_FILES, "grade.json", "agent.stdout", "agent.stderr",
                "oracle.log", "oracle.err", "isolation.log", "isolation.err"}
     assert written <= RESERVED_RUN_ENTRIES
+
+
+# --- guidance-only manifests --------------------------------------------------
+
+GUIDANCE_ONLY = {"schema": "repo_manifest.v1", "id": "toy",
+                 "guidance": {"globs": ["**/AGENTS.md"], "also_scan": ["CONTRIBUTING.md"]}}
+
+
+def test_a_guidance_only_manifest_checks_the_guidance_and_says_what_it_cannot_do(tmp_path):
+    manifest = parse_manifest(json.loads(json.dumps(GUIDANCE_ONLY)))
+    assert not manifest.runnable and manifest.eval_dir is None and manifest.tasks is None
+    report = check_repo(WorkTree(_repo(tmp_path)), manifest)
+    assert report.ok, report.errors
+    assert report.guidance_files == ["AGENTS.md", "src/AGENTS.md"]
+    assert report.tasks == []
+    assert any("guidance-only" in note for note in report.notes)
+
+
+@pytest.mark.parametrize("extra", [
+    {"eval_dir": "dev/evals"},
+    {"tasks": "dev/evals/tasks"},
+    {"entry_points": {"grade": "true"}},
+    {"image": {"dockerfile": "Dockerfile"}},
+    {"explore_tasks": "dev/evals/explore"},
+])
+def test_half_a_runnable_manifest_is_refused(extra):
+    with pytest.raises(ManifestError, match="without"):
+        parse_manifest({**json.loads(json.dumps(GUIDANCE_ONLY)), **extra})
+
+
+def test_running_tasks_refuses_a_guidance_only_manifest():
+    from dokimi.repos.manifest import require_runnable
+
+    with pytest.raises(ManifestError, match="running tasks needs eval_dir"):
+        require_runnable(parse_manifest(json.loads(json.dumps(GUIDANCE_ONLY))))
+    require_runnable(parse_manifest(json.loads(json.dumps(MANIFEST))))
+
+
+def test_scan_without_a_manifest_checks_the_default_guidance(tmp_path, capsys):
+    root = tmp_path / "plain"
+    _write(root, "AGENTS.md", "See `src/missing.py`.\n")
+    _write(root, "src/CLAUDE.md", "# scoped\n")
+    args = build_parser().parse_args(["repo", "scan", str(root), "--json"])
+    args.func(args)
+    captured = capsys.readouterr()
+    assert "no .agent-eval/repo-eval.yaml" in captured.err
+    payload = json.loads(captured.out)
+    assert payload["repo"]["id"] == "plain"
+    assert set(payload["files"]) == {"AGENTS.md", "src/CLAUDE.md"}
+    assert payload["counts"]["fail"] == 1      # src/missing.py
+
+
+def test_validate_still_needs_a_manifest(tmp_path):
+    args = build_parser().parse_args(["repo", "validate", str(_repo(tmp_path))])
+    with pytest.raises(SystemExit):
+        args.func(args)
+
+
+@pytest.mark.parametrize("label, expected", [
+    ("/home/u/repos/abicheck", "abicheck"),
+    ("/home/u/oneDAL@0123456789ab", "onedal"),
+    ("https://github.com/intel/dokimi.git", "dokimi"),
+    ("git@github.com:o/My Repo", "my-repo"),
+    ("/", "repo"),
+])
+def test_the_default_manifest_id_is_a_valid_id(label, expected):
+    from dokimi.commands.repo import _manifest_id
+
+    assert _manifest_id(label) == expected

@@ -551,6 +551,9 @@ python cli.py novelty routing --artifact skill:path/to/skill \
     --queries queries.json [--model M]
 ```
 
+`--catalog <dir>` takes the competitors from a skill directory instead: every `SKILL.md`
+under it except the artifact itself.
+
 Two numbers, reported side by side and never merged:
 
 - **Lexical** — BM25 over each candidate's `name + description`, which is exactly the text

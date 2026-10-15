@@ -42,6 +42,8 @@ _ALLCAPS = re.compile(r"^[A-Z][A-Z0-9_]{3,}$")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_]\w*\+?=")
 _PROMPT = re.compile(r"^\s*(?:\$|>|#\s*\$)\s+")
 _PLACEHOLDER = re.compile(r"^(?:<[^>]+>|\{[^}]+\}|\$\w+|\$\{[^}]+\}|\.\.\.)$")
+# `actions/checkout@v6`, `owner/repo/sub@<sha>…`: a GitHub Action reference, not a path in the tree
+_ACTION_REF = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w./-]+)?@[\w.-]+?(?:\.\.\.|…)?$")
 _WRAPPED = re.compile(r"^`([^`]+)`(\s+#.*)?$")  # a whole command in backticks, maybe with a comment
 # `2>&1`, `> log`, `>>log`, `&>/dev/null`, `< in`: a redirection and its target, not arguments.
 _REDIRECT = re.compile(r"(?:(?<=\s)|^)[0-9]?(?:&>>?|>>?|<)(?:&[0-9]+|\s*[^\s|;&<>]+)")
@@ -247,6 +249,8 @@ class Scan:
         """
         p = raw.strip().rstrip(".,:;")
         if not p or p.startswith(("http", "~", "-", "%")) or dynamic(p) or "=" in p or " " in p:
+            return None
+        if _ACTION_REF.match(p):
             return None
         bases = [""]
         d = posixpath.dirname(file)

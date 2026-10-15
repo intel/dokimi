@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from .manifest import RepoCheckReport, _is_within, match_glob
+from .manifest import RepoCheckReport, match_glob
 from .source import RepoTree, SourceError
 
 
@@ -36,7 +36,7 @@ def check_bases(report: RepoCheckReport, open_base: Callable[[str], RepoTree],
             continue
         found: list[str] = []
         for pattern in manifest.guidance_globs:
-            matched = [f for f in files if match_glob(pattern, f) and not _is_within(f, manifest.eval_dir)]
+            matched = [f for f in files if match_glob(pattern, f) and not manifest.in_eval_dir(f)]
             if matched:
                 matched_somewhere.add(pattern)
             found.extend(m for m in matched if m not in found)
