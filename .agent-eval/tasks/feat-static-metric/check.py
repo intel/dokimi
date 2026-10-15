@@ -182,11 +182,8 @@ def test_refs():
     for p in (PROJ / "tests").rglob("*.py"):
         if p.name.startswith("test_hidden_"):
             continue
-        try:
-            if M in p.read_text(encoding="utf-8"):
-                return True
-        except Exception:  # noqa: BLE001
-            continue
+        if M in p.read_text(encoding="utf-8", errors="replace"):
+            return True
     return False
 
 

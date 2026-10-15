@@ -17,7 +17,7 @@ def test_padding_does_not_split_a_pre_block():
     assert all(p in out for p in PADDING_PARAGRAPHS)
 
 
-@pytest.mark.parametrize("remove", [strip_code, lambda a: hedge_concrete(a, rng=random.Random(0))])
+@pytest.mark.parametrize("remove", [strip_code, lambda a: hedge_concrete(a, rng=random.Random(0))])  # nosec B311 - a fixed seed
 def test_code_removal_takes_the_whole_pre_block(remove):
     out = remove("Intro.\n\n<pre>\nmake all\n</pre>\n\nEnd.")
     assert "make all" not in out and "pre>" not in out, out

@@ -31,6 +31,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 EVAL_DIR = Path(os.environ.get("EVAL_CONTENT", "/eval/content"))
@@ -148,7 +149,7 @@ def _grade_review(task, rd, metrics, details):
 
 def _regression(ws, proj, start, metrics, logs):
     """The agent's own tree, before any hidden file is added."""
-    cov_xml = Path(os.environ.get("HOME", "/tmp")) / "coverage.xml"   # outside the workspace
+    cov_xml = Path(os.environ.get("HOME") or tempfile.gettempdir()) / "coverage.xml"   # outside the workspace
     for name, argv in REGRESSION.items():
         if name == "regress_pass":
             argv = [*argv, "--cov=dokimi", "--cov-branch", f"--cov-report=xml:{cov_xml}"]
@@ -202,7 +203,8 @@ def grade(rd: Path):
     if task["grader"] == "review":
         _grade_review(task, rd, metrics, details)
         metrics.update(process_metrics(rd, ws, start))
-        return {"pass": None, "metrics": metrics, "details": details, "errors": errors}
+        # repo_grade.v1's "pass" field; null = score-only
+        return {"pass": None, "metrics": metrics, "details": details, "errors": errors}  # nosec B105
 
     _regression(ws, proj, start, metrics, logs)
     _hidden_tests(task, tdir, ws, proj, metrics, logs)
