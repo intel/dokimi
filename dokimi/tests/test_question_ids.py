@@ -107,3 +107,29 @@ def test_eval_report_accepts_integer_ids(tmp_path):
     qa = json.loads((tmp_path / "qa.json").read_text(encoding="utf-8"))
     assert [r["question_id"] for r in qa["records"]] == [0, "a-Q001", 7]
     assert "| 0 |" in out.read_text(encoding="utf-8")
+
+
+def test_answerer_keeps_question_zero():
+    from unittest.mock import Mock, patch
+
+    import dokimi.eval.answerer as answerer_mod
+
+    usage = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+    with patch.object(answerer_mod, "llm_call_with_usage", return_value=("an answer", usage)),          patch.object(answerer_mod, "ChatOpenAI", Mock, create=True),          patch.object(answerer_mod, "LANGCHAIN_AVAILABLE", True):
+        answerer = answerer_mod.Answerer()
+        pair = answerer._generate_answer_pair("lib", "org/lib", {"id": 0, "question": "q?"}, 1000)
+        with patch.object(answerer, "_generate_answer_pair", side_effect=RuntimeError("boom")):
+            failed = answerer.generate_answers(
+                "lib", "org/lib", [{"id": 0, "question": "q?"}, {"question": "q?"}])
+
+    assert pair["question_id"] == 0
+    assert [a["question_id"] for a in failed] == [0, "1"]
+
+
+def test_expected_skill_error_names_question_zero():
+    from dokimi.commands.arms import _validate_expected_skills
+
+    with pytest.raises(ValueError, match="question 0: expected_skill"):
+        _validate_expected_skills([{"id": 0, "question": "q?", "expected_skill": 5}], [])
+    with pytest.raises(ValueError, match="question #0: expected_skill"):
+        _validate_expected_skills([{"question": "q?", "expected_skill": 5}], [])
