@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import tomllib
 import types
 from pathlib import Path
@@ -84,3 +85,56 @@ def test_main_exit_codes(monkeypatch, capsys):
     assert ccf.main(["--skip-label"]) == 0
     monkeypatch.setattr(ccf, "changed_files", lambda base, head: [("M", "dokimi/docs/a.md")])
     assert ccf.main([]) == 0
+
+
+# changed_files() runs git; the tests above stub it, so these use a real repository.
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", "-c", "user.email=t@example.com", "-c", "user.name=t", *args],
+        cwd=repo, check=True, capture_output=True,
+    )
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    _write(tmp_path, "dokimi/dokimi/a.py", "x = 1\n")
+    _write(tmp_path, "other.txt", "o\n")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "base")
+    _git(tmp_path, "checkout", "-qb", "pr")
+    monkeypatch.setattr(ccf, "REPO", tmp_path)
+    real = ccf.has_fragment
+    monkeypatch.setattr(ccf, "has_fragment", lambda changed: real(changed, root=tmp_path))
+    return tmp_path
+
+
+def test_a_file_moved_out_of_the_package_counts_as_a_package_change(repo):
+    _git(repo, "mv", "dokimi/dokimi/a.py", "other_a.py")
+    _git(repo, "commit", "-qm", "move")
+    changed = ccf.changed_files("main", "pr")
+    assert ("D", "dokimi/dokimi/a.py") in changed
+    assert ccf.needs_fragment(changed)
+
+
+def test_a_change_that_landed_on_main_after_the_fork_is_not_the_prs(repo):
+    _write(repo, "other.txt", "pr\n")
+    _git(repo, "commit", "-qam", "pr")
+    _git(repo, "checkout", "-q", "main")
+    _write(repo, "dokimi/dokimi/a.py", "x = 2\n")
+    _git(repo, "commit", "-qam", "main moves on")
+    changed = ccf.changed_files("main", "pr")
+    assert changed == [("M", "other.txt")]
+    assert not ccf.needs_fragment(changed)
+
+
+def test_main_exit_code_against_a_real_repository(repo):
+    _write(repo, "dokimi/dokimi/a.py", "x = 3\n")
+    _git(repo, "commit", "-qam", "code")
+    assert ccf.main(["--base", "main", "--head", "pr"]) == 1
+    _write(repo, "dokimi/changelog.d/f.md", "### Fixed\n\n- **x** - y.\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "fragment")
+    assert ccf.main(["--base", "main", "--head", "pr"]) == 0
