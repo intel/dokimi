@@ -70,6 +70,9 @@ def retry_writable(func: Any, path: str, _exc: Any) -> None:
     Windows will not delete a read-only file, and git leaves its object files
     read-only. A symlink is left alone, since chmod would follow it out of the
     tree. A retry that still fails is ignored; the caller checks what is left.
+    Only the delete calls are retried: on POSIX ``rmtree`` also reports a failed
+    ``os.open`` or ``os.scandir`` (an unreadable dir), which ``func(path)`` would
+    call with the wrong arguments and raise ``TypeError``.
     """
     import stat
 
@@ -77,7 +80,8 @@ def retry_writable(func: Any, path: str, _exc: Any) -> None:
         mode = os.lstat(path).st_mode
         if not stat.S_ISLNK(mode):
             os.chmod(path, stat.S_IMODE(mode) | stat.S_IWRITE)
-            func(path)
+            if func in (os.unlink, os.remove, os.rmdir):
+                func(path)
     except OSError:
         pass
 

@@ -806,3 +806,19 @@ def test_clear_run_dir_does_not_chmod_through_a_symlink(tmp_path):
 
     assert stat.S_IMODE(outside.stat().st_mode) == 0o444
     assert outside.read_text() == "keep"
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0, reason="needs POSIX modes that bind"
+)
+def test_clear_run_dir_on_an_unreadable_dir_is_a_clean_cell_error(tmp_path):
+    """rmtree reports a failed os.open on a mode-000 dir; the retry hook must not raise TypeError."""
+    cell = tmp_path / "cell"
+    (cell / "job").mkdir(parents=True)
+    (cell / "job" / "reward.txt").write_text("1.0")
+    (cell / "job").chmod(0)
+    try:
+        with pytest.raises(RuntimeError, match="could not clear"):
+            clear_run_dir(cell)
+    finally:
+        (cell / "job").chmod(0o755)
