@@ -88,12 +88,55 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     base_sel = parse_selector(baseline)
     if not any(selector_matches(base_sel, c) for c in cells):
         raise CompareError(f"no finished cell matches the baseline {baseline!r}")
+    treatments = _treatments(cells, baseline, base_sel, treatments)
+    measures = ["gate", "score", "cost_usd", "turns", *(f"metric:{m}" for m in metrics)]
+    base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics)
+    rows: list[dict[str, Any]] = []
+    unpaired: list[dict[str, Any]] = []
+    for text in treatments:
+        treat_vals = _task_values([c for c in cells if selector_matches(parse_selector(text), c)], metrics)
+        shared_models = sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals})
+        for model in [m for m in shared_models if not models or m in models]:
+            _compare_model(text, model, base_vals, treat_vals, measures, seed, rows, unpaired)
+    _holm(rows)
+    return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
+            "cells": len(cells), "missing": missing, "comparisons": rows, "unpaired": unpaired}
+
+
+def _holm(rows: list[dict[str, Any]]) -> None:
+    """``p_holm`` on the gate and score rows, corrected as one family."""
+    primary = [r for r in rows if r["measure"] in PRIMARY]
+    for row, p in zip(primary, adjust_pvalues([r["p"] for r in primary]), strict=True):
+        row["p_holm"] = p
+
+
+def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], dict[str, Any]],
+                   treat_vals: dict[tuple[str, str], dict[str, Any]], measures: list[str], seed: int,
+                   rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> None:
+    """Append one row per measure of one (treatment, model), and the tasks only one arm has."""
+    base_tasks = {t for m, t in base_vals if m == model}
+    treat_tasks = {t for m, t in treat_vals if m == model}
+    for task in sorted(base_tasks ^ treat_tasks):
+        unpaired.append({"treatment": treatment, "model": model, "task": task,
+                         "missing_in": "treatment" if task in base_tasks else "baseline"})
+    shared = sorted(base_tasks & treat_tasks)
+    for measure in measures:
+        found = (_pair(task, base_vals[(model, task)], treat_vals[(model, task)], measure) for task in shared)
+        pairs = [p for p in found if p is not None]
+        if pairs:
+            rows.append({"treatment": treatment, "model": model, "measure": measure,
+                         **paired_summary(pairs, seed=seed)})
+
+
+def _treatments(cells: list[dict[str, Any]], baseline: str, base_sel: tuple[str | None, str],
+                treatments: list[str] | None) -> list[str]:
+    """The treatment selectors to compare, checked: each matches cells, and none of the baseline's."""
     if treatments is None:
         # every other arm that has cells; the baseline's own arm from another batch is named by its batch
         treatments = sorted({f"{c['batch']}/{c['arm']}" if c["arm"] == base_sel[1] else c["arm"]
                              for c in cells if not selector_matches(base_sel, c)})
-    selectors = [(t, parse_selector(t)) for t in treatments]
-    for text, sel in selectors:
+    for text in treatments:
+        sel = parse_selector(text)
         if sel == base_sel:
             raise CompareError(f"treatment {text!r} is the baseline")
         matched = [c for c in cells if selector_matches(sel, c)]
@@ -102,42 +145,22 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
         if any(selector_matches(base_sel, c) for c in matched):
             raise CompareError(f"treatment {text!r} also matches cells of the baseline {baseline!r}; "
                                "name its batch (BATCH/ARM)")
-    measures = ["gate", "score", "cost_usd", "turns", *(f"metric:{m}" for m in metrics)]
-    base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics)
-    rows, unpaired = [], []
-    for text, sel in selectors:
-        treat_vals = _task_values([c for c in cells if selector_matches(sel, c)], metrics)
-        for model in sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals}):
-            if models and model not in models:
-                continue
-            base_tasks = {t for m, t in base_vals if m == model}
-            treat_tasks = {t for m, t in treat_vals if m == model}
-            unpaired += [{"treatment": text, "model": model, "task": t, "missing_in": "treatment"}
-                         for t in sorted(base_tasks - treat_tasks)]
-            unpaired += [{"treatment": text, "model": model, "task": t, "missing_in": "baseline"}
-                         for t in sorted(treat_tasks - base_tasks)]
-            shared = sorted(base_tasks & treat_tasks)
-            for measure in measures:
-                pairs = []
-                for task in shared:
-                    b, t = base_vals[(model, task)], treat_vals[(model, task)]
-                    if b["kind"] != t["kind"] and measure in PRIMARY:
-                        continue  # the arms disagree on whether the task is gated; report reads the runner's kind
-                    if measure in PRIMARY and b["kind"] != measure:
-                        continue
-                    bv, tv = b["values"].get(measure), t["values"].get(measure)
-                    if bv is None or tv is None:
-                        continue
-                    pairs.append({"task": task, "baseline": bv, "treatment": tv, "delta": round(tv - bv, 6),
-                                  "n_baseline": b["n"], "n_treatment": t["n"]})
-                if pairs:
-                    rows.append({"treatment": text, "model": model, "measure": measure,
-                                 **paired_summary(pairs, seed=seed)})
-    primary = [i for i, r in enumerate(rows) if r["measure"] in PRIMARY]
-    for i, p in zip(primary, adjust_pvalues([rows[i]["p"] for i in primary]), strict=True):
-        rows[i]["p_holm"] = p
-    return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
-            "cells": len(cells), "missing": missing, "comparisons": rows, "unpaired": unpaired}
+    return treatments
+
+
+def _pair(task: str, base: dict[str, Any], treat: dict[str, Any], measure: str) -> dict[str, Any] | None:
+    """One task's values of ``measure`` in both arms, or ``None`` when either arm has none.
+
+    gate and score apply only to tasks of that kind in both arms; arms that disagree on the kind (batches of
+    different eval trees) leave the task out of both.
+    """
+    if measure in PRIMARY and not base["kind"] == treat["kind"] == measure:
+        return None
+    bv, tv = base["values"].get(measure), treat["values"].get(measure)
+    if bv is None or tv is None:
+        return None
+    return {"task": task, "baseline": bv, "treatment": tv, "delta": round(tv - bv, 6),
+            "n_baseline": base["n"], "n_treatment": treat["n"]}
 
 
 def paired_summary(pairs: list[dict[str, Any]], seed: int = 0) -> dict[str, Any]:
