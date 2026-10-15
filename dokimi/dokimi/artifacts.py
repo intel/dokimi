@@ -79,14 +79,14 @@ def schema_version_for(kind: str, data: dict) -> str:
 
     An *unstamped* payload (no ``schema_version`` key: hand-written and older sets, e.g. curated
     question files) is matched against the current version, then each superseded one, newest
-    first, and resolves to the first it satisfies; when it satisfies none, to the current one,
-    so the errors reported are the current schema's.
+    first, and resolves to the first it satisfies; when it satisfies none, to the one it violates
+    least (the newest on a tie), so a set with one real fault reports that fault, not every
+    record as a wrong shape.
     """
     if "schema_version" not in data and SUPERSEDED_VERSIONS.get(kind):
-        for version in (SCHEMA_VERSIONS[kind], *SUPERSEDED_VERSIONS[kind]):
-            if not schema_errors(version, data):
-                return version
-        return SCHEMA_VERSIONS[kind]
+        counts = {v: len(schema_errors(v, data))
+                  for v in (SCHEMA_VERSIONS[kind], *SUPERSEDED_VERSIONS[kind])}
+        return min(counts, key=counts.__getitem__)
     declared = data.get("schema_version")
     if declared in SUPERSEDED_VERSIONS.get(kind, ()):
         return str(declared)

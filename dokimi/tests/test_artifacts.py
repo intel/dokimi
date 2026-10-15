@@ -517,9 +517,19 @@ def test_an_unstamped_payload_resolves_to_the_newest_version_it_matches():
     assert schema_version_for("questions", {"questions": []}) == "questions.v2"  # both: newest
     validate_artifact("questions", v1)
     validate_artifact("questions", v2)
-    # Scorecards require their stamp, so an unstamped one matches no version: current errors.
+    # Scorecards require their stamp, so an unstamped one matches no version: the closest one.
     scorecard = {k: v for k, v in _scorecard_v1().items() if k != "schema_version"}
-    assert schema_version_for("subject_scorecard", scorecard) == "subject_scorecard.v2"
+    assert schema_version_for("subject_scorecard", scorecard) == "subject_scorecard.v1"
+    with pytest.raises(ArtifactValidationError, match="schema_version"):
+        validate_artifact("subject_scorecard", scorecard)
+
+
+def test_an_unstamped_v1_set_with_one_fault_reports_only_that_fault():
+    bad = {"questions": [{"id": "a", "text": "A?"}, {"text": "B?"}, {"id": "c", "text": "C?"}]}
+    with pytest.raises(ArtifactValidationError) as exc:
+        validate_artifact("questions", bad)
+    assert "questions/1: 'id' is a required property" in str(exc.value)
+    assert "should not be valid" not in str(exc.value) and "'question'" not in str(exc.value)
 
 
 def test_an_unstamped_payload_matching_no_version_reports_the_current_schemas_errors():
