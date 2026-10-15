@@ -89,8 +89,14 @@ def retry_writable(func: Any, path: str, _exc: Any) -> None:
 
 
 def normalize_model_ref(provider: str, model: str) -> str:
-    """Normalize provider and model names for comparison."""
-    return f"{(provider or '').strip().lower()}/{(model or '').strip().lower()}"
+    """Normalize provider and model names for comparison.
+
+    On Bedrock a bare known name and its inference profile are the same model.
+    """
+    prov, name = (provider or "").strip().lower(), (model or "").strip()
+    if prov == "amazon-bedrock":
+        name = BEDROCK_MODEL_IDS.get(name, name)
+    return f"{prov}/{name.lower()}"
 
 
 def _read_key(value: str) -> str:

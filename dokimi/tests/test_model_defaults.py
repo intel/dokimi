@@ -140,3 +140,14 @@ def test_ragas_falls_back_to_the_default_judge_for_an_unsupported_provider(monke
     evaluator.llm_model, evaluator.provider, evaluator.api_key = "gemini-x", "google", None
     evaluator._build_ragas_llm()
     assert built == [(JUDGE[1], {"model": JUDGE[0]})]
+
+
+def test_independence_warning_sees_a_bedrock_alias_and_its_profile_as_one_model(capsys):
+    from dokimi.commands.evaluate import _warn_judge_independence
+
+    bare, profile = "claude-sonnet-5-5", defaults.BEDROCK_MODEL_IDS["claude-sonnet-5-5"]
+    assert _warn_judge_independence("amazon-bedrock", profile, "amazon-bedrock", bare)
+    assert "independence warning" in capsys.readouterr().err
+    assert not _warn_judge_independence("amazon-bedrock", "claude-haiku-5-5", "amazon-bedrock", bare)
+    # the alias only exists on Bedrock: the same strings on another provider stay distinct
+    assert not _warn_judge_independence("anthropic", profile, "anthropic", bare)
