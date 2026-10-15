@@ -84,6 +84,7 @@ def load_batches(batch_dirs: list[Path], metrics: tuple[str, ...] = ()) -> tuple
 
 def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None = None,
             models: list[str] | None = None, metrics: tuple[str, ...] = (), seed: int = 0) -> dict[str, Any]:
+    metrics = tuple(dict.fromkeys(metrics))
     cells, missing = load_batches(batch_dirs, metrics)
     base_sel = parse_selector(baseline)
     if not any(selector_matches(base_sel, c) for c in cells):
@@ -153,7 +154,7 @@ def _treatments(cells: list[dict[str, Any]], baseline: str, base_sel: tuple[str 
         if any(selector_matches(base_sel, c) for c in matched):
             raise CompareError(f"treatment {text!r} also matches cells of the baseline {baseline!r}; "
                                "name its batch (BATCH/ARM)")
-    return treatments
+    return list(dict.fromkeys(treatments))  # a repeated arm would double its rows and its share of Holm's family
 
 
 def _pair(task: str, base: dict[str, Any], treat: dict[str, Any], measure: str) -> dict[str, Any] | None:

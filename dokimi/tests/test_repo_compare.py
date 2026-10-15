@@ -312,3 +312,15 @@ def test_cli_exits_on_a_bad_baseline(tmp_path, capsys):
     with pytest.raises(SystemExit):
         args.func(args)
     assert "no finished cell matches the baseline" in capsys.readouterr().err
+
+
+def test_a_repeated_treatment_or_metric_is_one_comparison(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(6):
+        _cell(b, f"fix_{i}", "guidance:none", 1, success=False, metrics={"m": 0})
+        _cell(b, f"fix_{i}", "guidance:raw", 1, success=i < 5, metrics={"m": 1})
+    once = compare([b], "guidance:none", ["guidance:raw"], metrics=("m",))
+    twice = compare([b], "guidance:none", ["guidance:raw", "guidance:raw"], metrics=("m", "m"))
+    assert twice["treatments"] == ["guidance:raw"]
+    assert twice["comparisons"] == once["comparisons"]
+    assert _row(twice, "gate")["p_holm"] == _row(twice, "gate")["p"]  # a family of one, not two
