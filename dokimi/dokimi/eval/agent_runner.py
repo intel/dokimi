@@ -22,6 +22,7 @@ from typing import Any, Dict, List
 
 import jsonschema
 
+from dokimi.eval.arm_summary import TOOL_COUNTS
 from dokimi.llm import chat_completion, _extract_usage
 from dokimi.metrics.usage import UsageRecord
 from dokimi.treatments.base import Tool
@@ -85,9 +86,6 @@ def _schema_problem(tool: Tool, args: Dict[str, Any]):
     reaches the tool with a type it does not take. Keys the schema does not
     list still pass, unless the schema sets ``additionalProperties``.
     """
-    missing = [k for k in tool.parameters.get("required") or [] if k not in args]
-    if missing:
-        return "missing required argument(s): " + ", ".join(missing)
     schema = tool.parameters
     error = jsonschema.exceptions.best_match(
         jsonschema.validators.validator_for(schema)(schema).iter_errors(args))
@@ -110,6 +108,7 @@ def _summarize_tool_usage(
     A failed call counts only in ``call_errors``: every other field counts calls
     that returned a result, so a skill whose call was dropped or raised is not
     ``loaded`` (and does not reach the judge reference built from that list).
+    ``counts`` stamps that protocol (:data:`~dokimi.eval.arm_summary.TOOL_COUNTS`).
     """
     offered = [t.telemetry_metadata() for t in tools]
     offered_by_name = {t["name"]: t for t in offered}
@@ -160,6 +159,7 @@ def _summarize_tool_usage(
         "first_call_iteration_by_name": first_iteration_by_name,
         "used_any_tool": bool(called_tools),
         "call_errors": call_errors,
+        "counts": TOOL_COUNTS,
         "skill": {
             "offered": bool(skill_tools),
             "offered_tools": skill_tools,

@@ -10,6 +10,7 @@ from conftest import DEMO_SKILL_MARKER
 
 import dokimi.eval.agent_runner as ar_mod
 from dokimi.eval.agent_runner import run_agent_loop
+from dokimi.eval.arm_summary import TOOL_COUNTS, TOOL_COUNTS_MIXED, summarize_agentic_usage
 from dokimi.treatments import (
     MCPAgentTreatment,
     SkillAgentTreatment,
@@ -322,7 +323,7 @@ def test_missing_required_argument_does_not_run_the_tool(monkeypatch, arguments)
     assert tool.calls == []
     assert result["transcript"][0]["error"] == "malformed_args"
     tool_msg = [m for m in sent[1] if m["role"] == "tool"][0]
-    assert "missing required argument(s): query" in tool_msg["content"]
+    assert tool_msg["content"] == "(invalid tool arguments: 'query' is a required property)"
 
 
 @pytest.mark.parametrize("arguments, where", [
@@ -448,3 +449,26 @@ def test_factory_builds_agentic_specs(demo_skill):
     # 'agent:<source>' with a nested colon must not be mis-parsed
     t = create_treatment("agent:context7")
     assert isinstance(t, MCPAgentTreatment)
+
+
+# ── tool-count stamp ────────────────────────────────────────────────────
+def _agentic_record(**tool_usage):
+    return {"arms": {"agent": {"agentic": True, "tool_call_count": 1, "iterations": 1,
+                               **({"tool_usage": tool_usage} if tool_usage else {})}}}
+
+
+def test_tool_usage_is_stamped(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", '{"query": "x"}')
+    assert result["tool_usage"]["counts"] == TOOL_COUNTS
+
+
+@pytest.mark.parametrize("records, stamp", [
+    ([_agentic_record(counts=TOOL_COUNTS)] * 2, TOOL_COUNTS),
+    ([_agentic_record(counts=TOOL_COUNTS), _agentic_record(skill={})], TOOL_COUNTS_MIXED),
+    ([_agentic_record(skill={})], None),
+    # An arm that failed to prepare has no tool_usage, under either protocol.
+    ([_agentic_record(counts=TOOL_COUNTS), _agentic_record()], TOOL_COUNTS),
+])
+def test_agentic_summary_stamps_tool_counts(records, stamp):
+    assert summarize_agentic_usage(records)["agent"].get("tool_counts") == stamp
