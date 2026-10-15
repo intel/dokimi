@@ -136,9 +136,9 @@ def test_proxy_chains_allowed_tunnels_through_the_host_proxy():
             head += conn.recv(1)
         seen.append(head.split(b"\r\n", 1)[0])
         conn.sendall(b"HTTP/1.1 200 OK\r\n\r\n")
-        target = socket.create_connection(("127.0.0.1", port))
-        target.sendall(conn.recv(64))
-        conn.sendall(target.recv(64))
+        with socket.create_connection(("127.0.0.1", port)) as target:
+            target.sendall(conn.recv(64))
+            conn.sendall(target.recv(64))
         conn.close()
 
     threading.Thread(target=fake_upstream, daemon=True).start()
@@ -172,7 +172,7 @@ def test_llm_hosts_follow_the_provider():
         "api.anthropic.com:443", "gw.corp:8443"]
     assert llm_hosts({"ANTHROPIC_BASE_URL": "http://litellm.internal/"}) == [
         "api.anthropic.com:443", "litellm.internal:80"]
-    assert "us-east5-aiplatform.googleapis.com:443" in llm_hosts({"CLAUDE_CODE_USE_VERTEX": "1"})
+    assert {"us-east5-aiplatform.googleapis.com:443"} <= set(llm_hosts({"CLAUDE_CODE_USE_VERTEX": "1"}))
 
 
 # ── probe: raw-socket network checks ────────────────────────────────────────
@@ -354,7 +354,8 @@ def test_container_solve_lifecycle(tmp_path, docker_calls, monkeypatch):
     assert docker_calls[-1][:2] == ["network", "rm"]
     assert not any(c[:3] == ["network", "connect", "bridge"] for c in docker_calls)
     assert result.metrics["isolation"]["agent_location"] == "container"
-    assert "pypi.org" in result.metrics["isolation"]["network"]
+    network = result.metrics["isolation"]["network"]
+    assert {"pypi.org:443"} <= set(network.removeprefix("internal; egress proxy to ").split(","))
     assert result.metrics["egress"] == {"allowed": [], "denied": ["evil.example"], "errors": [],
                                         "denied_entries": ["evil.example:443"]}
     assert json.loads((out / "egress.jsonl").read_text(encoding="utf-8"))["host"] == "evil.example"
@@ -860,15 +861,15 @@ def test_probe_reports_a_writable_docker_socket(tmp_path, monkeypatch):
 
 def test_vertex_hosts_follow_the_cli_region_mapping():
     def hosts(**env):
-        return llm_hosts({"CLAUDE_CODE_USE_VERTEX": "1", **env})
+        return set(llm_hosts({"CLAUDE_CODE_USE_VERTEX": "1", **env}))
 
-    assert "aiplatform.googleapis.com:443" in hosts(CLOUD_ML_REGION="global")
-    assert "aiplatform.us.rep.googleapis.com:443" in hosts(CLOUD_ML_REGION="us")
-    assert "aiplatform.eu.rep.googleapis.com:443" in hosts(CLOUD_ML_REGION="eu")
-    assert "us-aiplatform.googleapis.com:443" not in hosts(CLOUD_ML_REGION="us")
-    assert "europe-west1-aiplatform.googleapis.com:443" in hosts(CLOUD_ML_REGION="europe-west1")
-    assert "aiplatform.googleapis.com:443" in hosts(CLOUD_ML_REGION="us-east5",
-                                                    VERTEX_REGION_CLAUDE_4_5_SONNET="global")
+    assert {"aiplatform.googleapis.com:443"} <= hosts(CLOUD_ML_REGION="global")
+    assert {"aiplatform.us.rep.googleapis.com:443"} <= hosts(CLOUD_ML_REGION="us")
+    assert {"aiplatform.eu.rep.googleapis.com:443"} <= hosts(CLOUD_ML_REGION="eu")
+    assert not {"us-aiplatform.googleapis.com:443"} & hosts(CLOUD_ML_REGION="us")
+    assert {"europe-west1-aiplatform.googleapis.com:443"} <= hosts(CLOUD_ML_REGION="europe-west1")
+    assert {"aiplatform.googleapis.com:443"} <= hosts(CLOUD_ML_REGION="us-east5",
+                                                      VERTEX_REGION_CLAUDE_4_5_SONNET="global")
 
 
 def test_provider_booleans_and_order_follow_the_cli():
@@ -982,9 +983,9 @@ def test_a_verifier_on_a_dead_container_is_errored_not_zero(tmp_path, monkeypatc
 
     monkeypatch.setattr(solver_mod, "_docker", docker)
     task = load_task(_task(tmp_path))
-    with pytest.raises(RuntimeError, match="not running at verify time"):
+    with open(tmp_path / "log", "w") as log, pytest.raises(RuntimeError, match="not running at verify time"):
         DockerSolverHarness(harness_id="docker-oracle", mode="oracle")._verify(
-            task, "dokimi-run-x", tmp_path, open(tmp_path / "log", "w"))
+            task, "dokimi-run-x", tmp_path, log)
 
 
 def test_container_skill_arm_ships_the_skill_with_links_followed(tmp_path, docker_calls, monkeypatch):
@@ -1089,7 +1090,7 @@ def test_normalize_entry_is_idempotent(entry):
 def test_url_entries_survive_normalisation_and_lose_a_trailing_dot():
     hosts = llm_hosts({"ANTHROPIC_BASE_URL": "http://[fd00::5]:4000"})
     assert "[fd00::5]:4000" in hosts and [normalize_entry(h) for h in hosts] == hosts
-    assert "gw.corp.example:4000" in llm_hosts({"ANTHROPIC_BASE_URL": "http://gw.corp.example.:4000"})
+    assert {"gw.corp.example:4000"} <= set(llm_hosts({"ANTHROPIC_BASE_URL": "http://gw.corp.example.:4000"}))
 
 
 def test_an_ipv6_entry_from_open_reaches_an_ipv6_host():
@@ -1133,7 +1134,7 @@ def test_the_allowlist_is_normalised_once(monkeypatch):
 def test_a_vertex_region_is_trimmed_and_a_comma_is_refused_before_any_container(tmp_path, docker_calls,
                                                                               monkeypatch):
     vertex = {"CLAUDE_CODE_USE_VERTEX": "1", "CLAUDE_CODE_SKIP_VERTEX_AUTH": "1"}
-    assert "us-east5-aiplatform.googleapis.com:443" in llm_hosts({**vertex, "CLOUD_ML_REGION": "us-east5 "})
+    assert {"us-east5-aiplatform.googleapis.com:443"} <= set(llm_hosts({**vertex, "CLOUD_ML_REGION": "us-east5 "}))
     for name, value in vertex.items():
         monkeypatch.setenv(name, value)
     monkeypatch.setenv("VERTEX_REGION_CLAUDE_4_5_SONNET", "x,evil.example:443,y")

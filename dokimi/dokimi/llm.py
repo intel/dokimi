@@ -11,7 +11,7 @@ import os
 import re
 import time
 import logging
-from typing import Callable, Optional
+from typing import Callable, Optional, Protocol
 
 from dokimi import caching
 from dokimi.metrics.usage import UsageRecord
@@ -76,6 +76,22 @@ class _Resp:
     def __init__(self, content: str, usage=None):
         self.content = content
         self.usage = usage   # UsageRecord | None — lets callers (judge) track cost
+
+
+class ChatResponse(Protocol):
+    content: str
+    usage: Optional[UsageRecord]
+
+
+class ChatModel(Protocol):
+    """A chat model the eval and question stages call: ``invoke(prompt).content``.
+
+    ``ChatOpenAI``/``ChatAnthropic`` below and the litellm wrapper ``utils.get_llm``
+    returns all satisfy it.
+    """
+
+    def invoke(self, prompt: str, draw: int = 0,
+               cache_if: Optional[Callable[[str], bool]] = None) -> ChatResponse: ...
 
 
 class ChatOpenAI:
@@ -502,7 +518,9 @@ def llm_call_with_usage(
             else:
                 raise
 
-    raise last_exc  # should never reach here
+    # Unreachable for max_retries >= 0: every attempt returns or raises.
+    assert last_exc is not None
+    raise last_exc
 
 
 def _warn_if_truncated(finish_reason, model: str, max_tokens: Optional[int], usage) -> None:
@@ -649,6 +667,7 @@ def chat_completion(
                 delay *= 2
             else:
                 raise
+    assert last_exc is not None  # pragma: no cover
     raise last_exc  # pragma: no cover
 
 

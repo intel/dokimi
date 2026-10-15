@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from dokimi.utils import question_id
+
 _DIFFICULTY_MAP: Dict[Any, str] = {
     1: "beginner",   "1": "beginner",  "beginner": "beginner",
     2: "intermediate", "2": "intermediate", "intermediate": "intermediate",
@@ -57,11 +59,11 @@ def normalize_question(q: Dict[str, Any], idx: int = 0) -> Dict[str, Any]:
     ground truth reference.
     """
     canonical = {
-        "id":              q.get("id") or q.get("question_id") or f"q{idx:04d}",
-        "question":        q.get("question") or q.get("text") or "",
-        "persona":         q.get("persona") or "",
-        "category":        q.get("category") or "",
-        "difficulty":      _normalize_difficulty(q.get("difficulty")),
+        "id": f"q{idx:04d}" if question_id(q) is None else question_id(q),
+        "question": q.get("question") or q.get("text") or "",
+        "persona": q.get("persona") or "",
+        "category": q.get("category") or "",
+        "difficulty": _normalize_difficulty(q.get("difficulty")),
         "expected_topics": q.get("expected_topics") or [],
     }
     # Preserve all extra fields (chunk metadata, source tracking, etc.)

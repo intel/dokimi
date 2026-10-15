@@ -11,12 +11,23 @@ model), ``guidance_reach`` (L1 reach probes) and ``repo_readiness`` (L0 claim
 checks). This module stamps each with a ``schema_version`` and
 validates it against the JSON Schema in ``dokimi/schemas/`` on save
 and load, so fixtures and baselines stay forward-compatible and self-describing.
+
+Every artifact of a registered kind is written through :func:`save_artifact`, partial
+(incremental) saves included: a run that would write an invalid artifact fails on its first
+save, not after the last paid model call. :func:`schema_errors` is the one place a JSON Schema
+is applied, for artifacts and for validated *inputs* (manifests, profiles, specs) alike.
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import os
+import threading
 from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
@@ -68,18 +79,31 @@ def schema_version_for(kind: str, data: dict) -> str:
     return SCHEMA_VERSIONS[kind]
 
 
-def validate_artifact(kind: str, data: dict) -> None:
-    """Validate ``data`` against the schema for ``kind`` (raises on failure)."""
+def schema_errors(schema: str | Path, instance: Any) -> list[str]:
+    """Every way ``instance`` violates a JSON Schema (draft 2020-12); empty when it conforms.
+
+    ``schema`` is a schema name in :data:`SCHEMA_DIR` (``"repo_static.v1"``) or the path of a
+    schema file elsewhere. Each problem reads ``<path>: <message>``, ``<path>`` being the
+    ``/``-joined location in ``instance`` (``<root>`` for the top level), sorted by location.
+    An unreadable or malformed schema file raises ``OSError`` / ``json.JSONDecodeError``: that
+    is a packaging fault, not a problem with ``instance``.
+    """
     from jsonschema import Draft202012Validator
 
-    schema = json.loads(
-        _schema_path(kind, schema_version_for(kind, data)).read_text(encoding="utf-8")
-    )
-    errors = sorted(Draft202012Validator(schema).iter_errors(data), key=lambda e: list(e.path))
+    path = SCHEMA_DIR / f"{schema}.json" if isinstance(schema, str) else Path(schema)
+    document = json.loads(path.read_text(encoding="utf-8"))
+    return [
+        f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}"
+        for e in sorted(Draft202012Validator(document).iter_errors(instance),
+                        key=lambda e: list(e.path))
+    ]
+
+
+def validate_artifact(kind: str, data: dict) -> None:
+    """Validate ``data`` against the schema for ``kind`` (raises on failure)."""
+    errors = schema_errors(_schema_path(kind, schema_version_for(kind, data)), data)
     if errors:
-        details = "\n".join(
-            f"  - {'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in errors
-        )
+        details = "\n".join(f"  - {e}" for e in errors)
         raise ArtifactValidationError(f"{kind} artifact validation failed:\n{details}")
 
 
@@ -91,18 +115,68 @@ def stamp(kind: str, data: dict) -> dict:
     return data
 
 
-def save_artifact(kind: str, data: dict, path: Path, *, validate: bool = True) -> None:
-    """Stamp, (optionally) validate, and write an artifact to ``path``.
+def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
+    """Write ``data`` to ``path`` as a ``kind`` artifact; return exactly what was written.
 
-    Operates on a shallow copy so the caller's dict is not mutated.
+    - ``schema_version`` is set to the current version for ``kind`` and leads the document
+      (a value already in ``data`` is replaced); ``data`` itself is not mutated.
+    - The payload is validated first. :class:`ArtifactValidationError` means nothing was
+      written at ``path`` (a file already there is untouched); the rejected payload is kept
+      at ``<name>.rejected`` so a paid run is not lost to a schema problem. A later valid
+      save to ``path`` removes that ``<name>.rejected`` (only that sibling), so a leftover
+      always belongs to the latest attempt; if it cannot be removed the save still stands and
+      a warning is logged. ``KeyError`` means ``kind`` is not registered in
+      :data:`SCHEMA_VERSIONS`.
+    - The write is atomic (a ``<name>.<pid>.<thread>.tmp`` sibling, then ``os.replace``), so a
+      reader or a crash never sees half a file, and concurrent saves to one path (threads or
+      processes) each publish one whole payload; the last one wins. A failed write removes its
+      tmp file. Missing parent directories of ``path`` are created.
+    - A symlink at ``path`` is kept: the payload replaces the file it resolves to (the tmp file
+      sits beside that target, so the rename stays on one filesystem). A dangling link creates
+      its target when the target's directory exists; otherwise ``FileNotFoundError`` is raised
+      and nothing is written (the target's directories are *not* created). A link loop raises
+      ``OSError``. ``<name>.rejected`` stays beside ``path``, not the target.
+    - JSON with ``indent=2``, ASCII-escaped, UTF-8.
     """
-    payload = dict(data)
-    stamp(kind, payload)
-    if validate:
-        validate_artifact(kind, payload)
+    if kind not in SCHEMA_VERSIONS:
+        raise KeyError(f"Unknown artifact kind: {kind!r}")
+    payload = {"schema_version": SCHEMA_VERSIONS[kind],
+               **{k: v for k, v in data.items() if k != "schema_version"}}
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    text = json.dumps(payload, indent=2)
+    try:
+        validate_artifact(kind, payload)
+    except ArtifactValidationError as exc:
+        rejected = path.with_name(path.name + ".rejected")
+        rejected.write_text(text, encoding="utf-8")
+        raise ArtifactValidationError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
+    target = _write_target(path)
+    tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    stale = path.with_name(path.name + ".rejected")
+    try:
+        stale.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("saved %s, but could not remove the stale rejected payload %s: %s", path, stale, exc)
+    return payload
+
+
+def _write_target(path: Path) -> Path:
+    """The file a save to ``path`` replaces: ``path`` itself, or what a symlink there resolves to."""
+    if not path.is_symlink():
+        return path
+    target = Path(os.path.realpath(path))
+    if target.is_symlink():  # realpath gives up on a loop and hands back a link
+        raise OSError(f"symlink {path} does not resolve to a file (link loop at {target})")
+    if not target.parent.is_dir():
+        raise FileNotFoundError(f"symlink {path} points into a missing directory: {target}")
+    return target
 
 
 def load_artifact(kind: str, path: Path, *, validate: bool = True) -> dict:

@@ -10,6 +10,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 
 
@@ -91,6 +92,7 @@ class QuestionGenerator:
         self.provider = provider
         self.api_key = api_key
 
+        self.llm: ChatModel
         if provider == "openai":
             self.llm = ChatOpenAI(model=model, api_key=api_key)
         elif provider == "anthropic":

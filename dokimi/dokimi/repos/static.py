@@ -10,24 +10,17 @@ A status such as ``ok_basename`` is a refinement of its class, ``ok``.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
+
+from dokimi.artifacts import schema_errors
 
 SCHEMA_VERSION = "repo_static.v1"
 STATUS_CLASSES = ("ok", "unresolved", "fail")
-_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / f"{SCHEMA_VERSION}.json"
 
 
 def check_static(doc: Any) -> list[str]:
     """Problems with a ``static`` output document; empty when it is valid."""
-    from jsonschema import Draft202012Validator
-
-    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
-    return [
-        f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}"
-        for e in sorted(Draft202012Validator(schema).iter_errors(doc), key=lambda e: list(e.path))
-    ]
+    return schema_errors(SCHEMA_VERSION, doc)
 
 
 def status_class(status: str) -> str:

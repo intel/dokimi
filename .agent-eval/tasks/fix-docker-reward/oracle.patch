@@ -1,0 +1,191 @@
+diff --git a/dokimi/docs/contributing-terminal-bench-task.md b/dokimi/docs/contributing-terminal-bench-task.md
+index efed8a0..f8059ad 100644
+--- a/dokimi/docs/contributing-terminal-bench-task.md
++++ b/dokimi/docs/contributing-terminal-bench-task.md
+@@ -140,9 +140,10 @@ The contract:
+ 
+ - Write the outcome to `/logs/verifier/reward.txt` — `1` (or `1.0`) for pass,
+   `0` (or `0.0`) for fail. A fraction such as `0.75` (partial credit) is kept
+-  as the cell's reward and counts as a fail. The harness copies that file out;
+-  if it is missing it falls back to the verifier's exit code, so also exit
+-  non-zero on failure.
++  as the cell's reward and counts as a fail. A Harbor `reward.json`
++  (`{"reward": 0.0, ...}`, its `reward` key) is read when there is no
++  `reward.txt`. The harness copies that file out; if neither is written it
++  falls back to the verifier's exit code, so also exit non-zero on failure.
+ - Do not let a failure abort before the reward file is written (capture the
+   pytest exit code, write the file, then exit with it).
+ 
+diff --git a/dokimi/dokimi/harnesses/command.py b/dokimi/dokimi/harnesses/command.py
+index c4bad42..f7e5fb9 100644
+--- a/dokimi/dokimi/harnesses/command.py
++++ b/dokimi/dokimi/harnesses/command.py
+@@ -5,6 +5,8 @@
+ 
+ from __future__ import annotations
+ 
++import json
++import math
+ import os
+ import re
+ import shlex
+@@ -19,7 +21,12 @@ from .operations import load_operations
+ from .tasks import TaskSpec, harbor_task_problem
+ 
+ 
+-_REWARD_RE = re.compile(r"(?:reward|score|pass[_ -]?rate)\D+([01](?:\.\d+)?)", re.IGNORECASE)
++# A labelled number, read whole: "1e-1" is 0.1 and "100" is 100 (out of range,
++# so no reward), not the leading "1".
++_REWARD_RE = re.compile(
++    r"(reward|score|pass[_ -]?rate)\D+?(\d+(?:\.\d*)?(?:[eE][-+]?\d+)?)(?![\d.])",
++    re.IGNORECASE,
++)
+ _PLACEHOLDERS = (
+     "harness",
+     "task",
+@@ -212,7 +219,7 @@ def _find_reward(output_dir: Path | None, stdout: str, stderr: str) -> float | N
+ 
+ 
+ def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
+-    """A reward from a ``reward.txt`` (``reward_file``) or from command output.
++    """A reward from a ``reward.txt``/``reward.json`` (``reward_file``) or from command output.
+ 
+     In a reward file a bare number is the whole reward, so partial credit in
+     [0, 1] is accepted (SkillsBench's dialogue-parser writes the passing-test
+@@ -230,10 +237,38 @@ def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
+             value = None
+         if value is not None and 0.0 <= value <= 1.0:
+             return value
+-    match = _REWARD_RE.search(text)
+-    if match:
+-        return float(match.group(1))
+-    return None
++    if reward_file and stripped.startswith("{"):
++        parsed = _json_reward(stripped)
++        if parsed is not None:
++            return parsed
++    return _labelled_reward(text)
++
++
++def _in_range(value: float) -> float | None:
++    return value if 0.0 <= value <= 1.0 else None
++
++
++def _json_reward(text: str) -> float | None:
++    """The ``reward`` key of a Harbor ``reward.json`` (``{"reward": 0.0, ...}``)."""
++    try:
++        data = json.loads(text)
++    except ValueError:
++        return None
++    value = data.get("reward") if isinstance(data, dict) else None
++    if isinstance(value, bool) or not isinstance(value, (int, float)) or math.isnan(value):
++        return None
++    return _in_range(float(value))
++
++
++def _labelled_reward(text: str) -> float | None:
++    """A ``reward: x`` (or ``score``/``pass_rate``) in [0, 1]; a ``reward`` label
++    wins over the others wherever it appears."""
++    found: dict[bool, float | None] = {}
++    for match in _REWARD_RE.finditer(text):
++        found.setdefault(match.group(1).lower() == "reward", _in_range(float(match.group(2))))
++    if True in found:
++        return found[True]
++    return found.get(False)
+ 
+ 
+ def _text(data: str | bytes | None) -> str:
+diff --git a/dokimi/dokimi/harnesses/docker_solver.py b/dokimi/dokimi/harnesses/docker_solver.py
+index 8ec6bdb..f3c224f 100644
+--- a/dokimi/dokimi/harnesses/docker_solver.py
++++ b/dokimi/dokimi/harnesses/docker_solver.py
+@@ -380,6 +380,7 @@ class DockerSolverHarness:
+         # A rerun must not find its own previous tree or verdict during the solve.
+         _rmtree(output_dir / "work")
+         (output_dir / "reward.txt").unlink(missing_ok=True)
++        (output_dir / "reward.json").unlink(missing_ok=True)
+         if sandbox is not None:
+             return self._solve_claude_in_container(task, container, output_dir, model, timeout,
+                                                    operations, log, extra_metrics, sandbox)
+@@ -572,7 +573,7 @@ class DockerSolverHarness:
+         return failed
+ 
+     def _verify(self, task: TaskSpec, container: str, output_dir: Path, log) -> Optional[float]:
+-        """Run the verifier in-container; pull /logs/verifier/reward.txt back out.
++        """Run the verifier in-container; pull /logs/verifier/reward.txt (or reward.json) back out.
+ 
+         Mounted at both ``/tests`` (Harbor) and ``/verifier`` (BenchFlow): a
+         SkillsBench ``test.sh`` runs ``pytest /verifier/test_outputs.py`` even
+@@ -588,15 +589,17 @@ class DockerSolverHarness:
+              "mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh"],
+             log, check=False, timeout=_task_verify_timeout(task),
+         )
+-        reward_file = output_dir / "reward.txt"
+-        pulled = _docker(
+-            ["cp", f"{container}:/logs/verifier/reward.txt", str(reward_file)],
+-            log, check=False,
+-        )
+-        if pulled.returncode == 0 and reward_file.is_file():
+-            return _parse_reward_text(
+-                reward_file.read_text(encoding="utf-8", errors="replace"), reward_file=True
++        # Harbor's verifier writes reward.txt or reward.json ({"reward": x, ...}).
++        for name in ("reward.txt", "reward.json"):
++            reward_file = output_dir / name
++            pulled = _docker(
++                ["cp", f"{container}:/logs/verifier/{name}", str(reward_file)],
++                log, check=False,
+             )
++            if pulled.returncode == 0 and reward_file.is_file():
++                return _parse_reward_text(
++                    reward_file.read_text(encoding="utf-8", errors="replace"), reward_file=True
++                )
+         if proc.returncode != 0:  # no verdict at all if the container is gone, not a 0
+             running = _docker(["inspect", "-f", "{{.State.Running}}", container], log, check=False)
+             if (getattr(running, "stdout", "") or "").strip() != "true":
+diff --git a/dokimi/tests/test_task_formats.py b/dokimi/tests/test_task_formats.py
+index 81870d2..3239e87 100644
+--- a/dokimi/tests/test_task_formats.py
++++ b/dokimi/tests/test_task_formats.py
+@@ -291,7 +291,9 @@ def test_coverage_skips_a_task_that_does_not_parse(tmp_path):
+ @pytest.mark.parametrize(
+     "text, expected",
+     [("1", 1.0), ("0\n", 0.0), ("0.75", 0.75), ("1.0", 1.0), ("reward: 0.5", 0.5),
+-     ("1.5", None), ("-0.1", None), ("", None), ("nan", None), ("inf", None)],
++     ("1.5", None), ("-0.1", None), ("", None), ("nan", None), ("inf", None),
++     ("reward: 1e-1", 0.1), ('{"reward": 1e-1}', 0.1), ('{"reward": 0.0, "answer_present": 1.0}', 0.0),
++     ('{"score": 100}', None), ('{"score": 0.93, "reward": 0}', 0.0), ('{"reward": true}', None)],
+ )
+ def test_reward_file_accepts_partial_credit(text, expected):
+     assert _parse_reward_text(text, reward_file=True) == expected
+@@ -346,6 +348,31 @@ def test_docker_verify_keeps_a_fractional_reward_file(tmp_path, monkeypatch, tex
+     assert harness._verify(task, "c1", out, log=None) == reward
+ 
+ 
++@pytest.mark.parametrize("rc", [0, 1])
++def test_docker_verify_reads_reward_json_over_the_exit_code(tmp_path, monkeypatch, rc):
++    """Harbor verifiers may write only reward.json, and exit 0 on a fail."""
++    import dokimi.harnesses.docker_solver as mod
++    from dokimi.harnesses.docker_solver import DockerSolverHarness
++
++    class _P:
++        def __init__(self, returncode):
++            self.returncode, self.stdout = returncode, "true"
++
++    def _docker(args, log, **kwargs):
++        if args[0] == "cp" and args[1].endswith("/logs/verifier/reward.json"):
++            Path(args[2]).write_text('{"reward": 0.0, "answer_present": 0.0}', encoding="utf-8")
++            return _P(0)
++        if args[0] == "cp" and args[1].endswith("/logs/verifier/reward.txt"):
++            return _P(1)
++        return _P(rc if args[0] == "exec" else 0)
++
++    monkeypatch.setattr(mod, "_docker", _docker)
++    out = tmp_path / "o"
++    out.mkdir()
++    task = load_task(_harbor(tmp_path))
++    assert DockerSolverHarness(harness_id="docker-oracle", mode="oracle")._verify(task, "c1", out, log=None) == 0.0
++
++
+ def test_yaml_dates_stay_json_serialisable(tmp_path):
+     import json
+ 

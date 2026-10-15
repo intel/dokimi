@@ -298,3 +298,205 @@ def test_the_unread_record_survives_atoms_json(tmp_path):
     assert record["last_error"].startswith("RuntimeError: RateLimitError")
     _atoms, loaded = load_atoms(path)
     assert [s.id for s in loaded if s.unread] == record["unread_span_ids"]
+
+
+def _replying(make, calls: list[int]):
+    """A transport that answers every batch with ``make(rows)``, rows being the good ones."""
+
+    def transport(prompt, system):
+        rows = _rows(prompt)
+        calls.append(len(rows))
+        reply = make(rows)
+        return (reply if isinstance(reply, str) else json.dumps(reply)), None
+
+    return transport
+
+
+def _renamed(rows):
+    return [{"text": r["statement"], "q": r["question"], "ids": r["span_ids"]} for r in rows]
+
+
+def _strings(rows):
+    return [r["statement"] for r in rows]
+
+
+def _zero_padded(rows):
+    return [{**r, "span_ids": [r["span_ids"][0].replace("s", "", 1)]} for r in rows]
+
+
+def _outside(rows):
+    return [{**r, "span_ids": ["s9999"]} for r in rows]
+
+
+def _no_span(rows):
+    return [{k: v for k, v in r.items() if k != "span_ids"} for r in rows]
+
+
+_UNUSABLE = [_renamed, _strings, _zero_padded, _outside, _no_span]
+
+
+@pytest.mark.parametrize("make", _UNUSABLE)
+def test_a_reply_whose_rows_are_all_unusable_is_not_an_empty_batch(make):
+    spans = segment(DOC)
+    calls: list[int] = []
+    report = ExtractionReport()
+    client = LLMClient(model="x", transport=_replying(make, calls))
+    with pytest.raises(ExtractionError):
+        extract_atoms(spans, client=client, batch_spans=10, report=report)
+    # Split like any reply that carries nothing readable, down to one span per call.
+    assert len(calls) == report.calls == 2 * len(spans) - 1
+    assert report.unread_span_ids == report.unusable_span_ids == [s.id for s in spans]
+    assert report.unparseable_span_ids == [] and all(s.unread for s in spans)
+
+
+def test_unusable_rows_are_named_apart_from_a_cut_off_reply():
+    spans = segment(DOC)
+    bad = spans[4].id
+    report = ExtractionReport()
+
+    def transport(prompt, system):
+        rows = _rows(prompt)
+        hit = bad in {r["span_ids"][0] for r in rows}
+        return json.dumps(_renamed(rows) if hit else rows), None
+
+    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=transport),
+                          report=report)
+    assert [a.span_ids[0] for a in atoms] == [s.id for s in spans if s.id != bad]
+    assert [s.id for s in spans if s.unread] == [bad] == report.unusable_span_ids
+    [lost, _] = report.warnings(len(spans))
+    assert lost.startswith(f"atom extraction could not read 1 of {len(spans)} spans")
+    assert "rows but none usable" in lost and "output ceiling" not in lost
+    assert "failed or came back empty" not in lost
+    assert report.as_dict()["unusable_span_ids"] == [bad]
+
+
+@pytest.mark.parametrize("reply", ["[]", '{"atoms": []}', '{"atoms": [], "note": "boilerplate"}'])
+def test_a_legitimate_empty_reply_is_a_result_not_split_or_unread(reply):
+    spans = segment(DOC)
+    calls: list[int] = []
+    report = ExtractionReport()
+    client = LLMClient(model="x", transport=_replying(lambda rows: reply, calls))
+    assert extract_atoms(spans, client=client, batch_spans=10, report=report) == []
+    assert calls == [10] and report.retried_batches == 0
+    assert report.unread_span_ids == [] and not any(s.unread for s in spans)
+    assert report.warnings(len(spans)) == []
+
+
+def test_a_reply_with_one_usable_row_among_unusable_ones_is_kept_whole():
+    spans = segment(DOC)
+    calls: list[int] = []
+
+    def mixed(rows):
+        return json.dumps(["junk", {"statement": "no question"}, *rows[:1]])
+
+    report = ExtractionReport()
+    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=_replying(mixed, calls)),
+                          batch_spans=10, report=report)
+    assert [a.span_ids[0] for a in atoms] == [spans[0].id] and len(calls) == 1
+    assert report.unread_span_ids == []
+
+
+def test_a_healthy_extractor_after_a_useless_reply_still_reads_everything():
+    spans = segment(DOC)
+    with pytest.raises(ExtractionError):
+        extract_atoms(spans, client=LLMClient(
+            model="x", transport=_replying(_renamed, [])), batch_spans=10)
+    assert all(s.unread for s in spans)
+    report = ExtractionReport()
+    atoms = extract_atoms(spans, client=LLMClient(
+        model="x", transport=_replying(json.dumps, [])), batch_spans=10, report=report)
+    assert len(atoms) == len(spans) and not any(s.unread for s in spans)
+    assert report.unread_span_ids == []
+
+
+def _mixed_causes(causes: list[str]):
+    """Two spans per batch; batch i fails the way ``causes[i]`` says, the rest are healthy."""
+    spans = segment(DOC)
+    batch_of = {s.id: i // 2 for i, s in enumerate(spans)}
+
+    def transport(prompt, system):
+        rows = _rows(prompt)
+        cause = causes[batch_of[rows[0]["span_ids"][0]]] if rows else ""
+        if cause == "empty":
+            return "", None
+        if cause == "unusable":
+            return json.dumps(_renamed(rows)), None
+        if cause == "unparseable":
+            return json.dumps(rows)[:20], None
+        if cause == "call":
+            raise RuntimeError("RateLimitError: slow down")
+        return json.dumps(rows), None
+
+    report = ExtractionReport()
+    extract_atoms(spans, client=LLMClient(model="x", transport=transport),
+                  batch_spans=2, report=report)
+    return spans, report
+
+
+def test_a_span_is_counted_under_one_unread_cause_only():
+    spans, report = _mixed_causes(["empty", "unusable", "unparseable", "call", "ok"])
+    causes = [report.empty_span_ids, report.unusable_span_ids, report.unparseable_span_ids]
+    assert [len(c) for c in causes] == [2, 2, 2]
+    named = [sid for c in causes for sid in c]
+    assert len(named) == len(set(named))  # no span under two causes
+    assert report.unread_span_ids == [s.id for s in spans[:8]]
+    [lost, _] = report.warnings(len(spans))
+    assert lost.startswith(f"atom extraction could not read 8 of {len(spans)} spans")
+    assert lost.count(" replied but did not parse") == 1 and "2 got an empty reply" in lost
+    assert "2 replied with rows but none usable" in lost
+    assert "2 were lost to calls that failed" in lost  # the call failures, and only those
+
+
+@pytest.mark.parametrize(("causes", "first"), [
+    (["empty", "unusable", "unparseable", "call", "ok"], "RuntimeError: RateLimitError"),
+    (["empty", "unusable", "unparseable", "ok", "ok"], "ValueError"),
+    (["empty", "unusable", "ok", "ok", "ok"], "1 rows, none an atom of this document"),
+    (["empty", "ok", "ok", "ok", "ok"], "the extractor returned an empty reply"),
+])
+def test_the_last_error_names_a_call_then_a_parse_then_an_unusable_then_an_empty_cause(
+        causes, first):
+    _spans, report = _mixed_causes(causes)
+    assert report.last_error.startswith(first)
+    assert "_NoUsableRows" not in report.last_error
+
+
+def _junk_for(bad: frozenset[str]):
+    def transport(prompt, system):
+        rows = _rows(prompt)
+        if bad & {r["span_ids"][0] for r in rows}:
+            return json.dumps([{"x": 1}] * 3), None  # parses, holds no atom
+        return json.dumps(rows), None
+
+    return transport
+
+
+def test_a_split_for_unusable_rows_does_not_blame_the_output_ceiling():
+    spans = segment(DOC)
+    report = ExtractionReport()
+    client = LLMClient(model="x", role="extractor", transport=_junk_for(frozenset({"s0001"})))
+    extract_atoms(spans, client=client, batch_spans=5, report=report)
+    assert report.unparseable_span_ids == [] and report.unusable_span_ids == ["s0001"]
+    assert report.retried_batches > 0 and report.unusable_retries == report.retried_batches
+    resplit = [w for w in report.warnings(len(spans)) if "as halves" in w]
+    assert resplit == [
+        f"atom extraction re-asked {report.retried_batches} unusable batches as halves: "
+        f"{report.calls} extraction calls where {report.batches} would do without splitting"
+    ]
+
+
+def test_a_run_with_cut_off_and_unusable_splits_names_both_and_keeps_the_advice():
+    spans = segment(DOC)
+    report = ExtractionReport()
+    cut = _ceiling(3, [], frozenset({"s0002"}))
+    junk = _junk_for(frozenset({"s0001"}))
+
+    def transport(prompt, system):
+        return (junk if "[s0001]" in prompt else cut)(prompt, system)
+
+    client = LLMClient(model="x", role="extractor", transport=transport)
+    extract_atoms(spans, client=client, batch_spans=10, report=report)
+    assert 0 < report.unusable_retries < report.retried_batches
+    assert any(
+        "unparseable or unusable batches as halves" in w and w.endswith("avoids the extra calls")
+        for w in report.warnings(len(spans))
+    )

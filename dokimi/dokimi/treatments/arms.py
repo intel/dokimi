@@ -11,6 +11,7 @@ from dokimi.skills import Skill
 from dokimi.utils import digest_text
 
 from .base import AgentConfig, Treatment
+from .specs import combined_name
 
 logger = logging.getLogger(__name__)
 
@@ -380,7 +381,7 @@ class CombinedTreatment(Treatment):
 
     def __init__(self, treatments: List[Treatment], name: Optional[str] = None):
         self.treatments = treatments
-        self.name = name or "+".join(t.name for t in treatments)
+        self.name = name or combined_name(t.name for t in treatments)
 
     def prepare(self, question_text, library_name, library_id=None) -> AgentConfig:
         # Prepare all sub-treatments independently
@@ -407,7 +408,7 @@ class CombinedTreatment(Treatment):
             raise ValueError(f"combined arm '{self.name}' offers duplicate tools: {', '.join(dupes)}")
 
         # Merge metadata - track each sub-treatment's contribution
-        merged_metadata = {
+        merged_metadata: Dict[str, Any] = {
             "arm_kind": "combined",
             "combined_count": len(self.treatments),
             "treatments": [],

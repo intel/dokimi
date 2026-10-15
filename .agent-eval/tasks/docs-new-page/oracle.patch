@@ -1,0 +1,71 @@
+diff --git a/dokimi/docs/README.md b/dokimi/docs/README.md
+index 9a53579..f511396 100644
+--- a/dokimi/docs/README.md
++++ b/dokimi/docs/README.md
+@@ -249,6 +249,8 @@ code.
+ 
+ ## Repository evaluation
+ 
++- [repo-scan-quickstart.md](repo-scan-quickstart.md) — check what a repository's
++  agent guidance names against its tree with `repo scan`, step by step.
+ - [repo-evaluation-contract.md](repo-evaluation-contract.md) — *(proposed,
+   partly implemented)* what a repository provides to be evaluated as a whole:
+   `repo-eval.yaml`, `task.json`, the `grade` entry point and `grade.json`,
+diff --git a/dokimi/docs/repo-scan-quickstart.md b/dokimi/docs/repo-scan-quickstart.md
+new file mode 100644
+index 0000000..2b8e2e3
+--- /dev/null
++++ b/dokimi/docs/repo-scan-quickstart.md
+@@ -0,0 +1,40 @@
++# Check your repository's agent guidance
++
++`repo scan` reads the instruction files in a repository (`AGENTS.md`, `CLAUDE.md`,
++`.github/copilot-instructions.md`, ...) and checks every path, link, command and
++identifier they name against the tree. It makes no LLM call.
++
++## 1. Write a scan-only manifest
++
++Save this as `repo-eval.yaml` at the root of your repository:
++
++```yaml
++schema: repo_manifest.v1
++id: my-repo
++eval_dir: .agent-eval          # required by the schema; a scan does not read it
++guidance:
++  globs: ["**/AGENTS.md", "**/CLAUDE.md"]
++entry_points: {grade: "true"}
++tasks: .agent-eval/tasks
++build_systems: [pytest]
++```
++
++## 2. Run the scan
++
++From the `dokimi/` directory of a dokimi checkout:
++
++```bash
++python cli.py repo scan /path/to/my-repo --manifest repo-eval.yaml
++python cli.py repo scan /path/to/my-repo --manifest repo-eval.yaml --json
++```
++
++Without the file in the tree, `--manifest-file <local.yaml>` reads it from elsewhere.
++
++## 3. Read the result
++
++Each claim is `ok`, `unresolved` (the scan could not decide, for example a path
++a build creates) or `fail` (the file names something that does not exist). Fix
++every `fail`: an agent that follows that line goes wrong. `--fail-on-fail` makes
++the command exit 1 on any `fail`, for a CI gate.
++
++The full rules are in [repo-evaluation-contract.md](repo-evaluation-contract.md) §8.
+diff --git a/dokimi/mkdocs.yml b/dokimi/mkdocs.yml
+index 31459fc..e3fecae 100644
+--- a/dokimi/mkdocs.yml
++++ b/dokimi/mkdocs.yml
+@@ -113,6 +113,7 @@ nav:
+       - skill-novelty-walkthrough.md
+       - skill-novelty-evidence.md
+   - Repository evaluation:
++      - repo-scan-quickstart.md
+       - repo-evaluation-contract.md
+       - repo-evaluation-mergeability.md
+       - repo-evaluation-agent-modes.md

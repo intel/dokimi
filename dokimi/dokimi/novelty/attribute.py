@@ -33,6 +33,7 @@ than colouring a span that does not carry them.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from .atoms import Atom
 from .spans import Span
@@ -327,7 +328,7 @@ def topic_rollup(attributions: list[SpanAttribution], *, depth: int = 2) -> list
     for row in attributions:
         key = tuple(row.span.heading_path[:depth])
         groups.setdefault(key, []).append(row)
-    out = []
+    out: list[dict[str, Any]] = []
     for key, rows in groups.items():
         tokens = sum(r.span.tokens for r in rows)
         counts: dict[str, int] = {}

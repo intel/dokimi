@@ -1,0 +1,22 @@
+{
+  "id": "schema-required-field",
+  "family": "feature",
+  "base": "16e319fdcb2f4eb6e0dfa44b7c05a2d451599586",
+  "prompt": "ExploreBench task YAMLs get edited over time (a reference moves, a line range is fixed), and nothing in an explore_runs artifact says which version of a task a run scored, so we end up comparing runs that were scored against different ground truth. Make `explore run` record a `digest` on every entry of the artifact's `tasks` list: a stable hash of the task's query and references, which changes when either of them changes. The explore_runs format should require it, so that an artifact whose task entries lack a digest fails validation. Commit your change.",
+  "grader": "code",
+  "gate": [
+    "compat_ok",
+    "new_version_registered",
+    "old_superseded",
+    "old_loads",
+    "writer_emits_digest",
+    "missing_rejected",
+    "regress_pass",
+    "ruff_ok",
+    "mypy_ok",
+    "schema_ok"
+  ],
+  "timeout_s": 1800,
+  "max_turns": 150,
+  "budget_usd": 5
+}

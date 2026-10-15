@@ -7,7 +7,6 @@ import hashlib
 import logging
 import json
 import math
-import os
 import re
 import time
 import threading
@@ -17,6 +16,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from dokimi.artifacts import save_artifact
+from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose, retrieval_hit
 # One calibration scale for both the single judge and the panel, so their
@@ -199,7 +200,7 @@ _FORMAT_REMINDER = (
 JUDGE_PROVIDERS = ("openai", "anthropic", "google", "google-vertex", "openrouter", "amazon-bedrock")
 
 
-def _clip_ground_truth(ground_truth: str, limit: int = MAX_GROUND_TRUTH_CHARS) -> str:
+def _clip_ground_truth(ground_truth: Optional[str], limit: int = MAX_GROUND_TRUTH_CHARS) -> str:
     """Bound ground-truth length while preserving line structure.
 
     ``textwrap.shorten`` collapses all whitespace, which would flatten a
@@ -277,6 +278,7 @@ class Judge:
             "redrawn_judgements": 0,
         }
 
+        self.llm: ChatModel
         if provider == "openai":
             self.llm = ChatOpenAI(model=model, api_key=api_key,
                                   temperature=temperature, seed=seed)
@@ -322,41 +324,47 @@ class Judge:
         lock = threading.Lock()
         completed = [0]
 
+        stop = threading.Event()  # set by a failed save: queued answers are skipped, not paid for
+
         def _process(idx: int, answer: Dict) -> None:
+            if stop.is_set():
+                return
             q_id = answer["question_id"]
             t0 = time.time()
+            failure = None
             try:
                 eval_result = self._evaluate_answer_pair(library_name, answer)
-                elapsed = time.time() - t0
                 delta = eval_result.get("delta")
                 delta_str = f"delta={delta:+}" if delta is not None else "delta=n/a"
-                with lock:
-                    results[idx] = eval_result
-                    completed[0] += 1
-                    print(f"[{completed[0]}/{n}] {q_id} ✓ {delta_str} ({elapsed:.1f}s)", flush=True)
-                    if output_path is not None:
-                        ordered = [results[i] for i in sorted(results)]
-                        self._save_incremental(ordered, output_path)
             except Exception as e:
-                elapsed = time.time() - t0
+                failure = e
                 logger.exception(f"Evaluation failed for {q_id}")
-                with lock:
-                    results[idx] = {
-                        "question_id": answer["question_id"],
-                        "question_text": answer["question_text"],
-                        "category": answer.get("category"),
-                        "difficulty": answer.get("difficulty"),
-                        "persona": answer.get("persona"),
-                        "error": str(e),
-                        "with_docs": None,
-                        "without_docs": None,
-                        "delta": None
-                    }
-                    completed[0] += 1
-                    print(f"[{completed[0]}/{n}] {q_id} ✗ ({elapsed:.1f}s): {e}", flush=True)
-                    if output_path is not None:
-                        ordered = [results[i] for i in sorted(results)]
+                eval_result = {
+                    "question_id": answer["question_id"],
+                    "question_text": answer["question_text"],
+                    "category": answer.get("category"),
+                    "difficulty": answer.get("difficulty"),
+                    "persona": answer.get("persona"),
+                    "error": str(e),
+                    "with_docs": None,
+                    "without_docs": None,
+                    "delta": None
+                }
+            elapsed = time.time() - t0
+            with lock:
+                results[idx] = eval_result
+                completed[0] += 1
+                if failure is None:
+                    print(f"[{completed[0]}/{n}] {q_id} ✓ {delta_str} ({elapsed:.1f}s)", flush=True)
+                else:
+                    print(f"[{completed[0]}/{n}] {q_id} ✗ ({elapsed:.1f}s): {failure}", flush=True)
+                if output_path is not None:
+                    ordered = [results[i] for i in sorted(results)]
+                    try:
                         self._save_incremental(ordered, output_path)
+                    except BaseException:
+                        stop.set()
+                        raise
 
         print(f"Evaluating {n} answers with judge: {self.provider}/{self.model} (concurrency={concurrency})", flush=True)
 
@@ -688,8 +696,7 @@ class Judge:
 
     def _build_evaluation_output(self, evaluations: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Build the serialisable output structure for a set of evaluations."""
-        output = {
-            "schema_version": "eval.v1",
+        output: Dict[str, Any] = {
             "evaluated_at": self._get_timestamp(),
             "judge_model": self.model,
             "judge_provider": self.provider,
@@ -701,21 +708,17 @@ class Judge:
             totals = dict(self._usage_totals)
         # cost_usd is null (not 0.0) when no judge call had known pricing, so a
         # missing price reads distinct from a genuinely free judge.
-        totals["cost_usd"] = (
-            round(totals["cost_usd"], 6) if totals["cost_known_calls"] else None
-        )
-        output["judge_metrics"] = totals
+        output["judge_metrics"] = {
+            **totals,
+            "cost_usd": round(totals["cost_usd"], 6) if totals["cost_known_calls"] else None,
+        }
         if self.run_metadata:
             output["run_metadata"] = self.run_metadata
         return output
 
     def _save_incremental(self, evaluations: List[Dict[str, Any]], output_path: Path) -> None:
         """Write current evaluations to disk atomically (called after each question)."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            json.dump(self._build_evaluation_output(evaluations), f, indent=2)
-        os.replace(tmp_path, output_path)
+        save_artifact("eval", self._build_evaluation_output(evaluations), output_path)
 
     def save_evaluations(
         self,
@@ -723,9 +726,7 @@ class Judge:
         output_path: Path
     ):
         """Save evaluations to JSON file."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(self._build_evaluation_output(evaluations), f, indent=2)
+        save_artifact("eval", self._build_evaluation_output(evaluations), output_path)
         logger.info(f"✓ Saved evaluations for {len(evaluations)} answers to {output_path}")
     
     @staticmethod

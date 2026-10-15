@@ -241,19 +241,20 @@ def _needs_a_fetch_client():
 
 def test_probe_network_open_when_something_answers(tmp_path):
     _needs_a_fetch_client()
-    server = subprocess.Popen(
+    # The with block closes the stdout pipe (and waits) once the server is stopped.
+    with subprocess.Popen(
         ["python3", "-u", "-m", "http.server", "0", "--bind", "127.0.0.1"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=tmp_path,
-    )
-    try:
-        line = server.stdout.readline()  # "Serving HTTP on 127.0.0.1 port N ..."
-        port = line.split(" port ")[1].split()[0]
-        ws = AgentWorkspace.create()
-        result = run_probe(ws, {"PATH": "/usr/bin:/bin"}, url=f"http://127.0.0.1:{port}/")
-        ws.cleanup()
-    finally:
-        server.terminate()
-        server.wait(timeout=10)
+    ) as server:
+        try:
+            line = server.stdout.readline()  # "Serving HTTP on 127.0.0.1 port N ..."
+            port = line.split(" port ")[1].split()[0]
+            ws = AgentWorkspace.create()
+            result = run_probe(ws, {"PATH": "/usr/bin:/bin"}, url=f"http://127.0.0.1:{port}/")
+            ws.cleanup()
+        finally:
+            server.terminate()
+            server.wait(timeout=10)
     assert result["network"] == "open"
 
 

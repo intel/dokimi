@@ -53,6 +53,13 @@ CI additionally holds a PR to:
   `CI_LOCAL_ARGS='--remote <name>'`.
 - **mypy on the whole package.** Modules listed under `[[tool.mypy.overrides]]` in
   `pyproject.toml` are exempt until fixed; do not add to that list.
+- **Tests that fail loudly.** `pytest` fails a test that runs over 60 s
+  (`@pytest.mark.timeout(N)` allows more), turns a warning into an error, and
+  shuffles the test order (pytest-randomly). The header prints
+  `--randomly-seed=N`; pass it to replay that order, or `-p no:randomly` for file
+  order. A third-party warning gets a narrow `filterwarnings` ignore in
+  `pyproject.toml` with the reason. The plugins come from `requirements-test.txt`:
+  a venv without them stops with `Unknown config option: timeout`, so reinstall.
 - **Docs build** — `mkdocs build --strict`, from `dokimi/`. `make dev` already
   installs its packages and `make ci-local` runs it; by hand, install them with
   `pip install -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
@@ -70,6 +77,19 @@ CI additionally holds a PR to:
   [changelog.d/README.md](changelog.d/README.md). A change with no user-visible
   effect gets the `skip-changelog` label instead.
 
+**pre-commit.** `.pre-commit-config.yaml` at the repo root runs the fast
+offline checks on the files a commit stages: `ruff check` (the version and
+config CI uses), zizmor on the workflows, YAML/JSON/TOML syntax, conflict
+markers and files over 500 KB. From the repo root:
+
+```bash
+pip install pre-commit && pre-commit install   # `make dev` already installs pre-commit
+pre-commit run --all-files                     # the whole tree, as CI's pre-commit job does
+```
+
+mypy and pytest are not hooks: they need the full environment and pytest takes
+minutes. `make ci-local` runs both; `make hooks` runs mypy before a push.
+
 Dependencies install from `requirements.lock.txt`, and the docs build's from
 `requirements-docs.lock.txt` on top of it. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
@@ -83,8 +103,9 @@ the main lock changes too.
 Renovate (`.github/renovate.json5`) proposes updates on Mondays for releases at
 least 7 days old: one grouped PR for all minor and patch updates, one PR per
 major, a monthly lock refresh, and security fixes as soon as an advisory
-appears. It does not update `requirements-docs.lock.txt` yet; pip-audit in CI
-still audits it.
+appears. A pre-commit hook rev and the pin `ci.yml` installs for the same tool
+(ruff, zizmor) come in one PR of their own. Renovate does not update
+`requirements-docs.lock.txt` yet; pip-audit in CI still audits it.
 
 Guidelines:
 

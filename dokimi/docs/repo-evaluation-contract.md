@@ -29,7 +29,10 @@
 > ```
 >
 > `--manifest-file <local.yaml>` on `validate`, `scan` and `reach` reads the manifest
-> from outside the tree, for a repository that has not added it yet.
+> from outside the tree, for a repository that has not added it yet. `scan` and `reach`
+> need only `guidance`; given neither a manifest in the tree nor `--manifest-file`, they
+> check the default globs `**/AGENTS.md`, `**/CLAUDE.md`, `.github/copilot-instructions.md`
+> and `.github/instructions/*.md`, and say so on stderr.
 >
 > Slice S5 adds the repository-mode runner: workspace preparation (§3), the
 > containers of §1.1, the `repo_grade.v1` schema (§4.2), the self-check (§4.3)
@@ -154,6 +157,10 @@ build_systems: [bazel, make]              # selects L0 claim-check adapters
 Rules:
 
 - Every path is relative to the repository root.
+- `eval_dir`, `tasks` and `entry_points` come together or not at all. Without them the
+  manifest is *guidance-only*: `scan` and `reach` run on it and `validate` checks its
+  globs, while `tasks check` and `run` refuse it. `image` and `explore_tasks` need
+  `eval_dir`.
 - `eval_dir` is a proper subdirectory, and `tasks` and `explore_tasks` sit inside it: it is the
   one directory deleted from every workspace (§3).
 - `{eval_dir}`, `{source_dir}`, `{run_dir}`, `{out}` and `{task}` are the only
@@ -575,7 +582,8 @@ when its literal parent directory exists there and nothing in it matches
 `unresolved` otherwise (`build/*.o`, `out/<run>/grade.json`). A `<placeholder>`
 or a wildcard in the directory part is never `fail`. A `*` may span
 directories and `**/` matches zero or more. A trailing slash on a file
-(`src/mod.py/`) is `fail`. A link or path into a submodule is `unresolved`. A
+(`src/mod.py/`) is `fail`. A GitHub Action reference (`actions/checkout@v6`) is not a
+path claim. A link or path into a submodule is `unresolved`. A
 blob or tree link to `source.url` holds `<ref>/<path>` and the ref may contain
 slashes. A default branch, a commit or a version tag is one segment; any other
 ref is tried at each slash, shortest first, and the link is `ok` if some

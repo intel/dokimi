@@ -8,10 +8,10 @@ schema: repo_manifest.v1
 id: dokimi
 eval_dir: dokimi/tests
 guidance:
-  globs: ["**/AGENTS.md", "**/CLAUDE.md"]
-  # CLAUDE.md is listed as well as globbed: a glob that matches nothing is only a warning, so
+  globs: ["**/AGENTS.md"]
+  # AGENTS.md is listed as well as globbed: a glob that matches nothing is only a warning, so
   # deleting the root guidance would otherwise leave the gate green.
-  also_scan: ["CLAUDE.md", "dokimi/CONTRIBUTING.md", "dokimi/README.md", "README.md"]
+  also_scan: ["AGENTS.md", "CONTRIBUTING.md", "dokimi/CONTRIBUTING.md", "dokimi/README.md", "README.md"]
 entry_points: {grade: "true"}
 tasks: dokimi/tests
 build_systems: [pytest]

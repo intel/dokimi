@@ -1,0 +1,18 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Codecov shows the trend, the PR comment and the badge; it does not gate. The
+# gate is the "Coverage of changed lines" step in .github/workflows/ci.yml
+# (diff-cover, 80% of changed lines), so both statuses are informational.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "condensed_header, diff, files"
+  require_changes: false

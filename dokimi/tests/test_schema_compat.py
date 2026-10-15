@@ -126,7 +126,7 @@ def test_a_changed_description_is_a_note_not_a_break():
 @pytest.mark.parametrize("key, value", [
     ("then", {"required": ["b"]}),
     ("not", {"required": ["a"]}),
-    ("dependentRequired", {"a": ["b"]}),
+    ("dependentSchemas", {"a": {"required": ["b"]}}),
     ("unevaluatedProperties", False),
     ("multipleOf", 2),
 ])
@@ -134,6 +134,20 @@ def test_an_unmodelled_keyword_that_appears_or_changes_fails_closed(key, value):
     breaking = compare(OBJ, _with(**{key: value})).breaking
     assert any(f"{key} added" in line for line in breaking), breaking
     assert compare(_with(**{key: value}), _with(**{key: value})).breaking == []
+
+
+def test_a_dependency_on_what_was_required_rejects_nothing_old():
+    old = {"type": "object", "required": ["a", "b", "c"]}
+    new = {"type": "object", "required": ["a"],
+           "dependentRequired": {"b": ["a", "c"], "c": ["b"], "x": ["a"]}}
+    assert compare(old, new).breaking == []
+
+
+def test_a_dependency_on_an_optional_property_narrows():
+    old = {"type": "object", "required": ["a"], "dependentRequired": {"b": ["c"]}}
+    assert compare(old, {**old, "dependentRequired": {"b": ["c"]}}).breaking == []
+    assert compare(old, {**old, "dependentRequired": {"b": ["c", "d"], "e": ["a", "f"]}}).breaking == [
+        "<root>: 'b' now requires ['d']", "<root>: 'e' now requires ['f']"]
 
 
 def test_annotations_are_not_breaks():

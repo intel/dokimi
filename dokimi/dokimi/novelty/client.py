@@ -12,6 +12,7 @@ transport for a stub without patching :mod:`dokimi.llm`.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -23,6 +24,53 @@ Transport = Callable[[str, "str | None"], "tuple[str, UsageRecord | None]"]
 # An acceptance test for a reply: False means "unusable", so the response cache neither
 # stores it nor replays it (see :func:`dokimi.caching.keeps`).
 Accept = Callable[[str], bool]
+
+
+class SpendCapReached(BaseException):
+    """The run hit its ``--max-usd`` cap, or made a call whose price is unknown.
+
+    A ``BaseException``, like ``KeyboardInterrupt``: the stages treat a failed call as a
+    missing datum and catch ``Exception``, so an ``Exception`` here would be absorbed one
+    call at a time and the run would carry on with every later call refused.
+    """
+
+
+@dataclass
+class SpendCap:
+    """One USD limit shared by every client of one run.
+
+    Checked before each call, so the run can overshoot by the calls already in flight
+    (``--concurrency``). A call that comes back without a price stops the run: the cap
+    cannot be enforced on spend it cannot see. A reply replayed from the response cache
+    (``DOKIMI_RESPONSE_CACHE``) costs nothing now and counts as $0, so a stopped run
+    resumed with the same cap spends only on the calls it had not made.
+    """
+
+    limit_usd: float
+    spent_usd: float = 0.0
+    calls: int = 0
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def before_call(self, model: str) -> None:
+        with self._lock:
+            if self.spent_usd >= self.limit_usd:
+                raise SpendCapReached(
+                    f"spend cap reached: ${self.spent_usd:.2f} of ${self.limit_usd:.2f} "
+                    f"after {self.calls} calls (next call: {model}); nothing was written. "
+                    "Raise --max-usd, or measure less (a cheaper --tier, a lower --max-atoms)"
+                )
+
+    def record(self, usage: UsageRecord | None, model: str) -> None:
+        with self._lock:
+            self.calls += 1
+            if usage is not None and usage.replayed:
+                return
+            if usage is None or usage.cost_usd is None:
+                raise SpendCapReached(
+                    f"no price is known for {model}, so --max-usd cannot be enforced; "
+                    f"stopped after {self.calls} calls. Drop --max-usd to run unmetered"
+                )
+            self.spent_usd += usage.cost_usd
 
 
 @dataclass
@@ -38,6 +86,7 @@ class LLMClient:
             entirely on internal reasoning and return empty content, so novelty runs
             against them need this raised.
         transport: Injected call function; defaults to the real LLM on first use.
+        cap: Spend limit shared with the run's other clients; ``None`` is unmetered.
     """
 
     model: str
@@ -47,6 +96,7 @@ class LLMClient:
     transport: Transport | None = None
     usage: list[UsageRecord] = field(default_factory=list)
     calls: int = 0
+    cap: SpendCap | None = None
 
     def text(
         self, prompt: str, *, system: str | None = None, accept: Accept | None = None
@@ -59,6 +109,8 @@ class LLMClient:
         later run replays the failure without calling the model. An injected transport
         is the caller's own and is not given it.
         """
+        if self.cap is not None:
+            self.cap.before_call(self.model)
         if self.transport is not None:
             reply, usage = self.transport(prompt, system)
         else:
@@ -67,6 +119,8 @@ class LLMClient:
         if usage is not None:
             # UsageRecord is frozen; re-stamp the role so cost rolls up per role.
             self.usage.append(replace(usage, role=self.role))
+        if self.cap is not None:
+            self.cap.record(usage, self.model)
         return reply or ""
 
     def json_object(

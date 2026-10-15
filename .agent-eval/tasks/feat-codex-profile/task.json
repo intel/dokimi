@@ -1,0 +1,20 @@
+{
+  "id": "feat-codex-profile",
+  "family": "feature",
+  "base": "16e319fdcb2f4eb6e0dfa44b7c05a2d451599586",
+  "prompt": "Add a built-in harness profile for the OpenAI Codex CLI so that the repository-mode commands (`repo reach`, `repo run`) accept `--harness codex`. It should drive `codex exec`, Codex's non-interactive mode, using only flags that codex-cli 0.160.0 actually has (see `codex exec --help`). Codex reads AGENTS.md files (from the repository root down to the working directory), not CLAUDE.md, and the profile should declare that. Taking its output as plain text is fine for now; no new trace converter is needed. Commit your change.",
+  "grader": "code",
+  "gate": [
+    "profile_loads",
+    "guidance_agents_md",
+    "invoke_ok",
+    "exec_mode",
+    "reach_dry_run",
+    "regress_pass",
+    "ruff_ok",
+    "mypy_ok"
+  ],
+  "timeout_s": 1800,
+  "max_turns": 150,
+  "budget_usd": 5
+}

@@ -594,7 +594,9 @@ The command runs from the directory above the tasks root, so `{output_dir}`
 and the `DOKIMI_OUTPUT_DIR` / `DOKIMI_OPERATIONS_FILE` environment variables
 are absolute paths even when `--output-dir` is relative. A `reward.txt` the
 command writes under that directory is the cell's reward; without one, the
-cell falls back to the exit code.
+cell falls back to the exit code. The directory is emptied before each run; if
+a previous run's files there cannot be deleted, the cell is not run and is
+recorded as errored.
 
 Use `--dry-run` to validate matrix expansion and artifact shape without invoking
 external agents.
@@ -855,7 +857,8 @@ Note the two similarly named deltas. `mcnemar.paired_pass_rate_delta` is
 `comparisons.<harness>.pass_rate_delta` subtracts two marginal pass rates.
 
 An errored cell is one whose harness raised (`metrics.error`: a docker build
-failure or timeout, or an exec failure), or whose solver CLI made no attempt
+failure or timeout, an exec failure, or a previous run's files in the cell's
+dir that could not be deleted), or whose solver CLI made no attempt
 (`metrics.solver_error`). It produced no verdict, so it is
 missing data, not a 0. An agent that exceeds its timeout, or a verifier that
 does, is a failure (reward 0, returncode 124), not an error: otherwise an arm

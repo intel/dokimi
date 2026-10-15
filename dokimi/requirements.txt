@@ -5,7 +5,7 @@ langchain-community<0.4.2
 langchain-anthropic>=1.0,<2
 datasets>=2.20,<6
 openai>=1.51,<3
-anthropic~=0.34
+anthropic~=1.12
 PyYAML>=6.0.1,<7
 jsonschema>=4.20,<5
 litellm>=1.74.0

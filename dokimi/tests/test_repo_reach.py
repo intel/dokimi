@@ -187,7 +187,7 @@ def test_profile_env_is_allow_listed_and_isolated(tmp_path):
     assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "cfg")
     assert env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] == "1"
     assert "GITHUB_TOKEN" not in env and env["AWS_REGION"] == "us-east-1"
-    assert "api.anthropic.com" in profile.egress
+    assert {"api.anthropic.com"} <= set(profile.egress)
     assert env["SYSTEMROOT"] == "C:/WINDOWS"  # Bun, inside claude, makes no request without it
 
 

@@ -159,29 +159,15 @@ def _digest_ref(ref: str | None, *, base: Path) -> str | None:
 
 
 def _digest_arm_spec(spec: str, *, base: Path) -> str:
-    from dokimi.treatments.factory import _parse_combined_spec
+    from dokimi.treatments.specs import content_refs
 
     h = hashlib.sha256()
     h.update(spec.encode("utf-8"))
     h.update(b"\0")
-    for part in _parse_combined_spec(spec):
-        content_ref = _content_ref_for_arm_part(part.strip())
-        if content_ref is None:
-            continue
-        h.update(part.strip().encode("utf-8"))
+    for part, content_ref in content_refs(spec):
+        h.update(part.encode("utf-8"))
         h.update(b"\0")
         digest = _digest_ref(content_ref, base=base)
         h.update((digest or "").encode("utf-8"))
         h.update(b"\0")
     return "sha256:" + h.hexdigest()
-
-
-def _content_ref_for_arm_part(part: str) -> str | None:
-    for prefix in ("docs:", "agent:"):
-        if part.startswith(prefix):
-            ref = part.removeprefix(prefix)
-            return ref if ref.startswith("local:") else None
-    for prefix in ("profile:", "skill:", "skill-agent:"):
-        if part.startswith(prefix):
-            return part.removeprefix(prefix)
-    return None

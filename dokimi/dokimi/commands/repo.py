@@ -35,7 +35,10 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
         mark = "✓" if report.ok else "✗"
         families = ", ".join(f"{k} {v}" for k, v in report.to_dict()["tasks"]["by_family"].items())
         print(f"{mark} {manifest.id}: {manifest.path} in {report.tree}")
-        print(f"  tasks: {len(report.tasks)} ({families or 'none valid'})")
+        if manifest.runnable:
+            print(f"  tasks: {len(report.tasks)} ({families or 'none valid'})")
+        else:
+            print("  tasks: none (guidance-only manifest)")
         line = f"  guidance files: {len(report.guidance_files)} at the eval tree"
         if report.guidance_by_base:
             counts = report.guidance_by_base.values()
@@ -59,7 +62,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
 
     try:
         tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
-        manifest = _load_manifest(tree, args)
+        manifest = _load_manifest(tree, args, guidance_default=True)
         static = json.loads(Path(args.static).read_text(encoding="utf-8")) if args.static else None
     except (SourceError, ManifestError, OSError, json.JSONDecodeError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
@@ -143,7 +146,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
             raise ReachError(f"--budget must be > 0, got {args.budget:g}")
         profile = load_profile(args.harness)
         tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
-        manifest = _load_manifest(tree, args)
+        manifest = _load_manifest(tree, args, guidance_default=True)
         files = probe_files(tree, manifest, profile)
         available = [s.id for s in scenarios(files, kinds)]
         missing = [o for o in only if o not in available]
@@ -175,19 +178,51 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def _load_manifest(tree, args: argparse.Namespace):
-    """The manifest from the tree, or from --manifest-file for a repository not aligned yet."""
+# The guidance `scan` and `reach` check in a repository that has no manifest yet.
+DEFAULT_GUIDANCE_GLOBS = (
+    "**/AGENTS.md", "**/CLAUDE.md", ".github/copilot-instructions.md", ".github/instructions/*.md",
+)
+
+
+def _load_manifest(tree, args: argparse.Namespace, *, guidance_default: bool = False):
+    """The manifest from the tree, or from --manifest-file for a repository not aligned yet.
+
+    With ``guidance_default`` (the commands that only read guidance), a tree with neither
+    falls back to a guidance-only manifest over :data:`DEFAULT_GUIDANCE_GLOBS`, said on
+    stderr, so a first scan needs no manifest written by hand.
+    """
     import yaml
 
     from dokimi.repos import ManifestError, load_manifest, parse_manifest
 
+    from dokimi.repos import DEFAULT_MANIFEST_PATH
+
+    # Only a path the caller did not name falls back: a mistyped --manifest stays an error.
+    path = args.manifest or DEFAULT_MANIFEST_PATH
     if not args.manifest_file:
-        return load_manifest(tree, args.manifest)
+        if guidance_default and args.manifest is None and not tree.is_file(path):
+            print(f"note: no {path} in {tree.label}; checking the default guidance "
+                  f"globs {', '.join(DEFAULT_GUIDANCE_GLOBS)} (pass --manifest-file to choose)",
+                  file=sys.stderr)
+            return parse_manifest({
+                "schema": "repo_manifest.v1", "id": _manifest_id(tree.label),
+                "guidance": {"globs": list(DEFAULT_GUIDANCE_GLOBS)},
+            }, "<default>")
+        return load_manifest(tree, path)
     try:
         raw = yaml.safe_load(Path(args.manifest_file).read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise ManifestError(args.manifest_file, [str(exc)]) from exc
-    return parse_manifest(raw, args.manifest)
+    return parse_manifest(raw, path)
+
+
+def _manifest_id(label: str) -> str:
+    """A manifest id (``^[a-z0-9][a-z0-9._-]*$``) from a tree label such as a path or url@rev."""
+    import re
+
+    name = re.split(r"[/:]", label.rstrip("/"))[-1].split("@")[0].removesuffix(".git").lower()
+    name = re.sub(r"[^a-z0-9._-]+", "-", name).strip("-._")
+    return name or "repo"
 
 
 def _cache_dir(args: argparse.Namespace) -> Path | None:
@@ -231,8 +266,11 @@ def register(sub, positive_int) -> None:
         "against the same tree (repo_readiness.v1). No LLM call.",
     )
     scan_p.add_argument("source", help=source_help)
-    scan_p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
-                        help="Manifest path relative to the repository root")
+    scan_p.add_argument("--manifest", default=None,
+                        help="Manifest path relative to the repository root (default: "
+                        ".agent-eval/repo-eval.yaml). With this flag, --manifest-file and the default path "
+                        "all absent, the default guidance globs (AGENTS.md, CLAUDE.md, Copilot instructions) "
+                        "are checked")
     scan_p.add_argument("--manifest-file", default=None, dest="manifest_file",
                         help="Read the manifest from this local file instead of from the tree, as if it were "
                         "at --manifest (for a repository that has not added it yet)")
@@ -259,8 +297,11 @@ def register(sub, positive_int) -> None:
         "guidance files it loads (guidance_reach.v1). Costs one cheap-model call per scenario.",
     )
     reach_p.add_argument("source", help=source_help)
-    reach_p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
-                         help="Manifest path relative to the repository root")
+    reach_p.add_argument("--manifest", default=None,
+                         help="Manifest path relative to the repository root (default: "
+                         ".agent-eval/repo-eval.yaml). With this flag, --manifest-file and the default path "
+                         "all absent, the default guidance globs (AGENTS.md, CLAUDE.md, Copilot instructions) "
+                         "are checked")
     reach_p.add_argument("--manifest-file", default=None, dest="manifest_file",
                          help="Read the manifest from this local file instead of from the tree, as if it were "
                          "at --manifest (for a repository that has not added it yet)")

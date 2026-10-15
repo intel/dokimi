@@ -29,11 +29,14 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     from dokimi.repos.source import default_cache_dir
     from dokimi.repos.workspace import export_build_context, export_eval_dir, source_git_dir
 
+    from dokimi.repos.manifest import require_runnable
+
     from .repo import _cache_dir, _load_manifest
 
     source = RepoSource.parse(args.source)
     tree = open_source(source, _cache_dir(args))
     manifest = _load_manifest(tree, args)
+    require_runnable(manifest)
     if manifest.image is None:
         raise ValueError(f"{manifest.path} declares no `image`; entry points and agents run in it")
     git_dir = source_git_dir(source, tree, _cache_dir(args))

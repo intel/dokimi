@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from dokimi.artifacts import schema_errors
+
 from .container import (
     CONTENT_DIR,
     INFRA_EXIT,
@@ -42,7 +44,6 @@ from .manifest import RepoManifest
 from .workspace import Task
 
 GRADE_SCHEMA = "repo_grade.v1"
-_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / f"{GRADE_SCHEMA}.json"
 _PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
 CONTAINER_PATHS = {"run_dir": RUN_DIR, "eval_dir": CONTENT_DIR, "source_dir": SOURCE_DIR}
 GRADE_HOME = "grade-home"  # under {run_dir}, which the agent's container never mounts
@@ -152,11 +153,7 @@ def _set_git_config_aside(run_dir: Path) -> None:
 
 def check_grade(doc: Any) -> list[str]:
     """Problems with a ``grade.json`` document; empty when it is a valid ``repo_grade.v1``."""
-    from jsonschema import Draft202012Validator
-
-    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
-    return [f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}"
-            for e in sorted(Draft202012Validator(schema).iter_errors(doc), key=lambda e: list(e.path))]
+    return schema_errors(GRADE_SCHEMA, doc)
 
 
 def replaced_files(run_dir: Path) -> list[str]:

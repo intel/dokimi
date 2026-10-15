@@ -59,7 +59,8 @@ REPO = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO / ".github" / "workflows"
 
 # Jobs or steps that cannot run offline. Keyed by job id, or (job id, step name).
-NEEDS_NETWORK = {"package-smoke", ("security", "pip-audit")}
+# pre-commit clones its hook repositories on first use.
+NEEDS_NETWORK = {"package-smoke", "pre-commit", ("security", "pip-audit")}
 NEEDS_DOCKER = {"external-catalog-smoke"}
 # Jobs that `pip install .`: run on a copy of the tree in a throwaway venv.
 ISOLATED = {"package-smoke"}

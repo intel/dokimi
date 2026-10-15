@@ -64,7 +64,7 @@ def test_run_benchmark_basic(tmp_path):
          patch("dokimi.runner.run.coverage.score", return_value=0.8), \
          patch("dokimi.runner.run.freshness_lite.score", return_value=0.9), \
          patch("dokimi.runner.run.readability.score", return_value=0.7), \
-         patch("dokimi.runner.run.check_soft_gate") as gate:
+         patch("dokimi.runner.run.check_gate") as gate:
         gate.return_value = type("G", (), {"enabled": True, "passed": True, "min_score": 0.6})()
         out = run_benchmark(root, spec)
 
@@ -92,7 +92,7 @@ def test_run_benchmark_with_examples(tmp_path):
          patch("dokimi.runner.run.freshness_lite.score", return_value=0.9), \
          patch("dokimi.runner.run.readability.score", return_value=0.7), \
          patch("dokimi.runner.run.score_examples", return_value=(1.0, [ex_result()])), \
-         patch("dokimi.runner.run.check_soft_gate") as gate:
+         patch("dokimi.runner.run.check_gate") as gate:
         gate.return_value = type("G", (), {"enabled": True, "passed": True, "min_score": 0.6})()
         out = run_benchmark(root, spec)
 

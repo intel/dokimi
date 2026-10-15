@@ -386,7 +386,7 @@ class JudgePanel:
         if not valid:
             return PanelVerdict(votes=votes, mean_aggregate=None,
                                 std_aggregate=None, agreement_score=None)
-        aggs = [v.aggregate for v in valid]
+        aggs = [v.aggregate for v in valid if v.aggregate is not None]
         mean_agg = round(statistics.mean(aggs), 1)
         std_agg = round(statistics.stdev(aggs), 1) if len(aggs) > 1 else 0.0
         agreement = round(max(0.0, 1.0 - std_agg / 50.0), 3)

@@ -101,7 +101,9 @@ context-augmentation treatments. A `Treatment` produces an `AgentConfig`
 injection (`docs`/`mcp:`), agent persona prompts (`profile:`, loaded from
 `agent_profiles/`), skills (`skill:`, loaded from `skills/`), and agentic use
 where the model decides to call a doc-search or skill tool (`agent:`,
-`skill-agent:`) via the tool-calling loop in `eval/agent_runner.py`.
+`skill-agent:`, `skill-catalog:`) via the tool-calling loop in `eval/agent_runner.py`.
+The spec grammar — what an `--arms` entry means, where `+` splits a combined
+spec, and what each arm is *named* — is `treatments/specs.py`.
 `eval/arm_runner.py` generates and judges answers for every arm and reports
 per-arm deltas vs a baseline. Entry point: `python cli.py arms run`. Details in
 [evaluating-treatments.md](evaluating-treatments.md).

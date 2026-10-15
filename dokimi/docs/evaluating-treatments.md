@@ -263,6 +263,19 @@ artifact per cell, a `matrix_rollup.v1` JSON/Markdown report, and paired
   `docs+skill:<content-checkout>/skills/onetbb-quickstart`
   retrieves docs AND injects the skill, allowing measurement of synergistic effects.
   The `+` operator works between any treatment types except `baseline`.
+  A `+` only starts a new part when the text after it starts a known kind, so a
+  path may contain `+` (`skill:/skills/c++-guide`); a spec that *starts* with
+  `mcp:` is never split, because an MCP URL may carry `+` in its query.
+
+**Specs are not names.** `--arms` takes specs; the artifact's `arms` list, the
+report and `--baseline-arm` use arm *names*: `docs:<source>` is named `docs`,
+`mcp:<ref>` is `mcp_doc`, `agent[:<source>]` is `agent`, and `profile:`,
+`skill:` and `skill-agent:` arms are named after the content they load —
+`profile:<frontmatter id>`, `skill:<skill name>`, `skill_agent:<skill name>` (note
+the underscore); a `skill-catalog:<dir>` arm is named `skill_catalog:<dir>`, after
+its argument, so two catalogs of one size can run side by side. A combined arm is named by joining its parts' names with `+`.
+The grammar lives in
+[`treatments/specs.py`](../dokimi/treatments/specs.py).
 
 Example comparing injection vs agentic use of the same MCP server:
 

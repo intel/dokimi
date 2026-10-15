@@ -292,7 +292,7 @@
     },
     "extraction": {
       "type": "object",
-      "description": "What atom extraction could not read, and what re-asking cost. An unparseable batch is split in half and re-asked down to one span per call; a failed call or an empty reply is not (an empty reply is what a reasoning model returns when it spends the output ceiling, so the warning names it with the --max-tokens fix). Absent from artifacts written before it existed.",
+      "description": "What atom extraction could not read, and what re-asking cost. An unparseable batch, or one with no usable atom, is split in half and re-asked down to one span per call; a failed call or an empty reply is not (an empty reply is what a reasoning model returns when it spends the output ceiling, so the warning names it with the --max-tokens fix). Absent from artifacts written before it existed.",
       "properties": {
         "unread_span_ids": {
           "type": "array",
@@ -305,7 +305,12 @@
           "items": {"type": "string"},
           "description": "The unread spans whose reply arrived but did not parse even alone: an output ceiling too low for one span (raise --max-tokens). The rest were lost to a failed call or an empty reply."
         },
-        "retried_batches": {"type": "integer", "minimum": 0, "description": "Batches whose reply did not parse and were split and re-asked."},
+        "unusable_span_ids": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "The unread spans whose reply parsed and had rows, none of them an atom (wrong keys, strings, span ids that are not the document's). An empty array is a result and is not listed."
+        },
+        "retried_batches": {"type": "integer", "minimum": 0, "description": "Batches whose reply did not parse, or had no usable atom, and were split and re-asked."},
         "calls": {"type": "integer", "minimum": 0, "description": "Extraction calls made, splits included. An n-span batch that never parses costs up to 2n-1 calls."},
         "batches": {"type": "integer", "minimum": 0, "description": "Calls the same extraction would make with no splitting: batches the run reached (a capped run stops early), each counted once whatever its halves cost."},
         "last_error": {"type": "string", "description": "The last error on a span that stayed unread; errors a split recovered from are not recorded."}

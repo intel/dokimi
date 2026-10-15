@@ -1,0 +1,270 @@
+From df6dc8eda3b704a353df56533818dc1667b41ece Mon Sep 17 00:00:00 2001
+From: Dana Kovalenko <dana.kovalenko@example.com>
+Date: Tue, 13 Oct 2026 15:48:22 -0700
+Subject: [PATCH] eval grounding: baseline lift, --min-contexts, --annotate
+
+`eval grounding` scored only the docs-arm answer, so a high grounding
+score could not be told apart from a model that says the same things
+without any docs. Score the without_docs answer against the same
+retrieved context and report the difference as `lift`.
+
+- `--min-contexts N` skips answers that retrieved fewer than N snippets;
+  a single short snippet makes the overlap ratio noisy.
+- `--annotate PATH` writes a copy of the answers file with a
+  per-question `grounding` block, so downstream reports can read the
+  score next to each answer instead of joining two files.
+- answers.v1 declares the `grounding` block.
+- Document the new flags next to the standalone pipeline commands.
+
+Signed-off-by: Dana Kovalenko <dana.kovalenko@example.com>
+---
+ dokimi/docs/benchmarking-and-comparison.md    | 13 ++++++
+ dokimi/dokimi/commands/evaluate.py            | 15 ++++++-
+ dokimi/dokimi/eval/grounding.py               | 43 +++++++++++++++++--
+ dokimi/dokimi/schemas/answers.v1.json         | 13 +++++-
+ dokimi/pyproject.toml                         |  1 +
+ .../tests/fixtures/artifacts/answers.v1.json  |  6 +++
+ dokimi/tests/test_grounding.py                | 23 +++++++++-
+ 7 files changed, 107 insertions(+), 7 deletions(-)
+
+diff --git a/dokimi/docs/benchmarking-and-comparison.md b/dokimi/docs/benchmarking-and-comparison.md
+index db419dd..a287cc4 100644
+--- a/dokimi/docs/benchmarking-and-comparison.md
++++ b/dokimi/docs/benchmarking-and-comparison.md
+@@ -196,6 +196,19 @@ python cli.py report eval \
+   --out results/onetbb_golden/reports/oneTBB_full.md
+ ```
+ 
++To check how much of each context-arm answer is supported by what retrieval
++returned, without another LLM call, run the reference-free grounding metrics.
++Answers with fewer than `--min-docs` retrieved snippets are skipped, and
++`--annotate` writes a copy of the answers file with a per-question `grounding`
++block (docs-arm score, baseline score against the same context, and the lift):
++
++```bash
++python cli.py eval grounding \
++  --answers results/onetbb_golden/answers/onetbb.json \
++  --min-docs 2 \
++  --annotate results/onetbb_golden/answers/onetbb.grounded.json
++```
++
+ Use `report generate` instead of `report eval` when you also want the questions
+ file included in the report generator:
+ 
+diff --git a/dokimi/dokimi/commands/evaluate.py b/dokimi/dokimi/commands/evaluate.py
+index dd894f7..4fe3df5 100644
+--- a/dokimi/dokimi/commands/evaluate.py
++++ b/dokimi/dokimi/commands/evaluate.py
+@@ -228,11 +228,12 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
+     import json
+     from pathlib import Path
+ 
+-    from dokimi.eval.grounding import evaluate_grounding
++    from dokimi.artifacts import save_artifact
++    from dokimi.eval.grounding import annotate_answers, evaluate_grounding
+ 
+     data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
+     answers = data.get("answers", data) if isinstance(data, dict) else data
+-    result = evaluate_grounding(answers, threshold=args.threshold)
++    result = evaluate_grounding(answers, threshold=args.threshold, min_contexts=args.min_contexts)
+ 
+     summary = result["summary"]
+     gs = summary["grounding_score"]
+@@ -247,6 +248,12 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
+         out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+         print(f"\n✅ Grounding report saved to {out}")
+ 
++    if args.annotate:
++        meta = {k: v for k, v in data.items() if k != "answers"} if isinstance(data, dict) else {}
++        annotated = {**meta, "answers": annotate_answers(answers, min_contexts=args.min_contexts)}
++        save_artifact("answers", annotated, Path(args.annotate))
++        print(f"✅ Annotated answers saved to {args.annotate}")
++
+ 
+ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
+     """Measure whether the judge can order pairs whose ordering is known."""
+@@ -451,6 +458,10 @@ def register(sub, positive_int) -> None:
+     grounding_p.add_argument("--output", default=None, help="Output JSON report path")
+     grounding_p.add_argument("--threshold", type=float, default=0.5,
+                              help="Grounding score above which an answer counts as grounded (default: 0.5)")
++    grounding_p.add_argument("--min-contexts", type=positive_int, default=1, dest="min_contexts",
++                             help="Skip answers with fewer than N retrieved contexts (default: 1)")
++    grounding_p.add_argument("--annotate", default=None, metavar="PATH",
++                             help="Also write the answers file with a per-question grounding block")
+     grounding_p.set_defaults(func=cmd_eval_grounding)
+ 
+     # eval judge-validity (does the judge order known-worse answers below better ones?)
+diff --git a/dokimi/dokimi/eval/grounding.py b/dokimi/dokimi/eval/grounding.py
+index ee7baa5..41101db 100644
+--- a/dokimi/dokimi/eval/grounding.py
++++ b/dokimi/dokimi/eval/grounding.py
+@@ -11,6 +11,9 @@ in CI and can gate or contextualize the more expensive LLM-judge scores.
+ * ``grounding_score``: fraction of an answer's content tokens that also appear in
+   the retrieved context (a coverage proxy for groundedness).
+ * ``citation_rate``: fraction of answers whose grounding clears a threshold.
++* ``baseline_grounding``: the same overlap for the ``without_docs`` answer against
++  the context the docs arm retrieved -- how much of the "grounding" the model
++  would have produced anyway. ``lift`` is the difference.
+ 
+ Aggregates come with bootstrap confidence intervals so scores carry uncertainty
+ before being treated as blocking.
+@@ -54,17 +57,18 @@ def _contexts_of(ans: dict) -> list[str]:
+     return [d.get("snippet") or d.get("content", "") for d in docs if d]
+ 
+ 
+-def evaluate_grounding(answers: list[dict], threshold: float = 0.5) -> dict:
++def evaluate_grounding(answers: list[dict], threshold: float = 0.5, min_contexts: int = 1) -> dict:
+     """Compute per-question and aggregate grounding/citation metrics.
+ 
+-    Only ``with_docs`` answers that have retrieved context are scored.
++    Only ``with_docs`` answers with at least ``min_contexts`` retrieved contexts
++    are scored.
+     """
+     per_question: list[dict] = []
+     scores: list[float] = []
+     for ans in answers:
+         answer = (ans.get("with_docs") or {}).get("answer", "")
+         contexts = _contexts_of(ans)
+-        if not answer or not contexts:
++        if not answer or not contexts or len(contexts) < min_contexts:
+             continue
+         gs = grounding_score(answer, contexts)
+         per_question.append({
+@@ -87,3 +91,36 @@ def evaluate_grounding(answers: list[dict], threshold: float = 0.5) -> dict:
+         },
+         "per_question": per_question,
+     }
++
++
++def annotate_answers(answers: list[dict], min_contexts: int = 1) -> list[dict]:
++    """Return the answers with a per-question ``grounding`` block attached.
++
++    ``grounding`` holds the docs-arm score, the baseline score against the same
++    context, and their difference. Questions without enough context get nulls.
++    """
++    out: list[dict] = []
++    for ans in answers:
++        wd = ans.get("with_docs") or {}
++        contexts = _contexts_of(ans)
++        score: float = None
++        base: float = None
++        if wd.get("answer") and len(contexts) > min_contexts:
++            score = grounding_score(wd["answer"], contexts)
++            baseline = (ans.get("without_docs") or {}).get("answer", "")
++            base = grounding_score(baseline, contexts) if baseline else None
++        out.append({
++            "question_id": ans.get("question_id"),
++            "question_text": ans.get("question_text"),
++            "library_name": ans.get("library_name"),
++            # the arm names the rest of the pipeline uses
++            "with_context": ans.get("with_docs"),
++            "baseline": ans.get("without_docs"),
++            "grounding": {
++                "score": score,
++                "baseline_score": base,
++                "lift": round(score - base, 4) if score is not None and base is not None else None,
++                "n_contexts": len(contexts),
++            },
++        })
++    return out
+diff --git a/dokimi/dokimi/schemas/answers.v1.json b/dokimi/dokimi/schemas/answers.v1.json
+index 48a6f34..e44b4fa 100644
+--- a/dokimi/dokimi/schemas/answers.v1.json
++++ b/dokimi/dokimi/schemas/answers.v1.json
+@@ -33,7 +33,8 @@
+       "items": {
+         "type": "object",
+         "required": [
+-          "question_id"
++          "question_id",
++          "grounding"
+         ],
+         "properties": {
+           "question_id": {
+@@ -80,6 +81,16 @@
+           },
+           "question_source": {
+             "description": "How a chunk-grounded question was produced (e.g. chunk)."
++          },
++          "grounding": {
++            "type": "object",
++            "required": ["score", "baseline_score", "lift"],
++            "properties": {
++              "score": {"type": ["number", "null"]},
++              "baseline_score": {"type": ["number", "null"]},
++              "lift": {"type": ["number", "null"]},
++              "n_contexts": {"type": "integer"}
++            }
+           }
+         }
+       }
+diff --git a/dokimi/pyproject.toml b/dokimi/pyproject.toml
+index ed18274..23f6a68 100644
+--- a/dokimi/pyproject.toml
++++ b/dokimi/pyproject.toml
+@@ -114,6 +114,7 @@ module = [
+   "dokimi.eval.agent_runner",
+   "dokimi.eval.answerer",
+   "dokimi.eval.arm_runner",
++  "dokimi.eval.grounding",
+   "dokimi.eval.judge",
+   "dokimi.eval.panel",
+   "dokimi.llm",
+diff --git a/dokimi/tests/fixtures/artifacts/answers.v1.json b/dokimi/tests/fixtures/artifacts/answers.v1.json
+index 02cbec2..91b92a8 100644
+--- a/dokimi/tests/fixtures/artifacts/answers.v1.json
++++ b/dokimi/tests/fixtures/artifacts/answers.v1.json
+@@ -11,6 +11,12 @@
+       "without_docs": {
+         "answer": "unsure",
+         "tokens": 2
++      },
++      "grounding": {
++        "baseline_score": null,
++        "lift": null,
++        "n_contexts": 0,
++        "score": null
+       }
+     }
+   ],
+diff --git a/dokimi/tests/test_grounding.py b/dokimi/tests/test_grounding.py
+index 8e33d56..5c70ba0 100644
+--- a/dokimi/tests/test_grounding.py
++++ b/dokimi/tests/test_grounding.py
+@@ -5,7 +5,7 @@
+ 
+ from __future__ import annotations
+ 
+-from dokimi.eval.grounding import evaluate_grounding, grounding_score
++from dokimi.eval.grounding import annotate_answers, evaluate_grounding, grounding_score
+ from dokimi.eval.stats import bootstrap_ci
+ 
+ 
+@@ -62,3 +62,24 @@ def test_bootstrap_ci_interval_brackets_mean():
+     vals = [0.2, 0.4, 0.6, 0.8]
+     ci = bootstrap_ci(vals, seed=3)
+     assert ci["lo"] <= ci["mean"] <= ci["hi"]
++
++
++def _ans(qid, answer, n_ctx, baseline="unsure"):
++    docs = [{"snippet": f"parallel_for runs tasks {i}"} for i in range(n_ctx)]
++    return {"question_id": qid, "with_docs": {"answer": answer, "retrieved_docs": docs},
++            "without_docs": {"answer": baseline}}
++
++
++def test_evaluate_grounding_min_contexts():
++    answers = [_ans("q1", "use parallel_for", 1), _ans("q2", "use parallel_for", 3)]
++    result = evaluate_grounding(answers, min_contexts=2)
++    assert [p["question_id"] for p in result["per_question"]] == ["q2"]
++
++
++def test_annotate_answers_lift():
++    out = annotate_answers([_ans("q1", "parallel_for runs", 2, baseline="parallel_for maybe")])
++    g = out[0]["grounding"]
++    assert g["score"] == 1.0
++    assert g["baseline_score"] == 0.5
++    assert g["lift"] == 0.5
++    assert out[0]["with_context"]["answer"] == "parallel_for runs"
+-- 
+2.43.0
+

@@ -1,0 +1,18 @@
+{
+  "id": "legacy-keys",
+  "family": "feature",
+  "base": "16e319fdcb2f4eb6e0dfa44b7c05a2d451599586",
+  "prompt": "Users reading eval results can't tell what the two answer conditions are. `benchmark preflight` prints `arms: without_docs vs with_docs`, the `report eval` and `report generate` Markdown call them \"Context Arm\" / \"Context\" and \"Baseline\", `baseline list` heads its columns `with` / `without`, and `baseline compare` puts a \"Baseline avg\" row (the answers given without docs) under a \"Baseline\" column (the saved run). Please name them \"treatment\" (answered with the docs) and \"control\" (answered without) in all of that output: the tables and headings of those two reports, `report eval`'s console summary, and what the `baseline` and `benchmark preflight` commands print. Commit your change.",
+  "grader": "code",
+  "gate": [
+    "keys_kept",
+    "display_changed",
+    "regress_pass",
+    "ruff_ok",
+    "mypy_ok",
+    "compat_ok"
+  ],
+  "timeout_s": 1800,
+  "max_turns": 150,
+  "budget_usd": 5
+}

@@ -24,14 +24,17 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any, Callable
 
 import yaml
 
+from dokimi.artifacts import schema_errors
+
 from .source import RepoTree
 
 SCHEMA_VERSION = "repo_manifest.v1"
+_RUN_KEYS = ("eval_dir", "tasks", "entry_points")
 DEFAULT_MANIFEST_PATH = ".agent-eval/repo-eval.yaml"
 PLACEHOLDERS = frozenset({"eval_dir", "source_dir", "run_dir", "out", "task"})
 # {source_dir} is a full-history clone, so it holds every fix: only the grading
@@ -47,7 +50,6 @@ _HOST_RE = re.compile(HOST_PATTERN)
 _BASE_RE = re.compile(r"^([0-9a-f]{7,40})(\^?)$")
 TASK_REQUIRED = ("id", "family", "base", "prompt", "grader")
 _PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
-_SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schemas" / f"{SCHEMA_VERSION}.json"
 
 
 # Run-dir entries the framework creates itself and the agent's container does not mount. An `image.env`
@@ -117,15 +119,33 @@ class RepoManifest:
 
     path: str
     id: str
-    eval_dir: str
     guidance_globs: tuple[str, ...]
-    entry_points: dict[str, str]
-    tasks: str
+    # None in a guidance-only manifest: enough for `scan` and `reach`, not for running tasks
+    eval_dir: str | None = None
+    entry_points: dict[str, str] = field(default_factory=dict)
+    tasks: str | None = None
     also_scan: tuple[str, ...] = ()
     source_url: str | None = None
     image: ImageSpec | None = None
     explore_tasks: str | None = None
     build_systems: tuple[str, ...] = ()
+
+    @property
+    def runnable(self) -> bool:
+        """Whether the manifest declares tasks to run, or only the guidance to check."""
+        return self.eval_dir is not None
+
+    def run_paths(self) -> tuple[str, str]:
+        """``(eval_dir, tasks)``; a guidance-only manifest raises :class:`ManifestError`."""
+        if self.eval_dir is None or self.tasks is None:
+            raise ManifestError(self.path, [
+                "guidance-only manifest: running tasks needs eval_dir, tasks and entry_points "
+                "(docs/repo-evaluation-contract.md §2)"
+            ])
+        return self.eval_dir, self.tasks
+
+    def in_eval_dir(self, path: str) -> bool:
+        return self.eval_dir is not None and _is_within(path, self.eval_dir)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -207,13 +227,19 @@ def load_manifest(tree: RepoTree, path: str = DEFAULT_MANIFEST_PATH) -> RepoMani
 
 def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
     """Validate an already-parsed manifest mapping."""
-    from jsonschema import Draft202012Validator
-
-    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
-    errors = [
-        f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}"
-        for e in sorted(Draft202012Validator(schema).iter_errors(raw), key=lambda e: list(e.path))
-    ]
+    # The schema says this too (dependentRequired); said first, in the manifest's own terms.
+    # A runnable manifest needs all three keys; a guidance-only one, none of them (contract §2).
+    run_keys = [k for k in _RUN_KEYS if k in raw] if isinstance(raw, dict) else []
+    if run_keys and len(run_keys) < len(_RUN_KEYS):
+        missing = [k for k in _RUN_KEYS if k not in raw]
+        raise ManifestError(path, [f"{', '.join(run_keys)} without {', '.join(missing)}: a manifest "
+                                   "that runs tasks needs all of eval_dir, tasks and entry_points"])
+    needs_eval = [k for k in ("image", "explore_tasks")
+                  if isinstance(raw, dict) and k in raw and not run_keys]
+    if needs_eval:
+        raise ManifestError(path, [f"{', '.join(needs_eval)} without eval_dir, tasks and entry_points: "
+                                   "only a manifest that runs tasks uses them"])
+    errors = schema_errors(SCHEMA_VERSION, raw)
     if errors:
         raise ManifestError(path, errors)
 
@@ -221,10 +247,10 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
         problem = _path_problem(value)
         if problem:
             errors.append(f"{key}: {problem}: {value!r}")
-    if _norm(raw["eval_dir"]) == ".":
+    if "eval_dir" in raw and _norm(raw["eval_dir"]) == ".":
         errors.append("eval_dir: must be a subdirectory; it is deleted from every workspace")
     image = raw.get("image") or {}
-    templates = [(f"entry_points/{k}", v) for k, v in raw["entry_points"].items()]
+    templates = [(f"entry_points/{k}", v) for k, v in (raw.get("entry_points") or {}).items()]
     templates += [(f"image/env/{k}", v) for k, v in (image.get("env") or {}).items()]
     for key, value in templates:
         found = set(_PLACEHOLDER_RE.findall(value))
@@ -250,11 +276,11 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
     return RepoManifest(
         path=path,
         id=raw["id"],
-        eval_dir=_norm(raw["eval_dir"]),
+        eval_dir=_norm(raw["eval_dir"]) if "eval_dir" in raw else None,
         guidance_globs=tuple(raw["guidance"]["globs"]),
         also_scan=tuple(raw["guidance"].get("also_scan") or ()),
-        entry_points=dict(raw["entry_points"]),
-        tasks=_norm(raw["tasks"]),
+        entry_points=dict(raw.get("entry_points") or {}),
+        tasks=_norm(raw["tasks"]) if "tasks" in raw else None,
         source_url=(raw.get("source") or {}).get("url"),
         image=None if not image else ImageSpec(
             dockerfile=_norm(image["dockerfile"]),
@@ -275,6 +301,12 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
     and guidance globs are evaluated at each base too (contract §2).
     """
     report = RepoCheckReport(tree=tree.label, manifest=manifest)
+    if manifest.eval_dir is None or manifest.tasks is None:
+        report.warnings.extend(f"guidance glob matches no file: {p}"
+                               for p in _check_guidance(tree, manifest, report))
+        report.notes.append("guidance-only manifest: no eval_dir, tasks or entry_points, "
+                            "so `repo scan` and `repo reach` apply and `repo run` does not")
+        return report
     if not tree.is_dir(manifest.eval_dir):
         report.errors.append(f"eval_dir does not exist: {manifest.eval_dir}")
     elif not _is_within(manifest.path, manifest.eval_dir):
@@ -293,16 +325,8 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
         )
 
     files = tree.files()
-    unmatched = []
-    for pattern in manifest.guidance_globs:
-        matched = [f for f in files if match_glob(pattern, f)]
-        if not matched:
-            unmatched.append(pattern)
-        report.guidance_files.extend(m for m in matched if m not in report.guidance_files)
-    for pattern in manifest.also_scan:
-        if not any(match_glob(pattern, f) for f in files):
-            report.warnings.append(f"guidance/also_scan matches no file: {pattern}")
-    inside_eval = [f for f in report.guidance_files if _is_within(f, manifest.eval_dir)]
+    unmatched = _check_guidance(tree, manifest, report)
+    inside_eval = [f for f in report.guidance_files if manifest.in_eval_dir(f)]
     if inside_eval:
         report.warnings.append(
             f"guidance files inside eval_dir are removed from every workspace: {inside_eval}"
@@ -321,8 +345,29 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
     return report
 
 
+def require_runnable(manifest: RepoManifest) -> None:
+    """Refuse a guidance-only manifest where tasks are about to be prepared or run."""
+    manifest.run_paths()
+
+
+def _check_guidance(tree: RepoTree, manifest: RepoManifest, report: RepoCheckReport) -> list[str]:
+    """Fill ``report.guidance_files``; return the globs that matched nothing."""
+    files = tree.files()
+    unmatched = []
+    for pattern in manifest.guidance_globs:
+        matched = [f for f in files if match_glob(pattern, f)]
+        if not matched:
+            unmatched.append(pattern)
+        report.guidance_files.extend(m for m in matched if m not in report.guidance_files)
+    for pattern in manifest.also_scan:
+        if not any(match_glob(pattern, f) for f in files):
+            report.warnings.append(f"guidance/also_scan matches no file: {pattern}")
+    return unmatched
+
+
 def _check_tasks(tree: RepoTree, manifest: RepoManifest, files: list[str], report: RepoCheckReport) -> None:
-    if not _is_within(manifest.tasks, manifest.eval_dir):
+    eval_dir, tasks = manifest.run_paths()
+    if not _is_within(tasks, eval_dir):
         report.errors.append(
             f"tasks {manifest.tasks} is outside eval_dir {manifest.eval_dir}; "
             "task content would be visible to the agent"
@@ -467,7 +512,7 @@ def _positive(value: Any) -> bool:
 
 
 def _path_fields(raw: dict[str, Any]) -> list[tuple[str, str]]:
-    fields = [("eval_dir", raw["eval_dir"]), ("tasks", raw["tasks"])]
+    fields: list[tuple[str, str]] = [(key, raw[key]) for key in ("eval_dir", "tasks") if key in raw]
     if raw.get("explore_tasks"):
         fields.append(("explore_tasks", raw["explore_tasks"]))
     if raw.get("image"):

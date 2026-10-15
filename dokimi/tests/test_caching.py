@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import json
 
 import pytest
@@ -204,8 +206,8 @@ def test_store_then_load_round_trips(monkeypatch, tmp_path):
     assert hit is not None
     text, usage = hit
     assert text == "answer"
-    # Replayed as recorded: a cached run still reports what the call cost.
-    assert usage == _usage()
+    # Replayed as recorded: a cached run still reports what the call cost, marked as a replay.
+    assert usage == replace(_usage(), replayed=True)
 
 
 def test_a_replayed_hit_reports_the_recorded_cost_and_latency(monkeypatch, tmp_path):

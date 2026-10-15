@@ -315,7 +315,8 @@ def load_response(key: str) -> Optional[Tuple[str, UsageRecord]]:
     """Return ``(text, usage)`` for a cached call, or ``None`` on any miss.
 
     A corrupt or unreadable entry is a miss, not an error: the call is simply
-    made again. The stored usage is replayed as-is (see the module docstring).
+    made again. The stored usage is replayed as-is (see the module docstring), marked
+    ``replayed`` so a spend cap can tell a hit from a call it paid for.
     """
     directory = response_cache_dir()
     if directory is None:
@@ -335,8 +336,9 @@ def load_response(key: str) -> Optional[Tuple[str, UsageRecord]]:
         # still valid, so keep the hit and drop what we cannot represent.
         logger.debug("Dropping unknown usage fields from cache entry: %s", sorted(unknown))
         usage_fields = {k: v for k, v in usage_fields.items() if k in known}
+    usage_fields.pop("replayed", None)
     try:
-        usage = UsageRecord(**usage_fields)
+        usage = UsageRecord(**usage_fields, replayed=True)
     except TypeError:
         return None
     return text, usage

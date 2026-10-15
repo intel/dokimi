@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Dependency updates: the SHA-pinned actions in .github/workflows, the Python
-// lock (dokimi/requirements.lock.txt) and the tool pins the workflows install.
+// lock (dokimi/requirements.lock.txt), the tool pins the workflows install and
+// the hook revs in .pre-commit-config.yaml.
 //
 // Once a week, every minor and patch update lands in one PR; a major update
 // gets a PR of its own. Advisories (vulnerabilityAlerts) skip the schedule.
@@ -43,7 +44,10 @@
   // in step when a range has to move (same dependency, same branch, one PR).
   // requirements-docs.lock.txt is not matched yet: its header is not uv's, and it
   // is compiled against the main lock with -c. pip-audit in ci.yml audits it.
-  enabledManagers: ["github-actions", "pip-compile", "pep621", "custom.regex"],
+  enabledManagers: ["github-actions", "pip-compile", "pep621", "custom.regex", "pre-commit"],
+  // Off by default even when listed above. It reads `rev: <sha>  # frozen: vX`
+  // and updates the SHA and the tag together.
+  "pre-commit": { enabled: true },
   "pip-compile": {
     managerFilePatterns: ["/(^|/)requirements\\.lock\\.txt$/"],
   },
@@ -77,6 +81,19 @@
       matchUpdateTypes: ["minor", "patch", "pinDigest", "digest"],
     },
     {
+      // A pre-commit hook and the pin ci.yml installs for the same tool move
+      // in one PR, majors included, so the hook never reports what CI does not
+      // (or the reverse). Later rules win, so these leave the non-major group.
+      groupName: "ruff",
+      groupSlug: "ruff",
+      matchDepNames: ["ruff", "astral-sh/ruff-pre-commit"],
+    },
+    {
+      groupName: "zizmor",
+      groupSlug: "zizmor",
+      matchDepNames: ["zizmor", "zizmorcore/zizmor-pre-commit"],
+    },
+    {
       // Renovate pins the proposed release (--upgrade-package=numpy==X), and
       // the newest numpy and scipy need a newer Python than the lock's oldest
       // branch, so the uv run for the whole group would fail. The monthly
@@ -87,7 +104,7 @@
       enabled: false,
     },
     {
-      matchManagers: ["github-actions"],
+      matchManagers: ["github-actions", "pre-commit"],
       semanticCommitType: "ci",
     },
     {
@@ -105,6 +122,12 @@
     {
       matchDepNames: ["langchain-community"],
       allowedVersions: "<0.4.2",
+    },
+    {
+      // litellm (up to 1.105.1) requires openai<3; v3 resolves to an
+      // old, vulnerable litellm. Lift once litellm accepts openai 3.
+      matchDepNames: ["openai"],
+      allowedVersions: "<3",
     },
   ],
 }

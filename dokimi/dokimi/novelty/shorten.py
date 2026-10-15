@@ -31,7 +31,7 @@ nearly every span was protected or a sole carrier).
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .atoms import Atom
 from .retention import RetentionOracle
@@ -60,11 +60,7 @@ class Candidate:
     # artifact (148 of 2422), because it needs a per-model K0 and that exists only for probed atoms,
     # so the axis read as "value" was mostly coverage. The number ships next to the rate.
     value_coverage: float = 0.0
-    dropped_protected_spans: list[str] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        if self.dropped_protected_spans is None:
-            self.dropped_protected_spans = []
+    dropped_protected_spans: list[str] = field(default_factory=list)
 
     @property
     def token_frac(self) -> float:
