@@ -45,6 +45,8 @@ dev = [
   "pytest-cov>=4.1.0",
   "pytest-mock>=3.12.0",
   "pytest-socket>=0.7",
+  "pytest-timeout>=2.2",
+  "pytest-randomly>=3.15",
   "diff-cover>=10.0",
   "ruff>=0.12",
   "mypy>=1.8",
@@ -146,3 +148,18 @@ testpaths = ["tests"]
 # that run a local server (the egress proxy). Needs pytest-socket
 # (requirements-test.txt).
 addopts = ["--allow-hosts=127.0.0.1,::1"]
+# A hung test fails after 60 s instead of holding the job until its 6 h limit
+# (pytest-timeout). The slowest test takes ~20 s. On POSIX the default method,
+# signal (SIGALRM, handled in the main thread), fails only the hung test: its
+# fixtures still tear down and the run goes on, whatever the proxy and server
+# threads it started are doing. Without SIGALRM (Windows) it falls back to
+# thread, which dumps the stacks and ends the whole run.
+timeout = 60
+# A warning is a failure: deprecations surface when they appear, not when the
+# removal breaks the suite, and an unclosed file or socket is a ResourceWarning.
+# A third-party warning gets a narrow ignore (module, category, message) with
+# the reason; ours are fixed where they are raised.
+filterwarnings = ["error"]
+# Test order is shuffled and `random` reseeded per test (pytest-randomly), so a
+# test that leans on another's leftovers fails. The header prints the seed;
+# `--randomly-seed=<seed>` replays that order, `-p no:randomly` keeps file order.
