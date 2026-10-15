@@ -351,3 +351,12 @@ def test_non_finite_values_are_not_measurements(tmp_path, bad):
     assert [t["task"] for t in cost["tasks"]] == ["fix_1", "fix_2", "fix_3"]  # fix_0's cost is not a number
     assert cost["up"] + cost["down"] + cost["tied"] == cost["n_tasks"] == 3
     json.dumps(s, allow_nan=False)
+
+
+def test_a_batch_given_as_dot_keeps_its_directory_name(tmp_path, monkeypatch):
+    b = tmp_path / "b1"
+    _cell(b, "fix_a", "guidance:none", 1, success=False)
+    _cell(b, "fix_a", "guidance:raw", 1)
+    monkeypatch.chdir(b)
+    s = compare([Path(".")], "b1/guidance:none", ["b1/guidance:raw"])
+    assert _row(s, "gate", treatment="b1/guidance:raw")["delta"]["mean"] == 1.0

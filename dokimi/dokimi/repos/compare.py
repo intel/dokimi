@@ -69,15 +69,15 @@ def selector_matches(selector: tuple[str | None, str], cell: dict[str, Any]) -> 
 
 def load_batches(batch_dirs: list[Path], metrics: tuple[str, ...] = ()) -> tuple[list[dict[str, Any]], list[str]]:
     """Finished cells of every batch, each with its ``batch`` and the requested ``grade.json`` metrics."""
-    names = [d.name for d in batch_dirs]
+    names = [d.resolve().name for d in batch_dirs]  # resolved: Path('.').name is empty
     if len(set(names)) != len(names):
         raise CompareError(f"batch directories must have distinct names: {', '.join(names)}")
     cells, missing = [], []
-    for batch_dir in batch_dirs:
+    for batch_dir, name in zip(batch_dirs, names, strict=True):
         found, gone = load_cells(batch_dir)
-        missing += [f"{batch_dir.name}/{name}" for name in gone]
+        missing += [f"{name}/{cell}" for cell in gone]
         for rec in found:
-            rec["batch"] = batch_dir.name
+            rec["batch"] = name
             rec["metrics"] = _grade_metrics(batch_dir / rec["cell"] / "grade.json", metrics) if metrics else {}
             cells.append(rec)
     return cells, missing
