@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import itertools
 import json
+import random
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -47,6 +50,44 @@ def test_sign_flip_equals_mcnemar_exact_at_one_cell_per_arm(gained, lost, tied):
     control = [False] * gained + [True] * lost + [True] * tied
     expected = mcnemar_test(treatment, control)["p_exact"]
     assert sign_flip_p(deltas) == pytest.approx(expected, abs=1e-4)
+
+
+def _exact_p(deltas):
+    """Sign-flip p in exact arithmetic: the oracle for sign_flip_p."""
+    d = [x for x in deltas if x != 0]
+    observed = abs(sum(d))
+    hits = sum(abs(sum(s * x for s, x in zip(signs, d, strict=True))) >= observed
+               for signs in itertools.product((1, -1), repeat=len(d)))
+    return hits / 2 ** len(d)
+
+
+def test_sign_flip_matches_exact_arithmetic_on_rates_of_repeated_cells():
+    # per-task rates over 1-4 reps: 1/3 and 2/3 are where rounded floats used to drift past the observed sum
+    rng = random.Random(7)
+    for _ in range(300):
+        deltas = []
+        for _ in range(rng.randint(1, 9)):
+            n = rng.randint(1, 4)
+            deltas.append(Fraction(rng.randint(0, n), n) - Fraction(rng.randint(0, n), n))
+        expected = _exact_p(deltas) if any(deltas) else None
+        assert sign_flip_p([float(x) for x in deltas]) == (None if expected is None else pytest.approx(expected))
+
+
+def test_rates_of_three_reps_give_the_exact_p_end_to_end(tmp_path):
+    # deltas +2/3, -1/3, -1/3, +1/3: the true p is 1.0; computing it from rates rounded to 6 places gave 0.875
+    b = tmp_path / "b1"
+    plan = {"fix_a": ((0, 0, 0), (1, 1, 0)), "fix_b": ((1, 0, 0), (0, 0, 0)), "fix_c": ((1, 0, 0), (0, 0, 0)),
+            "fix_d": ((0, 0, 0), (1, 0, 0))}
+    for task, (base, treat) in plan.items():
+        for rep, ok in enumerate(base, 1):
+            _cell(b, task, "guidance:none", rep, success=bool(ok))
+        for rep, ok in enumerate(treat, 1):
+            _cell(b, task, "guidance:raw", rep, success=bool(ok))
+    gate = _row(compare([b], "guidance:none"), "gate")
+    expected = _exact_p([Fraction(2, 3), Fraction(-1, 3), Fraction(-1, 3), Fraction(1, 3)])
+    assert expected == 1.0 and gate["p"] == pytest.approx(expected)
+    assert {t["task"]: t["delta"] for t in gate["tasks"]} == {"fix_a": 0.666667, "fix_b": -0.333333,
+                                                             "fix_c": -0.333333, "fix_d": 0.333333}
 
 
 def test_sign_flip_has_no_p_when_every_task_tied():
@@ -176,6 +217,49 @@ def test_bad_arms_are_refused(tmp_path, baseline, treatments, message):
         compare([b], baseline, treatments)
 
 
+def test_a_task_whose_kind_differs_between_arms_is_left_out_of_gate_and_score(tmp_path):
+    old, new = tmp_path / "old", tmp_path / "new"
+    _cell(old, "task_x", "guidance:raw", 1, success=True)  # gated in one eval tree
+    _cell(new, "task_x", "guidance:raw", 1, score=0.5)  # score-only in the other
+    _cell(old, "fix_a", "guidance:raw", 1, success=False)
+    _cell(new, "fix_a", "guidance:raw", 1, success=True)
+    s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
+    assert [t["task"] for t in _row(s, "gate", treatment="new/guidance:raw")["tasks"]] == ["fix_a"]
+    assert not [r for r in s["comparisons"] if r["measure"] == "score"]
+    assert len(_row(s, "turns", treatment="new/guidance:raw")["tasks"]) == 2  # process measures still pair
+
+
+def test_a_model_with_no_compared_cells_is_refused(tmp_path):
+    b = tmp_path / "b1"
+    _cell(b, "fix_a", "guidance:none", 1)
+    _cell(b, "fix_a", "guidance:raw", 1)
+    with pytest.raises(CompareError, match="no compared cells for --model m-typo"):
+        compare([b], "guidance:none", models=["m-1", "m-typo"])
+
+
+def test_unreadable_grade_json_leaves_the_metric_out(tmp_path):
+    b = tmp_path / "b1"
+    _cell(b, "fix_a", "guidance:none", 1, metrics={"ran_tests": True})
+    _cell(b, "fix_a", "guidance:none", 2)
+    _cell(b, "fix_a", "guidance:raw", 1, metrics={"ran_tests": False})
+    _cell(b, "fix_a", "guidance:raw", 2)
+    (b / "fix_a__guidance-none__m-1__r2" / "grade.json").write_text("{not json")
+    (b / "fix_a__guidance-raw__m-1__r2" / "grade.json").write_text(json.dumps({"metrics": ["x"]}))
+    pair = _row(compare([b], "guidance:none", metrics=("ran_tests",)), "metric:ran_tests")["tasks"][0]
+    assert (pair["baseline"], pair["treatment"]) == (1.0, 0.0)  # the unreadable cells count for neither
+
+
+def test_missing_cells_are_counted_and_left_out(tmp_path):
+    b = tmp_path / "b1"
+    _cell(b, "fix_a", "guidance:none", 1)
+    _cell(b, "fix_a", "guidance:raw", 1)
+    (b / "fix_a__guidance-raw__m-1__r2").mkdir()
+    (b / "fix_a__guidance-raw__m-1__r2" / "meta.json").write_text("{}")  # started, never finished
+    s = compare([b], "guidance:none")
+    assert s["missing"] == ["b1/fix_a__guidance-raw__m-1__r2"] and _row(s, "gate")["tasks"][0]["n_treatment"] == 1
+    assert "1 cells missing" in format_compare(s)
+
+
 def test_batches_need_distinct_names(tmp_path):
     for parent in ("x", "y"):
         _cell(tmp_path / parent / "b1", "fix_a", "guidance:none", 1)
@@ -202,6 +286,23 @@ def test_cli_prints_the_table_and_json(tmp_path, capsys):
     args.func(args)
     summary = json.loads(capsys.readouterr().out)
     assert summary["treatments"] == ["guidance:bridge", "guidance:raw"]
+
+
+def test_cli_passes_model_and_metric_and_refuses_a_missing_dir(tmp_path, capsys):
+    b = tmp_path / "b1"
+    for model in ("m-1", "m-2"):
+        _cell(b, "fix_a", "guidance:none", 1, model=model, metrics={"n_build_fail": 2})
+        _cell(b, "fix_a", "guidance:raw", 1, model=model, metrics={"n_build_fail": 0})
+    args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--model", "m-2",
+                                      "--metric", "n_build_fail", "--json"])
+    args.func(args)
+    rows = json.loads(capsys.readouterr().out)["comparisons"]
+    assert {r["model"] for r in rows} == {"m-2"}
+    assert [r["delta"]["mean"] for r in rows if r["measure"] == "metric:n_build_fail"] == [-2.0]
+    args = build_parser().parse_args(["repo", "compare", str(tmp_path / "nope"), "--baseline", "guidance:none"])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    assert "not a directory" in capsys.readouterr().err
 
 
 def test_cli_exits_on_a_bad_baseline(tmp_path, capsys):

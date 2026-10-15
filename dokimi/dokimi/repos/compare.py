@@ -98,9 +98,17 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
         shared_models = sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals})
         for model in [m for m in shared_models if not models or m in models]:
             _compare_model(text, model, base_vals, treat_vals, measures, seed, rows, unpaired)
+    _check_models(models, rows, unpaired)
     _holm(rows)
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
             "cells": len(cells), "missing": missing, "comparisons": rows, "unpaired": unpaired}
+
+
+def _check_models(models: list[str] | None, rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> None:
+    """A ``--model`` that no comparison has is a typo or a model of no shared task: refuse it, not print nothing."""
+    unknown = sorted(set(models or ()) - {r["model"] for r in rows} - {u["model"] for u in unpaired})
+    if unknown:
+        raise CompareError(f"no compared cells for --model {', '.join(unknown)}")
 
 
 def _holm(rows: list[dict[str, Any]]) -> None:
@@ -159,25 +167,31 @@ def _pair(task: str, base: dict[str, Any], treat: dict[str, Any], measure: str) 
     bv, tv = base["values"].get(measure), treat["values"].get(measure)
     if bv is None or tv is None:
         return None
-    return {"task": task, "baseline": bv, "treatment": tv, "delta": round(tv - bv, 6),
+    return {"task": task, "baseline": bv, "treatment": tv, "delta": tv - bv,
             "n_baseline": base["n"], "n_treatment": treat["n"]}
 
 
 def paired_summary(pairs: list[dict[str, Any]], seed: int = 0) -> dict[str, Any]:
-    """Statistics over per-task pairs ``{task, baseline, treatment, delta, ...}``."""
+    """Statistics over per-task pairs ``{task, baseline, treatment, delta, ...}``.
+
+    The values are taken at full precision and rounded only in the output: rounded rates such as 1/3 and 2/3
+    no longer sum to the same totals, which would move sign patterns across the observed one in the
+    permutation test.
+    """
     deltas = [p["delta"] for p in pairs]
     ci = bootstrap_ci(deltas, seed=seed)
     return {
         "n_tasks": len(pairs),
-        "baseline_mean": _mean([p["baseline"] for p in pairs]),
-        "treatment_mean": _mean([p["treatment"] for p in pairs]),
+        "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
+        "treatment_mean": _round(_mean([p["treatment"] for p in pairs])),
         "delta": {"mean": ci["mean"], "lo": ci["lo"], "hi": ci["hi"]},
         "p": sign_flip_p(deltas, seed=seed),
         "p_holm": None,
         "up": sum(d > EPS for d in deltas),
         "down": sum(d < -EPS for d in deltas),
         "tied": sum(abs(d) <= EPS for d in deltas),
-        "tasks": pairs,
+        "tasks": [{**p, "baseline": _round(p["baseline"]), "treatment": _round(p["treatment"]),
+                   "delta": _round(p["delta"])} for p in pairs],
     }
 
 
@@ -248,7 +262,7 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
             values["score"] = _mean([0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
                                      for r in recs])
         else:
-            values["gate"] = round(sum(bool(r["grade"]["success"]) for r in recs) / len(recs), 6)
+            values["gate"] = sum(bool(r["grade"]["success"]) for r in recs) / len(recs)
         for name in metrics:
             values[f"metric:{name}"] = _mean([r["metrics"].get(name) for r in recs])
         out[key] = {"kind": "score" if score_task else "gate", "n": len(recs), "values": values}
@@ -276,7 +290,11 @@ def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
 
 def _mean(values: list[Any]) -> float | None:
     nums = [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
-    return round(sum(nums) / len(nums), 6) if nums else None
+    return sum(nums) / len(nums) if nums else None
+
+
+def _round(value: float | None) -> float | None:
+    return None if value is None else round(value, 6)
 
 
 def _num(value: float | None) -> str:
