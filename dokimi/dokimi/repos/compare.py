@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import math
 import random
 from collections import defaultdict
 from pathlib import Path
@@ -286,13 +287,13 @@ def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
         value = found.get(name)
         if isinstance(value, bool):
             out[name] = 1.0 if value else 0.0
-        elif isinstance(value, (int, float)) and value == value:  # NaN is not a measurement
+        elif isinstance(value, (int, float)) and math.isfinite(value):  # NaN and inf are not measurements
             out[name] = float(value)
     return out
 
 
 def _mean(values: list[Any]) -> float | None:
-    nums = [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    nums = [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)]
     return sum(nums) / len(nums) if nums else None
 
 

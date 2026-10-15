@@ -337,3 +337,17 @@ def test_an_empty_arm_list_is_refused_not_an_empty_comparison(tmp_path, capsys, 
     with pytest.raises(SystemExit):
         args.func(args)
     assert "no treatment arms" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+def test_non_finite_values_are_not_measurements(tmp_path, bad):
+    b = tmp_path / "b1"
+    for i in range(4):
+        _cell(b, f"fix_{i}", "guidance:none", 1, cost=0.1, metrics={"m": bad})
+        _cell(b, f"fix_{i}", "guidance:raw", 1, cost=bad if i == 0 else 0.2, metrics={"m": 1})
+    s = compare([b], "guidance:none", metrics=("m",))
+    assert not [r for r in s["comparisons"] if r["measure"] == "metric:m"]  # no task has a finite value in both arms
+    cost = _row(s, "cost_usd")
+    assert [t["task"] for t in cost["tasks"]] == ["fix_1", "fix_2", "fix_3"]  # fix_0's cost is not a number
+    assert cost["up"] + cost["down"] + cost["tied"] == cost["n_tasks"] == 3
+    json.dumps(s, allow_nan=False)
