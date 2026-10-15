@@ -89,6 +89,17 @@ Questions can come from several sources:
 
 Question records preserve source fields such as `source_type`, `question_source`, `persona`, `difficulty`, `topics`, `expected_topics`, and `ground_truth_chunk` when available.
 
+### Question record format
+
+A question set is a JSON object with a `questions` list. The framework writes it as `questions.v2` (`dokimi/schemas/questions.v2.json`, where every field is documented); `questions.v1` files are still read.
+
+- **v2 (written):** each record needs `id` and a non-empty `question`. A v2 record may not also carry `text`, so no record holds two question texts that readers could disagree on.
+- **v1 (still read):** the same record with the text under `text`. Curated golden sets in content repositories are v1, stamped `"schema_version": "questions.v1"` or unstamped; an unstamped file is read as whichever version it matches.
+
+Every writer (`questions generate`, `questions refine`, the `evaluate`/`benchmark` pipeline's `questions/<product>.json`) renames `text` to `question` and validates the set against v2 before writing it, so a bad set (for example a `--custom-questions` record without an `id`) fails at that point and is kept at `<name>.rejected`, before any answer is generated. Readers accept both versions. `dataset export --kind questions` exports either one in the v2 shape and records the source version in the dataset card. The rename is the only change between the versions: `difficulty`, `metadata` and every other field are carried over as written. New curated sets should use `question`. Records may carry fields the schema does not declare (writers pass curated records through verbatim), but the declared ones are type-checked.
+
+One file is still rejected: a set stamped `questions.v1` whose records use `question`, which `questions refine` wrote before v2. It is invalid under the version it declares. Re-run `questions refine` on it, or export it with `--no-validate`.
+
 `expected_topics` carries two different kinds of content depending on the source, and evaluation treats them differently. Persona-generated sets store short keyword labels ("version check", "import test"). Curated golden sets store verified answer statements, often with citations in `metadata` (`must_cite`, `github_issue`, `verified_by`). Only the latter are usable as judge ground truth — see [Grounded Judging](#grounded-judging).
 
 ## Question Types

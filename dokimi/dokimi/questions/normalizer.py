@@ -6,12 +6,16 @@
 Canonical schema:
     {
         "id":               str,
-        "question":         str,   # canonical field (was "text" in legacy format)
+        "question":         str,   # canonical field (was "text" in questions.v1)
         "persona":          str,
         "category":         str,
         "difficulty":       str,   # "beginner" | "intermediate" | "advanced"
         "expected_topics":  list[str],
     }
+
+This is the record shape of the questions.v2 artifact (``dokimi/schemas/``).
+:func:`canonical_question` does only the v1 -> v2 key rename; :func:`normalize_question` also
+relabels ``difficulty`` and fills defaults.
 
 Usage::
 
@@ -51,6 +55,31 @@ def _normalize_difficulty(value: Any) -> str:
 
 _CANONICAL_KEYS = {"id", "question", "persona", "category", "difficulty", "expected_topics"}
 
+
+def question_text(q: Dict[str, Any]) -> str:
+    """The question text of a record: ``question``, else the legacy ``text``, else ``""``."""
+    return q.get("question") or q.get("text") or ""
+
+
+def canonical_question(q: Dict[str, Any]) -> Dict[str, Any]:
+    """``q`` with its text under ``question`` and no ``text`` key; every other key unchanged.
+
+    The lossless half of :func:`normalize_question`: the questions.v1 -> questions.v2 rename,
+    which writers apply before saving and readers apply to v1 files. Unlike
+    :func:`normalize_question` it does not relabel ``difficulty`` or fill defaults, so a curated
+    record keeps exactly what its author wrote. Returns a new dict; ``q`` is not mutated.
+    """
+    if "text" not in q:
+        return dict(q)
+    out: Dict[str, Any] = {}
+    for k, v in q.items():
+        if k == "question" or (k == "text" and "question" not in q):
+            out["question"] = question_text(q)  # keeps the key where the text was
+        elif k != "text":
+            out[k] = v
+    return out
+
+
 def normalize_question(q: Dict[str, Any], idx: int = 0) -> Dict[str, Any]:
     """Normalize a single question record to canonical schema.
 
@@ -60,7 +89,7 @@ def normalize_question(q: Dict[str, Any], idx: int = 0) -> Dict[str, Any]:
     """
     canonical = {
         "id": f"q{idx:04d}" if question_id(q) is None else question_id(q),
-        "question": q.get("question") or q.get("text") or "",
+        "question": question_text(q),
         "persona": q.get("persona") or "",
         "category": q.get("category") or "",
         "difficulty": _normalize_difficulty(q.get("difficulty")),

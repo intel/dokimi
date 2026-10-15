@@ -1,0 +1,50 @@
+{
+  "library": "oneTBB",
+  "library_id": "intel/onetbb",
+  "description": "Golden regression set for oneTBB",
+  "version_or_doc_snapshot": "UXL Foundation oneTBB Documentation (main branch, accessed 2026-03-01) + oneAPI Specification oneTBB element (oneAPI 1.4 rev 1; released 2024-12-18)",
+  "questions": [
+    {
+      "id": "onetbb-Q004",
+      "text": "Scenario: A teammate proposes iterating over oneapi::tbb::concurrent_queue in production to periodically compute statistics or to search for a specific item. What do the oneTBB docs say about iterator support for concurrent_queue/concurrent_bounded_queue, and what makes unsafe_begin()/unsafe_end() unsafe?",
+      "category": "troubleshooting",
+      "difficulty": "easy",
+      "expected_topics": [
+        "STL-style iteration is intended only for debugging (e.g., dumping the queue), and is too slow to be useful in production code",
+        "if a queue is modified, all iterators become invalid and unsafe to use",
+        "the unsafe_ prefix is explicitly a reminder that the iteration methods are not concurrency safe"
+      ],
+      "metadata": {
+        "persona": "senior_cpp",
+        "must_cite": [
+          "https://uxlfoundation.github.io/oneTBB/main/tbb_userguide/Iterating_Over_a_Concurrent_Queue_for_Debugging.html"
+        ],
+        "why_it_matters": "Using unsafe iteration in production can create heisenbugs and data races that are extremely hard to reproduce; docs should clearly gate this feature as debug-only.",
+        "is_static_golden": false,
+        "original_id": "Q004"
+      }
+    },
+    {
+      "id": "onetbb-Q009",
+      "text": "Scenario: Your loop body allocates a temporary buffer proportional to the subrange size, so you need an upper bound on chunk size and want to tune scheduling overhead. According to the docs, how do grainsize and simple_partitioner interact for parallel_for, and what rule-of-thumb does the guide suggest for choosing grainsize (in clock cycles)?",
+      "expected_skill": null,
+      "category": "performance",
+      "difficulty": "medium",
+      "expected_topics": [
+        "to gain the most control, specify both a grainsize on the blocked_range(begin,end,grainsize) and pass simple_partitioner() to parallel_for to turn off automatic chunking",
+        "with simple_partitioner, chunk sizes are bounded: g/2 <= chunksize <= g (in iterations)",
+        "the guide suggests a rule of thumb: grainsize iterations of operator() should take at least about 100,000 clock cycles; it also suggests experimentally halving grainsize to see performance changes"
+      ],
+      "metadata": {
+        "persona": "perf_engineer",
+        "must_cite": [
+          "https://uxlfoundation.github.io/oneTBB/main/tbb_userguide/Controlling_Chunking_os.html",
+          "https://uxlfoundation.github.io/oneTBB/main/tbb_userguide/Partitioner_Summary.html"
+        ],
+        "why_it_matters": "Grain size and partitioner choice directly affect scalability and overhead; this is a core tuning decision that documentation must support with actionable guidance.",
+        "is_static_golden": false,
+        "original_id": "Q009"
+      }
+    }
+  ]
+}

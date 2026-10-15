@@ -479,7 +479,14 @@ class EvaluationPipeline:
         questions: List[Dict[str, Any]],
         question_set_hash: Optional[str] = None,
     ) -> None:
-        """Persist normalized question artifacts with reproducibility metadata."""
+        """Persist the merged set as a questions.v2 artifact with reproducibility metadata.
+
+        Raises ``ArtifactValidationError`` -- before any answer is generated -- when the set
+        is not a valid artifact (e.g. a --custom-questions record without an ``id``); the set
+        is kept at ``<name>.rejected``. Records written with ``text`` are saved as ``question``.
+        """
+        from dokimi.questions.artifact import save_questions_artifact
+
         output = {
             "product": self.product,
             "total_questions": len(questions),
@@ -492,8 +499,8 @@ class EvaluationPipeline:
         if question_set_hash:
             output["question_set_hash"] = question_set_hash
             output["question_set_id"] = question_set_hash
-        
-        self.questions_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+
+        save_questions_artifact(output, self.questions_path)
     
     def _generate_answers(self, questions: List[Dict[str, Any]], concurrency: int = 5,
                           question_set_hash: Optional[str] = None) -> List[Dict[str, Any]]:

@@ -124,7 +124,10 @@ $ echo $?
 
 ## 2. The awareness half: question sets
 
-A question set is `<questions-root>/<product_key>_golden.json`. Point
+A question set is `<questions-root>/<product_key>_golden.json`, in the format
+described in [methodology.md](methodology.md#question-record-format): new sets
+put each question's text under `question` (`questions.v2`); existing sets that
+use `text` (`questions.v1`) are still read. Point
 `--questions-root` at the checkout's `questions/` directory and the pipeline
 picks up the golden set for the product it is running:
 

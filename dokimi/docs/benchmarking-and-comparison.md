@@ -727,3 +727,11 @@ validates before an atomic write, so an invalid run fails on its first increment
 save. A reader's test builds its input with `tests/artifact_fixtures.py`, which also
 rejects keys the schema does not declare: the schema lists every record key its
 producers write, so a fixture cannot invent one.
+
+A schema version only widens in place; a narrowing is a new version. Writers always
+stamp the current version (`SCHEMA_VERSIONS` in `dokimi/artifacts.py`), and
+superseded versions (`SUPERSEDED_VERSIONS`) keep loading: a file is validated against
+the version it declares, and an unstamped file against the newest version it matches.
+Question sets are written as `questions.v2` and `questions.v1` is still read — v2
+renamed the record's text field from `text` to `question` (see
+[methodology.md](methodology.md#question-record-format)).

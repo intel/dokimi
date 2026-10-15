@@ -120,17 +120,15 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
     print(report.summary())
 
     if not args.dry_run:
-        import json as _json
+        from dokimi.questions.artifact import save_questions_artifact
+
         out = Path(args.output) if args.output else Path(f"questions/{args.product}_refined.json")
-        out.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": "questions.v1",
+        save_questions_artifact({
             "library": args.product,
             "total": len(report.questions),
             "difficulty_distribution": report.difficulty_after,
             "questions": report.questions,
-        }
-        out.write_text(_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        }, out)
         print(f"\n✅ Refined questions saved to {out}")
     else:
         print("\n(dry-run: no file written)")
