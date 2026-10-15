@@ -60,7 +60,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pip install -r requirements.lock.txt
-      - run: pip install 'mypy>=1.8' types-PyYAML types-jsonschema
+      - run: pip install mypy==2.4.0 types-PyYAML types-jsonschema
       - name: mypy
         run: mypy
 

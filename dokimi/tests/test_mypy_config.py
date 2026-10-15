@@ -81,6 +81,25 @@ def test_every_exemption_names_an_existing_module():
     assert not stale, f"{stale} in the mypy ignore_errors list name no module; remove them"
 
 
+def test_no_other_way_around_the_gate():
+    """The baseline above sees only ``ignore_errors``. A flag switched off for one module,
+    an ``exclude``, skipped imports or a ``# mypy:`` comment in the file exempt a module as
+    surely, so they fail here too."""
+    config = _mypy_config()
+    loosened = [
+        f"{o['module']}: {key}"
+        for o in config.get("overrides", [])
+        for key in (*REQUIRED_FLAGS, "follow_imports")
+        if o.get(key) is False or o.get(key) in ("skip", "silent")
+    ]
+    loosened += [key for key in ("exclude", "ignore_errors") if config.get(key)]
+    loosened += [
+        str(path.relative_to(PROJECT))
+        for path in (PROJECT / "dokimi").rglob("*.py")
+        if "# mypy:" in path.read_text(encoding="utf-8")
+    ]
+    assert not loosened, f"{loosened} exempt code from mypy outside the baseline; fix its types"
+
 def test_strictness_flags_stay_on():
     config = _mypy_config()
     off = [flag for flag in REQUIRED_FLAGS if config.get(flag) is not True]
