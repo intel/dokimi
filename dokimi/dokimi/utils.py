@@ -64,6 +64,24 @@ def digest_text(text: str) -> str:
     return "sha256:" + hashlib.sha256((text or "").encode("utf-8")).hexdigest()
 
 
+def retry_writable(func: Any, path: str, _exc: Any) -> None:
+    """``shutil.rmtree`` ``onerror`` hook: set the write bit on ``path`` and retry once.
+
+    Windows will not delete a read-only file, and git leaves its object files
+    read-only. A symlink is left alone, since chmod would follow it out of the
+    tree. A retry that still fails is ignored; the caller checks what is left.
+    """
+    import stat
+
+    try:
+        mode = os.lstat(path).st_mode
+        if not stat.S_ISLNK(mode):
+            os.chmod(path, stat.S_IMODE(mode) | stat.S_IWRITE)
+            func(path)
+    except OSError:
+        pass
+
+
 def normalize_model_ref(provider: str, model: str) -> str:
     """Normalize provider and model names for comparison."""
     return f"{(provider or '').strip().lower()}/{(model or '').strip().lower()}"

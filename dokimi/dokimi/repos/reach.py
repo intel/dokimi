@@ -38,13 +38,14 @@ import hashlib
 import os
 import re
 import shutil
-import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+from dokimi.utils import retry_writable
 
 from .events import Transcript, convert
 from .harness_profile import HarnessProfile, run_harness
@@ -330,7 +331,7 @@ def run_reach(
                                 "harness_version": version, "model": model, **classify(item, transcript)})
     finally:
         if not keep:
-            shutil.rmtree(base, onerror=_retry_writable)
+            shutil.rmtree(base, onerror=retry_writable)
 
     by_class = {c: sum(1 for r in records if r["class"] == c) for c in CLASSES}
     return {
@@ -355,15 +356,6 @@ def run_reach(
             "matrix": _matrix(records),
         },
     }
-
-
-def _retry_writable(func: Any, path: str, _exc: Any) -> None:
-    """rmtree hook: git leaves read-only object files, which Windows will not delete."""
-    try:
-        os.chmod(path, stat.S_IWRITE)
-        func(path)
-    except OSError:
-        pass
 
 
 def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace: Path,

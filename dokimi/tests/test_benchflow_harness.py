@@ -718,8 +718,8 @@ def test_rerun_whose_previous_jobs_dir_cannot_be_cleared_does_not_run(tmp_path, 
     (stale / "result.json").write_text(json.dumps(_RESULT), encoding="utf-8")
     seen = _fake_bench(monkeypatch, None, returncode=1)
 
-    def cannot_delete(path, ignore_errors=False, **kwargs):
-        if not ignore_errors:
+    def cannot_delete(path, ignore_errors=False, onerror=None, **kwargs):
+        if not (ignore_errors or onerror):  # with a hook, its retry fails too
             raise PermissionError(13, "Permission denied", str(path))
 
     monkeypatch.setattr(shutil, "rmtree", cannot_delete)

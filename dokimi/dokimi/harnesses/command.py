@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from dokimi.utils import retry_writable
+
 from .models import HarnessResult, OperationRecord
 from .operations import load_operations
 from .tasks import TaskSpec, harbor_task_problem
@@ -206,11 +208,14 @@ def clear_run_dir(path: Path) -> None:
         pass
     except OSError as exc:
         cause = f" ({type(exc).__name__}: {exc})"
+        # A read-only file (git objects) is not deletable on Windows: retry writable.
+        shutil.rmtree(path, onerror=retry_writable)
     if path.exists() or path.is_symlink():
         raise RuntimeError(
             f"could not clear {path}, left by a previous run{cause}; a reward or "
             "result in it would be read as this run's, so the cell was not run. "
-            "Remove it (a container may have written it as root) and rerun."
+            "Delete it by hand (check the owner and permissions of what is left, "
+            "or on Windows whether another process holds a file open) and rerun."
         )
 
 
