@@ -127,7 +127,9 @@ $ echo $?
 A question set is `<questions-root>/<product_key>_golden.json`, in the format
 described in [methodology.md](methodology.md#question-record-format): new sets
 put each question's text under `question` (`questions.v2`); existing sets that
-use `text` (`questions.v1`) are still read. Point
+use `text` (`questions.v1`) are still read, as are older hand-written shapes
+(no `id`, `question_id`/`question_text`, a list `metadata`), with a one-line
+notice. The golden set is only ever read; the run writes its own v2 copy. Point
 `--questions-root` at the checkout's `questions/` directory and the pipeline
 picks up the golden set for the product it is running:
 

@@ -58,6 +58,7 @@ def _stub_expensive_steps(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_cached_questions_skip_generation_and_get_question_set_id(tmp_path, monkeypatch):
+    """The cache is this run's own artifact, so it is rewritten (as questions.v2) with the id."""
     _stub_expensive_steps(monkeypatch)
     questions = [
         {"id": "q2", "question": "How do I sort in parallel?", "source_type": "generated"},
@@ -92,6 +93,7 @@ def test_questions_from_directory_is_reused_and_normalized(tmp_path, monkeypatch
     output_dir = tmp_path / "target"
     _write_json(source_dir / "questions" / "oneTBB.json", questions)
     _write_json(output_dir / "personas" / "oneTBB.json", {"personas": []})
+    source_bytes = (source_dir / "questions" / "oneTBB.json").read_bytes()
 
     pipeline = EvaluationPipeline(
         product="oneTBB",
@@ -101,6 +103,8 @@ def test_questions_from_directory_is_reused_and_normalized(tmp_path, monkeypatch
     )
     result = pipeline.run(concurrency=1)
 
+    # The id is stamped on this run's copy; the source set is read, never written.
+    assert (source_dir / "questions" / "oneTBB.json").read_bytes() == source_bytes
     expected_hash = compute_question_set_hash(questions)
     saved = json.loads((output_dir / "questions" / "oneTBB.json").read_text())
     assert result["question_set_hash"] == expected_hash

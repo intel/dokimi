@@ -34,12 +34,15 @@ def compute_question_set_hash(questions: List[Dict[str, Any]]) -> str:
 
 
 def load_questions_payload(path: Path) -> List[Dict[str, Any]]:
-    """Load questions from either a wrapped artifact or a raw list."""
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    questions = raw.get("questions", raw) if isinstance(raw, dict) else raw
-    if not isinstance(questions, list):
-        raise ValueError(f"Expected a list of questions in {path}")
-    return questions
+    """The records of the question set at ``path``, in the questions.v2 shape.
+
+    :func:`dokimi.questions.artifact.load_questions` reads it: v1, v2, a bare list, or a legacy
+    shape (logged once); a set still invalid after that raises ``ArtifactValidationError`` (a
+    ``ValueError``) naming the record. ``path`` is not written.
+    """
+    from dokimi.questions.artifact import load_questions
+
+    return load_questions(path).questions
 
 
 class EvaluationPipeline:
@@ -218,6 +221,10 @@ class EvaluationPipeline:
             "steps": {}
         }
         
+        # Every question set this run reuses is read (and refused, if unusable) before any
+        # model call: --questions-from, the cached set, or --custom-questions.
+        reused = self._read_question_inputs()
+
         # Step 1: Discover personas (cached if already exists)
         logger.info("Step 1/6: Discovering personas...")
         if (not self.force_regen) and self.personas_path.exists():
@@ -235,7 +242,7 @@ class EvaluationPipeline:
         if self.external_questions_path is not None:
             # Reuse question set from another run — skip generation entirely
             logger.info(f"Step 2-3/6: Loading external questions from {self.external_questions_path}...")
-            merged_questions = load_questions_payload(self.external_questions_path)
+            merged_questions = reused or []
             print(f"✓ Loaded {len(merged_questions)} questions (from --questions-from, skipping generation)")
             results["steps"]["questions_generated"] = {
                 "count": len(merged_questions),
@@ -248,7 +255,7 @@ class EvaluationPipeline:
             }
         elif (not self.force_regen) and self.questions_path.exists():
             logger.info("Step 2-3/6: Loading cached questions (skipping generation)...")
-            merged_questions = load_questions_payload(self.questions_path)
+            merged_questions = reused or []
             print(f"✓ Loaded {len(merged_questions)} questions (cached — skipping generation)")
             results["steps"]["questions_generated"] = {"count": len(merged_questions), "cached": True}
             results["steps"]["questions_merged"] = {"total": len(merged_questions), "cached": True,
@@ -413,46 +420,48 @@ class EvaluationPipeline:
         
         return questions
     
+    def _read_question_inputs(self) -> Optional[List[Dict[str, Any]]]:
+        """Read the question sets this run reuses; return the set that replaces generation.
+
+        ``--questions-from`` wins, then the cached ``questions/<product>.json`` (unless
+        ``force_regen``); either is returned. Otherwise the ``--custom-questions`` set, if
+        any, is read for :meth:`_merge_questions` and ``None`` is returned. Every read goes
+        through :func:`load_questions_payload`, so a legacy file is upgraded in memory and an
+        unusable one fails here, before any model call. No input file is written.
+        """
+        self._custom_questions: Optional[List[Dict[str, Any]]] = None
+        if self.external_questions_path is not None:
+            return load_questions_payload(self.external_questions_path)
+        if (not self.force_regen) and self.questions_path.exists():
+            return load_questions_payload(self.questions_path)
+        self._custom_questions = self._load_custom_questions()
+        return None
+
+    def _load_custom_questions(self) -> List[Dict[str, Any]]:
+        """The --custom-questions (or auto-included golden) set, tagged ``source_type: manual``."""
+        path = self.custom_questions_path
+        if not (path and path.exists()):
+            return []
+        custom_questions = load_questions_payload(path)
+        for q in custom_questions:  # records read from the file, not the file
+            q["source_type"] = "manual"
+            if "persona_id" not in q:
+                q["persona_id"] = "manual"
+        logger.info(f"Loaded {len(custom_questions)} custom questions")
+        return custom_questions
+
     def _merge_questions(self, generated_questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Merge generated + custom questions, deduplicate, save."""
         from dokimi.questions import QuestionValidator
-        
+
         all_questions = generated_questions.copy()
-        
-        # Load custom questions if provided
-        if self.custom_questions_path and self.custom_questions_path.exists():
-            custom_data = json.loads(self.custom_questions_path.read_text(encoding="utf-8"))
-            
-            # Handle both dict format {"questions": [...]} and direct list format
-            if isinstance(custom_data, dict):
-                custom_questions = custom_data.get("questions")
-                if custom_questions is None:
-                    raise ValueError(
-                        f"Custom questions file must have 'questions' key or be a list. "
-                        f"Got dict with keys: {list(custom_data.keys())}"
-                    )
-            elif isinstance(custom_data, list):
-                custom_questions = custom_data
-            else:
-                raise ValueError(
-                    f"Custom questions must be a dict with 'questions' key or a list. "
-                    f"Got: {type(custom_data).__name__}"
-                )
-            
-            # Validate it's a list
-            if not isinstance(custom_questions, list):
-                raise ValueError(
-                    f"Expected list of questions, got {type(custom_questions).__name__}"
-                )
-            
-            # Add source tracking
-            for q in custom_questions:
-                q["source_type"] = "manual"
-                if "persona_id" not in q:
-                    q["persona_id"] = "manual"
-            
-            all_questions.extend(custom_questions)
-            logger.info(f"Loaded {len(custom_questions)} custom questions")
+
+        # Custom questions: read before the run's first model call by _read_question_inputs.
+        custom_questions = getattr(self, "_custom_questions", None)
+        self._custom_questions = None
+        if custom_questions is None:
+            custom_questions = self._load_custom_questions()
+        all_questions.extend(custom_questions)
 
         # Deduplicate. Curated questions are never the ones dropped: a merge
         # keeps the longest text, which would otherwise let a generated
@@ -481,11 +490,22 @@ class EvaluationPipeline:
     ) -> None:
         """Persist the merged set as a questions.v2 artifact with reproducibility metadata.
 
-        Raises ``ArtifactValidationError`` -- before any answer is generated -- when the set
-        is not a valid artifact (e.g. a --custom-questions record without an ``id``); the set
-        is kept at ``<name>.rejected``. Records written with ``text`` are saved as ``question``.
+        This is the run's own copy: the cached file may be rewritten (it is this run's
+        output), but a ``--questions-from`` or ``--custom-questions`` file never is, so when
+        ``questions_path`` is one of those it is left as it is. Raises
+        ``ArtifactValidationError`` -- before any answer is generated -- when the set is not a
+        valid artifact; the set is kept at ``<name>.rejected``. Records written with ``text``
+        are saved as ``question``.
         """
         from dokimi.questions.artifact import save_questions_artifact
+
+        inputs = [p for p in (getattr(self, "external_questions_path", None),
+                              getattr(self, "custom_questions_path", None)) if p is not None]
+        target = self.questions_path.resolve()
+        if any(Path(p).resolve() == target for p in inputs):
+            logger.info("questions output %s is an input of this run; leaving it unchanged",
+                        self.questions_path)
+            return
 
         output = {
             "product": self.product,

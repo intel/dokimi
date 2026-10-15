@@ -157,7 +157,7 @@ def test_the_pipeline_merge_with_a_golden_set_writes_only_declared_keys(tmp_path
     artifact_fixture("questions", data)
 
 
-def test_the_pipeline_refuses_a_merged_set_with_an_id_less_custom_question(tmp_path):
+def test_the_pipeline_merge_gives_an_id_less_custom_question_its_positional_id(tmp_path):
     from dokimi.orchestrator.pipeline import EvaluationPipeline
 
     custom = tmp_path / "custom.json"
@@ -167,7 +167,23 @@ def test_the_pipeline_refuses_a_merged_set_with_an_id_less_custom_question(tmp_p
     pipe.questions_path = tmp_path / "questions" / "oneTBB.json"
     pipe.custom_questions_path = custom
     a, b, c, d = _no_embeddings()
-    with a, b, c, d, pytest.raises(ArtifactValidationError, match="'id' is a required property"):
+    with a, b, c, d:
+        merged = pipe._merge_questions([])
+    assert [(q["id"], q["question"]) for q in merged] == [("q0000", "How do I use parallel_for?")]
+    assert load_questions(pipe.questions_path).source_version == "questions.v2"
+
+
+def test_the_pipeline_merge_refuses_a_custom_question_without_text(tmp_path):
+    from dokimi.orchestrator.pipeline import EvaluationPipeline
+
+    custom = tmp_path / "custom.json"
+    custom.write_text(json.dumps([{"id": "g1", "text": "Why?"}, {"id": "g2", "text": ""}]),
+                      encoding="utf-8")
+    pipe = EvaluationPipeline.__new__(EvaluationPipeline)
+    pipe.product = "oneTBB"
+    pipe.questions_path = tmp_path / "questions" / "oneTBB.json"
+    pipe.custom_questions_path = custom
+    with pytest.raises(ArtifactValidationError, match=r"record 1 \(id 'g2'\), `question`: '' should be non-empty"):
         pipe._merge_questions([])
     assert not pipe.questions_path.exists()
 
@@ -273,19 +289,41 @@ def test_question_id_0_round_trips_as_id_0(version, text_key, tmp_path):
 
 def test_load_questions_without_validation_reports_only_the_declared_version(tmp_path):
     out = tmp_path / "q.json"
-    out.write_text(json.dumps({"questions": [{"text": "no id"}]}), encoding="utf-8")
+    out.write_text(json.dumps({"questions": [{"id": "q1", "text": ""}]}), encoding="utf-8")
     loaded = load_questions(out, validate=False)
     assert loaded.source_version is None
-    assert loaded.questions == [{"question": "no id"}]
-    with pytest.raises(ArtifactValidationError):
+    assert loaded.questions == [{"id": "q1", "question": ""}]
+    with pytest.raises(ArtifactValidationError, match=r"record 0 \(id 'q1'\), `question`"):
         load_questions(out)
 
 
-def test_load_questions_rejects_a_bare_list_without_validation(tmp_path):
+def test_load_questions_reads_a_bare_list_as_a_legacy_set(tmp_path, caplog):
     out = tmp_path / "q.json"
     out.write_text(json.dumps([{"id": "q1", "text": "Q?"}]), encoding="utf-8")
-    with pytest.raises(TypeError, match="JSON object"):
-        load_questions(out, validate=False)
+    with caplog.at_level("WARNING", logger="dokimi.questions.artifact"):
+        loaded = load_questions(out)
+    assert (loaded.source_version, loaded.legacy) == (None, ("a bare list, not an object",))
+    assert loaded.artifact == {"schema_version": "questions.v2",
+                               "questions": [{"id": "q1", "question": "Q?"}]}
+    assert caplog.messages == [f"read {out} in legacy questions format (a bare list, not an "
+                               f"object); using it as questions.v2"]
+
+
+def test_load_questions_refuses_what_is_not_a_list_of_questions(tmp_path):
+    out = tmp_path / "q.json"
+    for payload, match in [({"questions": {"q1": "Q?"}}, "`questions` is dict"),
+                           ({"items": []}, r"no `questions` key \(keys: items\)"),
+                           ("Q?", "got str")]:
+        out.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ArtifactValidationError, match=f"Expected a list of questions in .*{match}"):
+            load_questions(out, validate=False)
+
+
+def test_load_questions_refuses_an_unknown_version(tmp_path):
+    out = tmp_path / "q.json"
+    out.write_text(json.dumps({"schema_version": "questions.v9", "questions": []}), encoding="utf-8")
+    with pytest.raises(ArtifactValidationError, match="'questions.v9' is not a questions version"):
+        load_questions(out)
 
 
 def test_upgrade_questions_does_not_mutate_and_keeps_top_level_keys():
@@ -336,10 +374,154 @@ def test_v1_and_v2_exports_of_one_set_have_the_same_columns(tmp_path):
 
 def test_dataset_export_without_validation_of_an_unstamped_invalid_set(tmp_path):
     src = tmp_path / "q.json"
-    src.write_text(json.dumps({"questions": [{"text": "no id"}]}), encoding="utf-8")
+    src.write_text(json.dumps({"questions": [{"id": "q1", "text": ""}]}), encoding="utf-8")
     with pytest.raises(ArtifactValidationError):
         export_artifact("questions", src, tmp_path / "strict")
     rows = _export(src, tmp_path / "out", "--no-validate")
-    assert rows == [{"schema_version": "questions.v2", "question": "no id"}]
+    assert rows == [{"schema_version": "questions.v2", "id": "q1", "question": ""}]
     card = (tmp_path / "out" / "README.md").read_text(encoding="utf-8")
     assert "Source schema version:** unknown" in card
+
+
+# ── tolerant reader, strict writer, inputs untouched ──────────────────────────
+#
+# A reused set (pipeline cache, --questions-from, --custom-questions) is read by load_questions
+# in whatever shape main wrote or accepted, and the run writes its own v2 copy.
+
+V2_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "artifacts" / "questions.v2.json"
+VALID_SETS = [*GOLDEN_EXCERPTS, V2_FIXTURE]
+
+
+@pytest.mark.parametrize("path", VALID_SETS, ids=lambda p: p.name)
+def test_a_valid_set_keeps_its_ids_and_hash_through_load_and_save(path, tmp_path, caplog):
+    from dokimi.orchestrator.pipeline import compute_question_set_hash
+
+    raw = json.loads(path.read_text(encoding="utf-8"))["questions"]
+    with caplog.at_level("WARNING", logger="dokimi.questions.artifact"):
+        loaded = load_questions(path)
+        out = tmp_path / "v2.json"
+        save_questions_artifact(loaded.artifact, out)
+        again = load_questions(out).questions
+    assert loaded.legacy == () and "legacy" not in caplog.text
+    assert [q["id"] for q in again] == [q["id"] for q in raw]
+    assert compute_question_set_hash(again) == compute_question_set_hash(raw)
+
+
+#: The shapes from the review of #43 that main's pipeline wrote or passed through, which the
+#: v2 writer refused on resume: an id-less record, a question_id/question_text record, a list
+#: ``metadata``; plus main's bare-list form.
+LEGACY_SETS = {
+    "id-less": ({"questions": [{"text": "How do I use parallel_for?"}, {"id": "g2", "text": "Why?"}]},
+                [("q0000", "How do I use parallel_for?"), ("g2", "Why?")],
+                "1 record: no `id` (numbered by position, q0000...)"),
+    "question_id-question_text": (
+        {"questions": [{"question_id": "g1", "question_text": "How do I use parallel_for?"}]},
+        [("g1", "How do I use parallel_for?")],
+        "1 record: `question_text` read as `question`; 1 record: `question_id` read as `id`"),
+    "list-metadata": ({"questions": [{"id": "g1", "text": "How do I use parallel_for?",
+                                      "metadata": ["must_cite", "verified"]}]},
+                      [("g1", "How do I use parallel_for?")],
+                      '1 record: list `metadata` read as {"items": [...]}'),
+    "bare-list": ([{"id": "g1", "question": "How do I use parallel_for?"}],
+                  [("g1", "How do I use parallel_for?")], "a bare list, not an object"),
+}
+
+
+def test_a_list_metadata_is_kept_under_items():
+    from dokimi.questions.artifact import _read_record
+    from collections import Counter
+
+    q = {"id": "g1", "text": "Q?", "metadata": ["a", {"b": 1}]}
+    assert _read_record(q, 0, Counter(), set())["metadata"] == {"items": ["a", {"b": 1}]}
+    assert q["metadata"] == ["a", {"b": 1}]  # not mutated
+
+
+def _pipeline(tmp_path, monkeypatch, **kwargs):
+    """A pipeline whose model calls fail the test; answers and judging are stubbed."""
+    from dokimi.orchestrator.pipeline import EvaluationPipeline
+
+    def no_model_call(*a, **kw):
+        raise AssertionError("a model call was made")
+
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", no_model_call)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_questions", lambda self, personas: [])
+    monkeypatch.setattr(EvaluationPipeline, "_generate_answers",
+                        lambda self, questions, concurrency=5, question_set_hash=None:
+                        [{"question_id": q["id"]} for q in questions])
+    monkeypatch.setattr(EvaluationPipeline, "_evaluate_answers", lambda self, *a, **kw: [])
+    monkeypatch.setattr(EvaluationPipeline, "_generate_report", lambda self, *a, **kw: "report")
+    return EvaluationPipeline(product="oneTBB", output_dir=tmp_path / "run",
+                              description="Threading Building Blocks", **kwargs)
+
+
+def _personas(tmp_path):
+    p = tmp_path / "run" / "personas" / "oneTBB.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"personas": []}), encoding="utf-8")
+
+
+@pytest.mark.parametrize("mode", ["cached", "questions_from", "custom", "force_regen"])
+@pytest.mark.parametrize("shape", LEGACY_SETS, ids=str)
+def test_the_pipeline_resumes_on_a_legacy_set_and_writes_its_own_v2_copy(
+        shape, mode, tmp_path, monkeypatch, caplog):
+    payload, expected, notice = LEGACY_SETS[shape]
+    _personas(tmp_path)
+    cache = tmp_path / "run" / "questions" / "oneTBB.json"
+    src = cache if mode == "cached" else tmp_path / "input" / "set.json"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text(json.dumps(payload), encoding="utf-8")
+    before = src.read_bytes()
+    kwargs: dict = {"cached": {}, "questions_from": {"questions_from": src},
+                    "custom": {"custom_questions_path": src},
+                    "force_regen": {"custom_questions_path": src, "force_regen": True}}[mode]
+    if mode == "force_regen":  # a v2 cache from an earlier run, regenerated over
+        save_questions_artifact({"questions": [{"id": "old", "question": "Old?"}]}, cache)
+    pipeline = _pipeline(tmp_path, monkeypatch, **kwargs)
+    if mode == "force_regen":  # regenerates the personas too
+        monkeypatch.setattr(type(pipeline), "_discover_personas", lambda self: {"personas": []})
+    a, b, c, d = _no_embeddings()
+    with a, b, c, d, caplog.at_level("WARNING", logger="dokimi.questions.artifact"):
+        result = pipeline.run(concurrency=1)
+
+    saved = load_questions(cache)
+    assert saved.source_version == "questions.v2" and saved.legacy == ()
+    assert [(q["id"], q["question"]) for q in saved.questions] == expected
+    assert saved.artifact["question_set_id"] == result["question_set_hash"]
+    assert [m for m in caplog.messages if "legacy questions format" in m] == [
+        f"read {src} in legacy questions format ({notice}); using it as questions.v2"]
+    if mode != "cached":  # an input is never rewritten; the cache is the run's own
+        assert src.read_bytes() == before
+        assert not src.with_name(src.name + ".rejected").exists()
+
+
+@pytest.mark.parametrize("mode", ["cached", "questions_from", "custom"])
+def test_a_set_invalid_after_reading_fails_before_any_model_call(mode, tmp_path, monkeypatch):
+    # No personas file: persona discovery would be the first model call.
+    cache = tmp_path / "run" / "questions" / "oneTBB.json"
+    src = cache if mode == "cached" else tmp_path / "input" / "set.json"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text(json.dumps({"questions": [{"id": "g1", "text": "Why?"}, {"id": "g2", "text": ""}]}),
+                   encoding="utf-8")
+    before = src.read_bytes()
+    kwargs: dict = {"cached": {}, "questions_from": {"questions_from": src},
+                    "custom": {"custom_questions_path": src}}[mode]
+    pipeline = _pipeline(tmp_path, monkeypatch, **kwargs)
+    with pytest.raises(ArtifactValidationError) as exc:
+        pipeline.run(concurrency=1)
+    msg = str(exc.value)
+    assert f"{src} is not a usable question set" in msg
+    assert "record 1 (id 'g2'), `question`: '' should be non-empty" in msg
+    assert f"Fix in {src}: give each record above a non-empty question" in msg
+    assert src.read_bytes() == before
+    assert not pipeline.personas_path.exists()
+
+
+def test_questions_from_the_runs_own_output_is_left_unchanged(tmp_path, monkeypatch):
+    _personas(tmp_path)
+    own = tmp_path / "run" / "questions" / "oneTBB.json"
+    own.parent.mkdir(parents=True)
+    own.write_text(json.dumps([{"text": "How do I use parallel_for?"}]), encoding="utf-8")
+    before = own.read_bytes()
+    result = _pipeline(tmp_path, monkeypatch, questions_from=tmp_path / "run").run(concurrency=1)
+    assert own.read_bytes() == before
+    assert result["question_set_hash"]

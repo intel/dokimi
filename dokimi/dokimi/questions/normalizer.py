@@ -80,6 +80,15 @@ def canonical_question(q: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def record_id(q: Dict[str, Any], idx: int) -> Any:
+    """The id of the record at position ``idx`` of its set: its own, else ``q{idx:04d}``.
+
+    Its own is ``id``, else ``question_id`` (:func:`~dokimi.utils.question_id`; ``0`` is an id).
+    """
+    own = question_id(q)
+    return f"q{idx:04d}" if own is None else own
+
+
 def normalize_question(q: Dict[str, Any], idx: int = 0) -> Dict[str, Any]:
     """Normalize a single question record to canonical schema.
 
@@ -88,7 +97,7 @@ def normalize_question(q: Dict[str, Any], idx: int = 0) -> Dict[str, Any]:
     ground truth reference.
     """
     canonical = {
-        "id": f"q{idx:04d}" if question_id(q) is None else question_id(q),
+        "id": record_id(q, idx),
         "question": question_text(q),
         "persona": q.get("persona") or "",
         "category": q.get("category") or "",

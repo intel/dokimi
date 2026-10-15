@@ -168,7 +168,8 @@ def export_artifact(
         from dokimi.questions.artifact import load_questions
 
         loaded = load_questions(input_path, validate=validate)
-        data, source_version = loaded.artifact, loaded.source_version or "unknown"
+        data = loaded.artifact
+        source_version = loaded.source_version or ("legacy" if loaded.legacy else "unknown")
     else:
         data = load_artifact(kind, input_path, validate=validate)
     rows = flatten(kind, data)
