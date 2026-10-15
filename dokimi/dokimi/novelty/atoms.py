@@ -186,7 +186,10 @@ class ExtractionReport:
             atom (wrong keys, strings, span ids that are not this document's). Not "this
             text asserts nothing": an empty array is that, and is a result. Kept for the
             warning and, unlike the empty replies, recorded in the artifact.
-        retried_batches: Batches whose reply did not parse and were split and re-asked.
+        retried_batches: Batches whose reply did not parse, or had no usable atom, and
+            were split and re-asked.
+        unusable_retries: How many of those splits were for unusable rows. Only the
+            cut-off ones are cured by ``--max-tokens``. Kept for the warning.
         calls: Extraction calls made, splits included, so the cost of re-asking is visible.
         batches: Calls the same run would make with no splitting: a batch counts once it
             is asked, and its halves count at its level, so a run the cap stopped early
@@ -203,6 +206,7 @@ class ExtractionReport:
     empty_span_ids: list[str] = field(default_factory=list)
     unusable_span_ids: list[str] = field(default_factory=list)
     retried_batches: int = 0
+    unusable_retries: int = 0
     calls: int = 0
     batches: int = 0
     parse_error: str = ""
@@ -257,10 +261,18 @@ class ExtractionReport:
                 f"every rate"
             )
         if self.retried_batches:
+            cut = self.retried_batches - self.unusable_retries
+            if not cut:
+                label = "unusable"
+            elif self.unusable_retries:
+                label = "unparseable or unusable"
+            else:
+                label = "unparseable"
+            advice = "; a higher --max-tokens avoids the extra calls" if cut else ""
             out.append(
-                f"atom extraction re-asked {self.retried_batches} unparseable batches as "
+                f"atom extraction re-asked {self.retried_batches} {label} batches as "
                 f"halves: {self.calls} extraction calls where {self.batches} would do "
-                f"without splitting; a higher --max-tokens avoids the extra calls"
+                f"without splitting{advice}"
             )
         return out
 
@@ -367,6 +379,7 @@ def extract_atoms(
                 half = len(batch) // 2
                 pending[:0] = [(batch[:half], True), (batch[half:], True)]
                 report.retried_batches += 1
+                report.unusable_retries += isinstance(exc, _NoUsableRows)
                 continue
             # One lost batch must not lose the others; the report names it.
             lost = exc

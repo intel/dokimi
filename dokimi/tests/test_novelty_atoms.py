@@ -458,3 +458,45 @@ def test_the_last_error_names_a_call_then_a_parse_then_an_unusable_then_an_empty
     _spans, report = _mixed_causes(causes)
     assert report.last_error.startswith(first)
     assert "_NoUsableRows" not in report.last_error
+
+
+def _junk_for(bad: frozenset[str]):
+    def transport(prompt, system):
+        rows = _rows(prompt)
+        if bad & {r["span_ids"][0] for r in rows}:
+            return json.dumps([{"x": 1}] * 3), None  # parses, holds no atom
+        return json.dumps(rows), None
+
+    return transport
+
+
+def test_a_split_for_unusable_rows_does_not_blame_the_output_ceiling():
+    spans = segment(DOC)
+    report = ExtractionReport()
+    client = LLMClient(model="x", role="extractor", transport=_junk_for(frozenset({"s0001"})))
+    extract_atoms(spans, client=client, batch_spans=5, report=report)
+    assert report.unparseable_span_ids == [] and report.unusable_span_ids == ["s0001"]
+    assert report.retried_batches > 0 and report.unusable_retries == report.retried_batches
+    resplit = [w for w in report.warnings(len(spans)) if "as halves" in w]
+    assert resplit == [
+        f"atom extraction re-asked {report.retried_batches} unusable batches as halves: "
+        f"{report.calls} extraction calls where {report.batches} would do without splitting"
+    ]
+
+
+def test_a_run_with_cut_off_and_unusable_splits_names_both_and_keeps_the_advice():
+    spans = segment(DOC)
+    report = ExtractionReport()
+    cut = _ceiling(3, [], frozenset({"s0002"}))
+    junk = _junk_for(frozenset({"s0001"}))
+
+    def transport(prompt, system):
+        return (junk if "[s0001]" in prompt else cut)(prompt, system)
+
+    client = LLMClient(model="x", role="extractor", transport=transport)
+    extract_atoms(spans, client=client, batch_spans=10, report=report)
+    assert 0 < report.unusable_retries < report.retried_batches
+    assert any(
+        "unparseable or unusable batches as halves" in w and w.endswith("avoids the extra calls")
+        for w in report.warnings(len(spans))
+    )

@@ -797,7 +797,7 @@ all unusable) in half and re-asking, down to one span per call, so a truncation 
 atoms: up to 2n−1 calls for an n-span batch that never parses. The artifact's `extraction`
 block counts them (`calls` against `batches`, the calls the run would make with no splitting; a
 capped run counts only the batches it reached), and a warning (`atom extraction re-asked N
-unparseable batches as halves`) says what they cost; `--max-tokens 16000` avoids them. A call
+unparseable batches as halves`) says what they cost; `--max-tokens 16000` avoids the truncated ones, not those with unusable rows. A call
 that fails or returns an empty reply is not split, since half a batch fails the same way.
 
 Spans that still cannot be read are *unread*, not text that carries nothing. The warning
@@ -814,7 +814,7 @@ lost to a failed call (with its error). The
 | `unread_span_ids`, `unread_tokens` | spans no call read, in document order, and their token cost |
 | `unparseable_span_ids` | the subset whose reply arrived and never parsed, even alone |
 | `unusable_span_ids` | the subset whose reply parsed to rows none of which is a usable atom |
-| `retried_batches` | batches whose reply did not parse and were split and re-asked |
+| `retried_batches` | batches whose reply did not parse, or had no usable atom, and were split and re-asked |
 | `calls`, `batches` | calls made, splits included, against the calls the run would make with no splitting |
 | `last_error` | the error behind the unread spans (a failed call first); errors a split recovered from are not recorded |
 
