@@ -284,3 +284,23 @@ def test_reply_cut_before_any_tool_call_is_an_error_not_none(monkeypatch):
     assert {r["choice"] for r in results} == {None}
     assert all("max_tokens=16" in r["error"] for r in results)
     assert tp.summarize(items, results)["n_errors"] == len(items)
+
+
+def test_cli_caller_parses_tool_calls_and_forwards_max_tokens(monkeypatch):
+    import dokimi.llm as llm
+    from dokimi.commands.tools import _first_turn_caller
+
+    seen = []
+
+    def fake(messages, model, provider="openai", tools=None, tool_choice=None, **kw):
+        seen.append(kw.get("max_tokens"))
+        names = [t["function"]["name"] for t in tools]
+        return _Resp([names[0], names[-1]])
+
+    monkeypatch.setattr(llm, "chat_completion", fake)
+    items = tp.build_items(tp.load_groups(json.loads(GROUPS.read_text(encoding="utf-8"))), ["assertive"])
+    pair = next(i for i in items if i["kind"] == "pair")
+    out = _first_turn_caller("m", "openai", 77)(pair)
+    assert out["called"] == [pair["tools"][0]["function"]["name"], pair["tools"][-1]["function"]["name"]]
+    assert tp.classify(pair, out["called"])["outcome"] == "both"
+    assert seen == [77]
