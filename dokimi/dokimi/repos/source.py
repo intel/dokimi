@@ -427,7 +427,8 @@ def _norm(path: str) -> str:
 
 
 def _git(git_dir: Path | None, *args: str, check: bool = True) -> str:
-    return _run_git(git_dir, list(args), None, check).stdout
+    raw = _run_git(git_dir, list(args), None, check).stdout_bytes
+    return raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")  # strict, as a blob read always was
 
 
 def _git_bytes(git_dir: Path, args: list[str], stdin: bytes) -> bytes:
