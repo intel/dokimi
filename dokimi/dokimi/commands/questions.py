@@ -94,8 +94,11 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
     """Refine a question set: normalise schema, deduplicate, filter trivial, report gaps."""
     from dokimi.questions.refiner import QuestionRefiner, GapFiller
 
-    questions_data = json.loads(Path(args.questions).read_text(encoding="utf-8"))
-    raw = _extract_questions(questions_data, args.questions)
+    from dokimi.questions.artifact import load_questions
+
+    # Refining is how a set is repaired, so it reads tolerantly without refusing; the refined
+    # set is validated when it is written.
+    raw = load_questions(args.questions, validate=False).questions
 
     target = {
         "beginner":     args.target_beginner,
