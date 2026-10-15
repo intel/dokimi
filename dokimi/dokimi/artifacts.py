@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -120,9 +121,10 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
       written at ``path`` (a file already there is untouched); the rejected payload is kept
       at ``<name>.rejected`` so a paid run is not lost to a schema problem. ``KeyError``
       means ``kind`` is not registered in :data:`SCHEMA_VERSIONS`.
-    - The write is atomic (a ``<name>.tmp`` sibling, then ``os.replace``), so a reader or a
-      crash never sees half a file, and repeated incremental saves to one path are safe.
-      Missing parent directories are created.
+    - The write is atomic (a ``<name>.<pid>.<thread>.tmp`` sibling, then ``os.replace``), so a
+      reader or a crash never sees half a file, and concurrent saves to one path (threads or
+      processes) each publish one whole payload; the last one wins. A failed write removes its
+      tmp file. Missing parent directories are created.
     - JSON with ``indent=2``, ASCII-escaped, UTF-8.
     """
     if kind not in SCHEMA_VERSIONS:
@@ -138,9 +140,13 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
         rejected = path.with_name(path.name + ".rejected")
         rejected.write_text(text, encoding="utf-8")
         raise ArtifactValidationError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return payload
 
 

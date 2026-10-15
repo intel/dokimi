@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -393,3 +394,37 @@ def test_arms_schema_rejects_non_array_interactions():
             "answers": [],
             "summary": {"interactions": {"interaction": -8.0}},
         })
+
+
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="Windows os.replace refuses a destination another thread is replacing")
+def test_concurrent_saves_to_one_path_each_publish_a_whole_payload(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    out = tmp_path / "answers.json"
+    payloads = [{"answers": [{"question_id": f"t{t}-{i}"} for i in range(200)]} for t in range(6)]
+
+    def hammer(payload):
+        for _ in range(30):
+            save_artifact("answers", payload, out)
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for f in [pool.submit(hammer, p) for p in payloads]:
+            f.result()  # a shared tmp name made the losing writer raise FileNotFoundError
+    final = json.loads(out.read_text(encoding="utf-8"))["answers"]
+    assert final in [p["answers"] for p in payloads]
+    assert [p.name for p in tmp_path.iterdir()] == ["answers.json"]
+
+
+def test_a_crash_at_the_rename_keeps_the_previous_file_and_leaves_no_tmp(tmp_path, monkeypatch):
+    out = tmp_path / "answers.json"
+    save_artifact("answers", {"answers": [{"question_id": "old"}]}, out)
+
+    def boom(src, dst):
+        raise OSError("disk gone")
+
+    monkeypatch.setattr("dokimi.artifacts.os.replace", boom)
+    with pytest.raises(OSError, match="disk gone"):
+        save_artifact("answers", {"answers": [{"question_id": "new"}]}, out)
+    assert json.loads(out.read_text(encoding="utf-8"))["answers"] == [{"question_id": "old"}]
+    assert [p.name for p in tmp_path.iterdir()] == ["answers.json"]
