@@ -277,7 +277,10 @@ def _has_commit(git_dir: Path, sha: str) -> bool:
 
 
 def _has_object(git_dir: Path, rev: str) -> bool:
-    return process.git("-C", str(git_dir), "cat-file", "-e", rev, timeout=_GIT_TIMEOUT_S).ok
+    proc = process.git("-C", str(git_dir), "cat-file", "-e", rev, timeout=_GIT_TIMEOUT_S)
+    if proc.timed_out:  # a hang is not an answer: "absent" would trigger a fetch or a wrong "not in tree"
+        raise PrepError(f"git cat-file: timed out after {_GIT_TIMEOUT_S} seconds")
+    return proc.ok
 
 
 def _git_env(author: tuple[str, str]) -> dict[str, str]:

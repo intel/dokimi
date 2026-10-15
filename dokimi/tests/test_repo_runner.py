@@ -445,3 +445,15 @@ def test_workspace_git_never_prompts_and_a_timeout_is_a_prep_error(monkeypatch, 
     assert clone.env["GIT_TERMINAL_PROMPT"] == "0" and clone.env["DOKIMI_TEST_ONLY_HELPER"] == "x"
     assert status.env == {"PATH": "/usr/bin", "GIT_TERMINAL_PROMPT": "0"}
     assert {c.timeout for c in fake.calls} == {workspace._GIT_TIMEOUT_S}
+
+
+def test_a_timed_out_cat_file_is_an_error_not_an_absent_object(tmp_path, monkeypatch):
+    from dokimi import process
+    from dokimi.repos import workspace
+
+    hung = process.Completed(("git",), process.TIMEOUT_RC, b"", b"", True, 1.0)
+    monkeypatch.setattr(process, "git", lambda *a, **k: hung)
+    with pytest.raises(PrepError, match="timed out"):
+        workspace._has_object(tmp_path, "HEAD:x")
+    with pytest.raises(PrepError, match="timed out"):
+        workspace._has_commit(tmp_path, "abc")
