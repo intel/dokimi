@@ -195,7 +195,7 @@ def summarize(items: Sequence[dict], results: Sequence[dict]) -> Dict[str, Any]:
     """Factor effects, position effect, both-twin and abstain rates, over-calling, consistency."""
     by_item: Dict[str, List[str]] = {}
     for r in results:
-        if r.get("error") is None:
+        if r.get("error") is None and not r.get("skipped"):
             by_item.setdefault(r["item_id"], []).append(r["choice"]["outcome"])
 
     def share(item_id: str, role: str) -> Optional[float]:
@@ -237,6 +237,7 @@ def summarize(items: Sequence[dict], results: Sequence[dict]) -> Dict[str, Any]:
     multi = [v for v in by_item.values() if len(v) > 1]
     n_err = sum(r.get("error") is not None for r in results)
     n_trunc = sum(bool(r.get("truncated")) for r in results)
+    n_skip = sum(bool(r.get("skipped")) for r in results)
 
     def rate(key: str):
         return round(sum(o == key for o in pair_outs) / len(pair_outs), 4) if pair_outs else None
@@ -246,6 +247,7 @@ def summarize(items: Sequence[dict], results: Sequence[dict]) -> Dict[str, Any]:
         "n_calls": len(results),
         "n_errors": n_err,
         "n_truncated": n_trunc,
+        "n_skipped": n_skip,
         "first_twin_share_baseline": _boot({g: sum(v) / len(v) for g, v in pos.items()}),
         "factor_effects": factors,
         "pair_outcomes": {"both_twins": rate("both"), "distractor": rate("distractor"),
@@ -263,29 +265,44 @@ Caller = Callable[[dict], Dict[str, Any]]
 
 
 def run_probe(items: Sequence[dict], call: Caller, reps: int = 1, concurrency: int = 8,
-              on_progress: Optional[Callable[[int, int], None]] = None) -> List[dict]:
+              on_progress: Optional[Callable[[int, int], None]] = None,
+              max_cost_usd: Optional[float] = None) -> List[dict]:
     """Call ``call(item)`` ``reps`` times per item; ``call`` returns ``{called, text, usage, truncated}``.
 
     An exception is recorded on that result (``error``) and the run goes on: one refused call
     must not void a sweep of hundreds. Results come back in (item, rep) order.
+
+    With ``max_cost_usd``, once the priced calls have spent it no new call starts: the rest are
+    recorded ``skipped`` and left out of the summary. Calls already in flight finish, so the
+    spend can pass the cap by up to ``concurrency - 1`` calls; a call without a price adds 0.
+    Jobs run in item order, so a capped run covers whole groups first.
     """
     jobs = [(i, r) for i in items for r in range(reps)]
     done = [0]
+    spent = [0.0]
     lock = threading.Lock()
+
+    def capped() -> bool:
+        return max_cost_usd is not None and spent[0] >= max_cost_usd
 
     def one(job):
         item, rep = job
         t0 = time.time()
-        try:
-            out = call(item)
-            res = {"item_id": item["id"], "rep": rep, "choice": classify(item, out.get("called") or []),
-                   "text_preview": (out.get("text") or "")[:200], "usage": out.get("usage"),
-                   "truncated": bool(out.get("truncated")), "error": None}
-        except Exception as exc:  # recorded, not raised
-            res = {"item_id": item["id"], "rep": rep, "choice": None, "text_preview": "",
-                   "usage": None, "truncated": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+        with lock:
+            skip = capped()
+        res = {"item_id": item["id"], "rep": rep, "choice": None, "text_preview": "", "usage": None,
+               "truncated": False, "skipped": skip, "error": None}
+        if not skip:
+            try:
+                out = call(item)
+                res.update(choice=classify(item, out.get("called") or []),
+                           text_preview=(out.get("text") or "")[:200], usage=out.get("usage"),
+                           truncated=bool(out.get("truncated")))
+            except Exception as exc:  # recorded, not raised
+                res["error"] = f"{type(exc).__name__}: {exc}"[:300]
         res["elapsed_sec"] = round(time.time() - t0, 3)
         with lock:
+            spent[0] += (res["usage"] or {}).get("cost_usd") or 0.0
             done[0] += 1
             if on_progress:
                 on_progress(done[0], len(jobs))
@@ -300,7 +317,8 @@ def groups_sha256(doc: dict) -> str:
 
 
 def payload(doc: dict, items: Sequence[dict], results: Sequence[dict], *, model: str, provider: str,
-            reps: int, factors: Sequence[str], max_tokens: int) -> dict:
+            reps: int, factors: Sequence[str], max_tokens: int,
+            max_cost_usd: Optional[float] = None) -> dict:
     """The tool_preference.v1 document (unsaved)."""
     system, cues = settings(doc)
     usage = [r["usage"] for r in results if r.get("usage")]
@@ -312,6 +330,7 @@ def payload(doc: dict, items: Sequence[dict], results: Sequence[dict], *, model:
         "reps": reps,
         "factors": list(factors),
         "max_tokens": max_tokens,
+        "max_cost_usd": max_cost_usd,
         # what was sent, defaults included: the groups digest covers only the document's overrides
         "system": system,
         "cues": cues,

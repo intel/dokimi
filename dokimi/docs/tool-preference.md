@@ -68,6 +68,13 @@ python cli.py tools preference --groups groups.json \
   --model claude-haiku-5-5 --provider anthropic --reps 3 --out-json pref.json
 ```
 
+`--max-cost-usd` caps the spend: once the priced calls have spent it, no new
+call starts. The calls not run are kept as `skipped`, left out of the summary
+(`n_skipped`), and the command exits 2. Calls already in flight finish, so the
+spend can pass the cap by up to `--concurrency` − 1 calls, and a call the
+provider returns no price for does not count toward it (the command warns).
+Items run group by group, so a capped run covers whole groups first.
+
 ## Reading the result
 
 `tool_preference.v1` keeps every call (`results`: the tools called in the first

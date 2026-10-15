@@ -354,3 +354,57 @@ def test_cli_caller_keeps_an_empty_tool_name(monkeypatch):
     out = _first_turn_caller("m", "openai", 77)(items[0])
     assert out["called"] == [""]
     assert tp.classify(items[0], out["called"])["outcome"] == "unmatched"
+
+
+# ── cost cap ──────────────────────────────────────────────────────────────
+def test_cost_cap_stops_new_calls_and_leaves_them_out(doc):
+    items = tp.build_items(doc, ["assertive"])
+    calls = []
+
+    def priced(item):
+        calls.append(item["id"])
+        return {"called": [item["twin_names"]["A"]], "usage": {"cost_usd": 0.001}}
+
+    # one at a time: the 4th call brings the spend to the cap, so the 5th is never started
+    results = tp.run_probe(items, priced, reps=1, concurrency=1, max_cost_usd=0.0035)
+    assert len(calls) == 4 and [r["item_id"] for r in results[:4]] == calls
+    assert all(r["skipped"] and r["choice"] is None and r["error"] is None for r in results[4:])
+    s = tp.summarize(items, results)
+    assert s["n_skipped"] == len(items) - 4 and s["n_errors"] == 0
+    # the 4 run calls are G01's two baselines and two assertive items: one group reached
+    assert s["first_twin_share_baseline"]["n_groups"] == 1
+
+
+def test_unpriced_calls_do_not_reach_the_cap(doc):
+    items = tp.build_items(doc, ["assertive"])
+    results = tp.run_probe(items, lambda i: {"called": [], "usage": {"cost_usd": None}},
+                           reps=1, concurrency=1, max_cost_usd=0.0001)
+    assert not any(r["skipped"] for r in results)
+
+
+def test_cli_cost_cap_keeps_the_partial_artifact_and_exits_nonzero(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    monkeypatch.setattr(llm, "chat_completion",
+                        lambda messages, model, tools=None, **k: _Resp([tools[0]["function"]["name"]]))
+    monkeypatch.setattr(llm, "_safe_completion_cost", lambda *a, **k: 0.01)
+    out = tmp_path / "pref.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--concurrency", "1",
+                                      "--max-cost-usd", "0.02", "--out-json", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert "--max-cost-usd 0.02 reached; 14 of 16 call(s) not run" in capsys.readouterr().err
+    data = json.loads(out.read_text(encoding="utf-8"))
+    validate_artifact("tool_preference", data)
+    assert data["max_cost_usd"] == 0.02 and data["summary"]["n_skipped"] == 14
+
+
+@pytest.mark.parametrize("bad", ["0", "-1", "nan", "inf"])
+def test_cli_cost_cap_must_be_positive(bad):
+    from dokimi.cli import build_parser
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--max-cost-usd", bad])

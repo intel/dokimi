@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from pathlib import Path
@@ -38,6 +39,13 @@ def _first_turn_caller(model: str, provider: str, max_tokens: int):
                 "usage": usage.as_metrics_dict(), "truncated": truncated}
 
     return call
+
+
+def _positive_usd(value: str) -> float:
+    usd = float(value)
+    if not math.isfinite(usd) or usd <= 0:
+        raise argparse.ArgumentTypeError(f"must be > 0, got {value}")
+    return usd
 
 
 def _print_summary(summary: dict) -> None:
@@ -76,7 +84,8 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     items = tp.build_items(doc, factors)
     n_pair = sum(i["kind"] == "pair" for i in items)
     print(f"{len(doc['groups'])} groups -> {len(items)} items ({n_pair} pair, {len(items) - n_pair} control)"
-          f" x {args.reps} reps = {len(items) * args.reps} calls")
+          f" x {args.reps} reps = {len(items) * args.reps} calls"
+          + (f", stopping at ${args.max_cost_usd:g}" if args.max_cost_usd else ""))
     if args.items_out:
         Path(args.items_out).write_text(json.dumps(items, indent=1), encoding="utf-8")
         print(f"items -> {args.items_out}")
@@ -90,17 +99,27 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
             print(f"  {done}/{total}", file=sys.stderr, flush=True)
 
     results = tp.run_probe(items, _first_turn_caller(args.model, args.provider, args.max_tokens),
-                           reps=args.reps, concurrency=args.concurrency, on_progress=progress)
+                           reps=args.reps, concurrency=args.concurrency, on_progress=progress,
+                           max_cost_usd=args.max_cost_usd)
     data = tp.payload(doc, items, results, model=args.model, provider=args.provider,
-                      reps=args.reps, factors=factors, max_tokens=args.max_tokens)
+                      reps=args.reps, factors=factors, max_tokens=args.max_tokens,
+                      max_cost_usd=args.max_cost_usd)
     save_artifact("tool_preference", data, args.out_json)
     _print_summary(data["summary"])
     u = data["usage"]
     print(f"cost: {u['cost_usd']} USD over {u['n_calls']} calls ({u['cost_known_calls']} priced)")
     print(f"-> {args.out_json}")
+    if args.max_cost_usd and u["cost_known_calls"] < u["n_calls"]:
+        print(f"Warning: {u['n_calls'] - u['cost_known_calls']} call(s) had no price and did not count "
+              f"toward --max-cost-usd", file=sys.stderr)
     if data["summary"]["n_calls"] and data["summary"]["n_errors"] == data["summary"]["n_calls"]:
         first = next(r["error"] for r in results if r["error"])
         print(f"Error: all {len(results)} call(s) failed ({first}); see results[].error in {args.out_json}",
+              file=sys.stderr)
+        raise SystemExit(2)
+    if data["summary"]["n_skipped"]:
+        print(f"Error: --max-cost-usd {args.max_cost_usd:g} reached; {data['summary']['n_skipped']} of "
+              f"{len(results)} call(s) not run, the summary covers the rest. See {args.out_json}",
               file=sys.stderr)
         raise SystemExit(2)
 
@@ -125,6 +144,9 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     pref_p.add_argument("--max-tokens", type=positive_int, default=2048, dest="max_tokens",
                         help="Per call; reasoning models spend part of it before the tool call (default: 2048)")
     pref_p.add_argument("--concurrency", type=positive_int, default=8)
+    pref_p.add_argument("--max-cost-usd", type=_positive_usd, default=None, dest="max_cost_usd",
+                        help="Start no new call once the priced calls have spent this much; the rest are "
+                             "recorded as skipped and the command exits 2 (default: no cap)")
     pref_p.add_argument("--out-json", default="tool_preference.json", dest="out_json")
     pref_p.add_argument("--items-out", default=None, dest="items_out",
                         help="Also write the expanded items (messages + tools per item) here")
