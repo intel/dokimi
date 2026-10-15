@@ -206,6 +206,9 @@ class JudgeVote:
     #: entries with no readable verdict — the same fields `Judge` records.
     caps: Optional[Dict[str, Any]] = None
     unread_claims: Optional[List[int]] = None
+    #: The figures the judge wrote out, as replied. Kept so a cap, or an
+    #: `unread_claims` index, can be traced to the figure behind it.
+    numeric_claims: Optional[List[Any]] = None
 
 
 @dataclass
@@ -383,6 +386,7 @@ class JudgePanel:
                 role=config.role, model=config.model, provider=config.provider,
                 scores=scores, reasoning=str(data.get("reasoning", "")), aggregate=agg,
                 caps=capped.get("caps"), unread_claims=capped.get("unread_claims"),
+                numeric_claims=claims if isinstance(claims := data.get("numeric_claims"), list) else None,
             )
         except Exception as exc:
             logger.warning(f"Judge '{config.role}' ({config.model}) failed: {exc}")
@@ -426,7 +430,7 @@ class JudgePanel:
             "disagreement_flag": verdict.disagreement_flag,
             "votes": [
                 {"role": v.role, "model": v.model, "provider": v.provider,
-                 "aggregate": v.aggregate, "error": v.error}
+                 "aggregate": v.aggregate, "error": v.error, **_numeric_fields(v)}
                 for v in verdict.votes
             ],
         }
@@ -515,6 +519,13 @@ class JudgePanel:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _numeric_fields(vote: JudgeVote) -> Dict[str, Any]:
+    """The vote's figure check, when it made one: what it listed and what that capped."""
+    return {key: value for key, value in (("numeric_claims", vote.numeric_claims),
+                                          ("caps", vote.caps),
+                                          ("unread_claims", vote.unread_claims)) if value}
+
+
 def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
     if v is None:
         return None
@@ -527,8 +538,7 @@ def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
         "votes": [
             {"role": vt.role, "model": vt.model, "aggregate": vt.aggregate,
              "scores": vt.scores, "reasoning": vt.reasoning, "error": vt.error,
-             **({"caps": vt.caps} if vt.caps else {}),
-             **({"unread_claims": vt.unread_claims} if vt.unread_claims else {})}
+             **_numeric_fields(vt)}
             for vt in v.votes
         ],
     }

@@ -476,3 +476,32 @@ def test_all_right_figures_leave_the_vote_alone():
     with patch("dokimi.eval.panel.llm_call", return_value=reply):
         vote = panel._call_judge(cfg, "q", "a", "oneTBB", "")
     assert vote.scores["correctness"] == 85.0 and vote.caps is None
+
+
+def test_a_cap_can_be_traced_to_its_figure_in_every_stored_form():
+    """The vote kept `caps` but not the list behind it, so a cap could not be
+    traced to the figure that triggered it. Both serialisations carry it now:
+    the panel's own output and the score dict an arms run stores."""
+    claims = ["64 B cache line: right", "3.2 s per call: wrong"]
+    reply = json.dumps({"numeric_claims": claims, "reasoning": "One wrong latency",
+                        "correctness": 85, "completeness": 75, "specificity": 70,
+                        "code_quality": 90, "actionability": 85})
+    panel = JudgePanel(judges=[JudgeConfig(role="technical_expert", model="m", provider="p")])
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        vote = panel._call_judge(panel.judges[0], "How fast?", "3.2 s per call.", "oneTBB", "")
+        stored = panel.score_answer("oneTBB", "How fast?", "3.2 s per call.")
+    assert vote.numeric_claims == claims
+    saved = _verdict_to_dict(_aggregate([vote]))["votes"][0]
+    assert saved["numeric_claims"] == claims and saved["caps"]["correctness"]["judged"] == 85.0
+    arm_vote = stored["panel"]["votes"][0]
+    assert arm_vote["numeric_claims"] == claims
+    assert arm_vote["caps"]["correctness"]["judged"] == 85.0
+
+
+def test_a_vote_without_a_figure_check_stores_no_numeric_fields():
+    reply = json.dumps({"reasoning": "fine", "correctness": 85, "completeness": 75,
+                        "specificity": 70, "code_quality": 90, "actionability": 85})
+    panel = JudgePanel(judges=[JudgeConfig(role="technical_expert", model="m", provider="p")])
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        stored = panel.score_answer("oneTBB", "q", "a")
+    assert not {"numeric_claims", "caps", "unread_claims"} & set(stored["panel"]["votes"][0])
