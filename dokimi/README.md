@@ -117,7 +117,7 @@ Context benchmark
 Executable and agentic tracks
   tasks               Run Docker coding tasks through Codex, Claude Code or Harbor harnesses
   explore             Run file/line localization tasks (ExploreBench)
-  repo                Validate a repository's repo-eval.yaml, fetch pinned sources, probe guidance reach
+  repo                Validate a repository's repo-eval.yaml, fetch pinned sources, size its context, probe guidance reach
   catalog             Check which skills/tasks in an external checkout load cleanly
 
 Content analysis

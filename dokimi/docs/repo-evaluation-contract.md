@@ -28,6 +28,15 @@
 >     [--json] [--fail-on-fail]
 > ```
 >
+> `repo budget` sizes what the tree puts into an agent's context (no manifest,
+> no LLM call): root guidance and its `@` imports plus the skill listing at
+> start, nested guidance lazily, skill bodies on demand, and AGENTS.md files a
+> root CLAUDE.md turns off:
+>
+> ```bash
+> python cli.py repo budget <source> [--harness claude-code] [--json] [--fail-on-warning]
+> ```
+>
 > `--manifest-file <local.yaml>` on `validate`, `scan` and `reach` reads the manifest
 > from outside the tree, for a repository that has not added it yet. `scan` and `reach`
 > need only `guidance`; given neither a manifest in the tree nor `--manifest-file`, they
