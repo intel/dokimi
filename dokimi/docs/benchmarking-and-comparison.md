@@ -680,6 +680,12 @@ python cli.py baseline compare \
   --eval results/onetbb_candidate/eval/onetbb.json
 ```
 
+When the answer or judge model recorded in the baseline differs from the
+current eval's (a Bedrock alias and its inference profile count as one model),
+`compare` prints a warning naming both before the table: the score changes then
+mix the model change with the content change. With `--strict` it exits 1
+instead. A baseline saved before a default-model change is such a baseline.
+
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.
 
