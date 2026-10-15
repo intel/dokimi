@@ -151,3 +151,23 @@ def test_independence_warning_sees_a_bedrock_alias_and_its_profile_as_one_model(
     assert not _warn_judge_independence("amazon-bedrock", "claude-haiku-5-5", "amazon-bedrock", bare)
     # the alias only exists on Bedrock: the same strings on another provider stay distinct
     assert not _warn_judge_independence("anthropic", profile, "anthropic", bare)
+
+
+@pytest.mark.parametrize("model, provider", [
+    ANSWER, GENERATOR, JUDGE, (JUDGE[0], "amazon-bedrock"),
+])
+def test_the_locked_litellm_prices_every_default(model, provider):
+    # Offline (conftest pins litellm's bundled price map). Below litellm 1.105.0 these
+    # models read as $0 or unpriced; requirements*.txt and pyproject.toml floor it there.
+    from litellm import ModelResponse
+
+    from dokimi.llm import _extract_usage
+
+    resp = ModelResponse(
+        model=model,
+        choices=[{"message": {"role": "assistant", "content": "ok"}}],
+        usage={"prompt_tokens": 1000, "completion_tokens": 100, "total_tokens": 1100},
+    )
+    rec = _extract_usage(resp, model, provider)
+    assert rec.cost_usd is not None and rec.cost_usd > 0
+    assert rec.cost_known_calls == 1
