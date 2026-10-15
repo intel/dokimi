@@ -218,7 +218,7 @@ class PersonaAnalyzer:
         try:
             readme = repo.get_readme()
             return readme.decoded_content.decode('utf-8')
-        except:
+        except Exception:
             return ""
     
     def _extract_use_cases(self, repo) -> List[str]:
@@ -272,7 +272,7 @@ class PersonaAnalyzer:
                 try:
                     issues = repo.get_issues(state='all', labels=[label])
                     issues_to_analyze.extend(list(issues[:limit // len(question_labels)]))
-                except:
+                except Exception:
                     continue
             
             # Extract patterns

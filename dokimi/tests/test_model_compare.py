@@ -826,8 +826,8 @@ def _costed_run(cost, tokens=100, latency=2.0, calls=4):
 
 
 def _resource_row(text, label):
-    return next(line for line in text.splitlines() if line.startswith(f"| **{label}** | $")
-                or line.startswith(f"| **{label}** | {MISSING}"))
+    prefixes = (f"| **{label}** | $", f"| **{label}** | {MISSING}")
+    return next(line for line in text.splitlines() if line.startswith(prefixes))
 
 
 def test_pooled_resource_row_sums_cost_and_tokens_over_replicates():
