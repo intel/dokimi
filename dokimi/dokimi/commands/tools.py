@@ -88,6 +88,11 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     u = data["usage"]
     print(f"cost: {u['cost_usd']} USD over {u['n_calls']} calls ({u['cost_known_calls']} priced)")
     print(f"-> {args.out_json}")
+    if data["summary"]["n_calls"] and data["summary"]["n_errors"] == data["summary"]["n_calls"]:
+        first = next(r["error"] for r in results if r["error"])
+        print(f"Error: all {len(results)} call(s) failed ({first}); see results[].error in {args.out_json}",
+              file=sys.stderr)
+        raise SystemExit(2)
 
 
 def register(sub: argparse._SubParsersAction, positive_int) -> None:

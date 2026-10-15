@@ -233,3 +233,23 @@ def test_cli_dry_run_calls_nothing_and_unknown_factor_exits(monkeypatch, tmp_pat
         main(["tools", "preference", "--groups", str(GROUPS), "--factors", "loudness", "--dry-run"])
     with pytest.raises(SystemExit, match="--model is required"):
         main(["tools", "preference", "--groups", str(GROUPS)])
+
+
+def test_cli_exits_nonzero_when_every_call_failed(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    def boom(*a, **k):
+        raise RuntimeError("auth failed")
+
+    monkeypatch.setattr(llm, "chat_completion", boom)
+    out = tmp_path / "pref.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--out-json", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert "all 16 call(s) failed" in capsys.readouterr().err
+    data = json.loads(out.read_text(encoding="utf-8"))  # the evidence is kept
+    validate_artifact("tool_preference", data)
+    assert data["summary"]["n_errors"] == data["summary"]["n_calls"] == 16
