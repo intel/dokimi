@@ -322,41 +322,47 @@ class Judge:
         lock = threading.Lock()
         completed = [0]
 
+        stop = threading.Event()  # set by a failed save: queued answers are skipped, not paid for
+
         def _process(idx: int, answer: Dict) -> None:
+            if stop.is_set():
+                return
             q_id = answer["question_id"]
             t0 = time.time()
+            failure = None
             try:
                 eval_result = self._evaluate_answer_pair(library_name, answer)
-                elapsed = time.time() - t0
                 delta = eval_result.get("delta")
                 delta_str = f"delta={delta:+}" if delta is not None else "delta=n/a"
-                with lock:
-                    results[idx] = eval_result
-                    completed[0] += 1
-                    print(f"[{completed[0]}/{n}] {q_id} ✓ {delta_str} ({elapsed:.1f}s)", flush=True)
-                    if output_path is not None:
-                        ordered = [results[i] for i in sorted(results)]
-                        self._save_incremental(ordered, output_path)
             except Exception as e:
-                elapsed = time.time() - t0
+                failure = e
                 logger.exception(f"Evaluation failed for {q_id}")
-                with lock:
-                    results[idx] = {
-                        "question_id": answer["question_id"],
-                        "question_text": answer["question_text"],
-                        "category": answer.get("category"),
-                        "difficulty": answer.get("difficulty"),
-                        "persona": answer.get("persona"),
-                        "error": str(e),
-                        "with_docs": None,
-                        "without_docs": None,
-                        "delta": None
-                    }
-                    completed[0] += 1
-                    print(f"[{completed[0]}/{n}] {q_id} ✗ ({elapsed:.1f}s): {e}", flush=True)
-                    if output_path is not None:
-                        ordered = [results[i] for i in sorted(results)]
+                eval_result = {
+                    "question_id": answer["question_id"],
+                    "question_text": answer["question_text"],
+                    "category": answer.get("category"),
+                    "difficulty": answer.get("difficulty"),
+                    "persona": answer.get("persona"),
+                    "error": str(e),
+                    "with_docs": None,
+                    "without_docs": None,
+                    "delta": None
+                }
+            elapsed = time.time() - t0
+            with lock:
+                results[idx] = eval_result
+                completed[0] += 1
+                if failure is None:
+                    print(f"[{completed[0]}/{n}] {q_id} ✓ {delta_str} ({elapsed:.1f}s)", flush=True)
+                else:
+                    print(f"[{completed[0]}/{n}] {q_id} ✗ ({elapsed:.1f}s): {failure}", flush=True)
+                if output_path is not None:
+                    ordered = [results[i] for i in sorted(results)]
+                    try:
                         self._save_incremental(ordered, output_path)
+                    except BaseException:
+                        stop.set()
+                        raise
 
         print(f"Evaluating {n} answers with judge: {self.provider}/{self.model} (concurrency={concurrency})", flush=True)
 

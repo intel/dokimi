@@ -140,9 +140,14 @@ class Answerer:
         lock = threading.Lock()
         completed = [0]
 
+        stop = threading.Event()  # set by a failed save: queued questions are skipped, not paid for
+
         def _process(idx: int, q: Dict) -> None:
+            if stop.is_set():
+                return
             q_id = q.get("id") or q.get("question_id") or str(idx)
             t0 = time.time()
+            failure = None
             try:
                 pair = self._generate_answer_pair(
                     library_name=library_name,
@@ -150,33 +155,36 @@ class Answerer:
                     question=q,
                     max_tokens=max_tokens_per_question
                 )
-                elapsed = time.time() - t0
-                with lock:
-                    results[idx] = pair
-                    completed[0] += 1
-                    print(f"[{completed[0]}/{n}] {q_id} ✓ ({elapsed:.1f}s)", flush=True)
-                    if output_path is not None:
-                        ordered = [results[i] for i in sorted(results)]
-                        self._save_incremental(ordered, output_path)
             except Exception as e:
-                elapsed = time.time() - t0
-                with lock:
-                    results[idx] = {
-                        "question_id": q_id,
-                        "question_text": q.get("question") or q.get("text", ""),
-                        "library_name": library_name,
-                        "category": q.get("category"),
-                        "difficulty": q.get("difficulty"),
-                        "persona": q.get("persona"),
-                        "error": str(e),
-                        "with_docs": None,
-                        "without_docs": None
-                    }
-                    completed[0] += 1
-                    print(f"[{completed[0]}/{n}] {q_id} ✗ ({elapsed:.1f}s): {e}", flush=True)
-                    if output_path is not None:
-                        ordered = [results[i] for i in sorted(results)]
+                failure = e
+                pair = {
+                    "question_id": q_id,
+                    "question_text": q.get("question") or q.get("text", ""),
+                    "library_name": library_name,
+                    "category": q.get("category"),
+                    "difficulty": q.get("difficulty"),
+                    "persona": q.get("persona"),
+                    "error": str(e),
+                    "with_docs": None,
+                    "without_docs": None
+                }
+            elapsed = time.time() - t0
+            with lock:
+                results[idx] = pair
+                completed[0] += 1
+                if failure is None:
+                    print(f"[{completed[0]}/{n}] {q_id} ✓ ({elapsed:.1f}s)", flush=True)
+                else:
+                    print(f"[{completed[0]}/{n}] {q_id} ✗ ({elapsed:.1f}s): {failure}", flush=True)
+                if output_path is not None:
+                    ordered = [results[i] for i in sorted(results)]
+                    try:
+                        # Outside the generation try: a rejected save must not turn a paid answer
+                        # into an error record, and must not be retried per question.
                         self._save_incremental(ordered, output_path)
+                    except BaseException:
+                        stop.set()
+                        raise
 
         print(f"Generating answers for {n} questions (concurrency={concurrency})", flush=True)
 
