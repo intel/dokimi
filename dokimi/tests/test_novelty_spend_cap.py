@@ -114,3 +114,32 @@ def test_the_estimate_points_at_the_cap(tmp_path, capsys):
     args = _parse("novelty", "analyze", "--artifact", f"skill:{skill}", "--estimate-only")
     args.func(args)
     assert "--max-usd" in capsys.readouterr().err
+
+
+def test_a_reply_replayed_from_the_response_cache_counts_nothing():
+    """A stopped run resumed under the same cap must get past where it stopped."""
+    def transport(prompt, system=None):
+        return "ok", UsageRecord(cost_usd=1.0, replayed=True)
+
+    client = LLMClient(model="m", transport=transport, cap=SpendCap(limit_usd=0.5))
+    for _ in range(3):
+        client.text("a")
+    assert client.cap.spent_usd == 0.0 and client.cap.calls == 3
+
+
+def test_a_replayed_reply_needs_no_price():
+    def transport(prompt, system=None):
+        return "ok", UsageRecord(cost_usd=None, replayed=True)
+
+    assert LLMClient(model="m", transport=transport, cap=SpendCap(limit_usd=1.0)).text("a") == "ok"
+
+
+def test_the_response_cache_marks_what_it_replays(tmp_path, monkeypatch):
+    from dokimi import caching
+
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path))
+    caching.store_response("k", "text", UsageRecord(cost_usd=0.25))
+    text, usage = caching.load_response("k")
+    assert (text, usage.cost_usd, usage.replayed) == ("text", 0.25, True)   # cost kept as stored
+    caching.store_response("k2", "text", usage)                               # a re-store stays loadable
+    assert caching.load_response("k2")[1].replayed is True

@@ -42,6 +42,8 @@ class UsageRecord:
     role: str = "main"                 # "main" | "subagent" — see roll_up_by_role
     n_calls: int = 1
     cost_known_calls: int = 0
+    # served from the response cache: cost_usd is the original call's, not this process's bill
+    replayed: bool = False
 
     def __add__(self, other: "UsageRecord | int") -> "UsageRecord":
         """Sum two records: tokens/cost/latency/n_calls add; first ttft wins.
@@ -75,6 +77,7 @@ class UsageRecord:
             role=self.role or other.role,
             n_calls=self.n_calls + other.n_calls,
             cost_known_calls=_known_cost_calls(self) + _known_cost_calls(other),
+            replayed=self.replayed and other.replayed,
         )
 
     __radd__ = __add__  # enables sum([...]) — 0 + record is handled in __add__

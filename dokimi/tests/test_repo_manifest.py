@@ -565,3 +565,13 @@ def test_the_default_manifest_id_is_a_valid_id(label, expected):
     from dokimi.commands.repo import _manifest_id
 
     assert _manifest_id(label) == expected
+
+
+def test_a_mistyped_manifest_path_is_an_error_not_a_default_scan(tmp_path, capsys):
+    root = tmp_path / "plain"
+    _write(root, "AGENTS.md", "# guidance\n")
+    args = build_parser().parse_args(["repo", "scan", str(root), "--manifest", ".agent-eval/repo-evel.yaml"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert "manifest not found" in capsys.readouterr().err

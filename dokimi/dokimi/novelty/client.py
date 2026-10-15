@@ -41,7 +41,9 @@ class SpendCap:
 
     Checked before each call, so the run can overshoot by the calls already in flight
     (``--concurrency``). A call that comes back without a price stops the run: the cap
-    cannot be enforced on spend it cannot see.
+    cannot be enforced on spend it cannot see. A reply replayed from the response cache
+    (``DOKIMI_RESPONSE_CACHE``) costs nothing now and counts as $0, so a stopped run
+    resumed with the same cap spends only on the calls it had not made.
     """
 
     limit_usd: float
@@ -61,6 +63,8 @@ class SpendCap:
     def record(self, usage: UsageRecord | None, model: str) -> None:
         with self._lock:
             self.calls += 1
+            if usage is not None and usage.replayed:
+                return
             if usage is None or usage.cost_usd is None:
                 raise SpendCapReached(
                     f"no price is known for {model}, so --max-usd cannot be enforced; "

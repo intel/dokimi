@@ -227,19 +227,21 @@ def load_manifest(tree: RepoTree, path: str = DEFAULT_MANIFEST_PATH) -> RepoMani
 
 def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
     """Validate an already-parsed manifest mapping."""
-    errors = schema_errors(SCHEMA_VERSION, raw)
-    if errors:
-        raise ManifestError(path, errors)
-    # A runnable manifest needs all three; a guidance-only one, none of them (contract §2).
-    run_keys = [k for k in _RUN_KEYS if k in raw]
+    # The schema says this too (dependentRequired); said first, in the manifest's own terms.
+    # A runnable manifest needs all three keys; a guidance-only one, none of them (contract §2).
+    run_keys = [k for k in _RUN_KEYS if k in raw] if isinstance(raw, dict) else []
     if run_keys and len(run_keys) < len(_RUN_KEYS):
         missing = [k for k in _RUN_KEYS if k not in raw]
         raise ManifestError(path, [f"{', '.join(run_keys)} without {', '.join(missing)}: a manifest "
                                    "that runs tasks needs all of eval_dir, tasks and entry_points"])
-    needs_eval = [k for k in ("image", "explore_tasks") if raw.get(k) is not None and not run_keys]
+    needs_eval = [k for k in ("image", "explore_tasks")
+                  if isinstance(raw, dict) and k in raw and not run_keys]
     if needs_eval:
         raise ManifestError(path, [f"{', '.join(needs_eval)} without eval_dir, tasks and entry_points: "
                                    "only a manifest that runs tasks uses them"])
+    errors = schema_errors(SCHEMA_VERSION, raw)
+    if errors:
+        raise ManifestError(path, errors)
 
     for key, value in _path_fields(raw):
         problem = _path_problem(value)

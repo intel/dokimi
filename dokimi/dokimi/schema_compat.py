@@ -49,11 +49,11 @@ _UPPER = ("maximum", "exclusiveMaximum", "maxLength", "maxItems", "maxProperties
 _FIXED = ("const", "pattern", "$ref", "propertyNames")
 # Keywords compare() reasons about, and annotations that never reject anything (``format``
 # included: validate_artifact runs without a format checker). Any other keyword that appears
-# or changes (if/then/else, not, dependentRequired, patternProperties, unevaluatedProperties,
+# or changes (if/then/else, not, dependentSchemas, patternProperties, unevaluatedProperties,
 # prefixItems, contains, multipleOf, ...) is reported as breaking: fail closed, not open.
 _MODELLED = frozenset((
     "type", "enum", "required", "properties", "additionalProperties", "items", "$defs",
-    "definitions", "anyOf", "allOf", "uniqueItems", "description",
+    "definitions", "anyOf", "allOf", "uniqueItems", "description", "dependentRequired",
     *_LOWER, *_UPPER, *_FIXED,
 ))
 _ANNOTATIONS = frozenset((
@@ -151,6 +151,13 @@ def _compare(old: Any, new: Any, path: str, diff: Diff, seen: list[Any],
 
     for name in sorted(set(new.get("required", [])) - set(old.get("required", []))):
         diff.breaking.append(f"{where}: {name!r} is now required")
+    # `key` present requires `deps`: it rejects nothing the old schema accepted when each dep
+    # was required outright there, or already required by the same key.
+    old_required, old_deps = set(old.get("required", [])), old.get("dependentRequired", {})
+    for key, deps in sorted(new.get("dependentRequired", {}).items()):
+        added = sorted(set(deps) - old_required - set(old_deps.get(key, [])))
+        if added:
+            diff.breaking.append(f"{where}: {key!r} now requires {added}")
     old_props, new_props = old.get("properties", {}), new.get("properties", {})
     old_extra = old.get("additionalProperties", True)
     new_extra = new.get("additionalProperties", True)

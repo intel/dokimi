@@ -1059,7 +1059,9 @@ def _add_spend_cap(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-usd", type=_usd, default=None, dest="max_usd",
                         help="Stop the run once its model calls have cost this much (USD, "
                              "all roles together; calls in flight can overshoot it). A call "
-                             "with no known price also stops it. Default: no cap")
+                             "with no known price also stops it; a reply replayed from "
+                             "DOKIMI_RESPONSE_CACHE counts $0, so a stopped run can be resumed "
+                             "under the same cap. Default: no cap")
 
 
 def _default_judge(model: str) -> str:

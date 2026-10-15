@@ -195,21 +195,25 @@ def _load_manifest(tree, args: argparse.Namespace, *, guidance_default: bool = F
 
     from dokimi.repos import ManifestError, load_manifest, parse_manifest
 
+    from dokimi.repos import DEFAULT_MANIFEST_PATH
+
+    # Only a path the caller did not name falls back: a mistyped --manifest stays an error.
+    path = args.manifest or DEFAULT_MANIFEST_PATH
     if not args.manifest_file:
-        if guidance_default and not tree.is_file(args.manifest):
-            print(f"note: no {args.manifest} in {tree.label}; checking the default guidance "
+        if guidance_default and args.manifest is None and not tree.is_file(path):
+            print(f"note: no {path} in {tree.label}; checking the default guidance "
                   f"globs {', '.join(DEFAULT_GUIDANCE_GLOBS)} (pass --manifest-file to choose)",
                   file=sys.stderr)
             return parse_manifest({
                 "schema": "repo_manifest.v1", "id": _manifest_id(tree.label),
                 "guidance": {"globs": list(DEFAULT_GUIDANCE_GLOBS)},
             }, "<default>")
-        return load_manifest(tree, args.manifest)
+        return load_manifest(tree, path)
     try:
         raw = yaml.safe_load(Path(args.manifest_file).read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise ManifestError(args.manifest_file, [str(exc)]) from exc
-    return parse_manifest(raw, args.manifest)
+    return parse_manifest(raw, path)
 
 
 def _manifest_id(label: str) -> str:
@@ -262,9 +266,10 @@ def register(sub, positive_int) -> None:
         "against the same tree (repo_readiness.v1). No LLM call.",
     )
     scan_p.add_argument("source", help=source_help)
-    scan_p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
-                        help="Manifest path relative to the repository root. With no manifest there and no "
-                        "--manifest-file, the default guidance globs (AGENTS.md, CLAUDE.md, Copilot instructions) "
+    scan_p.add_argument("--manifest", default=None,
+                        help="Manifest path relative to the repository root (default: "
+                        ".agent-eval/repo-eval.yaml). With this flag, --manifest-file and the default path "
+                        "all absent, the default guidance globs (AGENTS.md, CLAUDE.md, Copilot instructions) "
                         "are checked")
     scan_p.add_argument("--manifest-file", default=None, dest="manifest_file",
                         help="Read the manifest from this local file instead of from the tree, as if it were "
@@ -292,9 +297,10 @@ def register(sub, positive_int) -> None:
         "guidance files it loads (guidance_reach.v1). Costs one cheap-model call per scenario.",
     )
     reach_p.add_argument("source", help=source_help)
-    reach_p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
-                         help="Manifest path relative to the repository root. With no manifest there and no "
-                         "--manifest-file, the default guidance globs (AGENTS.md, CLAUDE.md, Copilot instructions) "
+    reach_p.add_argument("--manifest", default=None,
+                         help="Manifest path relative to the repository root (default: "
+                         ".agent-eval/repo-eval.yaml). With this flag, --manifest-file and the default path "
+                         "all absent, the default guidance globs (AGENTS.md, CLAUDE.md, Copilot instructions) "
                          "are checked")
     reach_p.add_argument("--manifest-file", default=None, dest="manifest_file",
                          help="Read the manifest from this local file instead of from the tree, as if it were "

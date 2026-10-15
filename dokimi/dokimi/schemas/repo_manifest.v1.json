@@ -2,10 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/repo_manifest.v1.json",
   "title": "Repository evaluation manifest v1",
-  "description": "repo-eval.yaml: what a scanned repository provides so dokimi can evaluate it (docs/repo-evaluation-contract.md §2). This is an input the repository owns, not an artifact the framework writes, so it carries `schema` rather than `schema_version`. eval_dir, tasks and entry_points come together or not at all (checked in dokimi/repos/manifest.py); without them the manifest is guidance-only, enough for `repo scan` and `repo reach` but not for running tasks. Paths are relative to the repository root; semantic rules (placeholders, path containment) are checked in dokimi/repos/manifest.py.",
+  "description": "repo-eval.yaml: what a scanned repository provides so dokimi can evaluate it (docs/repo-evaluation-contract.md §2). This is an input the repository owns, not an artifact the framework writes, so it carries `schema` rather than `schema_version`. eval_dir, tasks and entry_points come together or not at all (dependentRequired here; dokimi/repos/manifest.py says so in friendlier words); without them the manifest is guidance-only, enough for `repo scan` and `repo reach` but not for running tasks. Paths are relative to the repository root; semantic rules (placeholders, path containment) are checked in dokimi/repos/manifest.py.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "id", "guidance"],
+  "dependentRequired": {
+    "eval_dir": ["tasks", "entry_points"],
+    "tasks": ["eval_dir", "entry_points"],
+    "entry_points": ["eval_dir", "tasks"],
+    "image": ["eval_dir"],
+    "explore_tasks": ["eval_dir"]
+  },
   "properties": {
     "schema": {"const": "repo_manifest.v1"},
     "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},

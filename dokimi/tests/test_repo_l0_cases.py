@@ -282,6 +282,14 @@ def test_a_github_action_reference_is_not_a_path(tmp_path):
     assert ("path", "docs/a@b/x.md") in got                    # an `@` mid-path is not a ref
 
 
+def test_a_file_name_with_an_at_sign_is_still_a_path(tmp_path):
+    got = _verdicts(_scan(tmp_path, "Use `assets/icon@2x.png`, `assets/logo@3x.svg` and `tools/run@v2`.\n",
+                          {"assets/logo@3x.svg": "", "tools/run@v2": ""}))
+    assert got[("path", "assets/icon@2x.png")] == "fail"       # broken: the directory has other files
+    assert got[("path", "assets/logo@3x.svg")] == "ok"
+    assert got[("path", "tools/run@v2")] == "ok"               # ref-shaped, but it is in the tree
+
+
 def test_links_inside_code_spans_are_not_links(tmp_path):
     got = _verdicts(_scan(tmp_path, "Write `[text](docs/guide.md)` in a page.\n"))
     assert not any(kind == "link" for kind, _ in got)
