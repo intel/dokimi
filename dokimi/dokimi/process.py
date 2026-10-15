@@ -40,6 +40,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -158,8 +159,11 @@ def run(
         preexec_fn=_limits_preexec(limits) if _POSIX and limits else None,
     )
     job = _assign_job(proc)
+    if data is not None:  # communicate() cannot resume a partial write on a retry: feed stdin on a thread
+        sink, proc.stdin = proc.stdin, None
+        threading.Thread(target=_feed, args=(sink, data), daemon=True).start()
     try:
-        out, err, timed_out = _communicate(proc, data, start + timeout, job)
+        out, err, timed_out = _communicate(proc, None, start + timeout, job)
     except BaseException:
         _kill_tree(proc, job)
         _close_pipes(proc)
@@ -169,6 +173,19 @@ def run(
             _kernel32.CloseHandle(job)
     rc = TIMEOUT_RC if timed_out else proc.returncode
     return Completed(tuple(args), rc, out, err, timed_out, time.monotonic() - start)
+
+
+def _feed(sink, data: bytes) -> None:
+    """Write ``data`` to the child's stdin and close it; a child that stops reading is not an error."""
+    try:
+        sink.write(data)
+    except OSError:
+        pass
+    finally:
+        try:
+            sink.close()
+        except OSError:
+            pass
 
 
 def _check(argv: Sequence[str | os.PathLike[str]], timeout: float) -> list[str]:

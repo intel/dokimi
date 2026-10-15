@@ -256,3 +256,16 @@ def test_fake_runner_records_calls_and_answers(tmp_path, monkeypatch):
     assert first.argv == ("ok", str(tmp_path)) and first.input == b"hi"
     assert "AB_SECRET" not in first.env and fake.calls[1].env["AB_SECRET"] == "s"
     assert fake.argvs() == [("ok", str(tmp_path)), ("slow",), ("missing",)]
+
+
+def test_input_larger_than_the_pipe_reaches_a_child_that_reads_late():
+    data = b"x" * 300_000
+    done = _py("import sys, time; time.sleep(0.6); sys.stdout.buffer.write(sys.stdin.buffer.read())",
+               input=data, timeout=20)
+    assert not done.timed_out
+    assert done.stdout_bytes == data
+
+
+def test_input_to_a_child_that_never_reads_it_is_not_an_error():
+    done = _py("pass", input=b"x" * 2_000_000, timeout=20)
+    assert done.returncode == 0 and not done.timed_out
