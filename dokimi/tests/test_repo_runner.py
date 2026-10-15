@@ -448,6 +448,23 @@ def test_workspace_git_never_prompts_and_a_timeout_is_a_prep_error(monkeypatch, 
     assert {c.capture_limit for c in fake.calls} == {None}  # ls-files, rev-parse: data, never cut
 
 
+@pytest.mark.parametrize("which", range(4))
+def test_a_clone_that_needed_a_prompt_says_which_and_what_to_do(monkeypatch, which):
+    """ssh's "Host key verification failed" sits above three lines of boilerplate; it, not the
+    tail, is what a PrepError must show, with a hint (clone and fetch never prompt)."""
+    import dokimi.repos.workspace as workspace
+    from dokimi import process
+    from test_process import GIT_PROMPT_FAILURES
+
+    stderr, line, hint = GIT_PROMPT_FAILURES[which]
+    monkeypatch.setattr(workspace.process, "run", process.FakeRunner(lambda call: process.reply(
+        stderr=stderr, returncode=128)))
+    with pytest.raises(PrepError) as err:
+        workspace._run(["git", "clone", "--bare", "--", "git@github.com:o/r.git", "/x"])
+    assert str(err.value).startswith("git clone --bare -- git@github.com:o/r.git exited 128: " + line)
+    assert "hint: " in str(err.value) and hint in str(err.value)
+
+
 def test_a_timed_out_cat_file_is_an_error_not_an_absent_object(tmp_path, monkeypatch):
     from dokimi import process
     from dokimi.repos import workspace

@@ -310,8 +310,7 @@ def _run(argv: list[str], env: dict[str, str] | None = None, check: bool = True)
     if proc.timed_out:
         raise PrepError(f"{' '.join(argv[:4])}: timed out after {_GIT_TIMEOUT_S} seconds")
     if check and proc.returncode:
-        detail = (proc.stderr or proc.stdout).strip().splitlines()[-3:]
-        raise PrepError(f"{' '.join(argv[:5])} exited {proc.returncode}: {' | '.join(detail)}")
+        raise PrepError(f"{' '.join(argv[:5])} exited {proc.returncode}: {process.git_failure(proc)}")
     return proc.stdout
 
 

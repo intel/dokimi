@@ -634,6 +634,18 @@ without its tasks directory (tag `dokimi/<id>:<sha>`) unless
 elsewhere. `{source_dir}` is the source's own git directory, or
 `--source-dir`.
 
+Cloning and fetching a remote source (`url@rev`, in every `repo` command) is
+non-interactive by design: git runs with `GIT_TERMINAL_PROMPT=0`, stdin
+closed and no terminal, so neither git nor ssh can ask for a password, a token,
+a key passphrase or a new host key. Set up access before the run: a credential
+helper holding a token for an `https://` URL (for GitHub, `gh auth setup-git`),
+or for an SSH URL a key loaded into `ssh-agent` and the host in
+`~/.ssh/known_hosts`. When git would have prompted, the error names the line
+git or ssh printed (`Host key verification failed.`,
+`Permission denied (publickey)`, `could not read Username ...: terminal
+prompts disabled`) and the fix; any other git failure shows its last `fatal:`
+line.
+
 ```bash
 # self-check: no LLM; exits 1 if any task is broken or unsupported
 python cli.py repo tasks check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \

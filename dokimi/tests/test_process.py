@@ -362,6 +362,36 @@ def test_git_never_prompts_and_has_a_timeout(tmp_path):
     assert call.capture_limit is None  # git output is data: never cut
 
 
+_SSH_TAIL = ("fatal: Could not read from remote repository.\n\nPlease make sure you have the correct access "
+             "rights\nand the repository exists.\n")
+GIT_PROMPT_FAILURES = [  # (stderr, the line that must be shown, a word of the hint)
+    ("Cloning into bare repository 'x'...\nHost key verification failed.\n" + _SSH_TAIL,
+     "Host key verification failed.", "known_hosts"),
+    ("git@github.com: Permission denied (publickey).\n" + _SSH_TAIL,
+     "git@github.com: Permission denied (publickey).", "ssh-agent"),
+    ("fatal: could not read Username for 'https://github.com': terminal prompts disabled\n",
+     "fatal: could not read Username for 'https://github.com': terminal prompts disabled", "credential helper"),
+    ("fatal: could not read Password for 'https://u@host': terminal prompts disabled\n",
+     "fatal: could not read Password for 'https://u@host': terminal prompts disabled", "credential helper"),
+]
+
+
+@pytest.mark.parametrize("stderr, line, hint", GIT_PROMPT_FAILURES)
+def test_git_failure_names_the_prompt_git_could_not_show(stderr, line, hint):
+    why = process.git_failure(reply(stderr=stderr, returncode=128))
+    assert why.startswith(line + " (hint: ") and hint in why
+
+
+@pytest.mark.parametrize("stderr, why", [
+    ("warning: x\nfatal: repository 'https://h/r.git/' not found\nmore\n", "fatal: repository 'https://h/r.git/' not found"),
+    ("error: patch failed: a.c:3\nerror: a.c: patch does not apply\n", "error: a.c: patch does not apply"),
+    ("one\ntwo\n", "two"),
+    ("", "exit 128"),
+])
+def test_git_failure_otherwise_shows_the_last_fatal_or_error_line(stderr, why):
+    assert process.git_failure(reply(stderr=stderr, returncode=128)) == why
+
+
 def test_git_runs_for_real(tmp_path):
     done = process.git("--version")
     assert done.ok and done.stdout.startswith("git version")

@@ -445,6 +445,5 @@ def _run_git(git_dir: Path | None, args: list[str], stdin: bytes | None, check: 
     if proc.timed_out:
         raise SourceError(f"git {args[0]} failed: timed out after {_GIT_TIMEOUT_S} seconds")
     if proc.returncode != 0 and check:
-        detail = proc.stderr.strip().splitlines()[-1:] or [f"exit {proc.returncode}"]
-        raise SourceError(f"git {args[0]} failed: {detail[0]}")
+        raise SourceError(f"git {args[0]} failed: {process.git_failure(proc)}")
     return proc

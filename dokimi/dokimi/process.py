@@ -493,6 +493,38 @@ def git(*args: str, cwd: str | os.PathLike[str] | None = None, timeout: float = 
     return runner(["git", *args], cwd=cwd, timeout=timeout, env=env, input=input, capture_limit=None)
 
 
+# What git or ssh prints when it would have prompted, and what to do instead. git runs with
+# GIT_TERMINAL_PROMPT=0, stdin closed and, in its own session, no terminal: nothing can be typed.
+_GIT_HINTS = (
+    ("host key verification failed",
+     "the remote's SSH host key is not in ~/.ssh/known_hosts and cannot be confirmed here: "
+     "add it (ssh-keyscan <host> >> ~/.ssh/known_hosts, after checking the fingerprint) or use the https:// URL"),
+    ("permission denied (publickey",
+     "no SSH key the remote accepts is available without a prompt: load it into ssh-agent (ssh-add) "
+     "or use the https:// URL"),
+    *((needle, "the remote wants credentials and git does not prompt here: store a token for the "
+               "https:// URL in a credential helper (for GitHub: gh auth setup-git) or use an SSH URL "
+               "with a key in ssh-agent")
+      for needle in ("could not read username", "could not read password", "terminal prompts disabled")),
+)
+
+
+def git_failure(done: Completed) -> str:
+    """The line of a failed git call's output that says why, and a hint when it is a known
+    prompt git could not show (an unknown host key, an SSH key or credentials it would have
+    asked for). Otherwise the last ``fatal:`` or ``error:`` line, else the last line."""
+    lines = [ln.strip() for ln in (done.stderr or done.stdout).splitlines() if ln.strip()]
+    for needle, hint in _GIT_HINTS:
+        for line in lines:
+            if needle in line.lower():
+                return f"{line} (hint: {hint})"
+    for prefix in ("fatal:", "error:"):
+        found = [ln for ln in lines if ln.lower().startswith(prefix)]
+        if found:
+            return found[-1]
+    return lines[-1] if lines else f"exit {done.returncode}"
+
+
 # ── test adapter ─────────────────────────────────────────────────────────────
 
 
