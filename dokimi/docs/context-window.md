@@ -31,9 +31,9 @@ run.jsonl: prompt tokens per call: 21390 21673
 - **peak**, **growth**: the largest prompt, and how far it rose above
   **first**: what the history added. **fill** is peak over `--window`, shown
   only when you pass the window, because the trace does not say it.
-- **compact**: `compact_boundary` events. After one the prompt drops; the
-  `--calls` series shows by how much, and `--json` gives each event's trigger
-  and `pre_tokens`.
+- **compact**: `compact_boundary` events. After one the prompt can drop; the
+  `--calls` series shows by how much, and `--json` gives each event's trigger,
+  `pre_tokens` and (on newer CLIs) `post_tokens`.
 - **tools**, **failed**, **repeat**: tool calls, calls whose result came back
   as an error, and calls identical in name and input to an earlier call on the
   same thread (an agent re-reading what it already has).

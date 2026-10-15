@@ -53,7 +53,8 @@ RUN = _jsonl(
     _result("t2", "x" * 300),
     _assistant("m3", _usage(5, 400, 20410), _tool_use("t3", "Read", file_path="/nope")),
     _result("t3", "File does not exist.", error=True),
-    {"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "auto", "pre_tokens": 20815}},
+    {"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "auto", "pre_tokens": 20815,
+                                                                          "post_tokens": 9000}},
     _assistant("m4", _usage(5, 3000, 9000), _tool_use("t4", "Task", prompt="look")),
     # the subagent's own window: counted apart, and its `ls` is not a repeat of the main thread's
     _assistant("s1", _usage(5, 5000, 0), _tool_use("t5", "Bash", command="ls"), agent="t4"),
@@ -92,7 +93,7 @@ def test_tool_results_failures_and_repeats():
     assert s["repeated_tool_calls"] == 1
     assert s["tool_result_chars"] == 300 + 300 + len("File does not exist.") + 50 + 4
     assert s["largest_tool_results"][0] == {"tool": "Bash", "calls": 3, "chars": 650, "max_chars": 300}
-    assert trace.compactions == [{"trigger": "auto", "pre_tokens": 20815, "after_call": 2}]
+    assert trace.compactions == [{"trigger": "auto", "pre_tokens": 20815, "post_tokens": 9000, "after_call": 2}]
 
 
 def test_without_a_window_there_is_no_fill():
