@@ -16,7 +16,7 @@ PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrout
 
 def _first_turn_caller(model: str, provider: str, max_tokens: int):
     """One ``tool_choice="auto"`` call per item; returns the first turn's tool names, text, usage."""
-    from dokimi.llm import _extract_usage, chat_completion
+    from dokimi.llm import _TRUNCATED, _extract_usage, chat_completion
 
     def call(item: dict) -> dict:
         t0 = time.time()
@@ -25,6 +25,8 @@ def _first_turn_caller(model: str, provider: str, max_tokens: int):
         msg = resp.choices[0].message
         calls = getattr(msg, "tool_calls", None) or []
         names = [getattr(getattr(tc, "function", None), "name", None) for tc in calls]
+        if not calls and getattr(resp.choices[0], "finish_reason", None) in _TRUNCATED:
+            raise RuntimeError(f"reply cut at max_tokens={max_tokens} before any tool call")
         usage = _extract_usage(resp, model, provider, latency_sec=time.time() - t0)
         return {"called": [n for n in names if n], "text": getattr(msg, "content", None) or "",
                 "usage": usage.as_metrics_dict()}

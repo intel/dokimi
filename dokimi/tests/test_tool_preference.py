@@ -267,3 +267,20 @@ def test_repeated_factors_are_not_expanded_twice(doc, monkeypatch, tmp_path, cap
     args.func(args)
     assert f"{len(once)} items" in capsys.readouterr().out
     assert len(json.loads(out.read_text(encoding="utf-8"))) == len(once)
+
+
+def test_reply_cut_before_any_tool_call_is_an_error_not_none(monkeypatch):
+    import dokimi.llm as llm
+    from dokimi.commands.tools import _first_turn_caller
+
+    def cut(*a, **k):
+        r = _Resp([])
+        r.choices[0].finish_reason = "length"
+        return r
+
+    monkeypatch.setattr(llm, "chat_completion", cut)
+    items = tp.build_items(tp.load_groups(json.loads(GROUPS.read_text(encoding="utf-8"))), ["assertive"])
+    results = tp.run_probe(items, _first_turn_caller("m", "openai", 16), reps=1)
+    assert {r["choice"] for r in results} == {None}
+    assert all("max_tokens=16" in r["error"] for r in results)
+    assert tp.summarize(items, results)["n_errors"] == len(items)
