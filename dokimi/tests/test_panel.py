@@ -374,3 +374,78 @@ def test_evaluate_answers_records_retrieval_hit():
     with patch("dokimi.eval.panel.llm_call", return_value=FAKE_LLM_RESPONSE):
         results = panel.evaluate_answers(answers, library_name="oneTBB")
     assert [r["retrieval_hit"] for r in results] == [True, False]
+
+
+# ── Numeric claims: the panel checks figures the way the single judge does ────
+
+def test_every_role_carries_the_numeric_criterion_and_enumeration():
+    import re
+
+    from dokimi.eval.panel import JUDGE_ROLES, NUMERIC_CLAIMS, NUMERIC_INSTRUCTION
+
+    for role, prompt in JUDGE_ROLES.items():
+        assert NUMERIC_CLAIMS in prompt, role
+        assert NUMERIC_INSTRUCTION in prompt, role
+        out = prompt[prompt.index("IMPORTANT: Output ONLY"):]
+        # Figures are written out before any score or the reasoning.
+        assert out.index('"numeric_claims"') < out.index('"reasoning"') < out.index('"correctness"'), role
+        # Names the class of error, never the gate's own generator.
+        criteria = " ".join(prompt[:prompt.index("IMPORTANT: Output ONLY")].split())
+        assert "order of magnitude" not in criteria.lower(), role
+        assert not re.search(r"\b10\s*[x×]", criteria), role  # wrong_numbers' own edit
+
+
+def test_panel_and_single_judge_share_one_numeric_criterion():
+    """One copy: the two judges diverged once already when only one was edited."""
+    import dokimi.eval.judge as J
+    from dokimi.eval import panel as P
+
+    assert J._NUMERIC_CLAIMS is P.NUMERIC_CLAIMS
+    assert J._NUMERIC_INSTRUCTION is P.NUMERIC_INSTRUCTION
+    assert J._NUMERIC_OUTPUT is P.NUMERIC_OUTPUT
+    assert P.NUMERIC_CLAIMS in J.JUDGE_PROMPT and P.NUMERIC_CLAIMS in J.JUDGE_PROMPT_GROUNDED
+
+
+def test_call_judge_reads_scores_past_the_numeric_claims_list():
+    reply = json.dumps({
+        "numeric_claims": ["64 B cache line: right", "3.2 ms per call: wrong"],
+        "reasoning": "One wrong latency",
+        "correctness": 40, "completeness": 75, "specificity": 70,
+        "code_quality": 90, "actionability": 85,
+    })
+    panel = JudgePanel()
+    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        vote = panel._call_judge(cfg, "How fast?", "3.2 ms per call.", "oneTBB", "")
+    assert vote.error is None
+    assert vote.scores["correctness"] == 40.0
+
+
+def test_a_wrong_figure_caps_the_vote_like_the_single_judge():
+    reply = json.dumps({
+        "numeric_claims": ["64 B cache line: right", "3.2 s per call: wrong"],
+        "reasoning": "One wrong latency",
+        "correctness": 85, "completeness": 75, "specificity": 70,
+        "code_quality": 90, "actionability": 85,
+    })
+    panel = JudgePanel()
+    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        vote = panel._call_judge(cfg, "How fast?", "3.2 s per call.", "oneTBB", "")
+    assert vote.scores["correctness"] == 40.0
+    assert vote.caps == {"correctness": {"judged": 85.0, "rule": "wrong_figure"}}
+    serialised = _verdict_to_dict(_aggregate([vote]))["votes"][0]
+    assert serialised["caps"]["correctness"]["judged"] == 85.0
+
+
+def test_all_right_figures_leave_the_vote_alone():
+    reply = json.dumps({
+        "numeric_claims": ["64 B cache line: right"], "reasoning": "fine",
+        "correctness": 85, "completeness": 75, "specificity": 70,
+        "code_quality": 90, "actionability": 85,
+    })
+    panel = JudgePanel()
+    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        vote = panel._call_judge(cfg, "q", "a", "oneTBB", "")
+    assert vote.scores["correctness"] == 85.0 and vote.caps is None

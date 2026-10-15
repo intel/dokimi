@@ -150,7 +150,7 @@ The optional judge panel uses three roles:
 - `developer_advocate`: emphasizes practical usefulness and actionability.
 - `doc_reviewer`: emphasizes completeness and fidelity to context.
 
-Panel aggregates are computed in Python from role-specific weights. The panel report includes mean score, standard deviation, agreement score, and disagreement flags. Panel prompts ask for no `numeric_claims`, so the panel has no wrong-figure cap, and its correctness scores are not comparable with the single judge's.
+Panel aggregates are computed in Python from role-specific weights. The panel report includes mean score, standard deviation, agreement score, and disagreement flags. Every panel role carries the single judge's numeric-claims criterion and lists `numeric_claims` first; Python holds the same wrong-figure cap per vote, keeping the judged score under the vote's `caps`. Panel correctness scores from before this change had neither and are not comparable with later ones.
 
 RAGAS meta-evaluation can be run after answer generation to add faithfulness and answer-relevancy signals, especially for the `with_docs` condition.
 

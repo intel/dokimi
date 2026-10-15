@@ -21,7 +21,7 @@ from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose, retrieval_hit
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
-from dokimi.eval.panel import SCORE_ANCHORS
+from dokimi.eval.panel import NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS
 
 # The output format below uses N placeholders on purpose. Concrete example
 # scores anchor the model: a prompt that shows 85/90/80/85/90 gets those exact
@@ -30,46 +30,12 @@ from dokimi.eval.panel import SCORE_ANCHORS
 _NO_EXAMPLE_SCORES = """- Replace every N with an integer 0-100, picked from the anchors above
 - Score each dimension independently; do not round them toward each other"""
 
-# Wrong *magnitudes* were invisible to every judge measured: the judge-validity
-# gate's `wrong_numbers` degradation — which scales figures by 10x and swaps
-# units, leaving the prose intact and the length unchanged — scored 0.60 on the
-# shipped prompt (Haiku, 4 seeds, 156 pairs; 27% ties, mean score drop 1.9
-# points), i.e. the judge barely saw the edit. A single 20-base run of the full
-# 9-variant gate put it at 0.71; run-to-run spread on this gate is wide. It is attached to `correctness` rather than
-# given its own dimension because that is where a wrong number belongs, and
-# because `correctness` already carries double weight in the aggregate; a sixth
-# dimension would both re-dilute the weighting and break score comparability
-# with stored runs a second time.
-#
-# The wording names the *class* of error and deliberately no example of it. An
-# earlier version listed "ms where ns is meant, MB/s where GB/s, Hz where MHz"
-# and "off by an order of magnitude" — which are, verbatim, the substitutions and
-# the 10x scaling the gate's `wrong_numbers` generator applies, so its measured
-# gain was taken on the same perturbations the prompt described.
-_NUMERIC_CLAIMS = """   Check the answer's *numbers*, not only its prose: every quoted magnitude,
-   unit, size, width, latency, rate or ratio is a factual claim. A figure that
-   is wrong for this question — wrong value or wrong unit — is a factual error
-   even when the sentence around it is fluent and confident, and caps
-   correctness at 40."""
-
-# Listed first in the output so the figures are written out before any score
-# is. Criterion + enumeration moved `wrong_numbers` significantly where the
-# criterion alone did not; the two were not compared head-to-head, so this is
-# the best reading, not an isolated effect. Putting it in the JSON makes the
-# enumeration visible in every stored judgement instead of asserted.
-_NUMERIC_INSTRUCTION = """- First fill `numeric_claims`: copy out every figure the answer quotes, with
-  its unit (at most 20), and mark each right or wrong for this question. Then
-  score correctness; a single wrong figure caps it at 40"""
-
-# A JSON array, one entry per figure. A semicolon-separated string was tried to
-# cut malformed replies (with an array first, the model sometimes closes the
-# later `reasoning` object with `]`): it did — 9 extra calls per 247 judgements
-# instead of 26, against 5 for the stock prompt — but it scored lower on every
-# numeric variant in two independent runs, and in the replication it no longer
-# beat the old wording anywhere while the array did on all three (paired
-# McNemar p = 0.016 / 0.035 / 0.039). The malformed replies are retried by
-# `_judge_answer`; 0-1 judgements per 247 still fail all three attempts.
-_NUMERIC_OUTPUT = """  "numeric_claims": ["<figure with unit>: right|wrong", ...],"""
+# The numeric-claims criterion, its enumeration step and output slot are shared
+# with the panel and live next to the shared score anchors in `eval/panel.py`,
+# with the measurements behind them.
+_NUMERIC_CLAIMS = NUMERIC_CLAIMS
+_NUMERIC_INSTRUCTION = NUMERIC_INSTRUCTION
+_NUMERIC_OUTPUT = NUMERIC_OUTPUT
 
 
 JUDGE_PROMPT = """You are evaluating the quality of an answer to a technical question.
