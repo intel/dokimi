@@ -253,3 +253,17 @@ def test_cli_exits_nonzero_when_every_call_failed(monkeypatch, tmp_path, capsys)
     data = json.loads(out.read_text(encoding="utf-8"))  # the evidence is kept
     validate_artifact("tool_preference", data)
     assert data["summary"]["n_errors"] == data["summary"]["n_calls"] == 16
+
+
+def test_repeated_factors_are_not_expanded_twice(doc, monkeypatch, tmp_path, capsys):
+    from dokimi.cli import build_parser
+
+    once = tp.build_items(doc, ["assertive"])
+    twice = tp.build_items(doc, ["assertive", "assertive"])
+    assert [i["id"] for i in twice] == [i["id"] for i in once]
+    out = tmp_path / "items.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--dry-run",
+                                      "--factors", "assertive,assertive", "--items-out", str(out)])
+    args.func(args)
+    assert f"{len(once)} items" in capsys.readouterr().out
+    assert len(json.loads(out.read_text(encoding="utf-8"))) == len(once)

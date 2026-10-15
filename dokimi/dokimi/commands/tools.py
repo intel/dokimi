@@ -59,7 +59,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
         doc = tp.load_groups(json.loads(Path(args.groups).read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError, tp.GroupsError) as exc:
         raise SystemExit(f"--groups {args.groups}: {exc}") from exc
-    factors = [f for f in args.factors.split(",") if f] if args.factors else list(tp.FACTORS)
+    factors = list(dict.fromkeys(f for f in args.factors.split(",") if f)) if args.factors else list(tp.FACTORS)
     unknown = sorted(set(factors) - set(tp.FACTORS))
     if unknown:
         raise SystemExit(f"--factors: unknown {unknown} (known: {', '.join(tp.FACTORS)})")

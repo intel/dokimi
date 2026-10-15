@@ -108,7 +108,7 @@ def build_items(doc: dict, factors: Sequence[str] = FACTORS) -> List[dict]:
     for g in doc["groups"]:
         kind = "control" if g.get("expect") == "none" else "pair"
         cells: List[Tuple[Optional[str], Optional[str], str]] = [(None, None, "A"), (None, None, "B")]
-        for f in factors:
+        for f in dict.fromkeys(factors):
             if kind == "pair":
                 cells += [(f, r, p) for r in ("A", "B") for p in (r, _other(r))]
             else:
