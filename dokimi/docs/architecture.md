@@ -272,8 +272,11 @@ still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
 
 - `dokimi/process.py` — the process runner that spawning code goes
   through (git, `gh`, doc snippets, harness profiles; the task harnesses and
-  the repository-mode docker runner still spawn on their own). A timeout or
-  the command's exit kills its whole process group / job object, a timeout is a
+  the repository-mode docker runner still spawn on their own). A timeout,
+  an interrupt or the command's exit kills its whole process group / job
+  object; so does a SIGTERM/SIGHUP to the `dokimi` CLI, which installs
+  `install_signal_handlers()` at start-up (importing the module installs
+  nothing; a library caller opts in). A timeout is a
   result (`returncode` 124, partial output kept) not an exception, output is
   read as UTF-8, a captured stream keeps at most 1 MiB in memory (its first and
   last half, `truncated` set; `stdout_to`/`stderr_to` write a whole stream to a

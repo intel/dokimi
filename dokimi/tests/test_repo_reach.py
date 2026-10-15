@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -61,6 +62,13 @@ if mode in ("hang", "orphan"):  # a helper holding stdout, which killing the har
     subprocess.Popen([sys.executable, "-c", "import sys, time; time.sleep(3); open(sys.argv[1], 'w')", marker])
     time.sleep(30 if mode == "hang" else 0)
     sys.exit(0)
+if mode == "linger":  # a harness and its helper, both running until someone kills them
+    import subprocess, time
+    helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    pids = Path(__file__).with_name("linger.pids")
+    pids.with_suffix(".tmp").write_text(f"{os.getpid()} {helper.pid}")
+    pids.with_suffix(".tmp").rename(pids)
+    time.sleep(120)
 
 cwd = Path.cwd().resolve()  # physical path, as getcwd() reports on POSIX
 root = next(p for p in [cwd, *cwd.parents] if (p / ".git").exists())
@@ -442,6 +450,53 @@ def test_reach_timeout_kills_the_harness_process_tree(tmp_path, monkeypatch, mod
     time.sleep(3)  # the helper would have written its marker by now
     assert not (tmp_path / "grandchild-alive").exists()
     assert not list((tmp_path / "work").iterdir())
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    try:  # a killed child nobody reaped yet is a zombie: not running
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return True
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals and process groups")
+def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
+    """The harness leads its own process group, so a SIGTERM to the CLI (as `timeout(1)` sends)
+    does not reach it; the CLI's handler kills the group, then the CLI dies of the signal."""
+    root, profile, work = _repo(tmp_path), _profile(tmp_path), tmp_path / "work"
+    work.mkdir()
+    env = {**os.environ, "FAKE_MODE": "linger", "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+    cli = subprocess.Popen([sys.executable, "-m", "dokimi", "repo", "reach", str(root),
+                            "--manifest", "evals/repo-eval.yaml", "--harness", str(profile), "--model", "m",
+                            "--out", str(tmp_path / "out"), "--work-dir", str(work), "--scenarios", "root",
+                            "--timeout", "120"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    pid_file = tmp_path / "linger.pids"
+    pids: list[int] = []
+    try:
+        deadline = time.monotonic() + 60
+        while not pid_file.is_file():
+            assert cli.poll() is None, cli.stderr.read().decode() if cli.stderr else ""
+            assert time.monotonic() < deadline, "the harness never started"
+            time.sleep(0.05)
+        pids = [int(p) for p in pid_file.read_text().split()]
+        cli.send_signal(signal.SIGTERM)
+        assert cli.wait(timeout=30) == -signal.SIGTERM
+        deadline = time.monotonic() + 5
+        while any(map(_pid_alive, pids)) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not [p for p in pids if _pid_alive(p)], "the harness or its helper outlived the CLI"
+    finally:
+        if cli.poll() is None:
+            cli.kill()
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
 
 
 def test_repo_reach_cli_manifest_file_and_a_failed_scenario(tmp_path, monkeypatch, capsys):

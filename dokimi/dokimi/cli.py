@@ -31,6 +31,7 @@ from dokimi.commands import (
     tasks,
     tools,
 )
+from dokimi import process
 from dokimi.console import tolerate_console_encoding
 
 
@@ -79,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Entry point."""
+    process.install_signal_handlers()  # SIGTERM/SIGHUP: kill the process groups we started, then exit
     tolerate_console_encoding()
     parser = build_parser()
     args = parser.parse_args()

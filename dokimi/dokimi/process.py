@@ -6,12 +6,20 @@
 Callers (git, gh, a doc snippet, a harness profile's CLI) go through :func:`run`,
 which holds these invariants:
 
-* **Nothing the run started outlives it.** The child leads its own process group
-  (POSIX) or job object (Windows). When the child exits, or the timeout or an
-  interrupt fires, the whole group is killed, so a helper it forked cannot keep
-  running with its credentials or hold the output pipes open. A process that
-  leaves the group (``setsid()``, a daemon) is not contained: the call stops
-  waiting for it :data:`DRAIN_GRACE_SEC` after the child is gone.
+* **Nothing the run started outlives it**, when the call returns or raises. The
+  child leads its own process group (POSIX) or job object (Windows). When the
+  child exits, or the timeout or an interrupt (``KeyboardInterrupt``) fires, the
+  whole group is killed, so a helper it forked cannot keep running with its
+  credentials or hold the output pipes open. A process that leaves the group
+  (``setsid()``, a daemon) is not contained: the call stops waiting for it
+  :data:`DRAIN_GRACE_SEC` after the child is gone.
+* **A terminating signal to the caller is handled only where it is installed.**
+  The group is the child's own, so a SIGTERM or SIGHUP sent to the caller, or to
+  the caller's group as ``timeout(1)`` does, does not reach it. Unhandled, the
+  caller dies and the group runs on. :func:`install_signal_handlers` kills every
+  live group first; the ``dokimi`` CLI installs it at start-up, importing this
+  module does not. A library caller calls it from its main thread, or calls
+  :func:`kill_children` from its own handler. Nothing handles ``SIGKILL``.
 * **A timeout is a result, not an exception.** ``timed_out`` is set, ``returncode``
   is :data:`TIMEOUT_RC` (124, as ``timeout(1)`` reports it), and the output
   produced before the kill is kept.
@@ -165,7 +173,9 @@ def run(
     """Run ``argv`` (no shell) to completion or ``timeout`` seconds; see the module doc."""
     args = _check(argv, timeout, capture_limit)
     data = input.encode("utf-8") if isinstance(input, str) else input
-    with _Spool(stdout_to) as out_file, _Spool(stderr_to) as err_file:
+    with _Spool(stdout_to) as out_file, _Spool(stderr_to) as err_file, _live_lock:
+        if _closing:  # a terminating signal is being handled: start nothing new
+            raise InterruptedError("not starting a process: shutting down on a signal")
         start = time.monotonic()
         proc = subprocess.Popen(
             args,
@@ -177,7 +187,8 @@ def run(
             start_new_session=_POSIX,
             preexec_fn=_limits_preexec(limits) if _POSIX and limits else None,
         )
-    job = _assign_job(proc)
+        job = _assign_job(proc)
+        _live[proc.pid] = (proc, job)
     if data is not None:  # a child that reads late must still get all of it: feed stdin on a thread
         sink, proc.stdin = proc.stdin, None
         threading.Thread(target=_feed, args=(sink, data), daemon=True).start()
@@ -190,8 +201,10 @@ def run(
         raise
     finally:
         _close_pipes(proc, pipes)
-        if sys.platform == "win32" and job:
-            _kernel32.CloseHandle(job)
+        with _live_lock:
+            _live.pop(proc.pid, None)
+            if sys.platform == "win32" and job:
+                _kernel32.CloseHandle(job)
     out_bytes, out_cut = _read_spool(stdout_to, capture_limit) if stdout_to else out.value()
     err_bytes, err_cut = _read_spool(stderr_to, capture_limit) if stderr_to else err.value()
     if not capture_stdout:
@@ -199,6 +212,54 @@ def run(
     rc = TIMEOUT_RC if timed_out else proc.returncode
     return Completed(tuple(args), rc, out_bytes, err_bytes, timed_out, time.monotonic() - start,
                      out_cut or err_cut)
+
+
+# ── the groups alive right now, for a terminating signal ────────────────────
+
+_live: dict[int, tuple[subprocess.Popen[bytes], int | None]] = {}  # pid -> (process, job object)
+_live_lock = threading.RLock()  # re-entrant: a handler runs on the main thread, maybe inside run()
+_closing = False
+
+
+def kill_children() -> None:
+    """Kill the process group (job object) of every :func:`run` in progress, in any thread,
+    and make later calls raise :class:`InterruptedError` instead of starting anything.
+    For a caller on its way out; :func:`install_signal_handlers` calls it."""
+    global _closing
+    locked = _live_lock.acquire(timeout=DRAIN_GRACE_SEC)  # let a thread inside Popen register its child
+    try:
+        _closing = True
+        for proc, job in list(_live.values()):
+            _kill_tree(proc, job)
+    finally:
+        if locked:
+            _live_lock.release()
+
+
+def install_signal_handlers(signums: Sequence[int] | None = None) -> None:
+    """On SIGTERM and SIGHUP (or ``signums``): :func:`kill_children`, then call the handler
+    that was installed before, or, if that was the default, die of the signal as before
+    (exit status 128 + the signal number). A signal the process ignores (SIGHUP under
+    ``nohup``) stays ignored. Call it from the main thread: ``signal.signal`` raises
+    :class:`ValueError` elsewhere. The ``dokimi`` CLI calls it at start-up."""
+    if signums is None:
+        signums = [s for s in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGHUP", None)) if s]
+    for signum in signums:
+        previous = signal.getsignal(signum)
+        if previous != signal.SIG_IGN:
+            signal.signal(signum, _on_signal(previous))
+
+
+def _on_signal(previous: object) -> Callable[[int, object], None]:
+    def handler(signum: int, frame: object) -> None:
+        kill_children()
+        if callable(previous):
+            previous(signum, frame)
+        else:
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+
+    return handler
 
 
 class _Capture:

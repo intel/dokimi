@@ -204,6 +204,79 @@ def test_interrupt_kills_the_tree_and_propagates(tmp_path, monkeypatch):
     assert _gone_soon(int(pid_file.read_text()))
 
 
+# ── a terminating signal to the caller ──────────────────────────────────────
+
+_CALLER = """
+import os, signal, sys, threading
+from dokimi import process
+pid_file, mode = sys.argv[1], sys.argv[2]
+if mode == "previous":
+    def previous(signum, frame):
+        open(pid_file + ".previous", "w").write("called")
+        os._exit(7)
+    signal.signal(signal.SIGTERM, previous)
+if mode == "nohup":
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+process.install_signal_handlers()
+worker = threading.Thread(target=process.run, args=([sys.executable, "-c", sys.argv[3], pid_file],),
+                          kwargs={"timeout": 120, "env": process.Env.inherit()})
+worker.start()
+worker.join()
+"""
+
+
+def _caller(tmp_path: Path, mode: str) -> tuple[process.subprocess.Popen, int]:
+    """A caller that installed the handlers and runs `_TREE` on a worker thread; and its grandchild."""
+    pid_file = tmp_path / "pid"
+    env = {**os.environ, "PYTHONPATH": str(Path(process.__file__).resolve().parents[1])}
+    caller = process.subprocess.Popen([PY, "-c", _CALLER, str(pid_file), mode, _TREE], env=env)
+    return caller, int(_wait_for(pid_file))
+
+
+@_POSIX_ONLY
+def test_sigterm_kills_the_live_groups_then_the_caller_dies_of_it(tmp_path):
+    caller, grandchild = _caller(tmp_path, "default")
+    try:
+        caller.send_signal(signal.SIGTERM)
+        assert caller.wait(timeout=30) == -signal.SIGTERM
+        assert _gone_soon(grandchild)
+    finally:
+        caller.kill()
+
+
+@_POSIX_ONLY
+def test_an_earlier_handler_still_runs_and_an_ignored_sighup_stays_ignored(tmp_path):
+    caller, grandchild = _caller(tmp_path, "previous")
+    try:
+        caller.send_signal(signal.SIGTERM)
+        assert caller.wait(timeout=30) == 7 and (tmp_path / "pid.previous").is_file()
+        assert _gone_soon(grandchild)
+    finally:
+        caller.kill()
+    (tmp_path / "pid").unlink()
+    caller, grandchild = _caller(tmp_path, "nohup")
+    try:
+        caller.send_signal(signal.SIGHUP)
+        time.sleep(0.5)
+        assert caller.poll() is None and _alive(grandchild)
+    finally:
+        caller.kill()
+        os.kill(grandchild, signal.SIGKILL)
+
+
+def test_importing_installs_no_signal_handler():
+    code = "import signal, dokimi.cli, dokimi.process; print(signal.getsignal(signal.SIGTERM))"
+    env = Env.inherit({"PYTHONPATH": str(Path(process.__file__).resolve().parents[1])})
+    assert _py(code, env=env).stdout.strip() == str(signal.SIG_DFL)
+
+
+def test_after_kill_children_nothing_new_starts(monkeypatch):
+    monkeypatch.setattr(process, "_closing", False)
+    process.kill_children()
+    with pytest.raises(InterruptedError):
+        _py("pass")
+
+
 @_POSIX_ONLY
 def test_limits_cap_cpu_time():
     done = _py("while True: pass", timeout=30, limits=Limits(cpu_sec=1))

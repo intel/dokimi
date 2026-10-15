@@ -494,10 +494,14 @@ Protocol:
     - A scenario that runs past `--timeout` is an `error`; its raw stdout up
       to the kill is kept in the trace. Its harness is killed with its process
       group (POSIX) or job object (Windows), and so is anything left in that
-      group when the harness exits on its own. A process
-      that leaves the group, such as one that calls `setsid()` or daemonizes,
-      is not contained. It can outlive the run with the harness's environment,
-      credentials included.
+      group when the harness exits on its own. The group is also killed when
+      the `dokimi` CLI gets SIGTERM or SIGHUP (from `timeout(1)`, a CI
+      cancel or a closed terminal); the CLI then exits with that signal. Not
+      contained: the group of a CLI killed with SIGKILL, of a library caller
+      that did not call `process.install_signal_handlers()`, and a process
+      that leaves the group, such as one that calls `setsid()` or daemonizes.
+      These can outlive the run with the harness's environment, credentials
+      included.
 4. Ask for every token in the instructions or context, including context
    attached to a tool result. Parse the reported tokens from the answer, and
    the reads from `events.jsonl`.
