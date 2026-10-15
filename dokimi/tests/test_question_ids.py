@@ -115,7 +115,11 @@ def test_answerer_keeps_question_zero():
     import dokimi.eval.answerer as answerer_mod
 
     usage = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
-    with patch.object(answerer_mod, "llm_call_with_usage", return_value=("an answer", usage)),          patch.object(answerer_mod, "ChatOpenAI", Mock, create=True),          patch.object(answerer_mod, "LANGCHAIN_AVAILABLE", True):
+    with (
+        patch.object(answerer_mod, "llm_call_with_usage", return_value=("an answer", usage)),
+        patch.object(answerer_mod, "ChatOpenAI", Mock, create=True),
+        patch.object(answerer_mod, "LANGCHAIN_AVAILABLE", True),
+    ):
         answerer = answerer_mod.Answerer()
         pair = answerer._generate_answer_pair("lib", "org/lib", {"id": 0, "question": "q?"}, 1000)
         with patch.object(answerer, "_generate_answer_pair", side_effect=RuntimeError("boom")):

@@ -59,11 +59,11 @@ def normalize_question(q: Dict[str, Any], idx: int = 0) -> Dict[str, Any]:
     ground truth reference.
     """
     canonical = {
-        "id":              f"q{idx:04d}" if question_id(q) is None else question_id(q),
-        "question":        q.get("question") or q.get("text") or "",
-        "persona":         q.get("persona") or "",
-        "category":        q.get("category") or "",
-        "difficulty":      _normalize_difficulty(q.get("difficulty")),
+        "id": f"q{idx:04d}" if question_id(q) is None else question_id(q),
+        "question": q.get("question") or q.get("text") or "",
+        "persona": q.get("persona") or "",
+        "category": q.get("category") or "",
+        "difficulty": _normalize_difficulty(q.get("difficulty")),
         "expected_topics": q.get("expected_topics") or [],
     }
     # Preserve all extra fields (chunk metadata, source tracking, etc.)
