@@ -428,3 +428,76 @@ def test_a_crash_at_the_rename_keeps_the_previous_file_and_leaves_no_tmp(tmp_pat
         save_artifact("answers", {"answers": [{"question_id": "new"}]}, out)
     assert json.loads(out.read_text(encoding="utf-8"))["answers"] == [{"question_id": "old"}]
     assert [p.name for p in tmp_path.iterdir()] == ["answers.json"]
+
+
+def test_a_good_save_clears_a_stale_rejected_payload(tmp_path):
+    out = tmp_path / "answers.json"
+    with pytest.raises(ArtifactValidationError):
+        save_artifact("answers", {"answers": [{"question_text": "Q?"}]}, out)
+    assert (tmp_path / "answers.json.rejected").exists()
+    (tmp_path / "other.json.rejected").write_text("{}", encoding="utf-8")
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, out)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["answers.json", "other.json.rejected"]
+
+
+def test_a_rejected_payload_that_cannot_be_cleared_warns_but_the_save_stands(tmp_path, caplog):
+    out = tmp_path / "answers.json"
+    (tmp_path / "answers.json.rejected").mkdir()  # unlink() of a directory fails on every OS
+
+    with caplog.at_level("WARNING", logger="dokimi.artifacts"):
+        save_artifact("answers", {"answers": [{"question_id": "q1"}]}, out)
+    assert json.loads(out.read_text(encoding="utf-8"))["answers"] == [{"question_id": "q1"}]
+    assert "answers.json.rejected" in caplog.text
+
+
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError) as exc:  # Windows without symlink privilege
+        pytest.skip(f"cannot create a symlink here: {exc}")
+
+
+def test_a_save_through_a_symlink_writes_the_target_and_keeps_the_link(tmp_path):
+    real_dir = tmp_path / "store"
+    real_dir.mkdir()
+    target = real_dir / "answers.json"
+    target.write_text("{}", encoding="utf-8")
+    link = tmp_path / "answers.json"
+    _symlink_or_skip(link, target)
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, link)
+    assert link.is_symlink()
+    assert json.loads(target.read_text(encoding="utf-8"))["answers"] == [{"question_id": "q1"}]
+    assert [p.name for p in real_dir.iterdir()] == ["answers.json"]  # no tmp left beside the target
+
+
+def test_a_save_through_a_dangling_symlink_creates_the_target(tmp_path):
+    target = tmp_path / "store" / "answers.json"
+    target.parent.mkdir()
+    link = tmp_path / "answers.json"
+    _symlink_or_skip(link, target)
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, link)
+    assert link.is_symlink()
+    assert json.loads(target.read_text(encoding="utf-8"))["answers"] == [{"question_id": "q1"}]
+
+
+def test_a_dangling_symlink_into_a_missing_directory_is_an_error(tmp_path):
+    link = tmp_path / "answers.json"
+    _symlink_or_skip(link, tmp_path / "gone" / "answers.json")
+
+    with pytest.raises(FileNotFoundError, match=r"symlink .*answers\.json.* points into a missing directory"):
+        save_artifact("answers", {"answers": [{"question_id": "q1"}]}, link)
+    assert link.is_symlink()
+    assert not (tmp_path / "gone").exists()
+
+
+def test_a_symlink_loop_is_an_error_and_both_links_survive(tmp_path):
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    _symlink_or_skip(a, b)
+    b.symlink_to(a)
+
+    with pytest.raises(OSError, match="link loop"):
+        save_artifact("answers", {"answers": []}, a)
+    assert a.is_symlink() and b.is_symlink()

@@ -21,10 +21,13 @@ is applied, for artifacts and for validated *inputs* (manifests, profiles, specs
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
@@ -119,12 +122,20 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
       (a value already in ``data`` is replaced); ``data`` itself is not mutated.
     - The payload is validated first. :class:`ArtifactValidationError` means nothing was
       written at ``path`` (a file already there is untouched); the rejected payload is kept
-      at ``<name>.rejected`` so a paid run is not lost to a schema problem. ``KeyError``
-      means ``kind`` is not registered in :data:`SCHEMA_VERSIONS`.
+      at ``<name>.rejected`` so a paid run is not lost to a schema problem. A later valid
+      save to ``path`` removes that ``<name>.rejected`` (only that sibling), so a leftover
+      always belongs to the latest attempt; if it cannot be removed the save still stands and
+      a warning is logged. ``KeyError`` means ``kind`` is not registered in
+      :data:`SCHEMA_VERSIONS`.
     - The write is atomic (a ``<name>.<pid>.<thread>.tmp`` sibling, then ``os.replace``), so a
       reader or a crash never sees half a file, and concurrent saves to one path (threads or
       processes) each publish one whole payload; the last one wins. A failed write removes its
-      tmp file. Missing parent directories are created.
+      tmp file. Missing parent directories of ``path`` are created.
+    - A symlink at ``path`` is kept: the payload replaces the file it resolves to (the tmp file
+      sits beside that target, so the rename stays on one filesystem). A dangling link creates
+      its target when the target's directory exists; otherwise ``FileNotFoundError`` is raised
+      and nothing is written (the target's directories are *not* created). A link loop raises
+      ``OSError``. ``<name>.rejected`` stays beside ``path``, not the target.
     - JSON with ``indent=2``, ASCII-escaped, UTF-8.
     """
     if kind not in SCHEMA_VERSIONS:
@@ -140,14 +151,32 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
         rejected = path.with_name(path.name + ".rejected")
         rejected.write_text(text, encoding="utf-8")
         raise ArtifactValidationError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    target = _write_target(path)
+    tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
+        os.replace(tmp, target)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+    stale = path.with_name(path.name + ".rejected")
+    try:
+        stale.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("saved %s, but could not remove the stale rejected payload %s: %s", path, stale, exc)
     return payload
+
+
+def _write_target(path: Path) -> Path:
+    """The file a save to ``path`` replaces: ``path`` itself, or what a symlink there resolves to."""
+    if not path.is_symlink():
+        return path
+    target = Path(os.path.realpath(path))
+    if target.is_symlink():  # realpath gives up on a loop and hands back a link
+        raise OSError(f"symlink {path} does not resolve to a file (link loop at {target})")
+    if not target.parent.is_dir():
+        raise FileNotFoundError(f"symlink {path} points into a missing directory: {target}")
+    return target
 
 
 def load_artifact(kind: str, path: Path, *, validate: bool = True) -> dict:
