@@ -196,3 +196,16 @@ def get_llm(provider: str, model: str, api_key: str = None,
     litellm_model = model if "/" in model else f"{provider}/{model}"
     return _LLM(litellm_model=litellm_model, key=key,
                 temperature=temperature, seed=seed)
+
+
+def question_id(q: Dict[str, Any]) -> Any:
+    """The question's ``id`` or ``question_id``; ``None`` when neither is set.
+
+    ``0`` is an id (``questions.v1`` allows integer ids), so ``q.get("id") or ...``
+    — which reads it as missing — is not a substitute.
+    """
+    for key in ("id", "question_id"):
+        if q.get(key) not in (None, ""):
+            return q[key]
+    return None
+

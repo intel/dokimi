@@ -12,6 +12,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.utils import question_id
 from dokimi.eval.judge import JUDGE_PROVIDERS
 
 # Run-configuration fields the arms commands read off parsed args, shared with
@@ -445,8 +446,6 @@ def _check_question_ids(questions: list[dict], path: str) -> None:
     refused, since there is no right answer to which question they mean; a
     missing id is filled from the question's position, which is unique.
     """
-    from dokimi.eval.arm_runner import question_id
-
     ids = [question_id(q) for q in questions]
     taken = _refuse_duplicate_ids(ids, path)
     missing = [i for i, qid in enumerate(ids) if qid is None]
@@ -500,7 +499,8 @@ def _validate_expected_skills(questions: list[dict], treatments) -> None:
         if "expected_skill" not in q:
             continue
         label = q["expected_skill"]
-        qid = q.get("id") or q.get("question_id") or f"#{i}"
+        qid = question_id(q)
+        qid = f"#{i}" if qid is None else qid
         names = label if isinstance(label, list) else [label] if label is not None else []
         if not all(isinstance(n, str) and n for n in names):
             raise ValueError(f"question {qid}: expected_skill must be a skill name, a list of "

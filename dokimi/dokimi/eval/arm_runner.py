@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dokimi.utils import question_id  # noqa: F401  (re-exported: callers import it from here)
 from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
 from dokimi.eval import stats as arm_stats
@@ -100,14 +101,6 @@ def _static_arm_kind(treatment: Treatment) -> Dict[str, Any]:
         return {"arm_kind": "combined",
                 "treatments": [{"name": s.name, **_static_arm_kind(s)} for s in subs]}
     return {"arm_kind": getattr(t, "arm_kind", None)}
-
-
-def question_id(q: Dict[str, Any]) -> Any:
-    """The question's ``id`` or ``question_id``; ``None`` when neither is set. ``0`` is an id."""
-    for key in ("id", "question_id"):
-        if q.get(key) not in (None, ""):
-            return q[key]
-    return None
 
 
 class ArmRunner:

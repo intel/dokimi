@@ -34,6 +34,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
+from dokimi.utils import question_id
 from dokimi.skills import Skill
 
 ExpectedSkill = Union[str, List[str], None]
@@ -178,7 +179,8 @@ def build_trigger_set(
     seen: set = set()
     for questions, rule in sources:
         for q in questions:
-            qid = str(q.get("id") or q.get("question_id") or f"q{len(out) + 1}")
+            raw = question_id(q)
+            qid = str(f"q{len(out) + 1}" if raw is None else raw)
             if qid in seen:
                 raise ValueError(f"duplicate question id across sources: {qid}")
             seen.add(qid)

@@ -38,6 +38,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from dokimi.utils import question_id
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import stats as arm_stats
 
@@ -473,8 +474,8 @@ def extract_scores(
             return []
 
         for evaluation in run_data["evaluations"]:
-            qid = evaluation.get("question_id")
-            if not qid:
+            qid = question_id(evaluation)
+            if qid is None:
                 continue
             eval_scores = evaluation.get("scores", {})
 
@@ -551,8 +552,8 @@ def extract_scores(
             return []
 
         for answer in run_data.get("answers", []):
-            qid = answer.get("question_id")
-            if not qid:
+            qid = question_id(answer)
+            if qid is None:
                 continue
             arms = answer.get("arms", {})
             if not isinstance(arms, dict) or baseline_arm not in arms or len(arms) < 2:
