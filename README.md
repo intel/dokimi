@@ -93,7 +93,99 @@ evaluation content that gets measured — skills, executable tasks, golden
 question sets — lives in its own repository and is passed in by path, so the
 framework can measure artifacts it does not own.
 
-## Getting started
+## Reviewing a skill or a repository
+
+The usual request is "use dokimi to review this skill" or "review this
+repository's agent setup". This section is for whoever runs that request, a
+person or a coding agent. Run the steps in order: each one costs more than
+the step before it, and the first ones are free.
+
+Setup, from [`dokimi/`](dokimi/):
+
+```bash
+cd dokimi
+pip install -e .                 # installs the `dokimi` command
+```
+
+Every LLM step takes `--model` and `--provider`. The provider is one of
+`openai`, `anthropic`, `amazon-bedrock`, `google-vertex` or `openrouter`.
+Credentials are read from the environment: `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, or `AWS_REGION` with `AWS_BEARER_TOKEN_BEDROCK`.
+`--judge-model` must name a different model from `--model`, because a model
+that grades its own answers inflates the scores.
+
+### A skill
+
+| Step | Command | Cost |
+|---|---|---|
+| 1. Does it load? | `dokimi catalog scan --root <catalog> --kind skills` | free |
+| 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --competitors skill:<sibling> … --queries queries.json [--model …]` | free without `--model` |
+| 3. What will step 4 cost? | `dokimi novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
+| 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider` and `--judge-model` | ~100 calls |
+| 5. Does it help? | `dokimi arms run --arms baseline,skill:<dir> …` against a question or task set | depends on the set |
+
+- **Competitors** are the other skills an agent sees next to this one when it
+  picks a skill to load. For a catalog skill they are its siblings in the
+  same catalog. Routing asks whether this skill wins the user requests meant
+  for it. If you only have the one skill, skip step 2 and say so in the
+  review: a number measured against invented competitors measures nothing.
+- **Queries** are 5–10 requests written the way a user would phrase them.
+  Write them without looking at the skill's own headings.
+- **Stop after triage (step 4)** and report. The `standard` and `study`
+  tiers cost 5–20 times more, so run them only when whoever asked agrees to
+  the bill. The estimate counts model calls, not dollars. One measured
+  example: triage on a 19k-token skill with a mid-size model was 103 calls,
+  about $1.80; `study` on the same skill was 1,900 calls, about $14.50.
+- Step 5 needs evaluation content: a golden question set or executable
+  tasks. That content lives outside this repository
+  ([external-content.md](dokimi/docs/external-content.md)). Without it, the
+  review covers selection and content, not outcomes, and should say so.
+
+The full path with reading notes: [skill-novelty-walkthrough.md](dokimi/docs/skill-novelty-walkthrough.md).
+
+### A repository's agent setup
+
+| Step | Command | Cost |
+|---|---|---|
+| 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo> --manifest-file repo-eval.yaml` | free |
+| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --manifest-file repo-eval.yaml --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | ~$0.01–0.03 per scenario |
+| 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
+| 4. Does the guidance change task outcomes? | `dokimi repo run … --arm guidance:none` and again with `--arm guidance:raw`, one batch each | needs the repository's own tasks |
+
+If the repository has no `repo-eval.yaml`, write one outside its tree and
+pass it with `--manifest-file`. Steps 1–3 read only `guidance`. The schema
+still requires `eval_dir`, `tasks` and `entry_points`, so give them
+placeholder values. `repo validate` will then report that the placeholder
+paths are missing. That is expected, and it is not a finding about the
+repository.
+
+```yaml
+schema: repo_manifest.v1
+id: <name>
+guidance:
+  globs: ["**/AGENTS.md", "**/CLAUDE.md", ".github/copilot-instructions.md"]
+  also_scan: ["CONTRIBUTING.md"]
+eval_dir: .agent-eval              # placeholders: not read by scan or reach
+tasks: .agent-eval/tasks
+entry_points: {grade: "true"}
+```
+
+How to read the results:
+
+- **Scan:** only `fail` counts against the guidance, and each `fail` still
+  needs a look. Harness tool names (`run_in_background`), action refs
+  (`actions/checkout@v6`) and placeholders (`<name>`, `caseNN_*`) show up as
+  `fail` too. `unresolved` means not checkable, not wrong.
+- **Reach:** a guidance file nobody loads cannot help anyone. Run `reach`
+  before you judge the guidance's content. `loaded` comes from the harness
+  itself, not from the harness's documentation, so a result that contradicts
+  the docs is a finding.
+- **Step 4:** without tasks there is no outcome measurement. The review
+  should say so rather than infer one from steps 1–3.
+
+The contract a repository codes against: [repo-evaluation-contract.md](dokimi/docs/repo-evaluation-contract.md).
+
+## Developing dokimi
 
 ```bash
 make benchmark-run    # delegates into dokimi/ (see its README)
