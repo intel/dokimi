@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/repo_environment.v1.json",
+  "title": "Repository environment inspection v1",
+  "description": "What a repository offers a coding agent and what may stop or endanger it, read from the tree alone: no LLM call, no repository command run (docs/repo-evaluation-contract.md §8.1). Observations (instructions, checks, capabilities, scripts, hook_risks, files) are kept apart from the findings drawn from them. A finding's severity and confidence are separate fields. A stage is `no_known_blocker` at best, never ready; `not_observed` lists what the tree cannot show.",
+  "type": "object",
+  "required": ["schema_version", "repo", "instructions", "checks", "capabilities", "scripts", "hook_risks", "files",
+               "findings", "counts", "stages", "risk", "not_observed"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "repo_environment.v1"},
+    "generated_at": {"type": "string"},
+    "repo": {
+      "type": "object",
+      "required": ["tree", "sha"],
+      "properties": {
+        "tree": {"type": "string"},
+        "sha": {"type": ["string", "null"]}
+      }
+    },
+    "instructions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "harnesses", "scope", "activation", "directory", "mode", "legacy", "local_private",
+                     "size_bytes", "notes"],
+        "properties": {
+          "path": {"type": "string"},
+          "harnesses": {"type": "array", "items": {"type": "string"}},
+          "scope": {"enum": ["root", "path-specific", "mode-specific", "local-private", "legacy", "capability",
+                             "unknown"]},
+          "activation": {"enum": ["always", "path-scoped", "mode-scoped", "manual", "on-demand", "unknown"]},
+          "directory": {"type": ["string", "null"]},
+          "mode": {"type": ["string", "null"]},
+          "legacy": {"type": "boolean"},
+          "local_private": {"type": "boolean"},
+          "size_bytes": {"type": ["integer", "null"], "minimum": 0},
+          "notes": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ecosystem", "kind", "basis", "directory", "evidence", "name"],
+        "properties": {
+          "ecosystem": {"type": "string"},
+          "kind": {"enum": ["build", "test", "lint", "typecheck"]},
+          "basis": {"enum": ["declared", "toolchain"],
+                    "description": "declared: the repository names it; toolchain: the tool offers the command whether or not there is anything for it to run"},
+          "directory": {"type": "string", "description": "project root the check applies to; `.` for the repository root and for tree-wide build systems"},
+          "evidence": {"type": "string"},
+          "name": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "kind", "harness", "risk", "note"],
+        "properties": {
+          "path": {"type": "string"},
+          "kind": {"enum": ["mcp", "hook", "plugin", "skill", "editor"]},
+          "harness": {"type": "string"},
+          "risk": {"enum": ["high", "medium", "low"]},
+          "note": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "scripts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["category", "source", "command"],
+        "properties": {
+          "category": {"enum": ["install-hook", "destructive", "network-exec", "deploy"]},
+          "source": {"type": "string"},
+          "command": {"type": "string"}
+        }
+      }
+    },
+    "hook_risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "event", "command"],
+        "properties": {
+          "path": {"type": "string"},
+          "event": {"type": "string"},
+          "command": {"type": "string"}
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "required": ["files", "bytes", "generated", "minified", "test_files", "large_threshold_bytes", "large"],
+      "properties": {
+        "files": {"type": "integer", "minimum": 0},
+        "bytes": {"type": ["integer", "null"], "minimum": 0},
+        "generated": {
+          "type": "object",
+          "required": ["files", "bytes"],
+          "properties": {
+            "files": {"type": "integer", "minimum": 0},
+            "bytes": {"type": ["integer", "null"], "minimum": 0}
+          }
+        },
+        "minified": {"type": "array", "items": {"type": "string"}},
+        "test_files": {"type": "integer", "minimum": 0},
+        "large_threshold_bytes": {"type": "integer", "minimum": 1},
+        "large": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "bytes"],
+            "properties": {"path": {"type": "string"}, "bytes": {"type": "integer", "minimum": 0}}
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "rule", "severity", "confidence", "stages", "path", "why"],
+        "properties": {
+          "id": {"type": "string"},
+          "rule": {"type": "string"},
+          "severity": {"enum": ["error", "warning", "info"]},
+          "confidence": {"enum": ["high", "medium", "low"]},
+          "stages": {"type": "array", "items": {"enum": ["orient", "bootstrap", "navigate", "edit", "verify",
+                                                         "review", "merge", "deploy"]}},
+          "path": {"type": ["string", "null"]},
+          "why": {"type": "string"}
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": ["error", "warning", "info"],
+      "properties": {
+        "error": {"type": "integer", "minimum": 0},
+        "warning": {"type": "integer", "minimum": 0},
+        "info": {"type": "integer", "minimum": 0}
+      }
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stage", "status", "findings"],
+        "properties": {
+          "stage": {"enum": ["orient", "bootstrap", "navigate", "edit", "verify", "review", "merge", "deploy"]},
+          "status": {"enum": ["blocked", "attention", "no_known_blocker"]},
+          "findings": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "risk": {"enum": ["high", "medium", "low"]},
+    "not_observed": {"type": "array", "items": {"type": "string"}}
+  }
+}

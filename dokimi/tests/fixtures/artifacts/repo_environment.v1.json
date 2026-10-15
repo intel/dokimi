@@ -1,0 +1,442 @@
+{
+  "repo": {
+    "tree": "toy/.git@15b045fb1235",
+    "sha": "15b045fb12357f42ef35743aab1a3db20af5d23c"
+  },
+  "instructions": [
+    {
+      "path": ".cursor/rules/style.mdc",
+      "harnesses": [
+        "cursor"
+      ],
+      "scope": "unknown",
+      "activation": "unknown",
+      "directory": null,
+      "mode": null,
+      "legacy": false,
+      "local_private": false,
+      "size_bytes": 22,
+      "notes": [
+        "activation depends on the rule's frontmatter"
+      ]
+    },
+    {
+      "path": "AGENTS.md",
+      "harnesses": [
+        "codex",
+        "github-copilot",
+        "cursor",
+        "windsurf",
+        "cline",
+        "generic"
+      ],
+      "scope": "root",
+      "activation": "always",
+      "directory": null,
+      "mode": null,
+      "legacy": false,
+      "local_private": false,
+      "size_bytes": 6,
+      "notes": []
+    },
+    {
+      "path": "CLAUDE.local.md",
+      "harnesses": [
+        "claude-code"
+      ],
+      "scope": "local-private",
+      "activation": "always",
+      "directory": ".",
+      "mode": null,
+      "legacy": false,
+      "local_private": true,
+      "size_bytes": 5,
+      "notes": [
+        "personal file; a session of someone else does not see it"
+      ]
+    },
+    {
+      "path": "web/CLAUDE.md",
+      "harnesses": [
+        "claude-code"
+      ],
+      "scope": "path-specific",
+      "activation": "path-scoped",
+      "directory": "web",
+      "mode": null,
+      "legacy": false,
+      "local_private": false,
+      "size_bytes": 10,
+      "notes": []
+    }
+  ],
+  "checks": [
+    {
+      "ecosystem": "node",
+      "kind": "build",
+      "basis": "declared",
+      "directory": ".",
+      "evidence": "package.json",
+      "name": "build"
+    },
+    {
+      "ecosystem": "node",
+      "kind": "test",
+      "basis": "declared",
+      "directory": ".",
+      "evidence": "package.json",
+      "name": "test"
+    },
+    {
+      "ecosystem": "node",
+      "kind": "lint",
+      "basis": "declared",
+      "directory": ".",
+      "evidence": "package.json",
+      "name": "lint"
+    },
+    {
+      "ecosystem": "node",
+      "kind": "typecheck",
+      "basis": "declared",
+      "directory": ".",
+      "evidence": "package.json",
+      "name": "typecheck"
+    },
+    {
+      "ecosystem": "make",
+      "kind": "build",
+      "basis": "declared",
+      "directory": ".",
+      "evidence": "Makefile",
+      "name": "all"
+    },
+    {
+      "ecosystem": "make",
+      "kind": "test",
+      "basis": "declared",
+      "directory": ".",
+      "evidence": "Makefile",
+      "name": "check"
+    },
+    {
+      "ecosystem": "pre-commit",
+      "kind": "lint",
+      "basis": "declared",
+      "directory": ".",
+      "evidence": ".pre-commit-config.yaml",
+      "name": "clang-format"
+    },
+    {
+      "ecosystem": "pre-commit",
+      "kind": "typecheck",
+      "basis": "declared",
+      "directory": ".",
+      "evidence": ".pre-commit-config.yaml",
+      "name": "mypy"
+    },
+    {
+      "ecosystem": "python",
+      "kind": "build",
+      "basis": "declared",
+      "directory": "svc",
+      "evidence": "svc/pyproject.toml",
+      "name": "build-system"
+    },
+    {
+      "ecosystem": "python",
+      "kind": "test",
+      "basis": "declared",
+      "directory": "svc",
+      "evidence": "svc/pyproject.toml",
+      "name": "tool.pytest.ini_options"
+    },
+    {
+      "ecosystem": "python",
+      "kind": "lint",
+      "basis": "declared",
+      "directory": "svc",
+      "evidence": "svc/pyproject.toml",
+      "name": "tool.ruff"
+    }
+  ],
+  "capabilities": [
+    {
+      "path": ".claude/settings.json",
+      "kind": "hook",
+      "harness": "claude-code",
+      "risk": "high",
+      "note": "hooks on PostToolUse, SessionEnd, SessionStart"
+    },
+    {
+      "path": ".mcp.json",
+      "kind": "mcp",
+      "harness": "claude-code",
+      "risk": "high",
+      "note": null
+    }
+  ],
+  "scripts": [
+    {
+      "category": "deploy",
+      "source": "package.json#scripts.release",
+      "command": "npm publish"
+    },
+    {
+      "category": "destructive",
+      "source": "package.json#scripts.clean",
+      "command": "rm -rf /tmp/x"
+    },
+    {
+      "category": "install-hook",
+      "source": "package.json#scripts.postinstall",
+      "command": "node setup.js"
+    },
+    {
+      "category": "network-exec",
+      "source": "package.json#scripts.boot",
+      "command": "curl -s https://x.sh | bash"
+    }
+  ],
+  "hook_risks": [
+    {
+      "path": ".claude/settings.json",
+      "event": "SessionEnd",
+      "command": "yarn install"
+    },
+    {
+      "path": ".claude/settings.json",
+      "event": "SessionStart",
+      "command": "npm ci"
+    }
+  ],
+  "files": {
+    "files": 15,
+    "bytes": 2732,
+    "generated": {
+      "files": 2,
+      "bytes": 4
+    },
+    "minified": [
+      "dist/app.min.js"
+    ],
+    "test_files": 1,
+    "large_threshold_bytes": 1000,
+    "large": [
+      {
+        "path": "src/big.c",
+        "bytes": 2000
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "files.minified:dist/app.min.js",
+      "rule": "files.minified",
+      "severity": "warning",
+      "confidence": "high",
+      "stages": [
+        "navigate",
+        "edit"
+      ],
+      "path": "dist/app.min.js",
+      "why": "minified bundle"
+    },
+    {
+      "id": "instructions.local-private:CLAUDE.local.md",
+      "rule": "instructions.local-private",
+      "severity": "warning",
+      "confidence": "high",
+      "stages": [
+        "orient"
+      ],
+      "path": "CLAUDE.local.md",
+      "why": "CLAUDE.local.md is in the tree"
+    },
+    {
+      "id": "safety.agent-hook.executes-repository-code:.claude/settings.json:SessionEnd:yarn install",
+      "rule": "safety.agent-hook.executes-repository-code",
+      "severity": "warning",
+      "confidence": "high",
+      "stages": [
+        "bootstrap"
+      ],
+      "path": ".claude/settings.json",
+      "why": "SessionEnd hook runs `yarn install`"
+    },
+    {
+      "id": "safety.agent-hook.executes-repository-code:.claude/settings.json:SessionStart:npm ci",
+      "rule": "safety.agent-hook.executes-repository-code",
+      "severity": "warning",
+      "confidence": "high",
+      "stages": [
+        "bootstrap"
+      ],
+      "path": ".claude/settings.json",
+      "why": "SessionStart hook runs `npm ci`"
+    },
+    {
+      "id": "safety.destructive:package.json#scripts.clean",
+      "rule": "safety.destructive",
+      "severity": "warning",
+      "confidence": "high",
+      "stages": [
+        "edit",
+        "verify"
+      ],
+      "path": "package.json",
+      "why": "rm -rf /tmp/x"
+    },
+    {
+      "id": "safety.network-exec:package.json#scripts.boot",
+      "rule": "safety.network-exec",
+      "severity": "warning",
+      "confidence": "high",
+      "stages": [
+        "bootstrap",
+        "edit"
+      ],
+      "path": "package.json",
+      "why": "curl -s https://x.sh | bash"
+    },
+    {
+      "id": "files.large:src/big.c",
+      "rule": "files.large",
+      "severity": "info",
+      "confidence": "high",
+      "stages": [
+        "navigate",
+        "edit"
+      ],
+      "path": "src/big.c",
+      "why": "2000 bytes"
+    },
+    {
+      "id": "instructions.activation-unknown:.cursor/rules/style.mdc",
+      "rule": "instructions.activation-unknown",
+      "severity": "info",
+      "confidence": "medium",
+      "stages": [
+        "orient"
+      ],
+      "path": ".cursor/rules/style.mdc",
+      "why": "activation depends on the rule's frontmatter"
+    },
+    {
+      "id": "safety.capability.high-risk:.claude/settings.json",
+      "rule": "safety.capability.high-risk",
+      "severity": "info",
+      "confidence": "medium",
+      "stages": [
+        "edit",
+        "merge"
+      ],
+      "path": ".claude/settings.json",
+      "why": "hook for claude-code"
+    },
+    {
+      "id": "safety.capability.high-risk:.mcp.json",
+      "rule": "safety.capability.high-risk",
+      "severity": "info",
+      "confidence": "medium",
+      "stages": [
+        "edit",
+        "merge"
+      ],
+      "path": ".mcp.json",
+      "why": "mcp for claude-code"
+    },
+    {
+      "id": "safety.deploy:package.json#scripts.release",
+      "rule": "safety.deploy",
+      "severity": "info",
+      "confidence": "high",
+      "stages": [
+        "deploy"
+      ],
+      "path": "package.json",
+      "why": "npm publish"
+    },
+    {
+      "id": "safety.install-hook:package.json#scripts.postinstall",
+      "rule": "safety.install-hook",
+      "severity": "info",
+      "confidence": "high",
+      "stages": [
+        "bootstrap"
+      ],
+      "path": "package.json",
+      "why": "node setup.js"
+    }
+  ],
+  "counts": {
+    "error": 0,
+    "warning": 6,
+    "info": 6
+  },
+  "stages": [
+    {
+      "stage": "orient",
+      "status": "attention",
+      "findings": [
+        "instructions.local-private:CLAUDE.local.md"
+      ]
+    },
+    {
+      "stage": "bootstrap",
+      "status": "attention",
+      "findings": [
+        "safety.agent-hook.executes-repository-code:.claude/settings.json:SessionEnd:yarn install",
+        "safety.agent-hook.executes-repository-code:.claude/settings.json:SessionStart:npm ci",
+        "safety.network-exec:package.json#scripts.boot"
+      ]
+    },
+    {
+      "stage": "navigate",
+      "status": "attention",
+      "findings": [
+        "files.minified:dist/app.min.js"
+      ]
+    },
+    {
+      "stage": "edit",
+      "status": "attention",
+      "findings": [
+        "files.minified:dist/app.min.js",
+        "safety.destructive:package.json#scripts.clean",
+        "safety.network-exec:package.json#scripts.boot"
+      ]
+    },
+    {
+      "stage": "verify",
+      "status": "attention",
+      "findings": [
+        "safety.destructive:package.json#scripts.clean"
+      ]
+    },
+    {
+      "stage": "review",
+      "status": "no_known_blocker",
+      "findings": []
+    },
+    {
+      "stage": "merge",
+      "status": "no_known_blocker",
+      "findings": []
+    },
+    {
+      "stage": "deploy",
+      "status": "no_known_blocker",
+      "findings": []
+    }
+  ],
+  "risk": "high",
+  "not_observed": [
+    "whether the commands found run and pass",
+    "CI secrets, runners and required checks",
+    "network access and credentials in the agent's environment",
+    "which instruction files a given harness version loads (measure with `repo reach`)"
+  ],
+  "schema_version": "repo_environment.v1",
+  "generated_at": "2026-10-14T00:00:00+00:00"
+}

@@ -104,6 +104,47 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_repo_inspect(args: argparse.Namespace) -> None:
+    """Static inspection: instruction files, check surfaces, launch risks, file inventory."""
+    from dokimi.artifacts import save_artifact, stamp
+    from dokimi.repos import RepoSource, SourceError, open_source
+    from dokimi.repos.environment import inspect_repo
+
+    try:
+        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
+    except SourceError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    payload = inspect_repo(tree, large=args.large_bytes)
+    if args.out:
+        try:
+            save_artifact("repo_environment", payload, Path(args.out))
+        except OSError as exc:
+            print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
+            sys.exit(1)
+    if args.json:
+        print(json.dumps(stamp("repo_environment", dict(payload)), indent=2))
+    else:
+        c = payload["counts"]
+        roots = sum(i["scope"] == "root" for i in payload["instructions"])
+        print(f"{payload['repo']['tree']}: {len(payload['instructions'])} instruction files ({roots} root), "
+              f"{len(payload['checks'])} check surfaces, risk {payload['risk']}")
+        for kind in ("build", "test", "lint", "typecheck"):
+            found = [x for x in payload["checks"] if x["kind"] == kind]
+            how = ", ".join(sorted({f"{x['ecosystem']} ({x['basis']})" for x in found})) or "none found"
+            print(f"  {kind}: {how}")
+        print(f"  findings: {c['error']} error, {c['warning']} warning, {c['info']} info")
+        for f in payload["findings"]:
+            if f["severity"] != "info":
+                where = f" {f['path']}" if f["path"] else ""
+                print(f"  {f['severity'].upper()} {f['rule']}{where} -- {f['why'][:100]}")
+        print("  stages: " + ", ".join(f"{s['stage']} {s['status']}" for s in payload["stages"]))
+        if args.out:
+            print(f"wrote {args.out}")
+    if args.fail_on_error and payload["counts"]["error"]:
+        sys.exit(1)
+
+
 def cmd_repo_fetch(args: argparse.Namespace) -> None:
     """Clone (once) and fetch a pinned remote source into the cache; print the SHA."""
     from dokimi.repos import RepoSource, SourceError, open_source
@@ -285,6 +326,22 @@ def register(sub, positive_int) -> None:
                         "cannot be read, or no guidance file matched (for a CI gate)")
     scan_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     scan_p.set_defaults(func=cmd_repo_scan)
+
+    inspect_p = repo_sub.add_parser(
+        "inspect",
+        help="Static inspection of what the tree offers an agent: instruction files and their scope, ways to "
+        "build and check a change, launch risks (hooks, MCP, risky scripts), file inventory "
+        "(repo_environment.v1). No manifest, no LLM call, no repository command run.",
+    )
+    inspect_p.add_argument("source", help=source_help)
+    inspect_p.add_argument("--large-bytes", type=positive_int, default=100_000, dest="large_bytes",
+                           help="A file above this many bytes is reported as large (default: 100000, ~30k tokens)")
+    inspect_p.add_argument("--out", default=None, help="Write the repo_environment.v1 report to this file")
+    inspect_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
+    inspect_p.add_argument("--fail-on-error", action="store_true", dest="fail_on_error",
+                           help="Exit 1 when any finding has severity error (for a CI gate)")
+    inspect_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
+    inspect_p.set_defaults(func=cmd_repo_inspect)
 
     fetch_p = repo_sub.add_parser("fetch", help="Clone/fetch a pinned source and print its commit SHA")
     fetch_p.add_argument("source", help=source_help)
