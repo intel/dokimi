@@ -1,0 +1,579 @@
+diff --git a/dokimi/data/explore_tasks/README.md b/dokimi/data/explore_tasks/README.md
+index d76e2ea..f38383b 100644
+--- a/dokimi/data/explore_tasks/README.md
++++ b/dokimi/data/explore_tasks/README.md
+@@ -35,6 +35,10 @@ python cli.py explore run --all --arms oracle,empty --baseline-arm empty \
+   --out-md   reports/exploration.md
+ ```
+ 
++Each entry of the artifact's `tasks` list carries a `digest`: a sha256 of the
++task's query and references. Editing either changes it, so compare two runs on
++a task only when its digests match.
++
+ `oracle` cites exactly the references (a ceiling); `empty` returns nothing (a
+ floor); `command:<template>` runs a real CLI explorer — for example:
+ 
+diff --git a/dokimi/dokimi/artifacts.py b/dokimi/dokimi/artifacts.py
+index 96abc31..c612e11 100644
+--- a/dokimi/dokimi/artifacts.py
++++ b/dokimi/dokimi/artifacts.py
+@@ -31,7 +31,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
+     "subject_scorecard": "subject_scorecard.v2",
+     "novelty": "novelty.v1",
+     "task_runs": "task_runs.v1",
+-    "explore_runs": "explore_runs.v1",
++    "explore_runs": "explore_runs.v2",
+     "guidance_reach": "guidance_reach.v1",
+     "repo_readiness": "repo_readiness.v1",
+ }
+@@ -41,6 +41,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
+ # writes the current version, so nothing is written back at an old version.
+ SUPERSEDED_VERSIONS: dict[str, tuple[str, ...]] = {
+     "subject_scorecard": ("subject_scorecard.v1",),
++    "explore_runs": ("explore_runs.v1",),
+ }
+ 
+ 
+diff --git a/dokimi/dokimi/explore/runner.py b/dokimi/dokimi/explore/runner.py
+index 9a5594e..d4a99ad 100644
+--- a/dokimi/dokimi/explore/runner.py
++++ b/dokimi/dokimi/explore/runner.py
+@@ -5,7 +5,7 @@
+ 
+ Runs each exploration task through one or more *arms* (explorers), parses the
+ ``<final_answer>`` block each returns, scores it against the task's reference
+-locations with :func:`score_localization`, and emits an ``explore_runs.v1``
++locations with :func:`score_localization`, and emits an ``explore_runs.v2``
+ artifact with per-arm rollups and baseline deltas.
+ 
+ Each run also records a ``subagent`` operation so
+@@ -61,7 +61,7 @@ class ExploreRunner:
+ 
+         summary = summarize_explore_results(rows, baseline_arm=self.baseline_arm)
+         return {
+-            "schema_version": "explore_runs.v1",
++            "schema_version": "explore_runs.v2",
+             "generated_at": generated_at,
+             "model": self.model,
+             "baseline_arm": self.baseline_arm,
+diff --git a/dokimi/dokimi/explore/tasks.py b/dokimi/dokimi/explore/tasks.py
+index 46f8ec1..d5811e1 100644
+--- a/dokimi/dokimi/explore/tasks.py
++++ b/dokimi/dokimi/explore/tasks.py
+@@ -24,6 +24,8 @@ explorer nor reads the referenced files.
+ 
+ from __future__ import annotations
+ 
++import hashlib
++import json
+ from dataclasses import dataclass, field
+ from pathlib import Path
+ 
+@@ -69,12 +71,27 @@ class ExploreTask:
+             files[key] = ranges
+         return ReferenceLocations(files=files)
+ 
++    @property
++    def digest(self) -> str:
++        """sha256 of what the task is scored on: its query and its references.
++
++        Recorded with every run, so two runs compare the same version of a task only when
++        their digests match. Key order and whitespace in the YAML do not change it; a
++        reference added, moved or re-ranged does.
++        """
++        canonical = json.dumps(
++            {"query": self.query, "references": [r.as_dict() for r in self.references]},
++            sort_keys=True, separators=(",", ":"),
++        )
++        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
++
+     def as_dict(self) -> dict:
+         return {
+             "id": self.id,
+             "product": self.product,
+             "query": self.query,
+             "references": [r.as_dict() for r in self.references],
++            "digest": self.digest,
+         }
+ 
+ 
+diff --git a/dokimi/dokimi/report/exploration_report.py b/dokimi/dokimi/report/exploration_report.py
+index 075e041..df7e319 100644
+--- a/dokimi/dokimi/report/exploration_report.py
++++ b/dokimi/dokimi/report/exploration_report.py
+@@ -5,7 +5,7 @@
+ 
+ Two inputs are supported:
+ 
+-* an ``explore_runs.v1`` artifact — renders the citation-quality leaderboard
++* an ``explore_runs`` artifact — renders the citation-quality leaderboard
+   (file/line F1, validity, compactness) and baseline deltas.
+ * a ``task_runs.v1`` artifact whose result rows carry an ``exploration_metrics``
+   block — renders the trajectory/token panel (pre-edit cost, repeated reads,
+@@ -20,7 +20,7 @@ from typing import Any
+ 
+ 
+ def render_explore_report(artifact: dict[str, Any]) -> str:
+-    """Markdown leaderboard for an ``explore_runs.v1`` artifact."""
++    """Markdown leaderboard for an ``explore_runs`` artifact."""
+     lines = ["# Exploration quality (ExploreBench)", ""]
+     summary = artifact.get("summary", {})
+     per_arm = summary.get("per_arm", {})
+diff --git a/dokimi/dokimi/schemas/explore_runs.v2.json b/dokimi/dokimi/schemas/explore_runs.v2.json
+new file mode 100644
+index 0000000..dd2e51e
+--- /dev/null
++++ b/dokimi/dokimi/schemas/explore_runs.v2.json
+@@ -0,0 +1,217 @@
++{
++  "$schema": "https://json-schema.org/draft/2020-12/schema",
++  "$id": "https://github.com/intel/dokimi/schemas/explore_runs.v2.json",
++  "title": "Exploration-task run artifact v2",
++  "description": "Results of the standalone ExploreBench track: exploration-only tasks where an agent emits file:line citations that are scored against reference locations, independent of any downstream answer or fix. v2 requires a digest on every task entry; v1 artifacts, written before it, are superseded and still load.",
++  "type": "object",
++  "required": [
++    "schema_version",
++    "arms",
++    "tasks",
++    "results",
++    "summary"
++  ],
++  "properties": {
++    "schema_version": {
++      "const": "explore_runs.v2"
++    },
++    "generated_at": {
++      "type": "string"
++    },
++    "model": {
++      "type": ["string", "null"]
++    },
++    "baseline_arm": {
++      "type": ["string", "null"]
++    },
++    "arms": {
++      "type": "array",
++      "items": {
++        "type": "string"
++      }
++    },
++    "tasks": {
++      "type": "array",
++      "items": {
++        "type": "object",
++        "required": ["id", "product", "query", "references", "digest"],
++        "properties": {
++          "id": {
++            "type": "string"
++          },
++          "product": {
++            "type": "string"
++          },
++          "query": {
++            "type": "string"
++          },
++          "references": {
++            "type": "array",
++            "items": {
++              "type": "object",
++              "required": ["path"],
++              "properties": {
++                "path": {
++                  "type": "string"
++                },
++                "lines": {
++                  "type": ["array", "null"],
++                  "items": {
++                    "type": "integer"
++                  }
++                }
++              }
++            }
++          },
++          "digest": {
++            "type": "string",
++            "minLength": 1,
++            "description": "sha256 of the task's query and references as scored. Two runs scored the same version of a task only when their digests match."
++          }
++        }
++      }
++    },
++    "results": {
++      "type": "array",
++      "items": {
++        "type": "object",
++        "required": ["task", "arm", "citations", "score"],
++        "properties": {
++          "task": {
++            "type": "string"
++          },
++          "arm": {
++            "type": "string"
++          },
++          "model": {
++            "type": ["string", "null"]
++          },
++          "final_answer": {
++            "type": "string"
++          },
++          "citations": {
++            "type": "array",
++            "items": {
++              "type": "object",
++              "required": ["path"],
++              "properties": {
++                "path": {
++                  "type": "string"
++                },
++                "start": {
++                  "type": ["integer", "null"]
++                },
++                "end": {
++                  "type": ["integer", "null"]
++                }
++              }
++            }
++          },
++          "score": {
++            "type": "object",
++            "required": [
++              "citation_validity_rate",
++              "file_f1",
++              "line_f1"
++            ],
++            "properties": {
++              "citation_validity_rate": {
++                "type": "number"
++              },
++              "file_precision": {
++                "type": "number"
++              },
++              "file_recall": {
++                "type": "number"
++              },
++              "file_f1": {
++                "type": "number"
++              },
++              "line_precision": {
++                "type": ["number", "null"]
++              },
++              "line_recall": {
++                "type": ["number", "null"]
++              },
++              "line_f1": {
++                "type": ["number", "null"]
++              },
++              "citation_compactness": {
++                "type": ["number", "null"]
++              }
++            },
++            "additionalProperties": true
++          },
++          "elapsed_sec": {
++            "type": "number"
++          },
++          "metrics": {
++            "type": "object",
++            "additionalProperties": true
++          },
++          "operations": {
++            "type": "array",
++            "items": {
++              "type": "object"
++            }
++          }
++        }
++      }
++    },
++    "summary": {
++      "type": "object",
++      "required": ["per_arm", "comparisons"],
++      "properties": {
++        "per_arm": {
++          "type": "object",
++          "additionalProperties": {
++            "type": "object",
++            "required": [
++              "n",
++              "avg_file_f1",
++              "avg_line_f1",
++              "avg_citation_validity_rate"
++            ],
++            "properties": {
++              "n": {
++                "type": "integer",
++                "minimum": 0
++              },
++              "avg_file_f1": {
++                "type": ["number", "null"]
++              },
++              "avg_line_f1": {
++                "type": ["number", "null"]
++              },
++              "avg_citation_validity_rate": {
++                "type": ["number", "null"]
++              },
++              "avg_citation_compactness": {
++                "type": ["number", "null"]
++              }
++            },
++            "additionalProperties": true
++          }
++        },
++        "comparisons": {
++          "type": "object",
++          "additionalProperties": {
++            "type": "object",
++            "required": ["baseline_arm", "file_f1_delta", "line_f1_delta"],
++            "properties": {
++              "baseline_arm": {
++                "type": "string"
++              },
++              "file_f1_delta": {
++                "type": ["number", "null"]
++              },
++              "line_f1_delta": {
++                "type": ["number", "null"]
++              }
++            }
++          }
++        }
++      }
++    }
++  }
++}
+diff --git a/dokimi/tests/fixtures/artifacts/explore_runs.v2.json b/dokimi/tests/fixtures/artifacts/explore_runs.v2.json
+new file mode 100644
+index 0000000..b269c9e
+--- /dev/null
++++ b/dokimi/tests/fixtures/artifacts/explore_runs.v2.json
+@@ -0,0 +1,138 @@
++{
++  "arms": [
++    "oracle",
++    "empty"
++  ],
++  "baseline_arm": "empty",
++  "generated_at": "2026-10-04T17:47:15.816155Z",
++  "model": null,
++  "results": [
++    {
++      "arm": "oracle",
++      "citations": [
++        {
++          "end": 20,
++          "path": "a.py",
++          "start": 10
++        }
++      ],
++      "elapsed_sec": 0.0,
++      "final_answer": "<final_answer>\na.py:10-20\n</final_answer>",
++      "metrics": {
++        "citation_count": 1,
++        "failed": false,
++        "malformed_count": 0,
++        "overlapping_citations": 0,
++        "returncode": 0
++      },
++      "model": null,
++      "operations": [
++        {
++          "elapsed_sec": 0.0,
++          "metadata": {
++            "citation_count": 1,
++            "citation_paths": [
++              "a.py"
++            ],
++            "final_answer_valid": true
++          },
++          "name": "oracle",
++          "status": "ok",
++          "type": "subagent"
++        }
++      ],
++      "score": {
++        "citation_compactness": 1.0,
++        "citation_validity_rate": 1.0,
++        "file_f1": 1.0,
++        "file_precision": 1.0,
++        "file_recall": 1.0,
++        "line_f1": 1.0,
++        "line_precision": 1.0,
++        "line_recall": 1.0
++      },
++      "task": "loc"
++    },
++    {
++      "arm": "empty",
++      "citations": [],
++      "elapsed_sec": 0.0,
++      "final_answer": "<final_answer>\n</final_answer>",
++      "metrics": {
++        "citation_count": 0,
++        "failed": false,
++        "malformed_count": 0,
++        "overlapping_citations": 0,
++        "returncode": 0
++      },
++      "model": null,
++      "operations": [
++        {
++          "elapsed_sec": 0.0,
++          "metadata": {
++            "citation_count": 0,
++            "citation_paths": [],
++            "final_answer_valid": true
++          },
++          "name": "empty",
++          "status": "ok",
++          "type": "subagent"
++        }
++      ],
++      "score": {
++        "citation_compactness": null,
++        "citation_validity_rate": 1.0,
++        "file_f1": 0.0,
++        "file_precision": 0.0,
++        "file_recall": 0.0,
++        "line_f1": 0.0,
++        "line_precision": 0.0,
++        "line_recall": 0.0
++      },
++      "task": "loc"
++    }
++  ],
++  "schema_version": "explore_runs.v2",
++  "summary": {
++    "comparisons": {
++      "oracle": {
++        "baseline_arm": "empty",
++        "file_f1_delta": 1.0,
++        "line_f1_delta": 1.0
++      }
++    },
++    "per_arm": {
++      "empty": {
++        "avg_citation_compactness": null,
++        "avg_citation_validity_rate": 1.0,
++        "avg_file_f1": 0.0,
++        "avg_line_f1": 0.0,
++        "n": 1
++      },
++      "oracle": {
++        "avg_citation_compactness": 1.0,
++        "avg_citation_validity_rate": 1.0,
++        "avg_file_f1": 1.0,
++        "avg_line_f1": 1.0,
++        "n": 1
++      }
++    }
++  },
++  "tasks": [
++    {
++      "digest": "4565051a20d4aaa6479cbeb8c2b242a7246bfd8b122089c9763c31fb250db057",
++      "id": "loc",
++      "product": "p",
++      "query": "find it",
++      "references": [
++        {
++          "lines": [
++            10,
++            20
++          ],
++          "path": "a.py"
++        }
++      ]
++    }
++  ]
++}
+diff --git a/dokimi/tests/test_explore_track.py b/dokimi/tests/test_explore_track.py
+index f76a2d3..8612b4d 100644
+--- a/dokimi/tests/test_explore_track.py
++++ b/dokimi/tests/test_explore_track.py
+@@ -7,7 +7,7 @@ Covers:
+ 
+ * ``explore/tasks.py`` — task loading and reference-location construction.
+ * ``explore/explorer.py`` — static/oracle explorers and the subagent-op bridge.
+-* ``explore/runner.py`` — scoring tasks through arms into ``explore_runs.v1``.
++* ``explore/runner.py`` — scoring tasks through arms into ``explore_runs.v2``.
+ * ``report/exploration_report.py`` — Markdown panels.
+ * ``metrics/usage.py`` — ``roll_up_by_role`` main-vs-subagent split.
+ """
+@@ -18,7 +18,9 @@ from pathlib import Path
+ 
+ import pytest
+ 
+-from dokimi.artifacts import validate_artifact
++import json
++
++from dokimi.artifacts import ArtifactValidationError, load_artifact, validate_artifact
+ from dokimi.explore import (
+     ExploreRunner,
+     StaticExplorer,
+@@ -354,7 +356,7 @@ def test_command_explorer_clears_stale_operation_logs(tmp_path):
+     assert all(op.name != "stale" for op in result.operations)
+ 
+ 
+-# ── runner → explore_runs.v1 ─────────────────────────────────────────────────
++# ── runner → explore_runs.v2 ─────────────────────────────────────────────────
+ 
+ 
+ def _task(tmp_path, refs):
+@@ -378,7 +380,9 @@ def test_runner_oracle_vs_empty_artifact_valid(tmp_path):
+         tasks=[task], arms=arms, baseline_arm="empty", output_root=tmp_path / "out"
+     ).run()
+ 
+-    validate_artifact("explore_runs", {**output, "schema_version": "explore_runs.v1"})
++    validate_artifact("explore_runs", output)
++    assert output["schema_version"] == "explore_runs.v2"
++    assert output["tasks"][0]["digest"] == task.digest
+     per_arm = output["summary"]["per_arm"]
+     assert per_arm["oracle"]["avg_file_f1"] == 1.0
+     assert per_arm["oracle"]["avg_line_f1"] == 1.0
+@@ -390,6 +394,46 @@ def test_runner_oracle_vs_empty_artifact_valid(tmp_path):
+     assert any(op["type"] == "subagent" for op in oracle_row["operations"])
+ 
+ 
++def test_task_digest_tracks_query_and_references_only(tmp_path):
++    base = _task(tmp_path, (ExploreReference("a.py", (10, 20)),))
++    same = _task(tmp_path / "elsewhere", (ExploreReference("a.py", (10, 20)),))
++    assert base.digest == same.digest and len(base.digest) == 64
++    moved = _task(tmp_path, (ExploreReference("a.py", (10, 21)),))
++    added = _task(tmp_path, (ExploreReference("a.py", (10, 20)), ExploreReference("b.py")))
++    asked = ExploreTask(id="loc", product="p", query="find it now", references=base.references,
++                        path=base.path, repo_root=tmp_path)
++    assert len({base.digest, moved.digest, added.digest, asked.digest}) == 4
++
++
++def test_task_digest_ignores_yaml_layout(tmp_path):
++    a = tmp_path / "a.yaml"
++    a.write_text("id: t\nquery: q\nreferences:\n  - path: x.py\n    lines: [1, 2]\n", encoding="utf-8")
++    b = tmp_path / "b.yaml"
++    b.write_text("# edited\nreferences: [{lines: [1, 2], path: x.py}]\nquery: q\nid: t\n", encoding="utf-8")
++    assert load_explore_task(str(a)).digest == load_explore_task(str(b)).digest
++
++
++def _runner_output(tmp_path):
++    task = _task(tmp_path, (ExploreReference("a.py", (10, 20)),))
++    arms = {"oracle": lambda t: StaticExplorer.from_references(t.references)}
++    return ExploreRunner(tasks=[task], arms=arms, output_root=tmp_path / "out").run()
++
++
++def test_an_explore_run_without_task_digests_is_rejected(tmp_path):
++    output = _runner_output(tmp_path)
++    del output["tasks"][0]["digest"]
++    with pytest.raises(ArtifactValidationError, match="digest"):
++        validate_artifact("explore_runs", output)
++
++
++def test_a_v1_explore_run_written_before_digests_still_loads(tmp_path):
++    output = _runner_output(tmp_path)
++    del output["tasks"][0]["digest"]
++    path = tmp_path / "old.json"
++    path.write_text(json.dumps({**output, "schema_version": "explore_runs.v1"}), encoding="utf-8")
++    assert load_artifact("explore_runs", path)["schema_version"] == "explore_runs.v1"
++
++
+ def test_runner_records_explorer_operations(tmp_path):
+     task = _task(tmp_path, (ExploreReference("a.py", (1, 2)),))
+     op_answer = "<final_answer>\na.py:1-2\n</final_answer>"

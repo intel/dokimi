@@ -1,0 +1,115 @@
+diff --git a/dokimi/README.md b/dokimi/README.md
+index 610399c..ff31814 100644
+--- a/dokimi/README.md
++++ b/dokimi/README.md
+@@ -194,7 +194,7 @@ A typical one-command benchmark flow is:
+ 
+ ```bash
+ python cli.py benchmark preflight --target onetbb
+-python cli.py benchmark run --target onetbb --multi-run 3
++python cli.py benchmark run --target onetbb --repeats 3
+ ```
+ 
+ The pipeline discovers or loads personas, generates or reuses questions, answers each question in context-arm and baseline conditions, scores both answers with an independent judge, and writes model metadata, token usage, `question_set_hash`, reports, and trust-gate signals. For compatibility, persisted answer/evaluation JSON still uses the legacy `with_docs` and `without_docs` keys for those two conditions.
+diff --git a/dokimi/docs/benchmarking-and-comparison.md b/dokimi/docs/benchmarking-and-comparison.md
+index db419dd..7bf297e 100644
+--- a/dokimi/docs/benchmarking-and-comparison.md
++++ b/dokimi/docs/benchmarking-and-comparison.md
+@@ -108,7 +108,7 @@ python cli.py benchmark run \
+   --model gpt-5.5 \
+   --judge-model claude-sonnet-4-5-20250929 \
+   --judge-provider anthropic \
+-  --multi-run 3 \
++  --repeats 3 \
+   --output-dir results/onetbb_gpt55
+ ```
+ 
+diff --git a/dokimi/docs/methodology.md b/dokimi/docs/methodology.md
+index 11cef06..e5c5e14 100644
+--- a/dokimi/docs/methodology.md
++++ b/dokimi/docs/methodology.md
+@@ -36,7 +36,7 @@ python cli.py benchmark run \
+   --model gpt-4o-mini \
+   --judge-model claude-sonnet-4 \
+   --judge-provider anthropic \
+-  --multi-run 3
++  --repeats 3
+ ```
+ 
+ Use `evaluate` for an ad hoc product:
+@@ -165,13 +165,13 @@ Every serious run should answer "Can we trust this run?" before interpreting del
+ - score coefficient of variation,
+ - inter-rater agreement when panel data exists,
+ - retrieval hit rate — the share of questions where at least one document reached the `with_docs` prompt, from the per-evaluation `retrieval_hit` the judge and panel record; eval files judged before that field existed show it as not measured, and so do files where fewer than 80% of evaluations record it (`min_retrieval_coverage`), since the rate would then describe a subset,
+-- multi-run variance when `--multi-run N` is used.
++- run-to-run variance when `--repeats N` is used.
+ 
+ A check whose input the run did not produce passes without blocking or warning, but is shown as not measured, never as a pass: the verdict line reads e.g. `PASS (1 of 7 not measured)`, and the JSON report lists those checks under `trust.not_measured`.
+ 
+ For reproducibility:
+ 
+-- Prefer `--multi-run 3` or higher for stability-sensitive claims.
++- Prefer `--repeats 3` or higher for stability-sensitive claims.
+ - Use `--questions-from` when comparing models so all models answer the same question set.
+ - Keep one fixed retrieval configuration per run.
+ - Preserve `question_set_hash`, model/provider metadata, and committed golden question sets.
+diff --git a/dokimi/dokimi/commands/benchmark.py b/dokimi/dokimi/commands/benchmark.py
+index 7c43443..726b500 100644
+--- a/dokimi/dokimi/commands/benchmark.py
++++ b/dokimi/dokimi/commands/benchmark.py
+@@ -190,7 +190,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
+         sys.exit(1)
+ 
+     output_dir = args.output_dir or f"results/{entry.key}{DEFAULT_RESULTS_SUFFIX}"
+-    n_runs = getattr(args, "multi_run", 1)
++    n_runs = getattr(args, "repeats", 1)
+     concurrency = getattr(args, "concurrency", DEFAULT_CONCURRENCY)
+     questions_from = getattr(args, "questions_from", None)
+     questions_root = getattr(args, "questions_root", None)
+@@ -342,7 +342,7 @@ def register(sub, positive_int) -> None:
+                                   "checkout of the evaluation-content repository: "
+                                   "--questions-root /path/to/content-repo/questions. "
+                                   "Without it the run has no golden question set.")
+-    bench_run_p.add_argument("--multi-run", type=positive_int, default=1, dest="multi_run",
++    bench_run_p.add_argument("--repeats", type=positive_int, default=1, dest="repeats",
+                              metavar="N",
+                              help="Run answer generation + evaluation N times (default: 1). "
+                                   "N>=3 enables variance check in the trust gate. "
+diff --git a/dokimi/tests/test_benchmark_command_question_set.py b/dokimi/tests/test_benchmark_command_question_set.py
+index b869a76..7cf2374 100644
+--- a/dokimi/tests/test_benchmark_command_question_set.py
++++ b/dokimi/tests/test_benchmark_command_question_set.py
+@@ -24,7 +24,7 @@ class _Registry:
+         )
+ 
+ 
+-def test_multi_run_reuses_first_run_questions(monkeypatch, tmp_path, capsys):
++def test_repeats_reuse_first_run_questions(monkeypatch, tmp_path, capsys):
+     calls: list[dict[str, object]] = []
+ 
+     def fake_run_single_library(entry, **kwargs):
+@@ -58,7 +58,7 @@ def test_multi_run_reuses_first_run_questions(monkeypatch, tmp_path, capsys):
+         force_regen=True,
+         concurrency=2,
+         questions_from=None,
+-        multi_run=3,
++        repeats=3,
+     )
+ 
+     benchmark.cmd_benchmark_run(args)
+@@ -222,3 +222,15 @@ def test_preflight_validates_questions_from(monkeypatch, tmp_path, capsys):
+     benchmark.cmd_benchmark_preflight(args)
+ 
+     assert "questions:" in capsys.readouterr().out
++
++
++def test_repeats_flag_parses_and_multi_run_is_gone(capsys):
++    args = build_parser().parse_args(["benchmark", "run", "--target", "onetbb", "--repeats", "3"])
++    assert args.repeats == 3
++    assert build_parser().parse_args(["benchmark", "run", "--target", "onetbb"]).repeats == 1
++    try:
++        build_parser().parse_args(["benchmark", "run", "--target", "onetbb", "--multi-run", "3"])
++    except SystemExit as exc:
++        assert exc.code == 2
++    else:
++        raise AssertionError("--multi-run still parses")

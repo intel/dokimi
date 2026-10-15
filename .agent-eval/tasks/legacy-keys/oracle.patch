@@ -1,0 +1,352 @@
+diff --git a/dokimi/docs/external-content.md b/dokimi/docs/external-content.md
+index f3866ed..2549e7d 100644
+--- a/dokimi/docs/external-content.md
++++ b/dokimi/docs/external-content.md
+@@ -165,7 +165,7 @@ Resolved benchmark plan
+   judge: anthropic/claude-sonnet-4-5-20250929
+   questions_root: C:/Users/Public/content-repo/questions
+   retrieval: semantic-only, top_k=3
+-  arms: without_docs vs with_docs
++  arms: control (no docs) vs treatment (with docs)
+   max_tokens_per_question: 4000
+   concurrency: 5
+   context7_id: demo-org/demo
+diff --git a/dokimi/dokimi/commands/baseline.py b/dokimi/dokimi/commands/baseline.py
+index 6a31e69..a3a09b8 100644
+--- a/dokimi/dokimi/commands/baseline.py
++++ b/dokimi/dokimi/commands/baseline.py
+@@ -78,7 +78,7 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
+     print(f"✅ Saved baseline '{name}' → {dest}")
+     summary = _compute_summary(eval_data)
+     if summary:
+-        print(f"   n={summary['n']}  with={summary['avg_with']}  without={summary['avg_without']}  delta={summary['avg_delta']:+}")
++        print(f"   n={summary['n']}  treatment={summary['avg_with']}  control={summary['avg_without']}  delta={summary['avg_delta']:+}")
+ 
+ 
+ def cmd_baseline_list(args: argparse.Namespace) -> None:
+@@ -95,13 +95,13 @@ def cmd_baseline_list(args: argparse.Namespace) -> None:
+         print("Run: python cli.py baseline save --from-eval eval/oneTBB.json --product oneTBB")
+         return
+ 
+-    print(f"{'Name':<35} {'Product':<12} {'Saved':<17} {'n':>4} {'with':>6} {'without':>8} {'delta':>7}")
++    print(f"{'Name':<35} {'Product':<12} {'Saved':<17} {'n':>4} {'treatment':>9} {'control':>8} {'delta':>7}")
+     print("─" * 95)
+     for b in baselines:
+         s = b.get("summary", {})
+         print(
+             f"{b['name']:<35} {b.get('product','?'):<12} {b.get('saved_at','?'):<17}"
+-            f" {s.get('n','?'):>4} {s.get('avg_with','?'):>6} {s.get('avg_without','?'):>8}"
++            f" {s.get('n','?'):>4} {s.get('avg_with','?'):>9} {s.get('avg_without','?'):>8}"
+             f" {s.get('avg_delta', 'n/a'):>7}"
+         )
+ 
+@@ -161,7 +161,7 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
+ 
+     print(f"{'Metric':<20} {'Baseline':>10} {'Current':>10} {'Change':>8}")
+     print("─" * 52)
+-    for k, label in [("avg_with", "Context avg"), ("avg_without", "Baseline avg"), ("avg_delta", "Avg delta")]:
++    for k, label in [("avg_with", "Treatment avg"), ("avg_without", "Control avg"), ("avg_delta", "Avg delta")]:
+         b_val = base_summary.get(k, "?")
+         c_val = cur_summary.get(k, "?")
+         try:
+diff --git a/dokimi/dokimi/commands/benchmark.py b/dokimi/dokimi/commands/benchmark.py
+index 6f3833c..cc1ee8e 100644
+--- a/dokimi/dokimi/commands/benchmark.py
++++ b/dokimi/dokimi/commands/benchmark.py
+@@ -93,7 +93,7 @@ def _resolved_benchmark_plan(entry, args: argparse.Namespace) -> dict:
+         "questions_from": getattr(args, "questions_from", None),
+         "questions_root": getattr(args, "questions_root", None),
+         "retrieval": f"semantic-only, top_k={DEFAULT_RETRIEVAL_TOP_K}",
+-        "arms": "without_docs vs with_docs",
++        "arms": "control (no docs) vs treatment (with docs)",
+         "max_tokens_per_question": getattr(args, "max_tokens", DEFAULT_MAX_TOKENS_PER_QUESTION),
+         "concurrency": getattr(args, "concurrency", DEFAULT_CONCURRENCY),
+     }
+diff --git a/dokimi/dokimi/report/eval_report.py b/dokimi/dokimi/report/eval_report.py
+index dd31f53..6894e65 100644
+--- a/dokimi/dokimi/report/eval_report.py
++++ b/dokimi/dokimi/report/eval_report.py
+@@ -186,7 +186,8 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+         "correctness, completeness, specificity, code quality, actionability. "
+         "**Aggregate** is their weighted average.",
+         "",
+-        "**Delta = context-arm score − baseline score**",
++        "**Delta = treatment score − control score**",
++        "Treatment answers were given the retrieved docs; control answers were not. "
+         "Positive = context helped. Zero/negative = model already knew the answer, or retrieved chunks were off-topic.",
+         "",
+         "| Question type | Description |",
+@@ -197,7 +198,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+         "| Diagnosis | Meaning |",
+         "|---|---|",
+         "| ✅ Context helped | Delta > 0 — retrieved context improved the answer |",
+-        "| 🔵 Baseline sufficient | Delta ≤ 0 — model answered without extra context |",
++        "| 🔵 Control sufficient | Delta ≤ 0 — model answered without extra context |",
+         "| 🔴 Empty retrieval | No chunks retrieved |",
+         "| 🟡 Low relevance | Retrieved chunks were off-topic |",
+         "| ⚪ Insufficient data | Score or answer missing |",
+@@ -207,7 +208,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+     # Summary
+     lines += [
+         "## Summary",
+-        "| Set | Count | Context arm | Baseline | Delta |",
++        "| Set | Count | Treatment | Control | Delta |",
+         "|---|---:|---:|---:|---:|",
+         f'| **All** | {all_stats["count"]} | {all_stats["with_avg"]} | {all_stats["without_avg"]} | **{all_stats["delta_avg"]:+}** |',
+         f'| Generated (dynamic) | {dyn_stats["count"]} | {dyn_stats["with_avg"]} | {dyn_stats["without_avg"]} | **{dyn_stats["delta_avg"]:+}** |',
+@@ -255,7 +256,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+     # Dynamic vs Static breakdown
+     lines += [
+         "## Breakdown: Dynamic vs Static",
+-        "| Set | Count | Context | Baseline | Delta | Improved | Degraded | Neutral |",
++        "| Set | Count | Treatment | Control | Delta | Improved | Degraded | Neutral |",
+         "|---|---:|---:|---:|---:|---:|---:|---:|",
+     ]
+     for label, s in [
+@@ -272,7 +273,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+     # Difficulty breakdown
+     lines += [
+         "## Breakdown by Difficulty",
+-        "| Difficulty | Count | Context | Baseline | Delta | Improved | Degraded |",
++        "| Difficulty | Count | Treatment | Control | Delta | Improved | Degraded |",
+         "|---|---:|---:|---:|---:|---:|---:|",
+     ]
+     for d in DIFFICULTY_ORDER:
+@@ -308,7 +309,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+     # Top 15 helped
+     lines += [
+         "## Top 15 — Context Helped Most",
+-        "| QID | Source | Delta | Context | Baseline | Difficulty | Question |",
++        "| QID | Source | Delta | Treatment | Control | Difficulty | Question |",
+         "|---|---|---:|---:|---:|---|---|",
+     ]
+     for e in sorted(valid_all, key=lambda x: x["delta"] if isinstance(x["delta"], (int, float)) else 0, reverse=True)[:15]:
+@@ -325,7 +326,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+     # Bottom 15 degradations
+     lines += [
+         "## Bottom 15 — Biggest Degradations",
+-        "| QID | Source | Delta | Context | Baseline | Difficulty | Question |",
++        "| QID | Source | Delta | Treatment | Control | Difficulty | Question |",
+         "|---|---|---:|---:|---:|---|---|",
+     ]
+     for e in sorted(valid_all, key=lambda x: x["delta"] if isinstance(x["delta"], (int, float)) else 0)[:15]:
+@@ -345,10 +346,10 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+         if e.get("without_docs") and e["without_docs"].get("aggregate") is not None
+     ]
+     lines += [
+-        "## Baseline Weak Spots",
+-        "_Lowest absolute scores for the base model without retrieval context._",
++        "## Control Weak Spots",
++        "_Lowest control scores: the base model without retrieval context._",
+         "",
+-        "| QID | Source | Baseline score | Context score | Difficulty | Question |",
++        "| QID | Source | Control score | Treatment score | Difficulty | Question |",
+         "|---|---|---:|---:|---|---|",
+     ]
+     for e in sorted(baseline_sorted, key=lambda x: x["without_docs"]["aggregate"])[:15]:
+@@ -363,7 +364,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+     # Full Q&A — Static
+     lines += [
+         "## Full Q&A Table — Golden Static Questions",
+-        "| QID | Difficulty | Context | Baseline | Delta | Question |",
++        "| QID | Difficulty | Treatment | Control | Delta | Question |",
+         "|---|---|---:|---:|---:|---|",
+     ]
+     for e in sorted(static_qs, key=lambda x: (x.get("difficulty", ""), x["question_id"])):
+@@ -380,7 +381,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+     # Full Q&A — Dynamic
+     lines += [
+         "## Full Q&A Table — Dynamic Generated Questions",
+-        "| QID | Difficulty | Context | Baseline | Delta | Question |",
++        "| QID | Difficulty | Treatment | Control | Delta | Question |",
+         "|---|---|---:|---:|---:|---|",
+     ]
+     for e in sorted(dynamic_qs, key=lambda x: (x.get("difficulty", ""), x["question_id"])):
+@@ -399,8 +400,8 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+         "## Key Observations & Recommendations",
+         "",
+         f'- **Overall delta: {all_stats["delta_avg"]:+}** — '
+-        + ("context arm is helping." if all_stats["delta_avg"] > 2 else
+-           "context arm is neutral or slightly harmful."),
++        + ("treatment is helping." if all_stats["delta_avg"] > 2 else
++           "treatment is neutral or slightly harmful."),
+         f'- **Dynamic vs Static agreement:** {dyn_stats["delta_avg"]:+} vs {static_stats["delta_avg"]:+} — '
+         + ("good consistency, benchmark is stable." if abs(dyn_stats["delta_avg"] - static_stats["delta_avg"]) < 3
+            else "notable gap — investigate question quality."),
+@@ -461,7 +462,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
+     print(f"✅ Report written to: {out_path}")
+     print(f"✅ Q&A JSON written to: {qa_json_out}")
+     print(f"   Questions: {all_stats['count']} ({dyn_stats['count']} dynamic + {static_stats['count']} static)")
+-    print(f"   Delta: {all_stats['delta_avg']:+} (with={all_stats['with_avg']}, without={all_stats['without_avg']})")
++    print(f"   Delta: {all_stats['delta_avg']:+} (treatment={all_stats['with_avg']}, control={all_stats['without_avg']})")
+     return out_path
+ 
+ 
+diff --git a/dokimi/dokimi/report/generator.py b/dokimi/dokimi/report/generator.py
+index b64b72b..ee67431 100644
+--- a/dokimi/dokimi/report/generator.py
++++ b/dokimi/dokimi/report/generator.py
+@@ -333,7 +333,7 @@ class ReportGenerator:
+         lines += [
+             "## Overall Statistics",
+             "",
+-            "| Metric | Context Arm | Baseline | Delta |",
++            "| Metric | Treatment | Control | Delta |",
+             "|--------|-----------|--------------|-------|",
+             f"| Average | {stats['with_docs']['avg']} | {stats['without_docs']['avg']} | **{stats['delta']['avg']:+.1f}** |",
+             f"| Min | {stats['with_docs']['min']} | {stats['without_docs']['min']} | {stats['delta']['min']:+.1f} |",
+@@ -363,7 +363,7 @@ class ReportGenerator:
+         lines.extend([
+             "---",
+             "",
+-            "## Top 10: Best Context-Arm Performance",
++            "## Top 10: Best Treatment Performance",
+             "",
+             "| Question ID | Score | Question Text |",
+             "|-------------|-------|---------------|",
+@@ -376,7 +376,7 @@ class ReportGenerator:
+             "",
+             "---",
+             "",
+-            "## Bottom 10: Worst Context-Arm Performance",
++            "## Bottom 10: Worst Treatment Performance",
+             "",
+             "| Question ID | Score | Question Text |",
+             "|-------------|-------|---------------|",
+@@ -391,7 +391,7 @@ class ReportGenerator:
+             "",
+             "## Top 10: Biggest Improvements (context helped most)",
+             "",
+-            "| Question ID | Delta | Context Arm | Baseline | Question Text |",
++            "| Question ID | Delta | Treatment | Control | Question Text |",
+             "|-------------|-------|------|---------|---------------|",
+         ])
+         
+@@ -408,7 +408,7 @@ class ReportGenerator:
+             "",
+             "## Bottom 10: Biggest Degradations (context hurt most)",
+             "",
+-            "| Question ID | Delta | Context Arm | Baseline | Question Text |",
++            "| Question ID | Delta | Treatment | Control | Question Text |",
+             "|-------------|-------|------|---------|---------------|",
+         ])
+         
+@@ -425,7 +425,7 @@ class ReportGenerator:
+             "",
+             "## Performance by Topic/Persona",
+             "",
+-            "| Topic | Count | Context Arm Avg | Baseline Avg | Delta |",
++            "| Topic | Count | Treatment Avg | Control Avg | Delta |",
+             "|-------|-------|----------|-------------|-------|",
+         ])
+         
+@@ -444,7 +444,7 @@ class ReportGenerator:
+                 "",
+                 "## Performance by Question Source",
+                 "",
+-                "| Source Type | Count | Context Arm Avg | Baseline Avg | Delta |",
++                "| Source Type | Count | Treatment Avg | Control Avg | Delta |",
+                 "|-------------|-------|----------|-------------|-------|",
+             ])
+             for src in sources_summary:
+diff --git a/dokimi/tests/test_condition_labels.py b/dokimi/tests/test_condition_labels.py
+new file mode 100644
+index 0000000..cce43f1
+--- /dev/null
++++ b/dokimi/tests/test_condition_labels.py
+@@ -0,0 +1,70 @@
++# Copyright (C) 2026 Intel Corporation
++# SPDX-License-Identifier: Apache-2.0
++
++"""User-facing output names the two answer conditions "treatment" and "control".
++
++The stored data keeps its ``with_docs`` / ``without_docs`` keys; only what a reader sees
++changes, so these tests feed the renderers data in the stored shape.
++"""
++
++from __future__ import annotations
++
++import json
++import types
++
++from dokimi.commands import baseline as baseline_cmd
++from dokimi.commands.benchmark import _resolved_benchmark_plan
++from dokimi.report.eval_report import generate_report
++
++
++def _eval_data():
++    def ev(qid, w, wo):
++        return {"question_id": qid, "question_text": f"{qid}?", "difficulty": "beginner",
++                "with_docs": {"aggregate": w}, "without_docs": {"aggregate": wo}, "delta": w - wo}
++    return {"schema_version": "eval.v1", "evaluations": [ev("q1", 80.0, 60.0), ev("q2", 50.0, 70.0)]}
++
++
++def _header_cells(md):
++    lines = md.splitlines()
++    return [
++        cell.strip()
++        for i, line in enumerate(lines[:-1])
++        if line.startswith("|") and set(lines[i + 1].replace("|", "").strip()) <= set("-: ")
++        and lines[i + 1].startswith("|")
++        for cell in line.strip("|").split("|")
++    ]
++
++
++def test_eval_report_tables_use_treatment_and_control(tmp_path, capsys):
++    src = tmp_path / "eval.json"
++    src.write_text(json.dumps(_eval_data()), encoding="utf-8")
++    out = tmp_path / "r.md"
++    generate_report(str(src), str(out))
++    cells = _header_cells(out.read_text(encoding="utf-8"))
++    assert "Treatment" in cells and "Control" in cells
++    assert not [c for c in cells if "Baseline" in c or c.startswith("Context")]
++    assert "treatment=65.0, control=65.0" in capsys.readouterr().out
++
++
++def test_baseline_commands_use_treatment_and_control(tmp_path, monkeypatch, capsys):
++    monkeypatch.setattr(baseline_cmd, "BASELINES_DIR", tmp_path / "baselines")
++    src = tmp_path / "eval.json"
++    src.write_text(json.dumps(_eval_data()), encoding="utf-8")
++    baseline_cmd.cmd_baseline_save(types.SimpleNamespace(from_eval=str(src), product="p", name="b"))
++    baseline_cmd.cmd_baseline_list(types.SimpleNamespace(product=None))
++    baseline_cmd.cmd_baseline_compare(types.SimpleNamespace(eval=str(src), product="p", baseline="b"))
++    out = capsys.readouterr().out
++    assert "treatment=65.0  control=65.0" in out
++    assert "treatment" in out.splitlines()[2] and "control" in out.splitlines()[2]
++    assert "Treatment avg" in out and "Control avg" in out
++    assert "Baseline avg" not in out and "Context avg" not in out
++    # the manifest keeps its stored keys, so baselines saved earlier still compare
++    manifest = json.loads((tmp_path / "baselines" / "manifest.json").read_text(encoding="utf-8"))
++    assert manifest["baselines"][0]["summary"]["avg_with"] == 65.0
++
++
++def test_benchmark_plan_names_the_conditions():
++    entry = types.SimpleNamespace(key="k", name="n", description="d", repo="r", doc_sources=["context7"])
++    args = types.SimpleNamespace(provider="openai", model="m", judge_provider="anthropic", judge_model="j")
++    arms = _resolved_benchmark_plan(entry, args)["arms"]
++    assert "treatment" in arms and "control" in arms and "with_docs" not in arms
+diff --git a/dokimi/tests/test_report_generator_labels.py b/dokimi/tests/test_report_generator_labels.py
+index 902e8b5..cce663a 100644
+--- a/dokimi/tests/test_report_generator_labels.py
++++ b/dokimi/tests/test_report_generator_labels.py
+@@ -6,7 +6,7 @@
+ from dokimi.report.generator import ReportGenerator
+ 
+ 
+-def test_report_generator_uses_context_arm_labels():
++def test_report_generator_uses_treatment_and_control_labels():
+     eval_data = {
+         "evaluations": [
+             {
+@@ -40,8 +40,9 @@ def test_report_generator_uses_context_arm_labels():
+         multirun_with_averages=[60.0, 61.0, 60.5],
+     )
+ 
+-    assert "Context Arm" in md
+-    assert "Baseline" in md
++    assert "| Metric | Treatment | Control | Delta |" in md
++    assert "Context Arm" not in md
++    assert "Baseline" not in md
+     assert "context hurt most" in md
+     assert "Context-arm avg" in md
+     assert ("WITH" + " | " + "WITHOUT") not in md

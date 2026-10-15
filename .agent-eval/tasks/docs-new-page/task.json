@@ -1,0 +1,17 @@
+{
+  "id": "docs-new-page",
+  "family": "docs",
+  "base": "16e319fdcb2f4eb6e0dfa44b7c05a2d451599586",
+  "prompt": "New users keep asking how to check their own repository's AGENTS.md with dokimi, and the only answer today is the long repository-evaluation contract. Please add a short getting-started page, dokimi/docs/repo-scan-quickstart.md: write a scan-only manifest, run `repo scan` on a repository, read the result (ok / unresolved / fail) and use it as a CI gate. Keep it to about a page and point to the contract for the details. Commit your change.",
+  "grader": "code",
+  "gate": [
+    "page_exists",
+    "page_runs_repo_scan",
+    "in_mkdocs_nav",
+    "in_docs_index",
+    "regress_pass"
+  ],
+  "timeout_s": 1800,
+  "max_turns": 120,
+  "budget_usd": 4
+}

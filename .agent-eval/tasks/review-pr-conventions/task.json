@@ -1,0 +1,55 @@
+{
+  "id": "review-pr-conventions",
+  "family": "review",
+  "base": "16e319fdcb2f4eb6e0dfa44b7c05a2d451599586",
+  "prompt": "Review the change in the HEAD commit as a maintainer of this repository would before merging. List each problem you find with file and line and why it is a problem; say which ones block the merge.",
+  "grader": "review",
+  "review_patch": "review.patch",
+  "findings": [
+    {
+      "id": "schema_in_place",
+      "all": [
+        "answers\\.v1",
+        "grounding.{0,250}required|required.{0,250}grounding",
+        "new (schema )?version|answers\\.v2|\\bv2\\b|n\\s*\\+\\s*1|\\bbump|supersed|in[- ]place|narrow|already (been )?(written|stored|on disk|persisted)|(existing|old|older|stored|previous|prior) (answers|artifacts?|files|data|runs)|written before|no longer validat|fails?\\W{0,3}(to\\s)?\\W{0,3}validat|schema_compat|breaking change|breaks (existing|old|stored|every|all)|not backward[- ]compatible"
+      ]
+    },
+    {
+      "id": "mypy_override",
+      "all": [
+        "pyproject|tool\\.mypy",
+        "(overrides?|ignore_errors|exempt\\w*|ignore[- ]list|exclusion list).{0,400}(only (ever )?shrinks?|shrink|must not grow|never grow|not (be )?(grow|add)|grow|hid(e|es|ing)|silenc|mask|suppress|paper|instead of fixing|fix the (type|annotation)|float \\| none|optional\\[|\\| none)|(only (ever )?shrinks?|hid(e|es|ing)|silenc|mask|suppress|must not grow).{0,400}(overrides?|ignore_errors|exempt)",
+        "dokimi\\.eval\\.grounding"
+      ]
+    },
+    {
+      "id": "key_rename",
+      "all": [
+        "with_context|[\\\"'`]baseline[\\\"'`]",
+        "with_docs|without_docs",
+        "(with_context|baseline|with_docs|without_docs).{0,400}(renam|persist|stored|on disk|existing|downstream|reader|consumer|every (stored )?run|keep|break|no longer (find|read)|incompatib)|(renam|persist|stored|downstream|keep|break).{0,400}(with_context|with_docs|without_docs)"
+      ]
+    },
+    {
+      "id": "logic_off_by_one",
+      "all": [
+        "(annotate_answers|annotat\\w*|line 108|grounding\\.py\\D{0,5}108|>\\s*min_contexts).{0,300}(off[- ]by[- ]one|should be\\s*`?>=|`?>=`? (instead|rather)|\u2265|exactly (one|1|n\\b|`?min)|boundary|strictly greater|inclusive|single[- ](context|snippet|retrieved))|(off[- ]by[- ]one|exactly (one|1|n\\b|`?min)\\w*|boundary).{0,300}(annotat|108|min_contexts|min-contexts)"
+      ]
+    },
+    {
+      "id": "docs_flag_drift",
+      "all": [
+        "--min-docs|min-docs",
+        "min[-_]contexts",
+        "(does ?n[o']t exist|nonexistent|non-existent|no such|unknown|unrecogni[sz]ed|mismatch|drift|differ|wrong|stale|renam|test_docs_code_refs|match|typo|spelling|instead of|but the (cli|code|flag|parser))"
+      ]
+    }
+  ],
+  "score": {
+    "metric": "recall",
+    "max": 1.0
+  },
+  "timeout_s": 1800,
+  "max_turns": 100,
+  "budget_usd": 4
+}

@@ -1,0 +1,341 @@
+diff --git a/dokimi/README.md b/dokimi/README.md
+index 610399c..713596e 100644
+--- a/dokimi/README.md
++++ b/dokimi/README.md
+@@ -175,13 +175,14 @@ python cli.py library show vtune                    # includes the product's dom
+ 
+ ## Static benchmark metrics
+ 
+-The default static benchmark is configured in `benchmarks/spec.v1.yaml` and currently uses four active metrics:
++The default static benchmark is configured in `benchmarks/spec.v1.yaml` and currently uses five active metrics:
+ 
+ | Metric | Purpose |
+ | --- | --- |
+ | `coverage` | Checks Markdown structure: headings, code blocks, and body content. |
+ | `freshness_lite` | Scores files by modification age. |
+ | `readability` | Estimates text readability with a Flesch-Kincaid-style score. |
++| `code_block_lang` | Share of fenced code blocks whose opening fence names a language, such as `bash` or `python`. |
+ | `example_pass_rate` | Executes supported fenced code examples in isolation. |
+ 
+ Weights are normalized across enabled metrics. The benchmark also supports soft gates, hard gates, critical bands, and regression thresholds. Hard gates and critical bands are enforced only when `--strict` is passed.
+diff --git a/dokimi/benchmarks/spec.schema.json b/dokimi/benchmarks/spec.schema.json
+index 1c17d55..1795a2a 100644
+--- a/dokimi/benchmarks/spec.schema.json
++++ b/dokimi/benchmarks/spec.schema.json
+@@ -30,6 +30,7 @@
+         "coverage": { "$ref": "#/$defs/weight" },
+         "freshness_lite": { "$ref": "#/$defs/weight" },
+         "readability": { "$ref": "#/$defs/weight" },
++        "code_block_lang": { "$ref": "#/$defs/weight" },
+         "example_pass_rate": { "$ref": "#/$defs/weight" },
+         "llm_eval": { "$ref": "#/$defs/weight" }
+       }
+@@ -69,6 +70,15 @@
+             "grade_max": { "type": "number", "minimum": 1, "maximum": 20 }
+           }
+         },
++        "code_block_lang": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": ["enabled", "weight"],
++          "properties": {
++            "enabled": { "type": "boolean" },
++            "weight": { "$ref": "#/$defs/weight" }
++          }
++        },
+         "example_pass_rate": {
+           "type": "object",
+           "additionalProperties": false,
+diff --git a/dokimi/benchmarks/spec.v1.yaml b/dokimi/benchmarks/spec.v1.yaml
+index 0af8fa5..fb3ce94 100644
+--- a/dokimi/benchmarks/spec.v1.yaml
++++ b/dokimi/benchmarks/spec.v1.yaml
+@@ -4,25 +4,29 @@ name: dokimi-spec-v1
+ mode: non_blocking
+ 
+ weights:
+-  coverage: 0.35
+-  freshness_lite: 0.25
++  coverage: 0.30
++  freshness_lite: 0.20
+   readability: 0.20
++  code_block_lang: 0.10
+   example_pass_rate: 0.20
+   llm_eval: 0.0
+ 
+ metrics:
+   coverage:
+     enabled: true
+-    weight: 0.35
++    weight: 0.30
+     target: 0.90
+   freshness_lite:
+     enabled: true
+-    weight: 0.25
++    weight: 0.20
+     max_age_days: 365
+   readability:
+     enabled: true
+     weight: 0.20
+     grade_max: 12
++  code_block_lang:
++    enabled: true
++    weight: 0.10
+   example_pass_rate:
+     enabled: true
+     weight: 0.20
+diff --git a/dokimi/docs/architecture.md b/dokimi/docs/architecture.md
+index 12b86e8..18f7f8f 100644
+--- a/dokimi/docs/architecture.md
++++ b/dokimi/docs/architecture.md
+@@ -55,7 +55,8 @@ Lives entirely under `dokimi/{ingest,metrics,gate,runner,report}`.
+ 1. `ingest/` walks the configured root, loads Markdown files, and produces
+    per-file text.
+ 2. `metrics/` scores each file. Each metric is a small pure module:
+-   `coverage`, `freshness_lite`, `readability`, `example_pass_rate`. See
++   `coverage`, `freshness_lite`, `readability`, `code_block_lang`,
++   `example_pass_rate`. See
+    [contributing-metric.md](contributing-metric.md) for how to add one.
+ 3. `runner/run.py` reads `benchmarks/spec.v1.yaml`, runs the enabled
+    metrics, normalizes weights, and writes a snapshot JSON.
+diff --git a/dokimi/docs/contributing-metric.md b/dokimi/docs/contributing-metric.md
+index c51e1c1..b90f29c 100644
+--- a/dokimi/docs/contributing-metric.md
++++ b/dokimi/docs/contributing-metric.md
+@@ -45,6 +45,7 @@ For reference, see the existing metrics:
+   heuristic.
+ - `dokimi/metrics/freshness_lite.py` — modification-age decay.
+ - `dokimi/metrics/readability.py` — Flesch-Kincaid-style score.
++- `dokimi/metrics/code_block_lang.py` — share of fenced blocks that name a language.
+ - `dokimi/metrics/example_runner.py` — executes fenced code blocks.
+ 
+ ## 2 — Wire it into the runner
+diff --git a/dokimi/dokimi/gate/regression.py b/dokimi/dokimi/gate/regression.py
+index 9d5cee3..da5fa47 100644
+--- a/dokimi/dokimi/gate/regression.py
++++ b/dokimi/dokimi/gate/regression.py
+@@ -85,7 +85,7 @@ def detect_regressions(diff: dict, spec: dict) -> RegressionSummary:
+         threshold_critical=score_crit,
+     )
+ 
+-    metric_names = ["coverage", "freshness_lite", "readability", "example_pass_rate"]
++    metric_names = ["coverage", "freshness_lite", "readability", "code_block_lang", "example_pass_rate"]
+     metric_results = []
+     for name in metric_names:
+         if name in diff:
+diff --git a/dokimi/dokimi/metrics/__init__.py b/dokimi/dokimi/metrics/__init__.py
+index e8eb647..894e902 100644
+--- a/dokimi/dokimi/metrics/__init__.py
++++ b/dokimi/dokimi/metrics/__init__.py
+@@ -3,4 +3,4 @@
+ 
+ from dokimi.metrics.usage import UsageRecord, to_record
+ 
+-__all__ = ["coverage", "freshness_lite", "readability", "UsageRecord", "to_record"]
++__all__ = ["code_block_lang", "coverage", "freshness_lite", "readability", "UsageRecord", "to_record"]
+diff --git a/dokimi/dokimi/metrics/code_block_lang.py b/dokimi/dokimi/metrics/code_block_lang.py
+new file mode 100644
+index 0000000..ac0e2b9
+--- /dev/null
++++ b/dokimi/dokimi/metrics/code_block_lang.py
+@@ -0,0 +1,39 @@
++# Copyright (C) 2026 Intel Corporation
++# SPDX-License-Identifier: Apache-2.0
++
++"""Share of fenced code blocks that declare a language (```bash, not a bare ```)."""
++
++from __future__ import annotations
++
++import re
++
++# An opening or closing fence: up to three spaces of indent, then ``` or ~~~ (3+),
++# then the info string. The first word of the info string is the language.
++FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
++
++
++def score(text: str) -> float:
++    """Return the fraction of fenced code blocks whose opening fence names a language.
++
++    ``0.0`` for empty input; ``1.0`` when the document has no fenced blocks (nothing to
++    label). An unclosed block at the end of the text still counts.
++    """
++    if not text.strip():
++        return 0.0
++    blocks = labelled = 0
++    fence: str | None = None
++    for line in text.splitlines():
++        m = FENCE_RE.match(line)
++        if not m:
++            continue
++        marker, info = m.group(1), m.group(2).strip()
++        if fence is None:
++            fence = marker
++            blocks += 1
++            if info:
++                labelled += 1
++        elif marker[0] == fence[0] and len(marker) >= len(fence) and not info:
++            fence = None
++    if blocks == 0:
++        return 1.0
++    return round(labelled / blocks, 4)
+diff --git a/dokimi/dokimi/report/markdown_report.py b/dokimi/dokimi/report/markdown_report.py
+index c339d08..21c73fd 100644
+--- a/dokimi/dokimi/report/markdown_report.py
++++ b/dokimi/dokimi/report/markdown_report.py
+@@ -10,13 +10,16 @@ from pathlib import Path
+ 
+ def _summary_lines(summary: dict) -> list[str]:
+     """Render run summary lines in a consistent fixed-precision format."""
+-    return [
++    lines = [
+         f"- docs: {summary['docs']}",
+         f"- score: {summary['score']:.4f}",
+         f"- coverage: {summary['coverage']:.4f}",
+         f"- freshness_lite: {summary['freshness_lite']:.4f}",
+         f"- readability: {summary['readability']:.4f}",
+     ]
++    if "code_block_lang" in summary:
++        lines.append(f"- code_block_lang: {summary['code_block_lang']:.4f}")
++    return lines
+ 
+ 
+ def write_run_report(run_data: dict, path: Path) -> None:
+diff --git a/dokimi/dokimi/runner/compare.py b/dokimi/dokimi/runner/compare.py
+index a9028f2..f413984 100644
+--- a/dokimi/dokimi/runner/compare.py
++++ b/dokimi/dokimi/runner/compare.py
+@@ -41,11 +41,10 @@ def compare_snapshots(base_path: Path, cand_path: Path, spec: dict | None = None
+         "readability": round(cand["summary"]["readability"] - base["summary"]["readability"], 4),
+     }
+ 
+-    # Include example_pass_rate diff if both snapshots have it
+-    if "example_pass_rate" in base["summary"] and "example_pass_rate" in cand["summary"]:
+-        diff["example_pass_rate"] = round(
+-            cand["summary"]["example_pass_rate"] - base["summary"]["example_pass_rate"], 4
+-        )
++    # Optional metrics: diffed when both snapshots have them
++    for name in ("code_block_lang", "example_pass_rate"):
++        if name in base["summary"] and name in cand["summary"]:
++            diff[name] = round(cand["summary"][name] - base["summary"][name], 4)
+ 
+     result = {"base": base["summary"], "candidate": cand["summary"], "diff": diff}
+ 
+diff --git a/dokimi/dokimi/runner/run.py b/dokimi/dokimi/runner/run.py
+index 5f95d29..0162a9d 100644
+--- a/dokimi/dokimi/runner/run.py
++++ b/dokimi/dokimi/runner/run.py
+@@ -11,7 +11,7 @@ from pathlib import Path
+ 
+ from dokimi.ingest.chunker import chunk_text
+ from dokimi.ingest.loader import discover_markdown, load_docs
+-from dokimi.metrics import coverage, freshness_lite, readability
++from dokimi.metrics import code_block_lang, coverage, freshness_lite, readability
+ from dokimi.metrics.example_runner import ExampleResult, ExecutionPolicy, score_examples
+ from dokimi.gate.score_gate import check_gate
+ from dokimi.runner.spec import load_spec, select_docs
+@@ -27,6 +27,7 @@ class DocMetrics:
+     coverage: float
+     freshness_lite: float
+     readability: float
++    code_block_lang: float
+     example_pass_rate: float
+     score: float
+ 
+@@ -77,7 +78,11 @@ def run_benchmark(root: Path, spec_path: Path) -> dict:
+     example_enabled = bool(example_cfg.get("enabled", False))
+     example_policy = ExecutionPolicy.from_config(example_cfg)
+ 
++    code_lang_enabled = bool(spec["metrics"].get("code_block_lang", {}).get("enabled", False))
++
+     active_metrics = ["coverage", "freshness_lite", "readability"]
++    if code_lang_enabled:
++        active_metrics.append("code_block_lang")
+     if example_enabled:
+         active_metrics.append("example_pass_rate")
+ 
+@@ -102,6 +107,8 @@ def run_benchmark(root: Path, spec_path: Path) -> dict:
+             "freshness_lite": freshness_lite.score(p, spec["metrics"]["freshness_lite"]["max_age_days"]),
+             "readability": readability.score(text, spec["metrics"]["readability"]["grade_max"]),
+         }
++        if code_lang_enabled:
++            row["code_block_lang"] = code_block_lang.score(text)
+ 
+         if example_enabled:
+             ex_score, ex_results = score_examples(p, example_policy)
+@@ -115,6 +122,8 @@ def run_benchmark(root: Path, spec_path: Path) -> dict:
+         rows.append(row)
+ 
+     metric_fields = ["coverage", "freshness_lite", "readability"]
++    if code_lang_enabled:
++        metric_fields.append("code_block_lang")
+     if example_enabled:
+         metric_fields.append("example_pass_rate")
+ 
+@@ -135,6 +144,8 @@ def run_benchmark(root: Path, spec_path: Path) -> dict:
+             "example_pass_rate": row["example_pass_rate"],
+             "score": row["score"],
+         }
++        if code_lang_enabled:
++            d["code_block_lang"] = row["code_block_lang"]
+         if example_enabled:
+             d["example_results"] = [
+                 {"index": r.index, "lang": r.lang, "passed": r.passed,
+diff --git a/dokimi/tests/test_code_block_lang.py b/dokimi/tests/test_code_block_lang.py
+new file mode 100644
+index 0000000..8a2cb3b
+--- /dev/null
++++ b/dokimi/tests/test_code_block_lang.py
+@@ -0,0 +1,30 @@
++# Copyright (C) 2026 Intel Corporation
++# SPDX-License-Identifier: Apache-2.0
++
++"""Tests for the code_block_lang static metric."""
++
++from __future__ import annotations
++
++from dokimi.metrics import code_block_lang
++
++
++def test_empty_text_scores_zero():
++    assert code_block_lang.score("") == 0.0
++
++
++def test_no_blocks_scores_one():
++    assert code_block_lang.score("# Title\n\nJust prose.\n") == 1.0
++
++
++def test_share_of_labelled_blocks():
++    text = "```bash\nls\n```\n\n```\nplain\n```\n\n~~~python\nx = 1\n~~~\n\n```\nmore\n```\n"
++    assert code_block_lang.score(text) == 0.5
++
++
++def test_fence_inside_longer_fence_is_content():
++    text = "````markdown\n```\ninner\n```\n````\n"
++    assert code_block_lang.score(text) == 1.0
++
++
++def test_unclosed_block_counts():
++    assert code_block_lang.score("```\nno close\n") == 0.0
+diff --git a/dokimi/tests/test_runner_run.py b/dokimi/tests/test_runner_run.py
+index 6dc84f8..047c3b3 100644
+--- a/dokimi/tests/test_runner_run.py
++++ b/dokimi/tests/test_runner_run.py
+@@ -105,3 +105,18 @@ def test_save_snapshot(tmp_path):
+     save_snapshot({"summary": {"docs": 0}}, out)
+     assert out.exists()
+     assert json.loads(out.read_text())["summary"]["docs"] == 0
++
++
++def test_run_benchmark_code_block_lang(tmp_path):
++    docs = tmp_path / "docs"
++    docs.mkdir()
++    (docs / "a.md").write_text("# A\n\n```bash\nls\n```\n\n```\nplain\n```\n")
++    spec = tmp_path / "spec.yaml"
++    spec.write_text(
++        "weights:\n  coverage: 0.25\n  freshness_lite: 0.25\n  readability: 0.25\n  code_block_lang: 0.25\n"
++        "metrics:\n  freshness_lite:\n    max_age_days: 365\n  readability:\n    grade_max: 12\n"
++        "  code_block_lang:\n    enabled: true\n    weight: 0.25\n"
++    )
++    out = run_benchmark(tmp_path, spec)
++    assert out["docs"][0]["code_block_lang"] == 0.5
++    assert out["summary"]["code_block_lang"] == 0.5

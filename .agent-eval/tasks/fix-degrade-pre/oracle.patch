@@ -1,0 +1,33 @@
+diff --git b/dokimi/dokimi/eval/degrade.py a/dokimi/dokimi/eval/degrade.py
+index a807d47..6d25de5 100644
+--- b/dokimi/dokimi/eval/degrade.py
++++ a/dokimi/dokimi/eval/degrade.py
+@@ -331,6 +331,9 @@ PADDING_PARAGRAPHS: Sequence[str] = (
+ #: item: a fence inside a nested list item sits 4+ spaces in (9 of 1215 stored
+ #: answers have one) and is still a fence.
+ _FENCE_LINE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
++_PRE = "<pre>"
++_PRE_OPEN = re.compile(r"\s*<pre[\s>]", re.I)
++_PRE_CLOSE = re.compile(r"</pre\s*>", re.I)
+ 
+ 
+ def _fence_state(lines: Sequence[str], fence: Optional[str]) -> Optional[str]:
+@@ -340,9 +343,17 @@ def _fence_state(lines: Sequence[str], fence: Optional[str]) -> Optional[str]:
+     "    ~~~~") of the block we are inside, or None outside one. A block closes on
+     a line starting with the same character, at least as many times, nothing
+     else after it (a table cell's ``|`` aside), and indented at most 3 columns
+-    past the opener: deeper, it is content (a fence quoted inside a ```markdown block).
++    past the opener: deeper, it is content (a fence quoted inside a ```markdown block). A ``<pre>`` element is a
++    block too, closed by ``</pre>``.
+     """
+     for line in lines:
++        if fence == _PRE:
++            if _PRE_CLOSE.search(line):
++                fence = None
++            continue
++        if fence is None and _PRE_OPEN.match(line) and not _PRE_CLOSE.search(line):
++            fence = _PRE
++            continue
+         m = _FENCE_LINE.match(line)
+         if not m:
+             continue

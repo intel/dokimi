@@ -1,0 +1,155 @@
+diff --git a/dokimi/docs/architecture.md b/dokimi/docs/architecture.md
+index ee3b4a2..187b0b4 100644
+--- a/dokimi/docs/architecture.md
++++ b/dokimi/docs/architecture.md
+@@ -229,8 +229,8 @@ next release.
+   it can see. A file comes back `loaded`, `truncated` (one token — the file was
+   cut), `fetched` (seen only after the agent read it), `not_loaded`, or `error`
+   (no usable answer). Harness behaviour is data, not code:
+-  `dokimi/repos/profiles/claude-code.yaml` is a `harness_profile.v1`
+-  file and any other harness is another YAML.
++  `dokimi/repos/profiles/claude-code.yaml` and `dokimi/repos/profiles/codex.yaml`
++  are `harness_profile.v1` files and any other harness is another YAML.
+ - `dokimi/repos/static.py` — the `repo_static.v1` schema: what the
+   repository's own `static` entry point writes, so its checks can be merged
+   into L0.
+diff --git a/dokimi/docs/repo-evaluation-contract.md b/dokimi/docs/repo-evaluation-contract.md
+index b5b3200..99fbf62 100644
+--- a/dokimi/docs/repo-evaluation-contract.md
++++ b/dokimi/docs/repo-evaluation-contract.md
+@@ -17,7 +17,7 @@
+ > Slice S3 adds harness profiles (§6) and the reach probe (§7):
+ >
+ > ```bash
+-> python cli.py repo reach <source> --manifest <path> --model <id> [--harness claude-code]
++> python cli.py repo reach <source> --manifest <path> --model <id> [--harness claude-code|codex]
+ >     [--bin <cli>] [--scenarios root,cwd,read] [--only <scenario>] [--dry-run]
+ > ```
+ >
+@@ -444,7 +444,16 @@ bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
+   scripts) as the agent's container sees them. The built-in `claude-code`
+   profile uses them for a hook that refuses backgrounded shell commands.
+ 
+-Profiles for other harnesses (Codex, Gemini CLI, Copilot CLI, Cursor agent,
++The built-in `codex` profile (`dokimi/repos/profiles/codex.yaml`) runs
++`codex exec` non-interactively: `--model {model}`, `--ephemeral`, the prompt
++after `--`, `CODEX_HOME` as the per-run config directory and the `text` trace
++(stdout is the final message). Codex has no flag to switch tools off or to cap
++turns or spend, so `none` and `read` both select `--sandbox read-only`,
++`{max_turns}` and `{budget}` are not passed, and the timeout bounds a run. It
++declares `AGENTS.md` (and `AGENTS.override.md`) from the git root down to the
++working directory, and no `bridge`: Codex does not read `CLAUDE.md`.
++
++Profiles for other harnesses (Gemini CLI, Copilot CLI, Cursor agent,
+ Aider, OpenCode, in-house agents) follow the same shape. Their `guidance`
+ blocks start as the vendor's documented behaviour and are corrected by the
+ reach probe. Loading changes between versions of one harness, so
+diff --git a/dokimi/dokimi/repos/profiles/codex.yaml b/dokimi/dokimi/repos/profiles/codex.yaml
+new file mode 100644
+index 0000000..2458daf
+--- /dev/null
++++ b/dokimi/dokimi/repos/profiles/codex.yaml
+@@ -0,0 +1,57 @@
++schema: harness_profile.v1
++name: codex
++bin: codex
++version_cmd: ["{bin}", "--version"]
++# `codex exec` is the non-interactive mode: it prints progress on stderr and only the
++# final message on stdout, which the `text` trace takes as the answer. The prompt
++# comes last, after `--`, so a prompt that starts with "-" is never read as a flag.
++# Codex has no turn or spend cap on the command line: {max_turns} and {budget} are
++# not passed, and the run's timeout is the only bound.
++invoke:
++  - "{bin}"
++  - "exec"
++  - "--model"
++  - "{model}"
++  - "--ephemeral"
++  - "--skip-git-repo-check"
++  - "--ignore-user-config"
++  - "--color"
++  - "never"
++  - "{tools}"
++  - "--"
++  - "{prompt}"
++# Codex cannot switch tools off: `none` and `read` both get the read-only sandbox
++# (the agent can still read files and run read-only commands). `all` relies on the
++# framework's container for isolation.
++tools:
++  none: ["--sandbox", "read-only"]
++  read: ["--sandbox", "read-only"]
++  all: ["--dangerously-bypass-approvals-and-sandbox"]
++config_dir_env: CODEX_HOME
++env_allow:
++  - PATH
++  - HOME
++  - LANG
++  - SYSTEMROOT
++  - CODEX_API_KEY
++  - OPENAI_API_KEY
++  - OPENAI_BASE_URL
++  - http_proxy
++  - https_proxy
++  - no_proxy
++  - HTTP_PROXY
++  - HTTPS_PROXY
++  - NO_PROXY
++egress:
++  - api.openai.com
++endpoint_env: OPENAI_BASE_URL
++trace: text
++guidance:
++  names: [AGENTS.md, AGENTS.override.md]
++  resolution: codex-home + git-root-to-cwd
++  imports: null
++  notes: >-
++    Documented for codex-cli 0.160.0: one AGENTS.override.md or AGENTS.md per
++    directory from the git root down to the working directory, concatenated root
++    first; CLAUDE.md is not read. Not measured yet: the reach probe measures this
++    per version.
+diff --git a/dokimi/tests/test_repo_reach.py b/dokimi/tests/test_repo_reach.py
+index 49196b3..8797e6e 100644
+--- a/dokimi/tests/test_repo_reach.py
++++ b/dokimi/tests/test_repo_reach.py
+@@ -179,6 +179,32 @@ def test_builtin_claude_code_profile_builds_argv_without_a_shell(tmp_path):
+         profile.argv(prompt="p", model="m", tools="everything")
+ 
+ 
++def test_builtin_codex_profile_runs_codex_exec_and_declares_agents_md(tmp_path):
++    profile = load_profile("codex")
++    prompt = '-say "hi"; {model}'
++    argv = profile.argv(prompt=prompt, model="gpt-5-codex", tools="none", bin_path="/opt/codex")
++    assert argv[:2] == ["/opt/codex", "exec"]
++    assert argv[-2:] == ["--", prompt]  # after "--": a leading "-" is not read as a flag
++    assert argv[argv.index("--model") + 1] == "gpt-5-codex"
++    assert argv[argv.index("--sandbox") + 1] == "read-only"
++    assert "--dangerously-bypass-approvals-and-sandbox" in profile.argv(prompt="p", model="m", tools="all")
++    assert "AGENTS.md" in profile.guidance_names and "CLAUDE.md" not in profile.guidance_names
++    assert profile.trace == "text" and profile.bridge is None
++    env = profile.env(tmp_path / "home", base={"PATH": "/bin", "OPENAI_API_KEY": "k", "AWS_REGION": "x"})
++    assert env["CODEX_HOME"] == str(tmp_path / "home") and env["OPENAI_API_KEY"] == "k"
++    assert "AWS_REGION" not in env
++
++
++def test_repo_reach_dry_run_with_the_codex_profile_probes_agents_md_only(tmp_path, capsys):
++    root = _repo(tmp_path)
++    args = build_parser().parse_args(["repo", "reach", str(root), "--manifest", "evals/repo-eval.yaml",
++                                      "--harness", "codex", "--model", "m", "--dry-run", "--scenarios", "root"])
++    args.func(args)
++    plan = json.loads(capsys.readouterr().out)
++    assert plan["files"] == [".github/instructions/c.md", "AGENTS.md", "sub/AGENTS.md"]
++    assert plan["runs"][0]["argv"][:2] == ["codex", "exec"]
++
++
+ def test_profile_env_is_allow_listed_and_isolated(tmp_path):
+     profile = load_profile("claude-code")
+     env = profile.env(tmp_path / "cfg", base={"PATH": "/bin", "AWS_REGION": "us-east-1",
+@@ -224,7 +250,7 @@ def test_profile_and_manifest_share_the_egress_host_rule():
+ 
+ 
+ def test_unknown_profile_name():
+-    with pytest.raises(ProfileError, match="built-in: claude-code"):
++    with pytest.raises(ProfileError, match="built-in: claude-code, codex"):
+         load_profile("no-such-harness")
+ 
+ 
