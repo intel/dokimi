@@ -45,8 +45,9 @@ jobs:
         with:
           python-version: '3.13'
       # At least 0.12: per-file-target-version, and the version syntax errors it
-      # enables. Pinned to the ruff-check rev in .pre-commit-config.yaml, so the
-      # hook and CI report the same findings; Renovate bumps the two together.
+      # enables. Pinned to the ruff-check rev in .pre-commit-config.yaml and the
+      # dev extra in dokimi/pyproject.toml, so the hook, a local run and CI report
+      # the same findings; Renovate bumps the three together.
       - run: pip install ruff==0.17.0
       - name: ruff check
         run: ruff check .

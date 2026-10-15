@@ -48,7 +48,7 @@ dev = [
   "pytest-timeout>=2.2",
   "pytest-randomly>=3.15",
   "diff-cover>=10.0",
-  "ruff>=0.12",
+  "ruff==0.17.0",
   "mypy>=1.8",
   "types-PyYAML",
   "types-jsonschema",
@@ -96,9 +96,10 @@ extend-exclude = ["benchmarks", "data"]
 # that never runs), not style. A family is taken whole where its rules are of
 # that kind and its few style rules are cheap or ignored below; elsewhere the
 # rules are listed one by one, so a ruff upgrade cannot add style rules to it.
-# A whole family does gain rules with ruff releases (0.17.0 added LOG004 and
-# PLE0304), so CI and pre-commit pin ruff and a version bump runs the new rules
-# in its own PR.
+# A whole family does gain rules with ruff releases (0.17.0 stabilized LOG004
+# and PLE0304, preview-only in 0.12), so ruff is pinned to one version here, in
+# ci.yml and in .pre-commit-config.yaml, and Renovate bumps all three in one PR
+# that runs the new rules.
 #
 # Not enabled yet, with their violation counts at ruff 0.17.0. These three are
 # autofixes across most files: they land in a PR of their own while few PRs
@@ -118,9 +119,6 @@ extend-exclude = ["benchmarks", "data"]
 #   collection, i.e. a missing comma) 67, BLE001 (blind except) 64,
 #   PT011 (pytest.raises too broad) 53, RUF012 (mutable class attribute) 8:
 #   constants and test stubs, but Tool.parameters is also set per instance
-# Newer than the ruff>=0.12 floor (an unknown code is a config error), so they
-# wait for the floor to rise: RUF064 (chmod mode not octal), RUF063, RUF068,
-# RUF071, RUF103, RUF104. None has a violation today.
 [tool.ruff.lint]
 select = [
   "F",      # pyflakes
@@ -146,8 +144,8 @@ select = [
   # ruff-specific bug rules (the rest of RUF is style)
   "RUF006", "RUF008", "RUF009", "RUF013", "RUF016", "RUF017", "RUF018",
   "RUF020", "RUF024", "RUF026", "RUF028", "RUF030", "RUF032", "RUF033", "RUF034",
-  "RUF040", "RUF048", "RUF049", "RUF053", "RUF060", "RUF061", "RUF101", "RUF102",
-  "RUF200",
+  "RUF040", "RUF048", "RUF049", "RUF053", "RUF060", "RUF061", "RUF063", "RUF064",
+  "RUF068", "RUF071", "RUF101", "RUF102", "RUF103", "RUF104", "RUF200",
 ]
 ignore = [
   "A002",     # argument named like a builtin: keyword APIs mirror subprocess's input=
