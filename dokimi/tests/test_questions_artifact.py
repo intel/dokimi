@@ -303,7 +303,7 @@ def test_dataset_export_of_a_generated_v2_set(tmp_path):
     gen = _generator()
     gen.save_questions(gen.generate_questions("oneTBB", PERSONAS, ["parallel_for"], 2), src)
     rows = _export(src, tmp_path / "out")
-    assert len(rows) == 2 and all(r["question"] and r["model"] == "gpt-4o-mini" for r in rows)
+    assert len(rows) == 2 and all(r["question"] and r["model"] == gen.model for r in rows)
     card = (tmp_path / "out" / "README.md").read_text(encoding="utf-8")
     assert "(questions.v2)" in card and "Source schema version" not in card
 
