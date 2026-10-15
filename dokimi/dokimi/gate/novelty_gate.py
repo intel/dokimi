@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from dokimi.novelty.bundle import Coverage
+from dokimi.novelty.bundle import GATE_COVERAGE_BASIS, Coverage
 
 # ── Thresholds (override per call) ────────────────────────────────────────────
 
@@ -262,10 +262,10 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
         ))
 
     # ── 3b. Was the whole artifact measured, or only its entry point? ───────
-    # The record owns its arithmetic: which excluded rows are a gap, what the denominator
-    # is, and when no figure can be computed. The gate only judges the result.
+    # The record owns its arithmetic: which excluded rows are a gap, what each denominator
+    # is, and when no figure can be computed. The gate only picks its basis and judges.
     coverage = Coverage.from_record(artifact.get("bundle"))
-    unmeasured = None if coverage is None else coverage.unmeasured_share
+    unmeasured = None if coverage is None else coverage.unmeasured_share(GATE_COVERAGE_BASIS)
     if coverage is None:
         checks.append(NoveltyCheck(
             name="artifact_coverage", passed=True, value=None,
@@ -287,19 +287,18 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             ),
         ))
     else:
-        # The share of the artifact's readable words that were NOT read, in either mode.
-        # An entry-point run leaves all of them out; a bundle run leaves out whatever the
-        # word budgets dropped -- which on a 30k-word bundle is most of it at the default
-        # 4,000/20,000 caps. Role decisions (a skill's own `evals/`) are neither a gap nor
-        # in the denominator, so for an entry-point run this is the analyzer's
-        # `measurable_outside_share` and the two cannot disagree.
-        decided = (f", {coverage.decision_files} not measured by role"
-                   if coverage.decision_files else "")
+        # The share of the artifact's words that were NOT read, in either mode. An
+        # entry-point run leaves all of them out; a bundle run leaves out whatever the word
+        # budgets dropped -- which on a 30k-word bundle is most of it at the default
+        # 4,000/20,000 caps. Role decisions (a skill's own `evals/`) are never charged as
+        # unread, but on this basis they stay in the denominator, so for an entry-point run
+        # the gate's figure is lower than the analyzer's (readable-basis) warning. That
+        # disagreement is deliberate here: it is what the gate has always reported, and
+        # moving it is a change to the gate's numbers that ships, stamped, on its own.
         mode = (
             f"the bundle was measured ({coverage.n_files} files, "
-            f"{coverage.resource_words_measured} of {coverage.measurable_resource_words} "
-            f"readable bundled words, {coverage.gap_files} files excluded by the word "
-            f"budgets{decided})"
+            f"{coverage.resource_words_measured} of {coverage.resource_words_on_disk} "
+            f"bundled words, {coverage.named_excluded_files} files excluded)"
             if coverage.include_resources
             else "only the entry point was measured"
         )

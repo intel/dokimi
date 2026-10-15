@@ -530,26 +530,35 @@ def _skill_with_evals(tmp_path, *, entry=400, refs=500, evals=1000):
     return root
 
 
-def test_the_gate_judges_the_share_the_analyzer_warns_about(tmp_path):
+def test_the_gate_and_the_analyzer_read_one_coverage_on_named_bases(tmp_path):
     """400 entry words, 500 in a reference, 1,000 in the skill's own evals.
 
-    The analyzer warned "56% of this artifact's words were not measured" while the gate
-    divided by every word on disk (500 / 1,900 = 26%) and passed. Both now read the
-    record's `Coverage`, whose denominator leaves the role decision out.
+    The analyzer warns "56% of this artifact's words were not measured" (readable basis:
+    500 / 900) while the gate judges 500 / 1,900 = 26% (all bundled words) and passes. Both
+    figures now come from the same `Coverage`, and the only difference is the basis each
+    surface names; moving the gate to `readable` changes its numbers and lands on its own.
     """
     from dokimi.gate.novelty_gate import evaluate_novelty
+    from dokimi.novelty.bundle import GATE_COVERAGE_BASIS
 
     bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path)}")
     coverage = bundle.coverage()
-    assert coverage.unmeasured_share == coverage.measurable_outside_share == round(500 / 900, 4)
-    assert any("not measured (--include-resources)" in w for w in bundle.coverage_warnings())
+    assert coverage.unmeasured_share("readable") == pytest.approx(500 / 900)
+    assert coverage.outside_share_on("readable") == coverage.measurable_outside_share
+    assert coverage.unmeasured_share("all_bundled_words") == pytest.approx(500 / 1900)
+    assert coverage.denominator("all_bundled_words") - coverage.denominator("readable") == 1000
+    assert any(w.startswith("56% ") for w in bundle.coverage_warnings())
+    assert GATE_COVERAGE_BASIS == "all_bundled_words"
     check = next(c for c in evaluate_novelty({"bundle": bundle.summary()}).checks
                  if c.name == "artifact_coverage")
-    assert (check.passed, check.value) == (False, round(500 / 900, 4))
+    assert (check.passed, check.value) == (True, round(500 / 1900, 4))
+    with pytest.raises(ValueError, match="unknown coverage basis"):
+        coverage.denominator("on_disk")
 
 
-def test_the_gate_counts_only_gaps_as_excluded_files(tmp_path):
+def test_the_gate_names_every_excluded_file_except_non_text(tmp_path):
     from dokimi.gate.novelty_gate import evaluate_novelty
+    from dokimi.novelty.bundle import named_exclusions
 
     root = _skill_with_evals(tmp_path, refs=50)
     (root / "references" / "big.md").write_text("w " * 30, encoding="utf-8")
@@ -558,10 +567,12 @@ def test_the_gate_counts_only_gaps_as_excluded_files(tmp_path):
     bundle = load_bundle(f"skill:{root}", include_resources=True, max_file_words=40)
     check = next(c for c in evaluate_novelty({"bundle": bundle.summary()}).checks
                  if c.name == "artifact_coverage")
-    # One over-budget reference is the gap. The evals are a decision, named separately;
-    # the image and the symlink are not content at all. The gate used to say "4 files
-    # excluded" here while the analyzer warned about 1.
-    assert "1 files excluded by the word budgets, 1 not measured by role" in check.message
+    # The over-budget reference, the evals and the symlink are named; the image is only
+    # counted. The analyzer's warning is about the one gap.
+    named, not_text = named_exclusions(bundle.excluded)
+    assert ([row["path"] for row in named], not_text) == (
+        ["evals/cases.md", "references/linked.md", "references/r.md"], 1)
+    assert "3 files excluded)" in check.message
     assert len(excluded_of(bundle.excluded, "gap")) == 1
     assert sum("1 bundled files were excluded" in w for w in bundle.coverage_warnings()) == 1
 
@@ -817,7 +828,7 @@ def test_shortening_refuses_a_bundle_record_it_cannot_slice():
         entry_point_only({"include_resources": True, "files": [{"path": "SKILL.md"}]}, [], [])
 
 
-def test_the_report_names_gaps_and_decisions_and_counts_what_is_not_content(tmp_path):
+def test_the_report_names_excluded_files_and_counts_non_text_ones(tmp_path):
     from dokimi.novelty.report import render_novelty_markdown
 
     from tests.test_novelty_cli import _minimal_artifact
@@ -836,8 +847,8 @@ def test_the_report_names_gaps_and_decisions_and_counts_what_is_not_content(tmp_
     (root / "references" / "linked.md").symlink_to(root / "references" / "r.md")
     bundle = load_bundle(f"skill:{root}", include_resources=True, max_file_words=40)
     rendered = render_novelty_markdown(_artifact(bundle=bundle.summary()))
-    assert "2 files excluded: `references/r.md` (over max_file_words=40)" in rendered
-    assert "`evals/cases.md`" in rendered
-    assert "2 non-text or symlinked files not read." in rendered
+    assert "3 files excluded: `evals/cases.md`" in rendered
+    assert "`references/linked.md` (symlink), `references/r.md` (over max_file_words=40)." in rendered
+    assert "1 non-text files not read." in rendered
     partial = render_novelty_markdown(_artifact(bundle={"outside_share": 0.99}))
     assert "lacks its word counts" in partial

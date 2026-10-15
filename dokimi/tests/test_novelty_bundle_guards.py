@@ -40,7 +40,7 @@ def test_a_partial_count_block_has_no_coverage_figure(missing):
 
 def test_an_artifact_with_no_words_is_not_unmeasured():
     record = {"entry_point_words": 0, "resource_words_on_disk": 0, "resource_words_measured": 0}
-    assert Coverage.from_record(record).unmeasured_share == 0.0
+    assert Coverage.from_record(record).unmeasured_share("readable") == 0.0
     check = _coverage_check(record)
     assert (check.passed, check.value) == (True, 0.0)
 

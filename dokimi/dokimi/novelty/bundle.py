@@ -97,10 +97,11 @@ DEFAULT_MAX_TOTAL_WORDS = 20_000
 #:
 #: * ``gap`` -- text the run could have measured and did not (over a word budget, or
 #:   resources not requested). Its words are ``unmeasured_words``; it is what a warning
-#:   about excluded files, and the gate's ``artifact_coverage``, are about.
+#:   about excluded files is about.
 #: * ``decision`` -- a role decision (a skill's own ``evals/`` by default, or a
 #:   ``--resource-roles`` filter). Counted on disk, never charged as a gap, and outside
-#:   the coverage denominator: no rerun with ``--include-resources`` would read it.
+#:   the ``readable`` coverage denominator: no rerun with ``--include-resources`` would
+#:   read it.
 #: * ``unknown`` -- text that did not decode. Its size is unknown, so no coverage figure
 #:   can be computed while one exists.
 #: * ``not_content`` -- a non-text file, or a symlink (recorded, never followed). Not the
@@ -149,10 +150,43 @@ def excluded_of(rows: list[dict] | None, cls: str) -> list[dict]:
     return [row for row in rows or [] if exclusion_class(row) == cls]
 
 
+def named_exclusions(rows: list[dict] | None) -> tuple[list[dict], int]:
+    """The ``excluded`` rows the gate's message and the report name, and the rest's count.
+
+    Every row is named, in record order, except a non-text file, which is only counted:
+    39 OOXML schemas in one skill would otherwise bury the two references that matter.
+    Gaps, role decisions, undecodable files and symlinks are named alike. That is the
+    grouping these two surfaces have always shown, kept so that no count they print
+    changes while the record's rules move here; naming gaps and decisions separately is
+    a change to the printed counts and lands on its own.
+    """
+    rows = rows or []
+    named = [row for row in rows if exclusion_kind(row) != "not_text"]
+    return named, len(rows) - len(named)
+
+
 #: The record fields the coverage arithmetic reads. A record missing any of them (a
 #: partial block, or a run that predates bundles) has no coverage figure at all: a
 #: partial block once produced "0% was not read" from a record that said 0.99.
 COVERAGE_FIELDS = ("entry_point_words", "resource_words_on_disk", "resource_words_measured")
+
+#: What a coverage share is a share *of* (:meth:`Coverage.denominator`):
+#:
+#: * ``readable`` -- the entry point plus the bundled words some run could read, i.e. with
+#:   the role decisions (a skill's own ``evals/``) left out. The analyzer's warnings, the
+#:   CLI note and the report quote shares on this basis (``measurable_outside_share``).
+#: * ``all_bundled_words`` -- the entry point plus every bundled word on disk, role
+#:   decisions included. ``outside_share`` describes the tree on this basis, and the
+#:   gate's ``artifact_coverage`` has always judged its unmeasured share on it.
+#:
+#: The two disagree whenever a skill has role decisions: an entry-point run of 400 entry
+#: words, a 500-word reference and 1,000 words of evals is 56% unmeasured on the readable
+#: basis and 26% on all bundled words. This module keeps each surface on the basis it has
+#: always used, so no stored figure moves; moving the gate to ``readable`` changes its
+#: numbers, so it is a separate change that also stamps the basis into the record.
+COVERAGE_BASES = ("readable", "all_bundled_words")
+#: The basis the gate judges, until that change lands.
+GATE_COVERAGE_BASIS = "all_bundled_words"
 
 
 def _share(part: int, whole: int) -> float:
@@ -164,7 +198,8 @@ class Coverage:
     """How much of an artifact one run read, from a live bundle or a stored record.
 
     The one place these figures are computed, so the CLI note, the analyzer's warnings,
-    the gate and the report cannot disagree about them. Shares are rounded to 4 places.
+    the gate and the report derive them the same way; where two surfaces quote different
+    figures, the difference is a named basis (:data:`COVERAGE_BASES`), not two formulas.
     """
 
     include_resources: bool
@@ -172,11 +207,11 @@ class Coverage:
     entry_point_words: int
     resource_words_on_disk: int
     resource_words_measured: int
-    #: Words in ``decision`` rows: on disk, not a gap, outside the denominator.
+    #: Words in ``decision`` rows: on disk, not a gap, outside the ``readable`` basis.
     policy_excluded_words: int
     unreadable_files: int
-    gap_files: int
-    decision_files: int
+    #: How many ``excluded`` rows the gate names (:func:`named_exclusions`).
+    named_excluded_files: int
 
     @classmethod
     def from_record(cls, record: dict | None) -> "Coverage | None":
@@ -199,8 +234,7 @@ class Coverage:
                 else sum(int(row.get("words") or 0) for row in decisions)),
             unreadable_files=int(
                 unreadable if unreadable is not None else len(excluded_of(rows, "unknown"))),
-            gap_files=len(excluded_of(rows, "gap")),
-            decision_files=len(decisions),
+            named_excluded_files=len(named_exclusions(rows)[0]),
         )
 
     @property
@@ -213,11 +247,24 @@ class Coverage:
         """Bundled words in ``gap`` rows: what a run with larger budgets would add."""
         return max(0, self.measurable_resource_words - self.resource_words_measured)
 
+    def denominator(self, basis: str) -> int:
+        """The words a share on ``basis`` is a share of (:data:`COVERAGE_BASES`)."""
+        if basis == "readable":
+            return self.entry_point_words + self.measurable_resource_words
+        if basis == "all_bundled_words":
+            return self.entry_point_words + self.resource_words_on_disk
+        raise ValueError(f"unknown coverage basis {basis!r}; known: {COVERAGE_BASES}")
+
+    def outside_share_on(self, basis: str) -> float:
+        """Share of the ``basis`` words that are not in the entry point, to 4 places."""
+        outside = (self.measurable_resource_words if basis == "readable"
+                   else self.resource_words_on_disk)
+        return _share(outside, self.denominator(basis))
+
     @property
     def outside_share(self) -> float:
         """Share of the on-disk words that are not in the entry point (describes the tree)."""
-        return _share(self.resource_words_on_disk,
-                      self.entry_point_words + self.resource_words_on_disk)
+        return self.outside_share_on("all_bundled_words")
 
     @property
     def measurable_outside_share(self) -> float:
@@ -227,22 +274,20 @@ class Coverage:
         figure to quote when telling a user what `--include-resources` would add. For a
         skill whose only resources are its own evals the two are 0.9 and 0.0.
         """
-        return _share(self.measurable_resource_words,
-                      self.entry_point_words + self.measurable_resource_words)
+        return self.outside_share_on("readable")
 
-    @property
-    def unmeasured_share(self) -> float | None:
-        """Share of the readable words this run did not read; ``None`` when unknowable.
+    def unmeasured_share(self, basis: str) -> float | None:
+        """Share of the ``basis`` words this run did not read; ``None`` when unknowable.
 
-        Same denominator as :attr:`measurable_outside_share`, so for an entry-point run the
-        two are equal and the gate judges exactly the figure the analyzer warns about.
-        ``None`` while any file is ``unknown``: its words are not in the total, so a share
-        computed without them would be a lower bound reported as a measurement.
+        Not rounded: the gate compares it with its ceiling first and rounds only the value it
+        reports, so a share of 0.50004 is over a 0.5 ceiling. ``None`` while any file is
+        ``unknown``: its words are not in the total, so a share computed without them would
+        be a lower bound reported as a measurement.
         """
         if self.unreadable_files:
             return None
-        return _share(self.unmeasured_words,
-                      self.entry_point_words + self.measurable_resource_words)
+        whole = self.denominator(basis)
+        return self.unmeasured_words / whole if whole else 0.0
 
 
 @dataclass
@@ -338,7 +383,7 @@ class Bundle:
                     f"({coverage.unmeasured_words} words over the budgets); see "
                     "bundle.excluded in the result for each reason")
         if not self.include_resources and coverage.unmeasured_words:
-            return (f"{coverage.measurable_outside_share:.0%} of this artifact's words are in "
+            return (f"{coverage.outside_share_on('readable'):.0%} of this artifact's words are in "
                     f"{len(gaps)} bundled files that will not be measured; pass "
                     "--include-resources to measure them")
         return None
@@ -347,12 +392,13 @@ class Bundle:
         """The warnings a result measured on this bundle must carry."""
         coverage, gaps = self.coverage(), excluded_of(self.excluded, "gap")
         out: list[str] = []
-        # The measurable share, not the on-disk one: a skill whose resources are all its
-        # own evals has nothing a bundle run would add, so pointing at the flag would be
-        # advice that cannot be followed.
-        if not self.include_resources and coverage.measurable_outside_share >= 0.5:
+        # The readable basis, not the on-disk one: a skill whose resources are all its own
+        # evals has nothing a bundle run would add, so pointing at the flag would be advice
+        # that cannot be followed. (The gate judges `GATE_COVERAGE_BASIS`; see there.)
+        share = coverage.outside_share_on("readable")
+        if not self.include_resources and share >= 0.5:
             out.append(
-                f"{coverage.measurable_outside_share:.0%} of this artifact's words are in "
+                f"{share:.0%} of this artifact's words are in "
                 "bundled files that were not measured (--include-resources); every rate "
                 "here describes the entry point only"
             )

@@ -21,7 +21,7 @@ import html
 from datetime import datetime, timezone
 
 from .attribute import COLOURS, LEGEND, SpanAttribution
-from .bundle import Coverage, excluded_of
+from .bundle import Coverage, named_exclusions
 
 _CAVEATS = (
     "Rates are paired per probe; trust signs and rankings, not second decimals. "
@@ -244,7 +244,7 @@ def _render_bundle(artifact: dict) -> list[str]:
     # Measurable words: on disk minus the role decisions (the skill's own evals by default).
     # `outside_share` in the JSON stays the on-disk figure; the prose must not tell the
     # user to rerun for words no mode would read.
-    share = coverage.measurable_outside_share
+    share = coverage.outside_share_on("readable")
     policy = coverage.policy_excluded_words
     measurable = coverage.measurable_resource_words
     decided = f" A further {policy} words are in files not measured by default." if policy else ""
@@ -288,17 +288,14 @@ def _render_bundle(artifact: dict) -> list[str]:
             "also not what makes the skill work.",
             "",
         ]
-    # Files that are not content carry no words, so they are counted, not listed: 39 OOXML
-    # schemas in one skill would otherwise bury the two references that matter.
-    rows = bundle.get("excluded") or []
-    excluded = [row for cls in ("gap", "decision", "unknown") for row in excluded_of(rows, cls)]
-    not_content = len(excluded_of(rows, "not_content"))
+    # Non-text files carry no words, so they are counted, not listed (`named_exclusions`).
+    excluded, not_text = named_exclusions(bundle.get("excluded"))
     if excluded:
         lines += [f"{len(excluded)} files excluded: " + ", ".join(
             f"`{row['path']}` ({row['reason']})" for row in excluded[:8]
         ) + ("." if len(excluded) <= 8 else ", …"), ""]
-    if not_content:
-        lines += [f"{not_content} non-text or symlinked files not read.", ""]
+    if not_text:
+        lines += [f"{not_text} non-text files not read.", ""]
     return lines
 
 

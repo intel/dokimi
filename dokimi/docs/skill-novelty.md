@@ -498,14 +498,20 @@ Three things to know before reading a bundle result:
   only a NUL-bearing non-UTF-16 file, or a blob that is not mostly printable, is silently "not text".
 - **One rule decides what an exclusion means.** Every row's `kind` has one class
   (`novelty/bundle.py`, `EXCLUSION_CLASS`): `budget` and `not_requested` are a *gap* — the words
-  in `unmeasured_words`, the files a warning or the gate calls "excluded"; `policy` is a
-  *decision*, outside the coverage denominator; `unreadable` is *unknown*; `symlink` and
-  `not_text` are *not content*. The CLI note, the analyzer's warnings, the gate's
-  `artifact_coverage` and the report all read the record through the same `Coverage`, so the
-  gate judges the figure the analyzer warns about: the share of *readable* words not read
-  (for an entry-point run, `measurable_outside_share`). An exclusion is a *file* the run did
-  not select; text it selected that no extraction call could read is an *unread span*
-  (`spans.n_unread`, below), which narrows the dead-token figure and not coverage.
+  in `unmeasured_words`, the files a warning calls "excluded"; `policy` is a *decision*, never
+  charged as unread; `unreadable` is *unknown*; `symlink` and `not_text` are *not content*. An
+  exclusion is a *file* the run did not select; text it selected that no extraction call could
+  read is an *unread span* (`spans.n_unread`, below), which narrows the dead-token figure and
+  not coverage.
+- **Two surfaces quote coverage on different bases.** The CLI note, the analyzer's warnings,
+  the gate's `artifact_coverage` and the report all read the record through the same
+  `Coverage`, and each names the denominator it divides by (`COVERAGE_BASES`). The warnings
+  and the report use *readable* words (role decisions left out, so for an entry-point run the
+  figure is `measurable_outside_share`). The gate judges its 0.5 ceiling over *all bundled
+  words*, role decisions included, as it always has: for an entry-point run of a skill with
+  its own `evals/` its figure is lower than the warning's (26% against 56% for 400 entry
+  words, a 500-word reference and 1,000 words of evals). Moving the gate to the readable
+  basis changes its numbers, so it is a separate change, stamped in the record.
 
 The payoff is `bundle.by_source`: the paired 2×2 cut by the file that carried each atom. A
 reference whose atoms are all `redundant` is a file the model already knows; one full of
