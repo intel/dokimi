@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Dokimi: measure what actually helps an agent
 
 *Dokimi* — Greek δοκιμή, "test, proof" ([why the name](../../README.md)).

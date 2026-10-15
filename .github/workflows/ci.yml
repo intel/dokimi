@@ -214,6 +214,21 @@ jobs:
       - name: zizmor
         run: zizmor --offline --min-severity medium .github/workflows
 
+  # Every tracked file carries the SPDX license header; scope and exceptions are
+  # in .github/.licenserc.yaml. A `uses:` step only, so `make ci-local` skips it
+  # (the config's header comment has the docker command for a local run).
+  license-header:
+    name: License header check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4  # v0.9.0
+        with:
+          config: .github/.licenserc.yaml
+          mode: check
+
   # The hooks in .pre-commit-config.yaml, so they stay green on main: a change
   # that fails one fails here, not on the next contributor's commit. ruff-check
   # and zizmor are skipped: the lint and workflow-lint jobs run the same versions.

@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Sampling params reach every request path and key the response cache."""
 
 from types import SimpleNamespace

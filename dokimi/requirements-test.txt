@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 PyYAML>=6.0.1,<7
 jsonschema>=4.20,<5
 pytest>=7.4.0

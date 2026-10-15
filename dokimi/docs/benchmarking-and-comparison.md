@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Benchmarking and comparison guide
 
 This guide describes how to run the supported benchmark flows and how to compare

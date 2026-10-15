@@ -1,0 +1,54 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# License header check (apache/skywalking-eyes), run by the license-header job
+# in ci.yml. Every tracked file carries the two-line SPDX header, in the
+# file's comment syntax, within its first lines:
+#
+#   # Copyright (C) 2026 Intel Corporation
+#   # SPDX-License-Identifier: Apache-2.0
+#
+# Markdown takes it as an HTML comment (<!-- ... -->), after the front matter
+# when there is one. Locally, from the root of a clone (in a `git worktree` it
+# cannot read .gitignore and also scans .venv and other untracked files):
+#   docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
+#     apache/skywalking-eyes:0.9.0 -c .github/.licenserc.yaml header check
+header:
+  license:
+    spdx-id: Apache-2.0
+    copyright-owner: Intel Corporation
+    content: |
+      Copyright (C) 2026 Intel Corporation
+      SPDX-License-Identifier: Apache-2.0
+    # Any year, so a file added in a later year carries that year.
+    pattern: |
+      Copyright \(C\) \d{4}(-\d{4})? Intel Corporation
+      SPDX-License-Identifier: Apache-2\.0
+
+  paths:
+    - '**'
+
+  paths-ignore:
+    # License texts and files with no comment syntax. .git is a file in a worktree.
+    - '.git'
+    - 'LICENSE'
+    - 'NOTICE'
+    - '.gitignore'
+    - '.github/CODEOWNERS'
+    - '**/*.json'
+    # GitHub templates: the text is what a contributor sees when opening an issue or PR.
+    - '.github/ISSUE_TEMPLATE/**'
+    - '.github/pull_request_template.md'
+    # Written by `uv pip compile`, which rewrites the header on every regeneration.
+    - 'dokimi/requirements.lock.txt'
+    - 'dokimi/requirements-docs.lock.txt'
+    # Read by agents verbatim: a header would become part of the instructions,
+    # persona prompt or skill being measured.
+    - 'CLAUDE.md'
+    - 'dokimi/data/agent_profiles/**'
+    - 'dokimi/data/skills/**'
+
+  comment: never
+
+  # The header may follow a shebang line or YAML front matter.
+  license-location-threshold: 120

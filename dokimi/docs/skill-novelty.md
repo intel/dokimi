@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Content novelty: what does this skill actually *add*?
 
 The arm comparison answers *does this artifact help?* This layer answers the two questions an author

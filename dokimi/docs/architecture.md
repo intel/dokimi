@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Architecture overview
 
 `dokimi` ships two parallel evaluation tracks, an optional

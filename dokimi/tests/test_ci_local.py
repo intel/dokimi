@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Tests for scripts/ci_local.py: synthetic workflows, stubbed subprocess, no network."""
 
 from __future__ import annotations

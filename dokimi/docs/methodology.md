@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Benchmark Methodology
 
 This document describes how `dokimi` evaluates documentation and other agent-facing context. The central measurement is comparative: hold the task and answer model fixed, then compare performance with and without a controlled context layer.

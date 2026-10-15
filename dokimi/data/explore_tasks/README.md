@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Exploration tasks (ExploreBench)
 
 Each YAML file here is one **exploration-only** task for the ExploreBench track.

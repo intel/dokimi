@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Evaluating treatments (docs, MCP, skills, agent profiles)
 
 The original LLM benchmark answers one question — *do retrieved docs improve

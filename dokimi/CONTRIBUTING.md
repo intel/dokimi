@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Contributing
 
 Thanks for your interest in improving dokimi. This guide covers the
@@ -8,6 +13,18 @@ mechanics; for architecture and design context start with
 
 By submitting a contribution you agree that it is licensed under the
 [Apache License 2.0](../LICENSE), the same license as the project.
+
+Every new file starts with the SPDX header, in its comment syntax (Markdown
+uses an HTML comment, after any front matter):
+
+```python
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+```
+
+CI's license-header job checks it; the files exempt (JSON, generated locks,
+text agents read verbatim) are listed in
+[`.github/.licenserc.yaml`](../.github/.licenserc.yaml).
 
 ## Development setup
 

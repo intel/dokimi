@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Benchmark user flow
 
 Canonical flow: one benchmark set, one target, two arms.

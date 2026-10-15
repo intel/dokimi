@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # LLM evaluation pipeline — quickstart
 
 End-to-end recipe for the canonical benchmark flow: target → preflight → fixed question/task set → `without_docs` vs `with_docs` answer generation → judge scoring → report.

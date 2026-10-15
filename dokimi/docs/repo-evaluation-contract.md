@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Repository evaluation contract
 
 > **Status: PROPOSED.** This is the interface proposed for evaluating a whole

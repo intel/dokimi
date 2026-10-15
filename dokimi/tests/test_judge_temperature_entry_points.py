@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """--judge-temperature reaches the request and the output of every judge entry point."""
 
 import json

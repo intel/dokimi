@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Authoring an executable (terminal-bench) task
 
 An executable task evaluates an LLM coding agent on real work: the agent gets an

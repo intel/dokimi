@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Measuring a skill you are writing: the whole path
 
 One sitting, one artifact, one model. Each step says what it costs and what it refuses to

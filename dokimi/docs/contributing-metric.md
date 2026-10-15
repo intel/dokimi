@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Adding a static documentation metric
 
 The static benchmark scores every Markdown file in the configured root with a

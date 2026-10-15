@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 # Runtime configuration for the LLM evaluation track: which models answer,
 # judge and generate, how questions are generated, how answers are scored, and
 # how documentation is retrieved. Every block below is read at run time.

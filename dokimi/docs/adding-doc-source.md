@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Using Multiple Documentation Sources
 
 By default `dokimi` fetches docs from [Context7](https://context7.com/).
