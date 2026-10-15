@@ -255,6 +255,10 @@ next release.
   `repo run` (one agent per task × arm × model × rep cell, then `grade`, one
   `result.json` per cell) and `repo report` (gated success with a Wilson
   interval, grader failures, missing cells, cost).
+- `dokimi/repos/compare.py` — `repo compare`: treatment arms against a
+  baseline arm over one or more batches, one value per task and arm (gate
+  share, score, cost, turns, chosen `grade.json` metrics), with a task
+  bootstrap interval, a sign-flip permutation p and Holm's correction.
 - `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's

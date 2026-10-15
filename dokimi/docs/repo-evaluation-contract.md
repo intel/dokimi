@@ -40,6 +40,7 @@
 > python cli.py repo run <source> --manifest <path> --arm guidance:raw --model <id> --reps N --batch NAME
 >     --agent-network host
 > python cli.py repo report <out>/<batch>
+> python cli.py repo compare <out>/<batch> --baseline guidance:none
 > ```
 >
 > Not implemented yet: the egress proxy (§2), so a task with `egress` is refused
@@ -631,6 +632,7 @@ python cli.py repo run ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml 
     --model us.anthropic.claude-haiku-4-5-20251001-v1:0 --reps 3 --batch pilot \
     --bin /opt/claude-2.1.286/claude --agent-network host --budget 1 --max-batch-usd 20
 python cli.py repo report repo-runs/pilot
+python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric icpx_hit
 ```
 
 - Each cell holds the §4 inputs plus `agent.stdout` (the raw trace) and
@@ -658,3 +660,14 @@ python cli.py repo report repo-runs/pilot
 - The report gives, per (task, arm, model), passes over finished cells with a
   Wilson 95% interval (score-only tasks: the mean of `score.metric`), grader
   failures (counted as failures too), missing cells, and mean cost and turns.
+- `repo compare` reduces cells to one value per (task, arm, model) first:
+  repetitions share a task's difficulty and are not paired across arms, so the
+  task is the unit. Per treatment arm, model and measure (gate share, score,
+  cost, turns, each `--metric` from `grade.json`) it gives the mean per-task
+  delta against the baseline with a task bootstrap 95% interval, the tasks up,
+  down and tied, and a two-sided sign-flip permutation p (exact up to 16
+  changed tasks; at one cell per task and arm it equals McNemar's exact test).
+  Holm's correction runs over the gate and score comparisons of one call; the
+  rest are descriptive. `BATCH/ARM` takes an arm from one batch only, so two
+  batches of the same arm (for example two revisions of the guidance) compare
+  too. Tasks with cells in only one arm are listed as unpaired.

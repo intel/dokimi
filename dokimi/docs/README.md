@@ -253,8 +253,8 @@ code.
   partly implemented)* what a repository provides to be evaluated as a whole:
   `repo-eval.yaml`, `task.json`, the `grade` entry point and `grade.json`,
   harness profiles, and the guidance reach probe; and how to run its task
-  self-check, agent runs and report (`repo tasks check`, `repo run`,
-  `repo report`). Tasks and graders stay in the scanned repository.
+  self-check, agent runs, report and arm comparison (`repo tasks check`,
+  `repo run`, `repo report`, `repo compare`). Tasks and graders stay in the scanned repository.
 - [repo-evaluation-mergeability.md](repo-evaluation-mergeability.md) —
   *(proposed)* grading whether a maintainer would merge a test-passing change:
   `rubric.json` (blockers, non-blockers, scope), deterministic scope and

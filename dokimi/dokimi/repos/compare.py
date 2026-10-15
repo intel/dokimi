@@ -1,0 +1,264 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""``repo compare``: treatment arms against a baseline arm over the cells of one or more batches.
+
+The unit is the task, not the cell. Repetitions of one task share its
+difficulty, and rep 1 of one arm has nothing to do with rep 1 of another, so
+cells are first reduced to one value per (task, arm, model):
+
+- **gate**: the share of cells that passed the task's gate (a grader failure
+  counts as a failure, as in ``repo report``);
+- **score**: the mean of ``score.metric`` for score-only tasks (a grader
+  failure counts as 0);
+- **cost_usd**, **turns**: the per-cell means the harness reported;
+- **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the
+  cells that report it (``true`` is 1), for ``--metric``.
+
+A task enters a comparison only when both arms have a value for it; the others
+are listed as unpaired. Per measure the comparison gives the mean per-task
+delta (treatment minus baseline) with a percentile bootstrap interval over
+tasks, the tasks that went up, down or stayed, and a two-sided sign-flip
+permutation p on the per-task deltas: exact up to :data:`EXACT_MAX` non-zero
+deltas, Monte Carlo above. At one cell per task and arm the deltas are -1, 0
+or +1 and the exact p equals McNemar's exact test. Holm's correction runs over
+the gate and score comparisons of one invocation; cost, turns and metrics are
+descriptive and keep their raw p.
+"""
+
+from __future__ import annotations
+
+import itertools
+import json
+import random
+from collections import defaultdict
+from pathlib import Path
+from typing import Any
+
+from dokimi.eval.stats import adjust_pvalues, bootstrap_ci
+
+from .report import load_cells
+
+#: Largest number of non-zero deltas whose sign-flip distribution is enumerated (2**16 patterns).
+EXACT_MAX = 16
+#: Resamples of the Monte Carlo sign-flip test above :data:`EXACT_MAX`.
+N_RESAMPLES = 20_000
+#: Deltas closer to zero than this are ties.
+EPS = 1e-9
+#: Measures Holm's correction runs over.
+PRIMARY = ("gate", "score")
+
+
+class CompareError(ValueError):
+    """The arms or batches named cannot be compared."""
+
+
+def parse_selector(text: str) -> tuple[str | None, str]:
+    """``ARM`` or ``BATCH/ARM`` (batch = the batch directory's name) as ``(batch, arm)``."""
+    batch, sep, arm = text.rpartition("/")
+    if not arm or (sep and not batch):
+        raise CompareError(f"bad arm selector {text!r}: expected ARM or BATCH/ARM")
+    return (batch or None), arm
+
+
+def selector_matches(selector: tuple[str | None, str], cell: dict[str, Any]) -> bool:
+    batch, arm = selector
+    return cell["arm"] == arm and (batch is None or cell["batch"] == batch)
+
+
+def load_batches(batch_dirs: list[Path], metrics: tuple[str, ...] = ()) -> tuple[list[dict[str, Any]], list[str]]:
+    """Finished cells of every batch, each with its ``batch`` and the requested ``grade.json`` metrics."""
+    names = [d.name for d in batch_dirs]
+    if len(set(names)) != len(names):
+        raise CompareError(f"batch directories must have distinct names: {', '.join(names)}")
+    cells, missing = [], []
+    for batch_dir in batch_dirs:
+        found, gone = load_cells(batch_dir)
+        missing += [f"{batch_dir.name}/{name}" for name in gone]
+        for rec in found:
+            rec["batch"] = batch_dir.name
+            rec["metrics"] = _grade_metrics(batch_dir / rec["cell"] / "grade.json", metrics) if metrics else {}
+            cells.append(rec)
+    return cells, missing
+
+
+def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None = None,
+            models: list[str] | None = None, metrics: tuple[str, ...] = (), seed: int = 0) -> dict[str, Any]:
+    cells, missing = load_batches(batch_dirs, metrics)
+    base_sel = parse_selector(baseline)
+    if not any(selector_matches(base_sel, c) for c in cells):
+        raise CompareError(f"no finished cell matches the baseline {baseline!r}")
+    if treatments is None:
+        # every other arm that has cells; the baseline's own arm from another batch is named by its batch
+        treatments = sorted({f"{c['batch']}/{c['arm']}" if c["arm"] == base_sel[1] else c["arm"]
+                             for c in cells if not selector_matches(base_sel, c)})
+    selectors = [(t, parse_selector(t)) for t in treatments]
+    for text, sel in selectors:
+        if sel == base_sel:
+            raise CompareError(f"treatment {text!r} is the baseline")
+        matched = [c for c in cells if selector_matches(sel, c)]
+        if not matched:
+            raise CompareError(f"no finished cell matches the treatment {text!r}")
+        if any(selector_matches(base_sel, c) for c in matched):
+            raise CompareError(f"treatment {text!r} also matches cells of the baseline {baseline!r}; "
+                               "name its batch (BATCH/ARM)")
+    measures = ["gate", "score", "cost_usd", "turns", *(f"metric:{m}" for m in metrics)]
+    base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics)
+    rows, unpaired = [], []
+    for text, sel in selectors:
+        treat_vals = _task_values([c for c in cells if selector_matches(sel, c)], metrics)
+        for model in sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals}):
+            if models and model not in models:
+                continue
+            base_tasks = {t for m, t in base_vals if m == model}
+            treat_tasks = {t for m, t in treat_vals if m == model}
+            unpaired += [{"treatment": text, "model": model, "task": t, "missing_in": "treatment"}
+                         for t in sorted(base_tasks - treat_tasks)]
+            unpaired += [{"treatment": text, "model": model, "task": t, "missing_in": "baseline"}
+                         for t in sorted(treat_tasks - base_tasks)]
+            shared = sorted(base_tasks & treat_tasks)
+            for measure in measures:
+                pairs = []
+                for task in shared:
+                    b, t = base_vals[(model, task)], treat_vals[(model, task)]
+                    if b["kind"] != t["kind"] and measure in PRIMARY:
+                        continue  # the arms disagree on whether the task is gated; report reads the runner's kind
+                    if measure in PRIMARY and b["kind"] != measure:
+                        continue
+                    bv, tv = b["values"].get(measure), t["values"].get(measure)
+                    if bv is None or tv is None:
+                        continue
+                    pairs.append({"task": task, "baseline": bv, "treatment": tv, "delta": round(tv - bv, 6),
+                                  "n_baseline": b["n"], "n_treatment": t["n"]})
+                if pairs:
+                    rows.append({"treatment": text, "model": model, "measure": measure,
+                                 **paired_summary(pairs, seed=seed)})
+    primary = [i for i, r in enumerate(rows) if r["measure"] in PRIMARY]
+    for i, p in zip(primary, adjust_pvalues([rows[i]["p"] for i in primary]), strict=True):
+        rows[i]["p_holm"] = p
+    return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
+            "cells": len(cells), "missing": missing, "comparisons": rows, "unpaired": unpaired}
+
+
+def paired_summary(pairs: list[dict[str, Any]], seed: int = 0) -> dict[str, Any]:
+    """Statistics over per-task pairs ``{task, baseline, treatment, delta, ...}``."""
+    deltas = [p["delta"] for p in pairs]
+    ci = bootstrap_ci(deltas, seed=seed)
+    return {
+        "n_tasks": len(pairs),
+        "baseline_mean": _mean([p["baseline"] for p in pairs]),
+        "treatment_mean": _mean([p["treatment"] for p in pairs]),
+        "delta": {"mean": ci["mean"], "lo": ci["lo"], "hi": ci["hi"]},
+        "p": sign_flip_p(deltas, seed=seed),
+        "p_holm": None,
+        "up": sum(d > EPS for d in deltas),
+        "down": sum(d < -EPS for d in deltas),
+        "tied": sum(abs(d) <= EPS for d in deltas),
+        "tasks": pairs,
+    }
+
+
+def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES) -> float | None:
+    """Two-sided p of ``|sum(deltas)|`` when each delta's sign is a fair coin under the null.
+
+    ``None`` when every delta is a tie: there is no evidence either way, and 1.0 would read as a measured null.
+    """
+    d = [x for x in deltas if abs(x) > EPS]
+    if not d:
+        return None
+    observed = abs(sum(d)) - EPS
+    if len(d) <= EXACT_MAX:
+        hits = sum(abs(sum(s * x for s, x in zip(signs, d, strict=True))) >= observed
+                   for signs in itertools.product((1, -1), repeat=len(d)))
+        return round(hits / 2 ** len(d), 6)
+    rng = random.Random(seed)
+    hits = sum(abs(sum(x if rng.random() < 0.5 else -x for x in d)) >= observed for _ in range(n_resamples))
+    return round((hits + 1) / (n_resamples + 1), 6)
+
+
+def format_compare(summary: dict[str, Any]) -> str:
+    lines = [f"baseline {summary['baseline']}: {summary['cells']} finished cells in "
+             f"{len(summary['batches'])} batch(es), {len(summary['missing'])} missing"]
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in summary["comparisons"]:
+        groups[(row["treatment"], row["model"])].append(row)
+    width = max([len(r["measure"]) for r in summary["comparisons"]] + [7])
+    for (treatment, model), rows in groups.items():
+        lines += ["", f"{treatment} vs {summary['baseline']}, model {model}",
+                  f"  {'measure':<{width}}  {'tasks':>5}  {'baseline':>9}  {'treatment':>9}  "
+                  f"{'delta [95% CI]':<26}  {'p':>6}  {'p_holm':>6}  up/down/tied"]
+        for r in rows:
+            d = r["delta"]
+            delta = f"{d['mean']:+.3f} [{d['lo']:+.3f}, {d['hi']:+.3f}]"
+            lines.append(f"  {r['measure']:<{width}}  {r['n_tasks']:>5}  {_num(r['baseline_mean']):>9}  "
+                         f"{_num(r['treatment_mean']):>9}  {delta:<26}  {_p(r['p']):>6}  {_p(r['p_holm']):>6}  "
+                         f"{r['up']}/{r['down']}/{r['tied']}")
+        for r in rows:
+            if r["measure"] in PRIMARY:
+                moved = [t for t in r["tasks"] if abs(t["delta"]) > EPS]
+                if moved:
+                    lines.append(f"  {r['measure']} changed: " + ", ".join(
+                        f"{t['task']} {t['delta']:+.2f}" for t in sorted(moved, key=lambda t: t["delta"])))
+    if summary["unpaired"]:
+        shown = summary["unpaired"][:10]
+        lines.append("unpaired (no cells in one arm): " + ", ".join(
+            f"{u['task']} ({u['model']}, none in {u['missing_in']})" for u in shown)
+            + (f" and {len(summary['unpaired']) - len(shown)} more" if len(summary["unpaired"]) > 10 else ""))
+    if summary["missing"]:
+        lines.append(f"{len(summary['missing'])} cells missing (no result.json): `repo report` lists them")
+    return "\n".join(lines)
+
+
+def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[tuple[str, str], dict[str, Any]]:
+    """One value per measure for each (model, task) of one arm."""
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for rec in cells:
+        groups[(rec["model"], rec["task"])].append(rec)
+    out = {}
+    for key, recs in groups.items():
+        score_task = any(r["score_task"] for r in recs)
+        values: dict[str, float | None] = {
+            "cost_usd": _mean([r["agent"].get("cost_usd") for r in recs]),
+            "turns": _mean([r["agent"].get("num_turns") for r in recs]),
+        }
+        if score_task:
+            values["score"] = _mean([0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
+                                     for r in recs])
+        else:
+            values["gate"] = round(sum(bool(r["grade"]["success"]) for r in recs) / len(recs), 6)
+        for name in metrics:
+            values[f"metric:{name}"] = _mean([r["metrics"].get(name) for r in recs])
+        out[key] = {"kind": "score" if score_task else "gate", "n": len(recs), "values": values}
+    return out
+
+
+def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
+    """The requested numeric or boolean ``metrics`` of a cell's ``grade.json``; absent ones are left out."""
+    try:
+        grade = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    found = grade.get("metrics") if isinstance(grade, dict) else None
+    if not isinstance(found, dict):
+        return {}
+    out = {}
+    for name in names:
+        value = found.get(name)
+        if isinstance(value, bool):
+            out[name] = 1.0 if value else 0.0
+        elif isinstance(value, (int, float)) and value == value:  # NaN is not a measurement
+            out[name] = float(value)
+    return out
+
+
+def _mean(values: list[Any]) -> float | None:
+    nums = [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    return round(sum(nums) / len(nums), 6) if nums else None
+
+
+def _num(value: float | None) -> str:
+    return "-" if value is None else f"{value:.3f}"
+
+
+def _p(value: float | None) -> str:
+    return "-" if value is None else f"{value:.3f}"

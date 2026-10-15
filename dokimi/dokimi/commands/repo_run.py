@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""repo tasks check / repo run / repo report: the repository-mode runner (contract §3, §4, §4.3)."""
+"""repo tasks check / repo run / repo report / repo compare: the repository-mode runner (contract §3, §4, §4.3)."""
 
 from __future__ import annotations
 
@@ -219,6 +219,24 @@ def cmd_repo_report(args: argparse.Namespace) -> None:
     print(json.dumps(summary, indent=2) if args.json else format_report(summary))
 
 
+def cmd_repo_compare(args: argparse.Namespace) -> None:
+    """Per (treatment, model, measure): per-task deltas against the baseline, bootstrap CI, sign-flip p."""
+    from dokimi.repos.compare import CompareError, compare, format_compare
+
+    dirs = [Path(d) for d in args.batch_dirs]
+    for d in dirs:
+        if not d.is_dir():
+            print(f"✗ not a directory: {d}", file=sys.stderr)
+            sys.exit(1)
+    arms = [a for spec in args.arm for a in spec.split(",") if a] if args.arm else None
+    try:
+        summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()))
+    except CompareError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(summary, indent=2) if args.json else format_compare(summary))
+
+
 def _usd(text: str) -> float:
     """A positive, finite USD amount (``0``, negatives, ``nan`` and ``inf`` would disable the cap)."""
     value = float(text)
@@ -299,3 +317,17 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     report_p.add_argument("batch_dir", help="<out>/<batch> of `repo run`")
     report_p.add_argument("--json", action="store_true", help="Print the summary as JSON")
     report_p.set_defaults(func=cmd_repo_report)
+
+    compare_p = repo_sub.add_parser(
+        "compare", help="Treatment arms against a baseline arm, paired by task, over one or more batch directories")
+    compare_p.add_argument("batch_dirs", nargs="+", help="<out>/<batch> directories of `repo run`")
+    compare_p.add_argument("--baseline", required=True,
+                           help="Baseline arm: ARM, or BATCH/ARM to take it from one batch only")
+    compare_p.add_argument("--arm", action="append", default=None,
+                           help="Treatment arm (ARM or BATCH/ARM); repeatable or comma-separated "
+                           "(default: every other arm)")
+    compare_p.add_argument("--model", action="append", default=None, help="Only this model; repeatable")
+    compare_p.add_argument("--metric", action="append", default=None,
+                           help="Also compare this numeric or boolean grade.json metric; repeatable")
+    compare_p.add_argument("--json", action="store_true", help="Print the comparison as JSON")
+    compare_p.set_defaults(func=cmd_repo_compare)

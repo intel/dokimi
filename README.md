@@ -71,7 +71,8 @@ manifest it owns:
   repository's image, grade each run with the repository's own tests, and
   `dokimi repo report` the per (task, arm, model) table. With the `guidance:*`
   arms this measures what the repository's agent guidance does to the agent's
-  work.
+  work; `dokimi repo compare` puts each arm against a baseline arm, paired by
+  task.
 
 See the [repository evaluation contract](dokimi/docs/repo-evaluation-contract.md).
 LLM-free static checks on the documentation itself (`dokimi run`) round this out.
