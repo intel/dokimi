@@ -203,7 +203,13 @@ timeout = 60
 # removal breaks the suite, and an unclosed file or socket is a ResourceWarning.
 # A third-party warning gets a narrow ignore (module, category, message) with
 # the reason; ours are fixed where they are raised.
-filterwarnings = ["error"]
+filterwarnings = [
+  "error",
+  # litellm's __init__ ignores this pydantic notice with a process-wide filter,
+  # which pytest resets per test; a litellm response model first built in a later
+  # test then warns, once per model (ReadOnly TypedDict items are not enforced).
+  "ignore:Item 'summary' on TypedDict class 'ChatCompletionReasoningItem' is using the `ReadOnly` qualifier:UserWarning:pydantic._internal._generate_schema",
+]
 # Test order is shuffled and `random` reseeded per test (pytest-randomly), so a
 # test that leans on another's leftovers fails. The header prints the seed;
 # `--randomly-seed=<seed>` replays that order, `-p no:randomly` keeps file order.
