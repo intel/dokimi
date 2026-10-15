@@ -94,6 +94,11 @@ def _twin_variant(twin: dict, factor: Optional[str], cues: Dict[str, str]):
     raise ValueError(f"unknown factor {factor!r}")
 
 
+def settings(doc: dict) -> Tuple[str, Dict[str, str]]:
+    """The system prompt and factor cues a run sends: the document's overrides over the defaults."""
+    return doc.get("system", DEFAULT_SYSTEM), {**DEFAULT_CUES, **(doc.get("cues") or {})}
+
+
 def build_items(doc: dict, factors: Sequence[str] = FACTORS) -> List[dict]:
     """Expand groups into counterbalanced items (deterministic order).
 
@@ -102,8 +107,7 @@ def build_items(doc: dict, factors: Sequence[str] = FACTORS) -> List[dict]:
     once with B treated (B first). A factor a twin cannot express (no ``vendor_name``, ``detail``
     or ``exclusion``) is skipped for that twin.
     """
-    cues = {**DEFAULT_CUES, **(doc.get("cues") or {})}
-    system = doc.get("system", DEFAULT_SYSTEM)
+    system, cues = settings(doc)
     items: List[dict] = []
     for g in doc["groups"]:
         kind = "control" if g.get("expect") == "none" else "pair"
@@ -143,21 +147,28 @@ def _make_item(g: dict, kind: str, factor: Optional[str], treated: Optional[str]
         item_id = f"{g['id']}-{factor}-{treated}-{'first' if treated == first else 'last'}"
     messages = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": g["query"]}]
-    return {"id": item_id, "group_id": g["id"], "kind": kind, "factor": factor or "baseline",
+    return {"id": item_id, "group_id": g["id"], "domain": g.get("domain"), "kind": kind,
+            "factor": factor or "baseline",
             "treated_role": treated, "first_role": first, "twin_names": names,
             "messages": messages, "tools": [tools[first]] + distractors + [tools[_other(first)]]}
 
 
 def classify(item: dict, called: Sequence[str]) -> Dict[str, Any]:
-    """What a first turn chose: ``A``/``B``/``both`` twins, ``distractor``, or ``none``."""
+    """What a first turn chose: ``A``/``B``/``both`` twins, ``distractor``, ``unmatched``, or ``none``.
+
+    ``unmatched``: every name called is one the item never offered (made up, or empty).
+    """
     inv = {v: k for k, v in item["twin_names"].items()}
+    offered = {t["function"]["name"] for t in item["tools"]}
     twins = sorted({inv[n] for n in called if n in inv})
     if len(twins) == 2:
         outcome = "both"
     elif twins:
         outcome = twins[0]
-    elif called:
+    elif any(n in offered for n in called):
         outcome = "distractor"
+    elif called:
+        outcome = "unmatched"
     else:
         outcome = "none"
     return {"called": list(called), "outcome": outcome}
@@ -225,6 +236,7 @@ def summarize(items: Sequence[dict], results: Sequence[dict]) -> Dict[str, Any]:
 
     multi = [v for v in by_item.values() if len(v) > 1]
     n_err = sum(r.get("error") is not None for r in results)
+    n_trunc = sum(bool(r.get("truncated")) for r in results)
 
     def rate(key: str):
         return round(sum(o == key for o in pair_outs) / len(pair_outs), 4) if pair_outs else None
@@ -233,10 +245,11 @@ def summarize(items: Sequence[dict], results: Sequence[dict]) -> Dict[str, Any]:
         "n_items": len(items),
         "n_calls": len(results),
         "n_errors": n_err,
+        "n_truncated": n_trunc,
         "first_twin_share_baseline": _boot({g: sum(v) / len(v) for g, v in pos.items()}),
         "factor_effects": factors,
         "pair_outcomes": {"both_twins": rate("both"), "distractor": rate("distractor"),
-                          "none": rate("none")},
+                          "unmatched": rate("unmatched"), "none": rate("none")},
         "control_over_call": over_call,
         # one choice repeated on every rep of an item; null with a single rep
         "same_choice_rate": (round(sum(len(set(v)) == 1 for v in multi) / len(multi), 4)
@@ -251,7 +264,7 @@ Caller = Callable[[dict], Dict[str, Any]]
 
 def run_probe(items: Sequence[dict], call: Caller, reps: int = 1, concurrency: int = 8,
               on_progress: Optional[Callable[[int, int], None]] = None) -> List[dict]:
-    """Call ``call(item)`` ``reps`` times per item; ``call`` returns ``{called, text, usage}``.
+    """Call ``call(item)`` ``reps`` times per item; ``call`` returns ``{called, text, usage, truncated}``.
 
     An exception is recorded on that result (``error``) and the run goes on: one refused call
     must not void a sweep of hundreds. Results come back in (item, rep) order.
@@ -266,10 +279,11 @@ def run_probe(items: Sequence[dict], call: Caller, reps: int = 1, concurrency: i
         try:
             out = call(item)
             res = {"item_id": item["id"], "rep": rep, "choice": classify(item, out.get("called") or []),
-                   "text_preview": (out.get("text") or "")[:200], "usage": out.get("usage"), "error": None}
+                   "text_preview": (out.get("text") or "")[:200], "usage": out.get("usage"),
+                   "truncated": bool(out.get("truncated")), "error": None}
         except Exception as exc:  # recorded, not raised
             res = {"item_id": item["id"], "rep": rep, "choice": None, "text_preview": "",
-                   "usage": None, "error": f"{type(exc).__name__}: {exc}"[:300]}
+                   "usage": None, "truncated": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
         res["elapsed_sec"] = round(time.time() - t0, 3)
         with lock:
             done[0] += 1
@@ -286,8 +300,9 @@ def groups_sha256(doc: dict) -> str:
 
 
 def payload(doc: dict, items: Sequence[dict], results: Sequence[dict], *, model: str, provider: str,
-            reps: int, factors: Sequence[str]) -> dict:
+            reps: int, factors: Sequence[str], max_tokens: int) -> dict:
     """The tool_preference.v1 document (unsaved)."""
+    system, cues = settings(doc)
     usage = [r["usage"] for r in results if r.get("usage")]
     cost = [u.get("cost_usd") for u in usage]
     return {
@@ -296,8 +311,12 @@ def payload(doc: dict, items: Sequence[dict], results: Sequence[dict], *, model:
         "provider": provider,
         "reps": reps,
         "factors": list(factors),
+        "max_tokens": max_tokens,
+        # what was sent, defaults included: the groups digest covers only the document's overrides
+        "system": system,
+        "cues": cues,
         "groups_sha256": groups_sha256(doc),
-        "items": [{k: i[k] for k in ("id", "group_id", "kind", "factor", "treated_role",
+        "items": [{k: i[k] for k in ("id", "group_id", "domain", "kind", "factor", "treated_role",
                                      "first_role", "twin_names")} for i in items],
         "results": list(results),
         "summary": summarize(items, results),

@@ -15,7 +15,11 @@ PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrout
 
 
 def _first_turn_caller(model: str, provider: str, max_tokens: int):
-    """One ``tool_choice="auto"`` call per item; returns the first turn's tool names, text, usage."""
+    """One ``tool_choice="auto"`` call per item; returns the first turn's tool names, text, usage.
+
+    A reply cut at ``max_tokens`` before any tool call is an error; one cut after a call keeps
+    that call (only its name is scored) and is flagged ``truncated``.
+    """
     from dokimi.llm import _TRUNCATED, _extract_usage, chat_completion
 
     def call(item: dict) -> dict:
@@ -24,12 +28,14 @@ def _first_turn_caller(model: str, provider: str, max_tokens: int):
                                tool_choice="auto", max_tokens=max_tokens)
         msg = resp.choices[0].message
         calls = getattr(msg, "tool_calls", None) or []
-        names = [getattr(getattr(tc, "function", None), "name", None) for tc in calls]
-        if not calls and getattr(resp.choices[0], "finish_reason", None) in _TRUNCATED:
+        # an empty or missing name is kept as "": a call was made, to no tool on offer
+        names = [getattr(getattr(tc, "function", None), "name", None) or "" for tc in calls]
+        truncated = getattr(resp.choices[0], "finish_reason", None) in _TRUNCATED
+        if not calls and truncated:
             raise RuntimeError(f"reply cut at max_tokens={max_tokens} before any tool call")
         usage = _extract_usage(resp, model, provider, latency_sec=time.time() - t0)
-        return {"called": [n for n in names if n], "text": getattr(msg, "content", None) or "",
-                "usage": usage.as_metrics_dict()}
+        return {"called": names, "text": getattr(msg, "content", None) or "",
+                "usage": usage.as_metrics_dict(), "truncated": truncated}
 
     return call
 
@@ -41,12 +47,14 @@ def _print_summary(summary: dict) -> None:
         lo, hi = e["ci95"]
         return f"{e['mean']:+.2f} [{lo:+.2f}, {hi:+.2f}] (groups={e['n_groups']})"
 
-    print(f"items={summary['n_items']} calls={summary['n_calls']} errors={summary['n_errors']}")
+    print(f"items={summary['n_items']} calls={summary['n_calls']} errors={summary['n_errors']}"
+          f" truncated={summary['n_truncated']}")
     print(f"first-listed twin share (baseline): {est(summary['first_twin_share_baseline'])}")
     for f, e in summary["factor_effects"].items():
         print(f"  {f:13s} {est(e)}")
     po = summary["pair_outcomes"]
-    print(f"pair items: both twins {po['both_twins']}, distractor {po['distractor']}, no call {po['none']}")
+    print(f"pair items: both twins {po['both_twins']}, distractor {po['distractor']}, "
+          f"unmatched name {po['unmatched']}, no call {po['none']}")
     if summary["control_over_call"]:
         print("controls, any tool called: " + ", ".join(f"{k} {v}" for k, v in summary["control_over_call"].items()))
     if summary["same_choice_rate"] is not None:
@@ -84,7 +92,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     results = tp.run_probe(items, _first_turn_caller(args.model, args.provider, args.max_tokens),
                            reps=args.reps, concurrency=args.concurrency, on_progress=progress)
     data = tp.payload(doc, items, results, model=args.model, provider=args.provider,
-                      reps=args.reps, factors=factors)
+                      reps=args.reps, factors=factors, max_tokens=args.max_tokens)
     save_artifact("tool_preference", data, args.out_json)
     _print_summary(data["summary"])
     u = data["usage"]

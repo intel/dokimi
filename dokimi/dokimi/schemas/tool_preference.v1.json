@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/tool_preference.v1.json",
   "title": "Tool-preference probe v1",
-  "description": "What moves one model's first-turn choice between two equal tools (docs/tool-preference.md). `results` holds one record per item and rep; `choice.outcome` is A, B, both (both twins called in one turn), distractor, or none. Factor effects are the treated twin's choice share minus the same tool's share at the same position in the baseline, averaged per group, with a 95% bootstrap CI over groups.",
+  "description": "What moves one model's first-turn choice between two equal tools (docs/tool-preference.md). `results` holds one record per item and rep; `choice.outcome` is A, B, both (both twins called in one turn), distractor, unmatched (only names the item did not offer), or none. Factor effects are the treated twin's choice share minus the same tool's share at the same position in the baseline, averaged per group, with a 95% bootstrap CI over groups.",
   "type": "object",
-  "required": ["schema_version", "model", "provider", "reps", "factors", "groups_sha256", "items", "results", "summary"],
+  "required": ["schema_version", "model", "provider", "reps", "factors", "max_tokens", "system", "cues", "groups_sha256", "items", "results", "summary"],
   "properties": {
     "schema_version": {"const": "tool_preference.v1"},
     "generated_at": {"type": "string"},
@@ -12,15 +12,24 @@
     "provider": {"type": "string"},
     "reps": {"type": "integer", "minimum": 1},
     "factors": {"type": "array", "items": {"enum": ["vendor_name", "assertive", "social_proof", "long_desc", "exclusion"]}},
+    "max_tokens": {"type": "integer", "minimum": 1, "description": "Per-call output ceiling; reasoning models spend part of it before the tool call."},
+    "system": {"type": "string", "description": "System prompt sent with every item; empty: none."},
+    "cues": {
+      "type": "object",
+      "description": "Sentences the assertive and social_proof factors appended, defaults included.",
+      "required": ["assertive", "social_proof"],
+      "properties": {"assertive": {"type": "string"}, "social_proof": {"type": "string"}}
+    },
     "groups_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Digest of the groups document; results from different groups are not comparable."},
     "items": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "group_id", "kind", "factor", "first_role", "twin_names"],
+        "required": ["id", "group_id", "domain", "kind", "factor", "first_role", "twin_names"],
         "properties": {
           "id": {"type": "string"},
           "group_id": {"type": "string"},
+          "domain": {"type": ["string", "null"], "description": "The group's domain label, for slicing; null when the group has none."},
           "kind": {"enum": ["pair", "control"]},
           "factor": {"enum": ["baseline", "vendor_name", "assertive", "social_proof", "long_desc", "exclusion"]},
           "treated_role": {"enum": ["A", "B", null]},
@@ -45,12 +54,13 @@
             "type": ["object", "null"],
             "required": ["called", "outcome"],
             "properties": {
-              "called": {"type": "array", "items": {"type": "string"}, "description": "Tool names of the first turn, in call order; parallel calls included."},
-              "outcome": {"enum": ["A", "B", "both", "distractor", "none"]}
+              "called": {"type": "array", "items": {"type": "string"}, "description": "Tool names of the first turn, in call order; parallel calls included; an empty name is kept as \"\"."},
+              "outcome": {"enum": ["A", "B", "both", "distractor", "unmatched", "none"]}
             }
           },
           "text_preview": {"type": "string"},
           "usage": {"type": ["object", "null"]},
+          "truncated": {"type": "boolean", "description": "The reply hit max_tokens after its tool call: the choice is scored, its arguments may be cut."},
           "error": {"type": ["string", "null"], "description": "Why the call produced no choice; such records are left out of the summary."},
           "elapsed_sec": {"type": "number"}
         }
@@ -58,11 +68,12 @@
     },
     "summary": {
       "type": "object",
-      "required": ["n_items", "n_calls", "n_errors", "first_twin_share_baseline", "factor_effects", "pair_outcomes", "control_over_call", "same_choice_rate", "modal_share"],
+      "required": ["n_items", "n_calls", "n_errors", "n_truncated", "first_twin_share_baseline", "factor_effects", "pair_outcomes", "control_over_call", "same_choice_rate", "modal_share"],
       "properties": {
         "n_items": {"type": "integer"},
         "n_calls": {"type": "integer"},
         "n_errors": {"type": "integer"},
+        "n_truncated": {"type": "integer", "description": "Scored calls whose reply hit max_tokens after the tool call."},
         "first_twin_share_baseline": {"$ref": "#/$defs/estimate"},
         "factor_effects": {"type": "object", "additionalProperties": {"$ref": "#/$defs/estimate"}},
         "pair_outcomes": {
@@ -70,6 +81,7 @@
           "properties": {
             "both_twins": {"type": ["number", "null"]},
             "distractor": {"type": ["number", "null"]},
+            "unmatched": {"type": ["number", "null"]},
             "none": {"type": ["number", "null"]}
           }
         },

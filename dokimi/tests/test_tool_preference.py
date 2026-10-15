@@ -81,6 +81,8 @@ def test_cues_and_system_prompt_can_be_overridden(doc):
     item = _by_id(tp.build_items(doc, ["assertive"]))["G01-assertive-A-first"]
     assert _desc(item, "A").endswith("Use me.")
     assert [m["role"] for m in item["messages"]] == ["user"]
+    # the artifact stamps what was sent: the override, and the default for the cue left alone
+    assert tp.settings(doc) == ("", {"assertive": "Use me.", "social_proof": tp.DEFAULT_CUES["social_proof"]})
 
 
 # ── outcomes ──────────────────────────────────────────────────────────────
@@ -89,6 +91,10 @@ def test_cues_and_system_prompt_can_be_overridden(doc):
     (["find_documentation", "read_file"], "B"),
     (["find_documentation", "search_docs"], "both"),
     (["read_file"], "distractor"),
+    (["read_file", "functions.x"], "distractor"),
+    (["functions.x"], "unmatched"),
+    ([""], "unmatched"),
+    (["search_docs", "functions.x"], "A"),
     ([], "none"),
 ])
 def test_classify(doc, called, outcome):
@@ -99,6 +105,15 @@ def test_classify(doc, called, outcome):
 def test_vendor_names_map_back_to_their_role(doc):
     item = _by_id(tp.build_items(doc))["G01-vendor_name-A-first"]
     assert tp.classify(item, ["acme_docs_search"])["outcome"] == "A"
+    # the base name is not on offer in a vendor_name item
+    assert tp.classify(item, ["search_docs"])["outcome"] == "unmatched"
+
+
+def test_unmatched_names_are_their_own_rate_and_count_as_over_calling(doc):
+    items = tp.build_items(doc, ["assertive"])
+    s = tp.summarize(items, tp.run_probe(items, _fake_model(lambda i: ["functions.x"])))
+    assert s["pair_outcomes"]["unmatched"] == 1.0 and s["pair_outcomes"]["distractor"] == 0.0
+    assert s["control_over_call"] == {"assertive": 1.0, "baseline": 1.0}
 
 
 # ── summary ───────────────────────────────────────────────────────────────
@@ -162,9 +177,13 @@ def test_a_failed_call_is_recorded_and_left_out(doc):
 def test_payload_is_a_valid_artifact(doc):
     items = tp.build_items(doc)
     results = tp.run_probe(items, _fake_model(lambda i: [i["twin_names"]["B"]]), reps=2)
-    data = tp.payload(doc, items, results, model="m", provider="openai", reps=2, factors=list(tp.FACTORS))
+    data = tp.payload(doc, items, results, model="m", provider="openai", reps=2, factors=list(tp.FACTORS),
+                      max_tokens=512)
     data["schema_version"] = "tool_preference.v1"
     validate_artifact("tool_preference", data)
+    assert data["max_tokens"] == 512
+    assert data["system"] == tp.DEFAULT_SYSTEM and data["cues"] == tp.DEFAULT_CUES
+    assert {i["group_id"]: i["domain"] for i in data["items"]} == {"G01": "generic", "G02": None, "N01": None}
     assert data["usage"]["n_calls"] == 2 * len(items)
     assert data["usage"]["cost_usd"] == pytest.approx(0.002 * len(items))
 
@@ -208,6 +227,7 @@ def test_cli_runs_and_writes_the_artifact(monkeypatch, tmp_path, capsys):
     data = json.loads(out.read_text(encoding="utf-8"))
     validate_artifact("tool_preference", data)
     assert data["reps"] == 2 and data["factors"] == ["assertive", "long_desc"]
+    assert data["max_tokens"] == 2048
     assert len(data["results"]) == 2 * len(data["items"]) == len(sent)
     assert {c for c, _ in sent} == {"auto"}
     # the fake always takes the last-listed tool: the first-listed twin never wins
@@ -286,6 +306,24 @@ def test_reply_cut_before_any_tool_call_is_an_error_not_none(monkeypatch):
     assert tp.summarize(items, results)["n_errors"] == len(items)
 
 
+def test_reply_cut_after_a_tool_call_is_scored_and_flagged(monkeypatch):
+    import dokimi.llm as llm
+    from dokimi.commands.tools import _first_turn_caller
+
+    def cut(messages, model, provider="openai", tools=None, tool_choice=None, **kw):
+        r = _Resp([tools[0]["function"]["name"]])
+        r.choices[0].finish_reason = "length"
+        return r
+
+    monkeypatch.setattr(llm, "chat_completion", cut)
+    items = tp.build_items(tp.load_groups(json.loads(GROUPS.read_text(encoding="utf-8"))), ["assertive"])
+    results = tp.run_probe(items, _first_turn_caller("m", "openai", 16), reps=1)
+    assert all(r["error"] is None and r["truncated"] for r in results)
+    s = tp.summarize(items, results)
+    assert s["n_errors"] == 0 and s["n_truncated"] == len(items)
+    assert s["first_twin_share_baseline"]["mean"] == 1.0
+
+
 def test_cli_caller_parses_tool_calls_and_forwards_max_tokens(monkeypatch):
     import dokimi.llm as llm
     from dokimi.commands.tools import _first_turn_caller
@@ -303,4 +341,16 @@ def test_cli_caller_parses_tool_calls_and_forwards_max_tokens(monkeypatch):
     out = _first_turn_caller("m", "openai", 77)(pair)
     assert out["called"] == [pair["tools"][0]["function"]["name"], pair["tools"][-1]["function"]["name"]]
     assert tp.classify(pair, out["called"])["outcome"] == "both"
+    assert out["truncated"] is False
     assert seen == [77]
+
+
+def test_cli_caller_keeps_an_empty_tool_name(monkeypatch):
+    import dokimi.llm as llm
+    from dokimi.commands.tools import _first_turn_caller
+
+    monkeypatch.setattr(llm, "chat_completion", lambda *a, **k: _Resp([""]))
+    items = tp.build_items(tp.load_groups(json.loads(GROUPS.read_text(encoding="utf-8"))), ["assertive"])
+    out = _first_turn_caller("m", "openai", 77)(items[0])
+    assert out["called"] == [""]
+    assert tp.classify(items[0], out["called"])["outcome"] == "unmatched"

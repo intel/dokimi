@@ -25,7 +25,7 @@
         "required": ["id", "query", "twins", "distractors"],
         "properties": {
           "id": {"type": "string", "minLength": 1},
-          "domain": {"type": "string", "description": "Free-form label, carried to the results for slicing."},
+          "domain": {"type": "string", "description": "Free-form label, carried to every item of the group in the results for slicing."},
           "query": {"type": "string", "minLength": 1, "description": "The user message."},
           "expect": {"enum": ["call", "none"], "description": "`none`: no tool is needed (a control group, scored as over-calling). Default `call`."},
           "twins": {
