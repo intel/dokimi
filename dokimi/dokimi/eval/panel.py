@@ -520,10 +520,19 @@ class JudgePanel:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _numeric_fields(vote: JudgeVote) -> Dict[str, Any]:
-    """The vote's figure check, when it made one: what it listed and what that capped."""
-    return {key: value for key, value in (("numeric_claims", vote.numeric_claims),
-                                          ("caps", vote.caps),
-                                          ("unread_claims", vote.unread_claims)) if value}
+    """The vote's figure check, when it made one: what it listed and what that capped.
+
+    An empty `numeric_claims` is kept, as the single judge keeps it: a check
+    that found no figures is not the same as no check.
+    """
+    fields: Dict[str, Any] = {}
+    if vote.numeric_claims is not None:
+        fields["numeric_claims"] = vote.numeric_claims
+    if vote.caps:
+        fields["caps"] = vote.caps
+    if vote.unread_claims:
+        fields["unread_claims"] = vote.unread_claims
+    return fields
 
 
 def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:

@@ -505,3 +505,18 @@ def test_a_vote_without_a_figure_check_stores_no_numeric_fields():
     with patch("dokimi.eval.panel.llm_call", return_value=reply):
         stored = panel.score_answer("oneTBB", "q", "a")
     assert not {"numeric_claims", "caps", "unread_claims"} & set(stored["panel"]["votes"][0])
+
+
+def test_a_check_that_found_no_figures_is_stored_as_an_empty_list():
+    """`[]` means the judge looked and found none; the single judge keeps it too."""
+    reply = json.dumps({"numeric_claims": [], "reasoning": "fine", "correctness": 85,
+                        "completeness": 75, "specificity": 70, "code_quality": 90,
+                        "actionability": 85})
+    panel = JudgePanel(judges=[JudgeConfig(role="technical_expert", model="m", provider="p")])
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        vote = panel._call_judge(panel.judges[0], "q", "a", "oneTBB", "")
+        stored = panel.score_answer("oneTBB", "q", "a")
+    saved = _verdict_to_dict(_aggregate([vote]))["votes"][0]
+    for form in (saved, stored["panel"]["votes"][0]):
+        assert form["numeric_claims"] == []
+        assert not {"caps", "unread_claims"} & set(form)
