@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Checks for feat-codex-profile. cwd = <workspace>/dokimi; argv: <run_dir> <task_dir>.
 
 Prints one JSON object of metrics as the last stdout line.

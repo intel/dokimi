@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Checks for feat-static-metric: a `code_block_lang` static documentation metric.
 
 Runs with cwd = <workspace>/dokimi. Prints one JSON object of metrics on its last line

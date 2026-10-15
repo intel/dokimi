@@ -44,9 +44,13 @@ header:
     - 'dokimi/requirements-docs.lock.txt'
     # Read by agents verbatim: a header would become part of the instructions,
     # persona prompt or skill being measured.
-    - 'CLAUDE.md'
+    - 'AGENTS.md'
     - 'dokimi/data/agent_profiles/**'
     - 'dokimi/data/skills/**'
+    # Eval oracles: patches applied to the workspace and reference answers
+    # written verbatim as the agent's answer (.agent-eval/run.py).
+    - '.agent-eval/tasks/**/*.patch'
+    - '.agent-eval/tasks/**/oracle_answer.md'
 
   comment: never
 

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """legacy-keys: user-facing output says treatment/control; stored keys stay with_docs/without_docs.
 
 Run as ``python check.py <run_dir> <task_dir>`` with cwd = <workspace>/dokimi. Prints one

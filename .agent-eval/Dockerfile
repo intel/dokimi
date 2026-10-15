@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 # Build image for dokimi's own repository-mode evals: CI's Python, the lock, every CI tool,
 # and a warm uv cache so `make dev` inside a run works without downloading anything.
 # Pinned by digest, like the tools below, so a rerun grades in the same image. To move it:

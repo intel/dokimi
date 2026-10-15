@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Checks for use-repo-scan: the agent ran dokimi's L0 scan on examples/toy-repo for a user.
 
     check.py <run_dir> <task_dir>      (cwd = <workspace>/dokimi)
