@@ -324,3 +324,16 @@ def test_a_repeated_treatment_or_metric_is_one_comparison(tmp_path):
     assert twice["treatments"] == ["guidance:raw"]
     assert twice["comparisons"] == once["comparisons"]
     assert _row(twice, "gate")["p_holm"] == _row(twice, "gate")["p"]  # a family of one, not two
+
+
+@pytest.mark.parametrize("spec", ["", ","])
+def test_an_empty_arm_list_is_refused_not_an_empty_comparison(tmp_path, capsys, spec):
+    b = tmp_path / "b1"
+    _cell(b, "fix_a", "guidance:none", 1)
+    _cell(b, "fix_a", "guidance:raw", 1)
+    with pytest.raises(CompareError, match="no treatment arms"):
+        compare([b], "guidance:none", [])
+    args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--arm", spec])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    assert "no treatment arms" in capsys.readouterr().err

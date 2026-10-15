@@ -84,6 +84,8 @@ def load_batches(batch_dirs: list[Path], metrics: tuple[str, ...] = ()) -> tuple
 
 def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None = None,
             models: list[str] | None = None, metrics: tuple[str, ...] = (), seed: int = 0) -> dict[str, Any]:
+    if treatments is not None and not treatments:
+        raise CompareError("no treatment arms named; leave --arm out to compare every other arm")
     metrics = tuple(dict.fromkeys(metrics))
     cells, missing = load_batches(batch_dirs, metrics)
     base_sel = parse_selector(baseline)
