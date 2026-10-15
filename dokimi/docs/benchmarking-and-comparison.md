@@ -401,11 +401,11 @@ measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` o
 only judges that passed. The stored scores are labelled from the file's
 `judge_provider`/`judge_model` (`provider/model (stored)`), so a `--validity`
 report for that judge reaches them and a verdict resting on it alone reads
-`(one judge)`. Re-scoring resolves each arm's context the way the arms run does;
-from a file that is the report snippets. Since `judge_context` the stored judge
-saw each treatment's full material, which the file does not keep, so with
-`--judges`, `--pairwise` or `--checklist` and stored scores for such an arm the
-command refuses (exit 2): the other judges see only snippets or answers.
+`(one judge)`. Re-scoring resolves each arm's context the way the arms run does,
+from the file's `judge_materials`, so a `--judges` judge sees what the stored
+judge saw. A file written before `judge_materials` has only the report snippets;
+with stored scores on such material, `--judges` refuses (exit 2), and
+`--pairwise` or `--checklist` always do, since those judges see only the answers.
 `--no-stored` compares those judges with each other. The gate itself (and `eval pairwise` / `eval checklist`) passes no
 context, so it validates a judge only in the no-context setting. A label whose significant measures all rest on one judge says `(one judge)`; an escalated pairwise measure counts as its cheap judge's. Gate a judge on
 answers from the same answer model it will judge: `cross-judge` warns when the

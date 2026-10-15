@@ -146,8 +146,14 @@ def stored_label(data: Dict[str, Any]) -> str:
     return f"{provider}/{model}{STORED}" if provider and model else "stored judge"
 
 
-def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
-    """Arms whose stored scores saw treatment material the answers file does not hold.
+def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) -> List[str]:
+    """Arms whose stored scores saw treatment material the other measures will not.
+
+    ``with_material=True`` is for re-scored judges only: they are given what the
+    artifact's ``judge_materials`` holds (:meth:`JudgeContextStore.from_artifact`),
+    so an arm is reproducible when every stored score's material is in the file.
+    Pairwise and checklist judges are shown the answers alone, so for them every
+    arm the stored judge saw material for stays unreproducible.
 
     Since ``judge_context`` the arms run shows its judge the arm's full material
     (:mod:`dokimi.eval.judge_context`) and keeps it in memory only, so
@@ -161,10 +167,13 @@ def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
         for r in data.get("answers") or [] for arm, body in (r.get("arms") or {}).items()
         if isinstance(body, dict)
     }
+    materials = data.get("judge_materials") if with_material else None
+    held = set(materials) if isinstance(materials, dict) else set()
     return sorted({
         arm for ev in data.get("evaluations") or [] for arm, s in (ev.get("scores") or {}).items()
         if isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
         and kinds.get(arm) != "baseline"
+        and s.get("judge_context_sha256") not in held
     })
 
 
@@ -201,6 +210,7 @@ def score_measure(
     arms: Optional[Sequence[str]] = None, concurrency: int = 1,
     progress: Optional[Callable[[int, int], None]] = None,
     ground_truth: Optional[Dict[str, str]] = None,
+    store: Optional[JudgeContextStore] = None,
 ) -> Measure:
     """Score every answer; with ``ground_truth`` (question_id -> text), grounded.
 
@@ -210,14 +220,13 @@ def score_measure(
     and +0.3..+2.3 grounded (none against it).
 
     Each answer's context comes from the arms run's own resolver
-    (:meth:`~dokimi.eval.judge_context.JudgeContextStore.resolve_with_source`).
-    Read from a file it has no stored treatment material, so it falls back to
-    the arm's report snippets, which is what a run before ``judge_context``
-    showed its judge; without them a stored-vs-re-scored gap mixes a change of
-    judge with a change of what the judge was shown. Material the stored judge
-    saw that the answers file does not persist is not reproduced.
+    (:meth:`~dokimi.eval.judge_context.JudgeContextStore.resolve_with_source`)
+    over *store* — pass ``JudgeContextStore.from_artifact(data)`` and the judge
+    sees what the arms run's judge saw. Answers whose material the file does not
+    hold (or with no store) fall back to the arm's report snippets, which is
+    what a run before ``judge_context`` showed its judge.
     """
-    store = JudgeContextStore()
+    store = store if store is not None else JudgeContextStore()
     jobs = [
         (r["question_id"], arm, r.get("question_text", ""), body["answer"],
          store.resolve_with_source(r["question_id"], arm, body)[0])

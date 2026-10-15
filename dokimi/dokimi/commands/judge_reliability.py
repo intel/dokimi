@@ -221,15 +221,22 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     report = CrossJudgeReport(baseline_arm=baseline, require_validated=args.require_validated)
     if not args.no_stored and isinstance(data, dict) and (m := stored_measure(data)):
         # Every other measure (re-scored, pairwise, checklist) sees at most the report snippets.
-        unrepro = unreproducible_arms(data) if (args.judges or args.pairwise or args.checklist) else []
+        # A re-scored judge gets the file's judge_materials; pairwise and checklist
+        # judges see the answers alone, so only they lose the stored material.
+        unrepro = (unreproducible_arms(data) if (args.pairwise or args.checklist)
+                   else unreproducible_arms(data, with_material=True) if args.judges else [])
         if unrepro:
             print(f"Error: the stored judge saw treatment material for {', '.join(unrepro)} that the "
-                  "answers file does not keep; the other measures (a re-scored judge sees only the report "
-                  "snippets, a pairwise or checklist judge only the answers), so the comparison would mix "
-                  "a change of judge with a change of input. Pass --no-stored to compare them with each "
-                  "other.", file=sys.stderr)
+                  "other measures will not (a pairwise or checklist judge sees only the answers; a "
+                  "re-scored judge sees the file's judge_materials, which a file written before them "
+                  "does not have), so the comparison would mix a change of judge with a change of "
+                  "input. Pass --no-stored to compare them with each other.", file=sys.stderr)
             sys.exit(2)
         report.measures.append(m)
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    # What the arms run's judge saw, when the file keeps it (judge_materials).
+    materials = JudgeContextStore.from_artifact(data) if isinstance(data, dict) else None
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     _check_judge_temperature([(m, p) for p, _, m in (s.partition("/") for s in specs) if m and p in JUDGE_PROVIDERS],
                              args.judge_temperature)
@@ -245,6 +252,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             report.measures.append(score_measure(
                 records, scorer_of(judge), name=f"{provider}/{model}", library=library,
                 concurrency=args.concurrency, progress=_progress(), ground_truth=grounding,
+                store=materials,
             ))
     for path in args.pairwise or []:
         pw = json.loads(Path(path).read_text(encoding="utf-8"))

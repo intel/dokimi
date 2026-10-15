@@ -443,6 +443,38 @@ def test_unreproducible_arms_are_those_judged_on_material_the_file_lacks():
     assert cj.unreproducible_arms(_stamped_run("snippet_fallback")) == []
 
 
+def test_an_arm_whose_material_the_file_keeps_is_reproducible_by_a_rescored_judge():
+    data = _stamped_run()
+    digest = "sha256:" + "0" * 64
+    for ev in data["evaluations"]:
+        ev["scores"]["skill"]["judge_context_sha256"] = digest
+    data["judge_materials"] = {digest: "skill body"}
+    assert cj.unreproducible_arms(data, with_material=True) == []
+    # Pairwise and checklist judges see only the answers: still unreproducible.
+    assert cj.unreproducible_arms(data) == ["skill"]
+    del data["judge_materials"]
+    assert cj.unreproducible_arms(data, with_material=True) == ["skill"]
+
+
+def test_score_measure_hands_the_stored_material_to_the_rescored_judge():
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    seen = {}
+
+    def scorer(library, question, answer, ground_truth, context):
+        seen[answer] = context
+        return 50.0
+
+    records = [{"question_id": "q1", "question_text": "q?",
+                "arms": {"skill": {"answer": "a1", "context_chunks": [{"snippet": "snip"}]}}}]
+    store = JudgeContextStore()
+    store.put("q1", "skill", "full skill body")
+    cj.score_measure(records, scorer, name="p/m", library="lib", store=store)
+    assert seen["a1"] == "full skill body"
+    cj.score_measure(records, scorer, name="p/m", library="lib")
+    assert seen["a1"] == "snip"
+
+
 def test_cross_judge_refuses_to_rescore_against_unreproducible_stored_scores(tmp_path, monkeypatch, capsys):
     import json
 
