@@ -287,8 +287,20 @@ differ. These flags pin them, and every value is recorded in the artifact so a
 pinned run cannot be mistaken for a free-sampling one:
 
 ```bash
+# models that still accept a temperature (Claude Haiku 4.5, gpt-oss, Qwen3, ...)
 python cli.py arms run ... --temperature 0 --judge --judge-temperature 0
 ```
+
+Current reasoning models accept only `temperature=1` (litellm refuses any other
+value before the request is sent): Claude Opus 4.7 and later, the 5.x Claude
+models (`claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`,
+`claude-fable-5-1`, on Anthropic and on Bedrock), and the GPT-5 family including
+`gpt-6.1-sol` while reasoning is on. The run stops at the probe below, before
+any answer is generated, so on these models leave
+`--temperature` and `--judge-temperature` unset. Their sampling cannot be
+pinned, only measured: run the same configuration several times
+(`benchmark run --multi-run N`; for `arms run`, repeat the run into separate
+`--out-json` files) and quote the spread.
 
 - `--temperature`, `--seed`: sampling for answer generation, recorded in
   `run_config`. Omitted from the request when unset.
@@ -307,7 +319,9 @@ python cli.py arms run ... --temperature 0 --judge --judge-temperature 0
 
 A flag the provider is known to reject (Bedrock rejects `seed`) fails the run
 before any answer is generated. The check reads litellm's capability table, so
-a model that table misdescribes still fails per answer.
+a model that table misdescribes still fails per answer. A value the provider
+rejects (`temperature=0` on a model that accepts only 1) is caught by one short
+probe call per answer and judge model, also before any answer is generated.
 
 The judge re-draws a reply it cannot parse, up to three attempts. At a pinned
 judge temperature the same prompt tends to return the same malformed reply, so
