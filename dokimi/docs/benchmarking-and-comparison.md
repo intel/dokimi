@@ -294,8 +294,9 @@ python cli.py arms run ... --temperature 0 --judge --judge-temperature 0
 Current reasoning models accept only `temperature=1` (litellm refuses any other
 value before the request is sent): Claude Opus 4.7 and later, the 5.x Claude
 models (`claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`,
-`claude-fable-5-1`, on Anthropic and on Bedrock), and the GPT-5 family including
-`gpt-6.1-sol` while reasoning is on. The run stops at the probe below, before
+`claude-fable-5-1`, on Anthropic and on Bedrock), and OpenAI `gpt-5`, `gpt-5.5`
+and `gpt-6.1-sol` (`gpt-5.1` and `gpt-5.2` accept a temperature unless a reasoning
+effort is set, which dokimi does not do). The run stops at the probe below, before
 any answer is generated, so on these models leave
 `--temperature` and `--judge-temperature` unset. Their sampling cannot be
 pinned, only measured: run the same configuration several times
