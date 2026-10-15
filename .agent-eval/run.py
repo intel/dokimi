@@ -203,8 +203,8 @@ def grade(rd: Path):
     if task["grader"] == "review":
         _grade_review(task, rd, metrics, details)
         metrics.update(process_metrics(rd, ws, start))
-        # repo_grade.v1's "pass" field; null = score-only
-        return {"pass": None, "metrics": metrics, "details": details, "errors": errors}  # nosec B105
+        verdict = None   # repo_grade.v1: `pass` is null for a score-only task
+        return {"pass": verdict, "metrics": metrics, "details": details, "errors": errors}
 
     _regression(ws, proj, start, metrics, logs)
     _hidden_tests(task, tdir, ws, proj, metrics, logs)
