@@ -264,6 +264,7 @@ def analyze(
 
     categories: dict[str, str] = {}
     conflicts: list[dict] = []
+    conflict_coverage = None
     if config.classify_content and atom_list:
         judged = classify.ClassifyReport()
         verdicts = classify.judge_value(
@@ -273,6 +274,10 @@ def analyze(
         classify.apply_conflicts(verdicts, conflicts)
         categories = classify.categorize(atom_list, verdicts, outcomes)
         warnings.extend(judged.warnings(len(atom_list)))
+        conflict_coverage = {
+            "pairs_compared": judged.pairs_compared,
+            "pairs_total": judged.pairs_total,
+        }
     elif not config.classify_content:
         warnings.append("content categories were not judged (--no-classify)")
 
@@ -392,6 +397,7 @@ def analyze(
         sole_carriers=attribute.sole_carriers(attributions),
         topics=attribute.topic_rollup(attributions),
         conflicts=conflicts,
+        conflict_coverage=conflict_coverage,
         extraction=extraction.as_dict(),
         cost=roll_up_cost([extractor, answerer, judge]),
         warnings=warnings,

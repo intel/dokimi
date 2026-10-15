@@ -256,6 +256,16 @@
         }
       }
     },
+    "conflict_coverage": {
+      "type": "object",
+      "description": "How much of the atom-pair space the conflict check compared. pairs_compared counts pairs that shared an answered call; pairs_total is every pair among the atoms. A batched run can leave pairs_compared below pairs_total, and harmful_atoms must not treat a count of 0 as cleared.",
+      "additionalProperties": false,
+      "required": ["pairs_compared", "pairs_total"],
+      "properties": {
+        "pairs_compared": {"type": "integer", "minimum": 0},
+        "pairs_total": {"type": "integer", "minimum": 0}
+      }
+    },
     "spans": {
       "type": "object",
       "required": ["n", "tokens"],

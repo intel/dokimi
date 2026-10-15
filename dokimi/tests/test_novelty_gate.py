@@ -100,6 +100,32 @@ def test_unclassified_run_does_not_report_zero_harmful():
     assert classified.message.startswith("0 atoms classified")
 
 
+def test_a_partial_conflict_check_does_not_clear_harmful_atoms():
+    # A batched classify that compared 20 of 45 pairs and found nothing used to set
+    # measured=True, passed=True, value=0. That is a cleared check of a scan that
+    # did not happen. A count of 1 still warns; a full pair space may still pass.
+    partial = evaluate_novelty(_artifact(
+        conflict_coverage={"pairs_compared": 20, "pairs_total": 45}))
+    check = _named(partial, "harmful_atoms")
+    assert check.measured is False and check.value is None
+    assert "harmful_atoms" in partial.not_measured
+    assert partial.status == "PASS"
+    assert "| harmful_atoms | not measured | None |" in format_novelty_block([partial])
+    assert not check.message.startswith("0 atoms")
+
+    full = _named(evaluate_novelty(_artifact(
+        conflict_coverage={"pairs_compared": 45, "pairs_total": 45})), "harmful_atoms")
+    assert full.measured is True and full.passed is True
+    assert full.message.startswith("0 atoms classified")
+
+    found = evaluate_novelty(_artifact(
+        categories={"harmful_conflicting": 1},
+        conflict_coverage={"pairs_compared": 20, "pairs_total": 45}))
+    found_check = _named(found, "harmful_atoms")
+    assert found_check.measured is True and found_check.passed is False
+    assert found.status == "WARN"
+
+
 @pytest.mark.parametrize("name, overrides", [
     ("added_floor", {"paired": {"lenient": {"added": 0.04, "n_paired": 40}}}),
     ("harmful_atoms", {"categories": {"harmful_conflicting": 3}}),
