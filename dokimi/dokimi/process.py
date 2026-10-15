@@ -18,6 +18,12 @@ which holds these invariants:
 * **Output is bytes, read as UTF-8.** ``stdout``/``stderr`` decode with
   replacement and universal newlines, whatever the locale; ``stdout_bytes`` is
   the raw stream for binary callers.
+* **Captured output is bounded.** Each stream keeps at most ``capture_limit``
+  bytes in memory (:data:`CAPTURE_LIMIT`, 1 MiB, by default): its first and last
+  half, joined by :data:`TRUNCATION_MARKER`, with ``truncated`` set on the result.
+  ``capture_limit=None`` keeps everything, for output the caller parses (git data).
+  ``stdout_to``/``stderr_to`` send a stream to a file instead of a pipe, so the
+  whole log is on disk; the result still holds its bounded head and tail.
 * **The environment is a stated policy.** There is no default ``env``: a call
   site passes :meth:`Env.inherit` (the parent's environment plus overrides) or
   :meth:`Env.only` (an allow-list plus overrides).
@@ -37,6 +43,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import selectors
 import signal
 import subprocess
 import sys
@@ -46,11 +53,14 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from typing import Protocol
+from typing import IO, Protocol
 
 TIMEOUT_RC = 124
 DRAIN_GRACE_SEC = 2.0
+CAPTURE_LIMIT = 1 << 20
+TRUNCATION_MARKER = "\n[... {dropped} bytes not kept: output over the capture limit ...]\n"
 _POLL_SEC = 0.1
+_CHUNK = 1 << 16
 _POSIX = sys.platform != "win32"
 
 if sys.platform == "win32":
@@ -98,7 +108,8 @@ class Limits:
 
 @dataclass(frozen=True)
 class Completed:
-    """What one run produced. ``returncode`` is :data:`TIMEOUT_RC` when ``timed_out``."""
+    """What one run produced. ``returncode`` is :data:`TIMEOUT_RC` when ``timed_out``;
+    ``truncated`` when a stream was over the capture limit and its middle was dropped."""
 
     argv: tuple[str, ...]
     returncode: int
@@ -106,6 +117,7 @@ class Completed:
     stderr_bytes: bytes = b""
     timed_out: bool = False
     elapsed_sec: float = 0.0
+    truncated: bool = False
 
     @cached_property
     def stdout(self) -> str:
@@ -131,6 +143,9 @@ class Runner(Protocol):
         input: str | bytes | None = None,
         capture_stdout: bool = True,
         limits: Limits | None = None,
+        capture_limit: int | None = CAPTURE_LIMIT,
+        stdout_to: str | os.PathLike[str] | None = None,
+        stderr_to: str | os.PathLike[str] | None = None,
     ) -> Completed: ...
 
 
@@ -143,36 +158,111 @@ def run(
     input: str | bytes | None = None,
     capture_stdout: bool = True,
     limits: Limits | None = None,
+    capture_limit: int | None = CAPTURE_LIMIT,
+    stdout_to: str | os.PathLike[str] | None = None,
+    stderr_to: str | os.PathLike[str] | None = None,
 ) -> Completed:
     """Run ``argv`` (no shell) to completion or ``timeout`` seconds; see the module doc."""
-    args = _check(argv, timeout)
+    args = _check(argv, timeout, capture_limit)
     data = input.encode("utf-8") if isinstance(input, str) else input
-    start = time.monotonic()
-    proc = subprocess.Popen(
-        args,
-        cwd=cwd,
-        env=env.resolve(),
-        stdin=subprocess.DEVNULL if data is None else subprocess.PIPE,
-        stdout=subprocess.PIPE if capture_stdout else subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        start_new_session=_POSIX,
-        preexec_fn=_limits_preexec(limits) if _POSIX and limits else None,
-    )
+    with _Spool(stdout_to) as out_file, _Spool(stderr_to) as err_file:
+        start = time.monotonic()
+        proc = subprocess.Popen(
+            args,
+            cwd=cwd,
+            env=env.resolve(),
+            stdin=subprocess.DEVNULL if data is None else subprocess.PIPE,
+            stdout=out_file or (subprocess.PIPE if capture_stdout else subprocess.DEVNULL),
+            stderr=err_file or subprocess.PIPE,
+            start_new_session=_POSIX,
+            preexec_fn=_limits_preexec(limits) if _POSIX and limits else None,
+        )
     job = _assign_job(proc)
-    if data is not None:  # communicate() cannot resume a partial write on a retry: feed stdin on a thread
+    if data is not None:  # a child that reads late must still get all of it: feed stdin on a thread
         sink, proc.stdin = proc.stdin, None
         threading.Thread(target=_feed, args=(sink, data), daemon=True).start()
+    out, err = _Capture(capture_limit), _Capture(capture_limit)
+    pipes = [(pipe, cap) for pipe, cap in ((proc.stdout, out), (proc.stderr, err)) if pipe]
     try:
-        out, err, timed_out = _communicate(proc, None, start + timeout, job)
+        timed_out = _collect(proc, pipes, start + timeout, job)
     except BaseException:
         _kill_tree(proc, job)
-        _close_pipes(proc)
         raise
     finally:
+        _close_pipes(proc, pipes)
         if sys.platform == "win32" and job:
             _kernel32.CloseHandle(job)
+    out_bytes, out_cut = _read_spool(stdout_to, capture_limit) if stdout_to else out.value()
+    err_bytes, err_cut = _read_spool(stderr_to, capture_limit) if stderr_to else err.value()
+    if not capture_stdout:
+        out_bytes, out_cut = b"", False
     rc = TIMEOUT_RC if timed_out else proc.returncode
-    return Completed(tuple(args), rc, out, err, timed_out, time.monotonic() - start)
+    return Completed(tuple(args), rc, out_bytes, err_bytes, timed_out, time.monotonic() - start,
+                     out_cut or err_cut)
+
+
+class _Capture:
+    """One captured stream: all of it, or only its first and last ``limit // 2`` bytes."""
+
+    def __init__(self, limit: int | None) -> None:
+        self.head_cap = None if limit is None else limit // 2
+        self.tail_cap = 0 if limit is None else limit - limit // 2
+        self.head = bytearray()
+        self.tail = bytearray()
+        self.total = 0
+        self._lock = threading.Lock()  # the Windows reader threads add while the caller may read
+
+    def add(self, chunk: bytes) -> None:
+        with self._lock:
+            self.total += len(chunk)
+            if self.head_cap is None:
+                self.head += chunk
+                return
+            room = self.head_cap - len(self.head)
+            if room > 0:
+                self.head += chunk[:room]
+                chunk = chunk[room:]
+            self.tail += chunk
+            if len(self.tail) > self.tail_cap:
+                del self.tail[:len(self.tail) - self.tail_cap]
+
+    def value(self) -> tuple[bytes, bool]:
+        """The kept bytes, with the marker where the middle was dropped, and whether it was."""
+        with self._lock:
+            return _join(bytes(self.head), bytes(self.tail), self.total)
+
+
+def _join(head: bytes, tail: bytes, total: int) -> tuple[bytes, bool]:
+    dropped = total - len(head) - len(tail)
+    if dropped <= 0:
+        return head + tail, False
+    return head + TRUNCATION_MARKER.format(dropped=dropped).encode("utf-8") + tail, True
+
+
+class _Spool:
+    """``with _Spool(path) as f``: ``path`` opened for the child to write (``None`` passes through)."""
+
+    def __init__(self, path: str | os.PathLike[str] | None) -> None:
+        self.file = open(path, "wb") if path is not None else None  # noqa: SIM115 - closed in __exit__
+
+    def __enter__(self) -> IO[bytes] | None:
+        return self.file
+
+    def __exit__(self, *exc: object) -> None:
+        if self.file:  # the child holds its own copy of the descriptor
+            self.file.close()
+
+
+def _read_spool(path: str | os.PathLike[str], limit: int | None) -> tuple[bytes, bool]:
+    """A spooled stream's bounded head and tail, read back without loading the whole file."""
+    with open(path, "rb") as fh:
+        size = os.fstat(fh.fileno()).st_size
+        if limit is None or size <= limit:
+            return fh.read(), False
+        head = fh.read(limit // 2)
+        tail_len = limit - limit // 2
+        fh.seek(size - tail_len)
+        return _join(head, fh.read(tail_len), size)
 
 
 def _feed(sink, data: bytes) -> None:
@@ -188,62 +278,100 @@ def _feed(sink, data: bytes) -> None:
             pass
 
 
-def _check(argv: Sequence[str | os.PathLike[str]], timeout: float) -> list[str]:
+def _check(argv: Sequence[str | os.PathLike[str]], timeout: float, capture_limit: int | None) -> list[str]:
     args = [os.fspath(a) for a in argv]
     if not args:
         raise ValueError("empty argv")
     if not timeout > 0:
         raise ValueError(f"timeout must be > 0, got {timeout!r}")
+    if capture_limit is not None and capture_limit < 0:
+        raise ValueError(f"capture_limit must be >= 0 or None, got {capture_limit!r}")
     return args
 
 
-def _communicate(proc: subprocess.Popen[bytes], data: bytes | None, deadline: float,
-                 job: int | None) -> tuple[bytes, bytes, bool]:
-    """Read both pipes until the child exits or ``deadline``; then kill what is left."""
-    pending: bytes | None = data
+_Pipes = Sequence[tuple[IO[bytes], _Capture]]
+
+
+def _collect(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float, job: int | None) -> bool:
+    """Read the pipes until the child exits or ``deadline`` passes; then kill what is left of
+    its group. A process outside the group may still hold a pipe: stop reading it
+    :data:`DRAIN_GRACE_SEC` after the kill. Returns whether the deadline fired."""
+    timed_out = (_select_pipes if _POSIX else _thread_pipes)(proc, pipes, deadline, job)
+    _kill_tree(proc, job)  # also background jobs that closed their output
+    return timed_out
+
+
+def _select_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float, job: int | None) -> bool:
     timed_out = False
+    killed_at: float | None = None
+    with selectors.DefaultSelector() as sel:
+        for pipe, cap in pipes:
+            sel.register(pipe, selectors.EVENT_READ, cap)
+        while sel.get_map():
+            now = time.monotonic()
+            if killed_at is None and (proc.poll() is not None or now >= deadline):
+                timed_out = proc.returncode is None
+                _kill_tree(proc, job)  # whatever still holds a pipe in the group goes too
+                killed_at = now
+            if killed_at is not None and now >= killed_at + DRAIN_GRACE_SEC:
+                break
+            until = killed_at + DRAIN_GRACE_SEC if killed_at is not None else min(deadline, now + _POLL_SEC)
+            for key, _ in sel.select(max(0.0, until - now)):
+                chunk = os.read(key.fd, _CHUNK)
+                if chunk:
+                    key.data.add(chunk)
+                else:
+                    sel.unregister(key.fileobj)
+    if killed_at is None:  # the output closed first: wait for the child itself
+        timed_out = _wait(proc, deadline)
+    return timed_out
+
+
+def _thread_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float, job: int | None) -> bool:
+    """Windows has no select() on pipes: one reader thread per pipe."""
+    readers = [threading.Thread(target=_pump, args=(pipe, cap), daemon=True) for pipe, cap in pipes]
+    for reader in readers:
+        reader.start()
+    timed_out = _wait(proc, deadline)
+    _kill_tree(proc, job)
+    grace_end = time.monotonic() + DRAIN_GRACE_SEC
+    for reader in readers:
+        reader.join(max(0.0, grace_end - time.monotonic()))
+    return timed_out
+
+
+def _pump(pipe: IO[bytes], cap: _Capture) -> None:
+    try:
+        while chunk := pipe.read1(_CHUNK):  # type: ignore[attr-defined]
+            cap.add(chunk)
+    except (OSError, ValueError):  # the pipe was closed under the reader
+        pass
+
+
+def _wait(proc: subprocess.Popen[bytes], deadline: float) -> bool:
+    """Wait for the child until ``deadline`` in short steps (so an interrupt is seen); True on timeout."""
     while True:
         remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return proc.poll() is None
         try:
-            out, err = proc.communicate(pending, timeout=max(0.0, min(_POLL_SEC, remaining)))
+            proc.wait(timeout=min(_POLL_SEC, remaining))
+            return False
         except subprocess.TimeoutExpired:
-            pending = None  # communicate() keeps the input offset and output read so far
-            if proc.poll() is not None:  # the child exited; something it started holds a pipe
-                break
-            if remaining <= 0:
-                timed_out = True
-                break
             continue
-        _kill_tree(proc, job)  # background jobs that closed their output
-        return out or b"", err or b"", False
-    _kill_tree(proc, job)
-    out, err = _drain(proc)
-    return out, err, timed_out
 
 
-def _drain(proc: subprocess.Popen[bytes]) -> tuple[bytes, bytes]:
-    """The output after a kill. A process outside the group may still hold a pipe:
-    stop waiting for it after the grace period and keep what was read."""
-    try:
-        out, err = proc.communicate(timeout=DRAIN_GRACE_SEC)
-        return out or b"", err or b""
-    except subprocess.TimeoutExpired as exc:
-        _close_pipes(proc)
-        return exc.output or b"", exc.stderr or b""
-
-
-def _close_pipes(proc: subprocess.Popen[bytes]) -> None:
+def _close_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes) -> None:
     try:
         proc.wait(timeout=DRAIN_GRACE_SEC)
     except subprocess.TimeoutExpired:
         pass
     if _POSIX:  # Windows reader threads own the handles
-        for pipe in (proc.stdin, proc.stdout, proc.stderr):
-            if pipe:
-                try:
-                    pipe.close()
-                except OSError:
-                    pass
+        for pipe, _ in pipes:
+            try:
+                pipe.close()
+            except OSError:
+                pass
 
 
 def _assign_job(proc: subprocess.Popen[bytes]) -> int | None:
@@ -299,8 +427,9 @@ GIT_ENV = Env.inherit({"GIT_TERMINAL_PROMPT": "0"})
 
 def git(*args: str, cwd: str | os.PathLike[str] | None = None, timeout: float = GIT_TIMEOUT_SEC,
         input: str | bytes | None = None, env: Env = GIT_ENV, runner: Runner = run) -> Completed:
-    """``git *args`` that never prompts for credentials and always has a timeout."""
-    return runner(["git", *args], cwd=cwd, timeout=timeout, env=env, input=input)
+    """``git *args`` that never prompts for credentials and always has a timeout. Its output
+    is data the caller parses, so it is captured whole (``capture_limit=None``)."""
+    return runner(["git", *args], cwd=cwd, timeout=timeout, env=env, input=input, capture_limit=None)
 
 
 # ── test adapter ─────────────────────────────────────────────────────────────
@@ -317,6 +446,9 @@ class Call:
     input: bytes | None
     capture_stdout: bool = True
     limits: Limits | None = None
+    capture_limit: int | None = CAPTURE_LIMIT
+    stdout_to: Path | None = None
+    stderr_to: Path | None = None
 
 
 def reply(stdout: str | bytes = "", stderr: str | bytes = "", returncode: int = 0, *,
@@ -330,7 +462,8 @@ class FakeRunner:
     """A :class:`Runner` that spawns nothing: it records every call in ``calls`` and
     answers with ``handler(call)`` (``None`` means exit 0 with no output). The handler
     may raise :class:`OSError` to stand for a command that cannot be started, and may
-    write files to stand for the command's side effects."""
+    write files to stand for the command's side effects. The answer goes through the
+    same capture limit and ``stdout_to``/``stderr_to`` files as a real run."""
 
     def __init__(self, handler: Callable[[Call], Completed | None] | None = None) -> None:
         self.handler = handler
@@ -346,16 +479,32 @@ class FakeRunner:
         input: str | bytes | None = None,
         capture_stdout: bool = True,
         limits: Limits | None = None,
+        capture_limit: int | None = CAPTURE_LIMIT,
+        stdout_to: str | os.PathLike[str] | None = None,
+        stderr_to: str | os.PathLike[str] | None = None,
     ) -> Completed:
-        args = _check(argv, timeout)
+        args = _check(argv, timeout, capture_limit)
         data = input.encode("utf-8") if isinstance(input, str) else input
-        call = Call(tuple(args), Path(cwd) if cwd is not None else None, env.resolve(), timeout,
-                    data, capture_stdout, limits)
+        path = (lambda p: Path(p) if p is not None else None)
+        call = Call(tuple(args), path(cwd), env.resolve(), timeout, data, capture_stdout, limits,
+                    capture_limit, path(stdout_to), path(stderr_to))
         self.calls.append(call)
         answer = self.handler(call) if self.handler else None
         done = answer if answer is not None else reply()
-        return dataclasses.replace(done, argv=call.argv,
-                                   stdout_bytes=done.stdout_bytes if capture_stdout else b"")
+        out, out_cut = self._capture(done.stdout_bytes, call.stdout_to, capture_limit)
+        err, err_cut = self._capture(done.stderr_bytes, call.stderr_to, capture_limit)
+        if not capture_stdout:
+            out, out_cut = b"", False
+        return dataclasses.replace(done, argv=call.argv, stdout_bytes=out, stderr_bytes=err,
+                                   truncated=done.truncated or out_cut or err_cut)
+
+    @staticmethod
+    def _capture(data: bytes, to: Path | None, limit: int | None) -> tuple[bytes, bool]:
+        if to is not None:
+            to.write_bytes(data)
+        cap = _Capture(limit)
+        cap.add(data)
+        return cap.value()
 
     def argvs(self) -> list[tuple[str, ...]]:
         return [c.argv for c in self.calls]

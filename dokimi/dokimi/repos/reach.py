@@ -371,7 +371,7 @@ def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace:
                            "cost_usd": None, "num_turns": None, "reported": [], "unknown": [], "prose": None}
     try:
         proc = process.run(argv, cwd=workspace / scenario.cwd, env=profile.env(config_dir),
-                           timeout=timeout_s)
+                           timeout=timeout_s, capture_limit=None)  # the trace is parsed whole
     except OSError as exc:
         row.update(error=f"{type(exc).__name__}: {exc}", _stdout="")
         return None, row

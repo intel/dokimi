@@ -304,7 +304,7 @@ def _run(argv: list[str], env: dict[str, str] | None = None, check: bool = True)
     (a clone or fetch needs its credential helpers); git never prompts either way."""
     policy = process.GIT_ENV if env is None else process.Env.only((), {**env, "GIT_TERMINAL_PROMPT": "0"})
     try:
-        proc = process.run(argv, env=policy, timeout=_GIT_TIMEOUT_S)
+        proc = process.run(argv, env=policy, timeout=_GIT_TIMEOUT_S, capture_limit=None)  # e.g. ls-files
     except OSError as exc:
         raise PrepError(f"{' '.join(argv[:4])}: {exc}") from exc
     if proc.timed_out:

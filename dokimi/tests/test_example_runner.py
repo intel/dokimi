@@ -15,6 +15,7 @@ from dokimi.metrics.example_runner import (
     run_example,
     score_examples,
 )
+from dokimi import process
 from dokimi.process import FakeRunner, Limits, reply
 
 
@@ -92,6 +93,23 @@ def test_subprocess_timeout_enforced():
     )
     assert res.status == "failed"
     assert "Timeout" in (res.error or "")
+
+
+def test_subprocess_stderr_flood_is_bounded_in_the_parent():
+    """A snippet that floods stderr until its timeout: the parent keeps a bounded head and
+    tail, not everything it wrote (it used to grow to gigabytes in a few seconds)."""
+    seen: list[process.Completed] = []
+
+    def recording(*args, **kwargs):
+        seen.append(process.run(*args, **kwargs))
+        return seen[-1]
+
+    code = "import sys\nwhile True:\n    sys.stderr.write('x' * 65536)\n"
+    res = run_example("python", code, ExecutionPolicy(backend="subprocess", allow_host=True, timeout=2),
+                      recording)
+    assert res.status == "failed" and res.error == "Timeout after 2s"
+    (done,) = seen
+    assert done.truncated and len(done.stderr_bytes) < process.CAPTURE_LIMIT + 200
 
 
 def test_score_examples_skipped_scores_one(tmp_path):

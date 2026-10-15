@@ -275,7 +275,9 @@ still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
   the repository-mode docker runner still spawn on their own). A timeout or
   the command's exit kills its whole process group / job object, a timeout is a
   result (`returncode` 124, partial output kept) not an exception, output is
-  read as UTF-8, and every call states its environment policy (`Env.inherit` or
+  read as UTF-8, a captured stream keeps at most 1 MiB in memory (its first and
+  last half, `truncated` set; `stdout_to`/`stderr_to` write a whole stream to a
+  file; git output is kept whole), and every call states its environment policy (`Env.inherit` or
   an `Env.only` allow-list). `FakeRunner` is its test adapter: code that spawns
   takes a `runner` argument.
 - `dokimi/llm.py` — provider-neutral LLM call wrapper (LiteLLM-based)

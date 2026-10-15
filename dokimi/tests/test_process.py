@@ -193,17 +193,12 @@ def test_timeout_returns_despite_a_setsid_child(tmp_path):
 
 def test_interrupt_kills_the_tree_and_propagates(tmp_path, monkeypatch):
     pid_file = tmp_path / "pid"
-    real = process.subprocess.Popen.communicate
-    calls = {"n": 0}
 
-    def interrupted(self, *args, **kwargs):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            _wait_for(pid_file)
-            raise KeyboardInterrupt
-        return real(self, *args, **kwargs)
+    def interrupted(*args, **kwargs):
+        _wait_for(pid_file)
+        raise KeyboardInterrupt
 
-    monkeypatch.setattr(process.subprocess.Popen, "communicate", interrupted)
+    monkeypatch.setattr(process, "_collect", interrupted)
     with pytest.raises(KeyboardInterrupt):
         _py(_TREE, str(pid_file), timeout=30)
     assert _gone_soon(int(pid_file.read_text()))
@@ -215,6 +210,73 @@ def test_limits_cap_cpu_time():
     assert not done.timed_out and done.returncode == -signal.SIGXCPU
 
 
+# ── bounded output ──────────────────────────────────────────────────────────
+
+_FLOOD = """
+import sys
+out, err = sys.stdout.buffer, sys.stderr.buffer
+for stream, n in ((out, int(sys.argv[1])), (err, int(sys.argv[2]))):
+    stream.write(b"HEAD"); stream.write(b"." * n); stream.write(b"TAIL"); stream.flush()
+"""
+_MIB = 1 << 20
+
+
+def _marker(dropped: int) -> bytes:
+    return process.TRUNCATION_MARKER.format(dropped=dropped).encode()
+
+
+def test_a_stream_over_the_capture_limit_keeps_its_head_and_tail():
+    done = _py(_FLOOD, str(100), str(20 * _MIB))
+    assert done.ok and done.truncated
+    assert done.stdout == "HEAD" + "." * 100 + "TAIL"  # under the limit: whole
+    err, total, half = done.stderr_bytes, 20 * _MIB + 8, process.CAPTURE_LIMIT // 2
+    assert err == err[:half] + _marker(total - process.CAPTURE_LIMIT) + err[-half:]
+    assert err.startswith(b"HEAD...") and err.endswith(b"...TAIL")
+    assert len(err) == process.CAPTURE_LIMIT + len(_marker(total - process.CAPTURE_LIMIT))
+
+
+def test_capture_limit_none_keeps_everything_and_a_small_limit_is_honoured():
+    whole = _py(_FLOOD, str(3 * _MIB), "0", capture_limit=None)
+    assert not whole.truncated and len(whole.stdout_bytes) == 3 * _MIB + 8
+    small = _py(_FLOOD, str(3 * _MIB), "0", capture_limit=10)
+    assert small.truncated and small.stdout_bytes == b"HEAD." + _marker(3 * _MIB - 2) + b".TAIL"
+    assert small.stderr_bytes == b"HEADTAIL"
+
+
+def test_a_flood_until_the_timeout_is_bounded():
+    """The example-runner case: a snippet writing stderr nonstop until it is killed."""
+    done = _py("import sys\nwhile True: sys.stderr.write('x' * 65536)", timeout=2)
+    assert done.timed_out and done.truncated
+    assert len(done.stderr_bytes) < process.CAPTURE_LIMIT + 200
+
+
+def test_stderr_to_spools_the_whole_stream_and_keeps_head_and_tail(tmp_path):
+    log = tmp_path / "stderr.log"
+    done = _py(_FLOOD, "5", str(3 * _MIB), stderr_to=log)
+    assert log.stat().st_size == 3 * _MIB + 8 and log.read_bytes().endswith(b"TAIL")
+    assert done.truncated and done.stdout == "HEAD.....TAIL"
+    assert len(done.stderr_bytes) == process.CAPTURE_LIMIT + len(_marker(3 * _MIB + 8 - process.CAPTURE_LIMIT))
+    out_log = tmp_path / "stdout.log"
+    small = _py(_FLOOD, "5", "0", stdout_to=out_log, capture_limit=None)
+    assert out_log.read_bytes() == small.stdout_bytes == b"HEAD.....TAIL" and not small.truncated
+
+
+def test_the_thread_reader_is_bounded_too(monkeypatch):
+    """Windows reads its pipes on threads; the same capture applies."""
+    monkeypatch.setattr(process, "_select_pipes", process._thread_pipes)
+    done = _py(_FLOOD, "5", str(4 * _MIB))
+    assert done.ok and done.truncated and done.stdout == "HEAD.....TAIL"
+    assert done.stderr_bytes.startswith(b"HEAD") and done.stderr_bytes.endswith(b"TAIL")
+    assert len(done.stderr_bytes) < process.CAPTURE_LIMIT + 200
+    late = _py("import time; time.sleep(5)", timeout=1)
+    assert late.timed_out and late.returncode == TIMEOUT_RC
+
+
+def test_a_negative_capture_limit_is_refused():
+    with pytest.raises(ValueError):
+        _py("pass", capture_limit=-1)
+
+
 # ── git ─────────────────────────────────────────────────────────────────────
 
 
@@ -224,6 +286,7 @@ def test_git_never_prompts_and_has_a_timeout(tmp_path):
     (call,) = fake.calls
     assert call.argv == ("git", "rev-parse", "HEAD") and call.cwd == tmp_path
     assert call.env["GIT_TERMINAL_PROMPT"] == "0" and call.timeout == process.GIT_TIMEOUT_SEC
+    assert call.capture_limit is None  # git output is data: never cut
 
 
 def test_git_runs_for_real(tmp_path):
@@ -269,3 +332,12 @@ def test_input_larger_than_the_pipe_reaches_a_child_that_reads_late():
 def test_input_to_a_child_that_never_reads_it_is_not_an_error():
     done = _py("pass", input=b"x" * 2_000_000, timeout=20)
     assert done.returncode == 0 and not done.timed_out
+
+
+def test_fake_runner_applies_the_capture_limit_and_spools(tmp_path):
+    fake = FakeRunner(lambda call: reply("o" * 30, "e" * 30))
+    done = fake(["x"], timeout=1, env=INHERIT, capture_limit=10, stderr_to=tmp_path / "err")
+    assert done.truncated and done.stdout_bytes == b"o" * 5 + _marker(20) + b"o" * 5
+    assert (tmp_path / "err").read_bytes() == b"e" * 30
+    assert fake.calls[0].capture_limit == 10 and fake.calls[0].stderr_to == tmp_path / "err"
+    assert not fake(["x"], timeout=1, env=INHERIT).truncated
