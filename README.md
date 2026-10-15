@@ -110,34 +110,43 @@ pip install -e .                 # installs the `dokimi` command
 Every LLM step takes `--model` and `--provider`. The provider is one of
 `openai`, `anthropic`, `amazon-bedrock`, `google-vertex` or `openrouter`.
 Credentials are read from the environment: `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, or `AWS_REGION` with `AWS_BEARER_TOKEN_BEDROCK`.
-`--judge-model` must name a different model from `--model`, because a model
-that grades its own answers inflates the scores.
+`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AWS_REGION` with
+`AWS_BEARER_TOKEN_BEDROCK` for Bedrock, and Google application-default
+credentials (`GOOGLE_APPLICATION_CREDENTIALS`, with `VERTEXAI_PROJECT` and
+`VERTEXAI_LOCATION`) for Vertex. The judge must be a different model from the
+one under measurement, because a model that grades its own answers inflates
+the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
+`--judge --judge-model <other>` yourself.
 
 ### A skill
 
 | Step | Command | Cost |
 |---|---|---|
 | 1. Does it load? | `dokimi catalog scan --root <catalog> --kind skills` | free |
-| 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --competitors skill:<sibling> … --queries queries.json [--model …]` | free without `--model` |
+| 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --catalog <catalog> --queries queries.json [--model …]` | free without `--model` |
 | 3. What will step 4 cost? | `dokimi novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
-| 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider` and `--judge-model` | ~100 calls |
-| 5. Does it help? | `dokimi arms run --arms baseline,skill:<dir> …` against a question or task set | depends on the set |
+| 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
+| 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <m> --judge --judge-model <other>` | one answer and one grade per question and arm |
+| 5b. Does code improve? | `dokimi tasks run --tasks-root <checkout>/tasks --all --harnesses docker-claude,docker-claude-skill:<dir> --baseline-harness docker-claude` ([coding-harnesses.md](dokimi/docs/coding-harnesses.md)) | one agent run per task and harness |
 
 - **Competitors** are the other skills an agent sees next to this one when it
   picks a skill to load. For a catalog skill they are its siblings in the
-  same catalog. Routing asks whether this skill wins the user requests meant
-  for it. If you only have the one skill, skip step 2 and say so in the
-  review: a number measured against invented competitors measures nothing.
+  same catalog: `--catalog <dir>` takes every other skill under it, and
+  `--competitors skill:<path> …` names them one by one. Routing asks whether
+  this skill wins the user requests meant for it. If you only have the one
+  skill, skip step 2 and say so in the review: a number measured against
+  invented competitors measures nothing.
 - **Queries** are 5–10 requests written the way a user would phrase them.
   Write them without looking at the skill's own headings.
 - **Stop after triage (step 4)** and report. The `standard` and `study`
   tiers cost 5–20 times more, so run them only when whoever asked agrees to
-  the bill. The estimate counts model calls, not dollars. One measured
-  example: triage on a 19k-token skill with a mid-size model was 103 calls,
-  about $1.80; `study` on the same skill was 1,900 calls, about $14.50.
-- Step 5 needs evaluation content: a golden question set or executable
-  tasks. That content lives outside this repository
+  the bill. The estimate counts model calls, not dollars, so pass
+  `--max-usd` to every step that calls a model: the run stops once it has
+  spent that much. One measured example: triage on a 19k-token skill with a
+  mid-size model was 103 calls, about $1.80; `study` on the same skill was
+  1,900 calls, about $14.50.
+- Step 5 needs evaluation content: a golden question set for 5a, executable
+  tasks for 5b. `arms run` takes no tasks. That content lives outside this repository
   ([external-content.md](dokimi/docs/external-content.md)). Without it, the
   review covers selection and content, not outcomes, and should say so.
 
@@ -147,17 +156,16 @@ The full path with reading notes: [skill-novelty-walkthrough.md](dokimi/docs/ski
 
 | Step | Command | Cost |
 |---|---|---|
-| 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo> --manifest-file repo-eval.yaml` | free |
-| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --manifest-file repo-eval.yaml --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | ~$0.01–0.03 per scenario |
+| 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
+| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | ~$0.01–0.03 per scenario |
 | 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
 | 4. Does the guidance change task outcomes? | `dokimi repo run … --arm guidance:none` and again with `--arm guidance:raw`, one batch each | needs the repository's own tasks |
 
-If the repository has no `repo-eval.yaml`, write one outside its tree and
-pass it with `--manifest-file`. Steps 1–3 read only `guidance`. The schema
-still requires `eval_dir`, `tasks` and `entry_points`, so give them
-placeholder values. `repo validate` will then report that the placeholder
-paths are missing. That is expected, and it is not a finding about the
-repository.
+With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
+guidance globs (`**/AGENTS.md`, `**/CLAUDE.md`,
+`.github/copilot-instructions.md`, `.github/instructions/*.md`) and say so.
+To choose the files, write a guidance-only manifest outside the tree and pass
+it with `--manifest-file`:
 
 ```yaml
 schema: repo_manifest.v1
@@ -165,17 +173,15 @@ id: <name>
 guidance:
   globs: ["**/AGENTS.md", "**/CLAUDE.md", ".github/copilot-instructions.md"]
   also_scan: ["CONTRIBUTING.md"]
-eval_dir: .agent-eval              # placeholders: not read by scan or reach
-tasks: .agent-eval/tasks
-entry_points: {grade: "true"}
 ```
+
+A guidance-only manifest has no tasks, so step 4 refuses it.
 
 How to read the results:
 
 - **Scan:** only `fail` counts against the guidance, and each `fail` still
-  needs a look. Harness tool names (`run_in_background`), action refs
-  (`actions/checkout@v6`) and placeholders (`<name>`, `caseNN_*`) show up as
-  `fail` too. `unresolved` means not checkable, not wrong.
+  needs a look. Harness tool names (`run_in_background`) and placeholders
+  (`<name>`, `caseNN_*`) can show up as `fail` too. `unresolved` means not checkable, not wrong.
 - **Reach:** a guidance file nobody loads cannot help anyone. Run `reach`
   before you judge the guidance's content. `loaded` comes from the harness
   itself, not from the harness's documentation, so a result that contradicts
