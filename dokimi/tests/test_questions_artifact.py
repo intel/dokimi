@@ -252,6 +252,25 @@ def test_load_questions_reads_a_v2_file_unchanged(tmp_path):
     assert (loaded.source_version, loaded.artifact) == ("questions.v2", written)
 
 
+@pytest.mark.parametrize("version, text_key", [("questions.v1", "text"), ("questions.v2", "question")])
+def test_question_id_0_round_trips_as_id_0(version, text_key, tmp_path):
+    src = tmp_path / "src.json"
+    src.write_text(json.dumps({"schema_version": version,
+                               "questions": [{"id": 0, text_key: "Q0?"}, {"id": 1, text_key: "Q1?"}]}),
+                   encoding="utf-8")
+    loaded = load_questions(src)
+    assert loaded.source_version == version
+    assert [q["id"] for q in loaded.questions] == [0, 1]
+    out = tmp_path / "v2.json"
+    save_questions_artifact(loaded.artifact, out)
+    again = load_questions(out)
+    assert again.source_version == "questions.v2"
+    assert [q["id"] for q in again.questions] == [0, 1]
+    assert json.loads(out.read_text(encoding="utf-8"))["questions"][0] == {"id": 0, "question": "Q0?"}
+    # The normalizer keeps 0 as the id instead of renaming it to its positional q0000.
+    assert [normalize_question(q, i + 5)["id"] for i, q in enumerate(again.questions)] == [0, 1]
+
+
 def test_load_questions_without_validation_reports_only_the_declared_version(tmp_path):
     out = tmp_path / "q.json"
     out.write_text(json.dumps({"questions": [{"text": "no id"}]}), encoding="utf-8")
