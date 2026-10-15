@@ -149,3 +149,11 @@ def test_split_arm_list():
     assert split_arm_list(" baseline, docs ,,") == ["baseline", "docs"]
     with pytest.raises(ArmSpecError, match="at least one"):
         split_arm_list(" , ")
+
+
+def test_arms_command_uses_the_shared_arm_list_split():
+    from dokimi.commands.arms import _parse_arm_specs
+
+    assert _parse_arm_specs(" baseline , ,skill:/x ") == ["baseline", "skill:/x"]
+    with pytest.raises(ArmSpecError):
+        _parse_arm_specs(" , ")

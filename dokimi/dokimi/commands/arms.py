@@ -414,10 +414,9 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
 
 
 def _parse_arm_specs(raw: str) -> list[str]:
-    specs = [s.strip() for s in raw.split(",") if s.strip()]
-    if not specs:
-        raise ValueError("--arms must list at least one arm spec.")
-    return specs
+    from dokimi.treatments.specs import split_arm_list
+
+    return split_arm_list(raw)
 
 
 def _load_questions(path: str) -> list[dict]:
