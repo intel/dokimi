@@ -352,6 +352,16 @@ def test_evaluate_answers_incremental_save(tmp_path):
     assert "panel_config" in data
 
 
+def test_saved_panel_output_stamps_the_role_prompt_digest(tmp_path):
+    """Runs before and after a prompt change must be told apart from the file alone."""
+    panel = JudgePanel()
+    out = tmp_path / "eval_panel.json"
+    with patch("dokimi.eval.panel.llm_call", return_value=FAKE_LLM_RESPONSE):
+        panel.evaluate_answers(_fake_answers(1), library_name="oneTBB", output_path=out)
+    config = json.loads(out.read_text())["panel_config"]
+    assert config["prompt_sha256"] == panel.prompt_sha256
+
+
 def test_evaluate_answers_limit(tmp_path):
     panel = JudgePanel()
     with patch("dokimi.eval.panel.llm_call", return_value=FAKE_LLM_RESPONSE):
