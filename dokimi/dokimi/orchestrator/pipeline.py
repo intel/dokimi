@@ -142,7 +142,7 @@ class EvaluationPipeline:
                 raise FileNotFoundError(
                     f"--custom-questions path does not exist: {_custom_path}"
                 )
-            self.custom_questions_path = _custom_path
+            self.custom_questions_path: Optional[Path] = _custom_path
         elif self.questions_root is not None:
             _auto_golden = self.questions_root / f"{self.product_key.lower()}_golden.json"
             if _auto_golden.is_file():
@@ -212,7 +212,7 @@ class EvaluationPipeline:
         """
         logger.info(f"Starting evaluation pipeline for {self.product}")
         
-        results = {
+        results: Dict[str, Any] = {
             "product": self.product,
             "repo": self.repo,
             "steps": {}
@@ -527,7 +527,8 @@ class EvaluationPipeline:
         
         return answers
     
-    def _evaluate_answers(self, answers: List[Dict[str, Any]], concurrency: int = 5,
+    def _evaluate_answers(self, answers: List[Dict[str, Any]] | Dict[str, Any],
+                          concurrency: int = 5,
                           question_set_hash: Optional[str] = None) -> List[Dict[str, Any]]:
         """Evaluate answers using LLM-as-judge."""
         from dokimi.eval import Judge

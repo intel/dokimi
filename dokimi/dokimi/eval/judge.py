@@ -17,6 +17,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from dokimi.artifacts import save_artifact
+from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose, retrieval_hit
 # One calibration scale for both the single judge and the panel, so their
@@ -199,7 +200,7 @@ _FORMAT_REMINDER = (
 JUDGE_PROVIDERS = ("openai", "anthropic", "google", "google-vertex", "openrouter", "amazon-bedrock")
 
 
-def _clip_ground_truth(ground_truth: str, limit: int = MAX_GROUND_TRUTH_CHARS) -> str:
+def _clip_ground_truth(ground_truth: Optional[str], limit: int = MAX_GROUND_TRUTH_CHARS) -> str:
     """Bound ground-truth length while preserving line structure.
 
     ``textwrap.shorten`` collapses all whitespace, which would flatten a
@@ -277,6 +278,7 @@ class Judge:
             "redrawn_judgements": 0,
         }
 
+        self.llm: ChatModel
         if provider == "openai":
             self.llm = ChatOpenAI(model=model, api_key=api_key,
                                   temperature=temperature, seed=seed)
@@ -694,7 +696,7 @@ class Judge:
 
     def _build_evaluation_output(self, evaluations: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Build the serialisable output structure for a set of evaluations."""
-        output = {
+        output: Dict[str, Any] = {
             "evaluated_at": self._get_timestamp(),
             "judge_model": self.model,
             "judge_provider": self.provider,
@@ -706,10 +708,10 @@ class Judge:
             totals = dict(self._usage_totals)
         # cost_usd is null (not 0.0) when no judge call had known pricing, so a
         # missing price reads distinct from a genuinely free judge.
-        totals["cost_usd"] = (
-            round(totals["cost_usd"], 6) if totals["cost_known_calls"] else None
-        )
-        output["judge_metrics"] = totals
+        output["judge_metrics"] = {
+            **totals,
+            "cost_usd": round(totals["cost_usd"], 6) if totals["cost_known_calls"] else None,
+        }
         if self.run_metadata:
             output["run_metadata"] = self.run_metadata
         return output

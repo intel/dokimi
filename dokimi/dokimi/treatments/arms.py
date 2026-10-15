@@ -408,7 +408,7 @@ class CombinedTreatment(Treatment):
             raise ValueError(f"combined arm '{self.name}' offers duplicate tools: {', '.join(dupes)}")
 
         # Merge metadata - track each sub-treatment's contribution
-        merged_metadata = {
+        merged_metadata: Dict[str, Any] = {
             "arm_kind": "combined",
             "combined_count": len(self.treatments),
             "treatments": [],

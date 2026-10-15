@@ -98,44 +98,30 @@ ignore = ["B008"]
 
 # Type checking covers the whole package. The modules listed in the override
 # below carried type errors when the gate was widened from a hand-picked file
-# list; they are exempt until fixed. Do not add to that list: a new module is
-# checked from its first commit. Removing an entry is the way to shrink it.
+# list; they are exempt until fixed. The list can only shrink:
+# tests/test_mypy_config.py fails on an entry that is not in its frozen
+# baseline, so a new module is checked from its first commit. Fix the types
+# and remove the entry (from both places) to shrink it.
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
 disable_error_code = ["import-untyped"]
-warn_unused_ignores = false
+# Pydantic models (the LangChain chat classes) take field aliases such as
+# model= and api_key=; without the plugin mypy sees only the field names.
+plugins = ["pydantic.mypy"]
 no_implicit_optional = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+strict_equality = true
+extra_checks = true
 files = ["dokimi"]
 
 [[tool.mypy.overrides]]
 module = [
   "dokimi.commands.catalog",
-  "dokimi.eval.agent_runner",
-  "dokimi.eval.answerer",
-  "dokimi.eval.arm_runner",
-  "dokimi.eval.judge",
-  "dokimi.eval.panel",
-  "dokimi.llm",
-  "dokimi.mcp.context7",
-  "dokimi.mcp.factory",
-  "dokimi.novelty.attribute",
-  "dokimi.novelty.needs",
-  "dokimi.novelty.spans",
-  "dokimi.orchestrator.pipeline",
   "dokimi.personas.analyzer",
-  "dokimi.personas.generator",
-  "dokimi.questions.llm_gen",
-  "dokimi.questions.panel_reviewer",
-  "dokimi.questions.quality_analyzer",
-  "dokimi.questions.validator",
-  "dokimi.report.eval_report",
-  "dokimi.report.model_compare",
-  "dokimi.report.task_runs_report",
-  "dokimi.treatments.arms",
-  "dokimi.treatments.factory",
-  "dokimi.treatments.tools",
-  "dokimi.utils",
 ]
 ignore_errors = true
 

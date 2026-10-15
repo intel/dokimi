@@ -126,12 +126,12 @@ def run_agent_loop(
     tools: List[Tool],
     model: str,
     provider: str = "openai",
-    system_prompt: str = None,
-    api_key: str = None,
+    system_prompt: str | None = None,
+    api_key: str | None = None,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
-    max_tokens: int = None,
-    temperature: float = None,
-    seed: int = None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    seed: int | None = None,
 ) -> Dict[str, Any]:
     """Drive a tool-calling conversation to a final answer.
 

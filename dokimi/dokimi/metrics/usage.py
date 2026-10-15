@@ -43,7 +43,7 @@ class UsageRecord:
     n_calls: int = 1
     cost_known_calls: int = 0
 
-    def __add__(self, other: "UsageRecord") -> "UsageRecord":
+    def __add__(self, other: "UsageRecord | int") -> "UsageRecord":
         """Sum two records: tokens/cost/latency/n_calls add; first ttft wins.
 
         ``cost_usd`` stays ``None`` only if *both* operands are ``None`` (one

@@ -14,6 +14,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from dokimi.artifacts import save_artifact
+from dokimi.llm import ChatModel
 from dokimi.llm import llm_call_with_usage, ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.metrics.usage import UsageRecord, to_record
 
@@ -83,6 +84,7 @@ class Answerer:
         self.provider = provider
         self.api_key = api_key
 
+        self.llm: Optional[ChatModel]
         if provider == "openai":
             self.llm = ChatOpenAI(model=model, api_key=api_key)
         elif provider == "anthropic":
@@ -99,6 +101,7 @@ class Answerer:
         self.debug_retrieval = debug_retrieval
         
         # Initialize reranker (prefer semantic, fallback to lexical)
+        self.reranker: SentenceTransformerReranker | SimpleReranker
         if SENTENCE_TRANSFORMERS_AVAILABLE:
             try:
                 self.reranker = SentenceTransformerReranker(threshold=rerank_threshold)
@@ -425,18 +428,17 @@ class Answerer:
     def _build_output(self, answers: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Build the serialisable output structure for a set of answers."""
         # Aggregate token usage across all answers
-        total_usage = {
-            "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
-            "with_docs": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            "without_docs": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-        }
+        keys = ("prompt_tokens", "completion_tokens", "total_tokens")
+        totals = dict.fromkeys(keys, 0)
+        by_mode = {mode: dict.fromkeys(keys, 0) for mode in ("with_docs", "without_docs")}
         for a in answers:
-            for mode in ("with_docs", "without_docs"):
+            for mode, sums in by_mode.items():
                 u = (a.get(mode) or {}).get("token_usage") or {}
-                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                for k in keys:
                     v = u.get(k, 0) or 0
-                    total_usage[mode][k] += v
-                    total_usage[k] += v
+                    sums[k] += v
+                    totals[k] += v
+        total_usage = {**totals, **by_mode}
 
         return {
             "generated_at": self._get_timestamp(),
@@ -455,7 +457,7 @@ class Answerer:
         self,
         answers: List[Dict[str, Any]],
         output_path: Path,
-        question_set_hash: str = None,
+        question_set_hash: Optional[str] = None,
     ):
         """Save answers to JSON file."""
         data = self._build_output(answers)

@@ -21,13 +21,14 @@ try:  # optional: local, key-free embeddings for deduplication
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
+from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 
 
 #: Failures of the embedding *backend* — unreachable hub, uncached model,
 #: rejected or exhausted API key — which skip deduplication. Anything else
 #: (a TypeError from a malformed question, say) is a bug and still raises.
-_BACKEND_ERRORS: Tuple[type, ...] = (OSError, ConnectionError, TimeoutError)
+_BACKEND_ERRORS: Tuple[type[BaseException], ...] = (OSError, ConnectionError, TimeoutError)
 try:
     import openai as _openai
 
@@ -120,6 +121,7 @@ class QuestionValidator:
         self.llm_provider = llm_provider
         self.api_key = api_key
 
+        self.llm: Optional[ChatModel]
         if LANGCHAIN_AVAILABLE:
             if llm_provider == "openai":
                 self.llm = ChatOpenAI(model=llm_model, api_key=api_key)
@@ -182,8 +184,8 @@ class QuestionValidator:
         self.dedupe_ran = False
         self.dedupe_error: Optional[str] = None
 
-        self.openai_client = None
-        self._local_encoder = None
+        self.openai_client: Optional[OpenAI] = None
+        self._local_encoder: Optional[SentenceTransformer] = None
         if embedding_provider == "openai":
             if not OPENAI_AVAILABLE:
                 raise ImportError(
@@ -470,6 +472,8 @@ class QuestionValidator:
         if self.embedding_provider == "local":
             return self._get_local_embeddings(texts)
         try:
+            # Callers check _embeddings_available(); the "openai" backend sets both.
+            assert self.openai_client is not None and self.embedding_model is not None
             response = self.openai_client.embeddings.create(
                 input=texts,
                 model=self.embedding_model

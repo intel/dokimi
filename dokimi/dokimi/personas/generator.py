@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 import json
 
+from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,7 @@ class PersonaGenerator:
         self.provider = provider
         self.api_key = api_key
 
+        self.llm: ChatModel
         if provider == "openai":
             self.llm = ChatOpenAI(model=model, api_key=api_key)
         elif provider == "anthropic":

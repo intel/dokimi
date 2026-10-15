@@ -29,7 +29,7 @@ HAS_SCIPY = eval_stats.HAS_SCIPY
 
 try:
     from zoneinfo import ZoneInfo
-    _TZ = ZoneInfo("America/Los_Angeles")
+    _TZ: ZoneInfo | None = ZoneInfo("America/Los_Angeles")
 except ImportError:
     _TZ = None
 
@@ -106,7 +106,7 @@ def fmt_delta(d):
     return f"+{d}" if d > 0 else str(d)
 
 
-def fmt_question(text: str) -> str:
+def fmt_question(text: str | None) -> str:
     """Keep full question text, but make it markdown-table safe."""
     if text is None:
         return ""
@@ -370,10 +370,10 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         wd = e["with_docs"]["aggregate"] if e.get("with_docs") and e["with_docs"].get("aggregate") is not None else "N/A"
         wod = e["without_docs"]["aggregate"] if e.get("without_docs") and e["without_docs"].get("aggregate") is not None else "N/A"
         delta = e.get("delta")
-        d = round(delta, 1) if isinstance(delta, float) else delta
+        rounded = round(delta, 1) if isinstance(delta, float) else delta
         lines.append(
             f'| {e["question_id"]} | {e.get("difficulty", "—")} | {wd} | {wod} '
-            f'| {fmt_delta(d)} | {fmt_question(e.get("question_text", ""))} |'
+            f'| {fmt_delta(rounded)} | {fmt_question(e.get("question_text", ""))} |'
         )
     lines.append("")
 
@@ -387,10 +387,10 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         wd = e["with_docs"]["aggregate"] if e.get("with_docs") and e["with_docs"].get("aggregate") is not None else "N/A"
         wod = e["without_docs"]["aggregate"] if e.get("without_docs") and e["without_docs"].get("aggregate") is not None else "N/A"
         delta = e.get("delta")
-        d = round(delta, 1) if isinstance(delta, float) else delta
+        rounded = round(delta, 1) if isinstance(delta, float) else delta
         lines.append(
             f'| {e["question_id"]} | {e.get("difficulty", "—")} | {wd} | {wod} '
-            f'| {fmt_delta(d)} | {fmt_question(e.get("question_text", ""))} |'
+            f'| {fmt_delta(rounded)} | {fmt_question(e.get("question_text", ""))} |'
         )
     lines.append("")
 

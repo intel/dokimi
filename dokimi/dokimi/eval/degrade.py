@@ -583,7 +583,7 @@ def degrade(
     return DEGRADATIONS[variant](answer, rng=random.Random(seed), other=other)
 
 
-def _answer_pool(answers: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _answer_pool(answers: Iterable[object]) -> List[Dict[str, Any]]:
     """Flatten a run's answers into (question_id, question_text, arm, answer) rows.
 
     Accepts both the arm-runner shape (``arms: {name: {answer: ...}}``) and the

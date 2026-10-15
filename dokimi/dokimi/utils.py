@@ -94,8 +94,8 @@ def bedrock_litellm_model(model: str) -> str:
     return f"{prefix}{model}"
 
 
-def get_llm(provider: str, model: str, api_key: str = None,
-            temperature: float = None, seed: int = None):
+def get_llm(provider: str, model: str, api_key: str | None = None,
+            temperature: float | None = None, seed: int | None = None):
     """Return a minimal chat wrapper with .invoke(prompt) -> object(content=...)."""
     from litellm import completion
 
@@ -105,8 +105,9 @@ def get_llm(provider: str, model: str, api_key: str = None,
             self.usage = usage   # UsageRecord | None — lets the judge track cost
 
     class _LLM:
-        def __init__(self, litellm_model: str, key: str = None, default_max_tokens: int = None,
-                     temperature: float = None, seed: int = None):
+        def __init__(self, litellm_model: str, key: str | None = None,
+                     default_max_tokens: int | None = None,
+                     temperature: float | None = None, seed: int | None = None):
             self.litellm_model = litellm_model
             self.key = key
             self.default_max_tokens = default_max_tokens
@@ -160,10 +161,10 @@ def get_llm(provider: str, model: str, api_key: str = None,
                 caching.store_response(key, text, usage)
             return _Resp(text, usage=usage)
 
-    api_key = _read_key(api_key)
+    api_key = _read_key(api_key) if api_key else api_key
 
     if provider == "openrouter":
-        key = api_key or _read_key(os.environ.get("OPENROUTER_API_KEY", ""))
+        key: str | None = api_key or _read_key(os.environ.get("OPENROUTER_API_KEY", ""))
         litellm_model = model if model.startswith("openrouter/") else f"openrouter/{model}"
         return _LLM(litellm_model=litellm_model, key=key, default_max_tokens=2000,
                     temperature=temperature, seed=seed)
