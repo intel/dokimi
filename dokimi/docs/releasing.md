@@ -7,7 +7,7 @@ is cut. The first release is 0.1.0.
 
 The version lives in one place: `project.version` in `pyproject.toml`.
 `dokimi --version`, `dokimi.__version__` and the `dokimi_version` field of the
-run manifest all read it. A source checkout reads `pyproject.toml` itself, an
+`dokimi run` manifest and of the subject scorecard `run_manifest` all read it. A source checkout reads `pyproject.toml` itself, an
 installed wheel its package metadata.
 
 dokimi follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before
@@ -20,7 +20,7 @@ dokimi follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Befor
 
 A scoring change is a minor bump even when no interface changes: results from
 two versions are comparable only when the scoring is the same, and the version
-in the run manifest is how a reader tells.
+in the `dokimi run` manifest or the scorecard is how a reader tells.
 
 Artifact formats are versioned separately, by the `schema_version` of each file
 under `dokimi/schemas/` and the `contracts` workflow; a package release does not

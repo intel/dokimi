@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from dokimi import __version__
+
 from .loader import awareness_arm_specs, work_arm_specs
 from .models import SubjectDescriptor
 from .novelty_track import build_novelty_block, novelty_warnings
@@ -116,6 +118,7 @@ def build_subject_scorecard(
         "novelty": novelty,
         "plugin_deltas": plugin_deltas,
         "run_manifest": {
+            "dokimi_version": __version__,
             "out_dir": str(out_dir),
             "matrix_cells": len(descriptor.matrix_cells),
             "awareness_runs": len(awareness_runs),
