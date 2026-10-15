@@ -492,6 +492,9 @@ def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
     finally:
         if cli.poll() is None:
             cli.kill()
+        cli.wait()
+        if cli.stderr:
+            cli.stderr.close()  # an unclosed pipe is a ResourceWarning, now an error
         for pid in pids:
             try:
                 os.kill(pid, signal.SIGKILL)

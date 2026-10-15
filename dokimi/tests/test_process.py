@@ -242,6 +242,7 @@ def test_sigterm_kills_the_live_groups_then_the_caller_dies_of_it(tmp_path):
         assert _gone_soon(grandchild)
     finally:
         caller.kill()
+        caller.wait()  # reaped: an unreaped Popen is a ResourceWarning, now an error
 
 
 @_POSIX_ONLY
@@ -253,6 +254,7 @@ def test_an_earlier_handler_still_runs_and_an_ignored_sighup_stays_ignored(tmp_p
         assert _gone_soon(grandchild)
     finally:
         caller.kill()
+        caller.wait()  # reaped: an unreaped Popen is a ResourceWarning, now an error
     (tmp_path / "pid").unlink()
     caller, grandchild = _caller(tmp_path, "nohup")
     try:
@@ -261,6 +263,7 @@ def test_an_earlier_handler_still_runs_and_an_ignored_sighup_stays_ignored(tmp_p
         assert caller.poll() is None and _alive(grandchild)
     finally:
         caller.kill()
+        caller.wait()  # reaped: an unreaped Popen is a ResourceWarning, now an error
         os.kill(grandchild, signal.SIGKILL)
 
 
