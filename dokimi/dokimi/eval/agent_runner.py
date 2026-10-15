@@ -54,6 +54,27 @@ def _tool_call_fields(tc: Any):
     return getattr(tc, "id", None), name, args
 
 
+#: Values of a transcript record's ``error``: the call never ran the tool
+#: (``unknown_tool``, ``malformed_args``) or the tool raised (``tool_error``).
+CALL_ERRORS = ("unknown_tool", "malformed_args", "tool_error")
+
+
+def _parse_arguments(args_str: str):
+    """Return ``(args, problem)`` for a tool call's JSON arguments.
+
+    ``problem`` is None when ``args`` is a usable keyword dict. Running the tool
+    on ``{}`` after a parse failure would hand it its defaults (an empty search
+    query) and record a call that looks like the model asked for that.
+    """
+    try:
+        args = json.loads(args_str) if args_str else {}
+    except json.JSONDecodeError as exc:
+        return {}, f"arguments are not valid JSON ({exc.msg})"
+    if not isinstance(args, dict):
+        return {}, f"arguments must be a JSON object, not {type(args).__name__}"
+    return args, None
+
+
 def _summarize_tool_usage(
     tools: List[Tool], transcript: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
@@ -62,8 +83,11 @@ def _summarize_tool_usage(
     offered_by_name = {t["name"]: t for t in offered}
     calls_by_name: Dict[str, int] = {name: 0 for name in offered_by_name}
     first_iteration_by_name: Dict[str, int] = {}
+    call_errors: Dict[str, int] = {kind: 0 for kind in CALL_ERRORS}
 
     for call in transcript:
+        if call.get("error") in call_errors:
+            call_errors[call["error"]] += 1
         name = call.get("tool")
         if not name:
             continue
@@ -100,6 +124,7 @@ def _summarize_tool_usage(
         "tool_call_count_by_name": calls_by_name,
         "first_call_iteration_by_name": first_iteration_by_name,
         "used_any_tool": bool(called_tools),
+        "call_errors": call_errors,
         "skill": {
             "offered": bool(skill_tools),
             "offered_tools": skill_tools,
@@ -136,7 +161,8 @@ def run_agent_loop(
     """Drive a tool-calling conversation to a final answer.
 
     Returns a dict with: ``answer``, ``transcript`` (list of tool-call records,
-    each with ``tool_elapsed_sec``), ``iterations``, ``stopped_reason``,
+    each with ``tool_elapsed_sec``, plus ``error`` — one of :data:`CALL_ERRORS` —
+    on a call that failed), ``iterations``, ``stopped_reason``,
     ``usage`` (serialised metrics accumulated across turns), ``token_usage`` (the
     legacy 3-key alias), and ``per_turn`` (per-turn latency/token detail).
     """
@@ -205,27 +231,36 @@ def run_agent_loop(
         # Execute each tool call and append its result.
         for tc in tool_calls:
             tc_id, name, args_str = _tool_call_fields(tc)
-            try:
-                args = json.loads(args_str) if args_str else {}
-            except json.JSONDecodeError:
-                args = {}
+            args, bad_args = _parse_arguments(args_str)
             tool = by_name.get(name)
             t_tool = time.time()
+            error = None
             if tool is None:
                 result = f"(unknown tool: {name})"
+                error = "unknown_tool"
+            elif bad_args:
+                # Tell the model, so it can retry; do not run the tool on {}.
+                result = f"(invalid tool arguments: {bad_args})"
+                error = "malformed_args"
             else:
                 try:
                     result = tool.call(**args)
                 except Exception as exc:  # tool failures must not crash the run
                     logger.exception("Tool %s raised", name)
                     result = f"(tool error: {exc})"
-            transcript.append({
+                    error = "tool_error"
+            record = {
                 "iteration": iteration,
                 "tool": name,
                 "arguments": args,
                 "result_preview": result[:200],
                 "tool_elapsed_sec": round(time.time() - t_tool, 4),
-            })
+            }
+            if error:
+                record["error"] = error
+                if error == "malformed_args":
+                    record["arguments_raw"] = args_str[:200]
+            transcript.append(record)
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc_id,

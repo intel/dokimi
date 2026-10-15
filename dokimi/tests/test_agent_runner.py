@@ -275,6 +275,71 @@ def test_agent_loop_unknown_tool_is_handled(monkeypatch):
     monkeypatch.setattr(ar_mod, "chat_completion", fake)
     result = run_agent_loop("q", [tool], model="m")
     assert "unknown tool" in result["transcript"][0]["result_preview"]
+    assert result["transcript"][0]["error"] == "unknown_tool"
+    assert result["tool_usage"]["call_errors"]["unknown_tool"] == 1
+
+
+def _run_with_one_call(monkeypatch, tool, name, arguments):
+    """Run the loop on one scripted tool call, then an answer; return result and messages sent."""
+    steps = [
+        _FakeMessage(tool_calls=[_FakeToolCall("c1", name, arguments)]),
+        _FakeMessage(content="ok"),
+    ]
+    sent = []
+
+    def fake(messages, model, **kw):
+        sent.append([dict(m) for m in messages])
+        return _FakeResp(steps[min(len(sent) - 1, len(steps) - 1)])
+
+    monkeypatch.setattr(ar_mod, "chat_completion", fake)
+    return run_agent_loop("q", [tool], model="m"), sent
+
+
+def test_malformed_arguments_do_not_run_the_tool(monkeypatch):
+    # On main the parse failure became {} and DocQueryTool searched for "".
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, sent = _run_with_one_call(monkeypatch, tool, "search_documentation",
+                                      '{"query": "parallel_for"')
+    assert tool.calls == []
+    rec = result["transcript"][0]
+    assert rec["error"] == "malformed_args"
+    assert rec["arguments"] == {}
+    assert rec["arguments_raw"] == '{"query": "parallel_for"'
+    assert result["tool_usage"]["call_errors"] == {
+        "unknown_tool": 0, "malformed_args": 1, "tool_error": 0}
+    # The model is told, so it can retry with valid arguments.
+    tool_msg = [m for m in sent[1] if m["role"] == "tool"][0]
+    assert tool_msg["content"].startswith("(invalid tool arguments: ")
+
+
+def test_non_object_arguments_are_malformed(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", '["parallel_for"]')
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "malformed_args"
+    assert "not list" in result["transcript"][0]["result_preview"]
+
+
+def test_tool_exception_is_recorded_as_tool_error(monkeypatch):
+    class _Boom(DocQueryTool):
+        def call(self, **kw):
+            raise ValueError("index offline")
+
+    tool = _Boom(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", '{"query": "x"}')
+    rec = result["transcript"][0]
+    assert rec["error"] == "tool_error"
+    assert "arguments_raw" not in rec
+    assert "index offline" in rec["result_preview"]
+    assert result["tool_usage"]["call_errors"]["tool_error"] == 1
+
+
+def test_successful_call_has_no_error_key(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", '{"query": "x"}')
+    assert tool.calls == ["x"]
+    assert "error" not in result["transcript"][0]
+    assert sum(result["tool_usage"]["call_errors"].values()) == 0
 
 
 # ── agentic arms ──────────────────────────────────────────────────────────
