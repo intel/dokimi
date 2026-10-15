@@ -448,6 +448,23 @@ def test_a_wrong_figure_caps_the_vote_like_the_single_judge():
     assert serialised["caps"]["correctness"]["judged"] == 85.0
 
 
+def test_unreadable_claims_are_reported_and_a_low_score_is_not_capped():
+    def vote(correctness):
+        reply = json.dumps({
+            "numeric_claims": ["64 B cache line", "3.2 s per call: wrong"],
+            "reasoning": "r", "correctness": correctness, "completeness": 75,
+            "specificity": 70, "code_quality": 90, "actionability": 85,
+        })
+        cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+        with patch("dokimi.eval.panel.llm_call", return_value=reply):
+            return JudgePanel()._call_judge(cfg, "q", "a", "oneTBB", "")
+
+    low = vote(30)
+    assert low.scores["correctness"] == 30.0 and low.caps is None
+    assert low.unread_claims == [0]
+    assert _verdict_to_dict(_aggregate([low]))["votes"][0]["unread_claims"] == [0]
+
+
 def test_all_right_figures_leave_the_vote_alone():
     reply = json.dumps({
         "numeric_claims": ["64 B cache line: right"], "reasoning": "fine",
