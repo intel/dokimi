@@ -85,6 +85,11 @@ jobs:
   test:
     name: Tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Codecov upload over OIDC, so no upload token is stored. PRs from forks
+      # get no ID token; the action detects them and uploads tokenless.
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -137,6 +142,15 @@ jobs:
             dokimi/diff-cover.json
             dokimi/diff-cover.md
           if-no-files-found: ignore
+      # Trend, PR comment and badge. Informational only (codecov.yml): the gate
+      # is the changed-lines step above, and a Codecov outage does not fail CI.
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
+        with:
+          files: dokimi/coverage.xml
+          disable_search: true
+          use_oidc: true
 
   # Canary for the dependency ranges in requirements*.txt: installs the newest
   # releases they allow and runs the suite. It fails when an upstream release
