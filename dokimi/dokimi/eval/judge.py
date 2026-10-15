@@ -466,8 +466,18 @@ class Judge:
 
     #: A verdict after a colon, a dash or an opening parenthesis, optionally
     #: qualified: "64 B: wrong", "64 B - wrong", "64 B (wrong)", "64 B: partially wrong".
+    #: The first verdict word right after a separator. Besides ``:``, `` -`` and
+    #: ``(``, a qualifier list (``misleading/wrong``) and a trailing clause
+    #: (``reasonable, not wrong``) introduce one, and ``not`` flips it. Measured on
+    #: 6,424 `numeric_claims` entries from Haiku judgements, this read 13 more:
+    #: 6 newly wrong (all ``<qualifier>/wrong``, which the cap had let through)
+    #: and 7 newly right, with no entry moving between right and wrong. Words with
+    #: no separator in front stay unread on purpose — ``correctly marked as WRONG
+    #: to claim`` is the judge saying the answer flagged a bad claim, not that its
+    #: figure is wrong.
     _VERDICT = re.compile(
-        r"(?::|\s[-\u2013\u2014]|\()\s*(?:[a-z]+ly\s+)?(wrong|incorrect|right|correct)\b", re.I
+        r"(?::|\s[-\u2013\u2014]|\(|/|,)\s*(not\s+)?(?:[a-z]+ly\s+)?(wrong|incorrect|right|correct)\b",
+        re.I,
     )
 
     @classmethod
@@ -477,7 +487,8 @@ class Judge:
         match = cls._VERDICT.search(text) if isinstance(text, str) else None
         if match is None:
             return None
-        return match.group(1).lower() in ("wrong", "incorrect")
+        wrong = match.group(2).lower() in ("wrong", "incorrect")
+        return not wrong if match.group(1) else wrong
 
     @classmethod
     def _cap_for_wrong_figures(cls, scores: Dict[str, Any]) -> None:

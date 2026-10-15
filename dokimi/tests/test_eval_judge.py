@@ -258,6 +258,23 @@ class TestJudgeAnswer:
         (["64 bytes: partially right"], 95, 95),
         (["64 bytes, non-wrong"], 95, 95),
         ("none", 95, 95),                      # not a list: nothing to enforce
+        # From real Haiku judgements, read as nothing before: a qualifier list
+        # ends in the verdict, so the cap was let through.
+        (["one execution port: misleading/wrong"], 95, 40),
+        (["reads <270% of operations: ambiguous/wrong"], 95, 40),
+        (["~160x AVX: speculative/wrong"], 95, 40),
+        # ... and the right-hand counterparts, now read (and not capped).
+        (["expected throughput 4-8x: conditional/right"], 95, 95),
+        (["4.5x speedup threshold: reasonable, not wrong"], 95, 95),
+        (["SIMD_SORT_MIN_N = 32: reasonable heuristic (not wrong)"], 95, 95),
+        (["p < 0.05 threshold: standard statistical convention, correct"], 95, 95),
+        # Must NOT cap: the judge says the answer flagged a bad claim correctly.
+        (["2x speedup: correctly marked as WRONG to claim"], 95, 95),
+        (["20x faster (example of wrong claim): right (correctly marked as WRONG)"], 95, 95),
+        (["TILE 64: right (reasonable choice, not factually wrong)"], 95, 95),
+        (["500 ns threshold: contextual (neither universally right nor wrong)"], 95, 95),
+        # The answer's figure is the wrong one; the right one is the correction.
+        (["8 ms: wrong -> corrected: right"], 95, 40),
     ])
     def test_a_wrong_figure_caps_correctness_at_forty(self, mock_llm, claims, correctness, expected):
         """The prompt promises "a single wrong figure caps it at 40". A reply that
@@ -285,6 +302,16 @@ class TestJudgeAnswer:
     ])
     def test_a_claim_with_no_verdict_is_counted(self, mock_llm, claims, unread):
         assert self._judge(mock_llm, claims, 95)["unread_claims"] == unread
+
+    @pytest.mark.parametrize("claim", [
+        "expected throughput 4-8x: conditional/right",
+        "4.5x speedup threshold: reasonable, not wrong",
+        "SIMD_SORT_MIN_N = 32: reasonable heuristic (not wrong)",
+        "p < 0.05 threshold: standard statistical convention, correct",
+    ])
+    def test_a_qualified_or_negated_verdict_is_read(self, mock_llm, claim):
+        """Real Haiku entries that used to land in `unread_claims`."""
+        assert "unread_claims" not in self._judge(mock_llm, [claim], 95)
 
     def test_readable_claims_record_no_unread_marker(self, mock_llm):
         assert "unread_claims" not in self._judge(mock_llm, ["4 B: right", "8 ms: wrong"], 95)
