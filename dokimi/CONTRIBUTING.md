@@ -53,6 +53,13 @@ CI additionally holds a PR to:
   `CI_LOCAL_ARGS='--remote <name>'`.
 - **mypy on the whole package.** Modules listed under `[[tool.mypy.overrides]]` in
   `pyproject.toml` are exempt until fixed; do not add to that list.
+- **Tests that fail loudly.** `pytest` fails a test that runs over 60 s
+  (`@pytest.mark.timeout(N)` allows more), turns a warning into an error, and
+  shuffles the test order (pytest-randomly). The header prints
+  `--randomly-seed=N`; pass it to replay that order, or `-p no:randomly` for file
+  order. A third-party warning gets a narrow `filterwarnings` ignore in
+  `pyproject.toml` with the reason. The plugins come from `requirements-test.txt`:
+  a venv without them stops with `Unknown config option: timeout`, so reinstall.
 - **Docs build** — `mkdocs build --strict`, from `dokimi/`. `make dev` already
   installs its packages and `make ci-local` runs it; by hand, install them with
   `pip install -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
