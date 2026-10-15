@@ -20,6 +20,8 @@ import logging
 import time
 from typing import Any, Dict, List
 
+import jsonschema
+
 from dokimi.llm import chat_completion, _extract_usage
 from dokimi.metrics.usage import UsageRecord
 from dokimi.treatments.base import Tool
@@ -75,22 +77,40 @@ def _parse_arguments(args_str: str):
     return args, None
 
 
-def _missing_required(tool: Tool, args: Dict[str, Any]):
-    """Return a problem string when ``args`` lacks a key the tool's schema requires.
+def _schema_problem(tool: Tool, args: Dict[str, Any]):
+    """Return a problem string when ``args`` does not match the tool's schema.
 
     ``{}`` parses, but handing it to a tool whose ``query`` is required runs the
-    same empty search the parse-failure path no longer does.
+    same empty search the parse-failure path no longer does; ``{"query": 123}``
+    reaches the tool with a type it does not take. Keys the schema does not
+    list still pass, unless the schema sets ``additionalProperties``.
     """
     missing = [k for k in tool.parameters.get("required") or [] if k not in args]
     if missing:
         return "missing required argument(s): " + ", ".join(missing)
-    return None
+    schema = tool.parameters
+    error = jsonschema.exceptions.best_match(
+        jsonschema.validators.validator_for(schema)(schema).iter_errors(args))
+    if error is None:
+        return None
+    where = "/".join(str(p) for p in error.absolute_path)
+    return f"{where}: {error.message}" if where else error.message
+
+
+def _completed_calls(transcript: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Transcript records whose tool ran and returned (no ``error``)."""
+    return [call for call in transcript if not call.get("error")]
 
 
 def _summarize_tool_usage(
     tools: List[Tool], transcript: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """Summarize offered vs called tools for discoverability reporting."""
+    """Summarize offered vs called tools for discoverability reporting.
+
+    A failed call counts only in ``call_errors``: every other field counts calls
+    that returned a result, so a skill whose call was dropped or raised is not
+    ``loaded`` (and does not reach the judge reference built from that list).
+    """
     offered = [t.telemetry_metadata() for t in tools]
     offered_by_name = {t["name"]: t for t in offered}
     calls_by_name: Dict[str, int] = {name: 0 for name in offered_by_name}
@@ -100,6 +120,9 @@ def _summarize_tool_usage(
     for call in transcript:
         if call.get("error") in call_errors:
             call_errors[call["error"]] += 1
+    ran = _completed_calls(transcript)
+
+    for call in ran:
         name = call.get("tool")
         if not name:
             continue
@@ -119,7 +142,7 @@ def _summarize_tool_usage(
     # several in parallel, and their order within the turn is not a choice.
     first_turn_loaded: List[str] = []
     first_turn = None
-    for call in transcript:
+    for call in ran:
         skill_name = skill_by_tool.get(call.get("tool"))
         if not skill_name:
             continue
@@ -174,7 +197,9 @@ def run_agent_loop(
 
     Returns a dict with: ``answer``, ``transcript`` (list of tool-call records,
     each with ``tool_elapsed_sec``, plus ``error`` — one of :data:`CALL_ERRORS` —
-    on a call that failed), ``iterations``, ``stopped_reason``,
+    on a call that failed), ``tool_call_count`` and ``tool_usage`` (both count
+    only calls without ``error``; ``tool_usage["call_errors"]`` counts the
+    rest), ``iterations``, ``stopped_reason``,
     ``usage`` (serialised metrics accumulated across turns), ``token_usage`` (the
     legacy 3-key alias), and ``per_turn`` (per-turn latency/token detail).
     """
@@ -246,7 +271,7 @@ def run_agent_loop(
             args, bad_args = _parse_arguments(args_str)
             tool = by_name.get(name)
             if tool is not None and not bad_args:
-                bad_args = _missing_required(tool, args)
+                bad_args = _schema_problem(tool, args)
             t_tool = time.time()
             error = None
             if tool is None:
@@ -305,7 +330,7 @@ def run_agent_loop(
         "answer": answer,
         "transcript": transcript,
         "iterations": iteration,
-        "tool_call_count": len(transcript),
+        "tool_call_count": len(_completed_calls(transcript)),
         "tool_usage": _summarize_tool_usage(tools, transcript),
         "stopped_reason": stopped_reason,
         "usage": usage_total.as_metrics_dict(answer_chars=len(answer or "")),

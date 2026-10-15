@@ -248,7 +248,8 @@ def test_forced_final_turn_passes_litellm_bedrock_mapping(monkeypatch):
 
 def test_failed_call_keeps_the_tool_usage_so_far(monkeypatch):
     tool = DocQueryTool(_FakeDocClient(), "lib/x")
-    loop_step = _FakeMessage(tool_calls=[_FakeToolCall("c", "search_documentation", "{}")])
+    loop_step = _FakeMessage(tool_calls=[_FakeToolCall("c", "search_documentation",
+                                                       '{"query": "x"}')])
     calls = []
 
     def fake(messages, model, **kw):
@@ -322,6 +323,66 @@ def test_missing_required_argument_does_not_run_the_tool(monkeypatch, arguments)
     assert result["transcript"][0]["error"] == "malformed_args"
     tool_msg = [m for m in sent[1] if m["role"] == "tool"][0]
     assert "missing required argument(s): query" in tool_msg["content"]
+
+
+@pytest.mark.parametrize("arguments, where", [
+    ('{"query": 123}', "query: 123 is not of type 'string'"),
+    ('{"query": ["a"]}', "query: ['a'] is not of type 'string'"),
+])
+def test_wrong_argument_type_does_not_run_the_tool(monkeypatch, arguments, where):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, sent = _run_with_one_call(monkeypatch, tool, "search_documentation", arguments)
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "malformed_args"
+    tool_msg = [m for m in sent[1] if m["role"] == "tool"][0]
+    assert tool_msg["content"] == f"(invalid tool arguments: {where})"
+
+
+def test_skill_file_outside_the_enum_is_malformed(monkeypatch, demo_skill):
+    tool = ViewSkillTool(load_skill(demo_skill))
+    tool.parameters = {"type": "object", "required": [],
+                       "properties": {"file": {"type": "string", "enum": ["SKILL.md"]}}}
+    result, _ = _run_with_one_call(monkeypatch, tool, tool.name, '{"file": "../secrets.md"}')
+    assert tool.viewed is False
+    assert result["transcript"][0]["error"] == "malformed_args"
+
+
+@pytest.mark.parametrize("arguments", ['{"query": "x"', "{}", '{"query": 1}'])
+def test_dropped_calls_do_not_count_as_used(monkeypatch, arguments):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", arguments)
+    usage = result["tool_usage"]
+    assert result["tool_call_count"] == 0
+    assert usage["used_any_tool"] is False
+    assert usage["called_tools"] == []
+    assert usage["tool_call_count_by_name"] == {"search_documentation": 0}
+    assert usage["first_call_iteration_by_name"] == {}
+    assert usage["call_errors"]["malformed_args"] == 1
+
+
+def test_failed_skill_call_is_not_loaded(monkeypatch, demo_skill):
+    # arm_runner feeds skill.loaded to judge_reference_for_loaded: a skill the
+    # agent never read must not reach the judge reference.
+    class _Boom(ViewSkillTool):
+        def call(self, **kw):
+            raise OSError("skill dir gone")
+
+    tool = _Boom(load_skill(demo_skill))
+    steps = [
+        _FakeMessage(tool_calls=[_FakeToolCall("c1", "nonexistent", "{}"),
+                                 _FakeToolCall("c2", tool.name, "{}")]),
+        _FakeMessage(content="ok"),
+    ]
+    fake, _ = _scripted_completion(steps)
+    monkeypatch.setattr(ar_mod, "chat_completion", fake)
+    result = run_agent_loop("q", [tool], model="m")
+    skill = result["tool_usage"]["skill"]
+    assert skill["called"] is False and skill["call_count"] == 0
+    assert skill["loaded"] == [] and skill["selected"] is None
+    assert skill["first_turn_loaded"] == [] and skill["first_call_iteration"] is None
+    assert "nonexistent" not in result["tool_usage"]["tool_call_count_by_name"]
+    assert result["tool_usage"]["call_errors"] == {
+        "unknown_tool": 1, "malformed_args": 0, "tool_error": 1}
 
 
 def test_empty_arguments_still_run_a_tool_with_no_required_argument(monkeypatch):
