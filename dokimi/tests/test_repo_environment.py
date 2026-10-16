@@ -254,3 +254,70 @@ def test_network_exec_pattern_is_linear_on_repeated_tokens(tmp_path):
     start = time.monotonic()
     found = {s["source"] for s in inspect_repo(WorkTree(tmp_path))["scripts"] if s["category"] == "network-exec"}
     assert found == {"package.json#scripts.boot"} and time.monotonic() - start < 5
+
+
+@pytest.mark.parametrize("path", ["src/Credit.java", "Unit.java", "Edit.kt", "Exit.java",
+                                  "Sources/Latest.swift", "Contest.cs", "docs/spec/api.yaml",
+                                  "docs/specs/api.yaml"])
+def test_test_file_excludes_false_positives(path):
+    """THREAD 11: Java/Kotlin/C# files without Test/Tests/IT/Spec prefix and doc dirs should not match."""
+    from dokimi.repos.environment import files as F
+    assert not F._TEST_FILE.search(path), path
+
+
+@pytest.mark.parametrize("path", ["src/FooTest.java", "FooTests.kt", "FooIT.java", "BarSpec.scala",
+                                  "FooTests.swift", "Tests.swift", "a.test.ts", "x_test.go",
+                                  "tests/test_a.py", "spec/a_spec.rb", "__tests__/a.js"])
+def test_test_file_includes_true_positives(path):
+    """THREAD 11: Legitimate test files should still match."""
+    from dokimi.repos.environment import files as F
+    assert F._TEST_FILE.search(path), path
+
+
+@pytest.mark.parametrize("files", [
+    {"package.json": '{"scripts": {"test": "x"}, "n": ' + "9" * 5001 + "}"},
+    {".claude/settings.json": '{"n": ' + "9" * 5001 + "}"},
+    {".pre-commit-config.yaml": "repos:\n- repo: x\n  rev: 2020-02-30\n"},
+])
+def test_odd_manifests_do_not_crash(tmp_path, files):
+    """THREAD 8: Large integers and invalid dates in manifests should not crash."""
+    _repo(tmp_path, {"AGENTS.md": "x", **files})
+    payload = inspect_repo(WorkTree(tmp_path))
+    assert payload is not None
+
+
+@pytest.mark.parametrize("files", [
+    {"CMakeLists.txt": "project(a)\n", "third_party/gtest/CMakeLists.txt": "enable_testing()\n"},
+    {"MODULE.bazel": "", "vendor/dep/BUILD": "cc_test(name='x')\n"},
+    {"node_modules/left-pad/package.json": '{"scripts": {"test": "mocha"}}'},
+])
+def test_vendored_build_files_do_not_suppress_missing_tests(tmp_path, files):
+    """THREAD 9: Vendored/generated files should not count toward test detection."""
+    _repo(tmp_path, {"AGENTS.md": "x", **files})
+    payload = inspect_repo(WorkTree(tmp_path))
+    rules = {f["rule"] for f in payload["findings"]}
+    assert "checks.test.missing" in rules, [c for c in payload.get("checks", [])]
+
+
+def test_blob_less_clone_respects_partial_clone_boundary(tmp_path):
+    """THREAD 6: Inspect should not fetch blobs from a partial clone."""
+    import subprocess
+    src = tmp_path / "src"
+    src.mkdir()
+    sh = lambda *a, **k: subprocess.run(a, check=True, capture_output=True, text=True, **k).stdout
+    sh("git", "init", "-q", str(src))
+    for i in range(5):
+        (src / f"f{i}").write_text(f"x{i}" * 100)
+    sh("git", "-C", str(src), "add", ".")
+    sh("git", "-C", str(src), "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-qm", "x")
+    sh("git", "-C", str(src), "config", "uploadpack.allowfilter", "true")
+    pc = tmp_path / "pc"
+    sh("git", "clone", "-q", "--bare", "--filter=blob:none", f"file://{src}", str(pc))
+    sha = sh("git", "-C", str(pc), "rev-parse", "HEAD").strip()
+    missing_before = sh("git", "-C", str(pc), "rev-list", "--objects", "--missing=print", "HEAD").count("?")
+    rep = inspect_repo(GitTree(pc, sha))
+    missing_after = sh("git", "-C", str(pc), "rev-list", "--objects", "--missing=print", "HEAD").count("?")
+    assert missing_before >= 5
+    assert rep["files"]["bytes"] is None
+    assert missing_after == missing_before
+    assert any("size" in n for n in rep["not_observed"]), rep["not_observed"]

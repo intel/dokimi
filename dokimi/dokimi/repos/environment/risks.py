@@ -148,9 +148,9 @@ def detect_script_signals(scan: Scan) -> list[ScriptSignal]:
 
 # Events the harness fires without the agent choosing to run anything.
 AUTOMATIC_EVENTS = ("SessionStart", "SessionEnd", "PreCompact", "Notification", "UserPromptSubmit", "Stop")
-_OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,8}"
-_INSTALL = re.compile(rf"(?<![\w-])(?:npm|yarn|pnpm|bun){_OPT}\s+install\b|(?<![\w-])(?:npm|pnpm){_OPT}\s+ci\b"
-                      rf"|(?<![\w-])(?:npm|pnpm|bun){_OPT}\s+i\b", re.I)
+_OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,32}"
+_INSTALL = re.compile(rf"(?<![A-Za-z0-9])(?:npm|yarn|pnpm|bun){_OPT}\s+install\b|(?<![A-Za-z0-9])(?:npm|pnpm){_OPT}\s+ci\b"
+                      rf"|(?<![A-Za-z0-9])(?:npm|pnpm|bun){_OPT}\s+i\b", re.I)
 _IGNORE_SCRIPTS = re.compile(r"--(no-)?ignore-scripts\b(?:[= ]+(true|false|1|0)\b)?", re.I)
 _HOOK_SPLIT = re.compile(r"&&|\|\||;|\n")  # not a single `|`: `npm ci | tee log` still installs
 
