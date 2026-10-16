@@ -208,6 +208,16 @@ def _safe_int(value: Any) -> int:
     return 0
 
 
+def _stored_count(value: Any) -> int | None:
+    """A stored count as an int, or ``None`` when absent or not a usable count."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return int(value)
+    except (ValueError, OverflowError):
+        return None
+
+
 @dataclass(frozen=True)
 class Coverage:
     """How much of an artifact one run read, from a live bundle or a stored record.
@@ -236,18 +246,18 @@ class Coverage:
             return None
         rows = record.get("excluded") or []
         decisions = excluded_of(rows, "decision")
-        policy = record.get("policy_excluded_words")
-        unreadable = record.get("unreadable_files")
+        policy = _stored_count(record.get("policy_excluded_words"))
+        unreadable = _stored_count(record.get("unreadable_files"))
         return cls(
             include_resources=bool(record.get("include_resources")),
             n_files=int(record.get("n_files") or len(record.get("files") or []) or 1),
             entry_point_words=int(record["entry_point_words"]),
             resource_words_on_disk=int(record["resource_words_on_disk"]),
             resource_words_measured=int(record["resource_words_measured"]),
-            policy_excluded_words=int(
+            policy_excluded_words=(
                 policy if policy is not None
                 else sum(_safe_int(row.get("words")) for row in decisions)),
-            unreadable_files=_safe_int(
+            unreadable_files=(
                 unreadable if unreadable is not None else len(excluded_of(rows, "unknown"))),
             named_excluded_files=len(named_exclusions(rows)[0]),
         )

@@ -113,7 +113,7 @@ def test_a_missing_artifact_exits_with_a_message(capsys):
 
 
 def test_coverage_note_printed_to_stderr_for_atoms(tmp_path, monkeypatch, capsys):
-    """Regression test for THREAD 1: the coverage note is printed to stderr on entry-point run."""
+    """The coverage note is printed to stderr on entry-point run."""
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     ref_file = skill.parent / "references" / "ref.md"
@@ -152,7 +152,7 @@ def test_coverage_note_printed_to_stderr_for_atoms(tmp_path, monkeypatch, capsys
 
 
 def test_answer_key_notes_printed_to_stderr_for_probe(tmp_path, monkeypatch, capsys):
-    """Regression test for THREAD 1: answer-key notes are printed to stderr."""
+    """Answer-key notes are printed to stderr."""
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text(

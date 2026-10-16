@@ -855,7 +855,7 @@ def test_the_report_names_excluded_files_and_counts_non_text_ones(tmp_path):
 
 
 def test_measured_digest_format_is_pinned(tmp_path):
-    """Regression test for THREAD 6: measured_digest format is stable."""
+    """Measured_digest format is stable."""
     from dokimi.novelty.bundle import load_bundle
 
     # Create a test skill with two files

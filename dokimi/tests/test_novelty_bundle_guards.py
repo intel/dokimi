@@ -77,7 +77,7 @@ def test_new_text_since_extraction_invalidates_the_answer_key(tmp_path, newfile,
 
 
 def test_mixed_good_and_bad_files_in_no_file_rows_check():
-    """Regression test for THREAD 2: mixed good/bad rows return no_file_rows."""
+    """Mixed good/bad rows return no_file_rows."""
     # Mixed good and bad file rows should trigger no_file_rows
     verdict = check_answer_key("skill:x", {
         "include_resources": True,
@@ -108,7 +108,7 @@ def test_an_unreadable_row_is_listed_by_the_report():
 
 
 def test_entry_point_only_with_none_record_returns_all_spans():
-    """Regression test for THREAD 3: entry_point_only(None) returns (spans, atoms, None)."""
+    """Entry_point_only(None) returns (spans, atoms, None)."""
     spans = [NS(id="a", start=0), NS(id="b", start=10)]
     atoms = [NS(span_ids=["a", "b"]), NS(span_ids=[])]
     # When record is None, entry_point_only should return all spans/atoms as-is
@@ -119,7 +119,7 @@ def test_entry_point_only_with_none_record_returns_all_spans():
 
 
 def test_entry_point_only_with_empty_files_raises():
-    """Regression test for THREAD 3: entry_point_only requires file rows."""
+    """Entry_point_only requires file rows."""
     spans = [NS(id="a", start=0)]
     atoms = [NS(span_ids=["a"])]
     record = {"include_resources": True}  # No files
@@ -129,7 +129,7 @@ def test_entry_point_only_with_empty_files_raises():
 
 
 def test_report_render_with_include_resources_and_no_excluded(tmp_path):
-    """Regression test for THREAD 3: report renders with include_resources but no excluded key."""
+    """Report renders with include_resources but no excluded key."""
     record = {
         "include_resources": True,
         "n_files": 1,
@@ -146,7 +146,7 @@ def test_report_render_with_include_resources_and_no_excluded(tmp_path):
 
 
 def test_answer_key_entry_point_note_for_legacy_record(tmp_path):
-    """Regression test for THREAD 2: legacy record returns entry-point note."""
+    """Legacy record returns entry-point note."""
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text(HEAD + WORDS, encoding="utf-8")
@@ -157,7 +157,7 @@ def test_answer_key_entry_point_note_for_legacy_record(tmp_path):
         assert any("entry point" in n.lower() for n in verdict.notes)
 
 def test_files_changed_message_uses_source_parameter(tmp_path):
-    """Regression test for THREAD 4: source parameter used in files_changed message."""
+    """Source parameter used in files_changed message."""
     root = _skill(tmp_path, {"SKILL.md": HEAD + WORDS, "references/a.md": WORDS})
     record = load_bundle(f"skill:{root}", include_resources=True).summary()
     _skill(tmp_path, {"references/new.md": WORDS})
@@ -168,7 +168,7 @@ def test_files_changed_message_uses_source_parameter(tmp_path):
     assert "atoms.json:" not in verdict.message  # Should not have default name
 
 def test_entry_point_record_plus_new_reference_is_ok(tmp_path):
-    """Regression test for THREAD 2: entry-point record plus new references/ file is ok."""
+    """Entry-point record plus new references/ file is ok."""
     root = _skill(tmp_path, {"SKILL.md": HEAD + WORDS})
     record = load_bundle(f"skill:{root}", include_resources=False).summary()
     refs_dir = root / "references"
@@ -179,7 +179,7 @@ def test_entry_point_record_plus_new_reference_is_ok(tmp_path):
 
 
 def test_no_resource_roles_plus_new_eval_invalidates(tmp_path):
-    """Regression test for THREAD 2: no resource_roles + new eval file -> files_changed."""
+    """No resource_roles + new eval file -> files_changed."""
     root = _skill(tmp_path, {"SKILL.md": HEAD + WORDS, "references/a.md": WORDS})
     record = load_bundle(f"skill:{root}", include_resources=True).summary()
     del record["resource_roles"]
@@ -191,10 +191,59 @@ def test_no_resource_roles_plus_new_eval_invalidates(tmp_path):
 
 
 def test_legacy_answer_key_verdict_contains_text(tmp_path):
-    """Regression test for THREAD 2: legacy verdict contains entry-point body."""
+    """Legacy verdict contains entry-point body."""
     root = _skill(tmp_path, {"SKILL.md": HEAD + "The entry point body."})
     verdict = check_answer_key(f"skill:{root}", record=None)
     assert verdict.ok
     assert verdict.text is not None
     assert "entry point body" in verdict.text
 
+
+
+
+def test_safe_int_reads_bools_and_non_finite_floats_as_zero_and_truncates_floats():
+    from dokimi.novelty.bundle import _safe_int
+
+    assert _safe_int(True) == 0
+    assert _safe_int(12.7) == 12
+    assert _safe_int(float("nan")) == 0
+    assert _safe_int(float("inf")) == 0
+
+
+def test_absent_policy_words_are_summed_from_policy_rows_only():
+    record = {"include_resources": False, "entry_point_words": 100,
+              "resource_words_on_disk": 9000, "resource_words_measured": 0,
+              "excluded": [{"path": "a", "kind": "policy", "words": 4500},
+                           {"path": "b", "kind": "not_requested", "words": 4500}]}
+    cov = Coverage.from_record(record)
+    assert cov.policy_excluded_words == 4500
+    check = _coverage_check(record)
+    assert check.passed is True and check.value == 0.4945
+
+
+def test_absent_unreadable_count_comes_from_unreadable_rows():
+    record = {"include_resources": True, "entry_point_words": 100,
+              "resource_words_on_disk": 100, "resource_words_measured": 0,
+              "excluded": [{"path": "x", "kind": "unreadable"}]}
+    assert Coverage.from_record(record).unreadable_files == 1
+    assert _coverage_check(record).value is None
+
+
+@pytest.mark.parametrize("junk", ["x", True, None, float("nan")])
+def test_an_unusable_stored_unreadable_count_falls_back_to_the_rows(junk):
+    record = {"include_resources": True, "entry_point_words": 100,
+              "resource_words_on_disk": 100, "resource_words_measured": 0,
+              "unreadable_files": junk,
+              "excluded": [{"path": "x", "kind": "unreadable"}]}
+    assert Coverage.from_record(record).unreadable_files == 1
+    assert _coverage_check(record).value is None
+
+
+def test_a_stored_count_wins_over_the_rows():
+    record = {"include_resources": True, "entry_point_words": 100,
+              "resource_words_on_disk": 100, "resource_words_measured": 0,
+              "unreadable_files": 0, "policy_excluded_words": 0,
+              "excluded": [{"path": "x", "kind": "unreadable"},
+                           {"path": "a", "kind": "policy", "words": 50}]}
+    cov = Coverage.from_record(record)
+    assert cov.unreadable_files == 0 and cov.policy_excluded_words == 0

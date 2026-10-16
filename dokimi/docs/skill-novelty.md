@@ -472,7 +472,7 @@ python cli.py novelty analyze --artifact skill:path/to/skill --model M --judge-m
     # --max-file-words 4000 --max-resource-words 20000
 ```
 
-Three things to know before reading a bundle result:
+Things to know before reading a bundle result:
 
 - **It is an upper bound.** Injecting the whole bundle measures what the artifact *could*
   deliver if the agent read all of it. Whether the agent chooses to load `references/x.md`

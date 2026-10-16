@@ -34,7 +34,7 @@ def test_a_schema_valid_row_with_an_odd_kind_does_not_take_down_the_reader(kind)
 
 @pytest.mark.parametrize("words", ["n/a", [1], {"a": 1}])
 def test_non_numeric_words_in_decision_row_does_not_crash(words):
-    # Regression: THREAD 0 -- non-numeric words should be treated as 0
+    # non-numeric words should be treated as 0
     record = dict(COUNTS, include_resources=True, n_files=1,
                   excluded=[{"path": "evals/a.md", "reason": "role policy", "kind": "policy", "words": words}])
     check = _coverage_check(record)
@@ -44,7 +44,7 @@ def test_non_numeric_words_in_decision_row_does_not_crash(words):
     assert cov.policy_excluded_words == 0  # Non-numeric falls back to 0
 
 def test_unreadable_files_with_junk_words_row():
-    """Regression test for THREAD 0: non-numeric words coerced to 0."""
+    """Non-numeric words coerced to 0."""
     # Non-numeric words in policy row should coerce to 0, not crash
     record = dict(COUNTS, include_resources=True, n_files=1,
                   excluded=[{"path": "policy/a.md", "reason": "role policy", "kind": "policy", "words": "n/a"}])

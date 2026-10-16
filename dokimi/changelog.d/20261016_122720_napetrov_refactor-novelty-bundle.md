@@ -1,9 +1,10 @@
 ### Added
 
-- **The novelty `bundle` record names what it measured** — `atoms.json` and `probes.json`
-  bundle blocks gain `artifact_name`, `artifact_ref` and `measured_digest` (the digest of
-  exactly the files measured; every novelty `ref_digest` is this value), and the
-  `probes.json` block also lists `files`. Older records still validate.
+- **The novelty `bundle` record names what it measured** — the `analyze` artifact's
+  `bundle` block (`novelty.v1`) gains `artifact_name`, `artifact_ref` and `measured_digest`
+  (the digest of exactly the files measured; every novelty `ref_digest` is this value), and
+  the `probes.json` bundle block gains `artifact_ref` and `files`. Older records still
+  validate.
 
 ### Changed
 
@@ -12,8 +13,8 @@
   extraction; an edited measured file or a new file the run would measure still does.
 - **Hand-edited or partial `bundle` records read differently** — an `atoms.json` whose
   `bundle` block lacks `policy_excluded_words` or `unreadable_files` now gets them from its
-  `excluded` rows, and a count that is not a number (`"n/a"`, `[1]`, `Infinity`) reads as
-  0, so the `artifact_coverage` gate value of such a record can differ from before (no
+  `excluded` rows, and a word count that is not a number (`"n/a"`, `[1]`, `Infinity`) reads as
+  0 (an unusable stored file count is recounted from the `excluded` rows), so the `artifact_coverage` gate value of such a record can differ from before (no
   writer produces them). Records the tool writes gate and report exactly as before.
 - **The pre-run note of a bundle run** says "words over the budgets"; it no longer says
   "or filtered by role", since role-filtered words were never in that count.
