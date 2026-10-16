@@ -236,3 +236,12 @@ def test_settings_json_bom_still_reports_hook_risk(tmp_path):
     hooks = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "npm ci"}]}]}}
     _repo(tmp_path, {".claude/settings.json": "\ufeff" + json.dumps(hooks)})
     assert [h["command"] for h in inspect_repo(WorkTree(tmp_path))["hook_risks"]] == ["npm ci"]
+
+
+@pytest.mark.parametrize("script, declared", [
+    ('echo "Error: no test specified" && exit 1', False), ("jest || exit 1", True), ("echo hi && jest", True)])
+def test_npm_init_placeholder_is_not_a_test(tmp_path, script, declared):
+    _repo(tmp_path, {"AGENTS.md": "x\n", "package.json": json.dumps({"scripts": {"test": script}})})
+    payload = inspect_repo(WorkTree(tmp_path))
+    assert any(c["kind"] == "test" for c in payload["checks"]) is declared
+    assert ("checks.test.missing" in _rules(payload)) is not declared

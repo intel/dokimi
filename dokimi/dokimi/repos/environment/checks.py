@@ -67,6 +67,9 @@ def package_scripts(scan: Scan, path: str = "package.json") -> dict[str, str]:
     return {k: v for k, v in scripts.items() if isinstance(v, str)} if isinstance(scripts, dict) else {}
 
 
+_NPM_PLACEHOLDER = re.compile(r"^\s*echo\b[^\n]*&&\s*exit\s+[1-9]\s*$", re.I)  # what `npm init` writes
+
+
 def _node(scan: Scan, root: str) -> list[Check]:
     pkg = _at(root, "package.json")
     if pkg not in scan.file_set:
@@ -76,7 +79,7 @@ def _node(scan: Scan, root: str) -> list[Check]:
         run = " ; ".join(s for s in _SEGMENTS.split(body) if not _NODE_INSTALL.search(s))
         if name == "build":
             out.append(Check("node", "build", "declared", pkg, name, root))
-        if name in ("test", "test:unit", "test:ci"):
+        if name in ("test", "test:unit", "test:ci") and not _NPM_PLACEHOLDER.match(body):
             out.append(Check("node", "test", "declared", pkg, name, root))
         if _NODE_LINT_NAME.search(name) or _NODE_LINT_TOOL.search(run):
             out.append(Check("node", "lint", "declared", pkg, name, root))
