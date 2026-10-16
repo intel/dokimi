@@ -283,20 +283,19 @@ class TestJudgeAnswer:
         # "not entirely wrong" is a hedge: no cap, and not read as right either.
         (["8 ms: not entirely wrong"], 95, 95),
         (["8 ms: not right"], 95, 40),
-        # Mutation coverage: figures with separators read correctly with the end-anchored pattern.
+        # The fallback is case-insensitive and handles slash-separated qualifiers and multiple separators.
         (["x (misleading/wrong)"], 95, 40),
         (["x - misleading/wrong"], 95, 40),
         (["x — misleading/wrong"], 95, 40),  # em-dash
-        # Mutation coverage: case-insensitivity on the fallback path.
         (["x: misleading/WRONG"], 95, 40),
-        # Mutation coverage: adverbs and "incorrect" and "not" forms on the fallback.
+        # The fallback handles trailing commas, adverbs, "incorrect", and negations.
         (["x: dubious, partially wrong"], 95, 40),
         (["x: misleading/incorrect"], 95, 40),
         (["x: dubious, not correct"], 95, 40),
         (["x - not wrong"], 95, 95),
-        # Mutation coverage: claims with no separator are unread.
+        # A claim with no real separator (`:`, `-`, `(`) is unread, even if `,` appears.
         (["64 bytes, wrong"], 95, 95),
-        # Mutation coverage: dict claims with qualified verdicts.
+        # Qualified verdicts work the same in dict claims and strings.
         ([{"figure": "x", "verdict": "misleading/wrong"}], 95, 40),
         ([{"figure": "x", "verdict": "reasonable, not wrong"}], 95, 95),
         # False positives that must stay unread with the end-anchored pattern.
@@ -305,6 +304,10 @@ class TestJudgeAnswer:
         (["2x: correctly identified, wrong claim by user"], 95, 95),
         (["x: depends, wrong if cached"], 95, 95),
         (["x: see /wrong/path"], 95, 95),
+        # Adverbs and slash/comma alternatives that must stay unread.
+        (["x: see /wrong"], 95, 95),
+        (["x: unverified, right/wrong"], 95, 95),
+        (["x: dubious, hardly wrong"], 95, 95),
         # Figures with separators: the end-anchored pattern finds the real verdict.
         (["ratio 3:1, correct alignment assumed: misleading/wrong"], 95, 40),
         (["ratio 3:1, correct alignment assumed: not right"], 95, 40),
@@ -351,7 +354,7 @@ class TestJudgeAnswer:
         "x - not wrong",
     ])
     def test_a_qualified_or_negated_verdict_is_read(self, mock_llm, claim):
-        """Real Haiku entries that used to land in `unread_claims`."""
+        """Qualified and negated verdicts: slash-separated qualifiers, trailing commas, and `not` all read correctly."""
         assert "unread_claims" not in self._judge(mock_llm, [claim], 95)
 
     @pytest.mark.parametrize("claim", [

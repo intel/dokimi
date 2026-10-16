@@ -1,0 +1,3 @@
+### Fixed
+
+- **Verdict parsing with qualifiers and slashes** — the wrong-figure cap in `Judge._is_wrong_figure()` now recognizes qualified verdicts like `misleading/wrong` and negated verdicts like `not wrong` when they appear after separators including `/` and `,`. Previously, only `:`, ` -`, and `(` were recognized as valid separators. This fixes cases where the judge correctly identified a figure as wrong but the verdict was not parsed, so the claim did not cap `correctness` at 40. For example, `one execution port: misleading/wrong` now correctly caps to 40 instead of leaving the claim unread.

@@ -470,17 +470,20 @@ class Judge:
     _VERDICT = re.compile(
         r"(?::|\s[-\u2013\u2014]|\()\s*(?:[a-z]+ly\s+)?(wrong|incorrect|right|correct)\b", re.I
     )
-    #: The first of those separators; what follows is the verdict part, the text before it the figure.
+    #: A gate to confirm that there is a verdict part after a real separator. The search offset
+    #: is advisory only: the fallback regex's own end-anchor ensures it matches the real verdict
+    #: at the end of the claim, so offset 0 and offset part.start() give the same result.
     _VERDICT_PART = re.compile(r":|\s[-\u2013\u2014]|\(")
-    #: For a claim ``_VERDICT`` cannot read, the search starts at the first separator and
-    #: the verdict word must end the claim (no text after it except whitespace and closing
-    #: brackets). A qualifier list (``misleading/wrong``) or a trailing clause
-    #: (``reasonable, not wrong``) ends in the verdict, and ``not`` flips it. ``not entirely
-    #: wrong`` is a hedge, not a verdict: unread. A verdict word with no separator in front
-    #: stays unread on purpose: ``correctly marked as WRONG to claim`` says the answer
-    #: flagged a bad claim, not that its figure is wrong.
+    #: For a claim ``_VERDICT`` cannot read, the verdict word must end the claim (no text after it
+    #: except whitespace and closing brackets). A qualifier list (``misleading/wrong``) or a trailing
+    #: clause (``reasonable, not wrong``) ends in the verdict, and ``not`` flips it. Adverbs like
+    #: ``hardly``, ``barely``, ``scarcely`` and ``seemingly`` are hedges, not verdict qualifiers,
+    #: so they keep the claim unread: ``hardly wrong`` does not cap. ``not entirely wrong`` is also
+    #: a hedge: unread. A verdict word with no separator in front stays unread on purpose:
+    #: ``correctly marked as WRONG to claim`` says the answer flagged a bad claim, not that its
+    #: figure is wrong.
     _QUALIFIED_VERDICT = re.compile(
-        r"(?::|\s[-\u2013\u2014]|\(|/|,)\s*(not\s+)?(?:([a-z]+ly)\s+)?(wrong|incorrect|right|correct)[\s.)]*$",
+        r"(?::|\s[-\u2013\u2014]|\(|(?<=\w)/|,)\s*(not\s+)?(?!(?:hardly|barely|scarcely|seemingly|entirely)\s)(?:([a-z]+ly)\s+)?(wrong|incorrect|right|correct)[\s.)]*$",
         re.I,
     )
 
@@ -497,6 +500,18 @@ class Judge:
         match = cls._QUALIFIED_VERDICT.search(text, part.start()) if part else None
         if match is None:
             return None
+        # Reject matches where / or , separate verdict-like words (e.g., "right/wrong", "left,wrong")
+        matched_text = match.group(0)
+        verdict_words = ("wrong", "incorrect", "right", "correct")
+        # Check if separator is / or , and what comes before it
+        if "/" in matched_text or "," in matched_text:
+            # Look at text before the match to see what separator triggered this
+            before_match = text[max(0, match.start() - 20):match.start()].lower()
+            # Check if last word before separator is a verdict word
+            import re as re_module
+            words_before = re_module.findall(r'\b\w+\b', before_match)
+            if words_before and words_before[-1] in verdict_words:
+                return None
         negated, adverb, word = match.groups()
         if negated:
             return None if adverb else word.lower() in ("right", "correct")
