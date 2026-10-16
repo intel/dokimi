@@ -42,7 +42,8 @@ RULES: dict[str, RuleInfo] = {
     "instructions.activation-unknown": RuleInfo("info", ("orient",),
                                                 "when the harness loads the file depends on its frontmatter"),
     "instructions.large": RuleInfo("warning", ("orient",), "instruction file large enough to crowd the context"),
-    "checks.test.missing": RuleInfo("error", ("bootstrap", "verify"), "no way to run tests found"),
+    "checks.test.missing": RuleInfo("error", ("verify",), "no test files and no way to run tests found"),
+    "checks.test.runner-unknown": RuleInfo("warning", ("verify",), "test files found but no runner is known"),
     "checks.test.toolchain-only": RuleInfo("info", ("verify",),
                                            "tests only through the toolchain default, and no test file found"),
     "checks.lint.missing": RuleInfo("warning", ("verify",), "no lint or format check found"),
@@ -101,10 +102,10 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
     by_kind = {k: [c for c in checks if c.kind == k] for k in KINDS}
     if not by_kind["test"]:
         if files["test_files"] > 0:
-            findings.append(_finding("checks.test.missing", f"{files['test_files']} test files found but no test runner known",
+            findings.append(_finding("checks.test.runner-unknown", f"{files['test_files']} test files found but no runner is known",
                                      confidence="low"))
         else:
-            findings.append(_finding("checks.test.missing", "no test script, target, config or toolchain found",
+            findings.append(_finding("checks.test.missing", "no test files and no way to run tests found",
                                      confidence="medium"))
     elif all(c.basis == "toolchain" for c in by_kind["test"]) and not files["test_files"]:
         tools = ", ".join(sorted({c.ecosystem for c in by_kind["test"]}))

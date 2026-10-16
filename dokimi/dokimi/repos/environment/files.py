@@ -26,8 +26,8 @@ _GENERATED = re.compile(r"(^|/)(deps|vendor|third[_-]?party|generated|__generate
 _MINIFIED = re.compile(r"\.(min|bundle)\.(js|css)$", re.I)
 _TEST_FILE = re.compile(
     r"\.(test|spec)\.[cm]?[jt]sx?$|_test\.go$|(^|/)(test_[^/]+|[^/]+_test)\.py$"
-    r"|(^|/)(?:[A-Z][A-Za-z0-9]*)(Test|Tests|IT|Spec)\.(java|kt|kts|scala|cs)$|_(test|spec)\.(rb|exs?)$"
-    r"|_test\.(cc|cpp|cxx|c)$|^Tests?\.swift$|(^|/)(__tests__|tests?|spec(?:s)?)/", re.I)
+    r"|(^|/)[A-Z][A-Za-z0-9]+(Test|Tests|IT|Spec)\.(java|kt|kts|scala|cs)$|_(test|spec)\.(rb|exs?)$"
+    r"|_test\.(cc|cpp|cxx|c)$|(^|/)[^/]*Tests?\.swift$|(^|/)(__tests__|tests?|spec(?:s)?)/", re.I)
 
 
 def is_generated(path: str) -> bool:

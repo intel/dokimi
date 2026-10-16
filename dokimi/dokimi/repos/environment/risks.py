@@ -118,7 +118,7 @@ def detect_capabilities(scan: Scan) -> list[Capability]:
 
 _INSTALL_HOOKS = ("preinstall", "install", "postinstall", "prepare", "prepublish")
 _SCRIPT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("destructive", re.compile(r"\brm\s+-[a-z]*\s*(?:-[a-z]*\s+){0,2}(?:/|~|\$HOME|\*)", re.I)),
+    ("destructive", re.compile(r"\brm\s+-[a-z]*(?:\s+-[a-z]*){0,4}\s+(?:/|~|\$HOME|\*)", re.I)),
     ("destructive", re.compile(r"\brm\s+-(rf|fr|r\s+-f|f\s+-r)\b", re.I)),
     ("destructive", re.compile(r"\bgit\s+clean\s+-[a-z]*f", re.I)),
     ("destructive", re.compile(r"\b(?:mkfs|dd\s+if=|>\s*/dev/sd)", re.I)),
@@ -147,10 +147,10 @@ def detect_script_signals(scan: Scan) -> list[ScriptSignal]:
 
 
 # Events the harness fires without the agent choosing to run anything.
-AUTOMATIC_EVENTS = ("SessionStart", "SessionEnd", "PreCompact", "Notification")
-_OPT = r"(?:\s+(?<![\w-])-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,8}"
-_INSTALL = re.compile(rf"\b(?:npm|yarn|pnpm|bun){_OPT}\s+install\b|\b(?:npm|pnpm){_OPT}\s+ci\b"
-                      rf"|\b(?:npm|pnpm|bun){_OPT}\s+i\b", re.I)
+AUTOMATIC_EVENTS = ("SessionStart", "SessionEnd", "PreCompact", "Notification", "UserPromptSubmit", "Stop")
+_OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,8}"
+_INSTALL = re.compile(rf"(?<![\w-])(?:npm|yarn|pnpm|bun){_OPT}\s+install\b|(?<![\w-])(?:npm|pnpm){_OPT}\s+ci\b"
+                      rf"|(?<![\w-])(?:npm|pnpm|bun){_OPT}\s+i\b", re.I)
 _IGNORE_SCRIPTS = re.compile(r"--(no-)?ignore-scripts\b(?:[= ]+(true|false|1|0)\b)?", re.I)
 _HOOK_SPLIT = re.compile(r"&&|\|\||;|\n")  # not a single `|`: `npm ci | tee log` still installs
 

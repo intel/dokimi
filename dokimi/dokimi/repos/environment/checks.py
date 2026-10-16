@@ -29,7 +29,7 @@ KINDS = ("build", "test", "lint", "typecheck")
 _NODE_LINT_NAME = re.compile(r"(^|[:/_-])lints?([:/_-]|$)", re.I)
 _NODE_LINT_TOOL = re.compile(r"\b(?:eslint|prettier|xo|biome|standard|tslint|oxlint|rome)\b(?!-)")
 _NODE_TYPE_NAME = re.compile(r"(^|[:/_-])(?:type-?check|check[:_-]?types?|typings?)([:/_-]|$)", re.I)
-_NODE_TYPE_TOOL = re.compile(r"\btsc\b[^\n]{0,100}?--noemit\b|\btsd\b|\bvue-tsc\b|\bsvelte-check\b|\battw\b", re.I)
+_NODE_TYPE_TOOL = re.compile(r"\btsc\b[^\n]{0,256}?--noemit\b|\btsd\b|\bvue-tsc\b|\bsvelte-check\b|\battw\b", re.I)
 _NODE_INSTALL = re.compile(r"\b(npm (ci|install|i)|yarn (install|add)|pnpm (install|i|add)|bun (install|i|add))\b")
 _SEGMENTS = re.compile(r"&&|\|\||[;\n]")
 _INI_SECTION = re.compile(r"^\[+([^\]#;]+)\]+", re.M)
@@ -146,8 +146,9 @@ def _autotools(scan: Scan) -> list[Check]:
     if marker is None:
         return []
     out = [Check("autotools", "build", "toolchain", marker)]
-    if re.search(r"\b(TESTS|check_PROGRAMS|check_SCRIPTS|check_LTLIBRARIES)\b", scan.text("Makefile.am")):
-        out.append(Check("autotools", "test", "declared", "Makefile.am", "make check"))
+    am_files = [f for f in scan.files if posixpath.basename(f) == "Makefile.am"]
+    if any(re.search(r"\b(?:TESTS|check_PROGRAMS|check_SCRIPTS|check_LTLIBRARIES)\b", scan.text(f)) for f in am_files):
+        out.append(Check("autotools", "test", "declared", am_files[0], "make check"))
     return out
 
 
