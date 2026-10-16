@@ -15,7 +15,7 @@ from there. The importable package is `dokimi` (`dokimi/dokimi/`); the CLI is
 ```bash
 make dev        # once, repo root: .venv with CI's Python, the lock, every CI tool
 make ci-local   # every PR CI step, read from .github/workflows/; pass/fail/skip table
-make ci-local CI_LOCAL_ARGS='--offline --jobs lint,typecheck'   # fast inner loop
+make ci-local CI_LOCAL_ARGS='--offline --jobs static,typecheck'   # fast inner loop
 ```
 
 A change is ready for a PR when no row of the `make ci-local` table is `FAIL`.

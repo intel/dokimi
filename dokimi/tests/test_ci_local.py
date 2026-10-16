@@ -142,6 +142,26 @@ def test_pip_install_line_dropped_rest_of_step_runs(env: dict[str, Any]) -> None
     assert [c["cmd"][-1].strip() for c in env["calls"]] == ["echo after"]
 
 
+def test_unknown_job_id_is_an_error(env: dict[str, Any], capsys: Any) -> None:
+    """A stale --jobs id fails before anything runs instead of being skipped."""
+    assert cl.run(ns(jobs="a,lint")) == 2
+    assert not env["calls"]
+    assert "unknown job id(s) lint" in capsys.readouterr().out
+    cl.run(ns(jobs="a,semgrep"))  # the semgrep pseudo-job is known
+    assert env["calls"] and "unknown job id" not in capsys.readouterr().out
+
+
+def test_the_local_leg_is_the_coverage_leg(env: dict[str, Any]) -> None:
+    """Steps gated on matrix.coverage run locally, whatever the venv's Python."""
+    wf = ("on: pull_request\njobs:\n  t:\n    steps:\n"
+          "      - env:\n          COVERAGE: ${{ matrix.coverage }}\n        run: echo cov\n"
+          "      - if: github.event_name == 'pull_request' && matrix.coverage\n        run: echo gate\n")
+    (cl.WORKFLOWS / "x.yml").write_text(wf)
+    cl.run(ns())
+    assert [c["cmd"][-1].strip() for c in env["calls"]] == ["echo cov", "echo gate"]
+    assert env["calls"][0]["env"]["COVERAGE"] == "true"
+
+
 PY_WF = """on: pull_request
 jobs:
   lint:

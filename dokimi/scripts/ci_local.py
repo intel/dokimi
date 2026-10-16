@@ -20,8 +20,10 @@ Differences from CI, all printed as notices:
   on a copy of the tracked tree instead, so the dev venv stays as CI's.
 - Every step runs even when an earlier one fails, so one failure does not hide
   the next (CI stops a job at its first failing step).
-- A matrix runs one leg: the dev venv's Python. A notice says so when that is
-  not the Python CI's single-version jobs use.
+- A matrix runs one leg: the dev venv's Python, standing in for the coverage
+  leg too (`matrix.coverage` is true), so the changed-lines gate runs here. A
+  notice says so when that is not the Python CI's single-version jobs use.
+- An unknown --jobs id is an error, not an empty run.
 - Steps that need the network are skipped when PyPI is unreachable or with
   --offline; the docker job runs only with --with-docker.
 - Semgrep Secrets is an org-level check with no workflow file here; it runs as
@@ -178,6 +180,7 @@ class Context:
             "github.event.pull_request.base.ref": base,
             "github.event_name": "pull_request",
             "matrix.python-version": py,
+            "matrix.coverage": "true",
             "runner.temp": str(tmp),
             "github.workspace": str(REPO),
             "needs.changes.outputs.code": "true",
@@ -240,6 +243,12 @@ def make_isolated_env(tmp: Path, py: str) -> tuple[Path, dict]:
 def run(args: argparse.Namespace) -> int:
     py = f"{sys.version_info.major}.{sys.version_info.minor}"
     want = set(args.jobs.split(",")) if args.jobs else None
+    if want is not None:
+        known = {job_id for _, wf in load_workflows() for job_id in wf["jobs"]} | {"semgrep"}
+        if unknown := sorted(want - known):
+            print(f"ERROR: unknown job id(s) {', '.join(unknown)}; "
+                  f"the PR workflows have: {', '.join(sorted(known))}")
+            return 2
     ci_py, legs = ci_pythons()
     other_py = (f"NOTICE: this venv runs Python {py}, CI's single-version jobs {ci_py}: "
                 "steps conditioned on CI's version are skipped. Re-run `make dev` to "

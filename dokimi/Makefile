@@ -73,5 +73,5 @@ hooks:
 	@hook="$$(git rev-parse --git-path hooks)/pre-push"; \
 	if [ -e "$$hook" ] && ! grep -q '^# ci-local pre-push hook' "$$hook"; then \
 		echo "ERROR: $$hook exists and is not ours; remove it first"; exit 1; fi; \
-	printf '#!/bin/sh\n# ci-local pre-push hook\nexec make -C "$$(git rev-parse --show-toplevel)/dokimi" ci-local CI_LOCAL_ARGS="--offline --jobs lint,typecheck,schema,workflow-lint,security"\n' \
+	printf '#!/bin/sh\n# ci-local pre-push hook\nexec make -C "$$(git rev-parse --show-toplevel)/dokimi" ci-local CI_LOCAL_ARGS="--offline --jobs static,typecheck"\n' \
 		> "$$hook" && chmod +x "$$hook" && echo "installed $$hook"

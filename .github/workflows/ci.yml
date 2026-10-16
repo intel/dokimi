@@ -65,11 +65,12 @@ jobs:
       # rev in .pre-commit-config.yaml, the dev extra in dokimi/pyproject.toml
       # and .agent-eval/Dockerfile, so the hook, a local run, the eval image and
       # CI report the same findings; Renovate bumps them together. The zizmor rev
-      # in .pre-commit-config.yaml is this zizmor version too.
+      # in .pre-commit-config.yaml is this zizmor version too. One `pip install`
+      # per line: Renovate's regex reads the pins of a line that starts with one.
       - name: Install tools
-        run: >-
+        run: |
           pip install ruff==0.17.0 zizmor==1.30.1 pre-commit==4.6.2
-          bandit==1.9.4 pip-audit==2.10.1 PyYAML jsonschema
+          pip install bandit==1.9.4 pip-audit==2.10.1 PyYAML jsonschema
       # Lint only: most of the tree predates the formatter (205 of 276 files would
       # be rewritten), so a format gate would mean a repo-wide reformat first.
       - name: ruff check
@@ -161,6 +162,11 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.12', '3.13', '3.14']
+        # The coverage leg: it measures coverage, gates the changed lines and
+        # uploads the report. scripts/ci_local.py runs its one leg as this one.
+        include:
+          - python-version: '3.14'
+            coverage: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -177,14 +183,14 @@ jobs:
         run: pip install -r requirements.lock.txt
       # Offline by construction: pytest-socket (addopts in pyproject.toml) fails
       # any test that opens a network socket. -n auto: one pytest-xdist worker
-      # per CPU. Coverage on the 3.14 leg only: one report is gated and
+      # per CPU. Coverage on the coverage leg only: one report is gated and
       # uploaded, and 3.14 traces through sys.monitoring, where the tracer costs
       # the least (the suite with --cov-branch takes about 40% longer on 3.11-3.13).
       - name: Run tests
         env:
-          PY: ${{ matrix.python-version }}
+          COVERAGE: ${{ matrix.coverage }}
         run: |
-          if [ "$PY" = 3.14 ]; then
+          if [ "$COVERAGE" = true ]; then
             pytest -n auto --cov=dokimi --cov-branch --cov-report=term --cov-report=xml
           else
             pytest -n auto
@@ -194,7 +200,7 @@ jobs:
       # Below 20 measurable changed lines one missed line swings the percentage
       # by 5+ points, so small PRs get the report without the gate.
       - name: Coverage of changed lines
-        if: github.event_name == 'pull_request' && matrix.python-version == '3.14'
+        if: github.event_name == 'pull_request' && matrix.coverage
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
@@ -212,7 +218,7 @@ jobs:
               sys.exit(f"coverage of changed lines {pct}% < 80% (see the step summary)")
           PY
       - name: Upload coverage
-        if: always() && matrix.python-version == '3.14'
+        if: always() && matrix.coverage
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: coverage
@@ -224,7 +230,7 @@ jobs:
       # Trend, PR comment and badge. Informational only (codecov.yml): the gate
       # is the changed-lines step above, and a Codecov outage does not fail CI.
       - name: Upload coverage to Codecov
-        if: ${{ !cancelled() && matrix.python-version == '3.14' }}
+        if: ${{ !cancelled() && matrix.coverage }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
         with:
           files: dokimi/coverage.xml
