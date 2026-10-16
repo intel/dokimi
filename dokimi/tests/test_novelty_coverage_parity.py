@@ -19,6 +19,7 @@ classified such a row differently from each other, and now both classify it by k
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -117,6 +118,29 @@ def _skill(root: Path, entry: str, files: dict) -> Path:
     return root
 
 
+def _clients_that_cite_real_spans():
+    """``_clients()``, with the extractor's rows cut to the spans the prompt lists.
+
+    The shared script cites ``s0002`` and ``s0003``; a one-sentence skill has no such span.
+    ``main`` at d223029 dropped those rows silently; since #40 a reply none of whose rows is
+    an atom of the document is an error. The parity cases measure coverage, not extraction,
+    so the rows ``main`` kept are the rows this module keeps, whichever side of #40 it runs on.
+    """
+    extractor, answerer, judge = _clients()
+    inner = extractor.transport
+
+    def transport(prompt, system=None):
+        reply, error = inner(prompt, system)
+        if "Extract the checkable knowledge" not in prompt:
+            return reply, error
+        listed = set(re.findall(r"^\[(s\d+)\]", prompt, flags=re.M))
+        rows = [row for row in json.loads(reply) if set(row["span_ids"]) <= listed]
+        return json.dumps(rows), error
+
+    extractor.transport = transport
+    return extractor, answerer, judge
+
+
 def _gate(artifact: dict) -> dict:
     check = next(c for c in evaluate_novelty(artifact).checks if c.name == "artifact_coverage")
     return {"passed": check.passed, "value": check.value, "severity": check.severity,
@@ -134,7 +158,7 @@ def _capture(name: str, tmp_path: Path) -> dict:
     config = AnalyzeConfig(artifact_ref=f"skill:{root}", artifact_kind=bundle.kind,
                            name=bundle.name, description=bundle.description,
                            frontmatter=bundle.frontmatter, concurrency=1)
-    extractor, answerer, judge = _clients()
+    extractor, answerer, judge = _clients_that_cite_real_spans()
     artifact = analyze(bundle.text, config, extractor=extractor, answerer=answerer,
                        judge=judge, artifact_bundle=bundle).artifact
     return {
