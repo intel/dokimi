@@ -164,18 +164,17 @@ def detect_script_signals(scan: Scan) -> list[ScriptSignal]:
 
 # Events the harness fires without the agent choosing to run anything.
 AUTOMATIC_EVENTS = ("SessionStart", "SessionEnd", "PreCompact", "Notification", "UserPromptSubmit", "Stop", "SubagentStop")
-_OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,16}"
+_OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,8}"
 _INSTALL = re.compile(rf"(?<![\w-])(?:npm|yarn|pnpm|bun){_OPT}\s+install\b|(?<![\w-])(?:npm|pnpm){_OPT}\s+ci\b"
                       rf"|(?<![\w-])(?:npm|pnpm|bun){_OPT}\s+i\b", re.I)
 _RUN_COMMAND = re.compile(r"(?<![\w-])(?:npm|yarn|pnpm|bun)\s+run\s+[\w:-]+\b", re.I)
-_MAKE = re.compile(r"(?<![\w-])make\b", re.I)
-_IGNORE_SCRIPTS = re.compile(r"(?:--no-ignore-scripts|export\s+npm_config_ignore_scripts\s*=\s*false)|(?:--ignore-scripts(?:[= ]+(true|false|1|0))?|export\s+npm_config_ignore_scripts\s*=\s*true)", re.I)
+_MAKE = re.compile(r"^(?:\w+=\S*\s+)*(?:sudo\s+)?g?make\b")
 _HOOK_SPLIT = re.compile(r"&&|\|\||;|\n")  # not a single `|`: `npm ci | tee log` still installs
 
 
 def _ignores_scripts(segment: str) -> bool:
-    # Strip comments first (item 10: Thread 10 partial fix)
-    segment = segment.split('#')[0].strip()
+    # Strip comments only after whitespace or at the start of a segment
+    segment = re.sub(r"(?:^|\s)#.*$", "", segment).strip()
     # Find all --ignore-scripts or --no-ignore-scripts flags (not just matches)
     ignore_flags = list(re.finditer(r"--no-ignore-scripts|--ignore-scripts(?:[= ]+(true|false|1|0))?", segment, re.I))
     if not ignore_flags:
@@ -194,8 +193,10 @@ def _ignores_scripts(segment: str) -> bool:
 
 def detect_hook_risks(scan: Scan) -> list[HookRisk]:
     """Automatic Claude Code hooks that execute repository code (install with lifecycle scripts, run, make, paths)."""
+    import shlex
+
     out = set()
-    tracked_files = set(scan.files) if hasattr(scan, 'files') else set()
+    tracked_files = set(scan.files)
     for path in CLAUDE_SETTINGS:
         if path not in scan.file_set:
             continue
@@ -217,7 +218,22 @@ def detect_hook_risks(scan: Scan) -> list[HookRisk]:
                     elif _MAKE.search(segment):
                         out.add(HookRisk(path, event, segment))
                     # Check for paths into the tree (THREAD 0): ./path, $CLAUDE_PROJECT_DIR/path, or tracked files
-                    elif any(pat in segment for pat in ['./','$CLAUDE_PROJECT_DIR','"$CLAUDE_PROJECT_DIR"']) or \
-                         any(f in segment for f in tracked_files if len(f) > 3):
-                        out.add(HookRisk(path, event, segment))
+                    else:
+                        # Shlex-split the segment to extract the command word
+                        try:
+                            argv = shlex.split(segment)
+                        except ValueError:
+                            argv = segment.split()
+
+                        if argv:
+                            # Get the command word (argv[0] or argv[1] after interpreter)
+                            cmd_idx = 0
+                            if argv[0] in ('bash', 'sh', 'zsh', 'python', 'python3', 'node', 'ruby', 'perl', 'bun', 'deno', 'tsx'):
+                                cmd_idx = 1
+
+                            if cmd_idx < len(argv):
+                                cmd_word = argv[cmd_idx]
+                                # Check if it starts with ./ or $CLAUDE_PROJECT_DIR or is a tracked file
+                                if cmd_word.startswith('./') or cmd_word.startswith('$CLAUDE_PROJECT_DIR') or cmd_word.startswith('${CLAUDE_PROJECT_DIR}') or cmd_word in tracked_files:
+                                    out.add(HookRisk(path, event, segment))
     return sorted(out, key=lambda r: (r.path, r.event, r.command))

@@ -404,7 +404,7 @@ def test_npm_install_1mb_completes_quickly(tmp_path):
     }
     _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
     start = time.monotonic()
-    payload = inspect_repo(WorkTree(tmp_path))
+    assert inspect_repo(WorkTree(tmp_path))
     elapsed = time.monotonic() - start
     assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
 
@@ -446,6 +446,72 @@ def test_thread_0_path_detected(tmp_path):
     payload = inspect_repo(WorkTree(tmp_path))
     risks = {h["command"] for h in payload["hook_risks"]}
     assert any("setup.sh" in r or "./setup" in r for r in risks)
+
+
+def test_thread_0_make_not_in_echo(tmp_path):
+    """THREAD 0: make in echo should NOT be flagged."""
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "echo 'make sure deps are installed'"}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    assert not any("echo" in r for r in risks)
+
+
+def test_thread_0_make_case_insensitive(tmp_path):
+    """THREAD 0: Make in echo case should NOT be flagged."""
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "echo Make it so"}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    assert not any("echo" in r for r in risks)
+
+
+def test_thread_2_path_not_flagged_for_cd_parent(tmp_path):
+    """THREAD 2: cd ../other should not be flagged as a path risk."""
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "cd ../other && ls"}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    assert not any("cd ../other" in r for r in risks)
+
+
+def test_thread_2_path_not_flagged_for_cat_file(tmp_path):
+    """THREAD 2: cat package.json should not be flagged as a path risk."""
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "cat package.json"}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "package.json": "{}", "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    assert not any("cat package.json" in r for r in risks)
+
+
+def test_thread_4_ignore_scripts_with_url_fragment(tmp_path):
+    """THREAD 4: URL fragments should not be stripped as comments."""
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "npm ci --registry=https://r/#x --ignore-scripts"}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    # Should not be flagged because --ignore-scripts is present
+    assert not any("npm ci" in r for r in risks)
 
 
 def test_test_file_case_insensitive_and_mjs(tmp_path):
