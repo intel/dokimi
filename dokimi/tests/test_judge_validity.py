@@ -1565,3 +1565,16 @@ def test_cli_judges_each_answer_with_its_arms_stored_material(tmp_path, monkeypa
         assert exc.code == 1
     assert "FULL SKILL BODY" in seen and "(none passed)" not in seen
     assert json.loads(out.read_text())["summary"]["context"] == "stored"
+
+
+def test_a_lone_surrogate_in_material_is_hashed_not_fatal():
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    text = "chunk ends mid-pair " + chr(0xD83D)
+    store = JudgeContextStore()
+    store.put("q1", "docs", text)
+    digest = store.digest_of("q1", "docs")
+    assert digest.startswith("sha256:") and store.materials() == {digest: text}
+    data = {"answers": [{"question_id": "q1", "arms": {"docs": {"judge_context_sha256": digest}}}],
+            "judge_materials": {digest: text}}
+    assert JudgeContextStore.from_artifact(data).get("q1", "docs") == text

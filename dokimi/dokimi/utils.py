@@ -57,11 +57,12 @@ def digest_text(text: str) -> str:
         text: The text to digest.
 
     Returns:
-        ``"sha256:"`` followed by the hex digest of the UTF-8 encoding.
+        ``"sha256:"`` followed by the hex digest of the UTF-8 encoding (a lone
+        surrogate, which JSON allows, is encoded rather than raising).
     """
     import hashlib
 
-    return "sha256:" + hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+    return "sha256:" + hashlib.sha256((text or "").encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def retry_writable(func: Any, path: str, _exc: Any) -> None:
