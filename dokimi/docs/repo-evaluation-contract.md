@@ -640,7 +640,7 @@ python cli.py repo run ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml 
     --model us.anthropic.claude-haiku-4-5-20251001-v1:0 --reps 3 --batch pilot \
     --bin /opt/claude-2.1.286/claude --agent-network host --budget 1 --max-batch-usd 20
 python cli.py repo report repo-runs/pilot
-python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric icpx_hit
+python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric root_cause_fixed
 ```
 
 - Each cell holds the §4 inputs plus `agent.stdout` (the raw trace) and
@@ -672,14 +672,22 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric icp
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
   cost, turns, each `--metric` from `grade.json`) it gives the mean per-task
-  delta against the baseline with a task bootstrap 95% interval, the tasks up,
-  down and tied, and a two-sided sign-flip permutation p (exact up to 16
+  delta against the baseline with a 95% interval over tasks (a bootstrap for
+  gate and score, a t interval for cost, turns and metrics, `-` for a single
+  task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
   changed tasks; at one cell per task and arm it equals McNemar's exact test).
   Holm's correction runs over the gate and score comparisons of one call; the
   rest are descriptive. `BATCH/ARM` takes an arm from one batch only, so two
   batches of the same arm (for example two revisions of the guidance) compare
-  too. Tasks with cells in only one arm are listed as unpaired. The output
-  names the batches behind each selector and each batch's pin (`tree`,
-  `eval_dir`, `image` from `_eval/batch.json`) with its cells' harness
-  versions, and warns when a bare `ARM` pools several batches or when the two
-  arms ran from different `eval_dir` or `image` pins or harness versions.
+  too; two selectors of the same cells are refused. A `--metric` no finished
+  cell reports as a number or boolean is refused. Tasks left out are listed as
+  unpaired with the reason: no cells in one arm, a task that is gated in one
+  arm and score-only in the other, or a measure (such as a metric) one arm
+  lacks. A metric's `n_baseline`/`n_treatment` count the cells that report it.
+  The output names the batches behind each selector and each batch's pin
+  (`tree`, `eval_dir`, `image` from `_eval/batch.json`) with its cells'
+  harness versions, and warns when a bare `ARM` pools several batches, when a
+  batch of a comparison has no pin, or when the two arms ran from different
+  `eval_dir` or `image` pins or harness versions. An image `repo run` tagged
+  from the tree (`dokimi/<id>:<sha>`) follows the tree, so two revisions are
+  not warned about it; an `--image` of its own is compared.
