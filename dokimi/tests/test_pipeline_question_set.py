@@ -547,3 +547,100 @@ def test_custom_questions_path_with_root(tmp_path, monkeypatch):
     assert "c1" in question_ids, "custom question should be in result"
     assert "gen1" in question_ids, "generated question should be in result"
     assert "g1" not in question_ids, "golden-only question should not be in result"
+
+
+def _golden_run(tmp_path, golden, cached, *, raw=False, custom=False):
+    root = tmp_path / "questions"
+    out = tmp_path / "out"
+    if raw:
+        root.mkdir(parents=True)
+        (root / "demo_golden.json").write_text(golden, encoding="utf-8")
+    else:
+        _write_json(root / "demo_golden.json", golden)
+    if cached is not None:
+        _write_json(out / "questions" / "demo.json", cached)
+    kwargs = {"custom_questions_path": root / "demo_golden.json"} if custom else {"questions_root": root}
+    return EvaluationPipeline(
+        product="DemoProduct", product_key="demo", output_dir=out,
+        description="A demo product", **kwargs,
+    ).run(concurrency=1)
+
+
+@pytest.mark.parametrize("golden,raw", [(["just a string"], False), ('{"questions": [', True)])
+def test_cached_run_tolerates_unreadable_golden_file(tmp_path, monkeypatch, caplog, golden, raw):
+    _stub_expensive_steps(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        _golden_run(tmp_path, golden, [{"id": "a", "question": "A?"}], raw=raw)
+    assert "Could not load golden set" in caplog.text
+
+
+def test_pinned_run_without_cache_still_raises_on_corrupt_golden(tmp_path, monkeypatch):
+    _stub_expensive_steps(monkeypatch)
+    with pytest.raises(json.JSONDecodeError):
+        _golden_run(tmp_path, '{"questions": [', None, raw=True)
+
+
+def test_cached_same_ids_edited_text_warns(tmp_path, monkeypatch, caplog):
+    _stub_expensive_steps(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        _golden_run(tmp_path, [{"id": "g1", "question": "NEW?"}], [{"id": "g1", "question": "OLD?"}])
+    assert "differs from golden set" in caplog.text
+
+
+def test_cached_equal_to_golden_does_not_warn(tmp_path, monkeypatch, caplog):
+    _stub_expensive_steps(monkeypatch)
+    qs = [{"id": "g1", "question": "Same?"}, {"id": "g2", "question": "Also?"}]
+    with caplog.at_level(logging.WARNING):
+        _golden_run(tmp_path, qs, [dict(q) for q in qs])
+    assert "differs from golden set" not in caplog.text
+    assert "Could not load golden set" not in caplog.text
+
+
+def test_custom_questions_with_merged_cache_does_not_warn(tmp_path, monkeypatch, caplog):
+    _stub_expensive_steps(monkeypatch)
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", lambda self: {"personas": []})
+    cached = [{"id": "g1", "question": "Golden?"}, {"id": "x", "question": "Generated?"}]
+    with caplog.at_level(logging.WARNING):
+        _golden_run(tmp_path, [{"id": "g1", "question": "Golden?"}], cached, custom=True)
+    assert "differs from golden set" not in caplog.text
+
+
+def test_evaluate_prints_no_personas_line_when_personas_skipped(tmp_path, monkeypatch, capsys):
+    from dokimi.cli import build_parser
+
+    def run(self, concurrency=5):
+        return {"steps": {
+            "personas": {"count": 0, "skipped": True},
+            "questions_merged": {"path": "q"},
+            "answers": {"path": "a"},
+            "evaluation": {"path": "e"},
+            "report": {"path": "r"},
+        }}
+
+    monkeypatch.setattr(EvaluationPipeline, "run", run)
+    args = build_parser().parse_args([
+        "evaluate", "--product", "DemoProduct", "--description", "d",
+        "--output-dir", str(tmp_path / "out"),
+    ])
+    args.func(args)
+    out = capsys.readouterr().out
+    assert "Questions:" in out
+    assert "Personas:" not in out
+
+
+@pytest.mark.parametrize("exc", [OSError("permission denied"), TypeError("bad item")])
+def test_cached_run_tolerates_golden_read_errors(tmp_path, monkeypatch, caplog, exc):
+    import dokimi.orchestrator.pipeline as pl
+
+    _stub_expensive_steps(monkeypatch)
+    real = pl.load_questions_payload
+
+    def flaky(path):
+        if path.name.endswith("_golden.json"):
+            raise exc
+        return real(path)
+
+    monkeypatch.setattr(pl, "load_questions_payload", flaky)
+    with caplog.at_level(logging.WARNING):
+        _golden_run(tmp_path, [{"id": "g", "question": "G?"}], [{"id": "a", "question": "A?"}])
+    assert "Could not load golden set" in caplog.text

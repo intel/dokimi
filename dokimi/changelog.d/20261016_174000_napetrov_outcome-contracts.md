@@ -1,43 +1,27 @@
 ### Added
 
-- **User outcome contracts** — test outcomes are now checked by a pytest plugin
-  called with `pytest --outcomes`. The plugin verifies that (1) each documented
-  outcome has at least one test that claims it, (2) claimed tests pass, and
-  (3) no test that claims an outcome is skipped. A file `outcomes-result.json`
-  records the result. CI's test step uploads this file as evidence of the
-  contract. The plugin runs offline and adds no files outside `tests/`.
-- **`pytest.mark.outcome("<id>")` marker** — annotate test functions to tie them
-  to specific outcome ids. Pairs with `tests/outcomes/<name>.json`, which lists
-  the id refs and documentation links. A test marked with an outcome id is
-  required to be in `@pytest.fixture(scope="session")` or not skipped, so users
-  can rely on it.
+- **User outcome contracts** — `pytest --outcomes` checks each promise in
+  `tests/outcomes/*.json` (the doc that states it, the code that keeps it, and
+  evidence ids) against the tests that ran. A test claims an id with
+  `@pytest.mark.outcome("<id>")`. An id no test claims is an error, a claimed
+  test that fails fails the verdict, and a claimed test that is skipped makes it
+  inconclusive (exit 3). The verdict is written to `outcomes-result.json`
+  (`--outcomes-report=<path>` moves it). CI runs the tests with `--outcomes` and
+  uploads the file with the other test artifacts. The first contract covers
+  pinned question sets.
 
 ### Changed
 
-- **`--questions-root` now pins the question set** — when a golden set file
-  exists in the root (`<target>_golden.json`), `benchmark run` and `evaluate`
-  load only that set and skip generation. Before, a fresh run merged the golden
-  set into generated questions, so two runs on the same root answered different
-  sets. The cached `questions/<target>.json` (if present) still takes
-  precedence, but a run with no cache now answers only the golden set, not a
-  merged set. Question counts and `question_set_hash` of such runs change.
-- **`benchmark preflight --questions-root` now validates the golden set** — if
-  the root is missing, has no golden file, or the golden file is unreadable,
-  the preflight exits 1 instead of passing. This matches documented behavior
-  that `--questions-root` pins the question set.
-- **`pipeline.orchestrate()` stores a `skipped` flag in the personas step** —
-  when personas generation is skipped (because a golden file or `--questions-from`
-  pins the set), the step now records `skipped: true` and omits the `path` key,
-  since no file is written. `cli.commands.orchestrate()` now checks this flag
-  before printing the personas path to the user.
-
-### Fixed
-
-- **A bad golden file no longer crashes a cached run** — loading and comparing
-  the golden set now happens inside a `try` block, so a cached set wins even
-  if the golden file is corrupt or has an unexpected structure. The failure is
-  logged and the run continues.
-- **Golden set edits are now detected** — instead of comparing only the `id`
-  sets (which misses edited questions and false negatives when items have no
-  `id`), the warning now compares the hash of the cached and golden question
-  sets, and logs both hashes (or difference counts) so the user can debug.
+- **`--questions-root` pins the question set** — when `<target>_golden.json`
+  exists in the root, `benchmark run` and `evaluate` answer exactly that set and
+  skip question generation, where they used to merge it into generated
+  questions. Counts and `question_set_hash` of such runs change. A cached
+  `questions/<target>.json` in the output directory still wins until
+  `--force-regen`; a cached set that differs from the golden set now logs a
+  warning with both hashes.
+- **`benchmark preflight --questions-root` validates the golden set** — a
+  missing root, a missing or empty golden file, or an unreadable or malformed
+  one exits 1 and the check prints the golden file path and item count.
+- **`evaluate` skips persona discovery for pinned runs** — with a golden file or
+  `--questions-from`, personas are not discovered (even with `--force-regen`),
+  and `evaluate` no longer prints a `Personas:` path for such a run.

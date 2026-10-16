@@ -269,7 +269,7 @@ class EvaluationPipeline:
             # Warn if cached questions differ from the golden set
             if self.golden_pinned and self.custom_questions_path is not None:
                 try:
-                    golden_questions = self._load_custom_questions()
+                    golden_questions = load_questions_payload(self.custom_questions_path)
                     cached_hash = compute_question_set_hash(merged_questions)
                     golden_hash = compute_question_set_hash(golden_questions)
                     if cached_hash != golden_hash:
@@ -280,7 +280,7 @@ class EvaluationPipeline:
                             f"golden set (n={golden_count}, hash={golden_hash}); "
                             f"pass --force-regen to use the golden set"
                         )
-                except (json.JSONDecodeError, ValueError, AttributeError) as e:
+                except (json.JSONDecodeError, ValueError, TypeError, AttributeError, OSError) as e:
                     logger.warning(
                         f"Could not load golden set for comparison: {e}; "
                         f"using cached questions (pass --force-regen to reload)"
