@@ -391,6 +391,7 @@ def test_cost_cap_with_concurrency_stays_within_bound(doc):
     # the crossing call plus at most concurrency - 1 = 3 others in flight
     assert sum(not r["skipped"] for r in results) == len(ran)
     assert 4 <= len(ran) <= 7
+    assert not any(r.get("error") for r in results)
 
 
 def test_an_unpriced_call_blinds_the_cap_so_the_run_stops(doc):
@@ -626,8 +627,9 @@ def test_stopping_message_in_cap_reached_case(monkeypatch, tmp_path, capsys):
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
                                       "--max-cost-usd", "5", "--out-json", str(out)])
     args.func(args)
-    out_str = capsys.readouterr().out
-    assert "stopping at $5" in out_str
+    captured = capsys.readouterr()
+    assert "stopping at $5" in captured.out
+    assert "Warning:" not in captured.err
 
 
 def test_max_cost_usd_zero_skips_all(doc):
