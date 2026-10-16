@@ -15,6 +15,14 @@ from pathlib import Path
 PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"]
 
 
+class CutBeforeToolCall(RuntimeError):
+    """A reply cut at ``max_tokens`` before any tool call: billed in full, so it carries its usage."""
+
+    def __init__(self, message: str, usage: dict):
+        super().__init__(message)
+        self.usage = usage
+
+
 def _first_turn_caller(model: str, provider: str, max_tokens: int):
     """One ``tool_choice="auto"`` call per item; returns the first turn's tool names, text, usage.
 
@@ -32,11 +40,11 @@ def _first_turn_caller(model: str, provider: str, max_tokens: int):
         # an empty or missing name is kept as "": a call was made, to no tool on offer
         names = [getattr(getattr(tc, "function", None), "name", None) or "" for tc in calls]
         truncated = getattr(resp.choices[0], "finish_reason", None) in _TRUNCATED
+        usage = _extract_usage(resp, model, provider, latency_sec=time.time() - t0).as_metrics_dict()
         if not calls and truncated:
-            raise RuntimeError(f"reply cut at max_tokens={max_tokens} before any tool call")
-        usage = _extract_usage(resp, model, provider, latency_sec=time.time() - t0)
+            raise CutBeforeToolCall(f"reply cut at max_tokens={max_tokens} before any tool call", usage)
         return {"called": names, "text": getattr(msg, "content", None) or "",
-                "usage": usage.as_metrics_dict(), "truncated": truncated}
+                "usage": usage, "truncated": truncated}
 
     return call
 
@@ -118,9 +126,11 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
               file=sys.stderr)
         raise SystemExit(2)
     if data["summary"]["n_skipped"]:
-        print(f"Error: --max-cost-usd {args.max_cost_usd:g} reached; {data['summary']['n_skipped']} of "
-              f"{len(results)} call(s) not run, the summary covers the rest. See {args.out_json}",
-              file=sys.stderr)
+        why = (f"--max-cost-usd {args.max_cost_usd:g} reached"
+               if u["cost_known_calls"] == u["n_calls"]
+               else "a call came back with no price, so --max-cost-usd cannot be enforced")
+        print(f"Error: {why}; {data['summary']['n_skipped']} of {len(results)} call(s) not run, "
+              f"the summary covers the rest. See {args.out_json}", file=sys.stderr)
         raise SystemExit(2)
 
 

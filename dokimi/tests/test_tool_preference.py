@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -375,11 +376,49 @@ def test_cost_cap_stops_new_calls_and_leaves_them_out(doc):
     assert s["first_twin_share_baseline"]["n_groups"] == 1
 
 
-def test_unpriced_calls_do_not_reach_the_cap(doc):
+def test_an_unpriced_call_blinds_the_cap_so_the_run_stops(doc):
     items = tp.build_items(doc, ["assertive"])
     results = tp.run_probe(items, lambda i: {"called": [], "usage": {"cost_usd": None}},
-                           reps=1, concurrency=1, max_cost_usd=0.0001)
+                           reps=1, concurrency=1, max_cost_usd=100.0)
+    assert [r["skipped"] for r in results] == [False] + [True] * (len(items) - 1)
+
+
+def test_no_cap_runs_unpriced_calls_to_the_end(doc):
+    items = tp.build_items(doc, ["assertive"])
+    results = tp.run_probe(items, lambda i: {"called": [], "usage": {"cost_usd": None}}, reps=1, concurrency=1)
     assert not any(r["skipped"] for r in results)
+
+
+def test_a_failed_but_billed_call_counts_toward_the_cap(doc):
+    items = tp.build_items(doc, ["assertive"])
+    calls = []
+
+    def cut(item):
+        calls.append(item["id"])
+        exc = RuntimeError("cut")
+        exc.usage = {"cost_usd": 0.5}  # type: ignore[attr-defined]
+        raise exc
+
+    results = tp.run_probe(items, cut, reps=1, concurrency=1, max_cost_usd=0.75)
+    assert len(calls) == 2
+    assert [r["usage"] for r in results[:2]] == [{"cost_usd": 0.5}] * 2
+    assert all(r["skipped"] for r in results[2:])
+
+
+def test_the_overshoot_stays_within_concurrency_minus_one(doc):
+    items = tp.build_items(doc, ["assertive"])
+    gate = threading.Barrier(4)
+    ran = []
+
+    def priced(item):
+        ran.append(item["id"])
+        if len(ran) <= 4:
+            gate.wait(timeout=5)  # four calls in flight together
+        return {"called": [], "usage": {"cost_usd": 0.001}}
+
+    tp.run_probe(items, priced, reps=1, concurrency=4, max_cost_usd=0.0035)
+    # the 4th call crosses the cap; at most the 3 others in flight run past it
+    assert 4 <= len(ran) <= 4 + 3
 
 
 def test_cli_cost_cap_keeps_the_partial_artifact_and_exits_nonzero(monkeypatch, tmp_path, capsys):
@@ -400,6 +439,49 @@ def test_cli_cost_cap_keeps_the_partial_artifact_and_exits_nonzero(monkeypatch, 
     data = json.loads(out.read_text(encoding="utf-8"))
     validate_artifact("tool_preference", data)
     assert data["max_cost_usd"] == 0.02 and data["summary"]["n_skipped"] == 14
+
+
+def test_cli_cut_reply_is_billed_and_stops_the_run(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    def cut(*a, **k):
+        r = _Resp([])
+        r.choices[0].finish_reason = "length"
+        return r
+
+    monkeypatch.setattr(llm, "chat_completion", cut)
+    monkeypatch.setattr(llm, "_safe_completion_cost", lambda *a, **k: 0.01)
+    out = tmp_path / "pref.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--concurrency", "1",
+                                      "--max-cost-usd", "0.02", "--out-json", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert "reached; 14 of 16 call(s) not run" in capsys.readouterr().err
+    data = json.loads(out.read_text(encoding="utf-8"))
+    validate_artifact("tool_preference", data)
+    assert data["usage"]["cost_usd"] == 0.02 and data["summary"]["n_errors"] == 2
+
+
+def test_cli_unpriced_model_stops_and_says_why(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    monkeypatch.setattr(llm, "chat_completion",
+                        lambda messages, model, tools=None, **k: _Resp([tools[0]["function"]["name"]]))
+    monkeypatch.setattr(llm, "_safe_completion_cost", lambda *a, **k: None)
+    out = tmp_path / "pref.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--concurrency", "1",
+                                      "--max-cost-usd", "5", "--out-json", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "no price, so --max-cost-usd cannot be enforced; 15 of 16 call(s) not run" in err
+    assert "reached" not in err
 
 
 @pytest.mark.parametrize("bad", ["0", "-1", "nan", "inf"])
