@@ -22,6 +22,8 @@
 - **`benchmark preflight --questions-root` validates the golden set** — a
   missing root, a missing or empty golden file, or an unreadable or malformed
   one exits 1 and the check prints the golden file path and item count.
-- **`evaluate` skips persona discovery for pinned runs** — with a golden file or
-  `--questions-from`, personas are not discovered (even with `--force-regen`),
-  and `evaluate` no longer prints a `Personas:` path for such a run.
+- **Pinned runs skip persona discovery** — with a golden set under
+  `--questions-root`, `evaluate` and `benchmark run` do not discover personas
+  (`benchmark run` also skips them for `--questions-from`, even with
+  `--force-regen`), and `evaluate` no longer prints a `Personas:` path for
+  such a run.

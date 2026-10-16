@@ -13,7 +13,7 @@ Computes reference-free metrics on top of existing answer pairs:
 Usage:
     from dokimi.eval.ragas_eval import RagasEvaluator
 
-    evaluator = RagasEvaluator(llm_model="gpt-4o-mini", provider="openai")
+    evaluator = RagasEvaluator()   # the default judge (dokimi.defaults)
     results = evaluator.evaluate(answers)   # answers from Answerer.generate_answers()
     print(results.summary)
 """
@@ -21,6 +21,8 @@ Usage:
 import logging
 import os
 from typing import List, Dict, Any, Optional
+
+from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,7 @@ class RagasEvaluator:
     Works with the existing answer format — no pipeline changes needed.
 
     Attributes:
-        llm_model:  Model used as the RAGAS judge (default: gpt-4o-mini).
+        llm_model:  Model used as the RAGAS judge (default: DEFAULT_JUDGE_MODEL).
         provider:   Provider for the RAGAS judge LLM.
         metrics:    List of ragas Metric objects to compute.
     """
@@ -55,8 +57,8 @@ class RagasEvaluator:
 
     def __init__(
         self,
-        llm_model: str = "gpt-4o-mini",
-        provider: str = "openai",
+        llm_model: str = DEFAULT_JUDGE_MODEL,
+        provider: str = DEFAULT_JUDGE_PROVIDER,
         api_key: Optional[str] = None,
         metrics: Optional[List[str]] = None,
     ):
@@ -226,20 +228,20 @@ class RagasEvaluator:
 
             key = self._resolve_key()
 
-            if self.provider in ("openai",):
-                lc_llm = ChatOpenAI(model=self.llm_model, api_key=key or None)
-            elif self.provider == "anthropic":
-                lc_llm = ChatAnthropic(model=self.llm_model, api_key=key or None)
+            chat = {"openai": ChatOpenAI, "anthropic": ChatAnthropic}
+            if self.provider in chat:
+                lc_llm = chat[self.provider](model=self.llm_model, api_key=key or None)
             else:
-                # For google/vertex/openrouter — fall back to OpenAI shim via litellm
-                # RAGAS 0.2 needs a LangChain-compatible LLM; use ChatOpenAI pointed at
-                # the right base URL if needed. For simplicity default to gpt-4o-mini.
+                # RAGAS 0.2 needs a LangChain chat model, built here for openai and
+                # anthropic only. Any other provider (google/vertex/openrouter/bedrock)
+                # falls back to the default judge, so the scores still come from a
+                # model of a different family than the default answerer.
                 logger.warning(
                     "RAGAS LLM: provider '%s' not directly supported; "
-                    "falling back to openai/gpt-4o-mini for judging.",
-                    self.provider,
+                    "falling back to %s/%s for judging.",
+                    self.provider, DEFAULT_JUDGE_PROVIDER, DEFAULT_JUDGE_MODEL,
                 )
-                lc_llm = ChatOpenAI(model="gpt-4o-mini")
+                lc_llm = chat[DEFAULT_JUDGE_PROVIDER](model=DEFAULT_JUDGE_MODEL)
 
             return LangchainLLMWrapper(lc_llm)
 

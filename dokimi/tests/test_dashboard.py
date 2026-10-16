@@ -23,7 +23,7 @@ def _make_eval_file(tmp_path: Path, name: str, evaluations: list) -> Path:
     p.write_text(json.dumps({
         "library_name": name,
         "evaluated_at": "2026-02-27T00:00:00Z",
-        "judge_model": "gpt-4o-mini",
+        "judge_model": "gpt-6.1-sol",
         "total_evaluations": len(evaluations),
         "evaluations": evaluations,
     }))
@@ -134,7 +134,7 @@ def _make_dashboard(products=None) -> DashboardData:
         products = [
             ProductSnapshot(
                 product="oneTBB", library_key="onetbb",
-                evaluated_at="2026-02-27T00:00:00Z", judge_model="gpt-4o-mini",
+                evaluated_at="2026-02-27T00:00:00Z", judge_model="gpt-6.1-sol",
                 total_questions=5, avg_with_docs=78.0, avg_without_docs=58.0, avg_delta=20.0,
                 questions=[
                     QuestionResult("q1", "How to use parallel_for?", 60, 40, 20),

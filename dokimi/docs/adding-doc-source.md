@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Using Multiple Documentation Sources
 
 By default `dokimi` fetches docs from [Context7](https://context7.com/).
@@ -96,6 +101,8 @@ Implement the three-method `MCPClient` interface and register it in the factory.
 
 ```python
 # dokimi/mcp/confluence.py
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 import re
 from typing import List, Dict, Any, Optional
 import httpx

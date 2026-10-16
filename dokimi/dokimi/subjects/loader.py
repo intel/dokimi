@@ -10,6 +10,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.treatments.specs import combine_specs
 
 from .models import NON_ARM_KINDS, SUBJECT_KINDS, SubjectArtifact, SubjectDescriptor, SubjectMember, SubjectSuite
@@ -42,8 +43,8 @@ def load_subject(path: str | Path) -> SubjectDescriptor:
     if not cells:
         cells = ({
             "id": "arms-runner",
-            "model": str(raw.get("model") or "gpt-4o-mini"),
-            "provider": str(raw.get("provider") or "openai"),
+            "model": str(raw.get("model") or DEFAULT_ANSWER_MODEL),
+            "provider": str(raw.get("provider") or DEFAULT_ANSWER_PROVIDER),
             "harness": str(raw.get("harness") or "arms-runner"),
             "plugins": [],
         },)

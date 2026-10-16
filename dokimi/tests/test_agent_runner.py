@@ -5,10 +5,12 @@
 
 import json
 
+import pytest
 from conftest import DEMO_SKILL_MARKER
 
 import dokimi.eval.agent_runner as ar_mod
 from dokimi.eval.agent_runner import run_agent_loop
+from dokimi.eval.arm_summary import TOOL_COUNTS, TOOL_COUNTS_MIXED, summarize_agentic_usage
 from dokimi.treatments import (
     MCPAgentTreatment,
     SkillAgentTreatment,
@@ -247,7 +249,8 @@ def test_forced_final_turn_passes_litellm_bedrock_mapping(monkeypatch):
 
 def test_failed_call_keeps_the_tool_usage_so_far(monkeypatch):
     tool = DocQueryTool(_FakeDocClient(), "lib/x")
-    loop_step = _FakeMessage(tool_calls=[_FakeToolCall("c", "search_documentation", "{}")])
+    loop_step = _FakeMessage(tool_calls=[_FakeToolCall("c", "search_documentation",
+                                                       '{"query": "x"}')])
     calls = []
 
     def fake(messages, model, **kw):
@@ -257,12 +260,9 @@ def test_failed_call_keeps_the_tool_usage_so_far(monkeypatch):
         return _FakeResp(loop_step)
 
     monkeypatch.setattr(ar_mod, "chat_completion", fake)
-    try:
+    with pytest.raises(RuntimeError, match="provider refused") as exc:
         run_agent_loop("q", [tool], model="m", max_iterations=3)
-    except RuntimeError as exc:
-        assert exc.tool_usage["called_tools"] == ["search_documentation"]
-    else:
-        raise AssertionError("expected the provider error to propagate")
+    assert exc.value.tool_usage["called_tools"] == ["search_documentation"]
 
 
 def test_agent_loop_unknown_tool_is_handled(monkeypatch):
@@ -275,6 +275,152 @@ def test_agent_loop_unknown_tool_is_handled(monkeypatch):
     monkeypatch.setattr(ar_mod, "chat_completion", fake)
     result = run_agent_loop("q", [tool], model="m")
     assert "unknown tool" in result["transcript"][0]["result_preview"]
+    assert result["transcript"][0]["error"] == "unknown_tool"
+    assert result["tool_usage"]["call_errors"]["unknown_tool"] == 1
+
+
+def _run_with_one_call(monkeypatch, tool, name, arguments):
+    """Run the loop on one scripted tool call, then an answer; return result and messages sent."""
+    steps = [
+        _FakeMessage(tool_calls=[_FakeToolCall("c1", name, arguments)]),
+        _FakeMessage(content="ok"),
+    ]
+    sent = []
+
+    def fake(messages, model, **kw):
+        sent.append([dict(m) for m in messages])
+        return _FakeResp(steps[min(len(sent) - 1, len(steps) - 1)])
+
+    monkeypatch.setattr(ar_mod, "chat_completion", fake)
+    return run_agent_loop("q", [tool], model="m"), sent
+
+
+def test_malformed_arguments_do_not_run_the_tool(monkeypatch):
+    # On main the parse failure became {} and DocQueryTool searched for "".
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, sent = _run_with_one_call(monkeypatch, tool, "search_documentation",
+                                      '{"query": "parallel_for"')
+    assert tool.calls == []
+    rec = result["transcript"][0]
+    assert rec["error"] == "malformed_args"
+    assert rec["arguments"] == {}
+    assert rec["arguments_raw"] == '{"query": "parallel_for"'
+    assert result["tool_usage"]["call_errors"] == {
+        "unknown_tool": 0, "malformed_args": 1, "tool_error": 0}
+    # The model is told, so it can retry with valid arguments.
+    tool_msg = [m for m in sent[1] if m["role"] == "tool"][0]
+    assert tool_msg["content"].startswith("(invalid tool arguments: ")
+
+
+@pytest.mark.parametrize("arguments", ["{}", "", '{"other": 1}'])
+def test_missing_required_argument_does_not_run_the_tool(monkeypatch, arguments):
+    # `query` is required by the schema; `{}` parses but must not search for "".
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, sent = _run_with_one_call(monkeypatch, tool, "search_documentation", arguments)
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "malformed_args"
+    tool_msg = [m for m in sent[1] if m["role"] == "tool"][0]
+    assert tool_msg["content"] == "(invalid tool arguments: 'query' is a required property)"
+
+
+@pytest.mark.parametrize("arguments, where", [
+    ('{"query": 123}', "query: 123 is not of type 'string'"),
+    ('{"query": ["a"]}', "query: ['a'] is not of type 'string'"),
+])
+def test_wrong_argument_type_does_not_run_the_tool(monkeypatch, arguments, where):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, sent = _run_with_one_call(monkeypatch, tool, "search_documentation", arguments)
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "malformed_args"
+    tool_msg = [m for m in sent[1] if m["role"] == "tool"][0]
+    assert tool_msg["content"] == f"(invalid tool arguments: {where})"
+
+
+def test_skill_file_outside_the_enum_is_malformed(monkeypatch, demo_skill):
+    tool = ViewSkillTool(load_skill(demo_skill))
+    tool.parameters = {"type": "object", "required": [],
+                       "properties": {"file": {"type": "string", "enum": ["SKILL.md"]}}}
+    result, _ = _run_with_one_call(monkeypatch, tool, tool.name, '{"file": "../secrets.md"}')
+    assert tool.viewed is False
+    assert result["transcript"][0]["error"] == "malformed_args"
+
+
+@pytest.mark.parametrize("arguments", ['{"query": "x"', "{}", '{"query": 1}'])
+def test_dropped_calls_do_not_count_as_used(monkeypatch, arguments):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", arguments)
+    usage = result["tool_usage"]
+    assert result["tool_call_count"] == 0
+    assert usage["used_any_tool"] is False
+    assert usage["called_tools"] == []
+    assert usage["tool_call_count_by_name"] == {"search_documentation": 0}
+    assert usage["first_call_iteration_by_name"] == {}
+    assert usage["call_errors"]["malformed_args"] == 1
+
+
+def test_failed_skill_call_is_not_loaded(monkeypatch, demo_skill):
+    # arm_runner feeds skill.loaded to judge_reference_for_loaded: a skill the
+    # agent never read must not reach the judge reference.
+    class _Boom(ViewSkillTool):
+        def call(self, **kw):
+            raise OSError("skill dir gone")
+
+    tool = _Boom(load_skill(demo_skill))
+    steps = [
+        _FakeMessage(tool_calls=[_FakeToolCall("c1", "nonexistent", "{}"),
+                                 _FakeToolCall("c2", tool.name, "{}")]),
+        _FakeMessage(content="ok"),
+    ]
+    fake, _ = _scripted_completion(steps)
+    monkeypatch.setattr(ar_mod, "chat_completion", fake)
+    result = run_agent_loop("q", [tool], model="m")
+    skill = result["tool_usage"]["skill"]
+    assert skill["called"] is False and skill["call_count"] == 0
+    assert skill["loaded"] == [] and skill["selected"] is None
+    assert skill["first_turn_loaded"] == [] and skill["first_call_iteration"] is None
+    assert "nonexistent" not in result["tool_usage"]["tool_call_count_by_name"]
+    assert result["tool_usage"]["call_errors"] == {
+        "unknown_tool": 1, "malformed_args": 0, "tool_error": 1}
+
+
+def test_empty_arguments_still_run_a_tool_with_no_required_argument(monkeypatch):
+    class _NoArgs(DocQueryTool):
+        parameters = {"type": "object", "properties": {}}
+
+    tool = _NoArgs(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", "{}")
+    assert tool.calls == [""]
+    assert "error" not in result["transcript"][0]
+
+
+def test_non_object_arguments_are_malformed(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", '["parallel_for"]')
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "malformed_args"
+    assert "not list" in result["transcript"][0]["result_preview"]
+
+
+def test_tool_exception_is_recorded_as_tool_error(monkeypatch):
+    class _Boom(DocQueryTool):
+        def call(self, **kw):
+            raise ValueError("index offline")
+
+    tool = _Boom(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", '{"query": "x"}')
+    rec = result["transcript"][0]
+    assert rec["error"] == "tool_error"
+    assert "arguments_raw" not in rec
+    assert "index offline" in rec["result_preview"]
+    assert result["tool_usage"]["call_errors"]["tool_error"] == 1
+
+
+def test_successful_call_has_no_error_key(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", '{"query": "x"}')
+    assert tool.calls == ["x"]
+    assert "error" not in result["transcript"][0]
+    assert sum(result["tool_usage"]["call_errors"].values()) == 0
 
 
 # ── agentic arms ──────────────────────────────────────────────────────────
@@ -300,3 +446,26 @@ def test_factory_builds_agentic_specs(demo_skill):
     # 'agent:<source>' with a nested colon must not be mis-parsed
     t = create_treatment("agent:context7")
     assert isinstance(t, MCPAgentTreatment)
+
+
+# ── tool-count stamp ────────────────────────────────────────────────────
+def _agentic_record(**tool_usage):
+    return {"arms": {"agent": {"agentic": True, "tool_call_count": 1, "iterations": 1,
+                               **({"tool_usage": tool_usage} if tool_usage else {})}}}
+
+
+def test_tool_usage_is_stamped(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", '{"query": "x"}')
+    assert result["tool_usage"]["counts"] == TOOL_COUNTS
+
+
+@pytest.mark.parametrize("records, stamp", [
+    ([_agentic_record(counts=TOOL_COUNTS)] * 2, TOOL_COUNTS),
+    ([_agentic_record(counts=TOOL_COUNTS), _agentic_record(skill={})], TOOL_COUNTS_MIXED),
+    ([_agentic_record(skill={})], None),
+    # An arm that failed to prepare has no tool_usage, under either protocol.
+    ([_agentic_record(counts=TOOL_COUNTS), _agentic_record()], TOOL_COUNTS),
+])
+def test_agentic_summary_stamps_tool_counts(records, stamp):
+    assert summarize_agentic_usage(records)["agent"].get("tool_counts") == stamp

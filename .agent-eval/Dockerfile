@@ -1,6 +1,11 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 # Build image for dokimi's own repository-mode evals: CI's Python, the lock, every CI tool,
 # and a warm uv cache so `make dev` inside a run works without downloading anything.
-FROM python:3.11-slim-bookworm
+# Pinned by digest, like the tools below, so a rerun grades in the same image. To move it:
+# `docker buildx imagetools inspect python:3.11-slim-bookworm`, then `repo tasks check`.
+FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 # Debian's point releases replace these package versions, so pinning them would break the build.
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends git make ca-certificates curl procps \
@@ -9,7 +14,7 @@ RUN pip install --no-cache-dir uv==0.11.9
 # A configured identity, as on a contributor's machine: agents commit (and sign off) as it.
 RUN git config --system user.name "Eval Contributor" && git config --system user.email "contributor@example.com"
 COPY dokimi/requirements.lock.txt dokimi/requirements.txt dokimi/requirements-test.txt /opt/dokimi-req/
-# The tools CI installs (it floats ruff and mypy; pinned here so a rerun grades alike).
+# The tools CI installs, all pinned so a rerun grades alike; ruff and mypy at the versions ci.yml pins.
 RUN pip install --no-cache-dir -r /opt/dokimi-req/requirements.lock.txt \
     && pip install --no-cache-dir ruff==0.17.0 mypy==2.4.0 types-PyYAML==6.0.12.20260906 \
        types-jsonschema==4.26.0.20261006 zizmor==1.30.1 bandit==1.9.4 pip-audit==2.10.1 diff-cover==10.6.0

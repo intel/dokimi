@@ -11,6 +11,12 @@ from pathlib import Path
 
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
+from dokimi.defaults import (
+    DEFAULT_ANSWER_MODEL,
+    DEFAULT_ANSWER_PROVIDER,
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_PROVIDER,
+)
 
 
 def cmd_evaluate(args: argparse.Namespace) -> None:
@@ -105,10 +111,10 @@ def register(sub, positive_int) -> None:
                         help="Directory where the golden question set <product>_golden.json "
                              "is looked up, for example a checkout of the evaluation-content "
                              "repository: --questions-root /path/to/content-repo/questions")
-    eval_p.add_argument("--model", default="gpt-4o-mini", help="LLM model for generation/answering")
-    eval_p.add_argument("--provider", default="openai", choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
-    eval_p.add_argument("--judge-model", default="gpt-4o-mini", help="LLM model for evaluation")
-    eval_p.add_argument("--judge-provider", default="openai", choices=JUDGE_PROVIDERS)
+    eval_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM model for generation/answering")
+    eval_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    eval_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="LLM model for evaluation")
+    eval_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     eval_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                         help="Judge sampling temperature, recorded as judge_temperature in the eval output")
     eval_p.add_argument("--personas-count", type=positive_int, default=5, help="Target number of personas")

@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Pointing Dokimi At An External Content Repository
 
 This repository is the measuring instrument. The things it measures —
@@ -161,8 +166,8 @@ Resolved benchmark plan
   description: Worked example product for the external-content walkthrough.
   doc_source: context7
   output_dir: results/demo_final
-  answer: openai/gpt-5.5
-  judge: anthropic/claude-sonnet-4-5-20250929
+  answer: openai/gpt-6.1-sol
+  judge: anthropic/claude-sonnet-5-5
   questions_root: C:/Users/Public/content-repo/questions
   retrieval: semantic-only, top_k=3
   arms: without_docs vs with_docs
@@ -311,7 +316,7 @@ directory works without it.
 
 ## 6. Products this repository has never heard of
 
-The committed registry is the top-level `products.yaml`. A product outside it
+The committed registry is the bundled `dokimi/products.yaml`. A product outside it
 is unknown, and `benchmark` says so rather than inventing one:
 
 ```console

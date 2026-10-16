@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Transient transport faults must not cost a judge cell its score.
 
 The Bedrock judge path had no retry anywhere: get_llm's _LLM.invoke called

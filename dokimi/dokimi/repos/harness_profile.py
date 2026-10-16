@@ -14,17 +14,14 @@ so the user's own settings and memory cannot leak into a run.
 
 from __future__ import annotations
 
-import os
 import re
-import signal
-import subprocess
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from dokimi import process
 from dokimi.artifacts import schema_errors
 
 PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
@@ -33,16 +30,6 @@ CONFIG_PLACEHOLDERS = frozenset({"config_dir", "support_dir"})
 TOOLS_ELEMENT = "{tools}"
 _PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
 _VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
-
-if sys.platform == "win32":
-    import ctypes
-
-    _kernel32 = ctypes.WinDLL("kernel32")
-    _kernel32.CreateJobObjectW.restype = ctypes.c_void_p
-    _kernel32.AssignProcessToJobObject.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
-    _kernel32.TerminateJobObject.argtypes = (ctypes.c_void_p, ctypes.c_uint)
-    _kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
-
 
 class ProfileError(ValueError):
     """A harness profile that cannot be loaded or used."""
@@ -116,79 +103,28 @@ class HarnessProfile:
         values = {"bin": bin_path or self.bin}
         return [_substitute(element, values) for element in self.version_cmd]
 
-    def env(self, config_dir: Path, base: dict[str, str] | None = None) -> dict[str, str]:
+    def env(self, config_dir: Path) -> process.Env:
         """The child environment: allow-listed names, then env_set, then the config dir."""
-        source = os.environ if base is None else base
-        env = {name: source[name] for name in self.env_allow if name in source}
-        env.update(self.env_set)
+        values = dict(self.env_set)
         if self.config_dir_env:
-            env[self.config_dir_env] = str(config_dir)
-        return env
+            values[self.config_dir_env] = str(config_dir)
+        return process.Env.only(self.env_allow, values)
 
-    def version(self, env: dict[str, str], bin_path: str | None = None, timeout: int = 60) -> str:
+    def version(self, env: process.Env, bin_path: str | None = None, timeout: int = 60,
+                runner: process.Runner = process.run) -> str:
         """Run ``version_cmd`` and return the first x.y.z it prints (or the raw output)."""
         argv = self.version_argv(bin_path)
         try:
-            proc = run_harness(argv, env=env, timeout=timeout)
-        except (OSError, subprocess.TimeoutExpired) as exc:
+            proc = runner(argv, env=env, timeout=timeout)
+        except OSError as exc:
             raise ProfileError(f"{self.name}: cannot run {argv[0]!r}: {exc}") from exc
+        if proc.timed_out:
+            raise ProfileError(f"{self.name}: cannot run {argv[0]!r}: timed out after {timeout}s")
         text = (proc.stdout or proc.stderr).strip()
         if proc.returncode != 0:
             raise ProfileError(f"{self.name}: {' '.join(argv)} exited {proc.returncode}: {text[:200]}")
         match = _VERSION_RE.search(text)
         return match.group(0) if match else text.splitlines()[0] if text else "unknown"
-
-
-def run_harness(argv: list[str], *, timeout: float, **kwargs: Any) -> subprocess.CompletedProcess[str]:
-    """subprocess.run with captured UTF-8 output, except that a timeout or an interrupt kills the
-    harness's process group (POSIX) or job object (Windows), not only the direct child: a helper
-    the harness started would keep the pipes open or outlive the run with its credentials.
-
-    A process that leaves the group (``setsid()``, a daemon) is not contained: it can outlive the
-    run. On POSIX the call then does not wait for it to close the pipes, since the output of a
-    killed run is discarded; Windows waits up to 10 s, which only a process outside the job uses."""
-    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            encoding="utf-8", errors="replace",
-                            start_new_session=sys.platform != "win32", **kwargs)
-    job = None
-    if sys.platform == "win32":  # taskkill /T misses a helper whose parent already exited
-        job = _kernel32.CreateJobObjectW(None, None)
-        if job and not _kernel32.AssignProcessToJobObject(job, int(proc._handle)):  # type: ignore[attr-defined]
-            _kernel32.CloseHandle(job)
-            job = None
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except BaseException:
-        _kill_tree(proc, job)
-        try:
-            if sys.platform == "win32":
-                proc.communicate(timeout=10)  # joins the reader threads
-            else:
-                proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            pass
-        if sys.platform != "win32":  # a process that left the group may hold the write ends
-            for pipe in (proc.stdout, proc.stderr):
-                if pipe:
-                    pipe.close()
-        raise
-    finally:
-        if sys.platform == "win32" and job:
-            _kernel32.CloseHandle(job)
-    return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
-
-
-def _kill_tree(proc: subprocess.Popen[str], job: int | None) -> None:
-    if sys.platform == "win32" and job:
-        _kernel32.TerminateJobObject(job, 1)
-    elif sys.platform == "win32":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
-    else:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            pass
-    proc.kill()
 
 
 def builtin_profiles() -> list[str]:

@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Benchmark user flow
 
 Canonical flow: one benchmark set, one target, two arms.
@@ -51,14 +56,17 @@ compared. See [external-content.md](external-content.md).
 
 A `questions/<target>.json` already in the output directory is reused instead of
 the root, even after the golden file changed. Use a fresh `--output-dir`, or
-`--force-regen` to answer the golden set. With a golden file or `--questions-from`, persona discovery
-is skipped, even with `--force-regen`.
+`--force-regen` to answer the golden set. With a golden set under
+`--questions-root`, or with `--questions-from`, persona discovery is skipped,
+even with `--force-regen`.
 
 Defaults:
 
 - output: `results/<target>_final/`
-- answer model: `openai/gpt-5.5`
-- judge model: `anthropic/claude-sonnet-4-5-20250929`
+- answer model: `openai/gpt-6.1-sol`
+- judge model: `anthropic/claude-sonnet-5-5`
+  (changed 2026-10-13: not comparable with older baselines; re-baseline, see
+  [Default models](benchmarking-and-comparison.md#default-models))
 - retrieval: semantic-only, `top_k=3`
 - comparison: `without_docs` vs `with_docs`
 
@@ -66,7 +74,7 @@ Artifacts:
 
 ```text
 results/<target>_final/
-  personas/<target>.json
+  personas/<target>.json   # only when questions are generated
   questions/<target>.json
   answers/<target>.json
   eval/<target>.json
@@ -77,8 +85,8 @@ results/<target>_final/
 
 ```bash
 python cli.py benchmark run --target onetbb --questions-root <content-checkout>/questions --output-dir results/onetbb_seed
-python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-5.1
-python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model claude-sonnet-4-5-20250929 --provider anthropic
+python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-6-astra
+python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model claude-opus-5-5 --provider anthropic
 ```
 
 Never compare models on different generated questions. `--questions-from` reuses

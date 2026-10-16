@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Judge-side sampling control.
 
 The answerer's temperature was made settable first; the judge kept sampling at

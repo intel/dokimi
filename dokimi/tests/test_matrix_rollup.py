@@ -203,12 +203,9 @@ def test_arms_matrix_run_rejects_sanitized_cell_name_collisions(tmp_path: Path):
         str(tmp_path / "out"),
     ])
 
-    try:
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
-    except SystemExit as exc:
-        assert exc.code == 1
-    else:  # pragma: no cover - defensive
-        raise AssertionError("expected matrix-run to reject colliding cell filenames")
+    assert exc.value.code == 1
 
 
 def test_arms_matrix_run_rejects_unwired_harnesses(tmp_path: Path):
@@ -243,12 +240,9 @@ def test_arms_matrix_run_rejects_unwired_harnesses(tmp_path: Path):
         str(matrix),
     ])
 
-    try:
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
-    except SystemExit as exc:
-        assert exc.code == 1
-    else:  # pragma: no cover - defensive
-        raise AssertionError("expected matrix-run to reject unwired harness adapters")
+    assert exc.value.code == 1
 
 
 def test_arms_run_selected_matrix_cell_rejects_unwired_harness(tmp_path: Path):
@@ -285,12 +279,9 @@ def test_arms_run_selected_matrix_cell_rejects_unwired_harness(tmp_path: Path):
         "agent-cell",
     ])
 
-    try:
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
-    except SystemExit as exc:
-        assert exc.code == 1
-    else:  # pragma: no cover - defensive
-        raise AssertionError("expected selected matrix cell to reject unwired harness adapters")
+    assert exc.value.code == 1
 
 
 def test_arms_matrix_run_keeps_cell_artifacts_away_from_generated_names(tmp_path: Path, monkeypatch):

@@ -14,9 +14,30 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+#: Stamp on an agentic answer's ``tool_usage["counts"]``: its tool counts skip
+#: calls that failed (``error`` in the transcript). Unstamped answers counted
+#: every attempt, so their tool-use rates do not pair with stamped ones.
+TOOL_COUNTS = "completed_calls.v1"
+#: A summary whose arm mixes stamped and unstamped answers; pools with nothing.
+TOOL_COUNTS_MIXED = TOOL_COUNTS + "+unstamped"
+
+
+def _tool_counts_stamp(stamped: int, n: int) -> str | None:
+    """:data:`TOOL_COUNTS` when every answer with ``tool_usage`` is stamped, None
+    when none is. Answers without ``tool_usage`` (an arm that failed to prepare)
+    made no calls under either protocol and do not count.
+    """
+    if stamped == 0:
+        return None
+    return TOOL_COUNTS if stamped == n else TOOL_COUNTS_MIXED
+
 
 def summarize_agentic_usage(records: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Aggregate tool-use/discoverability signals from answer records."""
+    """Aggregate tool-use/discoverability signals from answer records.
+
+    Each arm carries ``tool_counts`` (see :func:`_tool_counts_stamp`) unless no
+    answer of the arm was stamped, the protocol of runs before the stamp existed.
+    """
     stats: Dict[str, Dict[str, Any]] = {}
     for rec in records:
         for arm_name, arm in rec.get("arms", {}).items():
@@ -32,6 +53,8 @@ def summarize_agentic_usage(records: List[Dict[str, Any]]) -> Dict[str, Any]:
                     "skill_offered_n": 0,
                     "skill_called_n": 0,
                     "skill_call_total": 0,
+                    "usage_n": 0,
+                    "stamped_n": 0,
                 },
             )
             s["n"] += 1
@@ -41,7 +64,11 @@ def summarize_agentic_usage(records: List[Dict[str, Any]]) -> Dict[str, Any]:
                 s["tool_used_n"] += 1
             s["iteration_total"] += int(arm.get("iterations") or 0)
 
-            skill = (arm.get("tool_usage") or {}).get("skill") or {}
+            usage = arm.get("tool_usage") or {}
+            if usage:
+                s["usage_n"] += 1
+                s["stamped_n"] += int(usage.get("counts") == TOOL_COUNTS)
+            skill = usage.get("skill") or {}
             if skill.get("offered"):
                 s["skill_offered_n"] += 1
             if skill.get("called"):
@@ -68,6 +95,9 @@ def summarize_agentic_usage(records: List[Dict[str, Any]]) -> Dict[str, Any]:
                 if skill_offered_n else None
             ),
         }
+        stamp = _tool_counts_stamp(s["stamped_n"], s["usage_n"])
+        if stamp is not None:
+            summary[arm_name]["tool_counts"] = stamp
     return summary
 
 SKILL_ARM_KINDS = ("skill_agent", "skill_catalog")

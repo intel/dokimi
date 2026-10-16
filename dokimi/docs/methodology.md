@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Benchmark Methodology
 
 This document describes how `dokimi` evaluates documentation and other agent-facing context. The central measurement is comparative: hold the task and answer model fixed, then compare performance with and without a controlled context layer.
@@ -33,8 +38,8 @@ Use `benchmark run` for registered libraries:
 ```bash
 python cli.py benchmark run \
   --library onetbb \
-  --model gpt-4o-mini \
-  --judge-model claude-sonnet-4 \
+  --model gpt-6.1-sol \
+  --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
   --multi-run 3
 ```
@@ -61,12 +66,14 @@ Outputs are written under `results/<library>/` or the requested `--output-dir`:
 
 The benchmark separates model responsibilities because self-judging can inflate scores.
 
-- **Generator model**: creates personas and questions. Default CLI value is `gpt-4o-mini` unless overridden.
-- **Answer model**: answers every question in both conditions. `benchmark run` uses `--model`; standalone `answers generate` defaults to `gpt-4o`.
-- **Judge model**: scores answers. It should differ from the answer model/provider for stronger evaluator independence.
+- **Generator model**: creates personas and questions. Default `openai/gpt-6.1-sol` on every command.
+- **Answer model**: answers every question in both conditions (`--model`). Default `openai/gpt-6.1-sol` on every command that has one; `tasks run`, `explore run`, `repo run`, `novelty routing` and `tools preference` have no default `--model`.
+- **Judge model**: scores answers. It should differ from the answer model/provider for stronger evaluator independence. Default `anthropic/claude-sonnet-5-5` on every command.
 - **Panel judges**: optional role-diverse judges for stricter review.
 
-The CLI emits a warning when the normalized answer model and judge model match. Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
+The defaults live in `dokimi/defaults.py` and changed on 2026-10-13; scores from earlier default-flag runs are not comparable with later ones — re-baseline ([Default models](benchmarking-and-comparison.md#default-models)).
+
+`benchmark`, `eval score`, `eval panel-score` and `evaluate` warn when the normalized answer model and judge model match (`arms` and `subjects` do not check). Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
 
 Supported providers in the main pipeline include OpenAI, Anthropic, Google Vertex, OpenRouter, Amazon Bedrock, and OpenAI Codex where wired by the CLI.
 
@@ -150,7 +157,7 @@ The optional judge panel uses three roles:
 - `developer_advocate`: emphasizes practical usefulness and actionability.
 - `doc_reviewer`: emphasizes completeness and fidelity to context.
 
-Panel aggregates are computed in Python from role-specific weights. The panel report includes mean score, standard deviation, agreement score, and disagreement flags. Panel prompts ask for no `numeric_claims`, so the panel has no wrong-figure cap, and its correctness scores are not comparable with the single judge's.
+Panel aggregates are computed in Python from role-specific weights. The panel report includes mean score, standard deviation, agreement score, and disagreement flags. Every panel role carries the single judge's numeric-claims criterion and lists `numeric_claims` first; Python holds the same wrong-figure cap per vote, keeping the judged score under the vote's `caps`. Panel correctness scores from before this change had neither and are not comparable with later ones.
 
 RAGAS meta-evaluation can be run after answer generation to add faithfulness and answer-relevancy signals, especially for the `with_docs` condition.
 

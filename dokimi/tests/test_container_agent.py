@@ -1143,7 +1143,7 @@ def test_a_vertex_region_is_trimmed_and_a_comma_is_refused_before_any_container(
     assert not any(c[:2] == ["network", "create"] or c[0] == "create" for c in docker_calls)
 
 
-def test_ctrl_c_while_the_sidecar_starts_still_cleans_up():
+def test_ctrl_c_while_the_sidecar_starts_still_cleans_up(tmp_path, monkeypatch):
     calls: list[list[str]] = []
 
     def docker(args, log, **kwargs):
@@ -1152,11 +1152,13 @@ def test_ctrl_c_while_the_sidecar_starts_still_cleans_up():
             raise KeyboardInterrupt
         return subprocess.CompletedProcess(args, 0, "", "")
 
-    scratch = set(Path(tempfile.gettempdir()).glob("dokimi-env-*"))
+    # A temp dir of the test's own: under pytest-xdist other workers create and
+    # remove dokimi-env-* in the shared one while this test runs.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     with pytest.raises(KeyboardInterrupt):
         ContainerSandbox.open("r1", docker, None, source_env={"ANTHROPIC_API_KEY": "k"}, with_agent=False)
     assert calls[-1] == ["network", "rm", "dokimi-net-r1"]
-    assert set(Path(tempfile.gettempdir()).glob("dokimi-env-*")) == scratch
+    assert not list(tmp_path.glob("dokimi-env-*"))
 
 
 def test_the_plugin_modes_are_reset_not_widened(tmp_path, monkeypatch):

@@ -15,6 +15,18 @@ on:
 permissions:
   contents: read
 
+# Runners: every PR check runs on intel-ubuntu-latest, Intel's ephemeral runner
+# pool, the seconds-long `static` job too. ubuntu-latest is shared by every
+# intel/ repository: a job there waited 28 min or more for a runner one time in
+# ten (October 2026), and a PR's CI finishes when its last job does. The pool boots a runner per job, a wait of
+# about 4 min (median), p90 8 min. Both ends of a `needs:` chain are on the pool
+# (`changes` -> external-catalog-smoke in agent-quality.yml, `build` -> `deploy`
+# in docs.yml), so no chain waits on both queues. Fork PRs against intel/dokimi
+# run on the pool as well (repository_owner is the base repository's); an
+# outside contributor's runs need a maintainer's approval first. A fork's own
+# pushes fall back to ubuntu-latest. release.yml and stack-health.yml, not PR
+# checks, stay on ubuntu-latest.
+
 # A new push to a PR supersedes the run in flight. Every other run gets a group of its
 # own (run_id): in a shared group a third queued run cancels the pending second one
 # even with cancel-in-progress false, so pushes to main would be dropped.
@@ -27,16 +39,19 @@ defaults:
     working-directory: dokimi
 
 # Single-version jobs (here, in agent-quality.yml, contracts.yml, docs.yml and
-# stack-health.yml), the coverage-gate leg and `make dev` use Python 3.13, not
-# 3.14: scikit-network (pulled in by ragas) has no cp314 wheels yet, so on 3.14
-# every install builds it from source (C++ with OpenMP, unpinned build deps).
-# Move them to 3.14 once scikit-network ships cp314 wheels.
+# stack-health.yml) and `make dev` use Python 3.13, not 3.14: scikit-network
+# (pulled in by ragas) has no cp314 wheels yet, so on 3.14 every install builds
+# it from source (C++ with OpenMP, unpinned build deps); the pip cache keeps the
+# built wheel for the 3.14 test leg. Move them to 3.14 once scikit-network ships
+# cp314 wheels.
 jobs:
-  lint:
-    # Lint only: most of the tree predates the formatter (205 of 276 files would
-    # be rewritten), so a format gate would mean a repo-wide reformat first.
-    name: Ruff (lint)
-    runs-on: ubuntu-latest
+  # The checks that need no dependency lock, in one job: each takes seconds, and
+  # as separate jobs each waited for a runner of its own. Every step after the
+  # install runs even when an earlier one fails (!cancelled()), so one finding
+  # does not hide the next.
+  static:
+    name: Static checks (ruff, schema, zizmor, license headers, pre-commit, bandit, pip-audit)
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -44,16 +59,82 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
-      # At least 0.12: per-file-target-version, and the version syntax errors it
-      # enables. Pinned to the ruff-check rev in .pre-commit-config.yaml, so the
-      # hook and CI report the same findings; Renovate bumps the two together.
-      - run: pip install ruff==0.17.0
+      # ruff: an exact pin, not a floor: a ruff release adds rules to the families
+      # dokimi/pyproject.toml selects whole. The same version as the ruff-check
+      # rev in .pre-commit-config.yaml, the dev extra in dokimi/pyproject.toml
+      # and .agent-eval/Dockerfile, so the hook, a local run, the eval image and
+      # CI report the same findings; Renovate bumps them together. The zizmor rev
+      # in .pre-commit-config.yaml is this zizmor version too. One `pip install`
+      # per line: Renovate's regex reads the pins of a line that starts with one.
+      - name: Install tools
+        run: |
+          pip install ruff==0.17.0 zizmor==1.30.1 pre-commit==4.6.2
+          pip install bandit==1.9.4 pip-audit==2.10.1 PyYAML jsonschema
+      # Lint only: most of the tree predates the formatter (205 of 276 files would
+      # be rewritten), so a format gate would mean a repo-wide reformat first.
       - name: ruff check
+        if: ${{ !cancelled() }}
         run: ruff check .
+      - name: schema-check
+        if: ${{ !cancelled() }}
+        run: python -m dokimi.schema_check benchmarks/spec.v1.yaml
+      - name: registry-drift-check
+        if: ${{ !cancelled() }}
+        run: python -m dokimi.config_check
+      - name: guidance self-scan (L0)
+        if: ${{ !cancelled() }}
+        run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on-fail
+      # Static audit of the workflow files: unpinned actions, template injection,
+      # credential persistence, over-broad token permissions.
+      - name: zizmor
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: zizmor --offline --min-severity medium .github/workflows
+      # Every tracked file carries the SPDX license header; scope and exceptions
+      # are in .github/.licenserc.yaml. A `uses:` step, so `make ci-local` skips
+      # it (the config's header comment has the docker command for a local run).
+      - name: License header check
+        if: ${{ !cancelled() }}
+        uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4  # v0.9.0
+        with:
+          config: .github/.licenserc.yaml
+          mode: check
+      # The hooks in .pre-commit-config.yaml, so they stay green on main: a change
+      # that fails one fails here, not on the next contributor's commit. ruff-check
+      # and zizmor are skipped: the steps above run the same versions.
+      - name: pre-commit
+        if: ${{ !cancelled() }}
+        working-directory: .
+        env:
+          SKIP: ruff-check,zizmor
+        run: pre-commit run --all-files --show-diff-on-failure --color always
+      # bandit and pip-audit hold the baseline SECURITY.md describes: no
+      # Medium/High Bandit finding, and no dependency advisory beyond the ones it
+      # lists.
+      - name: bandit
+        if: ${{ !cancelled() }}
+        run: bandit -r . -ll -q
+      # The locks are the full closure (requirements-docs.lock.txt for the
+      # documentation site), so --no-deps --disable-pip audits them as written
+      # without resolving or installing anything. Each --ignore-vuln is
+      # an advisory SECURITY.md documents; add or drop them together.
+      # pip-audit skips a pin whose marker is false on this 3.13 runner (the
+      # pins for older interpreters, for one), so markers are stripped, a pin
+      # both locks share is kept once, and a name pinned twice goes to a second file.
+      - name: pip-audit
+        if: ${{ !cancelled() }}
+        run: |
+          sed 's/ *;.*//' requirements.lock.txt requirements-docs.lock.txt | sort -u \
+            | awk -F'==' '/^[A-Za-z0-9]/ { print > (ENVIRON["RUNNER_TEMP"] "/pins" seen[$1]++ ".txt") }'
+          for f in "$RUNNER_TEMP"/pins*.txt; do
+            pip-audit -r "$f" --no-deps --disable-pip --progress-spinner off \
+              --ignore-vuln PYSEC-2026-2447 \
+              --ignore-vuln PYSEC-2026-3046
+          done
 
   typecheck:
     name: mypy
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -61,32 +142,16 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: dokimi/requirements.lock.txt
       - run: pip install -r requirements.lock.txt
       - run: pip install mypy==2.4.0 types-PyYAML types-jsonschema
       - name: mypy
         run: mypy
 
-  schema:
-    name: Validate benchmark spec
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-        with:
-          python-version: '3.13'
-      - run: pip install PyYAML jsonschema
-      - name: schema-check
-        run: python -m dokimi.schema_check benchmarks/spec.v1.yaml
-      - name: registry-drift-check
-        run: python -m dokimi.config_check
-      - name: guidance self-scan (L0)
-        run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on-fail
-
   test:
     name: Tests (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     permissions:
       contents: read
       # Codecov upload over OIDC, so no upload token is stored. PRs from forks
@@ -96,6 +161,11 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.12', '3.13', '3.14']
+        # The coverage leg: it measures coverage, gates the changed lines and
+        # uploads the report. scripts/ci_local.py runs its one leg as this one.
+        include:
+          - python-version: '3.14'
+            coverage: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -104,6 +174,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: dokimi/requirements.lock.txt
       # The lock, not the ranges: a PR's result should not depend on what was
       # released upstream that morning. test-latest below watches the ranges.
       - name: Install deps
@@ -111,15 +183,25 @@ jobs:
       # Offline by construction: pytest-socket (addopts in pyproject.toml) fails
       # any test that opens a network socket. --outcomes also checks the user
       # outcomes in tests/outcomes/: an evidence id that no test claims fails the
-      # job even when every test passes.
+      # job even when every test passes. -n auto: one pytest-xdist worker
+      # per CPU. Coverage on the coverage leg only: one report is gated and
+      # uploaded, and 3.14 traces through sys.monitoring, where the tracer costs
+      # the least (the suite with --cov-branch takes about 40% longer on 3.11-3.13).
       - name: Run tests
-        run: pytest --outcomes --outcomes-report=outcomes-result.json --cov=dokimi --cov-branch --cov-report=term --cov-report=xml
+        env:
+          COVERAGE: ${{ matrix.coverage }}
+        run: |
+          if [ "$COVERAGE" = true ]; then
+            pytest -n auto --outcomes --outcomes-report=outcomes-result.json --cov=dokimi --cov-branch --cov-report=term --cov-report=xml
+          else
+            pytest -n auto --outcomes --outcomes-report=outcomes-result.json
+          fi
       # Coverage of the lines this PR changes, not of the whole tree: the total
       # moves too little per PR to gate on, an untested new function does not.
       # Below 20 measurable changed lines one missed line swings the percentage
       # by 5+ points, so small PRs get the report without the gate.
       - name: Coverage of changed lines
-        if: github.event_name == 'pull_request' && matrix.python-version == '3.13'
+        if: github.event_name == 'pull_request' && matrix.coverage
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
@@ -137,7 +219,7 @@ jobs:
               sys.exit(f"coverage of changed lines {pct}% < 80% (see the step summary)")
           PY
       - name: Upload coverage
-        if: always() && matrix.python-version == '3.13'
+        if: always() && matrix.coverage
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: coverage
@@ -150,12 +232,17 @@ jobs:
       # Trend, PR comment and badge. Informational only (codecov.yml): the gate
       # is the changed-lines step above, and a Codecov outage does not fail CI.
       - name: Upload coverage to Codecov
-        if: ${{ !cancelled() && matrix.python-version == '3.13' }}
+        if: ${{ !cancelled() && matrix.coverage }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
         with:
           files: dokimi/coverage.xml
           disable_search: true
           use_oidc: true
+          # The CLI from PyPI, not cli.codecov.io: on the Intel pool that download
+          # ran at about 33 KB/s (5 min for 10 MB), PyPI at several MB/s. Pinned:
+          # the action's default is the newest release. Bump by hand.
+          use_pypi: true
+          version: '11.3.1'
 
   # Canary for the dependency ranges in requirements*.txt: installs the newest
   # releases they allow and runs the suite. It fails when an upstream release
@@ -164,7 +251,7 @@ jobs:
   test-latest:
     name: Tests (latest deps, py3.13)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -175,90 +262,13 @@ jobs:
       - name: Install newest allowed deps
         run: pip install --upgrade -r requirements.txt -r requirements-test.txt
       - name: Run tests
-        run: pytest -q
-
-  # Static audit of the workflow files: unpinned actions, template injection,
-  # credential persistence, over-broad token permissions.
-  workflow-lint:
-    name: Workflow lint (zizmor)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-        with:
-          python-version: '3.13'
-      # The zizmor rev in .pre-commit-config.yaml is this version too.
-      - run: pip install zizmor==1.30.1
-      - name: zizmor
-        run: zizmor --offline --min-severity medium .github/workflows
-
-  # The hooks in .pre-commit-config.yaml, so they stay green on main: a change
-  # that fails one fails here, not on the next contributor's commit. ruff-check
-  # and zizmor are skipped: the lint and workflow-lint jobs run the same versions.
-  pre-commit:
-    name: File hygiene (pre-commit)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-        with:
-          python-version: '3.13'
-      - run: pip install pre-commit==4.6.2
-      - name: pre-commit
-        env:
-          SKIP: ruff-check,zizmor
-        run: pre-commit run --all-files --show-diff-on-failure --color always
-
-  # Holds the baseline SECURITY.md describes: no Medium/High Bandit finding, and
-  # no dependency advisory beyond the ones it lists.
-  security:
-    name: Security scan (bandit, pip-audit)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-        with:
-          python-version: '3.13'
-      - run: pip install bandit==1.9.4 pip-audit==2.10.1
-      - name: bandit
-        run: bandit -r . -ll -q
-      # The locks are the full closure (requirements-docs.lock.txt for the
-      # documentation site), so --no-deps --disable-pip audits them as written
-      # without resolving or installing anything. Each --ignore-vuln is
-      # an advisory SECURITY.md documents; add or drop them together.
-      # pip-audit skips a pin whose marker is false on this 3.13 runner (the
-      # pins for older interpreters, for one), so markers are stripped, a pin
-      # both locks share is kept once, and a name pinned twice goes to a second file.
-      # !cancelled(): a bandit finding must not hide an advisory. Without it a
-      # failing bandit step skips this one and the job reports one problem of two.
-      - name: pip-audit
-        if: ${{ !cancelled() }}
-        run: |
-          sed 's/ *;.*//' requirements.lock.txt requirements-docs.lock.txt | sort -u \
-            | awk -F'==' '/^[A-Za-z0-9]/ { print > (ENVIRON["RUNNER_TEMP"] "/pins" seen[$1]++ ".txt") }'
-          for f in "$RUNNER_TEMP"/pins*.txt; do
-            pip-audit -r "$f" --no-deps --disable-pip --progress-spinner off \
-              --ignore-vuln PYSEC-2026-2447 \
-              --ignore-vuln PYSEC-2026-3046
-          done
+        run: pytest -q -n auto
 
   # Installs the built package with a fresh resolve of its dependency ranges, not
   # the lock: the floor version checks what `pip install dokimi` gives a 3.11 user.
   package-smoke:
     name: Package install smoke test (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -270,13 +280,21 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Build & install from sdist/wheel
+          # Downloads and built wheels only: pip still resolves the ranges fresh.
+          cache: pip
+          cache-dependency-path: dokimi/pyproject.toml
+      # `python -m build` makes the sdist and then the wheel from the unpacked
+      # sdist, so a file missing from either is missing from the wheel.
+      - name: Build sdist and wheel
         run: |
-          python -m pip install --upgrade pip build
-          pip install .
-      - name: Console entry point works
-        run: dokimi --help
-      - name: Module entry point works
-        run: python -m dokimi --help
-      - name: Core imports
-        run: python -c "import dokimi, dokimi.cli, dokimi.artifacts, dokimi.runner.spec"
+          python -m pip install --upgrade pip build twine
+          python -m build --outdir "$RUNNER_TEMP/dist"
+          twine check --strict "$RUNNER_TEMP"/dist/*
+      - name: Install the wheel
+        run: pip install "$RUNNER_TEMP"/dist/*.whl
+      # From outside the checkout, so `import dokimi` gets the installed wheel
+      # and not the source tree in the working directory.
+      - name: Smoke-test the installed wheel
+        run: |
+          smoke="$PWD/scripts/smoke_installed.py"
+          cd "$RUNNER_TEMP" && python "$smoke"

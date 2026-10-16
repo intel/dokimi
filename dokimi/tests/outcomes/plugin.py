@@ -48,14 +48,18 @@ def pytest_runtest_logreport(report):
     # A failed setup counts as a failure of the evidence; otherwise only the call phase.
     if report.when != "call" and not (report.when == "setup" and not report.passed):
         return
-    for evidence_id in getattr(report, "outcome_ids", ()):
+    ids = [i for key, value in report.user_properties if key == "outcome_ids" for i in value]
+    for evidence_id in ids:
         _results.setdefault(evidence_id, []).append(report.outcome)
 
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     report = (yield).get_result()
-    report.outcome_ids = [i for mark in item.iter_markers("outcome") for i in mark.args]
+    # user_properties, not a new attribute: pytest-xdist serializes it from worker to controller.
+    ids = [i for mark in item.iter_markers("outcome") for i in mark.args]
+    if ids:
+        report.user_properties.append(("outcome_ids", ids))
 
 
 def _worst(verdicts):
@@ -112,7 +116,8 @@ def _check(path: Path) -> dict:
 
 def pytest_sessionfinish(session, exitstatus):
     config = session.config
-    if not config.getoption("outcomes"):
+    # Under pytest-xdist only the controller sees every report.
+    if not config.getoption("outcomes") or hasattr(config, "workerinput"):
         return
     checked = [_check(p) for p in sorted(CONTRACT_DIR.glob("*.json"))]
     verdict = _worst(c["verdict"] for c in checked)

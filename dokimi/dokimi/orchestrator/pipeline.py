@@ -278,12 +278,12 @@ class EvaluationPipeline:
                         logger.warning(
                             f"cached question set (n={cached_count}, hash={cached_hash}) differs from "
                             f"golden set (n={golden_count}, hash={golden_hash}); "
-                            f"pass --force-regen to use the golden set"
+                            f"use a fresh output directory (or --force-regen with benchmark run) to use the golden set"
                         )
                 except (json.JSONDecodeError, ValueError, TypeError, AttributeError, OSError) as e:
                     logger.warning(
                         f"Could not load golden set for comparison: {e}; "
-                        f"using cached questions (pass --force-regen to reload)"
+                        f"using cached questions"
                     )
             results["steps"]["questions_generated"] = {"count": len(merged_questions), "cached": True}
             results["steps"]["questions_merged"] = {"total": len(merged_questions), "cached": True,
