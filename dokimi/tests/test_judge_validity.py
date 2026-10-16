@@ -1749,4 +1749,4 @@ def test_a_missing_material_warning_does_not_promise_a_snippet_fallback_on_the_g
     with caplog.at_level("WARNING", logger="dokimi.eval.judge_context"):
         assert JudgeContextStore().get("Q1", "skill") is None
     text = caplog.text
-    assert "No verified judge context for Q1/skill" in text and "drops such bases" in text
+    assert "No stored judge context for Q1/skill" in text and "drops such bases" in text
