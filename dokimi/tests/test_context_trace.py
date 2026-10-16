@@ -173,3 +173,28 @@ def test_unicode_line_separators_inside_a_record_do_not_split_it(sep):
     assert got.errors == []
     assert [c["prompt_tokens"] for c in got.calls] == [105, 305]
     assert sum(s.result_chars for s in got.tools.values()) == 3
+
+
+def test_bom_and_undecodable_bytes_do_not_lose_the_rest(tmp_path):
+    good = json.dumps(INIT) + chr(10) + json.dumps(_assistant("m1", _usage(5, 0, 100))) + chr(10)
+    bom = tmp_path / "bom.jsonl"
+    bom.write_bytes(b"\xef\xbb\xbf" + good.encode())
+    got = read_trace(bom)
+    assert got.errors == [] and got.surface["tools"] and len(got.calls) == 1
+    bad = tmp_path / "bad.jsonl"
+    bad.write_bytes(good.encode() + b"\xff\xfe" + chr(10).encode())
+    got = read_trace(bad)
+    assert len(got.calls) == 1 and len(got.errors) == 1
+
+
+def test_utf16_trace_is_a_trace_error_not_a_traceback(tmp_path):
+    path = tmp_path / "u16.jsonl"
+    path.write_bytes(json.dumps(INIT).encode("utf-16"))
+    with pytest.raises(TraceError):
+        read_trace(path)
+
+
+def test_infinite_usage_is_a_line_warning_not_a_crash():
+    raw = '{"type":"assistant","message":{"id":"m","usage":{"input_tokens":Infinity}}}'
+    got = parse_trace(raw + chr(10) + json.dumps(_assistant("m2", _usage(5, 0, 1))))
+    assert len(got.calls) == 1 and "line 1: unexpected shape" in got.errors[0]

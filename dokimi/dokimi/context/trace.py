@@ -96,7 +96,7 @@ class ContextTrace:
 
 def read_trace(path: Path) -> ContextTrace:
     try:
-        raw = path.read_text(encoding="utf-8")
+        raw = path.read_text(encoding="utf-8-sig", errors="replace")
     except OSError as exc:
         raise TraceError(f"cannot read {path}: {exc}") from exc
     trace = parse_trace(raw)
@@ -123,7 +123,7 @@ def parse_trace(raw: str) -> ContextTrace:
             continue
         try:
             _apply(out, rec, by_message, names, seen)
-        except (AttributeError, TypeError, ValueError) as exc:  # valid JSON of an unexpected shape
+        except (AttributeError, TypeError, ValueError, OverflowError) as exc:  # valid JSON of an unexpected shape
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     for i, call in enumerate(out.calls):
         call["i"] = i
