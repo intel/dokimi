@@ -164,7 +164,7 @@ def detect_script_signals(scan: Scan) -> list[ScriptSignal]:
 
 # Events the harness fires without the agent choosing to run anything.
 AUTOMATIC_EVENTS = ("SessionStart", "SessionEnd", "PreCompact", "Notification", "UserPromptSubmit", "Stop", "SubagentStop")
-_OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,8}"
+_OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,16}"
 _INSTALL = re.compile(rf"(?<![\w-])(?:npm|yarn|pnpm|bun){_OPT}\s+install\b|(?<![\w-])(?:npm|pnpm){_OPT}\s+ci\b"
                       rf"|(?<![\w-])(?:npm|pnpm|bun){_OPT}\s+i\b", re.I)
 _RUN_COMMAND = re.compile(r"(?<![\w-])(?:npm|yarn|pnpm|bun)\s+run\s+[\w:-]+\b", re.I)
@@ -219,20 +219,41 @@ def detect_hook_risks(scan: Scan) -> list[HookRisk]:
                         out.add(HookRisk(path, event, segment))
                     # Check for paths into the tree (THREAD 0): ./path, $CLAUDE_PROJECT_DIR/path, or tracked files
                     else:
-                        # Shlex-split the segment to extract the command word
-                        try:
-                            argv = shlex.split(segment)
-                        except ValueError:
+                        # Skip shlex for very long segments (DOS protection: shlex.split is slow on unbalanced quotes)
+                        if len(segment) > 4096:
                             argv = segment.split()
+                        else:
+                            # Shlex-split the segment to extract the command word
+                            try:
+                                argv = shlex.split(segment)
+                            except ValueError:
+                                argv = segment.split()
 
                         if argv:
-                            # Get the command word (argv[0] or argv[1] after interpreter)
-                            cmd_idx = 0
+                            # Get the command word, skipping interpreter flags
+                            cmd_word = None
                             if argv[0] in ('bash', 'sh', 'zsh', 'python', 'python3', 'node', 'ruby', 'perl', 'bun', 'deno', 'tsx'):
-                                cmd_idx = 1
+                                # For interpreters, find the first arg that doesn't start with -
+                                for i in range(1, len(argv)):
+                                    if not argv[i].startswith('-'):
+                                        cmd_word = argv[i]
+                                        break
+                                    # For -c, also check the argument after -c (the code snippet)
+                                    if argv[i] in ('-c',):
+                                        if i + 1 < len(argv):
+                                            next_word = argv[i + 1]
+                                            # Strip quotes from the -c argument
+                                            next_word = next_word.lstrip("'\"")
+                                            if next_word.startswith('./') or next_word.startswith('$CLAUDE_PROJECT_DIR') or next_word.startswith('${CLAUDE_PROJECT_DIR}') or next_word in tracked_files:
+                                                out.add(HookRisk(path, event, segment))
+                                                break
+                            else:
+                                # Not an interpreter, use argv[0]
+                                cmd_word = argv[0]
 
-                            if cmd_idx < len(argv):
-                                cmd_word = argv[cmd_idx]
+                            if cmd_word:
+                                # Strip quotes from the command word
+                                cmd_word = cmd_word.lstrip("'\"")
                                 # Check if it starts with ./ or $CLAUDE_PROJECT_DIR or is a tracked file
                                 if cmd_word.startswith('./') or cmd_word.startswith('$CLAUDE_PROJECT_DIR') or cmd_word.startswith('${CLAUDE_PROJECT_DIR}') or cmd_word in tracked_files:
                                     out.add(HookRisk(path, event, segment))

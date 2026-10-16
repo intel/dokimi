@@ -519,3 +519,76 @@ def test_test_file_case_insensitive_and_mjs(tmp_path):
     _repo(tmp_path, {"Tests/a.mjs": "x", "TESTS/b.cjs": "x", "specs/c.ts": "x"})
     payload = inspect_repo(WorkTree(tmp_path))
     assert payload["files"]["test_files"] == 3
+
+
+def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
+    """ITEM 1: 1 MB hook with unbalanced quote should complete in under 1 second."""
+    import time
+    hook_cmd = "echo '" + "a" * 1_000_000  # 1 MB, unbalanced quote
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
+    start = time.monotonic()
+    payload = inspect_repo(WorkTree(tmp_path))
+    elapsed = time.monotonic() - start
+    assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
+    # Should not crash, just complete quickly
+    assert payload is not None
+
+
+def test_npm_install_with_10_options_followed_by_ci(tmp_path):
+    """ITEM 3: npm with 10 options followed by ci should be detected."""
+    # Use 10 options to test the {0,16} bound
+    hook_cmd = "npm -a -b -c -d -e -f -g -h -i -j ci"
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    assert any("npm" in r and "ci" in r for r in risks)
+
+
+def test_python3_with_flag_and_tracked_script(tmp_path):
+    """ITEM 4: python3 -u tools/bootstrap.py should be detected as a path risk."""
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "python3 -u tools/bootstrap.py"}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "tools/bootstrap.py": "x", "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    assert any("python3" in r and "tools/bootstrap.py" in r for r in risks)
+
+
+def test_sh_with_c_flag_and_relative_path(tmp_path):
+    """ITEM 4: sh -c './scripts/x.sh' should be detected as a path risk."""
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "sh -c './scripts/x.sh'"}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "scripts/x.sh": "x", "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    assert any("./scripts/x.sh" in r for r in risks)
+
+
+def test_bash_with_dollar_env_and_unbalanced_quote(tmp_path):
+    """ITEM 4: bash '$CLAUDE_PROJECT_DIR/x.sh with unbalanced quote should be detected."""
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "bash '$CLAUDE_PROJECT_DIR/x.sh"}]}],
+        }
+    }
+    # Note: file doesn't need to exist for this test; we're testing path detection with unbalanced quotes
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    assert any("$CLAUDE_PROJECT_DIR" in r for r in risks)
