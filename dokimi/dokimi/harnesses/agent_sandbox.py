@@ -32,12 +32,13 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
-from dokimi.repos.harness_profile import run_harness
+from dokimi import process
 
 _LOG = logging.getLogger(__name__)
 
@@ -494,16 +495,23 @@ def _posix_cksum(data: bytes) -> int:
 
 def run_probe(workspace: AgentWorkspace, source_env: dict[str, str],
               extra_env: Optional[dict[str, str]] = None, timeout: float = 60.0,
-              url: Optional[str] = None, direct: Optional[str] = None) -> dict[str, str]:
-    """Run the probe on the host, in the agent's cwd and env. Returns ``{leak_class: state}``."""
+              url: Optional[str] = None, direct: Optional[str] = None,
+              runner: process.Runner = process.run) -> dict[str, str]:
+    """Run the probe on the host, in the agent's cwd and env. Returns ``{leak_class: state}``.
+
+    A probe that does not finish in ``timeout`` raises :class:`subprocess.TimeoutExpired`:
+    a hung check showed nothing closed."""
     env = workspace.env(source_env, extra_env)
     deny = env_fingerprints(source_env, denied_env_names(source_env))
     env.update(probe_env(workspace.forbidden, deny, url or PROBE_URL,
                          PROBE_DIRECT if direct is None else direct))
     env["PROBE_GATEWAY"] = PROBE_HOST_GATEWAY  # a daemon on the host's own tcp port
-    # run_harness kills the whole process group (job object on Windows) on a timeout, so a
+    # The runner kills the whole process group (job object on Windows) on a timeout, so a
     # hung fetch or ls does not outlive the probe in a deleted scratch dir.
-    proc = run_harness(["sh", "-c", _PROBE_SH], cwd=str(workspace.work), env=env, timeout=timeout)
+    proc = runner(["sh", "-c", _PROBE_SH], cwd=str(workspace.work), env=process.Env.only((), env),
+                  timeout=timeout)
+    if proc.timed_out:
+        raise subprocess.TimeoutExpired(proc.argv, timeout, proc.stdout_bytes, proc.stderr_bytes)
     return parse_probe_output(proc.stdout)
 
 

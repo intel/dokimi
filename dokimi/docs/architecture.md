@@ -257,6 +257,11 @@ next release.
   `repo run` (one agent per task × arm × model × rep cell, then `grade`, one
   `result.json` per cell) and `repo report` (gated success with a Wilson
   interval, grader failures, missing cells, cost).
+- `dokimi/repos/compare.py` — `repo compare`: treatment arms against a
+  baseline arm over one or more batches, one value per task and arm (gate
+  share, score, cost, turns, chosen `grade.json` metrics), with an interval
+  over tasks (bootstrap for gate and score, t for the rest), a sign-flip
+  permutation p and Holm's correction.
 - `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
@@ -268,8 +273,30 @@ codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
 `repo run` needs `--agent-network` for an agent that must reach its model.
 
+## Context window
+
+`dokimi/context/trace.py` reads a Claude Code `stream-json` trace into the
+prompt size of every model call (`input + cache_creation + cache_read`
+tokens, one call per message id), the compaction events, tool-result sizes and
+failures per tool, and repeated tool calls. `python cli.py context trace`
+prints one or more traces as a comparison table; it calls no model. Guide:
+[context-window.md](context-window.md).
+
 ## Shared building blocks
 
+- `dokimi/process.py` — the process runner that spawning code goes
+  through (git, `gh`, doc snippets, harness profiles; the task harnesses and
+  the repository-mode docker runner still spawn on their own). A timeout,
+  an interrupt or the command's exit kills its whole process group / job
+  object; so does a SIGTERM/SIGHUP to the `dokimi` CLI, which installs
+  `install_signal_handlers()` at start-up (importing the module installs
+  nothing; a library caller opts in). A timeout is a
+  result (`returncode` 124, partial output kept) not an exception, output is
+  read as UTF-8, a captured stream keeps at most 1 MiB in memory (its first and
+  last half, `truncated` set; `stdout_to`/`stderr_to` write a whole stream to a
+  file; git output is kept whole), and every call states its environment policy (`Env.inherit` or
+  an `Env.only` allow-list). `FakeRunner` is its test adapter: code that spawns
+  takes a `runner` argument.
 - `dokimi/llm.py` — provider-neutral LLM call wrapper (LiteLLM-based)
   with retry, token accounting, and concurrency.
 - `dokimi/registry.py` — product registry loaded from

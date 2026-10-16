@@ -51,3 +51,26 @@ def test_dep_versions_unknown_is_none():
     assert dep_versions(["definitely-not-a-real-package-xyz"]) == {
         "definitely-not-a-real-package-xyz": None
     }
+
+
+def test_git_fields_are_none_when_git_fails_times_out_or_is_missing(monkeypatch):
+    """A failed or hung git says nothing about the checkout: no partial output is recorded."""
+    import pytest
+
+    from dokimi import process
+    from dokimi.runner import manifest
+
+    answers = {"fail": process.reply("abc\n", "fatal: not a git repository", 128),
+               "hang": process.reply("abc\n", timed_out=True), "ok": process.reply(" abc\n")}
+
+    def fake_git(*args, **kwargs):
+        if args[0] == "missing":
+            raise FileNotFoundError("git")
+        return answers[args[0]]
+
+    monkeypatch.setattr(process, "git", fake_git)
+    assert manifest._git("ok") == "abc"
+    for case in ("fail", "hang", "missing"):
+        assert manifest._git(case) is None, case
+    with pytest.raises(KeyError):  # only a spawn failure is swallowed
+        manifest._git("other")

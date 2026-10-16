@@ -269,3 +269,27 @@ def test_read_many_returns_every_path_of_a_shared_blob(tmp_path):
                          capture_output=True, text=True).stdout.strip()
     texts = GitTree(root / ".git", sha).read_many(["a.md", "b.md", "e1.py", "e2.py"])
     assert texts == {"a.md": "same\n", "b.md": "same\n", "e1.py": "", "e2.py": ""}
+
+
+def test_git_text_reads_stay_strict_for_a_blob_that_is_not_utf8(tmp_path):
+    root = tmp_path / "bad"
+    root.mkdir()
+    (root / "AGENTS.md").write_bytes(b"guide caf\xe9\nline\n")
+    git = lambda *a: subprocess.run(["git", "-C", str(root), *a], check=True, capture_output=True,  # noqa: E731
+                                    text=True).stdout.strip()
+    git("init", "-q")
+    git("add", "-A")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "bad")
+    with pytest.raises(UnicodeDecodeError):
+        GitTree(root / ".git", git("rev-parse", "HEAD")).read_text("AGENTS.md")
+
+
+def test_a_git_timeout_raises_even_unchecked(monkeypatch, tmp_path):
+    """``check=False`` reads a failed git as its output (ls-files, the promisor config); a
+    hung git produced none, and read as "no files" or "not a partial clone" it would pass."""
+    from dokimi import process
+    from dokimi.repos import source
+
+    monkeypatch.setattr(process, "git", lambda *a, **k: process.reply(timed_out=True))
+    with pytest.raises(source.SourceError, match="timed out"):
+        source._git(tmp_path, "ls-files", "-z", check=False)

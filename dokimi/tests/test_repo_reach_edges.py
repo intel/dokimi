@@ -5,12 +5,25 @@
 
 from __future__ import annotations
 
-import pytest
-from test_repo_reach import _reach, _write
+import sys
 
-from dokimi.repos import SourceError, WorkTree
+import pytest
+from test_repo_reach import _profile, _reach, _repo, _write
+
+from dokimi import process
+from dokimi.repos import SourceError, WorkTree, load_manifest
 from dokimi.repos.events import OUTPUT_KEEP, clip_output
-from dokimi.repos.reach import ReachError, distinct_salt, prose_words, resolve_links, scenarios, token
+from dokimi.repos.harness_profile import load_profile
+from dokimi.repos.reach import (
+    ReachError,
+    build_workspace,
+    distinct_salt,
+    prose_words,
+    resolve_links,
+    run_reach,
+    scenarios,
+    token,
+)
 
 
 def test_a_directory_named_root_gets_its_own_scenario():
@@ -92,3 +105,56 @@ def test_a_link_into_git_or_to_nothing_is_not_probed(tmp_path, monkeypatch):
     monkeypatch.setattr(WorkTree, "resolve", dangling)
     with pytest.raises(ReachError, match="each is a link that cannot be followed: .* links to nothing"):
         _reach(tmp_path, monkeypatch, kinds=("root",))
+
+
+def test_a_timed_out_scenario_keeps_its_trace_up_to_the_kill(tmp_path, monkeypatch):
+    payload = _reach(tmp_path, monkeypatch, mode="line_then_hang", kinds=("root",), timeout_s=1)
+    assert payload["scenarios"][0]["error"].startswith("TimeoutExpired")
+    assert '"claude_code_version": "9.8.7"' in (tmp_path / "out/traces/00-cwd_..stdout").read_text(encoding="utf-8")
+
+
+def test_a_trace_over_the_capture_limit_is_kept_and_parsed_whole(tmp_path, monkeypatch):
+    payload = _reach(tmp_path, monkeypatch, mode="big", kinds=("root",))
+    assert payload["scenarios"][0]["error"] is None
+    assert {r["class"] for r in payload["records"] if r["file"] == "CLAUDE.md"} == {"loaded"}
+    trace = (tmp_path / "out/traces/00-cwd_..stdout").read_text(encoding="utf-8")
+    assert len(trace) > process.CAPTURE_LIMIT and "x" * (3 << 19) in trace
+    assert "not kept" not in trace
+
+
+def test_a_missing_harness_binary_is_an_error_cell(tmp_path, monkeypatch):
+    missing = str(tmp_path / "no-such-harness")
+    profile = _profile(tmp_path, invoke=[missing, "-p", "{prompt}", "--model", "{model}", "{tools}"],
+                       version_cmd=[sys.executable, "-c", "print('9.8.7')"])
+    tree = WorkTree(_repo(tmp_path))
+    (tmp_path / "work").mkdir()
+    payload = run_reach(tree=tree, manifest=load_manifest(tree, "evals/repo-eval.yaml"),
+                        profile=load_profile(profile), model="m", out_dir=tmp_path / "out",
+                        work_dir=tmp_path / "work", salt="s", kinds=("root",))
+    assert payload["scenarios"][0]["error"].startswith(("FileNotFoundError", "PermissionError"))
+    assert missing in payload["scenarios"][0]["error"]
+    assert {r["class"] for r in payload["records"]} == {"error"}
+    assert (tmp_path / "out/traces/00-cwd_..stdout").read_text(encoding="utf-8") == ""
+
+
+@pytest.mark.parametrize("answer, needle", [
+    (lambda: process.reply(stderr="fatal: cannot init\n", returncode=128), "git init .*: exit 128 fatal: cannot init"),
+    (lambda: process.reply(timed_out=True), "git init .*: timed out"),
+])
+def test_a_failed_git_init_in_the_probe_workspace_is_a_reach_error(tmp_path, answer, needle):
+    tree = WorkTree(_repo(tmp_path))
+    (tmp_path / "ws").mkdir()
+    runner = process.FakeRunner(lambda call: answer())
+    with pytest.raises(ReachError, match=needle):
+        build_workspace(tree, ["CLAUDE.md"], tmp_path / "ws", "s", runner=runner)
+    assert len(runner.calls) == 1
+
+
+def test_git_that_cannot_start_in_the_probe_workspace_is_a_reach_error(tmp_path):
+    def missing(call):
+        raise FileNotFoundError(call.argv[0])
+
+    tree = WorkTree(_repo(tmp_path))
+    (tmp_path / "ws").mkdir()
+    with pytest.raises(ReachError, match="git init in the probe workspace failed: .*git"):
+        build_workspace(tree, ["CLAUDE.md"], tmp_path / "ws", "s", runner=process.FakeRunner(missing))

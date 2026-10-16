@@ -8,6 +8,8 @@ from typing import Dict, List, Any, Optional
 from pathlib import Path
 import json
 
+from dokimi import process
+
 try:
     from github import Github, GithubException  # noqa: F401  (re-exported for callers)
     GITHUB_AVAILABLE = True
@@ -28,14 +30,16 @@ class PersonaAnalyzer:
     - Code examples
     """
     
-    def __init__(self, github_token: Optional[str] = None):
+    def __init__(self, github_token: Optional[str] = None, runner: process.Runner = process.run):
         """
         Initialize analyzer.
         
         Args:
             github_token: GitHub personal access token (optional, for higher rate limits)
+            runner: spawns the ``gh`` CLI fallback (a fake one in tests)
         """
         self.github_token = github_token
+        self.runner = runner
         self._github_client = None
         
         if not GITHUB_AVAILABLE:
@@ -124,34 +128,25 @@ class PersonaAnalyzer:
     
     def _analyze_with_gh_cli(self, repo_name: str) -> Dict[str, Any]:
         """Analyze using gh CLI as fallback."""
-        import subprocess
         import json as json_lib
         
         try:
             logger.info(f"Analyzing repository via gh CLI: {repo_name}")
             
-            # Get basic repo info
-            result = subprocess.run(
-                ["gh", "repo", "view", repo_name, "--json", "description,languages"],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            # Get basic repo info (gh needs the caller's GH_TOKEN / config, so it inherits the env)
+            result = self.runner(["gh", "repo", "view", repo_name, "--json", "description,languages"],
+                                 timeout=30, env=process.Env.inherit())
             
-            if result.returncode != 0:
+            if not result.ok:
                 logger.error(f"gh CLI error: {result.stderr}")
                 return self._empty_analysis()
             
             repo_data = json_lib.loads(result.stdout)
             
             # Get README (first 2000 chars)
-            readme_result = subprocess.run(
-                ["gh", "repo", "view", repo_name],
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            readme = readme_result.stdout if readme_result.returncode == 0 else ""
+            readme_result = self.runner(["gh", "repo", "view", repo_name], timeout=30,
+                                        env=process.Env.inherit())
+            readme = readme_result.stdout if readme_result.ok else ""
             
             return {
                 "readme_content": readme[:2000],

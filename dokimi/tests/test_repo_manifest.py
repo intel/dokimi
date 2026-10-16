@@ -352,6 +352,20 @@ def _commit_all(root: Path, msg: str) -> str:
                           capture_output=True, text=True).stdout.strip()
 
 
+def test_a_remote_clone_that_needed_a_prompt_says_which_and_what_to_do(tmp_path, monkeypatch):
+    from dokimi import process
+    from dokimi.repos import source
+
+    from test_process import GIT_PROMPT_FAILURES
+
+    stderr, line, hint = GIT_PROMPT_FAILURES[0]
+    failed = process.reply(stderr=stderr, returncode=128)
+    monkeypatch.setattr(process, "git", lambda *args, **kwargs: failed)
+    with pytest.raises(SourceError) as err:
+        source.ensure_clone("git@github.com:o/r.git", tmp_path)
+    assert str(err.value).startswith(f"git clone failed: {line} (hint: ") and hint in str(err.value)
+
+
 def test_remote_branch_is_refreshed_not_served_from_the_clone(tmp_path):
     root = _repo(tmp_path)
     _git_commit(root)

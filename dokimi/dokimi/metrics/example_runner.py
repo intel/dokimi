@@ -24,17 +24,12 @@ from __future__ import annotations
 
 import os
 import re
-import signal
-import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-try:  # POSIX-only resource limits for the subprocess backend.
-    import resource
-except ImportError:  # pragma: no cover - Windows
-    resource = None  # type: ignore[assignment]
+from dokimi import process
 
 
 # Supported languages -> (file suffix, interpreter argv prefix for a file path).
@@ -109,43 +104,18 @@ def extract_examples(markdown: str) -> list[tuple[str, str]]:
     return [(m.group(1).lower(), m.group(2).strip()) for m in pattern.finditer(markdown)]
 
 
-def _limit_resources(policy: ExecutionPolicy):
-    """Return a preexec_fn that applies CPU/memory limits (POSIX).
+def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
+                    runner: process.Runner) -> tuple[bool, str | None]:
+    """Run code on the host in a resource-limited subprocess (trusted docs only).
 
-    No RLIMIT_NPROC: it counts every process and thread of the real UID
-    system-wide (and is not enforced for root), not the snippet's own children,
-    so a small cap makes every fork fail on a busy host. Capping the process
-    count is the docker backend's job (``--pids-limit``).
+    CPU time and address space are capped (POSIX). There is no RLIMIT_NPROC: it
+    counts every process and thread of the real UID system-wide (and is not
+    enforced for root), not the snippet's own children, so a small cap makes every
+    fork fail on a busy host. Capping the process count is the docker backend's job
+    (``--pids-limit``). The runner kills the snippet's whole process group when it
+    exits or times out, so a background job it started neither outlives it nor keeps
+    the run waiting.
     """
-    if sys.platform == "win32" or resource is None:  # pragma: no cover - Windows
-        return None
-
-    def _apply() -> None:
-        os.setsid()  # isolate from the parent's process group
-        cpu = max(1, policy.timeout)
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 1))
-        mem = policy.mem_mb * 1024 * 1024
-        try:
-            resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
-        except (ValueError, OSError):  # pragma: no cover - platform dependent
-            pass
-
-    return _apply
-
-
-def _kill_group(proc: subprocess.Popen, own_group: bool) -> None:
-    """Kill the snippet and whatever it left running in its process group."""
-    try:
-        if own_group:
-            os.killpg(proc.pid, signal.SIGKILL)
-        else:  # pragma: no cover - Windows: no session of its own
-            proc.kill()
-    except (ProcessLookupError, PermissionError):
-        pass
-
-
-def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy) -> tuple[bool, str | None]:
-    """Run code on the host in a resource-limited subprocess (trusted docs only)."""
     if not policy.allow_host:
         return False, (
             "host execution refused: subprocess backend requires allow_host=True "
@@ -156,47 +126,28 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy) -> tuple[bool
     # Minimal environment — do not leak the parent's secrets/API keys. LD_LIBRARY_PATH
     # is preserved (not secret) because relocatable Python builds — e.g. actions/setup-python's
     # hostedtoolcache installs — need it so the dynamic loader can find libpython*.so.
-    safe_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
-    if "LD_LIBRARY_PATH" in os.environ:
-        safe_env["LD_LIBRARY_PATH"] = os.environ["LD_LIBRARY_PATH"]
-
-    preexec = _limit_resources(policy)
-    # stderr goes to a file, not a pipe: a background job the snippet leaves running would
-    # hold a pipe open and keep the run waiting until the timeout. stdout is not reported.
-    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryFile() as stderr:
+    limits = process.Limits(cpu_sec=max(1, policy.timeout), memory_bytes=policy.mem_mb * 1024 * 1024)
+    with tempfile.TemporaryDirectory() as tmp:
         # HOME points at the per-run temp dir rather than a shared /tmp.
-        safe_env["HOME"] = tmp
+        env = process.Env.only(("LD_LIBRARY_PATH",),
+                               {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp})
         script = Path(tmp) / f"snippet{suffix}"
         script.write_text(code, encoding="utf-8")
-        try:
-            proc = subprocess.Popen(
-                argv_prefix + [str(script)],
-                stdout=subprocess.DEVNULL,
-                stderr=stderr,
-                cwd=tmp,
-                env=safe_env,
-                preexec_fn=preexec,
-            )
+        try:  # stdout is not reported
+            proc = runner(argv_prefix + [str(script)], cwd=tmp, env=env, timeout=policy.timeout,
+                          capture_stdout=False, limits=limits)
         except Exception as exc:  # noqa: BLE001 - report any spawn failure
             return False, f"Execution error: {type(exc).__name__}: {exc}"
-        try:
-            returncode = proc.wait(timeout=policy.timeout)
-        except subprocess.TimeoutExpired:
-            return False, f"Timeout after {policy.timeout}s"
-        finally:
-            # The snippet leads its own session (setsid), so this also removes background
-            # jobs it started, whether it exited or timed out.
-            _kill_group(proc, own_group=preexec is not None)
-            proc.wait()
-        stderr.seek(0)
-        err = stderr.read().decode("utf-8", errors="replace")
 
-    if returncode == 0:
+    if proc.timed_out:
+        return False, f"Timeout after {policy.timeout}s"
+    if proc.returncode == 0:
         return True, None
-    return False, f"Exit code {returncode}: {err[:200]}"
+    return False, f"Exit code {proc.returncode}: {proc.stderr[:200]}"
 
 
-def _run_docker(lang: str, code: str, policy: ExecutionPolicy) -> tuple[bool, str | None]:
+def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
+                runner: process.Runner) -> tuple[bool, str | None]:
     """Run code inside a locked-down container (no network, read-only, limited)."""
     suffix, argv_prefix = EXECUTORS[lang]
     with tempfile.TemporaryDirectory() as tmp:
@@ -214,23 +165,22 @@ def _run_docker(lang: str, code: str, policy: ExecutionPolicy) -> tuple[bool, st
             "timeout", str(policy.timeout),
             *argv_prefix, f"/work/{script.name}",
         ]
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=policy.timeout + 30, check=False
-            )
+        try:  # the docker CLI needs the caller's DOCKER_HOST / config; the snippet sees none of it
+            result = runner(cmd, timeout=policy.timeout + 30, env=process.Env.inherit())
         except FileNotFoundError:
             return False, "docker backend selected but docker is not installed"
-        except subprocess.TimeoutExpired:
-            return False, f"Timeout after {policy.timeout}s"
         except Exception as exc:  # noqa: BLE001
             return False, f"Execution error: {type(exc).__name__}: {exc}"
 
+    if result.timed_out:
+        return False, f"Timeout after {policy.timeout}s"
     if result.returncode == 0:
         return True, None
     return False, f"Exit code {result.returncode}: {result.stderr[:200]}"
 
 
-def run_example(lang: str, code: str, policy: ExecutionPolicy) -> ExampleResult:
+def run_example(lang: str, code: str, policy: ExecutionPolicy,
+                runner: process.Runner = process.run) -> ExampleResult:
     """Execute (or skip) a single example according to ``policy``."""
     if lang not in policy.allowed_langs or lang not in EXECUTORS:
         return ExampleResult(0, lang, code[:100], passed=None, status="skipped",
@@ -241,9 +191,9 @@ def run_example(lang: str, code: str, policy: ExecutionPolicy) -> ExampleResult:
                              error="execution disabled (backend=none)")
 
     if policy.backend == "subprocess":
-        ok, err = _run_subprocess(lang, code, policy)
+        ok, err = _run_subprocess(lang, code, policy, runner)
     elif policy.backend == "docker":
-        ok, err = _run_docker(lang, code, policy)
+        ok, err = _run_docker(lang, code, policy, runner)
     else:
         return ExampleResult(0, lang, code[:100], passed=None, status="error",
                              error=f"Unknown execution backend: {policy.backend}")
