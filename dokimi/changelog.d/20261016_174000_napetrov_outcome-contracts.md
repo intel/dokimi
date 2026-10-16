@@ -4,8 +4,8 @@
   `tests/outcomes/*.json` (the doc that states it, the code that keeps it, and
   evidence ids) against the tests that ran. A test claims an id with
   `@pytest.mark.outcome("<id>")`. An id no test claims is an error, a claimed
-  test that fails fails the verdict, and a claimed test that is skipped makes it
-  inconclusive (exit 3). The verdict is written to `outcomes-result.json`
+  test that fails fails the verdict, and an id whose claimed tests were all
+  skipped is inconclusive (exit 3). The verdict is written to `outcomes-result.json`
   (`--outcomes-report=<path>` moves it). CI runs the tests with `--outcomes` and
   uploads the file with the other test artifacts. The first contract covers
   pinned question sets.
