@@ -229,11 +229,12 @@ The directory layout and `task.toml` fields a task must provide are specified in
 
 ```text
 cli.py                   Single entry point for all CLI commands
-benchmarks/              Static benchmark spec and schema
-config/                  LLM/runtime configuration for the eval track
-products.yaml            Product registry: identity + doc sources per product
-intents.yaml             Intent registry: problem/task domains mapped to products
+benchmarks/              Static benchmark spec (its schema is dokimi/runner/spec.schema.json)
+changelog.d/             Changelog fragments, one per PR (see changelog.d/README.md)
 dokimi/                  Main Python package
+  products.yaml          Product registry: identity + doc sources per product
+  intents.yaml           Intent registry: problem/task domains mapped to products
+  config/                LLM/runtime configuration for the eval track
   agent_profiles/        Agent persona prompt loader
   commands/              CLI subcommand definitions
   dashboard/             Dashboard aggregation/rendering
@@ -251,7 +252,7 @@ dokimi/                  Main Python package
   questions/             Question generation, validation, refinement
   repos/                 Repository subjects: manifest, sources, validation, harness profiles, reach probe
   report/                JSON/Markdown report generation
-  runner/                Benchmark orchestration
+  runner/                Benchmark orchestration and the spec schema
   schemas/               JSON Schemas for every persisted artifact
   skills/                SKILL.md loader
   subjects/              Subject descriptors and scorecards

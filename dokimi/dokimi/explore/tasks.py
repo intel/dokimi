@@ -42,7 +42,8 @@ def _tasks_root(root: Path | None) -> Path:
     if not EXPLORE_TASKS_ROOT.is_dir():
         raise FileNotFoundError(
             f"No bundled explore tasks at {EXPLORE_TASKS_ROOT}: they ship with a source "
-            "checkout of dokimi, not with the installed package. Pass --tasks-root <dir>."
+            "checkout of dokimi, not with the installed package. Pass --tasks-root <dir>, "
+            "and --repo-root <tree> for tasks whose YAML omits repo_root:."
         )
     return EXPLORE_TASKS_ROOT
 

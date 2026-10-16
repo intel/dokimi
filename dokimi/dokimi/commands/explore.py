@@ -9,12 +9,13 @@ import argparse
 from pathlib import Path
 
 _TASKS_ROOT_HELP = (
-    "Directory of exploration task YAML files (default: data/explore_tasks)"
+    "Directory of exploration task YAML files (default: data/explore_tasks of a "
+    "source checkout; an installed package has none and needs this flag)"
 )
 _REPO_ROOT_HELP = (
     "Tree a task is scored against when its YAML omits repo_root: "
-    "(default: the dokimi repository, which is only right for the "
-    "self-dogfooding tasks bundled here)"
+    "(default: the dokimi source checkout, which is only right for the "
+    "self-dogfooding tasks bundled there; an installed package needs this flag)"
 )
 
 

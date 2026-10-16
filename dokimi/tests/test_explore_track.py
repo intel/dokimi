@@ -206,7 +206,7 @@ def test_explore_without_bundled_tasks_says_so(tmp_path, monkeypatch, argv):
 
     monkeypatch.setattr(tasks_mod, "EXPLORE_TASKS_ROOT", tmp_path / "absent")
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit, match="ship with a source checkout.*--tasks-root"):
+    with pytest.raises(SystemExit, match="ship with a source checkout.*--tasks-root.*--repo-root"):
         args.func(args)
 
 
