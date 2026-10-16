@@ -61,3 +61,8 @@ def test_unreadable_files_with_junk_words_row():
     cov = Coverage.from_record(record)
     assert cov.policy_excluded_words == 0
 
+
+
+def test_a_junk_unreadable_files_count_reads_as_zero():
+    record = dict(COUNTS, include_resources=True, n_files=1, unreadable_files="x")
+    assert Coverage.from_record(record).unreadable_files == 0
