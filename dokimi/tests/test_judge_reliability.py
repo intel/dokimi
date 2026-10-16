@@ -842,94 +842,97 @@ def test_eval_checklist_writes_the_json_before_rendering(tmp_path, monkeypatch):
     assert json.loads(out.read_text(encoding="utf-8"))["summary"]["n_questions"] == 1
 
 
-
-def test_score_measure_context_forced_to_none_kills_m1():
-    """M1 mutant: score_measure context forced to 'none'.
-    
-    A store with only empty materials (baseline) should have context='none', not 'stored'.
-    The old code would mark it as 'stored' because bool(store and store.materials()) is True,
-    but the fix checks any(values) which is False for all-empty materials.
-    """
+def test_score_measure_marks_a_measure_stored_only_if_an_arm_saw_material():
     from dokimi.eval.judge_context import JudgeContextStore
 
-    scorer_calls = []
+    records = [{"question_id": "q1", "question_text": "q?",
+                "arms": {"baseline": {"answer": "a0"}, "skill": {"answer": "a1"}}}]
 
     def scorer(library, question, answer, ground_truth, context):
-        scorer_calls.append(context)
         return 50.0
 
-    records = [{"question_id": "q1", "question_text": "q?",
-                "arms": {"baseline": {"answer": "a1", "context_chunks": [{"snippet": "snip"}]}}}]
-    
-    # Create a store with only EMPTY material (baseline)
-    store = JudgeContextStore()
-    store.put("q1", "baseline", "")  # Empty material
-    
-    measure = cj.score_measure(records, scorer, name="p/m", library="lib", store=store)
-    
-    # The measure should have context='none' because store has only empty materials
-    assert measure.context == "none", f"Expected context='none', got {measure.context}"
+    real = JudgeContextStore()
+    real.put("q1", "skill", "real material")
+    assert cj.score_measure(records, scorer, name="p/m", library="lib", store=real).context == "stored"
+    # A store holding only the empty baseline text is not material (the Thread 3 trap).
+    empty = JudgeContextStore()
+    empty.put("q1", "baseline", "")
+    assert cj.score_measure(records, scorer, name="p/m", library="lib", store=empty).context == "none"
+    assert cj.score_measure(records, scorer, name="p/m", library="lib").context == "none"
 
 
-def test_cross_judge_with_store_none_kills_m4():
-    """M4 mutant: store=None passed in cross-judge wiring.
-    
-    When score_measure is called without a store (store=None), it should still work
-    and fall back to context_chunks.
-    """
+def _material_run(material="FULL SKILL BODY"):
+    """An arms file that keeps its judge material, with digests on answers and stored scores."""
+    from dokimi.utils import digest_text
 
-    scorer_calls = []
-
-    def scorer(library, question, answer, ground_truth, context):
-        scorer_calls.append(context)
-        return 50.0
-
-    records = [{"question_id": "q1", "question_text": "q?",
-                "arms": {"skill": {"answer": "a1", "context_chunks": [{"snippet": "chunk1"}, {"snippet": "chunk2"}]}}}]
-    
-    # Call without store
-    measure = cj.score_measure(records, scorer, name="p/m", library="lib", store=None)
-    
-    # Should have context='none' when store is None
-    assert measure.context == "none"
-    # Should use context_chunks as fallback
-    assert "chunk1" in scorer_calls[0]
-
-
-def test_exit_code_2_on_edited_material_kills_m5(tmp_path):
-    """M5 mutant: evaluate.py exit code changed from 2 to 1.
-    
-    When material is edited (digest mismatch), the run should exit with code 2.
-    """
-    import json
-    import subprocess
-
-    # Create answers with mismatched digest
-    answers_data = {
-        "library_name": "L",
-        "answers": [{
-            "question_id": "Q1",
-            "question_text": "q",
-            "arms": {
-                "baseline": {"answer": "base" * 500},
-                "skill": {"answer": "skill" * 500,
-                         "judge_context_sha256": "sha256:wrong_digest"}
-            }
-        }],
-        "judge_materials": {"sha256:correct_digest": "MATERIAL"}
+    digest = digest_text(material)
+    return {
+        "library_name": "L", "judge_provider": "amazon-bedrock", "judge_model": "m",
+        "judge_context": "treatment_material.v1",
+        "judge_materials": {digest: material},
+        "answers": [{"question_id": f"Q{i}", "question_text": "q", "arms": {
+            "baseline": {"answer": f"base {i}", "metadata": {"arm_kind": "baseline"}},
+            "skill": {"answer": f"skill {i}", "metadata": {"arm_kind": "skill"},
+                      "judge_context_sha256": digest},
+        }} for i in range(8)],
+        "evaluations": [{"question_id": f"Q{i}", "scores": {
+            "baseline": {"aggregate": 70, "judge_context_source": "stored"},
+            "skill": {"aggregate": 90, "judge_context_source": "stored",
+                      "judge_context_sha256": digest}}} for i in range(8)],
     }
-    
-    answers_file = tmp_path / "answers.json"
-    answers_file.write_text(json.dumps(answers_data))
-    output_file = tmp_path / "out.json"
-    
-    # Run cross-judge - should exit 2
-    result = subprocess.run([
-        "python", "-m", "dokimi.cli", "eval", "cross-judge",
-        "--answers", str(answers_file),
-        "--judges", "p/m",
-        "--output", str(output_file)
-    ], cwd="/localdisk/napetrov/scratch/prfix-73/dokimi/dokimi")
-    
-    assert result.returncode == 2, f"Expected exit code 2, got {result.returncode}"
 
+
+def _cross_judge_args(tmp_path, data, *extra):
+    import json
+
+    from dokimi.cli import build_parser
+
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data), encoding="utf-8")
+    return build_parser().parse_args(["eval", "cross-judge", "--answers", str(answers),
+                                      "--output", str(tmp_path / "cj.json"), *extra])
+
+
+def _recording_judge(monkeypatch, seen):
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, *, answer, context="", **_):
+            seen[answer] = context
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+
+
+def test_cross_judge_judges_hands_the_arms_material_to_the_rescored_judge(tmp_path, monkeypatch):
+    seen = {}
+    _recording_judge(monkeypatch, seen)
+    args = _cross_judge_args(tmp_path, _material_run(), "--judges", "amazon-bedrock/m")
+    args.func(args)
+    assert seen["skill 0"] == "FULL SKILL BODY"
+
+
+def test_cross_judge_judges_refuses_edited_material(tmp_path, monkeypatch, capsys):
+    seen = {}
+    _recording_judge(monkeypatch, seen)
+    data = _material_run()
+    digest = next(iter(data["judge_materials"]))
+    data["judge_materials"][digest] = "EDITED"
+    args = _cross_judge_args(tmp_path, data, "--judges", "amazon-bedrock/m")
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+    assert not seen
+
+
+def test_cross_judge_judges_with_pairwise_refuses_stored_scores(tmp_path, monkeypatch, capsys):
+    seen = {}
+    _recording_judge(monkeypatch, seen)
+    args = _cross_judge_args(tmp_path, _material_run(), "--judges", "amazon-bedrock/m",
+                             "--pairwise", str(tmp_path / "pw.json"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "skill" in capsys.readouterr().err

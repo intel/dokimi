@@ -33,6 +33,7 @@ from dokimi.eval.degrade import (
 )
 from dokimi.eval.judge_validity import (
     DEFAULT_MIN_ACCURACY,
+    NoUsablePairs,
     ValidityReport,
     ValidityRow,
     evaluate_pairs,
@@ -1460,22 +1461,51 @@ def test_stored_context_reaches_the_judge_for_every_member_of_a_pair():
 def test_bases_with_no_stored_material_are_dropped_and_counted():
     from dokimi.eval.judge_context import JudgeContextStore
 
+    import copy
+
     data = _with_materials()
+    third = copy.deepcopy(data["answers"][0])
+    third["question_id"] = "Q003"
+    data["answers"].append(third)       # skill stays covered through Q003
     del data["answers"][0]["arms"]["skill"]["judge_context_sha256"]
-    report = run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=3,
+    report = run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=9,
                           variants=["truncate_20"], store=JudgeContextStore.from_artifact(data))
     assert report.n_without_context == 1
-    assert {r.arm for r in report.rows} == {"baseline"}
-    assert "1 bases dropped" in report.format_summary()
+    assert report.by_arm == {"baseline": {"kept": 3, "dropped": 0}, "skill": {"kept": 1, "dropped": 1}}
+    assert report.summary()["by_arm"] == report.by_arm
+    text = report.format_summary()
+    assert "1 bases dropped, no verified material" in text and "skill: 1 kept, 1 dropped" in text
 
 
 def test_no_stored_material_at_all_is_an_error_not_a_no_context_run():
     from dokimi.eval.judge_context import JudgeContextStore
 
     store = JudgeContextStore()   # nothing stored
-    with pytest.raises(ValueError, match="judge_materials"):
+    with pytest.raises(NoUsablePairs, match="judge_materials"):
         run_validity(_answers(), lambda l, q, a, context=None: 1.0, n_bases=3,
                      variants=["truncate_20"], store=store)
+
+
+def test_a_whole_arm_without_verified_material_is_refused():
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    data = _with_materials()
+    del data["answers"][0]["arms"]["skill"]["judge_context_sha256"]   # skill's only record
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\]"):
+        run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=3,
+                     variants=["truncate_20"], store=JudgeContextStore.from_artifact(data))
+
+
+def test_all_noop_with_a_store_reports_noop_not_missing_material():
+    from unittest import mock
+
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    data = _with_materials()
+    with mock.patch.dict("dokimi.eval.degrade.DEGRADATIONS", {"truncate_20": lambda text, **_: text}):
+        with pytest.raises(NoUsablePairs, match="unchanged"):
+            run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=3,
+                         variants=["truncate_20"], store=JudgeContextStore.from_artifact(data))
 
 
 def test_without_a_store_the_scorer_is_called_as_before():
@@ -1584,52 +1614,130 @@ def test_a_lone_surrogate_in_material_is_hashed_not_fatal():
     assert JudgeContextStore.from_artifact(data).get("q1", "docs") == text
 
 
-
-
-def test_dropped_bases_counted_correctly_kills_m3():
-    """M3 mutant: build_pairs store pre-filter disabled.
-    
-    When a base lacks material, it should be filtered before sampling (in build_pairs).
-    This test verifies the dropped count is correct.
-    """
+def test_the_sampled_bases_come_from_those_with_material():
+    """--bases N is drawn after the bases without material are dropped (Thread 1)."""
     from dokimi.eval.judge_context import JudgeContextStore
 
-    # Create store with material only for baseline
+    answers = [{"question_id": f"Q{i}", "question_text": "q",
+                "arms": {a: {"answer": ANSWER + f" {a}{i}"} for a in ("baseline", "skill", "docs")}}
+               for i in range(40)]
     store = JudgeContextStore()
-    store.put("Q001", "baseline", "")
-    store.put("Q002", "baseline", "")
-    store.put("Q002", "skill", "skill material")
-    # Note: Q001/skill has NO material
-    
-    # Build data
-    data = {
-        "answers": [
-            {
-                "question_id": "Q001",
-                "question_text": "q1",
-                "arms": {
-                    "baseline": {"answer": "b" * 2000},
-                    "skill": {"answer": "s" * 2000}
-                }
-            },
-            {
-                "question_id": "Q002", 
-                "question_text": "q2",
-                "arms": {
-                    "baseline": {"answer": "b" * 2000},
-                    "skill": {"answer": "s" * 2000}
-                }
-            }
-        ]
-    }
-    
-    # Run validity with n_bases=2 - if pre-filter is off, both Q001/skill and Q002/skill
-    # would be sampled and then dropped later. With pre-filter on, Q001/skill is never sampled.
-    report = run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=2,
+    for rec in answers:
+        store.put(rec["question_id"], "baseline", "")
+        store.put(rec["question_id"], "skill", "SKILL")     # docs has no verified material
+    # Without the docs arm in the store the arm is dropped entirely; keep one docs record.
+    store.put("Q0", "docs", "DOCS")
+    report = run_validity(answers, lambda l, q, a, context=None: 1.0, n_bases=30,
                           variants=["truncate_20"], store=store)
-    
-    # With pre-filter on: only 2 bases (Q001/baseline, Q002/baseline, Q002/skill) -> Q001/skill dropped
-    # We should see only baseline arm in rows
-    assert {r.arm for r in report.rows} == {"baseline"}
-    assert report.n_without_context == 1  # Q001/skill was dropped
+    assert len({(r.base_id, r.arm) for r in report.rows}) == 30
 
+
+def _stored_cli(tmp_path, monkeypatch, *argv, data=None, score=lambda a: float(len(a) % 97)):
+    import json
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, library_name, question, answer, context="(none passed)", **_):
+            return {"aggregate": score(answer)}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    answers = tmp_path / "arms.json"
+    answers.write_text(json.dumps(data if data is not None else _with_materials()))
+    out = tmp_path / "v.json"
+    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+                                      "--judge-provider", "amazon-bedrock", "--judge-model", "m",
+                                      "--variants", "truncate_20", "--output", str(out), *argv])
+    try:
+        args.func(args)
+    except SystemExit as exc:
+        assert exc.code == 1       # the gate failing is 1; 2 is a refusal
+    return json.loads(out.read_text())["summary"]
+
+
+@pytest.mark.parametrize("mode", [["--bases", "3"], ["--sequential", "--max-bases", "3"]])
+def test_cli_stored_context_reports_stored_with_an_unsuffixed_label(tmp_path, monkeypatch, mode):
+    summary = _stored_cli(tmp_path, monkeypatch, "--context", "stored", *mode)
+    assert summary["context"] == "stored"
+    assert summary["judge"] == "amazon-bedrock/m"
+    assert summary["mode"] == ("sequential" if "--sequential" in mode else "fixed")
+    assert set(summary["by_arm"]) == {"baseline", "skill"}
+
+
+def test_cli_judge_validity_exits_2_when_no_answer_is_long_enough(tmp_path, monkeypatch, capsys):
+    import json
+
+    from dokimi.cli import build_parser
+
+    answers = tmp_path / "a.json"
+    answers.write_text(json.dumps({"answers": [{"question_id": "Q1", "question_text": "q",
+                                                "arms": {"baseline": {"answer": "short"}}}]}))
+    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+                                      "--judge-provider", "amazon-bedrock"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "Error:" in capsys.readouterr().err
+
+
+def test_a_bug_valueerror_in_a_degradation_is_not_turned_into_a_user_error(tmp_path, monkeypatch):
+    from unittest import mock
+
+    def boom(text, **_):
+        raise ValueError("internal bug in truncate_20")
+
+    with mock.patch.dict("dokimi.eval.degrade.DEGRADATIONS", {"truncate_20": boom}):
+        with pytest.raises(ValueError, match="internal bug"):
+            _stored_cli(tmp_path, monkeypatch, "--bases", "3")
+
+
+def test_cli_stored_context_on_a_baseline_only_artifact_exits_2(tmp_path, monkeypatch, capsys):
+    data = _with_materials()
+    for rec in data["answers"]:
+        rec["arms"].pop("skill", None)
+    data["judge_materials"] = {k: v for k, v in data["judge_materials"].items() if v == ""}
+    with pytest.raises(AssertionError):   # _stored_cli asserts exit code 1; here it is 2
+        _stored_cli(tmp_path, monkeypatch, "--context", "stored", data=data)
+    assert "judge_materials" in capsys.readouterr().err
+
+
+def test_a_stored_validity_report_gates_the_rescored_judge_in_cross_judge(tmp_path, monkeypatch, capsys):
+    """judge-validity --context stored, then cross-judge --validity on its report."""
+    import json
+
+    from dokimi.cli import build_parser
+    from dokimi.utils import digest_text
+
+    # A judge that ranks the longer answer lower fails the gate (intact must win).
+    failing = _stored_cli(tmp_path, monkeypatch, "--context", "stored", "--bases", "3",
+                          score=lambda a: -float(len(a)))
+    assert failing["passed"] is False and failing["judge"] == "amazon-bedrock/m"
+    stored_report = tmp_path / "stored.json"
+    stored_report.write_text(json.dumps({"summary": failing}))
+    none_summary = {**failing, "context": "none"}
+    none_report = tmp_path / "none.json"
+    none_report.write_text(json.dumps({"summary": none_summary}))
+
+    digest = digest_text("FULL SKILL BODY")
+    run = {"library_name": "L", "judge_provider": "amazon-bedrock", "judge_model": "m",
+           "judge_context": "treatment_material.v1", "judge_materials": {digest: "FULL SKILL BODY"},
+           "answers": [{"question_id": f"Q{i}", "question_text": "q", "arms": {
+               "baseline": {"answer": f"b{i}"}, "skill": {"answer": f"s{i}", "judge_context_sha256": digest}}}
+               for i in range(8)]}
+
+    def gates(report_path):
+        run_path = tmp_path / "run.json"
+        run_path.write_text(json.dumps(run))
+        out = tmp_path / "cj.json"
+        args = build_parser().parse_args(["eval", "cross-judge", "--answers", str(run_path), "--no-stored",
+                                          "--judges", "amazon-bedrock/m", "--validity", str(report_path),
+                                          "--output", str(out)])
+        args.func(args)
+        rows = json.loads(out.read_text())["summary"]["arms"]["skill"]["rows"]
+        return {r["measure"]: r["gate"] for r in rows}
+
+    assert gates(stored_report) == {"amazon-bedrock/m": "FAIL"}
+    assert gates(none_report) == {"amazon-bedrock/m": None}

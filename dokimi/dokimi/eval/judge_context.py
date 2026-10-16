@@ -242,9 +242,10 @@ class JudgeContextStore:
             if hit is None and key not in self._ambiguous and not self._warned:
                 self._warned = True
                 logger.warning(
-                    "No stored judge context for %s/%s — judging records that were not "
-                    "answered in this process falls back to the 200-char report "
-                    "snippets, which under-scores arms that cite their own material.",
+                    "No verified judge context for %s/%s (not stored, or its digest did not "
+                    "match judge_materials). Callers that fall back judge the 200-char report "
+                    "snippets, which under-scores arms that cite their own material; "
+                    "judge-validity --context stored drops such bases instead.",
                     question_id, arm_name,
                 )
         return hit

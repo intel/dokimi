@@ -138,6 +138,13 @@ def _move(mean_drop: float) -> str:
     return f"{move:+.1f} ({lean}"
 
 
+class NoUsablePairs(ValueError):
+    """The answers yield no pair to score (too short, all no-ops, no stored material).
+
+    A user-facing condition, distinct from a ``ValueError`` raised by a bug.
+    """
+
+
 @dataclass
 class ValidityReport:
     """Per-variant and overall validity of one judge configuration."""
@@ -160,6 +167,9 @@ class ValidityReport:
     #: With ``context="stored"``, bases dropped because the file held no material
     #: for their arm; scoring them without it would mix the two settings.
     n_without_context: int = 0
+    #: With ``context="stored"``, per arm: eligible answers kept (material
+    #: verified) and dropped (none), before ``--bases`` sampling.
+    by_arm: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
     @property
     def scored(self) -> List[ValidityRow]:
@@ -295,6 +305,7 @@ class ValidityReport:
             "n_noop": dict(sorted(self.n_noop.items())),
             "context": self.context,
             "n_without_context": self.n_without_context,
+            "by_arm": {a: dict(c) for a, c in sorted(self.by_arm.items())},
             "wall_seconds": self.wall_seconds,
         }
         if self.sequential is not None:
@@ -347,8 +358,10 @@ class ValidityReport:
             f"  tie rate     : {s['tie_rate']:.3f}   (saturated scale if high)",
             f"  no-op pairs  : {sum(s['n_noop'].values())} dropped (degradation left the text unchanged)",
             *(["  context      : stored treatment material (as the arms run judged)"
-               + (f"; {s['n_without_context']} bases dropped, none stored"
+               + (f"; {s['n_without_context']} bases dropped, no verified material"
                   if s["n_without_context"] else "")] if s.get("context") == "stored" else []),
+            *([f"  per arm      : {a}: {c['kept']} kept, {c['dropped']} dropped"
+               for a, c in s["by_arm"].items()] if s.get("context") == "stored" else []),
         ]
         if s["mode"] == "sequential":
             t = s["sprt"]
@@ -472,8 +485,9 @@ def run_validity(
     noop: Dict[str, int] = {}
     variants = list(variants or DEGRADATIONS)
     dropped: List[int] = [0]
+    by_arm: Dict[str, Dict[str, int]] = {}
     pairs = _build(answers, noop, n_bases=n_bases, seed=seed, variants=variants, library=library,
-                   store=store, dropped=dropped)
+                   store=store, dropped=dropped, by_arm=by_arm)
     report = evaluate_pairs(
         scorer, pairs, judge=judge, min_accuracy=min_accuracy, seed=seed, progress=progress,
         concurrency=concurrency, pair_scorer=pair_scorer,
@@ -482,6 +496,7 @@ def run_validity(
     report.variants = variants
     report.context = "stored" if store is not None else "none"
     report.n_without_context = dropped[0]
+    report.by_arm = by_arm
     return report
 
 
@@ -504,9 +519,10 @@ def attach_stored_context(pairs: List[Dict[str, Any]], store: Any) -> Tuple[List
     return kept, len(missing)
 
 
-def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropped=None) -> List[Dict[str, Any]]:
-
+def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropped=None,
+           by_arm=None) -> List[Dict[str, Any]]:
     dropped_from_pairs: Dict[str, int] = {}
+    arms: Dict[str, Dict[str, int]] = by_arm if by_arm is not None else {}
     pairs = build_pairs(
         answers,
         noop=noop,
@@ -516,27 +532,28 @@ def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropp
         library=library,
         store=store,
         dropped=dropped_from_pairs,
+        by_arm=arms,
     )
-    # If store was provided, check if we got any bases with material
-    if store is not None and not pairs:
-        raise ValueError(
-            "No answer has stored judge material (judge_materials) — the file was "
-            "written before arms runs kept it, or by a run that did not record it"
-        )
-    if not pairs and noop:
-        raise ValueError(f"Every degradation left the answer unchanged (no-op pairs: {noop})")
     if not pairs:
-        raise ValueError(
+        if noop:
+            raise NoUsablePairs(f"Every degradation left the answer unchanged (no-op pairs: {noop})")
+        if store is not None and dropped_from_pairs.get("total", 0):
+            raise NoUsablePairs(
+                "No answer has verified stored judge material (judge_materials) — the file was "
+                "written before arms runs kept it, or the material does not match its digests"
+            )
+        raise NoUsablePairs(
             "No usable answers found — need answers longer than the minimum "
             "length with a question_id and question text"
         )
     if store is not None:
+        lost = sorted(a for a, c in arms.items() if c["dropped"] and not c["kept"])
+        if lost:
+            raise NoUsablePairs(
+                f"Arm(s) {lost} have answers but no verified judge material, so the gate would "
+                "not cover them: repair the artifact's judge_materials or drop those arms"
+            )
         pairs, n_missing = attach_stored_context(pairs, store)
         if dropped is not None:
             dropped[0] = dropped_from_pairs.get("total", 0) + n_missing
-        if not pairs:
-            raise ValueError(
-                "No answer has stored judge material (judge_materials) — the file was "
-                "written before arms runs kept it, or by a run that did not record it"
-            )
     return pairs

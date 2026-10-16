@@ -12,7 +12,7 @@ from pathlib import Path
 
 from dokimi.defaults import DEFAULT_CONCURRENCY, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.judge import JUDGE_PROVIDERS
-from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
+from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
 from dokimi.utils import normalize_model_ref
 
 
@@ -377,7 +377,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
             report = run_sequential(answers, scorer, max_bases=args.max_bases, **common)
         else:
             report = run_validity(answers, scorer, n_bases=args.bases, **common)
-    except ValueError as exc:  # no usable pair (none long enough, all no-ops, none with material)
+    except NoUsablePairs as exc:  # none long enough, all no-ops, none with material
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(2)
 
