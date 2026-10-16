@@ -322,7 +322,10 @@ def test_a_failed_gate_also_silences_that_judges_grounded_measure():
     report.apply_validity([{"judge": "p/j", "passed": False}])
     assert (absolute.gate, grounded.gate) == ("FAIL", "FAIL")
     report.apply_validity([{"judge": "p/j", "passed": True}])
-    assert absolute.gate == "PASS" and grounded.gate == "FAIL"  # a PASS does not validate grounded scoring
+    assert (absolute.gate, grounded.gate) == ("FAIL", "FAIL")  # a later PASS does not lift a FAIL
+    fresh = cj.Measure(name="p/j", kind="grounded")
+    cj.CrossJudgeReport(baseline_arm="baseline", measures=[fresh]).apply_validity([{"judge": "p/j", "passed": True}])
+    assert fresh.gate != "PASS"  # a PASS does not validate grounded scoring
 
 
 @pytest.mark.parametrize("rows,expected", [
@@ -491,6 +494,16 @@ def test_a_stored_fail_also_silences_the_judges_coverage_and_pairwise_measures()
     report = cj.CrossJudgeReport(baseline_arm="baseline", measures=measures)
     assert report.apply_validity([{"judge": "p/j", "context": "stored", "passed": False}]) == []
     assert [m.gate for m in measures] == ["FAIL"] * 4
+
+
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)])
+def test_a_fail_wins_over_a_pass_in_either_report_order(order):
+    reports = [{"judge": "p/j", "context": "stored", "passed": False},
+               {"judge": "p/j", "context": "none", "passed": True}]
+    measures = [cj.Measure(name="p/j", kind="aggregate", context=c) for c in ("none", "stored")]
+    report = cj.CrossJudgeReport(baseline_arm="baseline", measures=measures)
+    assert report.apply_validity([reports[i] for i in order]) == []
+    assert [m.gate for m in measures] == ["FAIL", "FAIL"]
 
 
 def test_score_measure_hands_the_stored_material_to_the_rescored_judge():

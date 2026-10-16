@@ -291,7 +291,8 @@ class CrossJudgeReport:
         damaged answers in one setting is not trusted to vote in another. A
         PASS does not carry over to grounded or coverage measures: those stay
         unvalidated. A label that matched a measure only in another context is
-        returned with a note naming both contexts.
+        returned with a note naming both contexts. A FAIL is never overwritten
+        by a PASS, so the result does not depend on the order of ``validity``.
         """
         unmatched = []
         for v in validity:
@@ -314,7 +315,9 @@ class CrossJudgeReport:
                     # A PASS validates only the (label, context) it was measured in.
                     other_contexts.add(m.context)
                 elif m.kind in ("aggregate", "pairwise"):
-                    m.gate = "PASS"
+                    # A FAIL is final: a PASS never lifts it, whichever report came first.
+                    if m.gate != "FAIL":
+                        m.gate = "PASS"
                     hits += 1
             if not hits:
                 unmatched.append(

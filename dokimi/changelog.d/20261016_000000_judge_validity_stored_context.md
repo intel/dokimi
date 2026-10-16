@@ -13,7 +13,8 @@
   report validates a measure only when both the judge label and the context
   (`stored` or `none`) agree, so a no-context PASS no longer validates a judge
   that read the stored material. A FAIL still silences every measure of that
-  judge in any context. Reports without a `context` key (written before this
+  judge in any context, and a PASS never lifts it, whatever the report
+  order. Reports without a `context` key (written before this
   change) count as `none`, and a stored measure whose scores fell back to
   snippets is `none` too. `cross-judge --judges` re-scores with the
   stored material.
