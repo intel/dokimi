@@ -592,3 +592,12 @@ def test_bash_with_dollar_env_and_unbalanced_quote(tmp_path):
     payload = inspect_repo(WorkTree(tmp_path))
     risks = {h["command"] for h in payload["hook_risks"]}
     assert any("$CLAUDE_PROJECT_DIR" in r for r in risks)
+
+
+@pytest.mark.parametrize("settings, kind", [({"statusLine": {"type": "command", "command": "x"}}, "hook"),
+                                            ({"apiKeyHelper": "x"}, "hook"),
+                                            ({"enableAllProjectMcpServers": True}, "mcp")])
+def test_settings_capabilities_without_hooks(tmp_path, settings, kind):
+    _repo(tmp_path, {"AGENTS.md": "x", ".claude/settings.json": json.dumps(settings)})
+    caps = inspect_repo(WorkTree(tmp_path))["capabilities"]
+    assert [(c["kind"], c["risk"]) for c in caps] == [(kind, "high")]
