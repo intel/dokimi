@@ -376,6 +376,23 @@ def test_cost_cap_stops_new_calls_and_leaves_them_out(doc):
     assert s["first_twin_share_baseline"]["n_groups"] == 1
 
 
+def test_cost_cap_with_concurrency_stays_within_bound(doc):
+    items = tp.build_items(doc, ["assertive"])
+    gate = threading.Barrier(4)
+    ran = []
+
+    def priced(item):
+        ran.append(item["id"])
+        if len(ran) <= 4:
+            gate.wait(timeout=5)  # four calls in flight together
+        return {"called": [item["twin_names"]["A"]], "usage": {"cost_usd": 0.001}}
+
+    results = tp.run_probe(items, priced, reps=1, concurrency=4, max_cost_usd=0.0035)
+    # the crossing call plus at most concurrency - 1 = 3 others in flight
+    assert sum(not r["skipped"] for r in results) == len(ran)
+    assert 4 <= len(ran) <= 7
+
+
 def test_an_unpriced_call_blinds_the_cap_so_the_run_stops(doc):
     items = tp.build_items(doc, ["assertive"])
     results = tp.run_probe(items, lambda i: {"called": [], "usage": {"cost_usd": None}},
@@ -490,3 +507,131 @@ def test_cli_cost_cap_must_be_positive(bad):
 
     with pytest.raises(SystemExit):
         build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--max-cost-usd", bad])
+
+
+def test_cli_no_warning_when_skipped_by_cost_cap(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    # With cap reached (skipped calls), no warning should be printed
+    monkeypatch.setattr(llm, "chat_completion",
+                        lambda messages, model, tools=None, **k: _Resp([tools[0]["function"]["name"]]))
+    monkeypatch.setattr(llm, "_safe_completion_cost", lambda *a, **k: 0.01)
+    out = tmp_path / "pref.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--concurrency", "1",
+                                      "--max-cost-usd", "0.02", "--out-json", str(out)])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    err = capsys.readouterr().err
+    assert "reached" in err and "Warning:" not in err
+
+
+def test_cli_no_warning_when_unpriced_skips_calls(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    # Unpriced model with cap set: first call blinds cap, rest skip, no warning
+    monkeypatch.setattr(llm, "chat_completion",
+                        lambda messages, model, tools=None, **k: _Resp([tools[0]["function"]["name"]]))
+    monkeypatch.setattr(llm, "_safe_completion_cost", lambda *a, **k: None)
+    out = tmp_path / "pref.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--concurrency", "1",
+                                      "--max-cost-usd", "100", "--out-json", str(out)])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    err = capsys.readouterr().err
+    assert "cannot be enforced" in err and "Warning:" not in err
+
+
+def test_cli_warning_when_last_call_unpriced_no_skipped(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    # Only the last call is unpriced; all 16 run, no skipped, warning should appear
+    call_count = [0]
+    def chat_with_last_unpriced(messages, model, tools=None, **k):
+        call_count[0] += 1
+        return _Resp([tools[0]["function"]["name"]])
+
+    def cost_except_last(*a, **k):
+        if call_count[0] == 16:
+            return None  # last call is unpriced
+        return 0.0001  # all others are priced
+
+    monkeypatch.setattr(llm, "chat_completion", chat_with_last_unpriced)
+    monkeypatch.setattr(llm, "_safe_completion_cost", cost_except_last)
+    out = tmp_path / "pref.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--concurrency", "1",
+                                      "--max-cost-usd", "100", "--out-json", str(out)])
+    args.func(args)
+    err = capsys.readouterr().err
+    assert "Warning: 1 call(s) had no price" in err
+
+
+def test_an_unpriced_cut_reply_stops_the_run(doc):
+    items = tp.build_items(doc, ["assertive"])
+    def cut_no_price(item):
+        exc = RuntimeError("cut at max_tokens")
+        exc.usage = {"cost_usd": None}  # type: ignore[attr-defined]
+        raise exc
+    results = tp.run_probe(items, cut_no_price, reps=1, concurrency=1, max_cost_usd=100.0)
+    assert results[0]["skipped"] is False and results[0]["error"] is not None
+    assert results[0]["usage"] == {"cost_usd": None}
+    assert all(r["skipped"] for r in results[1:])
+
+
+def test_non_dict_exc_usage_does_not_crash_payload(doc):
+    items = tp.build_items(doc, ["assertive"])
+    def bad_usage(item):
+        exc = RuntimeError("error")
+        exc.usage = "n/a"  # type: ignore[attr-defined]
+        raise exc
+    results = tp.run_probe(items, bad_usage, reps=1, concurrency=1)
+    assert results[0]["skipped"] is False and results[0]["error"] is not None
+    assert results[0]["usage"] is None  # non-dict usage converted to None
+    payload_doc = tp.payload(doc, items, results, model="test", provider="test", reps=1, factors=[], max_tokens=2048)
+    assert payload_doc["usage"]["n_calls"] == 0  # no valid dict usage
+
+
+def test_cli_skipping_exactly_one_call(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    monkeypatch.setattr(llm, "chat_completion",
+                        lambda messages, model, tools=None, **k: _Resp([tools[0]["function"]["name"]]))
+    monkeypatch.setattr(llm, "_safe_completion_cost", lambda *a, **k: 0.01)
+    out = tmp_path / "pref.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--concurrency", "1",
+                                      "--max-cost-usd", "0.15", "--out-json", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "1 of 16 call(s) not run" in err
+
+
+def test_stopping_message_in_cap_reached_case(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    monkeypatch.setattr(llm, "chat_completion",
+                        lambda messages, model, tools=None, **k: _Resp([tools[0]["function"]["name"]]))
+    monkeypatch.setattr(llm, "_safe_completion_cost", lambda *a, **k: 0.01)
+    out = tmp_path / "pref.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--concurrency", "1",
+                                      "--max-cost-usd", "5", "--out-json", str(out)])
+    args.func(args)
+    out_str = capsys.readouterr().out
+    assert "stopping at $5" in out_str
+
+
+def test_max_cost_usd_zero_skips_all(doc):
+    items = tp.build_items(doc, ["assertive"])
+    results = tp.run_probe(items, lambda i: {"called": [], "usage": {"cost_usd": 0.0001}},
+                           reps=1, concurrency=1, max_cost_usd=0.0)
+    assert all(r["skipped"] for r in results)

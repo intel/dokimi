@@ -277,8 +277,9 @@ def run_probe(items: Sequence[dict], call: Caller, reps: int = 1, concurrency: i
     spend can pass the cap by up to ``concurrency - 1`` calls. A call that failed but was billed
     carries its ``usage`` on the exception and counts. A call that comes back with no price
     leaves the cap blind, so no new call starts after it: a cap that cannot see the spend
-    does not allow an unlimited one. Jobs run in item order, so a capped run covers whole
-    groups first.
+    does not allow an unlimited one. Jobs run in item order, so at concurrency > 1 the last
+    one or two groups reached may be partial; they are summarized from the cells that ran, so
+    their A/B counterbalancing is incomplete.
     """
     jobs = [(i, r) for i in items for r in range(reps)]
     done = [0]
@@ -304,11 +305,13 @@ def run_probe(items: Sequence[dict], call: Caller, reps: int = 1, concurrency: i
                            truncated=bool(out.get("truncated")))
             except Exception as exc:  # recorded, not raised
                 res["error"] = f"{type(exc).__name__}: {exc}"[:300]
-                res["usage"] = getattr(exc, "usage", None)
+                usage = getattr(exc, "usage", None)
+                res["usage"] = usage if isinstance(usage, dict) else None
         res["elapsed_sec"] = round(time.time() - t0, 3)
         with lock:
-            if res["usage"]:
-                cost = res["usage"].get("cost_usd")
+            usage = res.get("usage")
+            if usage and isinstance(usage, dict):
+                cost = usage.get("cost_usd")
                 blind[0] = blind[0] or cost is None
                 spent[0] += cost or 0.0
             done[0] += 1
@@ -329,7 +332,7 @@ def payload(doc: dict, items: Sequence[dict], results: Sequence[dict], *, model:
             max_cost_usd: Optional[float] = None) -> dict:
     """The tool_preference.v1 document (unsaved)."""
     system, cues = settings(doc)
-    usage = [r["usage"] for r in results if r.get("usage")]
+    usage = [r["usage"] for r in results if isinstance(r.get("usage"), dict)]
     cost = [u.get("cost_usd") for u in usage]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),

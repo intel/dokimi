@@ -117,7 +117,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     u = data["usage"]
     print(f"cost: {u['cost_usd']} USD over {u['n_calls']} calls ({u['cost_known_calls']} priced)")
     print(f"-> {args.out_json}")
-    if args.max_cost_usd and u["cost_known_calls"] < u["n_calls"]:
+    if args.max_cost_usd and u["cost_known_calls"] < u["n_calls"] and data["summary"]["n_skipped"] == 0:
         print(f"Warning: {u['n_calls'] - u['cost_known_calls']} call(s) had no price and did not count "
               f"toward --max-cost-usd", file=sys.stderr)
     if data["summary"]["n_calls"] and data["summary"]["n_errors"] == data["summary"]["n_calls"]:
