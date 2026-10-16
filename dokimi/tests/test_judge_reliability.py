@@ -426,9 +426,15 @@ def test_stored_measure_is_named_for_its_judge():
     report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[stored, rescored])
     # Both measures are Haiku: agreement between them is not agreement across judges.
     assert report.summary()["arms"]["skill"]["label"] == "CONSISTENT + (one judge)"
-    # A failed gate for that judge reaches the stored scores, so they stop voting.
-    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "passed": False}]) == []
+    # A stored-context validity gates the stored measure; none-context does not.
+    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "context": "stored", "passed": False}]) == []
     assert stored.gate == "FAIL"
+    assert rescored.gate is None
+    # A none-context validity gates the rescored measure, not the stored one.
+    rescored.gate = None  # reset
+    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "context": "none", "passed": False}]) == []
+    assert rescored.gate == "FAIL"
+    assert stored.gate == "FAIL"  # still FAIL from the previous call
     assert cj.stored_measure({"evaluations": data["evaluations"]}).name == "stored judge"
 
 

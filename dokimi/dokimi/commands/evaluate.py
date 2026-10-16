@@ -341,11 +341,10 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         from dokimi.eval.judge_context import JudgeContextStore
 
         store = JudgeContextStore.from_artifact(data) if isinstance(data, dict) else None
-        if store is None or not store.materials():
+        if store is None or not any(store.materials().values()):
             print("Error: --context stored needs an arms artifact with judge_materials; this "
                   "file has none (written before arms runs kept it?)", file=sys.stderr)
             sys.exit(2)
-        label += " [stored context]"
     pair_scorer = None
     if args.mode == "pairwise":
         from dokimi.commands.judge_reliability import pairwise_judge

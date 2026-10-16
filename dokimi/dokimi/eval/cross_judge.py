@@ -286,9 +286,24 @@ class CrossJudgeReport:
         unmatched = []
         for v in validity:
             passed = bool(v.get("passed"))
+            v_context = v.get("context", "none")
+            v_judge = v.get("judge")
             hits = 0
             for m in self.measures:
-                if m.name.removesuffix(STORED) != v.get("judge"):
+                m_name = m.name.removesuffix(STORED)
+                if m_name != v_judge:
+                    continue
+                # A stored-context validity should only gate measures scored with material (no STORED suffix);
+                # a none-context validity should only gate non-stored measures.
+                m_is_stored = STORED in m.name
+                if v_context == "stored" and m_is_stored:
+                    # Validity from --context stored gates the stored measure
+                    pass
+                elif v_context == "none" and not m_is_stored:
+                    # Validity from --context none (or unspecified) gates non-stored measures
+                    pass
+                else:
+                    # Mismatch: skip this measure
                     continue
                 if m.kind in ("aggregate", "pairwise"):
                     m.gate = "PASS" if passed else "FAIL"
@@ -300,7 +315,7 @@ class CrossJudgeReport:
                     m.gate = "FAIL"
                     hits += 1
             if not hits:
-                unmatched.append(str(v.get("judge")))
+                unmatched.append(str(v_judge))
         return unmatched
 
     def summary(self) -> Dict[str, Any]:
