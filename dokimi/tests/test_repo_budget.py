@@ -211,3 +211,86 @@ def test_cli_json_and_bad_source(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         _run(["repo", "budget", str(tmp_path / "missing")], capsys)
     assert exc.value.code == 1
+
+
+def test_imports_must_exist_to_be_counted(tmp_path):
+    """Real imports are counted; missing files and imports in code are not."""
+    tree = _tree(tmp_path, {
+        "CLAUDE.md": "See @example.md and @../etc/c.md here",
+        "example.md": "x" * 50,
+    })
+    got = budget(tree, NAMES)
+    entries = _by_path(got)
+    # example.md is real and imported, so it counts at start
+    assert entries[("example.md", "import")]["chars"] == 50
+    # ../etc/c.md does not exist and is not counted
+    assert not any("etc/c.md" in e["path"] for e in got["entries"])
+
+
+def test_duplicate_skills_at_boundary(tmp_path):
+    """Skills with exactly 0.5 Jaccard overlap are reported; below are not."""
+    tree = _tree(tmp_path, {
+        ".claude/skills/a/SKILL.md": _skill("release-a", "Run the release checklist for the relay service."),
+        ".claude/skills/b/SKILL.md": _skill("release-b", "Run the release checklist for the queue service."),
+        # Overlap: "release", "checklist" (after stop-word removal) = 2 shared, 3 total = 0.67
+        ".claude/skills/c/SKILL.md": _skill("db-util", "Detect database anomalies."),
+        ".claude/skills/d/SKILL.md": _skill("web-util", "Detect web errors."),
+        # Overlap: "detect" = 1 shared, 3 total = 0.33, below 0.5
+    })
+    got = budget(tree, NAMES)
+    overlaps = [d["a"] + "/" + d["b"] for d in got["duplicate_skills"]]
+    assert any("release-a" in o and "release-b" in o for o in overlaps)
+    assert not any("db-util" in o or "web-util" in o for o in overlaps)
+
+
+def test_claude_local_md_import_at_start(tmp_path):
+    """CLAUDE.local.md imports are treated as starting, same as root CLAUDE.md."""
+    tree = _tree(tmp_path, {
+        "CLAUDE.local.md": "See @docs/ref.md\n",
+        "docs/ref.md": "x" * 15,
+        "AGENTS.md": "a" * 8,
+    })
+    got = budget(tree, NAMES)
+    entries = _by_path(got)
+    assert entries[("CLAUDE.local.md", "guidance")]["when"] == "start"
+    assert entries[("docs/ref.md", "import")]["when"] == "start"
+    # root AGENTS.md is still off because root CLAUDE.local.md reads it at start
+    assert entries[("AGENTS.md", "guidance")]["when"] == "off"
+
+
+def test_circular_imports_terminate(tmp_path):
+    """Circular imports and self-imports do not loop."""
+    tree = _tree(tmp_path, {
+        "CLAUDE.md": "@a.md\n",
+        "a.md": "@b.md\n",
+        "b.md": "@a.md\n",
+    })
+    got = budget(tree, NAMES)
+    entries = _by_path(got)
+    # Both a.md and b.md are imported, but we don't loop
+    assert entries[("a.md", "import")]["when"] == "start"
+    assert entries[("b.md", "import")]["when"] == "start"
+    assert got["warnings"] == []
+
+
+def test_non_utf8_guidance_file_is_counted_and_warned(tmp_path):
+    """An unreadable guidance file is listed with 0 chars and a clear warning."""
+    tree = _tree(tmp_path, {"AGENTS.md": "a" * 10})
+    # Overwrite with non-UTF-8 bytes
+    (tmp_path / "CLAUDE.md").write_bytes(b"\xff\xfe")
+    got = budget(tree, NAMES)
+    entries = _by_path(got)
+    assert entries[("CLAUDE.md", "guidance")]["chars"] == 0
+    assert any("not readable" in w or "CLAUDE.md" in w for w in got["warnings"])
+    # AGENTS.md is still off because a root CLAUDE.md turns it off
+    assert entries[("AGENTS.md", "guidance")]["when"] == "off"
+
+
+def test_mcp_json_with_non_dict_servers(tmp_path):
+    """Non-dict mcpServers are handled gracefully; list is returned empty."""
+    tree1 = _tree(tmp_path / "t1", {".mcp.json": json.dumps({"mcpServers": ["a", "b"]})})
+    assert budget(tree1, NAMES)["mcp_servers"] == []
+    tree2 = _tree(tmp_path / "t2", {".mcp.json": json.dumps({"mcpServers": {}})})
+    assert budget(tree2, NAMES)["mcp_servers"] == []
+    tree3 = _tree(tmp_path / "t3", {".mcp.json": json.dumps({})})
+    assert budget(tree3, NAMES)["mcp_servers"] == []

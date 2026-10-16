@@ -18,8 +18,9 @@ Characters, not tokens: how many tokens a character costs depends on the model's
 and differs between model families. The exact cost is the first-call prompt difference
 between a run with the file and one without.
 
-Two checks ride along: skills whose descriptions are near-duplicates (the agent has to choose
-between them from the listing alone), and AGENTS.md files turned off by a CLAUDE.md.
+Three checks ride along: skills with no description, skills whose descriptions are near-duplicates
+(the agent has to choose between them from the listing alone), and AGENTS.md files turned off by a
+CLAUDE.md at the root.
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
     lazily = _imports(tree, [f for f in claude if f not in root_claude]) - at_start
 
     entries: list[dict[str, Any]] = []
+    unreadable_warnings: list[str] = []
     for f in guidance:
         if f.rsplit("/", 1)[-1] == "AGENTS.md" and root_claude and f not in at_start | lazily:
             when = "off"
@@ -60,13 +62,19 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
             when = "start"
         else:
             when = "lazy"
-        entries.append({"path": f, "kind": "guidance", "when": when, "chars": _chars(tree, f)})
+        chars, warning = _chars(tree, f)
+        if warning:
+            unreadable_warnings.append(warning)
+        entries.append({"path": f, "kind": "guidance", "when": when, "chars": chars})
     counted = {_target(tree, f) for f in guidance}
     for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
         if _is_file(tree, f) and _target(tree, f) not in counted:
             counted.add(_target(tree, f))
+            chars, warning = _chars(tree, f)
+            if warning:
+                unreadable_warnings.append(warning)
             entries.append({"path": f, "kind": "import", "when": "start" if f in at_start else "lazy",
-                            "chars": _chars(tree, f)})
+                            "chars": chars})
 
     skills = _skills(tree, [f for f in files if SKILL_GLOB.match(f)])
     for s in skills:
@@ -74,7 +82,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
         entries.append({"path": s["path"], "kind": "skill body", "when": "on demand", "chars": s["body_chars"]})
 
     totals = {w: sum(e["chars"] for e in entries if e["when"] == w) for w in ("start", "lazy", "on demand", "off")}
-    warnings = []
+    warnings = unreadable_warnings[:]
     off = [e["path"] for e in entries if e["when"] == "off"]
     if off:
         warnings.append(f"{', '.join(root_claude)} at the root turns AGENTS.md loading off and no CLAUDE.md "
@@ -127,11 +135,14 @@ def _is_file(tree: RepoTree, path: str) -> bool:
         return False
 
 
-def _chars(tree: RepoTree, path: str) -> int:
+def _chars(tree: RepoTree, path: str) -> tuple[int, str | None]:
+    """Return (char_count, warning_message). warning_message is None if the file is readable."""
     try:
-        return len(tree.read_text(path))
-    except (OSError, UnicodeDecodeError, ValueError):
-        return 0
+        return len(tree.read_text(path)), None
+    except (OSError, ValueError):
+        return 0, None  # File does not exist or outside the tree; no warning needed
+    except UnicodeDecodeError:
+        return 0, f"{path}: not readable (non-UTF-8 or binary), counted as 0"
 
 
 def _imports(tree: RepoTree, roots: list[str]) -> set[str]:
