@@ -651,6 +651,115 @@ def test_cross_judge_judges_and_pairwise_refuse_together(tmp_path, monkeypatch, 
     assert exc.value.code == 2 and "skill" in capsys.readouterr().err
 
 
+def test_cross_judge_judges_refuses_altered_material_text(tmp_path, monkeypatch, capsys):
+    """--judges refuses when judge_materials text doesn't match recorded digest."""
+    import json
+    from dokimi.utils import digest_text
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, **_):
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    data = _stamped_run()
+    skill_body = "full skill body"
+    digest = digest_text(skill_body)
+    for ans in data["answers"]:
+        ans["arms"]["skill"]["judge_context_sha256"] = digest
+    for ev in data["evaluations"]:
+        ev["scores"]["skill"]["judge_context_sha256"] = digest
+    # Store altered text with the correct digest key
+    data["judge_materials"] = {digest: "ALTERED TEXT"}
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+            "--output", str(tmp_path / "cj.json")]
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+
+
+def test_cross_judge_judges_refuses_records_without_digest(tmp_path, monkeypatch, capsys):
+    """--judges refuses when arm records are missing the digest."""
+    import json
+    from dokimi.utils import digest_text
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, **_):
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    data = _stamped_run()
+    skill_body = "full skill body"
+    digest = digest_text(skill_body)
+    for ans in data["answers"]:
+        ans["arms"]["skill"]["judge_context_sha256"] = digest
+    for ev in data["evaluations"]:
+        ev["scores"]["skill"]["judge_context_sha256"] = digest
+    data["judge_materials"] = {digest: skill_body}
+    # Strip the digest from arm records only
+    for ans in data["answers"]:
+        if "judge_context_sha256" in ans["arms"]["skill"]:
+            del ans["arms"]["skill"]["judge_context_sha256"]
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+            "--output", str(tmp_path / "cj.json")]
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+
+
+def test_cross_judge_judges_refuses_mismatched_digest_between_arms_and_scores(tmp_path, monkeypatch, capsys):
+    """--judges refuses when arm records cite different digest than scores."""
+    import json
+    from dokimi.utils import digest_text
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, **_):
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    data = _stamped_run()
+    skill_body = "full skill body"
+    digest1 = digest_text(skill_body)
+    digest2 = digest_text("different body")
+    for ans in data["answers"]:
+        ans["arms"]["skill"]["judge_context_sha256"] = digest1
+    for ev in data["evaluations"]:
+        ev["scores"]["skill"]["judge_context_sha256"] = digest2
+    # Only include digest1 in materials (what the arm records cite)
+    data["judge_materials"] = {digest1: skill_body}
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+            "--output", str(tmp_path / "cj.json")]
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+
+
 def test_cross_judge_pairwise_with_materials_refuses_comparison(tmp_path, monkeypatch):
     """--pairwise with stored materials refuses to mix judges."""
     import json
@@ -788,6 +897,56 @@ def test_significance_uses_the_unrounded_holm_p():
     assert cj.label(rows) == "CONSISTENT +"
     assert all(r["significant"] for r in rows)
     assert {r["p_holm"] for r in rows} == {0.05}
+
+
+def test_digest_text_surrogatepass_handles_lone_surrogates():
+    """digest_text uses surrogatepass to handle lone surrogates without raising."""
+    from dokimi.utils import digest_text
+
+    # A lone surrogate pair should not raise but produce a digest
+    result = digest_text("a\ud83db")
+    assert result.startswith("sha256:") and len(result) == 71
+
+
+def test_from_artifact_guards_against_malformed_data():
+    """from_artifact checks digest, record, and arms types without raising."""
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    # List digest on arm record
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {},
+        "answers": [{
+            "question_id": "q1",
+            "arms": {"a": {"judge_context_sha256": ["x"]}},
+        }],
+    })
+    assert store.materials() == {}
+
+    # Non-dict record
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {},
+        "answers": [1],
+    })
+    assert store.materials() == {}
+
+    # Arms as a list
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {},
+        "answers": [{"question_id": "q1", "arms": [1]}],
+    })
+    assert store.materials() == {}
+
+
+def test_unreproducible_arms_with_non_string_score_digest():
+    """unreproducible_arms counts non-string digests as unreproducible."""
+    from dokimi.eval import cross_judge as cj
+
+    data = _stamped_run()
+    # Replace score digest with a list
+    for ev in data["evaluations"]:
+        ev["scores"]["skill"]["judge_context_sha256"] = ["x"]
+    result = cj.unreproducible_arms(data)
+    assert "skill" in result
 
 # --- pairwise ---------------------------------------------------------------
 

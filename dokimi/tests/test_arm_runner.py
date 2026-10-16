@@ -1118,6 +1118,7 @@ def test_judge_materials_guard_requires_material_for_stored_scores(caplog):
     assert store.materials() == {}
     assert "1 arm records cite judge material" in caplog.text
 
+    caplog.clear()
     # Record with digest and material text that is not a string
     store = JudgeContextStore.from_artifact({
         "judge_materials": {digest_text("text"): 123},  # material is int, not str
