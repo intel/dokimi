@@ -42,7 +42,7 @@ _STOP = frozenset("a an and the of to for in on with use when or is are be this 
 def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
     files = tree.files()
     names = set(guidance_names)
-    guidance = [f for f in files if f.rsplit("/", 1)[-1] in names]
+    guidance = _unaliased(tree, [f for f in files if f.rsplit("/", 1)[-1] in names])
     claude = [f for f in guidance if f.rsplit("/", 1)[-1].startswith("CLAUDE")]
     root_claude = [f for f in claude if "/" not in f]
     # A root CLAUDE.md's imports load at start; a nested one's when the agent reaches its subtree.
@@ -58,8 +58,10 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
         else:
             when = "lazy"
         entries.append({"path": f, "kind": "guidance", "when": when, "chars": _chars(tree, f)})
-    for f in sorted((at_start | lazily) - set(guidance)):
-        if _is_file(tree, f):
+    counted = {_target(tree, f) for f in guidance}
+    for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
+        if _is_file(tree, f) and _target(tree, f) not in counted:
+            counted.add(_target(tree, f))
             entries.append({"path": f, "kind": "import", "when": "start" if f in at_start else "lazy",
                             "chars": _chars(tree, f)})
 
@@ -91,6 +93,23 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
         "mcp_servers": _mcp_servers(tree),
         "warnings": warnings,
     }
+
+
+def _target(tree: RepoTree, path: str) -> str:
+    """The file ``path`` is once links are followed; ``path`` itself if it is not a link or cannot be resolved."""
+    try:
+        return tree.resolve(path)
+    except (OSError, ValueError):
+        return path
+
+
+def _unaliased(tree: RepoTree, guidance: list[str]) -> list[str]:
+    """One path per file: an AGENTS.md linked to a CLAUDE.md (or the reverse) is the same bytes in context."""
+    groups: dict[str, list[str]] = {}
+    for f in guidance:
+        groups.setdefault(_target(tree, f), []).append(f)
+    keep = {min(g, key=lambda p: (not p.rsplit("/", 1)[-1].startswith("CLAUDE"), p)) for g in groups.values()}
+    return [f for f in guidance if f in keep]
 
 
 def _is_file(tree: RepoTree, path: str) -> bool:

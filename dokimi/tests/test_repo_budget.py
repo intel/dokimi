@@ -104,6 +104,22 @@ def test_an_import_through_a_link_out_of_the_tree_is_skipped(tmp_path):
     assert got["mcp_servers"] == []
 
 
+def test_a_link_to_a_loaded_file_is_not_counted_again(tmp_path):
+    _tree(tmp_path, {"CLAUDE.md": "c" * 20 + " @docs/same.md @docs/again.md", "docs/real.md": "r" * 5, "sub/CLAUDE.md": "s" * 4})
+    try:
+        (tmp_path / "AGENTS.md").symlink_to("CLAUDE.md")
+        (tmp_path / "sub" / "AGENTS.md").symlink_to("CLAUDE.md")
+        (tmp_path / "docs" / "same.md").symlink_to("real.md")
+        (tmp_path / "docs" / "again.md").symlink_to("real.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    got = budget(WorkTree(tmp_path), NAMES)
+    paths = sorted(e["path"] for e in got["entries"])
+    assert paths[0] == "CLAUDE.md" and paths[-1] == "sub/CLAUDE.md" and len(paths) == 3  # one of the two links
+    assert got["totals"]["start"] == 20 + len(" @docs/same.md @docs/again.md") + 5
+    assert got["totals"]["off"] == 0 and got["warnings"] == []
+
+
 def test_skill_listing_starts_body_on_demand(tmp_path):
     tree = _tree(tmp_path, {".claude/skills/fmt/SKILL.md": _skill("fmt", "Format code.", "x" * 50)})
     got = budget(tree, NAMES)
