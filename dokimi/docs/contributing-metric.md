@@ -16,6 +16,8 @@ This guide shows how to add a new one end-to-end.
 
 ```python
 # dokimi/metrics/link_validity.py
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 """Fraction of intra-doc links that resolve to a known anchor."""
 
 from __future__ import annotations
@@ -91,6 +93,8 @@ Add a focused unit test under `tests/`:
 
 ```python
 # tests/test_link_validity.py
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 from dokimi.metrics import link_validity
 
 

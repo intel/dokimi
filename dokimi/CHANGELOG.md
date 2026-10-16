@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Changelog
 
 Notable changes to dokimi, by release: what to know when choosing or upgrading

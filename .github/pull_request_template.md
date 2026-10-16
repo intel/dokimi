@@ -21,3 +21,4 @@
 - [ ] `ruff`, `mypy`, and schema checks pass
 - [ ] Docs updated (or N/A) — see the docs-drift checklist in CONTRIBUTING.md
 - [ ] No ad-hoc run artifacts committed
+- [ ] New files carry the SPDX license header (or are exempt in `.github/.licenserc.yaml`)

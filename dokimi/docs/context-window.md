@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Context window of a run
 
 The other tracks score what an agent produced. `context trace` reads what the

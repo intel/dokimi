@@ -22,9 +22,17 @@ uses an HTML comment, after any front matter):
 # SPDX-License-Identifier: Apache-2.0
 ```
 
-CI's license-header job checks it; the files exempt (JSON, generated locks,
-text agents read verbatim) are listed in
-[`.github/.licenserc.yaml`](../.github/.licenserc.yaml).
+The year is the year the file is added. CI's license-header job checks the
+header; the files exempt (JSON, generated locks, text agents read verbatim,
+changelog fragments) are listed in
+[`.github/.licenserc.yaml`](../.github/.licenserc.yaml). `make ci-local` does
+not run this job; check locally with Docker, from the root of a clone (in a
+`git worktree` it also scans untracked files such as `.venv`):
+
+```bash
+docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
+  apache/skywalking-eyes:0.9.0 -c .github/.licenserc.yaml header check
+```
 
 ## Development setup
 

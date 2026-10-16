@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Versioning and releases
 
 How dokimi is versioned, how a change reaches the changelog, and how a release

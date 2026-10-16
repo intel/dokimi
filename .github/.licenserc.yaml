@@ -15,15 +15,15 @@
 #     apache/skywalking-eyes:0.9.0 -c .github/.licenserc.yaml header check
 header:
   license:
-    spdx-id: Apache-2.0
-    copyright-owner: Intel Corporation
-    content: |
-      Copyright (C) 2026 Intel Corporation
-      SPDX-License-Identifier: Apache-2.0
-    # Any year, so a file added in a later year carries that year. With 0.9.0 a
-    # pattern with a line break or "(C)" rejects every year but the content's.
+    # The pattern alone decides. With 0.9.0 a `content` passes any file that
+    # contains it, and an `spdx-id` with `copyright-owner` passes
+    # "Apache-2.0 OR MIT" too; without them license-eye warns that it has no
+    # license template, which `check` does not need.
+    # Any year, so a file added in a later year carries that year (a pattern
+    # with a line break or "(C)" never matches). The tail rejects a longer id
+    # (Apache-2.0-only, Apache-2.0+) and an "Apache-2.0 OR ..." expression.
     pattern: |-
-      Copyright \d{4}(-\d{4})? Intel Corporation SPDX-License-Identifier: Apache-2\.0
+      Copyright \d{4}(-\d{4})? Intel Corporation SPDX-License-Identifier: Apache-2\.0(\s*$|\s+[^O ]|\s+O[^R])
 
   paths:
     - '**'
@@ -51,6 +51,11 @@ header:
     # written verbatim as the agent's answer (.agent-eval/run.py).
     - '.agent-eval/tasks/**/*.patch'
     - '.agent-eval/tasks/**/oracle_answer.md'
+    # Changelog fragments (<timestamp>_<user>_<branch>.md) and the template
+    # `scriv create` copies into each: `scriv collect` moves their text into
+    # CHANGELOG.md, which carries the header itself.
+    - 'dokimi/changelog.d/[0-9]*.md'
+    - 'dokimi/changelog.d/fragment_template.md.j2'
 
   comment: never
 
