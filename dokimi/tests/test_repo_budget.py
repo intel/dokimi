@@ -273,13 +273,13 @@ def test_alias_layouts_thread_1_repro(tmp_path):
         assert got_a["totals"]["start"] == 9
         assert got_a["warnings"] == []
 
-        # Layout b: root CLAUDE.md imports sub/CLAUDE.md; sub/AGENTS.md symlinks to root CLAUDE.md
-        # Both get resolved to same target (root CLAUDE.md), so counted once at start
+        # Layout b: root CLAUDE.md imports sub/AGENTS.md, a link to sub/CLAUDE.md;
+        # sub/CLAUDE.md loads at start
         tree_b = _tree(tmp_path / "b", {
-            "CLAUDE.md": "@sub/CLAUDE.md".ljust(15),
+            "CLAUDE.md": "@sub/AGENTS.md".ljust(15),
             "sub/CLAUDE.md": "c" * 7,
         })
-        (tmp_path / "b" / "sub" / "AGENTS.md").symlink_to("../CLAUDE.md")
+        (tmp_path / "b" / "sub" / "AGENTS.md").symlink_to("CLAUDE.md")
         got_b = budget(tree_b, NAMES)
         # CLAUDE.md (15) + sub/CLAUDE.md via import (7, both resolve to same, counted once)
         assert got_b["totals"]["start"] == 22  # 15 + 7
