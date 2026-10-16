@@ -426,7 +426,7 @@ def _norm(path: str) -> str:
 
 
 def _git(git_dir: Path | None, *args: str, check: bool = True) -> str:
-    cmd = ["git"] + (["-C", str(git_dir)] if git_dir is not None else []) + list(args)
+    cmd = ["git", "-c", "core.fsmonitor=false"] + (["-C", str(git_dir)] if git_dir is not None else []) + list(args)
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", env=env,
@@ -443,7 +443,7 @@ def _git_bytes(git_dir: Path, args: list[str], stdin: bytes) -> bytes:
     """``git -C git_dir *args`` with binary stdin and stdout."""
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
     try:
-        proc = subprocess.run(["git", "-C", str(git_dir), *args], input=stdin, capture_output=True, env=env,
+        proc = subprocess.run(["git", "-c", "core.fsmonitor=false", "-C", str(git_dir), *args], input=stdin, capture_output=True, env=env,
                               timeout=_GIT_TIMEOUT_S, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SourceError(f"git {args[0]} failed: {exc}") from exc

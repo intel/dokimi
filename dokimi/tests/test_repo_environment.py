@@ -211,3 +211,12 @@ def test_unreadable_settings_and_hook_scripts(tmp_path):
     caps = {(c["path"], c["kind"], c["risk"]) for c in inspect_repo(WorkTree(tmp_path))["capabilities"]}
     assert caps == {(".claude/settings.json", "hook", "medium"), (".claude/hooks/start.sh", "hook", "high"),
                     (".claude/skills/x/SKILL.md", "skill", "low"), (".vscode/settings.json", "editor", "low")}
+
+
+def test_inspect_does_not_run_the_repository_git_config(tmp_path):
+    marker = tmp_path / "ran"
+    root = tmp_path / "repo"
+    _repo(root, {"AGENTS.md": "x\n"})
+    subprocess.run(["git", "-C", str(root), "config", "core.fsmonitor", f"touch {marker.as_posix()}"], check=True)
+    inspect_repo(WorkTree(root))
+    assert not marker.exists()
