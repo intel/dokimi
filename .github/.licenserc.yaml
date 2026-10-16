@@ -3,7 +3,8 @@
 
 # License header check (apache/skywalking-eyes), run by the license-header job
 # in ci.yml. Every tracked file carries the two-line SPDX header, in the
-# file's comment syntax, within its first lines:
+# file's comment syntax, at the top (after a shebang line or front matter;
+# the check does not enforce the position):
 #
 #   # Copyright (C) 2026 Intel Corporation
 #   # SPDX-License-Identifier: Apache-2.0
@@ -20,10 +21,11 @@ header:
     # "Apache-2.0 OR MIT" too; without them license-eye warns that it has no
     # license template, which `check` does not need.
     # Any year, so a file added in a later year carries that year (a pattern
-    # with a line break or "(C)" never matches). The tail rejects a longer id
-    # (Apache-2.0-only, Apache-2.0+) and an "Apache-2.0 OR ..." expression.
+    # with a line break or "(C)" never matches). The tail rejects "OR"
+    # expressions, -only and + (RE2 has no lookahead, so it spells out "not
+    # the word OR"); "AND" and "WITH" expressions still pass.
     pattern: |-
-      Copyright \d{4}(-\d{4})? Intel Corporation SPDX-License-Identifier: Apache-2\.0(\s*$|\s+[^O ]|\s+O[^R])
+      Copyright \d{4}(-\d{4})? Intel Corporation SPDX-License-Identifier: Apache-2\.0(\s*$|\s+[^O ]|\s+O[^R]|\s+OR[^\s])
 
   paths:
     - '**'
@@ -59,5 +61,6 @@ header:
 
   comment: never
 
-  # The header may follow a shebang line or YAML front matter.
+  # Where `fix` would insert a header. `check` in 0.9.0 finds the header
+  # anywhere in the file, so front matter of any length can precede it.
   license-location-threshold: 120
