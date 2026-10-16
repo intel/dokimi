@@ -588,3 +588,20 @@ def test_report_generate_reads_a_legacy_set(tmp_path, monkeypatch):
     args.func(args)
     assert seen["questions"] == [{"id": "q0000", "question": "How do I use parallel_for?"}]
     assert out.read_text(encoding="utf-8") == "report" and src.read_bytes() == before
+
+
+def test_a_v1_set_with_null_optional_fields_loads(tmp_path):
+    path = tmp_path / "q.json"
+    path.write_text(json.dumps({"schema_version": "questions.v1", "questions": [
+        {"id": "q1", "text": "How?", "persona_id": None, "source_url": None, "topics": None}]}))
+    (record,) = load_questions(path).artifact["questions"]
+    assert record["question"] == "How?"
+    assert not {"persona_id", "source_url", "topics"} & record.keys()
+
+
+def test_a_mistyped_optional_field_is_still_refused(tmp_path):
+    path = tmp_path / "q.json"
+    path.write_text(json.dumps({"questions": [
+        {"id": "q1", "text": "How?", "topics": "perf", "persona_id": 5}]}))
+    with pytest.raises(ArtifactValidationError):
+        load_questions(path)

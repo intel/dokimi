@@ -287,7 +287,7 @@ def test_questions_from_wins_over_cache(tmp_path, monkeypatch):
         description="Threading Building Blocks",
         questions_from=external_dir,
     )
-    result = pipeline.run(concurrency=1)
+    pipeline.run(concurrency=1)
 
     # Verify external set was used, not cache
     saved = json.loads((output_dir / "questions" / "oneTBB.json").read_text())
@@ -314,14 +314,15 @@ def test_relative_questions_from_path_not_confused_with_output(tmp_path, monkeyp
     old_cwd = os.getcwd()
     try:
         os.chdir(tmp_path)
-        # Both input and output reference the same shared directory with relative paths
+        (tmp_path / "sub").mkdir()
+        # The same directory, spelled two ways: only a resolved comparison sees one path
         pipeline = EvaluationPipeline(
             product="oneTBB",
             output_dir=Path("shared"),
             description="Threading Building Blocks",
-            questions_from=Path("shared"),
+            questions_from=Path("sub/../shared"),
         )
-        result = pipeline.run(concurrency=1)
+        pipeline.run(concurrency=1)
 
         # External input files (--questions-from) are never written, even if they're the output path
         input_bytes_after = Path("shared/questions/oneTBB.json").read_bytes()
@@ -384,7 +385,7 @@ def test_same_path_force_regen_merge_persists_merged_set(tmp_path, monkeypatch):
         custom_questions_path=custom_file,
         force_regen=True,
     )
-    result = pipeline.run(concurrency=1)
+    pipeline.run(concurrency=1)
 
     # The merged set (g1 + c1) should be saved with question_set_id
     saved = json.loads(custom_file.read_text())
@@ -435,7 +436,7 @@ def test_cached_resume_with_custom_input_at_same_path_leaves_input_unchanged(tmp
         description="Threading Building Blocks",
         custom_questions_path=cache_file,
     )
-    result = pipeline.run(concurrency=1)
+    pipeline.run(concurrency=1)
 
     # The input file must not be rewritten (same bytes)
     cache_bytes_after = cache_file.read_bytes()

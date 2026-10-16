@@ -110,15 +110,12 @@ def _read_record(q: dict, idx: int, seen: Counter[str], taken: set) -> dict:
     ``arms run`` used; a list ``metadata`` (v2 declares an object) -> ``{"items": [...]}``.
     Every other key is kept as written. ``q`` is not mutated.
 
-    For v1-sourced records: drop None-valued keys that v1 doesn't declare but v2 types
-    (persona_id, source_url, topics, metadata). This allows v1 files with null for undeclared
-    fields to load successfully.
+    A None-valued ``persona_id``, ``source_url``, ``topics`` or ``metadata`` is dropped from
+    every record: v1 does not declare these keys, so v1 files may carry null there, and v2
+    types them. Dropping a null optional key loses nothing.
     """
     out = canonical_question(q)
 
-    # v1-sourced records: drop None values for fields v1 didn't declare but v2 types
-    # v1 doesn't declare these fields, so v1 files can have them with any value (including null)
-    # v2 declares them with specific types that reject null
     _v1_undeclared_v2_typed = {"persona_id", "source_url", "topics", "metadata"}
     out = {k: v for k, v in out.items() if not (v is None and k in _v1_undeclared_v2_typed)}
 

@@ -240,7 +240,6 @@ class EvaluationPipeline:
 
         # Step 2+3: Generate & merge questions (external / cached / fresh)
         write_over_input = False  # Default: never write over input files
-        custom_questions_count = 0  # Track custom questions for merge detection
 
         if self.external_questions_path is not None:
             # Reuse question set from another run — skip generation entirely
@@ -498,7 +497,7 @@ class EvaluationPipeline:
         self,
         questions: List[Dict[str, Any]],
         question_set_hash: Optional[str] = None,
-        write_over_input: bool = True,
+        write_over_input: bool = False,
     ) -> None:
         """Persist the merged set as a questions.v2 artifact with reproducibility metadata.
 
