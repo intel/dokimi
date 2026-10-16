@@ -476,7 +476,7 @@ Both are upper bounds on harness behaviour (see *Real harness* below). The posit
 a trigger set are routing queries for their skill:
 
 ```bash
-jq '[.questions[] | select(.expected_skill == "linux-perf") | .text]' trigger_questions.json > linux-perf.queries.json
+jq '[.questions[] | select(.expected_skill == "linux-perf") | .question]' trigger_questions.json > linux-perf.queries.json
 ```
 
 *Trigger set* here means a selection query set: messages labelled with the skill that
