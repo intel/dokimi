@@ -303,10 +303,9 @@ def test_relative_questions_from_path_not_confused_with_output(tmp_path, monkeyp
     questions = [
         {"id": "q1", "question": "What is this?", "source_type": "generated"}
     ]
-    # Create structure: cwd/questions/oneTBB.json -> same as output
-    questions_dir = tmp_path / "questions"
-    questions_dir.mkdir()
-    _write_json(questions_dir / "oneTBB.json", questions)
+    # Create input: cwd/input/questions/oneTBB.json
+    input_dir = tmp_path / "input"
+    _write_json(input_dir / "questions" / "oneTBB.json", questions)
 
     output_dir = tmp_path / "output"
     _write_json(output_dir / "personas" / "oneTBB.json", {"personas": []})
@@ -315,16 +314,17 @@ def test_relative_questions_from_path_not_confused_with_output(tmp_path, monkeyp
     old_cwd = os.getcwd()
     try:
         os.chdir(tmp_path)
+        # Use a relative path to the input directory
         pipeline = EvaluationPipeline(
             product="oneTBB",
-            output_dir=output_dir,
+            output_dir=Path("output"),  # Also relative
             description="Threading Building Blocks",
-            questions_from=Path("questions"),  # Relative path
+            questions_from=Path("input"),  # Relative path to input dir
         )
         result = pipeline.run(concurrency=1)
 
         # The external source must be used, not treated as same as output
-        saved = json.loads((output_dir / "questions" / "oneTBB.json").read_text())
+        saved = json.loads(Path("output/questions/oneTBB.json").read_text())
         assert saved["questions"][0]["id"] == "q1"
     finally:
         os.chdir(old_cwd)
