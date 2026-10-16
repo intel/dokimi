@@ -171,3 +171,21 @@ def test_the_locked_litellm_prices_every_default(model, provider):
     rec = _extract_usage(resp, model, provider)
     assert rec.cost_usd is not None and rec.cost_usd > 0
     assert rec.cost_known_calls == 1
+
+
+@pytest.mark.parametrize("litellm_model, model, key", [
+    ("bedrock/us.anthropic.x", "x", "bedrock/us.anthropic.x"),       # the routed name
+    ("bedrock/us.anthropic.x", "x", "us.anthropic.x"),               # route prefix stripped
+    ("bedrock/converse/openai.x", "openai.x", "converse/openai.x"),  # first prefix only
+    ("bedrock/converse/openai.y", "y", "openai.y"),                  # last segment
+    ("bedrock/us.anthropic.claude-z", "claude-z", "claude-z"),       # the caller's bare name
+])
+def test_a_model_priced_under_any_of_its_names_stays_a_known_zero(monkeypatch, litellm_model, model, key):
+    import litellm
+
+    from dokimi.llm import _has_price_entry
+
+    monkeypatch.setattr(litellm, "model_cost", {key: {}})
+    assert _has_price_entry(litellm_model, model)
+    monkeypatch.setattr(litellm, "model_cost", {})
+    assert not _has_price_entry(litellm_model, model)
