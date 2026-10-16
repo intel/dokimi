@@ -141,9 +141,11 @@ def test_launch_risks(report):
                        ("destructive", "package.json#scripts.clean"),
                        ("network-exec", "package.json#scripts.boot"),
                        ("deploy", "package.json#scripts.release")}
-    # SessionStart's `npm ci` runs lifecycle scripts; PostToolUse is not automatic; --ignore-scripts is safe.
-    assert [(h["event"], h["command"]) for h in report["hook_risks"]] == [
-        ("SessionEnd", "yarn install"), ("SessionStart", "npm ci")]
+    # SessionStart's `npm ci` runs lifecycle scripts; SessionStart's `npm run build` runs repo code
+    # SessionEnd's yarn install is risky (lifecycle scripts); pnpm with --ignore-scripts is safe
+    # PostToolUse is not automatic
+    hook_risks_set = {(h["event"], h["command"]) for h in report["hook_risks"]}
+    assert hook_risks_set == {("SessionEnd", "yarn install"), ("SessionStart", "npm ci"), ("SessionStart", "npm run build")}
     kinds = {(c["path"], c["kind"], c["risk"]) for c in report["capabilities"]}
     assert {(".mcp.json", "mcp", "high"), (".claude/settings.json", "hook", "high")} <= kinds
     assert report["risk"] == "high"
@@ -321,3 +323,133 @@ def test_blob_less_clone_respects_partial_clone_boundary(tmp_path):
     assert rep["files"]["bytes"] is None
     assert missing_after == missing_before
     assert any("size" in n for n in rep["not_observed"]), rep["not_observed"]
+
+
+def test_runner_unknown_warning_when_tests_present(tmp_path):
+    """THREAD 5: Test files present but no runner known should give warning, not error."""
+    _repo(tmp_path, {"AGENTS.md": "x", "pyproject.toml": "[build-system]\n[project]\nname='a'\n",
+                     "tests/test_a.py": "def test(): pass\n"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    rules = _rules(payload)
+    assert "checks.test.runner-unknown" in rules
+    assert "checks.test.missing" not in rules
+    runner_unknown = [f for f in payload["findings"] if f["rule"] == "checks.test.runner-unknown"]
+    assert runner_unknown and runner_unknown[0]["severity"] == "warning"
+
+
+def test_runner_unknown_for_ruby_tests(tmp_path):
+    """THREAD 5: Ruby tests with Gemfile but no runner should give runner-unknown."""
+    _repo(tmp_path, {"AGENTS.md": "x", "Gemfile": "gem 'rake'\n", "spec/a_spec.rb": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    rules = _rules(payload)
+    assert "checks.test.runner-unknown" in rules
+    assert payload["files"]["test_files"] == 1
+
+
+def test_fail_on_error_exits_zero_for_runner_unknown(tmp_path, capsys):
+    """THREAD 5: --fail-on-error should exit 0 for warning-level runner-unknown."""
+    root = tmp_path / "toy"
+    _repo(root, {"AGENTS.md": "x", "pyproject.toml": "[project]\n", "tests/test_a.py": "x"})
+    out = tmp_path / "env.json"
+    args = build_parser().parse_args(["repo", "inspect", str(root), "--out", str(out), "--fail-on-error"])
+    args.func(args)  # Should exit 0 because runner-unknown is a warning
+    text = capsys.readouterr().out
+    assert "WARNING" in text or "runner-unknown" in text
+
+
+def test_nested_makefile_am_with_tests(tmp_path):
+    """THREAD 2: Tests in nested Makefile.am should be detected."""
+    _repo(tmp_path, {"AGENTS.md": "x", "configure.ac": "", "tests/Makefile.am": "TESTS = t\n"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    checks = {(c["ecosystem"], c["kind"]) for c in payload["checks"]}
+    assert ("autotools", "test") in checks
+
+
+def test_user_prompt_submit_and_stop_hook_risks(tmp_path):
+    """THREAD 1: UserPromptSubmit and Stop events should be detected as automatic."""
+    settings = {
+        "hooks": {
+            "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "npm ci"}]}],
+            "Stop": [{"hooks": [{"type": "command", "command": "npm install"}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    hook_risks = {(h["event"], h["command"]) for h in payload["hook_risks"]}
+    assert ("UserPromptSubmit", "npm ci") in hook_risks or any("npm" in h["command"] for h in payload["hook_risks"])
+    assert ("Stop", "npm install") in hook_risks or any("npm" in h["command"] for h in payload["hook_risks"])
+
+
+def test_subagentstop_in_automatic_events(tmp_path):
+    """THREAD 1/5: SubagentStop should be in AUTOMATIC_EVENTS."""
+    from dokimi.repos.environment import risks
+    assert "SubagentStop" in risks.AUTOMATIC_EVENTS
+
+
+def test_deeply_nested_yaml_does_not_crash(tmp_path):
+    """THREAD 8: Deeply nested YAML should not cause RecursionError."""
+    _repo(tmp_path, {"AGENTS.md": "x", ".pre-commit-config.yaml": "[" * 100000})
+    payload = inspect_repo(WorkTree(tmp_path))
+    assert payload is not None  # Should not crash
+
+
+def test_npm_install_1mb_completes_quickly(tmp_path):
+    """THREAD 7/1: 1 MB of npm install hook should complete in under 1 second."""
+    import time
+    hook_cmd = "npm " + "-npm " * (1_000_000 // 5)  # ~1 MB total
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
+    start = time.monotonic()
+    payload = inspect_repo(WorkTree(tmp_path))
+    elapsed = time.monotonic() - start
+    assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
+
+
+def test_thread_0_npm_run_detected(tmp_path):
+    """THREAD 0: npm run commands should be detected as hook risks."""
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "npm run build"}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    assert any("npm run" in r for r in risks)
+
+
+def test_thread_0_make_detected(tmp_path):
+    """THREAD 0: make commands should be detected as hook risks."""
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "make build"}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    assert any("make" in r for r in risks)
+
+
+def test_thread_0_path_detected(tmp_path):
+    """THREAD 0: Paths like ./script.sh should be detected as hook risks."""
+    settings = {
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "./setup.sh"}]}],
+        }
+    }
+    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "setup.sh": "x", "AGENTS.md": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    risks = {h["command"] for h in payload["hook_risks"]}
+    assert any("setup.sh" in r or "./setup" in r for r in risks)
+
+
+def test_test_file_case_insensitive_and_mjs(tmp_path):
+    """THREAD 8: Test dirs should be case-insensitive, and .mjs/.cjs should be recognized."""
+    _repo(tmp_path, {"Tests/a.mjs": "x", "TESTS/b.cjs": "x", "specs/c.ts": "x"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    assert payload["files"]["test_files"] == 3

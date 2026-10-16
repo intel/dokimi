@@ -110,9 +110,25 @@ def detect_capabilities(scan: Scan) -> list[Capability]:
             doc = _json(scan, path)
             if doc is None:
                 out.append(Capability(path, "hook", "claude-code", "medium", "not read: invalid, large or a link"))
-            elif _hook_entries(doc):
-                out.append(Capability(path, "hook", "claude-code", "high",
-                                      "hooks on " + ", ".join(sorted(_hook_entries(doc)))))
+            else:
+                hooks = _hook_entries(doc)
+                capabilities = []
+                # Check for hooks (original behavior)
+                if hooks:
+                    capabilities.append(("hook", "high", "hooks on " + ", ".join(sorted(hooks))))
+                # Check for statusLine commands (THREAD 4)
+                status_line = doc.get("statusLine") if isinstance(doc, dict) else None
+                if isinstance(status_line, dict) and status_line.get("type") == "command" and isinstance(status_line.get("command"), str):
+                    capabilities.append(("hook", "high", "statusLine command"))
+                # Check for apiKeyHelper (THREAD 4)
+                if isinstance(doc, dict) and isinstance(doc.get("apiKeyHelper"), str):
+                    capabilities.append(("hook", "high", "apiKeyHelper command"))
+                # Check for enableAllProjectMcpServers (THREAD 4)
+                if isinstance(doc, dict) and doc.get("enableAllProjectMcpServers") is True:
+                    capabilities.append(("mcp", "high", "enables all MCP servers"))
+                # Add capability records for all detected capabilities
+                for kind, risk, note in capabilities:
+                    out.append(Capability(path, kind, "claude-code", risk, note))
     return sorted(out, key=lambda c: c.path)
 
 
@@ -147,27 +163,39 @@ def detect_script_signals(scan: Scan) -> list[ScriptSignal]:
 
 
 # Events the harness fires without the agent choosing to run anything.
-AUTOMATIC_EVENTS = ("SessionStart", "SessionEnd", "PreCompact", "Notification", "UserPromptSubmit", "Stop")
-_OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,32}"
-_INSTALL = re.compile(rf"(?<![A-Za-z0-9])(?:npm|yarn|pnpm|bun){_OPT}\s+install\b|(?<![A-Za-z0-9])(?:npm|pnpm){_OPT}\s+ci\b"
-                      rf"|(?<![A-Za-z0-9])(?:npm|pnpm|bun){_OPT}\s+i\b", re.I)
-_IGNORE_SCRIPTS = re.compile(r"--(no-)?ignore-scripts\b(?:[= ]+(true|false|1|0)\b)?", re.I)
+AUTOMATIC_EVENTS = ("SessionStart", "SessionEnd", "PreCompact", "Notification", "UserPromptSubmit", "Stop", "SubagentStop")
+_OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,16}"
+_INSTALL = re.compile(rf"(?<![\w-])(?:npm|yarn|pnpm|bun){_OPT}\s+install\b|(?<![\w-])(?:npm|pnpm){_OPT}\s+ci\b"
+                      rf"|(?<![\w-])(?:npm|pnpm|bun){_OPT}\s+i\b", re.I)
+_RUN_COMMAND = re.compile(r"(?<![\w-])(?:npm|yarn|pnpm|bun)\s+run\s+[\w:-]+\b", re.I)
+_MAKE = re.compile(r"(?<![\w-])make\b", re.I)
+_IGNORE_SCRIPTS = re.compile(r"(?:--no-ignore-scripts|export\s+npm_config_ignore_scripts\s*=\s*false)|(?:--ignore-scripts(?:[= ]+(true|false|1|0))?|export\s+npm_config_ignore_scripts\s*=\s*true)", re.I)
 _HOOK_SPLIT = re.compile(r"&&|\|\||;|\n")  # not a single `|`: `npm ci | tee log` still installs
 
 
 def _ignores_scripts(segment: str) -> bool:
-    flags = list(_IGNORE_SCRIPTS.finditer(segment))
-    last = flags[-1] if flags else None  # the last flag wins, as on a command line
-    if last is None:
+    # Strip comments first (item 10: Thread 10 partial fix)
+    segment = segment.split('#')[0].strip()
+    # Find all --ignore-scripts or --no-ignore-scripts flags (not just matches)
+    ignore_flags = list(re.finditer(r"--no-ignore-scripts|--ignore-scripts(?:[= ]+(true|false|1|0))?", segment, re.I))
+    if not ignore_flags:
         return False
-    if last.group(2) is not None:
-        return last.group(2).lower() in ("true", "1")
-    return last.group(1) is None
+    last = ignore_flags[-1]
+    flag = last.group(0).lower()
+    # --no-ignore-scripts always means scripts WILL run (not safe)
+    if flag.startswith("--no-ignore-scripts"):
+        return False
+    # --ignore-scripts with explicit false means scripts WILL run
+    if "false" in flag or "0" in flag:
+        return False
+    # --ignore-scripts with true/1 or no value defaults to true (safe)
+    return True
 
 
 def detect_hook_risks(scan: Scan) -> list[HookRisk]:
-    """Automatic Claude Code hooks whose command installs packages with lifecycle scripts on."""
+    """Automatic Claude Code hooks that execute repository code (install with lifecycle scripts, run, make, paths)."""
     out = set()
+    tracked_files = set(scan.files) if hasattr(scan, 'files') else set()
     for path in CLAUDE_SETTINGS:
         if path not in scan.file_set:
             continue
@@ -177,6 +205,19 @@ def detect_hook_risks(scan: Scan) -> list[HookRisk]:
                 continue
             for command in commands:
                 for segment in (s.strip() for s in _HOOK_SPLIT.split(command)):
+                    if not segment:
+                        continue
+                    # Check for install with lifecycle scripts
                     if _INSTALL.search(segment) and not _ignores_scripts(segment):
+                        out.add(HookRisk(path, event, segment))
+                    # Check for npm/yarn/pnpm/bun run commands (THREAD 0)
+                    elif _RUN_COMMAND.search(segment):
+                        out.add(HookRisk(path, event, segment))
+                    # Check for make commands (THREAD 0)
+                    elif _MAKE.search(segment):
+                        out.add(HookRisk(path, event, segment))
+                    # Check for paths into the tree (THREAD 0): ./path, $CLAUDE_PROJECT_DIR/path, or tracked files
+                    elif any(pat in segment for pat in ['./','$CLAUDE_PROJECT_DIR','"$CLAUDE_PROJECT_DIR"']) or \
+                         any(f in segment for f in tracked_files if len(f) > 3):
                         out.add(HookRisk(path, event, segment))
     return sorted(out, key=lambda r: (r.path, r.event, r.command))

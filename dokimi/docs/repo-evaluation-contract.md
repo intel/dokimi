@@ -656,9 +656,9 @@ The report keeps observations apart from findings:
   tier. `scripts`: root `package.json` scripts that are install hooks, delete
   broadly, pipe a download into a shell, or publish and deploy.
   `hook_risks`: the concrete path, a hook the harness fires on its own
-  (`SessionStart`, `SessionEnd`, `PreCompact`, `Notification`) that installs
-  packages with lifecycle scripts on, so starting a session runs code from the
-  checked-out branch. `--ignore-scripts` (the last such flag wins) clears it.
+  (`SessionStart`, `SessionEnd`, `PreCompact`, `Notification`, `UserPromptSubmit`, `Stop`, `SubagentStop`) that installs
+  packages with lifecycle scripts on, runs `npm/yarn/pnpm/bun run`, `make`, or executes a path in the tree,
+  so starting a session or running tools executes code from the checked-out branch. `--ignore-scripts` (the last such flag wins) clears the install risk.
 - `files`: counts and bytes, generated files (lockfiles, `vendor/`,
   `third_party/`, test fixtures, `*_pb2.py`, …), minified bundles, test files,
   and files over `--large-bytes` (default 100 000, about 30k tokens: large

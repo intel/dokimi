@@ -24,10 +24,25 @@ _LOCKFILES = frozenset({
 _GENERATED = re.compile(r"(^|/)(deps|vendor|third[_-]?party|generated|__generated__|node_modules)/|(^|/)tests?/(fixtures|baselines)/"
                         r"|\.generated\.|\.pb\.(go|cc|h)$|_pb2\.py$", re.I)
 _MINIFIED = re.compile(r"\.(min|bundle)\.(js|css)$", re.I)
-_TEST_FILE = re.compile(
+# Case-sensitive for Java/Kotlin/C# to avoid false positives on files like "Unit.java"
+_TEST_FILE_STRICT = re.compile(
     r"\.(test|spec)\.[cm]?[jt]sx?$|_test\.go$|(^|/)(test_[^/]+|[^/]+_test)\.py$"
     r"|(^|/)[A-Z][A-Za-z0-9]*(?:Test|Tests|IT|Spec)\.(java|kt|kts|scala|cs)$|_(test|spec)\.(rb|exs?)$"
-    r"|_test\.(cc|cpp|cxx|c)$|\w+Tests?\.swift$|Tests?\.swift$|(^|/)(__tests__|tests?|spec(?:s)?)/.*\.(js|ts|tsx?|java|kt|py|rb|go|rs|c(?:pp|xx)?|cs|swift)$")
+    r"|_test\.(cc|cpp|cxx|c)$|[A-Z]\w*Tests?\.swift$|Tests?\.swift$")
+# Case-insensitive for directories only
+_TEST_FILE_DIR = re.compile(
+    r"(^|/)(?:__tests__|tests?|specs?)/.*\.(?:[cm]?[jt]sx?|mjs|cjs|java|kts?|scala|py|rb|exs?|go|rs|c(?:pp|xx)?|cs|swift|php)$", re.I)
+
+class _TestFileMatcher:
+    """Regex-like object that combines strict and directory patterns."""
+    def search(self, path):
+        if _TEST_FILE_STRICT.search(path):
+            return True
+        if _TEST_FILE_DIR.search(path):
+            return True
+        return None
+
+_TEST_FILE = _TestFileMatcher()
 
 
 def is_generated(path: str) -> bool:
