@@ -226,17 +226,26 @@ class EvaluationPipeline:
         }
         
         # Step 1: Discover personas (cached if already exists)
-        logger.info("Step 1/6: Discovering personas...")
-        if (not self.force_regen) and self.personas_path.exists():
-            personas = json.loads(self.personas_path.read_text(encoding="utf-8"))
-            print(f"✓ Loaded {len(personas.get('personas', []))} personas (cached)")
+        # Skip if using golden pinned or external questions (personas not needed)
+        if self.golden_pinned or self.external_questions_path is not None:
+            logger.info("Step 1/6: Skipping persona discovery (using pinned or external questions)")
+            personas = {"personas": []}
+            results["steps"]["personas"] = {
+                "count": 0,
+                "skipped": True
+            }
         else:
-            personas = self._discover_personas()
-            print(f"✓ Discovered {len(personas.get('personas', []))} personas")
-        results["steps"]["personas"] = {
-            "count": len(personas.get("personas", [])),
-            "path": str(self.personas_path)
-        }
+            logger.info("Step 1/6: Discovering personas...")
+            if (not self.force_regen) and self.personas_path.exists():
+                personas = json.loads(self.personas_path.read_text(encoding="utf-8"))
+                print(f"✓ Loaded {len(personas.get('personas', []))} personas (cached)")
+            else:
+                personas = self._discover_personas()
+                print(f"✓ Discovered {len(personas.get('personas', []))} personas")
+            results["steps"]["personas"] = {
+                "count": len(personas.get("personas", [])),
+                "path": str(self.personas_path)
+            }
 
         # Step 2+3: Generate & merge questions (external / cached / fresh)
         if self.external_questions_path is not None:
