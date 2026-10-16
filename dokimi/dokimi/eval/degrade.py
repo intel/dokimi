@@ -627,6 +627,7 @@ def build_pairs(
     library: str = "the library",
     noop: Optional[Dict[str, int]] = None,
     store: Optional["JudgeContextStore"] = None,
+    dropped: Optional[Dict[str, int]] = None,
 ) -> List[Dict[str, Any]]:
     """Build (intact, degraded) pairs with a known correct ordering.
 
@@ -643,9 +644,12 @@ def build_pairs(
     rng = random.Random(seed)
     rng.shuffle(pool)
     long_answers = [row for row in pool if len(row["answer"]) > min_chars]
+    long_answers_before_store = len(long_answers)
     # Filter by material before sampling if store is provided
     if store is not None:
         long_answers = [row for row in long_answers if store.get(row["question_id"], row["arm"]) is not None]
+        if dropped is not None:
+            dropped["total"] = long_answers_before_store - len(long_answers)
     bases = long_answers[:n_bases]
 
     pairs: List[Dict[str, Any]] = []

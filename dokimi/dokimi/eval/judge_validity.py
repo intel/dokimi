@@ -505,21 +505,8 @@ def attach_stored_context(pairs: List[Dict[str, Any]], store: Any) -> Tuple[List
 
 
 def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropped=None) -> List[Dict[str, Any]]:
-    from dokimi.eval.degrade import _answer_pool
 
-    # Count how many (qid, arm) pairs have material if store is provided
-    n_dropped_bases = 0
-    if store is not None:
-        pool = _answer_pool(answers)
-        long_answers = [row for row in pool if len(row["answer"]) > 20]  # DEFAULT_MIN_CHARS
-        with_material = [row for row in long_answers if store.get(row["question_id"], row["arm"]) is not None]
-        n_dropped_bases = len(long_answers) - len(with_material)
-        if not with_material:
-            raise ValueError(
-                "No answer has stored judge material (judge_materials) — the file was "
-                "written before arms runs kept it, or by a run that did not record it"
-            )
-
+    dropped_from_pairs: Dict[str, int] = {}
     pairs = build_pairs(
         answers,
         noop=noop,
@@ -528,7 +515,14 @@ def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropp
         variants=variants or tuple(DEGRADATIONS),
         library=library,
         store=store,
+        dropped=dropped_from_pairs,
     )
+    # If store was provided, check if we got any bases with material
+    if store is not None and not pairs:
+        raise ValueError(
+            "No answer has stored judge material (judge_materials) — the file was "
+            "written before arms runs kept it, or by a run that did not record it"
+        )
     if not pairs and noop:
         raise ValueError(f"Every degradation left the answer unchanged (no-op pairs: {noop})")
     if not pairs:
@@ -539,7 +533,7 @@ def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropp
     if store is not None:
         pairs, n_missing = attach_stored_context(pairs, store)
         if dropped is not None:
-            dropped[0] = n_dropped_bases
+            dropped[0] = dropped_from_pairs.get("total", 0) + n_missing
         if not pairs:
             raise ValueError(
                 "No answer has stored judge material (judge_materials) — the file was "

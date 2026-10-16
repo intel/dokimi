@@ -250,7 +250,7 @@ def score_measure(
         except Exception:  # an unscored answer drops out of the pairing, it does not kill the run
             return (qid, arm), None
 
-    has_material = bool(store and store.materials())
+    has_material = any(store.materials().values()) if store else False
     m = Measure(name=name, kind="grounded" if ground_truth else "aggregate", context="stored" if has_material else "none")
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         for i, (key, value) in enumerate(pool.map(one, jobs), 1):
