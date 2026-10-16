@@ -98,7 +98,11 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
 
     # Refining is how a set is repaired, so it reads tolerantly without refusing; the refined
     # set is validated when it is written.
-    raw = load_questions(args.questions, validate=False).questions
+    try:
+        raw = load_questions(args.questions, validate=False).questions
+    except ValueError as exc:  # ArtifactValidationError: malformed JSON structure
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     target = {
         "beginner":     args.target_beginner,
