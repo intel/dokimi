@@ -1593,10 +1593,12 @@ def test_cli_judges_each_answer_with_its_arms_stored_material(tmp_path, monkeypa
     args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
                                       "--context", "stored", "--bases", "3",
                                       "--variants", "truncate_20", "--output", str(out)])
+    code = None
     try:
         args.func(args)
     except SystemExit as exc:      # the gate may fail on a toy judge; that is exit 1, not 2
-        assert exc.code == 1
+        code = exc.code
+    assert code in (None, 1)
     assert "FULL SKILL BODY" in seen and "(none passed)" not in seen
     assert json.loads(out.read_text())["summary"]["context"] == "stored"
 
@@ -1652,10 +1654,12 @@ def _stored_cli(tmp_path, monkeypatch, *argv, data=None, score=lambda a: float(l
     args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
                                       "--judge-provider", "amazon-bedrock", "--judge-model", "m",
                                       "--variants", "truncate_20", "--output", str(out), *argv])
+    code = None
     try:
         args.func(args)
     except SystemExit as exc:
-        assert exc.code == 1       # the gate failing is 1; 2 is a refusal
+        code = exc.code
+    assert code in (None, 1)       # the gate failing is 1; 2 is a refusal
     return json.loads(out.read_text())["summary"]
 
 
