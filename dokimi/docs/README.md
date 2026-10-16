@@ -4,7 +4,7 @@
 
 Published at <https://intel.github.io/dokimi/>, with a
 [CLI reference](https://intel.github.io/dokimi/reference/cli/) and an
-[API reference](https://intel.github.io/dokimi/reference/api/);
+[API reference](https://intel.github.io/dokimi/reference/api/dokimi/);
 source on GitHub: [intel/dokimi](https://github.com/intel/dokimi).
 
 The idea in three points:
@@ -209,7 +209,7 @@ Start with the top-level [README](../README.md) for the project overview and
 CLI surface. The files in this directory go deeper. They are also published at
 <https://intel.github.io/dokimi/>, grouped as below, together with a
 [CLI reference](https://intel.github.io/dokimi/reference/cli/) and an
-[API reference](https://intel.github.io/dokimi/reference/api/) generated from the
+[API reference](https://intel.github.io/dokimi/reference/api/dokimi/) generated from the
 code.
 
 ## Using Dokimi

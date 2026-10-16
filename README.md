@@ -5,7 +5,7 @@
 
 **Documentation: <https://intel.github.io/dokimi/>** — guides, plus a
 [CLI reference](https://intel.github.io/dokimi/reference/cli/) and an
-[API reference](https://intel.github.io/dokimi/reference/api/) generated from the code.
+[API reference](https://intel.github.io/dokimi/reference/api/dokimi/) generated from the code.
 
 > **dokimi** — Greek *δοκιμή*, "test, proof". The name is the method: an
 > artifact does not get trusted because it was written or because it is popular,
