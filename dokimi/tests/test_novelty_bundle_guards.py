@@ -65,6 +65,8 @@ def test_an_entry_point_run_is_not_warned_about_files_excluded_from_the_measured
     ("references/latin.md", ("caf\xe9 " * 60).encode("latin-1")),    # unknown: does not decode
     ("references/ok.md", WORDS),                                     # selected
 ])
+
+
 def test_new_text_since_extraction_invalidates_the_answer_key(tmp_path, newfile, content):
     root = _skill(tmp_path, {"SKILL.md": HEAD + WORDS, "references/a.md": WORDS})
     record = load_bundle(f"skill:{root}", include_resources=True, max_file_words=100).summary()
@@ -89,19 +91,17 @@ def test_an_unreadable_row_is_listed_by_the_report():
                   excluded=[{"path": "references/x.md", "role": "reference",
                              "reason": "unreadable", "kind": "unreadable"}])
     assert "`references/x.md` (unreadable)" in "\n".join(report._render_bundle({"bundle": record}))
-def test_entry_point_only_with_none_record_uses_default():
-    """Regression test for THREAD 3: entry_point_only handles None record."""
-    spans = [NS(id="a", start=0)]
-    atoms = [NS(span_ids=["a"])]
-    # When record is None, entry_point_only should treat it as entry-point-only
-    # This raises because None means no record data
-    try:
-        kept, kept_atoms, note = entry_point_only(None, spans, atoms)
-        # If it doesn't raise, it should return entry-point content
-        assert kept == spans or kept == []
-    except ValueError as e:
-        # Expected: cannot extract entry-point data without file rows
-        assert "bundle" in str(e).lower() or "file" in str(e).lower()
+
+
+def test_entry_point_only_with_none_record_returns_all_spans():
+    """Regression test for THREAD 3: entry_point_only(None) returns (spans, atoms, None)."""
+    spans = [NS(id="a", start=0), NS(id="b", start=10)]
+    atoms = [NS(span_ids=["a", "b"]), NS(span_ids=[])]
+    # When record is None, entry_point_only should return all spans/atoms as-is
+    kept, kept_atoms, note = entry_point_only(None, spans, atoms)
+    assert kept == spans
+    assert kept_atoms == atoms
+    assert note is None
 
 
 def test_entry_point_only_with_empty_files_raises():
@@ -114,6 +114,23 @@ def test_entry_point_only_with_empty_files_raises():
         entry_point_only(record, spans, atoms)
 
 
+def test_report_render_with_include_resources_and_no_excluded(tmp_path):
+    """Regression test for THREAD 3: report renders with include_resources but no excluded key."""
+    record = {
+        "include_resources": True,
+        "n_files": 1,
+        "entry_point_words": 100,
+        "resource_words_on_disk": 100,
+        "resource_words_measured": 0,
+        "files": [{"path": "SKILL.md", "start": 0, "end": 100}]
+        # Note: no "excluded" key
+    }
+    # Should render without crashing
+    rendered = report._render_bundle({"bundle": record})
+    assert rendered is not None
+    assert len(rendered) > 0
+
+
 def test_answer_key_entry_point_note_for_legacy_record(tmp_path):
     """Regression test for THREAD 2: legacy record returns entry-point note."""
     skill = tmp_path / "s" / "SKILL.md"
@@ -124,4 +141,46 @@ def test_answer_key_entry_point_note_for_legacy_record(tmp_path):
     assert verdict.ok or verdict.problem == "unloadable"
     if verdict.notes:
         assert any("entry point" in n.lower() for n in verdict.notes)
+
+def test_files_changed_message_uses_source_parameter(tmp_path):
+    """Regression test for THREAD 4: source parameter used in files_changed message."""
+    root = _skill(tmp_path, {"SKILL.md": HEAD + WORDS, "references/a.md": WORDS})
+    record = load_bundle(f"skill:{root}", include_resources=True).summary()
+    _skill(tmp_path, {"references/new.md": WORDS})
+    # Use custom source path
+    verdict = check_answer_key(f"skill:{root}", record, source="/work/key.json")
+    assert verdict.problem == "files_changed"
+    assert "/work/key.json:" in verdict.message
+    assert "atoms.json:" not in verdict.message  # Should not have default name
+
+def test_entry_point_record_plus_new_reference_is_ok(tmp_path):
+    """Regression test for THREAD 2: entry-point record plus new references/ file is ok."""
+    root = _skill(tmp_path, {"SKILL.md": HEAD + WORDS})
+    record = load_bundle(f"skill:{root}", include_resources=False).summary()
+    refs_dir = root / "references"
+    refs_dir.mkdir()
+    (refs_dir / "new.md").write_text(WORDS)
+    verdict = check_answer_key(f"skill:{root}", record)
+    assert verdict.ok
+
+
+def test_no_resource_roles_plus_new_eval_invalidates(tmp_path):
+    """Regression test for THREAD 2: no resource_roles + new eval file -> files_changed."""
+    root = _skill(tmp_path, {"SKILL.md": HEAD + WORDS, "references/a.md": WORDS})
+    record = load_bundle(f"skill:{root}", include_resources=True).summary()
+    del record["resource_roles"]
+    evals_dir = root / "evals"
+    evals_dir.mkdir()
+    (evals_dir / "test.md").write_text(WORDS)
+    verdict = check_answer_key(f"skill:{root}", record)
+    assert verdict.problem == "files_changed"
+
+
+def test_legacy_answer_key_verdict_contains_text(tmp_path):
+    """Regression test for THREAD 2: legacy verdict contains entry-point body."""
+    root = _skill(tmp_path, {"SKILL.md": HEAD + "The entry point body."})
+    verdict = check_answer_key(f"skill:{root}", record=None)
+    assert verdict.ok
+    assert verdict.text is not None
+    assert "entry point body" in verdict.text
 

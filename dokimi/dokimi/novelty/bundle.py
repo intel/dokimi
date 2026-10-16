@@ -203,7 +203,7 @@ def _safe_int(value: Any) -> int:
     if isinstance(value, (int, float)):
         try:
             return int(value)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             return 0
     return 0
 
@@ -247,7 +247,7 @@ class Coverage:
             policy_excluded_words=int(
                 policy if policy is not None
                 else sum(_safe_int(row.get("words")) for row in decisions)),
-            unreadable_files=int(
+            unreadable_files=_safe_int(
                 unreadable if unreadable is not None else len(excluded_of(rows, "unknown"))),
             named_excluded_files=len(named_exclusions(rows)[0]),
         )
@@ -759,7 +759,7 @@ def check_answer_key(ref: str, record: dict | None, *,
         return AnswerKeyVerdict(
             problem="files_changed",
             message=(
-                "the artifact\'s files changed since these atoms were extracted "
+                "the artifact's files changed since these atoms were extracted "
                 f"({source}: {recorded}; now: {rebuilt}; edited: {edited}; "
                 f"added: {added}). Re-run `novelty atoms`; probing a different file set "
                 "against this answer key would mis-score every moved atom."),

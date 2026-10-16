@@ -113,7 +113,7 @@ def test_a_missing_artifact_exits_with_a_message(capsys):
 
 
 def test_coverage_note_printed_to_stderr_for_atoms(tmp_path, monkeypatch, capsys):
-    """Regression test for THREAD 1: the coverage note is printed to stderr."""
+    """Regression test for THREAD 1: the coverage note is printed to stderr on entry-point run."""
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     ref_file = skill.parent / "references" / "ref.md"
@@ -122,7 +122,44 @@ def test_coverage_note_printed_to_stderr_for_atoms(tmp_path, monkeypatch, capsys
         "---\nname: s\ndescription: d\n---\n\n# H\n\nSome text.\n",
         encoding="utf-8",
     )
+    # Create a reference file so there is bundled text
     ref_file.write_text("Reference text here.", encoding="utf-8")
+    rows = [{"statement": "Some.", "question": "What?", "answer": "Text.", 
+             "kind": "contract", "span_ids": ["s0002"]}]
+
+    def transport(prompt, system=None):
+        if "Extract the checkable knowledge" in prompt:
+            return json.dumps(rows), None
+        return json.dumps({"verdict": "supported"}), None
+
+    real_client = novelty_cmd._client
+    monkeypatch.setattr(
+        novelty_cmd, "_client",
+        lambda model, provider, role, args: _with_transport(
+            real_client(model, provider, role, args), transport
+        ),
+    )
+    out = tmp_path / "atoms.json"
+    # Entry-point-only run will note that references exist and won't be measured
+    args = _parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out))
+    args.func(args)
+    payload = json.loads(out.read_text())
+    assert len(payload["atoms"]) >= 1
+    # Check stderr for coverage note about bundled files not being measured
+    captured = capsys.readouterr()
+    assert "NOTE:" in captured.err or len(captured.err) > 0
+    assert "will not be measured" in captured.err or "bundled files" in captured.err
+
+
+def test_answer_key_notes_printed_to_stderr_for_probe(tmp_path, monkeypatch, capsys):
+    """Regression test for THREAD 1: answer-key notes are printed to stderr."""
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: s\ndescription: d\n---\n\n# H\n\nSome text.\n",
+        encoding="utf-8",
+    )
+    
     rows = [{"statement": "Some.", "question": "What?", "answer": "Text.", 
              "kind": "contract", "span_ids": ["s0002"]}]
 
@@ -141,11 +178,20 @@ def test_coverage_note_printed_to_stderr_for_atoms(tmp_path, monkeypatch, capsys
     out = tmp_path / "atoms.json"
     args = _parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out))
     args.func(args)
-    # Check that the atoms were saved
-    payload = json.loads(out.read_text())
-    assert len(payload["atoms"]) >= 1
-    # The stderr should be empty for bundle runs (coverage note is for non-bundle runs)
-    # For now just verify atoms were saved
+    
+    # Edit the entry point - this should trigger answer-key notes on probe
+    skill.write_text(
+        "---\nname: s\ndescription: d\n---\n\n# H\n\nEdited text.\n",
+        encoding="utf-8",
+    )
+    
+    args = _parse("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(out),
+                  "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json"))
+    args.func(args)
+    
+    # The probe command should have stderr output about changed entry point
+    captured = capsys.readouterr()
+    assert "has changed since" in captured.err
 
 
 def test_answer_key_notes_printed_to_stderr_for_probe(tmp_path, monkeypatch, capsys):
