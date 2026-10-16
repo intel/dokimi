@@ -177,11 +177,9 @@ def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) ->
                     and kinds.get(arm) != "baseline"):
                 continue
             digest = s.get("judge_context_sha256")
-            # Non-string, non-None digest is malformed; skip it with a warning elsewhere.
-            if digest is not None and not isinstance(digest, str):
-                continue
-            # Unreproducible if: no digest (material never stored), or digest not in held materials.
-            if digest is None or digest not in held:
+            # Unreproducible if: no digest (material never stored), malformed digest (not a string),
+            # or digest not in held materials (with_material mode).
+            if digest is None or not isinstance(digest, str) or digest not in held:
                 unreproducible.add(arm)
     return sorted(unreproducible)
 

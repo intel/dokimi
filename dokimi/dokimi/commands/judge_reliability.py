@@ -226,23 +226,33 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         # Re-scored judges get the file's judge_materials; pairwise and checklist
         # judges see the answers alone. Each path sees different input, so we refuse
         # the comparison to prevent mixing a change of judge with a change of input.
+        unrepro: set[str] = set()
+
+        # Check pairwise/checklist first: they always refuse stored material
+        if args.pairwise or args.checklist:
+            unrepro.update(unreproducible_arms(data))
+
+        # Check --judges: validate that every stored score's material can be read back
         if args.judges:
-            # For --judges, validate that every stored score's material can be read back
-            # from the file via from_artifact, not just that the digest key exists.
-            gate_store = JudgeContextStore.from_artifact(data)
-            unrepro = unreproducible_arms(data, with_material=True)
-            # Additional check: require that every stored non-baseline score is resolvable.
-            for ev in data.get("evaluations") or []:
-                for arm, s in (ev.get("scores") or {}).items():
-                    if (isinstance(s, dict) and s.get("judge_context_source") == "stored"
-                            and arm != "baseline"):
-                        qid = ev.get("question_id")
-                        if qid is not None and gate_store.get(str(qid), arm) is None:
-                            unrepro.append(arm)
-        else:
-            unrepro = (unreproducible_arms(data) if (args.pairwise or args.checklist) else [])
+            # Also check pairwise/checklist refuse --judges combination
+            if args.pairwise or args.checklist:
+                unrepro.update(unreproducible_arms(data))
+            else:
+                gate_store = JudgeContextStore.from_artifact(data)
+                unrepro.update(unreproducible_arms(data, with_material=True))
+                # Additional check: require that every stored non-baseline score is resolvable.
+                for ev in data.get("evaluations") or []:
+                    if not isinstance(ev, dict):
+                        continue
+                    for arm, s in (ev.get("scores") or {}).items():
+                        if (isinstance(s, dict) and s.get("judge_context_source") == "stored"
+                                and arm != baseline):
+                            qid = ev.get("question_id")
+                            if qid is not None and gate_store.get(qid, arm) is None:
+                                unrepro.add(arm)
+
         if unrepro:
-            print(f"Error: the stored judge saw treatment material for {', '.join(set(unrepro))} that the "
+            print(f"Error: the stored judge saw treatment material for {', '.join(sorted(unrepro))} that the "
                   "other measures will not (a pairwise or checklist judge sees only the answers; a "
                   "re-scored judge sees the file's judge_materials, which a file written before them "
                   "does not have), so the comparison would mix a change of judge with a change of "

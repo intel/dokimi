@@ -511,11 +511,14 @@ def test_cross_judge_judges_with_intact_materials_runs_end_to_end(tmp_path, monk
     from dokimi.cli import build_parser
     from dokimi.eval import judge as judge_mod
 
+    contexts_seen = []
+
     class FakeJudge:
         def __init__(self, **_):
             pass
 
-        def score_answer(self, **_):
+        def score_answer(self, **kw):
+            contexts_seen.append(kw.get("context"))
             return {"aggregate": 50.0}
 
     monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
@@ -536,6 +539,8 @@ def test_cross_judge_judges_with_intact_materials_runs_end_to_end(tmp_path, monk
     # Should not raise SystemExit; gate should pass because materials are intact.
     args.func(args)
     assert (tmp_path / "cj.json").exists()
+    # Judge must have received the full skill body, not snippets
+    assert any("full skill body" in str(c or "") for c in contexts_seen)
     out = json.loads((tmp_path / "cj.json").read_text(encoding="utf-8"))
     # Verify the measure was added (stored judge + re-scored judge).
     measures = out.get("summary", {}).get("measures", [])
@@ -563,6 +568,83 @@ def test_cross_judge_judges_refuses_file_without_materials(tmp_path, monkeypatch
     answers.write_text(json.dumps(data), encoding="utf-8")
     argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+
+
+def test_cross_judge_judges_with_int_question_ids(tmp_path, monkeypatch, capsys):
+    """--judges with int question ids (including 0) works end to end."""
+    import json
+    from dokimi.utils import digest_text
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    contexts_seen = []
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, **kw):
+            contexts_seen.append(kw.get("context"))
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    data = _stamped_run()
+    skill_body = "full skill body for int ids"
+    digest = digest_text(skill_body)
+    # Use int question_ids including 0
+    for i, ans in enumerate(data["answers"]):
+        ans["question_id"] = i
+        ans["arms"]["skill"]["judge_context_sha256"] = digest
+    for i, ev in enumerate(data["evaluations"]):
+        ev["question_id"] = i
+        ev["scores"]["skill"]["judge_context_sha256"] = digest
+    data["judge_materials"] = {digest: skill_body}
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+            "--output", str(tmp_path / "cj.json")]
+    args = build_parser().parse_args(argv)
+    args.func(args)
+    assert (tmp_path / "cj.json").exists()
+    # Judge must have received the full skill body
+    assert any("full skill body for int ids" in str(c or "") for c in contexts_seen)
+
+
+def test_cross_judge_judges_and_pairwise_refuse_together(tmp_path, monkeypatch, capsys):
+    """--judges + --pairwise refuses even with intact materials."""
+    import json
+    from dokimi.utils import digest_text
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, **_):
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    data = _stamped_run()
+    skill_body = "full skill body"
+    digest = digest_text(skill_body)
+    for ans in data["answers"]:
+        ans["arms"]["skill"]["judge_context_sha256"] = digest
+    for ev in data["evaluations"]:
+        ev["scores"]["skill"]["judge_context_sha256"] = digest
+    data["judge_materials"] = {digest: skill_body}
+    pairwise = tmp_path / "pw.json"
+    pairwise.write_text(json.dumps({"verdicts": {"baseline": {}, "skill": {}}, "summary": {"judge": "p/m"}}), encoding="utf-8")
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+            "--pairwise", str(pairwise), "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit) as exc:
         args.func(args)

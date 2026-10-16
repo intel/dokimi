@@ -1082,14 +1082,20 @@ def test_material_that_does_not_match_its_digest_is_not_used(monkeypatch, skill_
 
 def test_an_artifact_without_materials_falls_back_as_before():
     from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.utils import digest_text
 
-    store = JudgeContextStore.from_artifact({"answers": [{"question_id": "q1", "arms": {"a": {}}}]})
+    # No judge_materials key at all; record has digest but material is missing
+    store = JudgeContextStore.from_artifact({
+        "answers": [{"question_id": "q1", "arms": {"a": {"judge_context_sha256": digest_text("text")}}}]
+    })
+    # Store is empty; from_artifact found no materials key and returned early
     assert store.materials() == {}
 
 
 def test_judge_materials_guard_requires_material_for_stored_scores(caplog):
     """The guard against missing material does not skip records with no digest."""
     from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.utils import digest_text
 
     # Record with no digest — should be skipped without error.
     store = JudgeContextStore.from_artifact({
@@ -1109,5 +1115,17 @@ def test_judge_materials_guard_requires_material_for_stored_scores(caplog):
         }],
     })
     # The arm record is skipped, and the store stays empty.
+    assert store.materials() == {}
+    assert "1 arm records cite judge material" in caplog.text
+
+    # Record with digest and material text that is not a string
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {digest_text("text"): 123},  # material is int, not str
+        "answers": [{
+            "question_id": "q1",
+            "arms": {"a": {"judge_context_sha256": digest_text("text")}},
+        }],
+    })
+    # The record is skipped due to non-string material
     assert store.materials() == {}
     assert "1 arm records cite judge material" in caplog.text
