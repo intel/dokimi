@@ -239,6 +239,9 @@ class EvaluationPipeline:
         }
 
         # Step 2+3: Generate & merge questions (external / cached / fresh)
+        write_over_input = False  # Default: never write over input files
+        custom_questions_count = 0  # Track custom questions for merge detection
+
         if self.external_questions_path is not None:
             # Reuse question set from another run — skip generation entirely
             logger.info(f"Step 2-3/6: Loading external questions from {self.external_questions_path}...")
@@ -272,6 +275,11 @@ class EvaluationPipeline:
             # Step 3: Merge with custom questions + deduplicate
             logger.info("Step 3/6: Merging and deduplicating questions...")
             merged_questions = self._merge_questions(generated_questions)
+            # Write the merged set only if it differs from the custom input
+            # (i.e., when force-regen added generated questions)
+            custom_count = getattr(self, "_merge_custom_questions_count", 0)
+            write_over_input = len(merged_questions) != custom_count
+
             results["steps"]["questions_merged"] = {
                 "total": len(merged_questions),
                 "generated": sum(1 for q in merged_questions if q.get("source_type") == "generated"),
@@ -281,11 +289,11 @@ class EvaluationPipeline:
             print(f"✓ Merged to {len(merged_questions)} unique questions "
                   f"({results['steps']['questions_merged']['generated']} generated, "
                   f"{results['steps']['questions_merged']['manual']} manual)")
-        
+
         # Compute and record question_set_hash for reproducibility
         question_set_hash = compute_question_set_hash(merged_questions)
         results["question_set_hash"] = question_set_hash
-        self._save_questions_artifact(merged_questions, question_set_hash)
+        self._save_questions_artifact(merged_questions, question_set_hash, write_over_input=write_over_input)
         print(f"  question_set_hash: {question_set_hash}")
 
         # Step 4: Generate answers
@@ -451,7 +459,10 @@ class EvaluationPipeline:
         return custom_questions
 
     def _merge_questions(self, generated_questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Merge generated + custom questions, deduplicate, save."""
+        """Merge generated + custom questions, deduplicate.
+
+        Stores _merge_custom_questions_count for use by run() to determine write_over_input.
+        """
         from dokimi.questions import QuestionValidator
 
         all_questions = generated_questions.copy()
@@ -462,10 +473,8 @@ class EvaluationPipeline:
         if custom_questions is None:
             custom_questions = self._load_custom_questions()
 
-        # Track the custom-only set (before merging) to detect if save should happen
-        # when output path equals custom input path
-        self._questions_before_merge = custom_questions.copy()
-
+        # Store count for run() to detect if merge added records
+        self._merge_custom_questions_count = len(custom_questions)
         all_questions.extend(custom_questions)
 
         # Deduplicate. Curated questions are never the ones dropped: a merge
@@ -483,52 +492,38 @@ class EvaluationPipeline:
             for group in groups:
                 logger.debug("duplicate group: %s", group)
 
-        # Save merged questions
-        self._save_questions_artifact(unique_questions)
-
         return unique_questions
 
     def _save_questions_artifact(
         self,
         questions: List[Dict[str, Any]],
         question_set_hash: Optional[str] = None,
+        write_over_input: bool = True,
     ) -> None:
         """Persist the merged set as a questions.v2 artifact with reproducibility metadata.
 
         This is the run's own copy: the cached file may be rewritten (it is this run's
-        output), but a ``--questions-from`` or ``--custom-questions`` file never is, so when
-        ``questions_path`` is one of those it is left as it is. Raises
-        ``ArtifactValidationError`` -- before any answer is generated -- when the set is not a
-        valid artifact; the set is kept at ``<name>.rejected``. Records written with ``text``
-        are saved as ``question``.
+        output), but a ``--questions-from`` or ``--custom-questions`` file is never written
+        unless the merge added records (write_over_input=True from force-regen merge).
+        Raises ``ArtifactValidationError`` -- before any answer is generated -- when the set
+        is not a valid artifact; the set is kept at ``<name>.rejected``. Records written with
+        ``text`` are saved as ``question``.
+
+        Args:
+            questions: The question records to save
+            question_set_hash: Optional hash for reproducibility
+            write_over_input: If False, skip save when questions_path equals an input file path
         """
         from dokimi.questions.artifact import save_questions_artifact
 
         inputs = [p for p in (getattr(self, "external_questions_path", None),
                               getattr(self, "custom_questions_path", None)) if p is not None]
         target = self.questions_path.resolve()
-        if any(Path(p).resolve() == target for p in inputs):
-            # Skip save for --questions-from (external path).
-            if self.external_questions_path and Path(self.external_questions_path).resolve() == target:
-                logger.info("questions output %s is an input of this run; leaving it unchanged",
-                            self.questions_path)
-                return
-            # For --custom-questions pointing to output, only skip if the set wasn't changed by merge.
-            # When _merge_questions adds generated questions, write the merged result.
-            before_merge = getattr(self, "_questions_before_merge", None)
-            if before_merge is not None:
-                # Compare the merged set to what was read from the custom path
-                # If they differ (merge added records), write the new set
-                merged_ids = sorted(q.get("id", "") for q in questions)
-                before_ids = sorted(q.get("id", "") for q in before_merge)
-                if merged_ids != before_ids:
-                    # Merge added records; persist the result
-                    pass  # Continue to write
-                else:
-                    # No merge happened or dedup only; skip write
-                    logger.info("questions output %s is an input of this run; leaving it unchanged",
-                                self.questions_path)
-                    return
+
+        if not write_over_input and any(Path(p).resolve() == target for p in inputs):
+            logger.info("questions output %s is an input of this run; leaving it unchanged",
+                        self.questions_path)
+            return
 
         output = {
             "product": self.product,

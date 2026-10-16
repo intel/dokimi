@@ -170,6 +170,8 @@ def test_the_pipeline_merge_gives_an_id_less_custom_question_its_positional_id(t
     with a, b, c, d:
         merged = pipe._merge_questions([])
     assert [(q["id"], q["question"]) for q in merged] == [("q0000", "How do I use parallel_for?")]
+    # _merge_questions no longer saves; run() does. Save explicitly for this direct test.
+    save_questions_artifact({"questions": merged}, pipe.questions_path)
     assert load_questions(pipe.questions_path).source_version == "questions.v2"
 
 

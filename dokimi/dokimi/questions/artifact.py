@@ -109,8 +109,19 @@ def _read_record(q: dict, idx: int, seen: Counter[str], taken: set) -> dict:
     ``0`` stays an id), ``_``-prefixed until it is in no other record's ``taken`` id, the rule
     ``arms run`` used; a list ``metadata`` (v2 declares an object) -> ``{"items": [...]}``.
     Every other key is kept as written. ``q`` is not mutated.
+
+    For v1-sourced records: drop None-valued keys that v1 doesn't declare but v2 types
+    (persona_id, source_url, topics, metadata). This allows v1 files with null for undeclared
+    fields to load successfully.
     """
     out = canonical_question(q)
+
+    # v1-sourced records: drop None values for fields v1 didn't declare but v2 types
+    # v1 doesn't declare these fields, so v1 files can have them with any value (including null)
+    # v2 declares them with specific types that reject null
+    _v1_undeclared_v2_typed = {"persona_id", "source_url", "topics", "metadata"}
+    out = {k: v for k, v in out.items() if not (v is None and k in _v1_undeclared_v2_typed)}
+
     if "question" not in out and "question_text" in out:
         out = {("question" if k == "question_text" else k): v for k, v in out.items()}
         seen[_TEXT_FROM_QUESTION_TEXT] += 1
@@ -201,22 +212,10 @@ def load_questions(path: Path | str, *, validate: bool = True) -> QuestionSet:
 
     source_version: str | None
     if validate:
-        matched = None if bare_list else schema_version_for(KIND, data)
-        # For v1-declared or v1-matching files, validate against v1 (on original data),
-        # not v2. v1 files can have undeclared fields with null values; v2 declares them
-        # with specific types. After upgrade, the v2 schema would reject them even though
-        # they are valid v1.
-        if declared in SUPERSEDED_VERSIONS.get(KIND, ()) or matched in SUPERSEDED_VERSIONS.get(KIND, ()):
-            # This is a v1 file (declared or matched); validate against v1 on original data
-            validate_schema: str = declared if isinstance(declared, str) else matched  # type: ignore[assignment]
-            errors = schema_errors(validate_schema, data)
-        else:
-            # This is v2 or an unknown version; validate against v2
-            validate_schema = current
-            errors = schema_errors(current, artifact)
-
+        errors = schema_errors(current, artifact)
         if errors:
             raise ArtifactValidationError(_explain(path, artifact, errors))
+        matched = None if bare_list else schema_version_for(KIND, data)
         source_version = matched if matched and not schema_errors(matched, data) else None
         if source_version is None and not bare_list and not seen:
             notes.append(f"not valid as the {matched} it "
