@@ -232,8 +232,7 @@ class EvaluationPipeline:
             personas: Dict[str, Any] = {"personas": []}
             results["steps"]["personas"] = {
                 "count": 0,
-                "skipped": True,
-                "path": str(self.personas_path)
+                "skipped": True
             }
         else:
             logger.info("Step 1/6: Discovering personas...")
@@ -269,13 +268,22 @@ class EvaluationPipeline:
             print(f"✓ Loaded {len(merged_questions)} questions (cached — skipping generation)")
             # Warn if cached questions differ from the golden set
             if self.golden_pinned and self.custom_questions_path is not None:
-                golden_questions = self._load_custom_questions()
-                cached_ids = {q.get("id") for q in merged_questions}
-                golden_ids = {q.get("id") for q in golden_questions}
-                if cached_ids != golden_ids:
+                try:
+                    golden_questions = self._load_custom_questions()
+                    cached_hash = compute_question_set_hash(merged_questions)
+                    golden_hash = compute_question_set_hash(golden_questions)
+                    if cached_hash != golden_hash:
+                        cached_count = len(merged_questions)
+                        golden_count = len(golden_questions)
+                        logger.warning(
+                            f"cached question set (n={cached_count}, hash={cached_hash}) differs from "
+                            f"golden set (n={golden_count}, hash={golden_hash}); "
+                            f"pass --force-regen to use the golden set"
+                        )
+                except (json.JSONDecodeError, ValueError, AttributeError) as e:
                     logger.warning(
-                        f"cached question ids {cached_ids} differ from golden set ids {golden_ids}; "
-                        f"pass --force-regen to use the golden set"
+                        f"Could not load golden set for comparison: {e}; "
+                        f"using cached questions (pass --force-regen to reload)"
                     )
             results["steps"]["questions_generated"] = {"count": len(merged_questions), "cached": True}
             results["steps"]["questions_merged"] = {"total": len(merged_questions), "cached": True,

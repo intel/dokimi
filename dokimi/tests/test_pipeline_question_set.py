@@ -403,8 +403,9 @@ def test_cached_questions_differing_from_golden_warns(tmp_path, monkeypatch, cap
         )
         pipeline.run(concurrency=1)
 
-    assert "cached question ids" in caplog.text
-    assert "differ from golden set ids" in caplog.text
+    assert "cached question set" in caplog.text
+    assert "hash=" in caplog.text
+    assert "differs from golden set" in caplog.text
 
 
 @pytest.mark.outcome("pinned-questions-reuse")
@@ -434,9 +435,8 @@ def test_golden_pinned_run_skips_persona_discovery(tmp_path, monkeypatch):
 
     assert not discover_personas_called, "persona discovery should not have been called"
     assert result["steps"]["personas"]["skipped"] is True
-    # Regression: orchestrate.py:73 reads results['steps']['personas']['path']
-    assert "path" in result["steps"]["personas"], "path key must exist for orchestrate.py"
-    assert result["steps"]["personas"]["path"] == str(pipeline.personas_path)
+    # When skipped, path is not set; orchestrate.py checks skipped flag before printing
+    assert "path" not in result["steps"]["personas"], "path should not be set when skipped"
 
 
 @pytest.mark.outcome("pinned-questions-reuse")

@@ -169,3 +169,65 @@ def test_inner_session_unclaimed_id_is_error(pytester, monkeypatch):
     result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes", "--outcomes-report=r.json")
     assert result.ret == 2
     assert json.loads((pytester.path / "r.json").read_text())["verdict"] == "error"
+
+
+def test_contract_with_mixed_evidence_ids(pytester, monkeypatch):
+    """Test contract with one passing and one unclaimed evidence id -> rc 2, error."""
+    contracts = pytester.path / "contracts"
+    contracts.mkdir()
+    (pytester.path / "doc.md").write_text("## Test\n", encoding="utf-8")
+    (contracts / "c.json").write_text(json.dumps({
+        "id": "C", "intent_refs": ["doc.md#test"],
+        "evidence_ids": ["ev_a", "ev_b"]  # ev_a claimed+passing, ev_b unclaimed
+    }), encoding="utf-8")
+    monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
+    monkeypatch.setattr(plugin, "_results", {})
+    pytester.makepyfile("import pytest\n\n@pytest.mark.outcome('ev_a')\ndef test_a():\n    assert True\n")
+    result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes", "--outcomes-report=r.json")
+    assert result.ret == 2
+    assert json.loads((pytester.path / "r.json").read_text())["verdict"] == "error"
+
+
+def test_passing_claimed_test_with_unrelated_failing_test(pytester, monkeypatch):
+    """Test claimed test passes, but unrelated test fails -> rc 1, verdict pass."""
+    contracts = pytester.path / "contracts"
+    contracts.mkdir()
+    (pytester.path / "doc.md").write_text("## Test\n", encoding="utf-8")
+    (contracts / "c.json").write_text(json.dumps({
+        "id": "C", "intent_refs": ["doc.md#test"],
+        "evidence_ids": ["ev"]
+    }), encoding="utf-8")
+    monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
+    monkeypatch.setattr(plugin, "_results", {})
+    pytester.makepyfile(
+        "import pytest\n\n"
+        "@pytest.mark.outcome('ev')\n"
+        "def test_claimed():\n"
+        "    assert True\n\n"
+        "def test_unrelated():\n"
+        "    assert False\n"
+    )
+    result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes", "--outcomes-report=r.json")
+    assert result.ret == 1
+    assert json.loads((pytester.path / "r.json").read_text())["verdict"] == "pass"
+
+
+def test_contract_with_missing_implementation_ref(pytester, monkeypatch):
+    """Test contract with missing implementation_refs file is detected."""
+    contracts = pytester.path / "contracts"
+    contracts.mkdir()
+    (pytester.path / "doc.md").write_text("## Test\n", encoding="utf-8")
+    (contracts / "c.json").write_text(json.dumps({
+        "id": "C", "intent_refs": ["doc.md#test"],
+        "evidence_ids": ["ev"],
+        "implementation_refs": ["missing_file.py"]  # This file doesn't exist
+    }), encoding="utf-8")
+    monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
+    monkeypatch.setattr(plugin, "_results", {})
+    pytester.makepyfile("import pytest\n\n@pytest.mark.outcome('ev')\ndef test_a():\n    assert True\n")
+    result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes", "--outcomes-report=r.json")
+    assert result.ret == 2
+    assert json.loads((pytester.path / "r.json").read_text())["verdict"] == "error"
