@@ -91,8 +91,10 @@ real repository:
 
   Write guidance there first, and confirm with a small probe run.
 
-`dokimi repo scan` reports claims that no longer match the tree. `dokimi repo
-reach` shows which guidance files a harness actually loads (§7).
+`dokimi repo scan` reports paths, commands, identifiers and links in the guidance
+that no longer match the tree; it cannot check statements like the last two rows
+above. `dokimi repo reach` shows which guidance files a harness actually loads
+(§7).
 
 ## 4. Give C and C++ tools a complete compile database
 
@@ -133,16 +135,15 @@ names, and measure on your own tasks.
 
 ## 6. Review rules learned from past reviews
 
-Recurring review comments are the most transferable review knowledge a repository
-has.
+Recurring review comments are review knowledge a repository already has.
 
 - **Mine them from history.** Take inline comments that the PR author then
   addressed, keep issues raised in at least two PRs, and scope each rule to the
   paths it applies to.
 - **A maintainer curates the list.** In one run, one mined rule contradicted the
   repository's own guidance and had to be dropped.
-- **Keep them where every harness reads them,** in a review section of the root
-  `AGENTS.md`.
+- **Keep them in a review section of the root `AGENTS.md`,** and check that each
+  harness you use loads that file (§7).
 - **Expect help on recurring defects, not one-offs.**
     - On review tasks with seeded recurring defects, rules raised the recall of
       Codex with a small OpenAI model (gpt-6-luna) from 0.68 to 0.875.
@@ -157,11 +158,17 @@ has.
 | Harness (measured 2026-10) | Loads |
 |---|---|
 | Claude Code 2.1.286 | `CLAUDE.md`. `AGENTS.md` only when no `CLAUDE.md` is in its start-up chain. Subdirectory files lazily, when it reads a file there. |
-| Codex CLI | the root `AGENTS.md`; subdirectory files on demand; `AGENTS.override.md` replaces the root |
+| Codex CLI | the root `AGENTS.md`; subdirectory files on demand; `AGENTS.override.md` replaces the `AGENTS.md` in its own directory |
 | Copilot CLI | `AGENTS.md`, `.github/copilot-instructions.md`, `CLAUDE.md`, `GEMINI.md` and path-scoped instruction files; not `REVIEW.md` |
 
+A repository with a `CLAUDE.md` should import the shared file (`@AGENTS.md`), or
+Claude Code does not read it. Gemini CLI reads `GEMINI.md` unless `context.fileName`
+in its settings lists `AGENTS.md`.
+
 Loading changes between versions. Run `dokimi repo reach` for the harness and
-version you use instead of relying on this table.
+version you use instead of relying on this table. Only the `claude-code` profile is
+built in; for another harness, pass a `harness_profile.v1` file with `--harness`
+([contract](repo-evaluation-contract.md)).
 
 ## 8. Measure each change, and measure again when the model changes
 
