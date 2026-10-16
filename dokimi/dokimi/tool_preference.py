@@ -297,16 +297,17 @@ def run_probe(items: Sequence[dict], call: Caller, reps: int = 1, concurrency: i
             skip = capped()
         res = {"item_id": item["id"], "rep": rep, "choice": None, "text_preview": "", "usage": None,
                "truncated": False, "skipped": skip, "error": None}
+        out_usage = None
         if not skip:
             try:
                 out = call(item)
-                usage = out.get("usage")
+                out_usage = out.get("usage")
                 res.update(choice=classify(item, out.get("called") or []),
-                           text_preview=(out.get("text") or "")[:200], usage=usage if isinstance(usage, dict) else None,
+                           text_preview=(out.get("text") or "")[:200], usage=out_usage if isinstance(out_usage, dict) else None,
                            truncated=bool(out.get("truncated")))
             except Exception as exc:  # recorded, not raised
                 res["error"] = f"{type(exc).__name__}: {exc}"[:300]
-                usage = getattr(exc, "usage", None)
+                usage = getattr(exc, "usage", out_usage)
                 res["usage"] = usage if isinstance(usage, dict) else None
         res["elapsed_sec"] = round(time.time() - t0, 3)
         with lock:

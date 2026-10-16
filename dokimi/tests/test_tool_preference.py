@@ -447,6 +447,37 @@ def test_a_failed_but_billed_call_counts_toward_the_cap(doc):
     assert all(r["skipped"] for r in results[2:])
 
 
+def test_classify_raises_after_billed_call_counts_toward_cap(doc):
+    items = tp.build_items(doc, ["assertive"])
+    def call_then_classify_fails(item):
+        return {"called": [item["tools"][0]["function"]["name"]], "usage": {"cost_usd": 0.01}, "text": ""}
+
+    original_classify = tp.classify
+    call_count = [0]
+    def failing_classify(item, called):
+        call_count[0] += 1
+        if call_count[0] == 2:
+            # Second call raises
+            raise ValueError("classify error")
+        return original_classify(item, called)
+
+    # Patch classify to fail on second call
+    import dokimi.tool_preference as tp_module
+    tp_module.classify = failing_classify
+    try:
+        results = tp.run_probe(items, call_then_classify_fails, reps=1, concurrency=1, max_cost_usd=0.02)
+        # First call: success, costs 0.01, skipped=False
+        assert results[0]["skipped"] is False and results[0]["error"] is None
+        assert results[0]["usage"]["cost_usd"] == 0.01
+        # Second call: classify raises, but usage is still captured from the call
+        assert results[1]["skipped"] is False and results[1]["error"] is not None
+        assert results[1]["usage"]["cost_usd"] == 0.01
+        # Total spent: 0.02, so remaining calls should be skipped
+        assert all(r["skipped"] for r in results[2:])
+    finally:
+        tp_module.classify = original_classify
+
+
 def test_the_overshoot_stays_within_concurrency_minus_one(doc):
     items = tp.build_items(doc, ["assertive"])
     gate = threading.Barrier(4)
