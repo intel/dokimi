@@ -852,3 +852,35 @@ def test_the_report_names_excluded_files_and_counts_non_text_ones(tmp_path):
     assert "1 non-text files not read." in rendered
     partial = render_novelty_markdown(_artifact(bundle={"outside_share": 0.99}))
     assert "lacks its word counts" in partial
+
+
+def test_measured_digest_format_is_pinned(tmp_path):
+    """Regression test for THREAD 6: measured_digest format is stable."""
+    from dokimi.novelty.bundle import load_bundle
+    
+    # Create a test skill with two files
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: test\ndescription: d\n---\n\nEntry point text.\n",
+        encoding="utf-8",
+    )
+    ref = skill.parent / "references" / "ref.md"
+    ref.parent.mkdir()
+    ref.write_text("Reference text.", encoding="utf-8")
+    
+    bundle = load_bundle(f"skill:{skill.parent}", include_resources=True)
+    digest = bundle.measured_digest()
+    
+    # The digest should follow the format "sha256:<hex>"
+    assert digest.startswith("sha256:")
+    assert len(digest) == len("sha256:") + 64  # sha256 hex is 64 chars
+    
+    # The digest should be deterministic - same files, same digest
+    bundle2 = load_bundle(f"skill:{skill.parent}", include_resources=True)
+    assert bundle2.measured_digest() == digest
+    
+    # Modifying a file should change the digest
+    ref.write_text("Modified reference text.", encoding="utf-8")
+    bundle3 = load_bundle(f"skill:{skill.parent}", include_resources=True)
+    assert bundle3.measured_digest() != digest

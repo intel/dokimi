@@ -26,3 +26,16 @@ def test_a_schema_valid_row_with_an_odd_kind_does_not_take_down_the_reader(kind)
     assert report._render_bundle({"bundle": record})
     assert Coverage.from_record(record) is not None
     assert excluded_of(record["excluded"], "gap") == record["excluded"]
+
+
+
+@pytest.mark.parametrize("words", ["n/a", [1], {"a": 1}])
+def test_non_numeric_words_in_decision_row_does_not_crash(words):
+    # Regression: THREAD 0 -- non-numeric words should be treated as 0
+    record = dict(COUNTS, include_resources=True, n_files=1,
+                  excluded=[{"path": "evals/a.md", "reason": "role policy", "kind": "policy", "words": words}])
+    check = _coverage_check(record)
+    assert check.value is not None  # Should not crash
+    cov = Coverage.from_record(record)
+    assert cov is not None
+    assert cov.policy_excluded_words == 0  # Non-numeric falls back to 0

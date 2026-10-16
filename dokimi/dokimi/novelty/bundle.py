@@ -102,8 +102,9 @@ DEFAULT_MAX_TOTAL_WORDS = 20_000
 #:   ``--resource-roles`` filter). Counted on disk, never charged as a gap, and outside
 #:   the ``readable`` coverage denominator: no rerun with ``--include-resources`` would
 #:   read it.
-#: * ``unknown`` -- text that did not decode. Its size is unknown, so no coverage figure
-#:   can be computed while one exists.
+#: * ``unknown`` -- text that did not decode. Its size is unknown, so the gate reports
+#:   no unmeasured share while one exists; the other surfaces quote a figure that leaves
+#:   its words out.
 #: * ``not_content`` -- a non-text file, or a symlink (recorded, never followed). Not the
 #:   skill's own text in any mode, so it carries no words and is never a reason to warn.
 EXCLUSION_CLASS: dict[str, str] = {
@@ -193,6 +194,20 @@ def _share(part: int, whole: int) -> float:
     return round(part / whole, 4) if whole else 0.0
 
 
+
+def _safe_int(value: Any) -> int:
+    """Coerce a value to int, returning 0 if it is not a numeric type."""
+    if isinstance(value, bool):
+        # bool is a subclass of int, but a bool is not a count
+        return 0
+    if isinstance(value, (int, float)):
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return 0
+    return 0
+
+
 @dataclass(frozen=True)
 class Coverage:
     """How much of an artifact one run read, from a live bundle or a stored record.
@@ -231,7 +246,7 @@ class Coverage:
             resource_words_measured=int(record["resource_words_measured"]),
             policy_excluded_words=int(
                 policy if policy is not None
-                else sum(int(row.get("words") or 0) for row in decisions)),
+                else sum(_safe_int(row.get("words")) for row in decisions)),
             unreadable_files=int(
                 unreadable if unreadable is not None else len(excluded_of(rows, "unknown"))),
             named_excluded_files=len(named_exclusions(rows)[0]),
@@ -744,8 +759,8 @@ def check_answer_key(ref: str, record: dict | None, *,
         return AnswerKeyVerdict(
             problem="files_changed",
             message=(
-                "the artifact's files changed since these atoms were extracted "
-                f"(atoms.json: {recorded}; now: {rebuilt}; edited: {edited}; "
+                "the artifact\'s files changed since these atoms were extracted "
+                f"({source}: {recorded}; now: {rebuilt}; edited: {edited}; "
                 f"added: {added}). Re-run `novelty atoms`; probing a different file set "
                 "against this answer key would mis-score every moved atom."),
             recorded=tuple(recorded), rebuilt=tuple(rebuilt), edited=tuple(edited),

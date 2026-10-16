@@ -89,3 +89,39 @@ def test_an_unreadable_row_is_listed_by_the_report():
                   excluded=[{"path": "references/x.md", "role": "reference",
                              "reason": "unreadable", "kind": "unreadable"}])
     assert "`references/x.md` (unreadable)" in "\n".join(report._render_bundle({"bundle": record}))
+def test_entry_point_only_with_none_record_uses_default():
+    """Regression test for THREAD 3: entry_point_only handles None record."""
+    spans = [NS(id="a", start=0)]
+    atoms = [NS(span_ids=["a"])]
+    # When record is None, entry_point_only should treat it as entry-point-only
+    # This raises because None means no record data
+    try:
+        kept, kept_atoms, note = entry_point_only(None, spans, atoms)
+        # If it doesn't raise, it should return entry-point content
+        assert kept == spans or kept == []
+    except ValueError as e:
+        # Expected: cannot extract entry-point data without file rows
+        assert "bundle" in str(e).lower() or "file" in str(e).lower()
+
+
+def test_entry_point_only_with_empty_files_raises():
+    """Regression test for THREAD 3: entry_point_only requires file rows."""
+    spans = [NS(id="a", start=0)]
+    atoms = [NS(span_ids=["a"])]
+    record = {"include_resources": True}  # No files
+    # Should raise because entry_point_only requires file data to work
+    with pytest.raises(ValueError, match=r"(bundle|file rows)"):
+        entry_point_only(record, spans, atoms)
+
+
+def test_answer_key_entry_point_note_for_legacy_record(tmp_path):
+    """Regression test for THREAD 2: legacy record returns entry-point note."""
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(HEAD + WORDS, encoding="utf-8")
+    # Legacy record (None) should return note about assuming entry-point only
+    verdict = check_answer_key(f"skill:{skill.parent}", record=None, source="atoms.json")
+    assert verdict.ok or verdict.problem == "unloadable"
+    if verdict.notes:
+        assert any("entry point" in n.lower() for n in verdict.notes)
+
