@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Dependency updates: the SHA-pinned actions in .github/workflows, the Python
-// lock (dokimi/requirements.lock.txt), the tool pins the workflows install and
-// the hook revs in .pre-commit-config.yaml.
+// lock (dokimi/requirements.lock.txt), the tool pins the workflows and the eval
+// image (.agent-eval/Dockerfile) install and the hook revs in .pre-commit-config.yaml.
 //
 // Once a week, every minor and patch update lands in one PR; a major update
 // gets a PR of its own. Advisories (vulnerabilityAlerts) skip the schedule.
@@ -72,6 +72,16 @@
       ],
       datasourceTemplate: "pypi",
     },
+    {
+      // The eval image's tool pins (`tool==X.Y.Z`, some on continuation lines
+      // of a `pip install`); ruff's has to move with the ruff group below.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.agent-eval/Dockerfile$/"],
+      matchStrings: [
+        "(?<depName>[A-Za-z0-9][A-Za-z0-9._-]*)==(?<currentValue>\\d[^\\s'\"\\\\]*)",
+      ],
+      datasourceTemplate: "pypi",
+    },
   ],
 
   packageRules: [
@@ -81,9 +91,9 @@
       matchUpdateTypes: ["minor", "patch", "pinDigest", "digest"],
     },
     {
-      // A pre-commit hook and the pin ci.yml installs for the same tool move
-      // in one PR, majors included, so the hook never reports what CI does not
-      // (or the reverse). Later rules win, so these leave the non-major group.
+      // A pre-commit hook and the pins ci.yml, the dev extra and the eval image
+      // install for the same tool move in one PR, majors included, so the hook
+      // never reports what CI does not (or the reverse). Later rules win, so these leave the non-major group.
       groupName: "ruff",
       groupSlug: "ruff",
       matchDepNames: ["ruff", "astral-sh/ruff-pre-commit"],

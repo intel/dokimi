@@ -100,7 +100,8 @@ Renovate (`.github/renovate.json5`) proposes updates on Mondays for releases at
 least 7 days old: one grouped PR for all minor and patch updates, one PR per
 major, a monthly lock refresh, and security fixes as soon as an advisory
 appears. A pre-commit hook rev and the pin `ci.yml` installs for the same tool
-(ruff, zizmor) come in one PR of their own. Renovate does not update
+(ruff, zizmor) come in one PR of their own, with ruff's pins in the dev extra
+and `.agent-eval/Dockerfile`. Renovate does not update
 `requirements-docs.lock.txt` yet; pip-audit in CI still audits it.
 
 Guidelines:

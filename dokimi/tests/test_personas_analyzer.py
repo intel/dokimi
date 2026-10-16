@@ -146,7 +146,16 @@ class TestPersonaAnalyzer:
         readme = analyzer._get_readme(repo)
         
         assert readme == ""
-    
+
+    def test_get_readme_lets_keyboard_interrupt_through(self):
+        """Ctrl-C while fetching the README stops the run, not just the README."""
+        repo = Mock()
+        repo.get_readme.side_effect = KeyboardInterrupt
+
+        analyzer = PersonaAnalyzer()
+        with pytest.raises(KeyboardInterrupt):
+            analyzer._get_readme(repo)
+
     def test_extract_use_cases(self, mock_github_repo):
         """Test use case extraction from README."""
         analyzer = PersonaAnalyzer()
@@ -203,7 +212,15 @@ class TestPersonaAnalyzer:
         assert result["common_questions"] == []
         assert result["common_labels"] == []
         assert result["sample_issues"] == []
-    
+
+    def test_analyze_issues_lets_keyboard_interrupt_through(self, mock_github_repo):
+        """Ctrl-C while fetching issues stops the run, not just that label."""
+        mock_github_repo.get_issues.side_effect = KeyboardInterrupt
+
+        analyzer = PersonaAnalyzer()
+        with pytest.raises(KeyboardInterrupt):
+            analyzer._analyze_issues(mock_github_repo)
+
     def test_extract_api_patterns(self, mock_github_repo):
         """Test API pattern extraction."""
         analyzer = PersonaAnalyzer()
