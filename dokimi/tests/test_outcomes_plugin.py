@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from tests.outcomes import plugin
 
 pytest_plugins = ["pytester"]
@@ -135,52 +137,35 @@ def test_plugin_handles_no_terminal_reporter(tmp_path, monkeypatch):
     assert session.exitstatus == 0
 
 
-def test_plugin_hooks_and_exit_status(tmp_path, monkeypatch):
-    """Outcome plugin pytest_runtest_logreport, makereport, and sessionfinish hooks work."""
-    # Test that the hooks collect outcomes and write the report
-    contract_dir = tmp_path / "outcomes"
-    contract_dir.mkdir()
-    (tmp_path / "doc.md").write_text("## Test", encoding="utf-8")
-    (contract_dir / "c.json").write_text(json.dumps({
-        "id": "C",
-        "intent_refs": ["doc.md#test"],
-        "evidence_ids": ["pass_id", "fail_id", "skip_id"]
-    }), encoding="utf-8")
+@pytest.mark.parametrize(
+    "body, verdict, ret",
+    [("assert True", "pass", 0), ("assert False", "fail", 1), ("pytest.skip('x')", "inconclusive", 3)],
+)
+def test_inner_session_exit_code(pytester, monkeypatch, body, verdict, ret):
+    contracts = pytester.path / "contracts"
+    contracts.mkdir()
+    (pytester.path / "doc.md").write_text("## Test\n", encoding="utf-8")
+    (contracts / "c.json").write_text(json.dumps(
+        {"id": "C", "intent_refs": ["doc.md#test"], "evidence_ids": ["ev"]}), encoding="utf-8")
+    monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
+    monkeypatch.setattr(plugin, "_results", {})
+    pytester.makepyfile(f"import pytest\n\n@pytest.mark.outcome('ev')\ndef test_a():\n    {body}\n")
+    result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes", "--outcomes-report=r.json")
+    assert result.ret == ret
+    assert json.loads((pytester.path / "r.json").read_text())["verdict"] == verdict
 
-    # Set up mocked state
-    monkeypatch.setattr(plugin, "CONTRACT_DIR", contract_dir)
-    monkeypatch.setattr(plugin, "REPO_ROOT", tmp_path)
-    monkeypatch.setattr(plugin, "_results", {
-        "pass_id": ["passed"],
-        "fail_id": ["failed"],
-        "skip_id": ["skipped"],
-    })
 
-    # Mock session and config
-    class MockConfig:
-        def getoption(self, key):
-            if key == "outcomes":
-                return True
-            elif key == "outcomes_report":
-                return str(tmp_path / "report.json")
-
-        class PluginManager:
-            def get_plugin(self, name):
-                return None
-
-        pluginmanager = PluginManager()
-
-    class MockSession:
-        config = MockConfig()
-        exitstatus = 0
-
-    session = MockSession()
-    # Call the sessionfinish hook
-    plugin.pytest_sessionfinish(session, 0)
-
-    # Verify behavior
-    assert (tmp_path / "report.json").exists()
-    report = json.loads((tmp_path / "report.json").read_text())
-    assert report["verdict"] == "fail", "should fail due to fail_id"
-    # verify exit status was set (fail = 1)
-    assert session.exitstatus == 1
+def test_inner_session_unclaimed_id_is_error(pytester, monkeypatch):
+    contracts = pytester.path / "contracts"
+    contracts.mkdir()
+    (pytester.path / "doc.md").write_text("## Test\n", encoding="utf-8")
+    (contracts / "c.json").write_text(json.dumps(
+        {"id": "C", "intent_refs": ["doc.md#test"], "evidence_ids": ["ev"]}), encoding="utf-8")
+    monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
+    monkeypatch.setattr(plugin, "_results", {})
+    pytester.makepyfile("def test_a():\n    assert True\n")
+    result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes", "--outcomes-report=r.json")
+    assert result.ret == 2
+    assert json.loads((pytester.path / "r.json").read_text())["verdict"] == "error"

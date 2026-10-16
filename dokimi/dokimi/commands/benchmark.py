@@ -9,6 +9,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Any, List, cast
 
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -172,9 +173,9 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
                 if not golden_questions:
                     errors.append(f"golden set is empty: {golden}")
                 else:
-                    # Validate that first item is a dict (will be used with source_type assignment)
-                    if golden_questions and not isinstance(golden_questions[0], dict):
-                        errors.append(f"golden set item 0 is not a dict: {type(golden_questions[0]).__name__}")  # type: ignore[unreachable]
+                    bad = next((i for i, q in enumerate(cast(List[Any], golden_questions)) if not isinstance(q, dict)), None)
+                    if bad is not None:
+                        errors.append(f"golden set item {bad} is not a dict: {golden}")
             except Exception as exc:
                 errors.append(f"golden set invalid: {golden} ({exc})")
 
