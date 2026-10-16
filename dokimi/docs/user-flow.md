@@ -49,6 +49,10 @@ questions instead of reading a curated set, and logs a warning saying so. That i
 fine for a first look, but two runs then answer different questions and cannot be
 compared. See [external-content.md](external-content.md).
 
+A `questions/<target>.json` already in the output directory is reused instead of
+the root, even after the golden file changed. Use a fresh `--output-dir`, or
+`--force-regen` (which also rediscovers personas), to answer the golden set.
+
 Defaults:
 
 - output: `results/<target>_final/`

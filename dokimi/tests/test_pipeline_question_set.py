@@ -328,6 +328,37 @@ def test_empty_golden_set_fails_the_run_and_writes_no_cache(tmp_path, monkeypatc
     assert not pipeline.questions_path.exists()
 
 
+@pytest.mark.outcome("pinned-questions-root")
+def test_cached_set_wins_over_questions_root_until_force_regen(tmp_path, monkeypatch):
+    questions_root = tmp_path / "questions"
+    _write_json(questions_root / "demo_golden.json", {"questions": [{"id": "g1", "question": "Golden?"}]})
+    output_dir = tmp_path / "out"
+    _write_json(output_dir / "personas" / "demo.json", {"personas": []})
+    _write_json(output_dir / "questions" / "demo.json", {"questions": [{"id": "old", "question": "Cached?"}]})
+    answered: list[list[str]] = []
+
+    def generate_answers(self, questions, concurrency=5, question_set_hash=None):
+        answered.append([q["id"] for q in questions])
+        return []
+
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", lambda self: {"personas": []})
+    monkeypatch.setattr(EvaluationPipeline, "_generate_answers", generate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_evaluate_answers", lambda self, a, concurrency=5, question_set_hash=None: [])
+    monkeypatch.setattr(EvaluationPipeline, "_generate_report", lambda self, e, q: "report")
+
+    for force_regen in (False, True):
+        EvaluationPipeline(
+            product="DemoProduct",
+            product_key="demo",
+            output_dir=output_dir,
+            description="A demo product",
+            questions_root=questions_root,
+            force_regen=force_regen,
+        ).run(concurrency=1)
+
+    assert answered == [["old"], ["g1"]]
+
+
 @pytest.mark.outcome("pinned-questions-warn")
 def test_questions_from_does_not_warn_that_questions_are_generated(tmp_path, caplog):
     source_dir = tmp_path / "source"
