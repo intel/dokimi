@@ -1741,3 +1741,12 @@ def test_a_stored_validity_report_gates_the_rescored_judge_in_cross_judge(tmp_pa
 
     assert gates(stored_report) == {"amazon-bedrock/m": "FAIL"}
     assert gates(none_report) == {"amazon-bedrock/m": None}
+
+
+def test_a_missing_material_warning_does_not_promise_a_snippet_fallback_on_the_gate(caplog):
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    with caplog.at_level("WARNING", logger="dokimi.eval.judge_context"):
+        assert JudgeContextStore().get("Q1", "skill") is None
+    text = caplog.text
+    assert "No verified judge context for Q1/skill" in text and "drops such bases" in text
