@@ -375,7 +375,8 @@ def test_unreadable_skill_warns_about_encoding_not_description(tmp_path):
     skill.parent.mkdir(parents=True)
     skill.write_bytes(b"\xff\xfe---\nname: a\ndescription: Do x y z\n---\nbody")
     got = budget(tree, NAMES)
-    assert got["warnings"] == [".claude/skills/a/SKILL.md: not readable (non-UTF-8 or binary), counted as 0"]
+    assert got["warnings"] == [".claude/skills/a/SKILL.md: not readable (non-UTF-8 or binary), body counted as 0; "
+                               "the listing falls back to the directory name"]
     entries = _by_path(got)
     assert entries[(".claude/skills/a/SKILL.md", "skill body")]["chars"] == 0
 
@@ -515,3 +516,46 @@ def test_cli_table_row_order(tmp_path, capsys):
     off_lines = [i for i, l in enumerate(lines) if "| off" in l]
     assert start_lines and off_lines
     assert start_lines[0] < off_lines[0]
+
+
+def test_dangling_and_out_of_tree_imports_agree_across_work_and_git_trees(tmp_path):
+    """A link that dangles or leaves the tree is no import, on a working tree or a commit."""
+    (tmp_path / "outside.md").write_text("o" * 30, encoding="utf-8")
+    files = {"CLAUDE.md": "see @notes.md and @gone.md"}
+    links = {"notes.md": "../outside.md", "gone.md": "missing.md"}
+    work = tmp_path / "w"
+    work.mkdir()
+    for rel, text in files.items():
+        (work / rel).write_text(text, encoding="utf-8")
+    for rel, text in links.items():
+        _link(work / rel, text)
+    git_root = tmp_path / "g"
+    git_root.mkdir()
+    for got in (budget(WorkTree(work), NAMES), budget(_linked_repo(git_root, files, links), NAMES)):
+        assert [e["path"] for e in got["entries"]] == ["CLAUDE.md"]
+        assert got["warnings"] == []
+
+
+def test_a_claude_alias_group_with_a_root_alias_loads_at_start(tmp_path):
+    """.claude/CLAUDE.md -> ../.agents/CLAUDE.md: the shown path is nested, but a root alias reads it at start."""
+    tree = _tree(tmp_path, {".agents/CLAUDE.md": "a" * 50, "CLAUDE.md": "r"})
+    (tmp_path / ".claude").mkdir()
+    _link(tmp_path / ".claude" / "CLAUDE.md", "../.agents/CLAUDE.md")
+    got = budget(tree, NAMES)
+    assert _by_path(got)[(".agents/CLAUDE.md", "guidance")]["when"] == "start"
+    assert got["totals"] == {"start": 51, "lazy": 0, "on demand": 0, "off": 0}
+
+
+def test_unreadable_skill_warnings_name_the_cause(tmp_path):
+    tree = _tree(tmp_path, {})
+    d = tmp_path / ".claude" / "skills"
+    (d / "bin").mkdir(parents=True)
+    (d / "bin" / "SKILL.md").write_bytes(b"\xff\xff")
+    (d / "dang").mkdir()
+    _link(d / "dang" / "SKILL.md", "nowhere")
+    got = budget(tree, NAMES)
+    tail = "body counted as 0; the listing falls back to the directory name"
+    assert sorted(got["warnings"]) == [
+        f".claude/skills/bin/SKILL.md: not readable (non-UTF-8 or binary), {tail}",
+        f".claude/skills/dang/SKILL.md: not readable (not found, broken link, or outside tree), {tail}",
+    ]

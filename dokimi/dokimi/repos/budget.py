@@ -81,7 +81,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
                 when = "lazy"
             else:
                 when = "off"
-        elif t in start_t or _is_root(f):
+        elif root_alias or t in start_t or _is_root(f):
             when = "start"
         else:
             when = "lazy"
@@ -91,7 +91,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
         entries.append({"path": f, "kind": "guidance", "when": when, "chars": chars})
     counted = {_target(tree, f) for f in guidance}
     for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
-        if _is_file(tree, f) and _target(tree, f) not in counted:
+        if _is_resolvable(tree, f) and _target(tree, f) not in counted:
             counted.add(_target(tree, f))
             chars, warning = _chars(tree, f)
             if warning:
@@ -113,7 +113,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
                         "them (import each with `@AGENTS.md` from a CLAUDE.md beside it; `repo reach` measures it)")
     for s in skills:
         if s["unreadable"]:
-            warnings.append(f"{s['path']}: not readable (non-UTF-8 or binary), counted as 0")
+            warnings.append(f"{s['path']}: not readable ({s['unreadable']}), body counted as 0; "
+                            "the listing falls back to the directory name")
         elif not s["description"]:
             warnings.append(f"{s['path']}: no description; the listing gives the agent nothing to choose it by")
     duplicates = _near_duplicates(skills)
@@ -156,13 +157,6 @@ def _unaliased(tree: RepoTree, guidance: list[str]) -> list[str]:
     return [f for f in guidance if f in keep]
 
 
-def _is_file(tree: RepoTree, path: str) -> bool:
-    try:
-        return tree.is_file(path)
-    except (OSError, ValueError):  # a link that leaves the tree is not a file of it
-        return False
-
-
 def _is_resolvable(tree: RepoTree, path: str) -> bool:
     """True if the file path resolves (not a dangling link, loop, or out-of-tree)."""
     try:
@@ -172,15 +166,18 @@ def _is_resolvable(tree: RepoTree, path: str) -> bool:
         return False
 
 
+def _unreadable_reason(err: Exception) -> str:
+    if isinstance(err, UnicodeDecodeError):
+        return "non-UTF-8 or binary"
+    return "not found, broken link, or outside tree"  # dangling symlink, loop, escape, source error
+
+
 def _chars(tree: RepoTree, path: str) -> tuple[int, str | None]:
     """Return (char_count, warning_message). Warn on all unreadable files: dangling/out-of-tree links, bad encoding."""
     try:
         return len(tree.read_text(path)), None
-    except UnicodeDecodeError:
-        return 0, f"{path}: not readable (non-UTF-8 or binary), counted as 0"
-    except (OSError, ValueError):
-        # Dangling symlink, outside tree, or source error
-        return 0, f"{path}: not readable (not found, broken link, or outside tree), counted as 0"
+    except (OSError, ValueError) as err:  # UnicodeDecodeError is a ValueError
+        return 0, f"{path}: not readable ({_unreadable_reason(err)}), counted as 0"
 
 
 def _imports(tree: RepoTree, roots: list[str]) -> set[str]:
@@ -223,11 +220,11 @@ def _skills(tree: RepoTree, paths: list[str]) -> list[dict[str, Any]]:
 
     out = []
     for path in paths:
-        unreadable = False
+        unreadable: str | None = None
         try:
             meta, body = parse_frontmatter(tree.read_text(path))
-        except (OSError, UnicodeDecodeError, ValueError):
-            meta, body, unreadable = {}, "", True
+        except (OSError, ValueError) as err:  # UnicodeDecodeError is a ValueError
+            meta, body, unreadable = {}, "", _unreadable_reason(err)
         meta = meta if isinstance(meta, dict) else {}
         name = str(meta.get("name") or path.split("/")[-2])
         description = str(meta.get("description") or "")
@@ -260,7 +257,7 @@ def _near_duplicates(skills: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _mcp_servers(tree: RepoTree) -> list[str]:
-    if not _is_file(tree, MCP_FILE):
+    if not _is_resolvable(tree, MCP_FILE):
         return []
     try:
         servers = json.loads(tree.read_text(MCP_FILE)).get("mcpServers") or {}

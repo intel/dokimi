@@ -239,11 +239,13 @@ next release.
   start; nested guidance and what nested CLAUDE.md files import load lazily;
   skill bodies on demand; with a CLAUDE.md at the root, an AGENTS.md no
   CLAUDE.md imports is reported off. It warns on skills with no description,
-  skills with near-duplicate descriptions (Jaccard index >= 0.5 after stop-word removal,
-  and only when both have 3+ words left), on AGENTS.md files turned off, and on unreadable
-  files (non-UTF-8, dangling or out-of-tree link), each of which also trips `--fail-on-warning`.
-  `start` is not an upper bound: `.claude/rules/*.md` files are not counted, and imports are
-  followed past Claude Code's 5-hop limit.
+  skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
+  after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, and on
+  unreadable files (non-UTF-8, dangling or out-of-tree link), each of which also trips
+  `--fail-on-warning`. `start` is not an upper bound: `.claude/rules/*.md` files are not
+  counted, only `@path.md` imports are followed (`@notes.txt` adds nothing), skills are read
+  only from the root `.claude/skills/*/SKILL.md`, and imports are followed past Claude Code's
+  5-hop limit.
 - `dokimi/repos/static.py` — the `repo_static.v1` schema: what the
   repository's own `static` entry point writes, so its checks can be merged
   into L0.
