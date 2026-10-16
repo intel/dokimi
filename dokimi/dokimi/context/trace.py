@@ -5,7 +5,8 @@
 
 Claude Code writes a ``usage`` block on every assistant message. One model call can span
 several messages (one per content block) that share the message id, so a call is counted
-once, by id. The prompt the model saw on that call is
+once, by id, and its fields merge by maximum, so a later block with a sparse ``usage`` cannot
+erase the prompt an earlier one recorded. The prompt the model saw on that call is
 
     prompt_tokens = input_tokens + cache_creation_input_tokens + cache_read_input_tokens
 
@@ -18,6 +19,10 @@ Calls a subagent made carry ``parent_tool_use_id``; they run in their own window
 summary reads the main thread and counts subagent calls apart. A ``compact_boundary`` system
 event is a compaction: Claude Code summarised the history and dropped it.
 
+A repeated tool call is one identical in name and input to an earlier call on the same thread
+that did not fail, with no call that can change the workspace (``MUTATING``) in between. A
+retry after an error, or a ``Read`` after an ``Edit`` of the same file, is not a repeat.
+
 Tool results are measured in characters, the only unit the trace has for them. Nothing here
 calls a model or a tokenizer.
 """
@@ -28,6 +33,11 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+
+# Tools whose call can change what a later identical call returns; one ends every earlier repeat.
+MUTATING = frozenset({"Bash", "Edit", "MultiEdit", "NotebookEdit", "Write"})
+TOKEN_FIELDS = ("prompt_tokens", "new_tokens", "output_tokens")  # the counts of one call
 
 
 class TraceError(ValueError):
@@ -52,7 +62,7 @@ class ContextTrace:
     calls: list[dict[str, Any]] = field(default_factory=list)
     compactions: list[dict[str, Any]] = field(default_factory=list)
     tools: dict[str, ToolStats] = field(default_factory=dict)
-    repeated_calls: int = 0  # tool calls identical in name and input to an earlier one on the same thread
+    repeated_calls: int = 0  # tool calls identical to an earlier successful one, nothing mutating between
     num_turns: int | None = None
     result_subtype: str | None = None
     is_error: bool = False
@@ -110,20 +120,20 @@ def parse_trace(raw: str) -> ContextTrace:
     out = ContextTrace()
     by_message: dict[str, dict[str, Any]] = {}  # message id -> its call
     names: dict[str, str] = {}  # tool_use id -> tool name
-    seen: set[tuple[Any, str, str]] = set()
+    seen: dict[tuple[Any, str, str], str] = {}  # signature -> tool_use id of its latest call
     for n, line in enumerate(raw.split(chr(10)), 1):
         if not line.strip():
             continue
         try:
             rec = json.loads(line)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):  # JSONDecodeError, an over-long integer, deep nesting
             out.errors.append(f"line {n}: not JSON")
             continue
         if not isinstance(rec, dict):
             continue
         try:
             _apply(out, rec, by_message, names, seen)
-        except (AttributeError, TypeError, ValueError, OverflowError) as exc:  # valid JSON of an unexpected shape
+        except (AttributeError, TypeError, ValueError, OverflowError, RecursionError) as exc:  # valid JSON of an unexpected shape
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     for i, call in enumerate(out.calls):
         call["i"] = i
@@ -131,7 +141,7 @@ def parse_trace(raw: str) -> ContextTrace:
 
 
 def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[str, Any]],
-           names: dict[str, str], seen: set[tuple[Any, str, str]]) -> None:
+           names: dict[str, str], seen: dict[tuple[Any, str, str], str]) -> None:
     kind, subtype = rec.get("type"), rec.get("subtype")
     agent = rec.get("parent_tool_use_id")
     if kind == "system" and subtype == "init":
@@ -159,8 +169,8 @@ def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[st
             call = _call(usage, agent)
             key = message.get("id")
             if key and key in by_message:
-                by_message[key].update(call)  # a later block of the same call: same prompt, fuller output
-            else:
+                _merge(by_message[key], call)  # a later block of the same call: same prompt, fuller output
+            elif any(call[k] for k in TOKEN_FIELDS):  # an all-zero block carries no call
                 out.calls.append(call)
                 if key:
                     by_message[key] = call
@@ -168,12 +178,15 @@ def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[st
             if block.get("type") != "tool_use":
                 continue
             name = str(block.get("name") or "")
-            names[str(block.get("id") or "")] = name
+            tool_id = str(block.get("id") or "")
+            names[tool_id] = name
             out.tools.setdefault(name, ToolStats()).calls += 1
             signature = (agent, name, json.dumps(block.get("input"), sort_keys=True, default=str))
             if signature in seen:
                 out.repeated_calls += 1
-            seen.add(signature)
+            if name in MUTATING:
+                seen.clear()  # the workspace may differ now, on every thread
+            seen[signature] = tool_id
     elif kind == "user":
         for block in _content(rec):
             if block.get("type") != "tool_result":
@@ -184,10 +197,19 @@ def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[st
             stats.max_result_chars = max(stats.max_result_chars, size)
             if block.get("is_error"):
                 stats.errors += 1
+                failed = str(block.get("tool_use_id") or "")
+                for signature in [s for s, tool_id in seen.items() if tool_id == failed]:
+                    del seen[signature]  # a retry of a failed call is not a repeat
     elif kind == "result":
         out.num_turns = rec.get("num_turns")
         out.result_subtype = subtype
         out.is_error = bool(rec.get("is_error"))
+
+
+def _merge(call: dict[str, Any], later: dict[str, Any]) -> None:
+    """Fold a later block into its call; the call keeps its thread and its largest counts."""
+    for k in TOKEN_FIELDS:
+        call[k] = max(call[k], later[k])
 
 
 def _call(usage: dict[str, Any], agent: Any) -> dict[str, Any]:

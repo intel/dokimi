@@ -237,8 +237,8 @@ intents.yaml             Intent registry: problem/task domains mapped to product
 dokimi/                  Main Python package
   agent_profiles/        Agent persona prompt loader
   commands/              CLI subcommand definitions
-  dashboard/             Dashboard aggregation/rendering
   context/               Context window of a run, read from its harness trace
+  dashboard/             Dashboard aggregation/rendering
   eval/                  Answer generation, judges, panels, RAGAS, arm runner
   explore/               ExploreBench localization track
   external/              External skill/task catalog scanning

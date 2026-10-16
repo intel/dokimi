@@ -32,14 +32,22 @@ run.jsonl: prompt tokens per call: 21390 21673
   **first**: what the history added. **fill** is peak over `--window`, shown
   only when you pass the window, because the trace does not say it.
 - **compact**: `compact_boundary` events. After one the prompt can drop; the
-  `--calls` series shows by how much, and `--json` gives each event's trigger,
-  `pre_tokens` and (on newer CLIs) `post_tokens`.
+  `--calls` series shows by how much, and `--json --calls` gives each event's
+  trigger, `pre_tokens` and (on newer CLIs) `post_tokens` as
+  `compaction_events`.
 - **tools**, **failed**, **repeat**: tool calls, calls whose result came back
   as an error, and calls identical in name and input to an earlier call on the
-  same thread (an agent re-reading what it already has).
+  same thread that did not fail, with no `Bash`, `Edit`, `MultiEdit`,
+  `NotebookEdit` or `Write` call in between. A retry after an error and a
+  `Read` after an `Edit` are not repeats; what is left is an agent fetching
+  again what it already had.
 - **result chars**: the size of every tool result, in characters, since the
   trace gives no token count for them. The line under the table names the
   tools whose results weighed most.
+
+`--json` prints a list with one object per trace, also for a single trace. A
+trace that cannot be read is reported on stderr and left out; the others still
+print, and the command exits 1.
 
 ## Comparing context layers
 
@@ -58,6 +66,6 @@ Two things make a baseline wrong without looking wrong. Claude Code loads every
 a directory with no guidance file above it (the system temp dir usually
 qualifies). And a user-level `~/.claude/CLAUDE.md` loads into every run;
 point `CLAUDE_CONFIG_DIR` at an empty directory to leave it out. The
-`surface` field of `--json` (tool, skill, agent and MCP server counts, and the
-loader plugins) shows what start-up offered, so two runs that differ there are
-not the same condition.
+`surface` field of `--json` (the tool, skill and agent counts, and the names of
+the MCP servers and loaded plugins) shows what start-up offered, so two runs
+that differ there are not the same condition.

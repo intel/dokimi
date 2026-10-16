@@ -272,9 +272,9 @@ still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
 
 `dokimi/context/trace.py` reads a Claude Code `stream-json` trace into the
 prompt size of every model call (`input + cache_creation + cache_read`
-tokens, one call per message id), the compaction events, and tool-result sizes,
-failures and repeats per tool. `python cli.py context trace` prints one or more
-traces as a comparison table; it calls no model. Guide:
+tokens, one call per message id), the compaction events, tool-result sizes and
+failures per tool, and repeated tool calls. `python cli.py context trace`
+prints one or more traces as a comparison table; it calls no model. Guide:
 [context-window.md](context-window.md).
 
 ## Shared building blocks

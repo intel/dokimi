@@ -15,13 +15,14 @@ def cmd_context_trace(args: argparse.Namespace) -> None:
     """Per-call prompt size, peak, compactions and tool-output weight of one or more traces."""
     from dokimi.context import TraceError, read_trace
 
-    rows = []
+    rows, failed = [], False
     for name in args.traces:
         try:
             trace = read_trace(Path(name))
-        except TraceError as exc:
+        except TraceError as exc:  # report it, and still print the traces that read
             print(f"✗ {exc}", file=sys.stderr)
-            sys.exit(1)
+            failed = True
+            continue
         for problem in trace.errors:
             print(f"warning: {name}: {problem}", file=sys.stderr)
         row = {"trace": name, **trace.summary(args.window)}
@@ -31,8 +32,14 @@ def cmd_context_trace(args: argparse.Namespace) -> None:
         rows.append(row)
 
     if args.json:
-        print(json.dumps(rows if len(rows) > 1 else rows[0], indent=2))
-        return
+        print(json.dumps(rows, indent=2))  # always a list, one entry per trace that read
+    elif rows:
+        _print_text(rows, args)
+    if failed:
+        sys.exit(1)
+
+
+def _print_text(rows: list[dict], args: argparse.Namespace) -> None:
     print(_table(rows, args.window))
     for row in rows:
         heavy = ", ".join(f"{t['tool']} {t['chars']:,}" for t in row["largest_tool_results"][:3])
@@ -62,7 +69,8 @@ def _table(rows: list[dict], window: int | None) -> str:
                 cells.append(f"{value:.0%}")
             else:
                 cells.append(f"{value:,}")
-        lines.append(f"| {row['trace']} | " + " | ".join(cells) + " |")
+        trace = row["trace"].replace("|", "\\|")  # a `|` in a file name would split the cell
+        lines.append(f"| {trace} | " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
 
