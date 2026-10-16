@@ -248,21 +248,18 @@ def test_workspace_has_no_reflog_or_unreachable_objects(toy):
 
 
 def test_docker_cli_env_keeps_host_HOME_and_USER(tmp_path, monkeypatch):
-    import dokimi.repos.container as container
+    from dokimi import process
 
-    seen = {}
-
-    def fake_run_process(argv, *, env, **kw):
-        seen.update(argv=argv, env=env)
-        return ContainerResult(returncode=0, timed_out=False, wall_s=0.0)
-
-    monkeypatch.setattr(container, "run_process", fake_run_process)
+    fake = process.FakeRunner()
     monkeypatch.setenv("HOME", "/home/host-user")
     monkeypatch.setenv("USER", "host-user")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "s3cret")
     spec = ContainerSpec(image="img", argv=["true"], env={"HOME": "/eval/run/home", "USER": "eval", "X": "1"},
                          pass_env=("ANTHROPIC_API_KEY",))
-    DockerRunner().run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=5)
+    DockerRunner(runner=fake).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=5)
+    (call,) = fake.calls
+    seen = {"argv": list(call.argv), "env": call.env}
+    assert call.stdout_to == tmp_path / "o" and call.stderr_to == tmp_path / "e" and call.timeout == 5
     assert seen["env"]["HOME"] == "/home/host-user" and seen["env"]["USER"] == "host-user"
     assert "X" not in seen["env"] or seen["env"]["X"] == os.environ.get("X")
     argv = seen["argv"]
@@ -408,23 +405,57 @@ def test_trees_are_checked_out_without_host_config_or_export_attributes(tmp_path
     assert (content / "g.py").read_bytes() == b"y\n"
 
 
-def test_a_docker_kill_that_times_out_still_ends_the_run(tmp_path, monkeypatch):
-    import dokimi.repos.container as container
+def test_a_docker_kill_that_times_out_still_ends_the_run(tmp_path):
+    """The CLI gets SIGTERM (it stops the container) before SIGKILL; then the container is
+    killed by name, and a `docker kill` that hangs too still ends the run."""
+    from dokimi import process
 
-    real_run = subprocess.run
-
-    def run(argv, **kw):
-        if argv[1:2] == ["kill"]:
-            raise subprocess.TimeoutExpired(argv, 60)
-        return real_run(argv, **kw)
-
-    monkeypatch.setattr(container.subprocess, "run", run)
-    docker = tmp_path / "docker"
-    docker.write_text("#!/bin/sh\nsleep 60\n")
-    docker.chmod(0o755)
+    fake = process.FakeRunner(lambda call: process.reply("partial", timed_out=True))
     spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x")
-    res = DockerRunner(str(docker)).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=1)
+    res = DockerRunner("docker", runner=fake).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e",
+                                                  timeout_s=1)
     assert res.timed_out and res.returncode is None
+    run, kill = fake.calls
+    assert run.argv[:2] == ("docker", "run") and run.term_grace > 0 and run.timeout == 1
+    assert kill.argv == ("docker", "kill", "dokimi-x") and kill.timeout == 60
+    assert (tmp_path / "o").read_text() == "partial"
+
+
+def test_a_docker_cli_that_cannot_start_is_a_container_error(tmp_path):
+    """No docker binary: the build is a ContainerError, and a timed-out run whose `docker kill`
+    cannot start either still returns as timed out."""
+    from dokimi import process
+
+    def missing(call):
+        raise FileNotFoundError(2, "No such file or directory", call.argv[0])
+
+    def missing_kill(call):
+        return missing(call) if call.argv[1] == "kill" else process.reply(timed_out=True)
+
+    with pytest.raises(ContainerError, match="cannot run 'nodocker'"):
+        DockerRunner("nodocker", runner=process.FakeRunner(missing)).build(tmp_path, tmp_path / "D", "t")
+    res = DockerRunner(runner=process.FakeRunner(missing_kill)).run(
+        ContainerSpec(image="img", argv=["true"], name="dokimi-y"), stdout=tmp_path / "o", stderr=tmp_path / "e",
+        timeout_s=1)
+    assert res.timed_out and res.returncode is None
+
+
+def test_docker_build_and_inspect_are_bounded(tmp_path):
+    """A wedged daemon fails the build or the image lookup (a ContainerError) instead of hanging
+    the batch; an image that is not there is still just absent."""
+    import dokimi.repos.container as container
+    from dokimi import process
+
+    fake = process.FakeRunner(lambda call: process.reply(stderr="step 3/9", timed_out=True))
+    runner = DockerRunner(runner=fake)
+    with pytest.raises(ContainerError, match="timed out after"):
+        runner.build(tmp_path, tmp_path / "Dockerfile", "img:t")
+    with pytest.raises(ContainerError, match="no answer in 60s"):
+        runner.image_exists("img:t")
+    build, inspect = fake.calls
+    assert build.timeout == container.BUILD_TIMEOUT_S and inspect.timeout == container.DOCKER_CALL_TIMEOUT_S
+    missing = DockerRunner(runner=process.FakeRunner(lambda call: process.reply(returncode=1)))
+    assert missing.image_exists("img:t") is False and DockerRunner(runner=process.FakeRunner()).image_exists("x")
 
 
 def test_workspace_git_never_prompts_and_a_timeout_is_a_prep_error(monkeypatch, tmp_path):

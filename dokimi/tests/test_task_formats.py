@@ -490,16 +490,12 @@ def test_docker_oracle_runs_a_task_md_task_from_its_own_dirs(tmp_path, monkeypat
 @pytest.mark.parametrize("harness_id", ["terminal-bench:oracle", "codex", "claude-code"])
 def test_harbor_harness_errors_on_a_task_md_task(tmp_path, monkeypatch, harness_id):
     """Harbor reads only task.toml: its non-zero exit must not read as a fail."""
-    import subprocess
-
     from dokimi.harnesses import TaskSuiteRunner
+    from dokimi.process import FakeRunner
 
-    def _no_subprocess(*args, **kwargs):
-        raise AssertionError("harbor must not be started for a task.md task")
-
-    monkeypatch.setattr(subprocess, "run", _no_subprocess)
+    never = FakeRunner(lambda call: pytest.fail("harbor must not be started for a task.md task"))
     task = load_task(_task_md(tmp_path / "tasks"))
-    out = TaskSuiteRunner([task], [harness_id], output_root=tmp_path / "runs").run()
+    out = TaskSuiteRunner([task], [harness_id], output_root=tmp_path / "runs", runner=never).run()
     (row,) = out["results"]
     assert row["reward"] is None and row["passed"] is False
     assert "cannot run it: no task.toml" in row["metrics"]["error"]
@@ -534,8 +530,6 @@ def test_migrated_dir_with_task_toml_and_task_md_runs_everywhere(tmp_path, monke
     """`bench tasks migrate` without --remove-legacy leaves task.toml, solution/,
     tests/ and a task.md. Every built-in harness read those files before task.md
     was understood, so none may refuse the directory."""
-    import subprocess
-
     from dokimi.harnesses import TaskSuiteRunner
 
     path = _harbor(tmp_path / "tasks")
@@ -543,14 +537,9 @@ def test_migrated_dir_with_task_toml_and_task_md_runs_everywhere(tmp_path, monke
     task = load_task(path)
     assert task.format == FORMAT_TASK_MD and task.tests_dir.name == "tests"
     calls = _recording_docker(monkeypatch)
-    started: list[list[str]] = []
-
-    class _R:
-        returncode, stdout, stderr = 0, "", ""
-
-    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: started.append(cmd) or _R())
+    harbor = _no_harbor()
     ids = ["docker-oracle", "docker-claude", "terminal-bench:oracle", "codex"]
-    out = TaskSuiteRunner([task], ids, output_root=tmp_path / "runs").run()
+    out = TaskSuiteRunner([task], ids, output_root=tmp_path / "runs", runner=harbor).run()
     # docker-claude starts an egress proxy, which may be missing on the test host;
     # what it must never do is refuse the directory.
     errors = {r["harness"]: (r["metrics"] or {}).get("error", "") for r in out["results"]}
@@ -558,7 +547,7 @@ def test_migrated_dir_with_task_toml_and_task_md_runs_everywhere(tmp_path, monke
     assert not any(v for k, v in errors.items() if k != "docker-claude"), errors
     cps = [(Path(c[1]).name, c[2].split(":", 1)[1]) for c in calls if c[0] == "cp" and Path(c[1]).is_dir()]
     assert ("solution", "/solution") in cps and ("tests", "/tests") in cps
-    assert any("harbor" in " ".join(map(str, c)) for c in started)
+    assert any("harbor" in " ".join(c.argv) for c in harbor.calls)
 
 
 def test_task_toml_with_only_oracle_and_verifier_dirs_runs_in_docker(tmp_path, monkeypatch):
@@ -625,23 +614,18 @@ def test_every_benchflow_key_makes_task_md_win_next_to_task_toml(tmp_path, key, 
 # ── harness refusals, task.md/task.toml drift, hostile frontmatter ──────────
 
 
-def _run(tasks, harness_ids, tmp_path):
+def _run(tasks, harness_ids, tmp_path, runner):
     from dokimi.harnesses import TaskSuiteRunner
 
-    out = TaskSuiteRunner(tasks, harness_ids, output_root=tmp_path / "runs").run()
+    out = TaskSuiteRunner(tasks, harness_ids, output_root=tmp_path / "runs", runner=runner).run()
     return {r["harness"]: r for r in out["results"]}
 
 
-def _no_harbor(monkeypatch):
-    import subprocess
+def _no_harbor():
+    """A runner standing for the harbor CLI: every call exits 0 and is recorded."""
+    from dokimi.process import FakeRunner
 
-    started: list[list[str]] = []
-
-    class _R:
-        returncode, stdout, stderr = 0, "", ""
-
-    monkeypatch.setattr(subprocess, "run", lambda cmd, **k: started.append(cmd) or _R())
-    return started
+    return FakeRunner()
 
 
 @pytest.mark.parametrize(
@@ -662,27 +646,27 @@ def test_harbor_harness_refuses_what_harbor_itself_rejects(tmp_path, monkeypatch
         shutil.rmtree(target)
     else:
         target.unlink()
-    started = _no_harbor(monkeypatch)
+    harbor = _no_harbor()
     task = load_task(path) if remove != "instruction.md" else None
     if task is None:  # a Harbor-layout task needs instruction.md to load at all
         (path / "task.md").write_text(_MIGRATED, encoding="utf-8")
         (path / "solution").rename(path / "oracle")
         (path / "tests").rename(path / "verifier")
         task = load_task(path)  # the `migrate --remove-legacy` that kept task.toml
-    rows = _run([task], ["terminal-bench:oracle", "codex"], tmp_path)
+    rows = _run([task], ["terminal-bench:oracle", "codex"], tmp_path, harbor)
     for row in rows.values():
         assert row["reward"] is None and problem in row["metrics"]["error"], row["metrics"]
-    assert started == []
+    assert harbor.calls == []
 
 
 def test_harbor_oracle_needs_a_solve_script_and_other_agents_do_not(tmp_path, monkeypatch):
     path = _harbor(tmp_path / "tasks")
     (path / "solution" / "solve.sh").unlink()
-    started = _no_harbor(monkeypatch)
-    rows = _run([load_task(path)], ["terminal-bench:oracle", "codex"], tmp_path)
+    harbor = _no_harbor()
+    rows = _run([load_task(path)], ["terminal-bench:oracle", "codex"], tmp_path, harbor)
     assert "no solution/solve.sh" in rows["terminal-bench:oracle"]["metrics"]["error"]
     assert "error" not in rows["codex"]["metrics"]
-    assert len(started) == 1
+    assert len(harbor.calls) == 1
 
 
 @pytest.mark.parametrize(
@@ -766,12 +750,12 @@ def test_task_md_and_task_toml_drift_warns_and_harbor_refuses(tmp_path, monkeypa
     with pytest.warns(UserWarning, match=f"differ in {section}"):
         task = load_task(path)
     assert legacy_drift(task) == [section]
-    started = _no_harbor(monkeypatch)
+    harbor = _no_harbor()
     _recording_docker(monkeypatch)
-    rows = _run([task], ["codex", "docker-oracle"], tmp_path)
+    rows = _run([task], ["codex", "docker-oracle"], tmp_path, harbor)
     assert f"differ in {section}" in rows["codex"]["metrics"]["error"]
     assert "error" not in (rows["docker-oracle"]["metrics"] or {})
-    assert started == []
+    assert harbor.calls == []
 
 
 _ALIAS_BOMB = (
@@ -848,10 +832,10 @@ def test_reward_dir_and_comments_are_not_benchflow_mounts(tmp_path):
 def test_harbor_refuses_a_test_script_that_reads_verifier(tmp_path, monkeypatch):
     path = _harbor(tmp_path / "tasks")
     (path / "tests" / "test.sh").write_text("pytest /verifier/test_outputs.py\n", encoding="utf-8")
-    started = _no_harbor(monkeypatch)
-    rows = _run([load_task(path)], ["codex"], tmp_path)
+    harbor = _no_harbor()
+    rows = _run([load_task(path)], ["codex"], tmp_path, harbor)
     assert "Harbor mounts tests/ at /tests" in rows["codex"]["metrics"]["error"]
-    assert started == []
+    assert harbor.calls == []
 
 
 @pytest.mark.parametrize(

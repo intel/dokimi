@@ -20,6 +20,11 @@ which holds these invariants:
   live group first; the ``dokimi`` CLI installs it at start-up, importing this
   module does not. A library caller calls it from its main thread, or calls
   :func:`kill_children` from its own handler. Nothing handles ``SIGKILL``.
+* **A timeout can stop the group gently.** With ``term_grace`` (POSIX), a timeout or
+  an interrupt first sends the group ``SIGTERM`` and gives it that many seconds to
+  exit, its output still read, before the kill: a ``docker`` CLI stops its
+  container, ``bench`` its Compose project. Windows terminates the job at once. The
+  kill when the child exits, and :func:`kill_children`, are immediate.
 * **A timeout is a result, not an exception.** ``timed_out`` is set, ``returncode``
   is :data:`TIMEOUT_RC` (124, as ``timeout(1)`` reports it), and the output
   produced before the kill is kept.
@@ -155,6 +160,7 @@ class Runner(Protocol):
         capture_limit: int | None = CAPTURE_LIMIT,
         stdout_to: str | os.PathLike[str] | None = None,
         stderr_to: str | os.PathLike[str] | None = None,
+        term_grace: float = 0.0,
     ) -> Completed: ...
 
 
@@ -170,9 +176,10 @@ def run(
     capture_limit: int | None = CAPTURE_LIMIT,
     stdout_to: str | os.PathLike[str] | None = None,
     stderr_to: str | os.PathLike[str] | None = None,
+    term_grace: float = 0.0,
 ) -> Completed:
     """Run ``argv`` (no shell) to completion or ``timeout`` seconds; see the module doc."""
-    args = _check(argv, timeout, capture_limit)
+    args = _check(argv, timeout, capture_limit, term_grace)
     data = input.encode("utf-8") if isinstance(input, str) else input
     with _Spool(stdout_to) as out_file, _Spool(stderr_to) as err_file:
         start = time.monotonic()
@@ -203,9 +210,12 @@ def run(
                 raise
         out, err = _Capture(capture_limit), _Capture(capture_limit)
         pipes = [(pipe, cap) for pipe, cap in ((proc.stdout, out), (proc.stderr, err)) if pipe]
-        timed_out = _collect(proc, pipes, start + timeout, job)
+        timed_out = _collect(proc, pipes, start + timeout, job, term_grace)
     except BaseException:
-        _kill_tree(proc, job)
+        try:
+            _terminate(proc, term_grace)
+        finally:
+            _kill_tree(proc, job)
         raise
     finally:
         _close_pipes(proc)
@@ -400,7 +410,8 @@ def _feed(sink, data: bytes) -> None:
             pass
 
 
-def _check(argv: Sequence[str | os.PathLike[str]], timeout: float, capture_limit: int | None) -> list[str]:
+def _check(argv: Sequence[str | os.PathLike[str]], timeout: float, capture_limit: int | None,
+           term_grace: float = 0.0) -> list[str]:
     args = [os.fspath(a) for a in argv]
     if not args:
         raise ValueError("empty argv")
@@ -408,36 +419,50 @@ def _check(argv: Sequence[str | os.PathLike[str]], timeout: float, capture_limit
         raise ValueError(f"timeout must be > 0, got {timeout!r}")
     if capture_limit is not None and capture_limit < 0:
         raise ValueError(f"capture_limit must be >= 0 or None, got {capture_limit!r}")
+    if not term_grace >= 0:
+        raise ValueError(f"term_grace must be >= 0, got {term_grace!r}")
     return args
 
 
 _Pipes = Sequence[tuple[IO[bytes], _Capture]]
 
 
-def _collect(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float, job: int | None) -> bool:
-    """Read the pipes until the child exits or ``deadline`` passes; then kill what is left of
-    its group. A process outside the group may still hold a pipe: stop reading it
+def _collect(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float, job: int | None,
+             term_grace: float = 0.0) -> bool:
+    """Read the pipes until the child exits or ``deadline`` passes (then, with ``term_grace``,
+    until its group exits on ``SIGTERM`` or the grace ends); then kill what is left of its
+    group. A process outside the group may still hold a pipe: stop reading it
     :data:`DRAIN_GRACE_SEC` after the kill. Returns whether the deadline fired."""
-    timed_out = (_select_pipes if _POSIX else _thread_pipes)(proc, pipes, deadline, job)
+    timed_out = (_select_pipes if _POSIX else _thread_pipes)(proc, pipes, deadline, job, term_grace)
     _kill_tree(proc, job)  # also background jobs that closed their output
     return timed_out
 
 
-def _select_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float, job: int | None) -> bool:
-    timed_out = False
+def _select_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float, job: int | None,
+                  term_grace: float = 0.0) -> bool:
+    timed_out = termed = False
+    stop_at = deadline  # when the group gets its next signal: SIGTERM (with term_grace), then the kill
     killed_at: float | None = None
     with selectors.DefaultSelector() as sel:
         for pipe, cap in pipes:
             sel.register(pipe, selectors.EVENT_READ, cap)
         while sel.get_map():
             now = time.monotonic()
-            if killed_at is None and (proc.poll() is not None or now >= deadline):
-                timed_out = proc.returncode is None
-                _kill_tree(proc, job)  # whatever still holds a pipe in the group goes too
-                killed_at = now
+            if killed_at is None:
+                # It exited (after a SIGTERM: its whole group did), or it is time for the next signal.
+                done = proc.poll() is not None and not (termed and _signal_group(proc, 0))
+                if not done and now >= stop_at:
+                    timed_out = True
+                    if not termed and term_grace > 0 and _signal_group(proc, signal.SIGTERM):
+                        termed, stop_at = True, now + term_grace
+                    else:
+                        done = True
+                if done:
+                    _kill_tree(proc, job)  # whatever still holds a pipe in the group goes too
+                    killed_at = now
             if killed_at is not None and now >= killed_at + DRAIN_GRACE_SEC:
                 break
-            until = killed_at + DRAIN_GRACE_SEC if killed_at is not None else min(deadline, now + _POLL_SEC)
+            until = killed_at + DRAIN_GRACE_SEC if killed_at is not None else min(stop_at, now + _POLL_SEC)
             for key, _ in sel.select(max(0.0, until - now)):
                 chunk = os.read(key.fd, _CHUNK)
                 if chunk:
@@ -445,12 +470,19 @@ def _select_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float,
                 else:
                     sel.unregister(key.fileobj)
     if killed_at is None:  # the output closed first: wait for the child itself
-        timed_out = _wait(proc, deadline)
+        if termed:
+            _wait_group(proc, stop_at)
+        else:
+            timed_out = _wait(proc, deadline)
+            if timed_out:
+                _terminate(proc, term_grace)
     return timed_out
 
 
-def _thread_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float, job: int | None) -> bool:
-    """Windows has no select() on pipes: one reader thread per pipe."""
+def _thread_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float, job: int | None,
+                  term_grace: float = 0.0) -> bool:
+    """Windows has no select() on pipes: one reader thread per pipe. No SIGTERM there either:
+    ``term_grace`` is ignored and the job is terminated at once."""
     readers = [threading.Thread(target=_pump, args=(pipe, cap), daemon=True) for pipe, cap in pipes]
     for reader in readers:
         reader.start()
@@ -481,6 +513,33 @@ def _wait(proc: subprocess.Popen[bytes], deadline: float) -> bool:
             return False
         except subprocess.TimeoutExpired:
             continue
+
+
+def _terminate(proc: subprocess.Popen[bytes], grace: float) -> None:
+    """With a ``grace`` (POSIX): ``SIGTERM`` the group and wait up to ``grace`` seconds for all
+    of it to exit. The caller kills what is left."""
+    if _POSIX and grace > 0 and _signal_group(proc, signal.SIGTERM):
+        _wait_group(proc, time.monotonic() + grace)
+
+
+def _wait_group(proc: subprocess.Popen[bytes], until: float) -> None:
+    """Wait until the child and the rest of its group have exited, or until ``until``."""
+    while (remaining := until - time.monotonic()) > 0:
+        if proc.poll() is not None and not _signal_group(proc, 0):  # reap the leader, or it keeps the group
+            return
+        time.sleep(min(_POLL_SEC, remaining))
+
+
+def _signal_group(proc: subprocess.Popen[bytes], sig: int) -> bool:
+    """Send ``sig`` to the child's process group (0: only check it has a member); False when
+    there is none left (POSIX only)."""
+    if sys.platform == "win32":  # pragma: no cover - Windows has no process groups to signal
+        return False
+    try:
+        os.killpg(proc.pid, sig)
+    except OSError:
+        return False
+    return True
 
 
 def _close_pipes(proc: subprocess.Popen[bytes]) -> None:
@@ -604,6 +663,7 @@ class Call:
     capture_limit: int | None = CAPTURE_LIMIT
     stdout_to: Path | None = None
     stderr_to: Path | None = None
+    term_grace: float = 0.0
 
 
 def reply(stdout: str | bytes = "", stderr: str | bytes = "", returncode: int = 0, *,
@@ -637,12 +697,13 @@ class FakeRunner:
         capture_limit: int | None = CAPTURE_LIMIT,
         stdout_to: str | os.PathLike[str] | None = None,
         stderr_to: str | os.PathLike[str] | None = None,
+        term_grace: float = 0.0,
     ) -> Completed:
-        args = _check(argv, timeout, capture_limit)
+        args = _check(argv, timeout, capture_limit, term_grace)
         data = input.encode("utf-8") if isinstance(input, str) else input
         path = (lambda p: Path(p) if p is not None else None)
         call = Call(tuple(args), path(cwd), env.resolve(), timeout, data, capture_stdout, limits,
-                    capture_limit, path(stdout_to), path(stderr_to))
+                    capture_limit, path(stdout_to), path(stderr_to), term_grace)
         self.calls.append(call)
         answer = self.handler(call) if self.handler else None
         done = answer if answer is not None else reply()

@@ -21,14 +21,13 @@ command-wrapper harness consume one shape.
 from __future__ import annotations
 
 import json
-import os
 import shlex
-import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from dokimi import process
 from dokimi.harnesses.models import OperationRecord
 from dokimi.harnesses.operations import load_operations
 from dokimi.metrics.exploration import CitationSet, parse_final_answer
@@ -93,6 +92,7 @@ class CommandExplorer:
     timeout_sec: float = 600.0
     env: dict = field(default_factory=dict)
     output_root: Path | None = None
+    runner: process.Runner = field(default=process.run, compare=False, repr=False)
 
     def explore(self, query: str, *, repo_root: Path) -> ExplorerResult:
         output_dir = self.output_root
@@ -122,56 +122,31 @@ class CommandExplorer:
             # {query}) breaks shlex; fail this row, not the whole run.
             return ExplorerResult(final_answer="", operations=(), returncode=127)
         if not command:
-            # An empty rendered template would make subprocess.run raise; record
-            # a failed row instead.
+            # An empty rendered template has nothing to run; record a failed row.
             return ExplorerResult(final_answer="", operations=(), returncode=127)
-        env = os.environ.copy()
-        env.update(self.env)
+        # The explorer is the operator's own CLI: it runs with the caller's environment.
+        env = dict(self.env)
         if output_dir is not None:
             env["DOKIMI_OUTPUT_DIR"] = str(output_dir)
             env["DOKIMI_OPERATIONS_FILE"] = str(output_dir / "operations.jsonl")
         start = time.time()
         try:
-            proc = subprocess.run(
-                command,
-                cwd=str(repo_root),
-                env=env,
-                text=True,
-                capture_output=True,
-                timeout=self.timeout_sec,
-                check=False,
-            )
-        except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
-            # External explorers can hang, be missing, or get a bad command;
-            # record a failed row and let the suite continue. On timeout the
-            # explorer may already have written operations.jsonl / emitted
-            # markers, so preserve any telemetry produced before it failed.
-            elapsed = time.time() - start
-            partial_out = _to_text(getattr(exc, "stdout", ""))
-            partial_err = _to_text(getattr(exc, "stderr", ""))
-            operations = tuple(load_operations(output_dir, partial_out, partial_err))
-            return ExplorerResult(
-                final_answer=partial_out,
-                operations=operations,
-                elapsed_sec=elapsed,
-                returncode=124,
-            )
-        elapsed = time.time() - start
-        stdout = proc.stdout or ""
-        operations = tuple(load_operations(output_dir, stdout, proc.stderr or ""))
+            # Captured whole: stdout is the answer, and the markers are read from both streams.
+            proc = self.runner(command, cwd=repo_root, env=process.Env.inherit(env),
+                               timeout=self.timeout_sec, capture_limit=None)
+        except (OSError, ValueError):
+            # A missing explorer or a bad command (a NUL byte, a timeout <= 0): record a
+            # failed row and let the suite continue.
+            return ExplorerResult(final_answer="", operations=tuple(load_operations(output_dir, "", "")),
+                                  elapsed_sec=time.time() - start, returncode=124)
+        # A hung explorer is killed with its whole tree and reported as rc 124; what it
+        # printed and any operations.jsonl / markers it emitted before the kill are kept.
         return ExplorerResult(
-            final_answer=stdout,
-            operations=operations,
-            elapsed_sec=elapsed,
+            final_answer=proc.stdout,
+            operations=tuple(load_operations(output_dir, proc.stdout, proc.stderr)),
+            elapsed_sec=time.time() - start,
             returncode=proc.returncode,
         )
-
-
-def _to_text(value: object) -> str:
-    """Decode subprocess output that may be bytes (e.g. on TimeoutExpired)."""
-    if isinstance(value, bytes):
-        return value.decode("utf-8", "replace")
-    return value if isinstance(value, str) else ""
 
 
 _PLACEHOLDERS = ("query", "query_quoted", "repo_root", "output_dir")

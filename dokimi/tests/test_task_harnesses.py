@@ -5,11 +5,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shlex
+import signal
 import stat
-import subprocess
 import sys
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from dokimi.harnesses.command import CommandHarness, clear_run_dir
 from dokimi.harnesses.operations import load_operations
 from dokimi.harnesses.registry import create_harness, known_harnesses
 from dokimi.harnesses.runner import summarize_task_results
+from dokimi.process import FakeRunner, reply
 
 
 def _fixture_task(tmp_path: Path) -> Path:
@@ -135,24 +137,24 @@ def test_command_harness_collects_reward_and_operations(tmp_path, monkeypatch):
     task = load_task(_fixture_task(tmp_path))
     out_dir = tmp_path / "out"
 
-    def fake_run(command, cwd, env, text, capture_output, timeout, check):
-        Path(env["DOKIMI_OPERATIONS_FILE"]).write_text(
+    def agent(call):
+        Path(call.env["DOKIMI_OPERATIONS_FILE"]).write_text(
             json.dumps({"type": "tool", "name": "edit", "elapsed_sec": 0.25}) + "\n",
             encoding="utf-8",
         )
-        reward_dir = Path(env["DOKIMI_OUTPUT_DIR"]) / "logs" / "verifier"
+        reward_dir = Path(call.env["DOKIMI_OUTPUT_DIR"]) / "logs" / "verifier"
         reward_dir.mkdir(parents=True)
         (reward_dir / "reward.txt").write_text("1.0", encoding="utf-8")
-        return subprocess.CompletedProcess(
-            command,
-            0,
-            stdout='DOKIMI_OP {"type":"loop","name":"turn","elapsed_sec":0.1}\n',
-            stderr="",
-        )
+        return reply('DOKIMI_OP {"type":"loop","name":"turn","elapsed_sec":0.1}\n')
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    harness = CommandHarness("fake", "fake-agent --task {task_path} --model {model}")
+    monkeypatch.setenv("DOKIMI_TEST_ONLY_OPERATOR", "kept")
+    fake = FakeRunner(agent)
+    harness = CommandHarness("fake", "fake-agent --task {task_path} --model {model}", runner=fake)
     result = harness.run(task, model="m", output_dir=out_dir)
+    (call,) = fake.calls
+    assert call.argv[0] == "fake-agent" and call.cwd == task.path.parent.parent
+    # The command is the operator's own CLI: it runs with the operator's environment.
+    assert call.env["DOKIMI_TEST_ONLY_OPERATOR"] == "kept"
 
     assert result.passed is True
     assert result.reward == 1.0
@@ -205,18 +207,12 @@ def test_command_harness_uses_finite_timeout_when_task_has_none(tmp_path, monkey
     task_path = _fixture_task(tmp_path)
     (task_path / "task.toml").write_text('[metadata]\ndifficulty = "easy"\n', encoding="utf-8")
     task = load_task(task_path)
-    observed = {}
-
-    def fake_run(command, cwd, env, text, capture_output, timeout, check):
-        observed["timeout"] = timeout
-        return subprocess.CompletedProcess(command, 0, stdout="reward: 1.0", stderr="")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    result = CommandHarness("fake", "fake-agent --task {task_path}").run(
+    fake = FakeRunner(lambda call: reply("reward: 1.0"))
+    result = CommandHarness("fake", "fake-agent --task {task_path}", runner=fake).run(
         task, output_dir=tmp_path / "out"
     )
 
-    assert observed["timeout"] == 3600.0
+    assert fake.calls[0].timeout == 3600.0
     assert result.metrics["timeout_sec"] == 3600.0
 
 
@@ -591,9 +587,8 @@ def test_path_placeholders_keep_windows_separators(tmp_path):
     assert cmd == ["agent", "--task", "C:/tasks/toy-task", "--out", "C:/runs/out"]
 
 
-def _timeout_expired(command, cwd, env, text, capture_output, timeout, check):
-    # subprocess.run attaches captured output as bytes even with text=True.
-    raise subprocess.TimeoutExpired(command, timeout, output=b"partial out", stderr=b"partial err")
+def _timeout_expired(call):
+    return reply("partial out", "partial err", timed_out=True)
 
 
 @pytest.mark.parametrize("harness_id", ["command:fake-agent {task_path}", "codex", "claude-code",
@@ -602,9 +597,9 @@ def test_agent_timeout_is_a_failed_cell_not_an_errored_one(tmp_path, monkeypatch
     """An agent that exceeds its timeout produced a verdict: it failed. Raising
     would make the runner record it as errored and drop it from pass_rate."""
     task = load_task(_fixture_task(tmp_path))
-    monkeypatch.setattr(subprocess, "run", _timeout_expired)
 
-    result = create_harness(harness_id).run(task, model="m", output_dir=tmp_path / "out")
+    result = create_harness(harness_id, runner=FakeRunner(_timeout_expired)).run(
+        task, model="m", output_dir=tmp_path / "out")
 
     assert result.returncode == 124
     assert result.reward == 0.0
@@ -618,13 +613,56 @@ def test_agent_timeout_is_a_failed_cell_not_an_errored_one(tmp_path, monkeypatch
 def test_agent_timeout_with_text_output_still_reports(tmp_path, monkeypatch):
     task = load_task(_fixture_task(tmp_path))
 
-    def fake_run(command, cwd, env, text, capture_output, timeout, check):
-        raise subprocess.TimeoutExpired(command, timeout, output="reward: 1.0", stderr=None)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    result = CommandHarness("fake", "fake-agent").run(task, output_dir=tmp_path / "out")
+    fake = FakeRunner(lambda call: reply("reward: 1.0", timed_out=True))
+    result = CommandHarness("fake", "fake-agent", runner=fake).run(task, output_dir=tmp_path / "out")
     # A reward printed before the timeout does not turn a timeout into a pass.
     assert result.reward == 0.0 and result.passed is False
+
+
+def _pid_gone(pid: int, within: float = 5.0) -> bool:
+    import time
+
+    deadline = time.monotonic() + within
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+# An agent that starts a helper (a tool call, a language server) and writes its pid; the
+# helper's output goes elsewhere, so only the process tree ties it to the agent.
+_AGENT_WITH_HELPER = (
+    "import subprocess, sys, time; "
+    "h = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], "
+    "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+    "open(sys.argv[1], 'w').write(str(h.pid)); print('working', flush=True); "
+)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the pid probe is POSIX")
+@pytest.mark.parametrize("ends", ["timeout", "exit"])
+def test_command_harness_leaves_nothing_of_the_agent_running(tmp_path, ends):
+    """A timed-out agent's helper used to outlive the cell (only the agent was killed), and so
+    did a helper left behind by an agent that exited; both are killed with the agent's tree."""
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+    pid_file = tmp_path / "helper.pid"
+    script = _AGENT_WITH_HELPER + ("time.sleep(60)" if ends == "timeout" else "print('reward: 1')")
+    template = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)} {shlex.quote(str(pid_file))}"
+    result = CommandHarness("fake", template).run(task, output_dir=tmp_path / "out", timeout_sec=2)
+    helper = int(pid_file.read_text())
+    try:
+        assert _pid_gone(helper), "the agent's helper outlived the cell"
+    finally:
+        with contextlib.suppress(OSError):
+            os.kill(helper, signal.SIGKILL)
+    if ends == "timeout":
+        assert (result.returncode, result.reward, result.metrics["timed_out"]) == (124, 0.0, True)
+        assert "working" in result.stdout_tail and "TIMEOUT" in result.stderr_tail
+    else:
+        assert (result.returncode, result.reward, result.passed) == (0, 1.0, True)
 
 
 def test_an_arm_that_hangs_is_not_scored_above_one_that_fails_fast(tmp_path):

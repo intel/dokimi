@@ -221,6 +221,116 @@ def test_interrupt_kills_the_tree_and_propagates(tmp_path, monkeypatch):
     assert _gone_soon(int(pid_file.read_text()))
 
 
+# ── term_grace: SIGTERM first, the kill after the grace ───────────────────────
+
+_TRAP_TERM = """
+import signal, sys, time
+def bye(*_):
+    print("cleaned up", flush=True)
+    sys.exit(3)
+signal.signal(signal.SIGTERM, bye)
+print("started", flush=True)
+time.sleep(60)
+"""
+
+
+@_POSIX_ONLY
+def test_term_grace_lets_the_group_clean_up_on_timeout():
+    """What the child prints while it handles the SIGTERM is kept: its output is still read."""
+    start = time.monotonic()
+    done = _py(_TRAP_TERM, timeout=1, term_grace=10)
+    assert time.monotonic() - start < 1 + 5  # it exited on SIGTERM, well inside the grace
+    assert done.timed_out and done.returncode == TIMEOUT_RC
+    assert done.stdout == "started\ncleaned up\n"
+
+
+@_POSIX_ONLY
+def test_term_grace_ends_in_sigkill_for_a_child_that_ignores_sigterm():
+    code = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('up', flush=True); time.sleep(60)"
+    start = time.monotonic()
+    done = _py(code, timeout=1, term_grace=1)
+    elapsed = time.monotonic() - start
+    assert 1 + 1 - 0.5 < elapsed < 1 + 1 + process.DRAIN_GRACE_SEC + 3
+    assert done.timed_out and done.stdout == "up\n"
+
+
+@_POSIX_ONLY
+def test_term_grace_waits_for_the_whole_group_not_only_the_child(tmp_path):
+    """The command exits on SIGTERM; a helper of its that ignores SIGTERM still gets the grace,
+    then the kill, and is gone when the call returns."""
+    pid_file = tmp_path / "pid"
+    code = ("import signal, subprocess, sys, time\n"
+            "helper = subprocess.Popen([sys.executable, '-c', 'import signal, time; "
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])\n"
+            "open(sys.argv[1], 'w').write(str(helper.pid))\n"
+            "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n"
+            "time.sleep(60)\n")
+    start = time.monotonic()
+    done = _py(code, str(pid_file), timeout=1, term_grace=1.5)
+    elapsed = time.monotonic() - start
+    assert done.timed_out and 1 + 1.5 - 0.5 < elapsed < 1 + 1.5 + process.DRAIN_GRACE_SEC + 3
+    assert _gone_soon(int(pid_file.read_text()))
+
+
+@_POSIX_ONLY
+def test_term_grace_applies_when_the_output_closed_before_the_timeout(tmp_path):
+    """A child that closed its output and hangs still gets the SIGTERM and its grace."""
+    marker = tmp_path / "term"
+    code = ("import os, signal, sys, time\n"
+            "signal.signal(signal.SIGTERM, lambda *_: (open(sys.argv[1], 'w').write('t'), sys.exit(0)))\n"
+            "os.close(1); os.close(2)\n"
+            "time.sleep(60)\n")
+    start = time.monotonic()
+    done = _py(code, str(marker), timeout=1, term_grace=10)
+    assert done.timed_out and time.monotonic() - start < 1 + 5
+    assert marker.read_text() == "t"
+
+
+@_POSIX_ONLY
+def test_term_grace_keeps_waiting_when_the_output_closes_during_the_cleanup(tmp_path):
+    marker = tmp_path / "term"
+    code = ("import os, signal, sys, time\n"
+            "def bye(*_):\n"
+            "    os.close(1); os.close(2)\n"
+            "    time.sleep(0.5)\n"
+            "    open(sys.argv[1], 'w').write('cleaned')\n"
+            "    os._exit(0)\n"
+            "signal.signal(signal.SIGTERM, bye)\n"
+            "time.sleep(60)\n")
+    done = _py(code, str(marker), timeout=1, term_grace=10)
+    assert done.timed_out and marker.read_text() == "cleaned"
+
+
+@_POSIX_ONLY
+def test_term_grace_applies_to_an_interrupt(tmp_path, monkeypatch):
+    marker = tmp_path / "term"
+    code = ("import signal, sys, time\n"
+            "signal.signal(signal.SIGTERM, lambda *_: (open(sys.argv[1], 'w').write('t'), sys.exit(0)))\n"
+            "open(sys.argv[1] + '.up', 'w').write('u')\n"
+            "time.sleep(60)\n")
+
+    def interrupted(*args, **kwargs):
+        _wait_for(Path(str(marker) + ".up"))
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(process, "_collect", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        _py(code, str(marker), timeout=30, term_grace=10)
+    assert marker.read_text() == "t"
+
+
+def test_a_negative_term_grace_is_refused():
+    for runner in (process.run, FakeRunner()):
+        with pytest.raises(ValueError, match="term_grace"):
+            runner(["x"], timeout=1, env=INHERIT, term_grace=-1)
+
+
+def test_fake_runner_records_the_term_grace():
+    fake = FakeRunner()
+    fake(["docker", "run"], timeout=5, env=INHERIT, term_grace=3)
+    assert fake.calls[0].term_grace == 3
+
+
 class _Recorded(process.subprocess.Popen):
     """Popen that keeps every child it starts, so a test can look at one run() did not return."""
 

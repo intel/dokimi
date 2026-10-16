@@ -3,13 +3,13 @@
 
 """Tests for the BenchFlow (``bench eval run``) harness adapter.
 
-``bench`` is never executed: ``_run_bench`` is replaced by a fake that
-writes a ``result.json`` shaped like the one benchflow 0.7.8 wrote for a real
-claude-agent-acp rollout, so the tests cover command construction, skill
-staging and the result → ``task_runs.v1`` mapping. Docker is never called
-either: the autouse fixture clears the proxy variables and stubs the bridge
-lookup, and the cleanup tests fake ``subprocess.run``. Error categories are
-the ones 0.7.8 writes (``acp_error``, ``timeout``, ``idle_timeout``).
+``bench`` is never executed: the harness gets a :class:`_Bench` runner standing
+for the ``bench`` and ``docker`` CLIs, whose bench writes a ``result.json``
+shaped like the one benchflow 0.7.8 wrote for a real claude-agent-acp rollout,
+so the tests cover command construction, skill staging and the result →
+``task_runs.v1`` mapping. The autouse fixture clears the proxy variables. Only
+the ``_run_bench`` tests start real processes. Error categories are the ones
+0.7.8 writes (``acp_error``, ``timeout``, ``idle_timeout``).
 """
 
 from __future__ import annotations
@@ -31,8 +31,7 @@ from dokimi.harnesses.benchflow import (
     skill_loads,
 )
 from dokimi.harnesses.registry import create_harness, known_harnesses
-
-_REAL_BRIDGE_GATEWAY = _bf._bridge_gateway  # before the autouse fixture stubs it
+from dokimi.process import FakeRunner, reply
 
 # Trimmed from a real rollout (haiku-4.5 on onetbb-histogram-local-aggregation).
 _RESULT = {
@@ -64,12 +63,14 @@ _PROXY_ENV = ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_prox
 
 @pytest.fixture(autouse=True)
 def _hermetic(monkeypatch):
-    """No host proxy settings, and no `docker network inspect` from _subprocess_env."""
-    import dokimi.harnesses.benchflow as mod
-
+    """No host proxy settings, so _subprocess_env makes no `docker network inspect`."""
     for var in _PROXY_ENV:
         monkeypatch.delenv(var, raising=False)
-    monkeypatch.setattr(mod, "_bridge_gateway", lambda: None)
+
+
+def _gateway(answer: str | None) -> _Bench:
+    """A docker whose `network inspect bridge` reports ``answer`` (None: no such network)."""
+    return _Bench(docker=lambda argv: reply(f"{answer}\n") if answer else reply(returncode=1))
 
 
 def _task(root: Path, *, skills: bool = True) -> Path:
@@ -86,26 +87,62 @@ def _task(root: Path, *, skills: bool = True) -> Path:
     return task
 
 
-def _fake_bench(monkeypatch, result: dict | None, returncode: int = 0):
-    import dokimi.harnesses.benchflow as mod
+class _Bench(FakeRunner):
+    """Stands for the ``bench`` and ``docker`` CLIs.
 
-    seen: dict = {}
+    ``bench eval run`` calls ``on_bench(cmd, cwd)``, which writes what bench would
+    and returns ``(returncode, stdout, stderr[, timed_out])`` (``None``: exit 0).
+    ``docker`` answers from ``docker(argv)`` (``None``: exit 0, no output, so the
+    bridge lookup finds no gateway). ``bench["cmd"]`` & co. are the last bench call.
+    """
 
-    def fake_run(cmd, timeout, env, cwd=None):
-        seen["cmd"] = cmd
-        seen["env"] = env
-        seen["timeout"] = timeout
-        jobs = Path(cmd[cmd.index("--jobs-dir") + 1])
-        seen["jobs_existed"] = jobs.exists()
+    def __init__(self, on_bench=None, docker=None):
+        super().__init__(self._answer)
+        self.on_bench, self.docker, self.seen = on_bench, docker, {}
+
+    def _answer(self, call):
+        argv = list(call.argv)
+        if argv[:3] == ["bench", "eval", "run"]:
+            jobs = Path(argv[argv.index("--jobs-dir") + 1])
+            self.seen.update(cmd=argv, env=call.env, timeout=call.timeout, cwd=call.cwd,
+                             term_grace=call.term_grace, jobs_existed=jobs.exists())
+            out = self.on_bench(argv, call.cwd) if self.on_bench else None
+            if out is None:
+                return None
+            returncode, stdout, stderr, *rest = out
+            return reply(stdout, stderr, returncode, timed_out=bool(rest and rest[0]))
+        if argv[0] == "docker" and self.docker is not None:
+            return self.docker(argv)
+        return None
+
+    def __getitem__(self, key):
+        return self.seen[key]
+
+    def __contains__(self, key):
+        return key in self.seen
+
+    def docker_calls(self) -> list[list[str]]:
+        return [list(c.argv) for c in self.calls if c.argv[0] == "docker"]
+
+
+def _writes_rollout(result: dict | None, returncode: int = 0):
+    """``on_bench`` for a bench that writes one rollout ``result.json`` (none when ``result`` is None)."""
+
+    def write(cmd, cwd):
         if result is not None:
-            rollout = jobs / "2026-10-03__20-00-00" / "sb-task__abcd"
+            rollout = Path(cmd[cmd.index("--jobs-dir") + 1]) / "2026-10-03__20-00-00" / "sb-task__abcd"
             rollout.mkdir(parents=True)
             (rollout / "result.json").write_text(json.dumps(result), encoding="utf-8")
         return returncode, "✓ Score: 1/1\n", ""
 
-    monkeypatch.setattr(mod, "_run_bench", fake_run)
-    monkeypatch.setattr(mod.BenchflowHarness, "preflight", staticmethod(lambda: None))
-    return seen
+    return write
+
+
+def _fake_bench(monkeypatch, result: dict | None, returncode: int = 0) -> _Bench:
+    """A :class:`_Bench` that writes one rollout ``result.json``, with the preflight skipped:
+    a suite run that is not given this runner then starts nothing before its first cell."""
+    monkeypatch.setattr(_bf.BenchflowHarness, "preflight", lambda self: None)
+    return _Bench(_writes_rollout(result, returncode))
 
 
 # ── registry ──────────────────────────────────────────────────────────────────
@@ -174,7 +211,7 @@ def test_named_creator_is_staged_alone_not_next_to_a_stock_one(tmp_path, monkeyp
     custom = _creator(tmp_path / "skills" / "my-creator", "CUSTOM")
     _creator(tmp_path / "skills" / "skill-creator", "STOCK")
     seen = _fake_bench(monkeypatch, _RESULT)
-    create_harness(f"benchflow-selfgen:a:{custom}").run(task, output_dir=tmp_path / "o")
+    create_harness(f"benchflow-selfgen:a:{custom}", runner=seen).run(task, output_dir=tmp_path / "o")
     staged = _staged_creator(seen)
     assert staged == tmp_path / "o" / "creator" / "my-creator"
     assert [p.name for p in staged.parent.iterdir()] == ["my-creator"]
@@ -188,7 +225,7 @@ def test_a_symlinked_creator_is_not_resolved_to_its_targets_neighbours(tmp_path,
     link = tmp_path / "creator-link"
     link.symlink_to(custom)
     seen = _fake_bench(monkeypatch, _RESULT)
-    create_harness(f"benchflow-selfgen:a:{link}").run(task, output_dir=tmp_path / "o")
+    create_harness(f"benchflow-selfgen:a:{link}", runner=seen).run(task, output_dir=tmp_path / "o")
     staged = _staged_creator(seen)
     assert [p.name for p in staged.parent.iterdir()] == ["my-creator"]  # the pack, not the link
     assert not staged.is_symlink()
@@ -272,7 +309,7 @@ def test_single_external_skill_is_staged_as_a_root(tmp_path, monkeypatch):
     link.symlink_to(real)
     seen = _fake_bench(monkeypatch, _RESULT)
     out = tmp_path / "out"
-    create_harness(f"benchflow-skill:claude-agent-acp:{link}").run(task, output_dir=out)
+    create_harness(f"benchflow-skill:claude-agent-acp:{link}", runner=seen).run(task, output_dir=out)
     staged = Path(seen["cmd"][seen["cmd"].index("--skills-dir") + 1])
     assert staged == out / "skills"
     assert (staged / "uxl-onetbb" / "SKILL.md").read_text(encoding="utf-8") == "skill"
@@ -280,15 +317,13 @@ def test_single_external_skill_is_staged_as_a_root(tmp_path, monkeypatch):
 
 
 def test_dry_run_shows_the_staged_skills_dir_and_runs_nothing(tmp_path, monkeypatch):
-    import dokimi.harnesses.benchflow as mod
-
     task = load_task(_task(tmp_path, skills=False))
     pack = tmp_path / "pack"
     pack.mkdir()
     (pack / "SKILL.md").write_text("s", encoding="utf-8")
-    monkeypatch.setattr(mod, "_run_bench", lambda *a, **k: pytest.fail("dry run ran bench"))
+    nothing = FakeRunner(lambda call: pytest.fail(f"a dry run ran {call.argv}"))
     out = tmp_path / "o"
-    res = create_harness(f"benchflow-skill:a:{pack}").run(task, output_dir=out, dry_run=True)
+    res = create_harness(f"benchflow-skill:a:{pack}", runner=nothing).run(task, output_dir=out, dry_run=True)
     assert res.command[res.command.index("--skills-dir") + 1] == str(out / "skills")
     assert not (out / "skills").exists()
     assert res.metrics["dry_run"] is True and res.reward is None
@@ -304,7 +339,7 @@ def test_symlinks_inside_a_staged_skill_become_real_files(tmp_path, monkeypatch)
     (pack / "SKILL.md").write_text("skill", encoding="utf-8")
     (pack / "ref.md").symlink_to(shared)
     seen = _fake_bench(monkeypatch, _RESULT)
-    create_harness(f"benchflow-skill:a:{pack}").run(task, output_dir=tmp_path / "o")
+    create_harness(f"benchflow-skill:a:{pack}", runner=seen).run(task, output_dir=tmp_path / "o")
     staged = Path(seen["cmd"][seen["cmd"].index("--skills-dir") + 1]) / "uxl-onetbb" / "ref.md"
     assert not staged.is_symlink() and staged.read_text(encoding="utf-8") == "shared ref"
 
@@ -318,7 +353,7 @@ def test_a_root_whose_pack_is_a_symlink_is_staged_as_real_dirs(tmp_path, monkeyp
     root.mkdir()
     (root / "uxl-onetbb").symlink_to(real)
     seen = _fake_bench(monkeypatch, _RESULT)
-    create_harness(f"benchflow-skill:a:{root}").run(task, output_dir=tmp_path / "o")
+    create_harness(f"benchflow-skill:a:{root}", runner=seen).run(task, output_dir=tmp_path / "o")
     staged = Path(seen["cmd"][seen["cmd"].index("--skills-dir") + 1]) / "uxl-onetbb"
     assert not staged.is_symlink() and (staged / "SKILL.md").read_text(encoding="utf-8") == "skill"
 
@@ -331,8 +366,8 @@ def test_rerun_restages_skills_from_scratch(tmp_path, monkeypatch):
     out = tmp_path / "o"
     (out / "skills" / "old-pack").mkdir(parents=True)
     (out / "skills" / "old-pack" / "SKILL.md").write_text("stale", encoding="utf-8")
-    _fake_bench(monkeypatch, _RESULT)
-    create_harness(f"benchflow-skill:a:{pack}").run(task, output_dir=out)
+    bench = _fake_bench(monkeypatch, _RESULT)
+    create_harness(f"benchflow-skill:a:{pack}", runner=bench).run(task, output_dir=out)
     assert sorted(p.name for p in (out / "skills").iterdir()) == ["pack"]
 
 
@@ -342,7 +377,7 @@ def test_skill_md_path_is_accepted(tmp_path, monkeypatch):
     pack.mkdir()
     (pack / "SKILL.md").write_text("s", encoding="utf-8")
     seen = _fake_bench(monkeypatch, _RESULT)
-    create_harness(f"benchflow-skill:a:{pack / 'SKILL.md'}").run(task, output_dir=tmp_path / "o")
+    create_harness(f"benchflow-skill:a:{pack / 'SKILL.md'}", runner=seen).run(task, output_dir=tmp_path / "o")
     staged = Path(seen["cmd"][seen["cmd"].index("--skills-dir") + 1])
     assert (staged / "pack" / "SKILL.md").is_file()
 
@@ -354,7 +389,7 @@ def test_skills_root_is_copied_whole(tmp_path, monkeypatch):
         (root / name).mkdir(parents=True)
         (root / name / "SKILL.md").write_text(name, encoding="utf-8")
     seen = _fake_bench(monkeypatch, _RESULT)
-    create_harness(f"benchflow-skill:x:{root}").run(task, output_dir=tmp_path / "o")
+    create_harness(f"benchflow-skill:x:{root}", runner=seen).run(task, output_dir=tmp_path / "o")
     staged = Path(seen["cmd"][seen["cmd"].index("--skills-dir") + 1])
     assert sorted(p.name for p in staged.iterdir()) == ["a", "b"]
 
@@ -365,15 +400,12 @@ def test_a_root_without_packs_is_refused_before_bench_runs(tmp_path, monkeypatch
     checkout = tmp_path / "uxl-skills"
     (checkout / "skills" / "uxl-onetbb").mkdir(parents=True)
     (checkout / "skills" / "uxl-onetbb" / "SKILL.md").write_text("s", encoding="utf-8")
-    _fake_bench(monkeypatch, _RESULT)
-    import dokimi.harnesses.benchflow as mod
-
-    monkeypatch.setattr(mod, "_run_bench", lambda *a, **k: pytest.fail("bench must not run"))
+    bench = _Bench(lambda cmd, cwd: pytest.fail("bench must not run"))
     with pytest.raises(ValueError, match="holds no <name>/SKILL.md pack"):
-        create_harness(f"benchflow-skill:a:{checkout}").run(task, output_dir=tmp_path / "o")
+        create_harness(f"benchflow-skill:a:{checkout}", runner=bench).run(task, output_dir=tmp_path / "o")
     # the right level runs
-    _fake_bench(monkeypatch, _RESULT)
-    res = create_harness(f"benchflow-skill:a:{checkout / 'skills'}").run(
+    bench = _fake_bench(monkeypatch, _RESULT)
+    res = create_harness(f"benchflow-skill:a:{checkout / 'skills'}", runner=bench).run(
         task, output_dir=tmp_path / "o2")
     assert res.reward == 1.0
 
@@ -388,15 +420,15 @@ def test_task_bundled_skills_without_packs_are_refused(tmp_path):
 
 def test_selfgen_refuses_a_creator_dir_benchflow_would_not_use(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
-    _fake_bench(monkeypatch, _RESULT)
+    bench = _fake_bench(monkeypatch, _RESULT)
     with pytest.raises(FileNotFoundError, match="no skill-creator SKILL.md"):
-        create_harness(f"benchflow-selfgen:a:{tmp_path / 'typo'}").run(
+        create_harness(f"benchflow-selfgen:a:{tmp_path / 'typo'}", runner=bench).run(
             task, output_dir=tmp_path / "o")
     creator = tmp_path / "skills" / "skill-creator"
     creator.mkdir(parents=True)
     (creator / "SKILL.md").write_text("---\nname: skill-creator\n---\n", encoding="utf-8")
     for given in (creator, creator.parent):  # the dir itself, or a root holding it
-        res = create_harness(f"benchflow-selfgen:a:{given}").run(task, output_dir=tmp_path / "o")
+        res = create_harness(f"benchflow-selfgen:a:{given}", runner=bench).run(task, output_dir=tmp_path / "o")
         assert res.reward == 1.0
 
 
@@ -476,7 +508,7 @@ def test_verifier_error_without_a_reward_says_what_failed():
 def test_run_folds_result_into_harness_result(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
     seen = _fake_bench(monkeypatch, _RESULT)
-    res = create_harness("benchflow:claude-agent-acp").run(
+    res = create_harness("benchflow:claude-agent-acp", runner=seen).run(
         task, model="m", output_dir=tmp_path / "o"
     )
     assert res.passed and res.reward == 1.0
@@ -492,48 +524,42 @@ def test_run_folds_result_into_harness_result(tmp_path, monkeypatch):
 
 def test_partial_reward_is_kept_but_is_not_a_pass(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
-    _fake_bench(monkeypatch, {**_RESULT, "rewards": {"reward": 0.667}})
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _fake_bench(monkeypatch, {**_RESULT, "rewards": {"reward": 0.667}})
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward == pytest.approx(0.667) and res.passed is False
     assert "error" not in res.metrics
 
 
 def test_run_keeps_benchflows_own_error(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
-    _fake_bench(monkeypatch, {**_RESULT, "rewards": None, "error": "ACP error -32603",
+    bench = _fake_bench(monkeypatch, {**_RESULT, "rewards": None, "error": "ACP error -32603",
                               "error_category": "acp_error"}, returncode=1)
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward is None
     assert res.metrics["error"] == "benchflow: acp_error: ACP error -32603"
 
 
 def test_run_without_result_is_an_error_cell(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
-    _fake_bench(monkeypatch, None, returncode=1)
-    res = create_harness("benchflow:claude-agent-acp").run(task, output_dir=tmp_path / "o")
+    bench = _fake_bench(monkeypatch, None, returncode=1)
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, output_dir=tmp_path / "o")
     assert res.reward is None and not res.passed
     assert "no BenchFlow result.json" in res.metrics["error"]
 
 
 def test_bench_failing_before_a_rollout_names_its_first_stderr_line(tmp_path, monkeypatch):
     """E.g. uxl's answer-quality tasks: BenchFlow rejects their tests/rubric.json."""
-    import dokimi.harnesses.benchflow as mod
-
     task = load_task(_task(tmp_path))
-    _fake_bench(monkeypatch, None)
     msg = "Error: tests/rubric.json is not a valid rubric: 5 validation errors for Rubric"
-    monkeypatch.setattr(mod, "_run_bench", lambda *a, **k: (1, "", f"\n{msg}\n  criteria\n"))
-    res = create_harness("benchflow:oracle").run(task, output_dir=tmp_path / "o")
+    bench = _Bench(lambda cmd, cwd: (1, "", f"\n{msg}\n  criteria\n"))
+    res = create_harness("benchflow:oracle", runner=bench).run(task, output_dir=tmp_path / "o")
     assert res.metrics["error"] == f"no BenchFlow result.json (exit 1): {msg}"
 
 
 def test_bridge_hosts_bypass_the_proxy(monkeypatch):
-    import dokimi.harnesses.benchflow as mod
-
-    monkeypatch.setattr(mod, "_bridge_gateway", lambda: "10.200.0.1")  # a custom bip
     monkeypatch.setenv("https_proxy", "http://proxy.example:912/")
     monkeypatch.setenv("no_proxy", "localhost,intel.com")
-    env = _subprocess_env({})
+    env = _subprocess_env({}, runner=_gateway("10.200.0.1"))  # a custom bip
     assert env["no_proxy"].split(",") == [
         "localhost", "intel.com", "10.200.0.1", "172.17.0.1", "host.docker.internal",
     ]
@@ -542,12 +568,9 @@ def test_bridge_hosts_bypass_the_proxy(monkeypatch):
 
 @pytest.mark.parametrize("var", ["NO_PROXY", "no_proxy"])
 def test_one_spelling_of_no_proxy_is_kept_in_both(monkeypatch, var):
-    import dokimi.harnesses.benchflow as mod
-
-    monkeypatch.setattr(mod, "_bridge_gateway", lambda: "172.17.0.1")
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:912/")
     monkeypatch.setenv(var, "localhost,127.0.0.1,intel.com")
-    env = _subprocess_env({})
+    env = _subprocess_env({}, runner=_gateway("172.17.0.1"))
     for out in ("no_proxy", "NO_PROXY"):
         assert env[out].split(",") == [
             "localhost", "127.0.0.1", "intel.com", "172.17.0.1", "host.docker.internal",
@@ -555,24 +578,18 @@ def test_one_spelling_of_no_proxy_is_kept_in_both(monkeypatch, var):
 
 
 def test_a_bypass_everything_no_proxy_stays_star(monkeypatch):
-    import dokimi.harnesses.benchflow as mod
-
-    monkeypatch.setattr(mod, "_bridge_gateway", lambda: "172.17.0.1")
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:912/")
     monkeypatch.setenv("NO_PROXY", "*")
-    env = _subprocess_env({})
+    env = _subprocess_env({}, runner=_gateway("172.17.0.1"))
     assert env["no_proxy"] == env["NO_PROXY"] == "*"
 
 
 def test_a_star_in_one_spelling_does_not_replace_the_others_list(monkeypatch):
     """urllib reads no_proxy first: a list there next to NO_PROXY=* must stay a list."""
-    import dokimi.harnesses.benchflow as mod
-
-    monkeypatch.setattr(mod, "_bridge_gateway", lambda: None)
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:912/")
     monkeypatch.setenv("no_proxy", "localhost,.intel.com")
     monkeypatch.setenv("NO_PROXY", "*")
-    env = _subprocess_env({})
+    env = _subprocess_env({}, runner=_gateway(None))
     assert env["NO_PROXY"] == "*"
     assert env["no_proxy"].split(",") == ["localhost", ".intel.com", "172.17.0.1", "host.docker.internal"]
 
@@ -583,12 +600,13 @@ def test_no_proxy_untouched_without_a_proxy(monkeypatch):
 
 def test_suite_artifact_validates_and_pairs_arms(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
-    _fake_bench(monkeypatch, _RESULT)
+    bench = _fake_bench(monkeypatch, _RESULT)
     report = TaskSuiteRunner(
         tasks=[task],
         harnesses=["benchflow:claude-agent-acp", "benchflow-skill:claude-agent-acp"],
         baseline_harness="benchflow:claude-agent-acp",
         output_root=tmp_path / "runs",
+        runner=bench,
     ).run()
     validate_artifact("task_runs", report)
     stats = report["summary"]["per_harness"]["benchflow-skill:claude-agent-acp"]
@@ -672,9 +690,8 @@ def test_skill_loads_without_trajectory_is_empty(tmp_path):
 
 def test_run_folds_trajectory_skill_loads(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
-    import dokimi.harnesses.benchflow as mod
 
-    def fake_run(cmd, timeout, env, cwd=None):
+    def bench(cmd, cwd):
         rollout = Path(cmd[cmd.index("--jobs-dir") + 1]) / "job" / "sb-task__1"
         rollout.mkdir(parents=True)
         (rollout / "result.json").write_text(json.dumps(_RESULT), encoding="utf-8")
@@ -683,8 +700,8 @@ def test_run_folds_trajectory_skill_loads(tmp_path, monkeypatch):
         _trajectory(rollout, [_LOAD_SKILL, pack])
         return 0, "", ""
 
-    monkeypatch.setattr(mod, "_run_bench", fake_run)
-    res = create_harness("benchflow-skill:claude-agent-acp").run(task, output_dir=tmp_path / "o")
+    res = create_harness("benchflow-skill:claude-agent-acp", runner=_Bench(bench)).run(
+        task, output_dir=tmp_path / "o")
     # the task bundles one pack, "pack": uxl-onetbb is not this arm's treatment
     assert res.metrics["n_skill_invocations"] == 1
     assert res.metrics["skills_loaded"] == ["uxl-onetbb", "pack"]
@@ -701,7 +718,7 @@ def test_rerun_that_crashes_does_not_reuse_the_previous_reward(tmp_path, monkeyp
     stale.mkdir(parents=True)
     (stale / "result.json").write_text(json.dumps(_RESULT), encoding="utf-8")
     seen = _fake_bench(monkeypatch, None, returncode=1)
-    res = create_harness("benchflow:claude-agent-acp").run(task, output_dir=out)
+    res = create_harness("benchflow:claude-agent-acp", runner=seen).run(task, output_dir=out)
     assert seen["jobs_existed"] is False
     assert res.reward is None and not res.passed
     assert res.metrics["error"] == "no BenchFlow result.json (exit 1)"
@@ -736,32 +753,22 @@ def test_rerun_whose_previous_jobs_dir_cannot_be_cleared_does_not_run(tmp_path, 
 
 def test_result_without_reward_says_so(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
-    _fake_bench(monkeypatch, {**_RESULT, "rewards": {}}, returncode=0)
-    res = create_harness("benchflow:claude-agent-acp").run(task, output_dir=tmp_path / "o")
+    bench = _fake_bench(monkeypatch, {**_RESULT, "rewards": {}}, returncode=0)
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, output_dir=tmp_path / "o")
     assert res.metrics["error"] == "BenchFlow result.json has no rewards.reward (exit 0)"
 
 
 def test_timeout_removes_only_this_cells_rollout_containers(tmp_path, monkeypatch):
-    import dokimi.harnesses.benchflow as mod
-
     task = load_task(_task(tmp_path))
-    docker_calls: list[list[str]] = []
 
-    def fake_run(cmd, timeout, env, cwd=None):
+    def killed(cmd, cwd):
         (Path(cmd[cmd.index("--jobs-dir") + 1]) / "job" / "sb-task__dead").mkdir(parents=True)
-        return mod.BenchRun(mod._TIMEOUT_RC, "", "", timed_out=True)
+        return _bf._TIMEOUT_RC, "", "", True
 
-    class _Found:
-        def __init__(self, out):
-            self.stdout, self.returncode = out, 0
-
-    def fake_subprocess_run(args, **kwargs):
-        docker_calls.append(list(args))
-        return _Found("c1\nc2\n" if args[1] == "ps" else "")
-
-    monkeypatch.setattr(mod, "_run_bench", fake_run)
-    monkeypatch.setattr(mod.subprocess, "run", fake_subprocess_run)
-    res = create_harness("benchflow:claude-agent-acp").run(task, output_dir=tmp_path / "o")
+    bench = _Bench(killed, docker=lambda argv: reply("c1\nc2\n" if argv[1] == "ps" else ""))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, output_dir=tmp_path / "o")
+    assert bench["term_grace"] == _bf._KILL_GRACE_SEC  # bench gets SIGTERM before SIGKILL
+    docker_calls = bench.docker_calls()
     assert docker_calls[0] == [
         "docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=sb-task__dead",
     ]
@@ -771,35 +778,28 @@ def test_timeout_removes_only_this_cells_rollout_containers(tmp_path, monkeypatc
 
 
 def test_bench_exiting_124_by_itself_is_not_our_timeout(tmp_path, monkeypatch):
-    import dokimi.harnesses.benchflow as mod
-
     task = load_task(_task(tmp_path))
-    _fake_bench(monkeypatch, _RESULT, returncode=124)
-    monkeypatch.setattr(mod, "remove_rollout_containers",
-                        lambda jobs: pytest.fail("no cleanup without our kill"))
-    res = create_harness("benchflow:oracle").run(task, output_dir=tmp_path / "o")
+    bench = _fake_bench(monkeypatch, _RESULT, returncode=124)
+    res = create_harness("benchflow:oracle", runner=bench).run(task, output_dir=tmp_path / "o")
+    assert bench.docker_calls() == []  # no cleanup without our kill
     assert res.returncode == 124 and "timed_out" not in res.metrics and res.reward == 1.0
 
 
 def test_cleanup_docker_calls_are_bounded(tmp_path, monkeypatch):
     """A hanging `docker ps` must not hang the cell after bench was killed."""
-    import subprocess as sp
-
     import dokimi.harnesses.benchflow as mod
 
     for name in ("t__1", "t__2"):
         (tmp_path / "job" / name).mkdir(parents=True)
-    calls = []
 
-    def hanging(args, **kwargs):
-        calls.append((args[1], kwargs.get("timeout")))
-        if args[1] == "ps" and "t__1" in args[-1]:
-            raise sp.TimeoutExpired(args, kwargs["timeout"])
-        return sp.CompletedProcess(args, 0, "c9\n" if args[1] == "ps" else "", "")
+    def hanging(call):
+        if call.argv[1] == "ps" and "t__1" in call.argv[-1]:
+            return reply(timed_out=True)
+        return reply("c9\n" if call.argv[1] == "ps" else "")
 
-    monkeypatch.setattr(mod.subprocess, "run", hanging)
-    assert mod.remove_rollout_containers(tmp_path) == ["t__2"]
-    assert calls == [("ps", 10.0), ("ps", 10.0), ("rm", 60.0)]
+    fake = FakeRunner(hanging)
+    assert mod.remove_rollout_containers(tmp_path, runner=fake) == ["t__2"]
+    assert [(c.argv[1], c.timeout) for c in fake.calls] == [("ps", 10.0), ("ps", 10.0), ("rm", 60.0)]
 
 
 @pytest.fixture
@@ -929,18 +929,15 @@ def _rollout(jobs: Path, name: str, result: dict, events: list[dict] | None = No
     return rollout
 
 
-def _bench_writing(monkeypatch, *rollouts, returncode: int = 0, timed_out: bool = False):
-    import dokimi.harnesses.benchflow as mod
-
-    def fake_run(cmd, timeout, env, cwd=None):
+def _bench_writing(*rollouts, returncode: int = 0, timed_out: bool = False) -> _Bench:
+    def write(cmd, cwd):
         jobs = Path(cmd[cmd.index("--jobs-dir") + 1])
         for i, (result, events) in enumerate(rollouts):
             p = _rollout(jobs, f"sb-task__{i}", result, events)
             os.utime(p / "result.json", (1000 + i, 1000 + i))
-        return mod.BenchRun(returncode, "", "", timed_out)
+        return returncode, "", "", timed_out
 
-    monkeypatch.setattr(mod, "_run_bench", fake_run)
-    monkeypatch.setattr(mod, "remove_rollout_containers", lambda jobs: [])
+    return _Bench(write)  # docker finds no leftover containers
 
 
 _IDLE = {**_RESULT, "rewards": {"reward": 0.0}, "error": "Agent idle for 60s",
@@ -952,40 +949,36 @@ _BASH = {"type": "tool_call", "tool_call_id": "b1", "kind": "execute", "status":
 def test_outer_kill_is_an_error_even_with_an_attempt_on_disk(tmp_path, monkeypatch):
     """Review item 1: rc 124 must not read a discarded attempt as a verdict."""
     task = load_task(_task(tmp_path))
-    _bench_writing(monkeypatch, (_IDLE, [_BASH]), returncode=124, timed_out=True)
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((_IDLE, [_BASH]), returncode=124, timed_out=True)
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward is None and res.metrics["timed_out"] is True
     assert res.metrics["error"].startswith("benchflow: bench killed after")
 
 
 def test_n_attempts_counts_a_rollout_that_wrote_no_result(tmp_path, monkeypatch):
     """Measured: after our kill or a hard deadline the rollout dir exists, result.json not."""
-    import dokimi.harnesses.benchflow as mod
-
     task = load_task(_task(tmp_path))
 
-    def fake_run(cmd, timeout, env, cwd=None):
+    def dead(cmd, cwd):
         (Path(cmd[cmd.index("--jobs-dir") + 1]) / "job" / "sb-task__dead" / "agent").mkdir(parents=True)
-        return mod.BenchRun(1, "", "[HARD-DEADLINE] sb-task: rollout exceeded host deadline (60s)\n")
+        return 1, "", "[HARD-DEADLINE] sb-task: rollout exceeded host deadline (60s)\n"
 
-    monkeypatch.setattr(mod, "_run_bench", fake_run)
-    monkeypatch.setattr(mod.BenchflowHarness, "preflight", staticmethod(lambda: None))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    res = create_harness("benchflow:claude-agent-acp", runner=_Bench(dead)).run(task, model="m", output_dir=tmp_path / "o")
     assert res.metrics["n_attempts"] == 1 and "HARD-DEADLINE" in res.metrics["error"]
 
 
 def test_more_than_one_attempt_is_an_error(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
-    _bench_writing(monkeypatch, (_IDLE, [_BASH]), (_RESULT, [_BASH]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((_IDLE, [_BASH]), (_RESULT, [_BASH]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.metrics["n_attempts"] == 2 and res.reward is None
     assert "2 attempts" in res.metrics["error"]
 
 
 def test_agent_timeout_after_an_attempt_is_a_zero(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
-    _bench_writing(monkeypatch, (_IDLE, [_BASH]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((_IDLE, [_BASH]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward == 0.0 and "error" not in res.metrics
     assert res.metrics["partial_trajectory"] is True
 
@@ -995,8 +988,8 @@ def test_agent_timeout_with_no_model_response_is_an_error(tmp_path, monkeypatch)
     task = load_task(_task(tmp_path))
     dead = {**_IDLE, "error_category": "timeout", "n_tool_calls": 0,
             "agent_result": {"total_tokens": 0, "n_output_tokens": 0, "usage_source": "unavailable"}}
-    _bench_writing(monkeypatch, (dead, [{"type": "user_message", "text": "Do it."}]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((dead, [{"type": "user_message", "text": "Do it."}]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward is None and "no attempt" in res.metrics["error"]
 
 
@@ -1006,8 +999,8 @@ def test_an_oracle_that_overruns_its_budget_is_named_as_such(tmp_path, monkeypat
     killed = {**_RESULT, "agent": "oracle", "rewards": None, "n_tool_calls": 0, "agent_result": {},
               "error": "RuntimeError: Command timed out after 600 seconds",
               "error_category": "infra_failure"}
-    _bench_writing(monkeypatch, (killed, None))
-    res = create_harness("benchflow:oracle").run(task, output_dir=tmp_path / "o")
+    bench = _bench_writing((killed, None))
+    res = create_harness("benchflow:oracle", runner=bench).run(task, output_dir=tmp_path / "o")
     assert res.reward is None
     assert res.metrics["error"] == ("benchflow: oracle solve.sh exceeded agent.timeout_sec (600s); "
                                     "BenchFlow killed it and did not verify")
@@ -1018,8 +1011,8 @@ def test_another_oracle_exec_timeout_keeps_its_own_error(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
     hook = {**_RESULT, "agent": "oracle", "rewards": None, "n_tool_calls": 0, "agent_result": {},
             "error": "RuntimeError: Command timed out after 10 seconds", "error_category": "infra_failure"}
-    _bench_writing(monkeypatch, (hook, None))
-    res = create_harness("benchflow:oracle").run(task, output_dir=tmp_path / "o")
+    bench = _bench_writing((hook, None))
+    res = create_harness("benchflow:oracle", runner=bench).run(task, output_dir=tmp_path / "o")
     assert res.metrics["error"] == (
         "benchflow: infra_failure: RuntimeError: Command timed out after 10 seconds")
 
@@ -1029,8 +1022,8 @@ def test_verifier_timeout_after_an_attempt_is_a_zero(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
     vt = {**_RESULT, "rewards": None, "verifier_error": "verifier timed out after 20.0s",
           "verifier_error_category": "verifier_timeout"}
-    _bench_writing(monkeypatch, (vt, [_BASH]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((vt, [_BASH]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward == 0.0 and res.metrics["verifier_timeout"] is True
     assert "error" not in res.metrics
 
@@ -1077,14 +1070,14 @@ def test_hard_deadline_follows_benchflows_own_rules(tmp_path):
 def test_benchflows_deadline_is_set_so_it_fires_before_our_kill(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))  # agent 600, verifier and build undeclared
     seen = _fake_bench(monkeypatch, _RESULT)
-    create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    create_harness("benchflow:claude-agent-acp", runner=seen).run(task, model="m", output_dir=tmp_path / "o")
     assert seen["env"]["BENCHFLOW_ROLLOUT_HARD_DEADLINE"] == "4500"
     assert seen["timeout"] == 4500 + 600
     monkeypatch.setenv("BENCHFLOW_ROLLOUT_HARD_DEADLINE", "7000")  # an exported one is kept
-    create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o2")
+    create_harness("benchflow:claude-agent-acp", runner=seen).run(task, model="m", output_dir=tmp_path / "o2")
     assert seen["env"]["BENCHFLOW_ROLLOUT_HARD_DEADLINE"] == "7000" and seen["timeout"] == 7600
     monkeypatch.delenv("BENCHFLOW_ROLLOUT_HARD_DEADLINE")
-    create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o3",
+    create_harness("benchflow:claude-agent-acp", runner=seen).run(task, model="m", output_dir=tmp_path / "o3",
                                                       timeout_sec=30)
     assert "BENCHFLOW_ROLLOUT_HARD_DEADLINE" not in seen["env"] and seen["timeout"] == 30
 
@@ -1092,58 +1085,36 @@ def test_benchflows_deadline_is_set_so_it_fires_before_our_kill(tmp_path, monkey
 def test_bench_runs_outside_the_callers_cwd(tmp_path, monkeypatch):
     """Review item 10: bench reads ./.env ahead of the exported env."""
     seen = _fake_bench(monkeypatch, _RESULT)
-    import dokimi.harnesses.benchflow as mod
-
-    inner = mod._run_bench
-    captured = {}
-    monkeypatch.setattr(mod, "_run_bench",
-                        lambda cmd, t, env, cwd=None: (captured.update(cwd=cwd), inner(cmd, t, env))[1])
-    create_harness("benchflow:claude-agent-acp").run(load_task(_task(tmp_path)), output_dir=tmp_path / "o")
-    assert captured["cwd"] == tmp_path / "o" and seen["cmd"]
+    create_harness("benchflow:claude-agent-acp", runner=seen).run(load_task(_task(tmp_path)),
+                                                                  output_dir=tmp_path / "o")
+    assert seen["cwd"] == tmp_path / "o" and seen["cmd"]
 
 
 def test_preflight_names_the_missing_compose_plugin(monkeypatch):
-    import subprocess as sp
-
-    import dokimi.harnesses.benchflow as mod
-
-    def fake(cmd, **kw):
-        rc = 1 if cmd[:2] == ["docker", "compose"] else 0
-        return sp.CompletedProcess(cmd, rc, "", "docker: unknown command: docker compose")
-
-    monkeypatch.setattr(mod.subprocess, "run", fake)
+    fake = FakeRunner(lambda call: reply(stderr="docker: unknown command: docker compose",
+                                         returncode=1 if call.argv[:2] == ("docker", "compose") else 0))
     with pytest.raises(PreflightError, match="Compose v2 plugin"):
-        mod.BenchflowHarness.preflight()
+        BenchflowHarness("h", "a", runner=fake).preflight()
 
 
 def test_sweep_stops_once_when_preflight_fails(tmp_path, monkeypatch):
-    import dokimi.harnesses.benchflow as mod
-
-    calls = []
-
-    def failing():
-        calls.append(1)
-        raise PreflightError("benchflow preflight: `docker compose version` exited 1")
-
-    monkeypatch.setattr(mod.BenchflowHarness, "preflight", staticmethod(failing))
-    monkeypatch.setattr(mod, "_run_bench", lambda *a, **k: pytest.fail("bench must not run"))
+    bench = _Bench(lambda cmd, cwd: pytest.fail("bench must not run"),
+                   docker=lambda argv: reply(returncode=1))  # no Compose v2
     runner = TaskSuiteRunner(
         tasks=[load_task(_task(tmp_path))],
         harnesses=["benchflow:oracle", "benchflow-skill:oracle"],
         output_root=tmp_path / "runs",
+        runner=bench,
     )
     with pytest.raises(PreflightError, match="docker compose version"):
         runner.run()
-    assert calls == [1]
+    assert [c.argv[:2] for c in bench.calls] == [("bench", "--version"), ("docker", "compose")]
 
 
 def test_dry_run_skips_the_preflight(tmp_path, monkeypatch):
-    import dokimi.harnesses.benchflow as mod
-
-    monkeypatch.setattr(mod.BenchflowHarness, "preflight",
-                        staticmethod(lambda: pytest.fail("dry run must not preflight")))
+    nothing = FakeRunner(lambda call: pytest.fail(f"a dry run ran {call.argv}"))
     TaskSuiteRunner(tasks=[load_task(_task(tmp_path))], harnesses=["benchflow:oracle"],
-                    output_root=tmp_path / "runs", dry_run=True).run()
+                    output_root=tmp_path / "runs", dry_run=True, runner=nothing).run()
 
 
 def test_cli_prints_a_failed_preflight_as_one_line(tmp_path, monkeypatch):
@@ -1166,29 +1137,25 @@ def test_cli_prints_a_failed_preflight_as_one_line(tmp_path, monkeypatch):
     )
 
 
-def _cwd_resolving_bench(monkeypatch, result, seen):
+def _cwd_resolving_bench(result) -> _Bench:
     """A bench that, like the real one, resolves every path against the cwd it is given."""
-    import dokimi.harnesses.benchflow as mod
 
-    def fake_run(cmd, timeout, env, cwd=None):
-        seen["cmd"] = cmd
+    def write(cmd, cwd):
         jobs = Path(cwd) / cmd[cmd.index("--jobs-dir") + 1]
         rollout = jobs / "2026-10-03__20-00-00" / "sb-task__abcd"
         rollout.mkdir(parents=True)
         (rollout / "result.json").write_text(json.dumps(result), encoding="utf-8")
-        return mod.BenchRun(0, "", "")
+        return 0, "", ""
 
-    monkeypatch.setattr(mod, "_run_bench", fake_run)
-    monkeypatch.setattr(mod.BenchflowHarness, "preflight", staticmethod(lambda: None))
+    return _Bench(write)
 
 
 def test_relative_output_dir_still_finds_the_rollout(tmp_path, monkeypatch):
     """The default --output-dir is relative; bench runs in the cell, so the jobs dir must be absolute."""
     task = load_task(_task(tmp_path))
     monkeypatch.chdir(tmp_path)
-    seen: dict = {}
-    _cwd_resolving_bench(monkeypatch, _RESULT, seen)
-    res = create_harness("benchflow:claude-agent-acp").run(task, output_dir=Path("results/cell"))
+    seen = _cwd_resolving_bench(_RESULT)
+    res = create_harness("benchflow:claude-agent-acp", runner=seen).run(task, output_dir=Path("results/cell"))
     assert Path(seen["cmd"][seen["cmd"].index("--jobs-dir") + 1]).is_absolute()
     assert res.reward == 1.0 and "error" not in res.metrics
     assert res.metrics["n_attempts"] == 1
@@ -1206,11 +1173,10 @@ def test_relative_skill_paths_reach_bench_absolute(tmp_path, monkeypatch):
     creator.mkdir(parents=True)
     (creator / "SKILL.md").write_text("---\nname: skill-creator\n---\nx\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    seen: dict = {}
-    _cwd_resolving_bench(monkeypatch, _RESULT, seen)
-    create_harness("benchflow-skill:claude-agent-acp:ext").run(task, output_dir=Path("o1"))
+    seen = _cwd_resolving_bench(_RESULT)
+    create_harness("benchflow-skill:claude-agent-acp:ext", runner=seen).run(task, output_dir=Path("o1"))
     assert Path(seen["cmd"][seen["cmd"].index("--skills-dir") + 1]).is_absolute()
-    create_harness("benchflow-selfgen:claude-agent-acp:creators").run(task, output_dir=Path("o2"))
+    create_harness("benchflow-selfgen:claude-agent-acp:creators", runner=seen).run(task, output_dir=Path("o2"))
     staged = Path(seen["cmd"][seen["cmd"].index("--skill-creator-dir") + 1])
     assert staged.is_absolute() and staged == (tmp_path / "o2" / "creator" / "skill-creator")
     assert (staged / "SKILL.md").is_file()
@@ -1252,11 +1218,8 @@ def test_error_line_skips_benchflows_agent_registry_banner(tmp_path, monkeypatch
         "Agent manifest auto-load: registered 28 agent(s) from benchflow-ai/agents@main: amp-acp\n"
         "/t/task.md: task.md parse error: 1 validation error for TaskConfig\n"
     )
-    monkeypatch.setattr(mod_bf := __import__("dokimi.harnesses.benchflow",
-                                              fromlist=["x"]), "_run_bench",
-                        lambda cmd, t, env, cwd=None: mod_bf.BenchRun(1, "", stderr))
-    monkeypatch.setattr(mod_bf.BenchflowHarness, "preflight", staticmethod(lambda: None))
-    res = create_harness("benchflow:goose").run(load_task(_task(tmp_path)), output_dir=tmp_path / "o")
+    res = create_harness("benchflow:goose", runner=_Bench(lambda cmd, cwd: (1, "", stderr))).run(
+        load_task(_task(tmp_path)), output_dir=tmp_path / "o")
     assert res.metrics["error"] == (
         "no BenchFlow result.json (exit 1): /t/task.md: task.md parse error: 1 validation error for TaskConfig")
 
@@ -1288,11 +1251,8 @@ _ERR_STDERR = (
 ])
 def test_error_line_names_the_reason_after_the_job_started(tmp_path, monkeypatch, stderr, reason):
     """Not the `Job: ...` progress line that opens every job's stderr."""
-    import dokimi.harnesses.benchflow as mod
-
-    _fake_bench(monkeypatch, None)
-    monkeypatch.setattr(mod, "_run_bench", lambda *a, **k: mod.BenchRun(1, "", stderr))
-    res = create_harness("benchflow:oracle").run(load_task(_task(tmp_path)), output_dir=tmp_path / "o")
+    bench = _Bench(lambda cmd, cwd: (1, "", stderr))
+    res = create_harness("benchflow:oracle", runner=bench).run(load_task(_task(tmp_path)), output_dir=tmp_path / "o")
     assert res.metrics["error"] == f"no BenchFlow result.json (exit 1): {reason}"
 
 
@@ -1312,12 +1272,12 @@ def test_synthetic_api_error_text_is_not_an_attempt(tmp_path, monkeypatch):
     dead = {**_IDLE, "error_category": "timeout", "n_tool_calls": 0,
             "agent_result": {"total_tokens": 0, "n_output_tokens": 0, "usage_source": "unavailable"}}
     api_error = {"type": "agent_message", "text": "API Error: Request rejected (429) \u00b7 slow down"}
-    _bench_writing(monkeypatch, (dead, [{"type": "user_message", "text": "Do it."}, api_error]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((dead, [{"type": "user_message", "text": "Do it."}, api_error]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward is None and "no attempt" in res.metrics["error"]
     # a real reply after the error is an attempt
-    _bench_writing(monkeypatch, (dead, [api_error, {"type": "agent_message", "text": "Let me look."}]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o2")
+    bench = _bench_writing((dead, [api_error, {"type": "agent_message", "text": "Let me look."}]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o2")
     assert res.reward == 0.0 and "error" not in res.metrics
 
 
@@ -1333,9 +1293,9 @@ def test_other_synthetic_agent_messages_are_not_an_attempt(tmp_path, monkeypatch
     task = load_task(_task(tmp_path))
     dead = {**_IDLE, "error_category": "timeout", "n_tool_calls": 0,
             "agent_result": {"total_tokens": 0, "n_output_tokens": 0, "usage_source": "unavailable"}}
-    _bench_writing(monkeypatch, (dead, [{"type": "user_message", "text": "Do it."},
+    bench = _bench_writing((dead, [{"type": "user_message", "text": "Do it."},
                                         {"type": "agent_message", "text": text}]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward is None and "no attempt" in res.metrics["error"]
 
 
@@ -1376,8 +1336,8 @@ def test_either_timeout_with_no_model_response_is_an_error(tmp_path, monkeypatch
     task = load_task(_task(tmp_path))
     dead = {**_IDLE, "error_category": category, "n_tool_calls": 0,
             "agent_result": {"total_tokens": 0, "n_output_tokens": 0, "usage_source": "unavailable"}}
-    _bench_writing(monkeypatch, (dead, [{"type": "user_message", "text": "Do it."}]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((dead, [{"type": "user_message", "text": "Do it."}]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward is None and "no attempt" in res.metrics["error"]
 
 
@@ -1395,18 +1355,13 @@ def test_a_declared_agent_budget_is_not_overridden(tmp_path):
     (None, "`bench --version` exited 2"),
 ])
 def test_preflight_names_a_missing_or_broken_bench(monkeypatch, failing, match):
-    import subprocess as sp
-
-    import dokimi.harnesses.benchflow as mod
-
-    def fake(cmd, **kw):
+    def fake(call):
         if failing is not None:
             raise failing
-        return sp.CompletedProcess(cmd, 2, "", "boom")
+        return reply(stderr="boom", returncode=2)
 
-    monkeypatch.setattr(mod.subprocess, "run", fake)
     with pytest.raises(PreflightError, match=match):
-        mod.BenchflowHarness.preflight()
+        BenchflowHarness("h", "a", runner=FakeRunner(fake)).preflight()
 
 
 @pytest.mark.parametrize("category", ["timeout", "idle_timeout"])
@@ -1414,23 +1369,23 @@ def test_a_late_agent_timeout_scores_zero_and_keeps_the_verifier_reward(tmp_path
     """BenchFlow runs the verifier after an agent timeout; docker-* scores the timeout 0."""
     task = load_task(_task(tmp_path))
     late = {**_IDLE, "error_category": category, "rewards": {"reward": 1.0}}
-    _bench_writing(monkeypatch, (late, [_BASH]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((late, [_BASH]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward == 0.0 and res.passed is False and "error" not in res.metrics
     assert res.metrics["reward_after_timeout"] == 1.0
 
 
 def test_a_timeout_that_scored_zero_records_no_reward_after_timeout(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
-    _bench_writing(monkeypatch, (_IDLE, [_BASH]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((_IDLE, [_BASH]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward == 0.0 and "reward_after_timeout" not in res.metrics
 
 
 def test_a_late_timeout_with_partial_credit_is_still_zero(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
-    _bench_writing(monkeypatch, ({**_IDLE, "error_category": "timeout", "rewards": {"reward": 0.5}}, [_BASH]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing(({**_IDLE, "error_category": "timeout", "rewards": {"reward": 0.5}}, [_BASH]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward == 0.0 and res.metrics["reward_after_timeout"] == 0.5
 
 
@@ -1445,8 +1400,8 @@ def test_a_late_timeout_is_zero_whatever_the_verifier_did(tmp_path, monkeypatch,
     task = load_task(_task(tmp_path))
     late = {**_IDLE, "error_category": "timeout",
             "error": "Agent prompt exceeded wall-clock budget 90s", **after}
-    _bench_writing(monkeypatch, (late, [_BASH]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((late, [_BASH]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward == 0.0 and "error" not in res.metrics
     assert res.metrics["benchflow_error_category"] == "timeout"
     if "verifier_error" in after:
@@ -1457,8 +1412,8 @@ def test_a_no_attempt_timeout_keeps_the_figure_it_drops(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
     dead = {**_IDLE, "error_category": "timeout", "rewards": {"reward": 1.0}, "n_tool_calls": 0,
             "agent_result": {"total_tokens": 0, "n_output_tokens": 0, "usage_source": "unavailable"}}
-    _bench_writing(monkeypatch, (dead, [{"type": "user_message", "text": "Do it."}]))
-    res = create_harness("benchflow:claude-agent-acp").run(task, model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((dead, [{"type": "user_message", "text": "Do it."}]))
+    res = create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
     assert res.reward is None and "no attempt" in res.metrics["error"]
     assert res.metrics["reward_after_timeout"] == 1.0
 
@@ -1492,12 +1447,13 @@ def test_benchflow_oracle_is_a_control_not_an_arm(tmp_path, monkeypatch):
     assert not _is_control_harness("benchflow:claude-agent-acp")
     assert not _is_control_harness("benchflow-skill:acp:pi")
     task = load_task(_task(tmp_path))
-    _fake_bench(monkeypatch, _RESULT)
+    bench = _fake_bench(monkeypatch, _RESULT)
     report = TaskSuiteRunner(
         tasks=[task],
         harnesses=["benchflow:claude-agent-acp", "benchflow-skill:claude-agent-acp", "benchflow:oracle"],
         baseline_harness="benchflow:claude-agent-acp",
         output_root=tmp_path / "runs",
+        runner=bench,
     ).run()
     assert list(report["summary"]["comparisons"]) == ["benchflow-skill:claude-agent-acp"]
 
@@ -1508,9 +1464,9 @@ def test_an_arm_without_token_data_sums_to_unknown_not_zero(tmp_path, monkeypatc
 
     task = load_task(_task(tmp_path))
     dead = {**_RESULT, "agent_result": {"usage_source": "unavailable", "total_tokens": 0}}
-    _fake_bench(monkeypatch, dead)
+    bench = _fake_bench(monkeypatch, dead)
     report = TaskSuiteRunner(tasks=[task], harnesses=["benchflow:claude-agent-acp"],
-                             output_root=tmp_path / "runs").run()
+                             output_root=tmp_path / "runs", runner=bench).run()
     validate_artifact("task_runs", report)
     cost = report["summary"]["per_harness"]["benchflow:claude-agent-acp"]["cost"]
     assert cost["total_cost_usd"] is None
@@ -1526,14 +1482,13 @@ _NO_SIGNAL = {"n_tool_calls": 0, "agent_result": {"n_output_tokens": 0, "usage_s
 
 
 def _run_one(tmp_path, monkeypatch, result, events=None, harness="benchflow:claude-agent-acp"):
-    _bench_writing(monkeypatch, (result, events))
-    monkeypatch.setattr(_bf.BenchflowHarness, "preflight", staticmethod(lambda: None))
-    return create_harness(harness).run(load_task(_task(tmp_path)), model="m", output_dir=tmp_path / "o")
+    bench = _bench_writing((result, events))
+    return create_harness(harness, runner=bench).run(load_task(_task(tmp_path)), model="m", output_dir=tmp_path / "o")
 
 
 def test_an_oracle_cell_runs_bench_with_the_agents_clone_off(tmp_path, monkeypatch):
     seen = _fake_bench(monkeypatch, _RESULT)
-    create_harness("benchflow:oracle").run(load_task(_task(tmp_path)), output_dir=tmp_path / "o")
+    create_harness("benchflow:oracle", runner=seen).run(load_task(_task(tmp_path)), output_dir=tmp_path / "o")
     assert seen["env"]["BENCHFLOW_AGENTS_SOURCE"] == "off"
 
 
@@ -1574,34 +1529,24 @@ def test_an_undeclared_agent_budget_is_defaulted_and_recorded(tmp_path, monkeypa
     path = _task(tmp_path)
     (path / "task.md").write_text("---\nschema_version: '1.3'\n---\nDo it.\n", encoding="utf-8")
     seen = _fake_bench(monkeypatch, _RESULT)
-    res = create_harness("benchflow:claude-agent-acp").run(load_task(path), model="m",
+    res = create_harness("benchflow:claude-agent-acp", runner=seen).run(load_task(path), model="m",
                                                            output_dir=tmp_path / "o")
     assert res.metrics["agent_timeout_defaulted_sec"] == 600
     assert seen["timeout"] == 900 + 600 + 600 + 900 + 1800 + 600  # BenchFlow reads 900 s
 
 
 def test_preflight_calls_are_bounded(monkeypatch):
-    import subprocess as sp
-
-    timeouts = []
-
-    def fake(cmd, **kw):
-        timeouts.append(kw.get("timeout"))
-        return sp.CompletedProcess(cmd, 0, "ok", "")
-
-    monkeypatch.setattr(_bf.subprocess, "run", fake)
-    _bf.BenchflowHarness.preflight()
-    assert timeouts == [30, 30]
+    fake = FakeRunner(lambda call: reply("ok"))
+    BenchflowHarness("h", "a", runner=fake).preflight()
+    assert [c.timeout for c in fake.calls] == [30, 30]
 
 
 def test_preflight_runs_once_per_harness_class_when_it_passes(tmp_path, monkeypatch):
-    calls = []
-    _fake_bench(monkeypatch, _RESULT)
-    monkeypatch.setattr(_bf.BenchflowHarness, "preflight", staticmethod(lambda: calls.append(1)))
+    bench = _Bench(_writes_rollout(_RESULT))
     TaskSuiteRunner(tasks=[load_task(_task(tmp_path))],
                     harnesses=["benchflow:oracle", "benchflow-skill:oracle"],
-                    output_root=tmp_path / "runs").run()
-    assert calls == [1]
+                    output_root=tmp_path / "runs", runner=bench).run()
+    assert [c.argv[:2] for c in bench.calls].count(("bench", "--version")) == 1
 
 
 def test_subject_work_prints_a_failed_preflight_as_one_line(tmp_path, monkeypatch):
@@ -1664,16 +1609,30 @@ def test_a_creator_root_with_two_packs_is_refused(tmp_path):
 @pytest.mark.parametrize("var", ["http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"])
 def test_each_proxy_variable_triggers_the_bypass(monkeypatch, var):
     monkeypatch.setenv(var, "http://proxy.example:912")
-    env = _subprocess_env({})
+    env = _subprocess_env({}, runner=_gateway(None))
     assert "172.17.0.1" in env["no_proxy"].split(",") and env["no_proxy"] == env["NO_PROXY"]
 
 
-def test_bridge_gateway_reads_dockers_answer(monkeypatch):
-    import subprocess as sp
+def test_bridge_gateway_reads_dockers_answer():
+    found = _gateway("10.9.0.1")
+    assert _bf._bridge_gateway(found) == "10.9.0.1"
+    assert found.calls[0].argv[:4] == ("docker", "network", "inspect", "bridge") and found.calls[0].timeout == 10
+    assert _bf._bridge_gateway(_gateway(None)) is None
+    assert _bf._bridge_gateway(FakeRunner(lambda call: reply(timed_out=True))) is None
 
-    monkeypatch.setattr(_bf.subprocess, "run",
-                        lambda *a, **k: sp.CompletedProcess(a[0], 0, "10.9.0.1\n", ""))
-    assert _REAL_BRIDGE_GATEWAY() == "10.9.0.1"
-    monkeypatch.setattr(_bf.subprocess, "run",
-                        lambda *a, **k: sp.CompletedProcess(a[0], 1, "Error: no such network\n", ""))
-    assert _REAL_BRIDGE_GATEWAY() is None
+
+def test_preflight_that_times_out_names_the_command(monkeypatch):
+    fake = FakeRunner(lambda call: reply(timed_out=True))
+    with pytest.raises(PreflightError, match=r"`bench --version` failed \(timed out after 30s\)"):
+        BenchflowHarness("h", "a", runner=fake).preflight()
+
+
+def test_cleanup_and_bridge_lookup_without_a_docker_cli(tmp_path):
+    """No docker on PATH: nothing to remove and no gateway, rather than an error out of the cell."""
+    (tmp_path / "job" / "t__1").mkdir(parents=True)
+
+    def missing(call):
+        raise FileNotFoundError(2, "No such file or directory", call.argv[0])
+
+    assert _bf.remove_rollout_containers(tmp_path, runner=FakeRunner(missing)) == []
+    assert _bf._bridge_gateway(FakeRunner(missing)) is None

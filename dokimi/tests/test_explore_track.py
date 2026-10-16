@@ -551,3 +551,20 @@ def test_command_explorer_passes_real_paths_to_the_command(tmp_path):
         f"python {probe.as_posix()} {{repo_root}} {{output_dir}}", output_root=tmp_path / "out"
     )
     assert explorer.explore("q", repo_root=tmp_path).final_answer.strip() == "True"
+
+
+def test_command_explorer_spawns_through_its_runner(tmp_path, monkeypatch):
+    """A hung explorer is killed with its tree; what it printed before is the answer."""
+    from dokimi.explore import CommandExplorer
+    from dokimi.process import FakeRunner, reply
+
+    monkeypatch.setenv("DOKIMI_TEST_ONLY_OPERATOR", "kept")
+    fake = FakeRunner(lambda call: reply("<final_answer>\na.py\n", timed_out=True))
+    explorer = CommandExplorer("fc --q {query_quoted}", timeout_sec=7, env={"X": "1"},
+                               output_root=tmp_path / "o", runner=fake)
+    result = explorer.explore("where?", repo_root=tmp_path)
+    assert result.returncode == 124 and result.final_answer.startswith("<final_answer>")
+    (call,) = fake.calls
+    assert call.argv == ("fc", "--q", "where?") and call.cwd == tmp_path and call.timeout == 7
+    assert call.env["X"] == "1" and call.env["DOKIMI_TEST_ONLY_OPERATOR"] == "kept"
+    assert call.env["DOKIMI_OUTPUT_DIR"] == str((tmp_path / "o").resolve())
