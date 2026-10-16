@@ -7,8 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 
 > **Status: recommendations.** §1–§7 apply today. The measurement loop in §8 runs
 > today for guidance arms (`guidance:none`, `guidance:raw`, `guidance:bridge`).
-> Arms that add a file or a tool are planned; use `setup_patches` or a distinct
-> `base` per configuration (see [workspace preparation](repo-evaluation-contract.md#workspace-preparation-done-by-the-framework)) to test them.
+> `guidance:bridge` measures the `CLAUDE.md` import (§7). Arms that add a tool are
+> planned; a changed guidance line can be tested today with two tasks that differ
+> in a `setup_patches` entry (§8).
 
 This page is for repository owners who want coding agents (Claude Code, Codex,
 Copilot and others) to build, test, change and review their code reliably. It
@@ -205,13 +206,17 @@ Treat each item above as a hypothesis for your repository.
    use. Today an arm can remove or keep the guidance (`guidance:none`,
    `guidance:raw`), or inject a file (`guidance:bridge`, which writes a `CLAUDE.md`
    containing `@AGENTS.md` next to each `AGENTS.md` for profiles with a bridge key).
-   Testing one added line or tool needs planned arms; use `setup_patches` or a
-   distinct `base` (see [workspace preparation](repo-evaluation-contract.md#workspace-preparation-done-by-the-framework))
-   today. To test one added line with `setup_patches`, write two tasks that differ in
-   a `setup_patches` entry (or use two `base` commits), and run both under
-   `guidance:raw` so that the patch is not removed. With the `claude-code` profile,
-   which passes `--strict-mcp-config` with no `--mcp-config`, an MCP server added by
-   a patch is not loaded, so this route cannot test an added MCP tool yet.
+   Testing one added line or tool needs planned arms. Today, test one added line
+   with two task directories that differ only in a `setup_patches` entry (same
+   prompt, same graders, distinct ids), or in their `base` commit (see
+   [workspace preparation](repo-evaluation-contract.md#workspace-preparation-done-by-the-framework)).
+   Run both under `guidance:raw` so that the patch is not removed, and compare
+   their rows in `dokimi repo report`. A patch or a second `base` changes only the
+   workspace tree: one image serves every task, so a tool or binary (a pinned
+   formatter, a navigation server) has to be in the image already. With the
+   `claude-code` profile, which passes `--strict-mcp-config` with no
+   `--mcp-config`, an MCP server added by a patch is not loaded, so this route
+   cannot test an added MCP tool yet.
 3. Look at whether the agent used the change, not only at the score. A guidance
    line can move the score without the tool it names being called; tool use tells
    you whether the tool itself mattered. An arm in which the tool was never called
@@ -224,8 +229,9 @@ Treat each item above as a hypothesis for your repository.
 - One command each for format, build-what-changed, test-what-changed and lint.
 - Each tool has one line in `AGENTS.md` saying when to use it.
 - `dokimi repo scan` reports no failing claims.
-- Traps (shared names, bridge exceptions) are written down.
+- Traps (shared names, cross-module exceptions) are written down.
 - C/C++: `compile_commands.json` covers every build variant; indexes are prebuilt if you offer navigation tools.
 - Recurring review rules, curated, are in the review section of `AGENTS.md`.
+- A `CLAUDE.md` containing `@AGENTS.md` sits next to each `AGENTS.md` (§7).
 - `dokimi repo reach` (only `claude-code` is built in; others need a `harness_profile.v1` file) confirms each harness you use loads the files you rely on.
 - Each change was compared against the baseline on current models.
