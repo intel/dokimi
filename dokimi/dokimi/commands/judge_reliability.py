@@ -243,7 +243,8 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         if args.pairwise or args.checklist:
             unrepro.update(unreproducible_arms(data))
         elif materials is not None:
-            unrepro.update(unreproducible_arms(data, with_material=True))
+            # The loop below is the whole --judges gate: it compares each stored score's
+            # digest with what the reader serves, for the questions score_measure scores.
             # score_measure only scores questions that have an answer record.
             answered = {question_id(r) for r in data.get("answers") or []
                         if isinstance(r, dict) and isinstance(question_id(r), (str, int))}
@@ -265,11 +266,10 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
                         differs.setdefault(arm, []).append(qid)
 
         if unrepro:
-            print(f"Error: the stored judge saw treatment material for {', '.join(sorted(unrepro))} that the "
-                  "other measures will not (a pairwise or checklist judge sees only the answers; a "
-                  "re-scored judge sees only the text in the file's judge_materials, which these arms "
-                  "do not have), so the comparison would mix a change of judge with a change of "
-                  "input. Pass --no-stored to compare them with each other.", file=sys.stderr)
+            print(f"Error: the stored judge saw treatment material for {', '.join(sorted(unrepro))}, but a "
+                  "pairwise or checklist judge sees only the answers, not the arm's treatment material, "
+                  "so the comparison would mix a change of judge with a change of input. Pass "
+                  "--no-stored to compare them with each other.", file=sys.stderr)
         for arm, qids in sorted(differs.items()):
             print(f"Error: for {arm}, the stored score cites different material than the arm record "
                   f"serves a re-scored judge, for question(s) {', '.join(map(repr, qids))}: the "

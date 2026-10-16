@@ -495,17 +495,14 @@ def test_unreproducible_arms_are_those_judged_on_material_the_file_lacks():
     assert cj.unreproducible_arms(_stamped_run("snippet_fallback")) == []
 
 
-def test_an_arm_whose_material_the_file_keeps_is_reproducible_by_a_rescored_judge():
+def test_an_arm_whose_material_the_file_keeps_is_still_unreproducible_for_pairwise():
     data = _stamped_run()
     digest = "sha256:" + "0" * 64
     for ev in data["evaluations"]:
         ev["scores"]["skill"]["judge_context_sha256"] = digest
     data["judge_materials"] = {digest: "skill body"}
-    assert cj.unreproducible_arms(data, with_material=True) == []
-    # Pairwise and checklist judges see only the answers: still unreproducible.
+    # Pairwise and checklist judges see only the answers: unreproducible either way.
     assert cj.unreproducible_arms(data) == ["skill"]
-    del data["judge_materials"]
-    assert cj.unreproducible_arms(data, with_material=True) == ["skill"]
 
 
 def test_score_measure_hands_the_stored_material_to_the_rescored_judge():
@@ -982,9 +979,37 @@ def test_cross_judge_judges_skips_an_evaluation_with_no_answer_record(tmp_path, 
     """score_measure never scores it, so it is no reason to refuse."""
     data = _material_run()
     del data["answers"][7]
+    # Its score may cite any digest, held or not: it is never re-scored.
+    data["evaluations"][7]["scores"]["skill"]["judge_context_sha256"] = "sha256:" + "e" * 64
     code, seen = _cross_judge(tmp_path, monkeypatch, data)
     assert code == 0, capsys.readouterr().err
     assert seen.count(BODY) == 7
+
+
+def test_cross_judge_judges_refuses_one_damaged_int_question_among_eight(tmp_path, monkeypatch, capsys):
+    from dokimi.utils import digest_text
+
+    data = _material_run()
+    for i, (ans, ev) in enumerate(zip(data["answers"], data["evaluations"], strict=True)):
+        ans["question_id"] = ev["question_id"] = i
+    other = "OTHER SKILL BODY"
+    data["judge_materials"][digest_text(other)] = other
+    data["evaluations"][5]["scores"]["skill"]["judge_context_sha256"] = digest_text(other)
+    code, seen = _cross_judge(tmp_path, monkeypatch, data)
+    err = capsys.readouterr().err
+    assert code == 2 and not seen
+    assert "question(s) 5:" in err
+
+
+def test_cross_judge_judges_accepts_a_snippet_fallback_score(tmp_path, monkeypatch, capsys):
+    """A score judged on snippets (no digest) is not gated on stored material."""
+    data = _material_run()
+    s = data["evaluations"][4]["scores"]["skill"]
+    s["judge_context_source"] = "snippet_fallback"
+    s.pop("judge_context_sha256", None)
+    code, seen = _cross_judge(tmp_path, monkeypatch, data)
+    assert code == 0, capsys.readouterr().err
+    assert seen.count(BODY) == 8
 
 
 def test_cross_judge_judges_exits_2_for_an_unhashable_question_id(tmp_path, monkeypatch, capsys):
@@ -1022,6 +1047,11 @@ def test_cross_judge_builds_the_material_store_once_and_only_for_judges(tmp_path
     data["answers"][3]["arms"]["skill"]["judge_context_sha256"] = "sha256:" + "f" * 64
     with caplog.at_level("WARNING"):
         _cross_judge(tmp_path, monkeypatch, data, "--no-stored")
+    assert sum("cite judge material" in r.getMessage() for r in caplog.records) == 1
+    caplog.clear()
+    # With the gate running (no --no-stored), the store is still built once.
+    with caplog.at_level("WARNING"):
+        _cross_judge(tmp_path, monkeypatch, data)
     assert sum("cite judge material" in r.getMessage() for r in caplog.records) == 1
     caplog.clear()
     checklist = tmp_path / "ck.json"

@@ -146,14 +146,13 @@ def stored_label(data: Dict[str, Any]) -> str:
     return f"{provider}/{model}{STORED}" if provider and model else "stored judge"
 
 
-def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) -> List[str]:
+def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
     """Arms whose stored scores saw treatment material the other measures will not.
 
-    ``with_material=True`` is for re-scored judges only: they are given what the
-    artifact's ``judge_materials`` holds (:meth:`JudgeContextStore.from_artifact`),
-    so an arm is reproducible when every stored score's material is in the file.
-    Pairwise and checklist judges are shown the answers alone, so for them every
-    arm the stored judge saw material for stays unreproducible.
+    This is the gate for pairwise and checklist judges, which are shown the answers
+    alone, so every arm the stored judge saw material for is unreproducible. A
+    re-scored judge (``cross-judge --judges``) is gated per question instead, on
+    what :meth:`JudgeContextStore.from_artifact` serves it.
 
     The arms run stores its judge's view of treatment material in ``judge_materials``
     (:mod:`dokimi.eval.judge_context`). ``cross-judge --judges`` gives its judge
@@ -173,8 +172,6 @@ def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) ->
         for arm, body in arms.items():
             if isinstance(body, dict):
                 kinds[arm] = (body.get("metadata") or {}).get("arm_kind")
-    materials = data.get("judge_materials") if with_material else None
-    held = set(materials) if isinstance(materials, dict) else set()
     unreproducible = set()
     for ev in data.get("evaluations") or []:
         if not isinstance(ev, dict):
@@ -186,11 +183,7 @@ def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) ->
             if not (isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
                     and kinds.get(arm) != "baseline"):
                 continue
-            digest = s.get("judge_context_sha256")
-            # Unreproducible if: no digest (material never stored), malformed digest (not a string),
-            # or digest not in held materials (with_material mode).
-            if digest is None or not isinstance(digest, str) or digest not in held:
-                unreproducible.add(arm)
+            unreproducible.add(arm)
     return sorted(unreproducible)
 
 
