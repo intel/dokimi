@@ -637,3 +637,49 @@ def test_questions_refine_refuses_malformed_questions_with_error_exit(tmp_path, 
         args.func(args)
     assert exc_info.value.code == 1
     assert "Error:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("top, record", [
+    pytest.param({"total_questions": None}, {}, id="total_questions"),
+    pytest.param({"model": None}, {}, id="model"),
+    pytest.param({}, {"source_type": None}, id="source_type"),
+    pytest.param({}, {"ground_truth_chunk": None}, id="ground_truth_chunk"),
+    pytest.param({}, {"question": None}, id="question-beside-text"),
+])
+def test_a_null_in_any_key_v1_leaves_open_loads(tmp_path, top, record):
+    """Every key v1 does not declare accepts null there; v2's types do not refuse it on read."""
+    from dokimi.artifacts import validate_artifact
+
+    data = {"schema_version": "questions.v1", **top,
+            "questions": [{"id": "q1", "text": "How?", **record}]}
+    validate_artifact("questions", data)  # valid v1, as on main
+    path = tmp_path / "q.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    loaded = load_questions(path)
+    assert loaded.questions[0] == {"id": "q1", "question": "How?"}
+    assert not top.keys() & loaded.artifact.keys()
+
+
+def test_the_dropped_null_keys_are_the_ones_v1_leaves_open():
+    """Read from the schemas: v2-typed keys v1 does not declare; never a key v1 declares."""
+    from dokimi.questions.artifact import _v1_open_nulls
+
+    top, record = _v1_open_nulls()
+    assert {"persona_id", "source_url", "topics", "metadata", "source_type",
+            "ground_truth_chunk"} <= record
+    assert {"total_questions", "model"} <= top
+    assert not {"id", "text", "persona", "category"} & record
+
+
+
+def test_report_generate_prints_an_error_for_an_empty_question(tmp_path, capsys):
+    ev = tmp_path / "eval.json"
+    ev.write_text(json.dumps({"evaluations": []}), encoding="utf-8")
+    src = tmp_path / "q.json"
+    src.write_text(json.dumps({"questions": [{"id": "q1", "question": ""}]}), encoding="utf-8")
+    args = build_parser().parse_args(["report", "generate", "--product", "oneTBB", "--eval", str(ev),
+                                      "--questions", str(src), "--output", str(tmp_path / "r.md")])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert capsys.readouterr().err.startswith("Error: ")
