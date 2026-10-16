@@ -47,14 +47,20 @@ def _extract_tool_calls(message: Any) -> List[Any]:
 
 
 def _tool_call_fields(tc: Any):
-    """Return (id, name, arguments_str) from a tool-call object or dict."""
+    """Return (id, name, arguments) from a tool-call object or dict.
+
+    ``arguments`` is whatever the provider sent: a JSON string, an already
+    parsed object, or missing. A null ``function`` is not a call.
+    """
     if isinstance(tc, dict):
-        fn = tc.get("function", {})
-        return tc.get("id"), fn.get("name"), fn.get("arguments") or "{}"
+        fn = tc.get("function") or {}
+        if not isinstance(fn, dict):
+            fn = {}
+        return tc.get("id"), fn.get("name"), fn.get("arguments")
     fn = getattr(tc, "function", None)
-    name = getattr(fn, "name", None)
-    args = getattr(fn, "arguments", None) or "{}"
-    return getattr(tc, "id", None), name, args
+    if fn is None:
+        return getattr(tc, "id", None), None, None
+    return getattr(tc, "id", None), getattr(fn, "name", None), getattr(fn, "arguments", None)
 
 
 #: Values of a transcript record's ``error``: the call never ran the tool
@@ -62,15 +68,35 @@ def _tool_call_fields(tc: Any):
 CALL_ERRORS = ("unknown_tool", "malformed_args", "tool_error")
 
 
-def _parse_arguments(args_str: str):
-    """Return ``(args, problem)`` for a tool call's JSON arguments.
-
-    ``problem`` is None when ``args`` is a usable keyword dict. Running the tool
-    on ``{}`` after a parse failure would hand it its defaults (an empty search
-    query) and record a call that looks like the model asked for that.
-    """
+def _arguments_text(raw: Any) -> str:
+    """The arguments as a JSON string, for the message sent back to the model."""
+    if raw is None or raw == "":
+        return "{}"
+    if isinstance(raw, str):
+        return raw
     try:
-        args = json.loads(args_str) if args_str else {}
+        return json.dumps(raw, sort_keys=True)
+    except (TypeError, ValueError):
+        return str(raw)
+
+
+def _parse_arguments(raw: Any):
+    """Return ``(args, problem)`` for a tool call's arguments.
+
+    ``problem`` is None when ``args`` is a usable keyword dict. A provider may
+    already have parsed the JSON into a dict; ``json.loads`` on that dict raises
+    ``TypeError`` and used to abort the loop. Running the tool on ``{}`` after a
+    parse failure would hand it its defaults (an empty search query) and record
+    a call that looks like the model asked for that.
+    """
+    if isinstance(raw, dict):
+        return raw, None
+    if raw is None or raw == "":
+        return {}, None
+    if not isinstance(raw, str):
+        return {}, f"arguments must be a JSON object, not {type(raw).__name__}"
+    try:
+        args = json.loads(raw)
     except json.JSONDecodeError as exc:
         return {}, f"arguments are not valid JSON ({exc.msg})"
     if not isinstance(args, dict):
@@ -257,7 +283,7 @@ def run_agent_loop(
             serialized_calls.append({
                 "id": tc_id,
                 "type": "function",
-                "function": {"name": name, "arguments": args},
+                "function": {"name": name, "arguments": _arguments_text(args)},
             })
         messages.append({
             "role": "assistant",
@@ -298,7 +324,7 @@ def run_agent_loop(
             if error:
                 record["error"] = error
                 if error == "malformed_args":
-                    record["arguments_raw"] = args_str[:200]
+                    record["arguments_raw"] = _arguments_text(args_str)[:200]
             transcript.append(record)
             messages.append({
                 "role": "tool",

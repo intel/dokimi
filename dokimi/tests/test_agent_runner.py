@@ -401,6 +401,39 @@ def test_non_object_arguments_are_malformed(monkeypatch):
     assert "not list" in result["transcript"][0]["result_preview"]
 
 
+def test_already_parsed_arguments_run_the_tool(monkeypatch):
+    # Some providers hand back a dict, not a JSON string. That must run, not raise.
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, sent = _run_with_one_call(
+        monkeypatch, tool, "search_documentation", {"query": "reduce"})
+    assert tool.calls == ["reduce"]
+    assert "error" not in result["transcript"][0]
+    assert result["transcript"][0]["arguments"] == {"query": "reduce"}
+    assistant = [m for m in sent[1] if m["role"] == "assistant"][0]
+    assert assistant["tool_calls"][0]["function"]["arguments"] == '{"query": "reduce"}'
+
+
+def test_a_non_string_non_object_does_not_crash_the_loop(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", ["reduce"])
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "malformed_args"
+    assert result["tool_call_count"] == 0
+
+
+def test_a_null_function_on_a_dict_call_does_not_crash_the_loop(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    steps = [
+        _FakeMessage(tool_calls=[{"id": "c1", "function": None}]),
+        _FakeMessage(content="ok"),
+    ]
+    fake, _ = _scripted_completion(steps)
+    monkeypatch.setattr(ar_mod, "chat_completion", fake)
+    result = run_agent_loop("q", [tool], model="m")
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "unknown_tool"
+
+
 def test_tool_exception_is_recorded_as_tool_error(monkeypatch):
     class _Boom(DocQueryTool):
         def call(self, **kw):
