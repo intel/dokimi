@@ -274,10 +274,9 @@ class EvaluationPipeline:
             # Step 3: Merge with custom questions + deduplicate
             logger.info("Step 3/6: Merging and deduplicating questions...")
             merged_questions = self._merge_questions(generated_questions)
-            # Write the merged set only if it differs from the custom input
-            # (i.e., when force-regen added generated questions)
-            custom_count = getattr(self, "_merge_custom_questions_count", 0)
-            write_over_input = len(merged_questions) != custom_count
+            # Write the merged set only if it contains any generated questions
+            # (i.e., when force-regen added generated questions before dedup)
+            write_over_input = any(q.get("source_type") == "generated" for q in merged_questions)
 
             results["steps"]["questions_merged"] = {
                 "total": len(merged_questions),
