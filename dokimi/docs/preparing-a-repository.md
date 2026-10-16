@@ -3,7 +3,7 @@
 > **Status: recommendations.** §1–§7 apply today. The measurement loop in §8 runs
 > today for guidance arms (`guidance:none`, `guidance:raw`, `guidance:bridge`).
 > Arms that add a file or a tool are planned; use `setup_patches` or a distinct
-> `base` per configuration ([workspace.py](https://github.com/intel/dokimi/blob/main/dokimi/dokimi/workspace.py#L180)) to test them.
+> `base` per configuration (see [workspace preparation](repo-evaluation-contract.md#workspace-preparation-done-by-the-framework)) to test them.
 
 This page is for repository owners who want coding agents (Claude Code, Codex,
 Copilot and others) to build, test, change and review their code reliably. It
@@ -161,7 +161,7 @@ Recurring review comments are review knowledge a repository already has.
 
 | Harness | Loads |
 |---|---|
-| Claude Code 2.1.286 (measured 2026-10) | `CLAUDE.md`. `AGENTS.md` only when no `CLAUDE.md` is in its start-up chain. Subdirectory files lazily (only if no `CLAUDE.md` is in the chain), when it reads a file there. |
+| Claude Code 2.1.286 (measured 2026-10) | `CLAUDE.md`. `AGENTS.md` only when no `CLAUDE.md` is in its start-up chain. Subdirectory files lazily, when it reads a file there (a subdirectory `AGENTS.md` only if no `CLAUDE.md` is in the chain). |
 | Codex CLI (vendor-documented) | the root `AGENTS.md`; subdirectory files on demand; `AGENTS.override.md` replaces the `AGENTS.md` in its own directory |
 | Copilot CLI (vendor-documented) | `AGENTS.md`, `.github/copilot-instructions.md`, `CLAUDE.md`, `GEMINI.md` and path-scoped instruction files; not `REVIEW.md` |
 
@@ -188,8 +188,8 @@ What helps depends on the model:
 
 `dokimi repo run` requires the [contract's](repo-evaluation-contract.md) manifest
 (with `eval_dir`, `tasks`, `entry_points`, graders and a container image), docker,
-and `--agent-network` (mandatory while the egress proxy is not implemented,
-contract section "Egress"); it refuses a guidance-only manifest.
+and `--agent-network` (mandatory while the egress proxy is not implemented, see
+[Running](repo-evaluation-contract.md#9-running)); it refuses a guidance-only manifest.
 
 Treat each item above as a hypothesis for your repository.
 
@@ -200,7 +200,7 @@ Treat each item above as a hypothesis for your repository.
    `guidance:raw`), or inject a file (`guidance:bridge`, which writes a `CLAUDE.md`
    containing `@AGENTS.md` next to each `AGENTS.md` for profiles with a bridge key).
    Testing one added line or tool needs planned arms; use `setup_patches` or a
-   distinct `base` ([workspace.py](https://github.com/intel/dokimi/blob/main/dokimi/dokimi/workspace.py#L180-L189))
+   distinct `base` (see [workspace preparation](repo-evaluation-contract.md#workspace-preparation-done-by-the-framework))
    today.
 3. Look at whether the agent used the change, not only at the score. A guidance
    line can move the score without the tool it names being called; tool use tells
