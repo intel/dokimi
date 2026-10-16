@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from tests.outcomes import plugin
 
 
@@ -97,11 +95,8 @@ def test_verdict_error_when_no_test_claims_id(tmp_path, monkeypatch):
     assert result["evidence"][0]["verdict"] == "error"
 
 
-@pytest.mark.outcome("outcome-contracts")
 def test_plugin_handles_no_terminal_reporter(tmp_path, monkeypatch):
     """Outcome plugin does not crash when terminalreporter is not available (e.g., -p no:terminal)."""
-    from pathlib import Path
-
     # Create a minimal session mock with no terminalreporter plugin
     class MockConfig:
         def getoption(self, key):
@@ -136,3 +131,59 @@ def test_plugin_handles_no_terminal_reporter(tmp_path, monkeypatch):
     # Verify report was written and exit status was set
     assert (tmp_path / "outcomes-result.json").exists()
     assert session.exitstatus == 0
+
+
+def test_plugin_exit_codes_with_mocked_session(tmp_path, monkeypatch):
+    """Outcome plugin returns correct exit codes (0=pass, 1=fail, 2=error, 3=inconclusive)."""
+    # This test verifies the exit code mapping by checking _check results.
+    # Full pytester integration would require pytest-dev/pytester plugin.
+    contract_dir = tmp_path / "contracts"
+    contract_dir.mkdir()
+    (tmp_path / "doc.md").write_text("## My Feature", encoding="utf-8")
+
+    # Create contracts with different outcomes
+    (contract_dir / "pass.json").write_text(json.dumps({
+        "id": "PASS",
+        "intent_refs": ["doc.md#my-feature"],
+        "evidence_ids": ["pass_id"]
+    }), encoding="utf-8")
+    (contract_dir / "fail.json").write_text(json.dumps({
+        "id": "FAIL",
+        "intent_refs": ["doc.md#my-feature"],
+        "evidence_ids": ["fail_id"]
+    }), encoding="utf-8")
+    (contract_dir / "error.json").write_text(json.dumps({
+        "id": "ERROR",
+        "intent_refs": ["doc.md#my-feature"],
+        "evidence_ids": ["error_id"]
+    }), encoding="utf-8")
+    (contract_dir / "inconclusive.json").write_text(json.dumps({
+        "id": "INCONCLUSIVE",
+        "intent_refs": ["doc.md#my-feature"],
+        "evidence_ids": ["skip_id"]
+    }), encoding="utf-8")
+
+    # Set up results
+    monkeypatch.setattr(plugin, "CONTRACT_DIR", contract_dir)
+    monkeypatch.setattr(plugin, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(plugin, "_results", {
+        "pass_id": ["passed"],
+        "fail_id": ["failed"],
+        # error_id has no results
+        "skip_id": ["skipped"],
+    })
+
+    # Check each outcome
+    checked = [plugin._check(p) for p in sorted(contract_dir.glob("*.json"))]
+    verdicts = {c["id"]: c["verdict"] for c in checked}
+
+    assert verdicts["ERROR"] == "error"
+    assert verdicts["FAIL"] == "fail"
+    assert verdicts["INCONCLUSIVE"] == "inconclusive"
+    assert verdicts["PASS"] == "pass"
+
+    # Verify worst verdict calculation (EXIT mapping)
+    all_verdicts = [c["verdict"] for c in checked]
+    worst = plugin._worst(all_verdicts)
+    assert worst == "error"  # error is worst
+    assert plugin.EXIT[worst] == 2
