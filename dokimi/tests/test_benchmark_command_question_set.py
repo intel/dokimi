@@ -304,6 +304,38 @@ def test_preflight_fails_before_any_call(monkeypatch, tmp_path, capsys, prefligh
     assert "Preflight OK" not in captured.out
 
 
+@pytest.mark.outcome("pinned-questions-preflight")
+def test_preflight_questions_from_skips_root_check(monkeypatch, tmp_path, capsys):
+    """When --questions-from is set, preflight does not require a golden set in the root."""
+    questions_dir = tmp_path / "source" / "questions"
+    questions_dir.mkdir(parents=True)
+    (questions_dir / "onetbb.json").write_text(
+        json.dumps([{"id": "q1", "question": "How?"}]), encoding="utf-8"
+    )
+
+    empty_root = tmp_path / "empty_questions"
+    empty_root.mkdir()
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    monkeypatch.setattr(benchmark, "_load_registry", lambda args: _Registry())
+    monkeypatch.setattr(
+        "dokimi.mcp.factory.create_doc_source_client",
+        lambda doc_source: object(),
+    )
+
+    args = build_parser().parse_args([
+        "benchmark", "preflight", "--library", "onetbb",
+        "--doc-source", "local:docs",
+        "--output-dir", str(tmp_path / "out"),
+        "--questions-from", str(questions_dir / "onetbb.json"),
+        "--questions-root", str(empty_root),
+        "--provider", "openai", "--judge-provider", "openai",
+    ])
+    args.func(args)
+
+    assert "Preflight OK" in capsys.readouterr().out
+
+
 def test_preflight_rejects_an_unwritable_output_dir(monkeypatch, tmp_path, capsys):
     blocker = tmp_path / "file"
     blocker.write_text("not a directory", encoding="utf-8")
@@ -313,3 +345,60 @@ def test_preflight_rejects_an_unwritable_output_dir(monkeypatch, tmp_path, capsy
 
     assert exc.value.code == 1
     assert "output dir not writable" in capsys.readouterr().err
+
+
+@pytest.mark.outcome("pinned-questions-reuse")
+def test_multi_run_forwards_questions_root_to_every_run(monkeypatch, tmp_path):
+    """Every run in a multi-run forwards the same --questions-root."""
+    calls: list[dict[str, object]] = []
+
+    def fake_run_single_library(entry, **kwargs):
+        calls.append(kwargs)
+        return {
+            "library": entry.key,
+            "name": entry.name,
+            "status": "ok",
+            "result": {
+                "steps": {
+                    "evaluation": {
+                        "summary": {"with_avg": 80.0},
+                    }
+                }
+            },
+        }
+
+    questions_root = tmp_path / "content-repo" / "questions"
+    questions_root.mkdir(parents=True)
+    (questions_root / "onetbb_golden.json").write_text(
+        json.dumps({"questions": [{"id": "g1", "question": "How?"}]}), encoding="utf-8"
+    )
+
+    monkeypatch.setattr(benchmark, "_load_registry", lambda args: _Registry())
+    monkeypatch.setattr(benchmark, "_run_single_library", fake_run_single_library)
+
+    output_dir = tmp_path / "onetbb_eval"
+    args = argparse.Namespace(
+        library="onetbb",
+        output_dir=str(output_dir),
+        model="gpt-4o-mini",
+        provider="openai",
+        judge_model="gpt-4o",
+        judge_provider="openai",
+        doc_source=None,
+        max_tokens=4000,
+        force_regen=False,
+        concurrency=2,
+        questions_from=None,
+        questions_root=str(questions_root),
+        multi_run=3,
+    )
+
+    benchmark.cmd_benchmark_run(args)
+
+    assert [call["questions_root"] for call in calls] == [
+        str(questions_root),
+        str(questions_root),
+        str(questions_root),
+    ]
+
+
