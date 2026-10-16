@@ -174,7 +174,7 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
                 # Validate that each item is a dict (will be used with source_type assignment)
                 for i, q in enumerate(questions):
                     if not isinstance(q, dict):
-                        errors.append(f"golden set item {i} is not a dict: {type(q).__name__}")
+                        errors.append(f"golden set item {i} is not a dict: {type(q).__name__}")  # type: ignore[unreachable]
                         break
             except Exception as exc:
                 errors.append(f"golden set invalid: {golden} ({exc})")

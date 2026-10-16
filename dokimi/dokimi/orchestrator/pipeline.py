@@ -229,7 +229,7 @@ class EvaluationPipeline:
         # Skip if using golden pinned or external questions (personas not needed)
         if self.golden_pinned or self.external_questions_path is not None:
             logger.info("Step 1/6: Skipping persona discovery (using pinned or external questions)")
-            personas = {"personas": []}
+            personas: Dict[str, Any] = {"personas": []}
             results["steps"]["personas"] = {
                 "count": 0,
                 "skipped": True,
