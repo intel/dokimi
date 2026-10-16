@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Guards of the bundle record that no other test pins: partial counts, empty, ceiling, spans."""
 from __future__ import annotations
 

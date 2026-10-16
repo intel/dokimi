@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """A stored bundle row whose ``kind`` is not a string must not take down its readers."""
 from __future__ import annotations
 

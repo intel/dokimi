@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """No coverage figure the gate, the analyzer or the report prints differs from ``main``.
 
 Moving the bundle record's rules into ``novelty/bundle.py`` is a refactor, and a refactor
