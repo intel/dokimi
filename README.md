@@ -107,8 +107,9 @@ cd dokimi
 pip install -e .                 # installs the `dokimi` command
 ```
 
-Every LLM step takes `--model` and `--provider`. The provider is one of
-`openai`, `anthropic`, `amazon-bedrock`, `google-vertex` or `openrouter`.
+The `novelty` and `arms` steps take `--model` and `--provider`; `tasks run` and
+`repo` take `--model` only. The provider is one of `openai`, `anthropic`,
+`amazon-bedrock`, `google-vertex` or `openrouter`.
 Credentials are read from the environment: `OPENAI_API_KEY`,
 `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AWS_REGION` with
 `AWS_BEARER_TOKEN_BEDROCK` for Bedrock, and Google application-default
@@ -141,10 +142,11 @@ the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
 - **Stop after triage (step 4)** and report. The `standard` and `study`
   tiers cost 5–20 times more, so run them only when whoever asked agrees to
   the bill. The estimate counts model calls, not dollars, so pass
-  `--max-usd` to every step that calls a model: the run stops once it has
-  spent that much. One measured example: triage on a 19k-token skill with a
-  mid-size model was 103 calls, about $1.80; `study` on the same skill was
-  1,900 calls, about $14.50.
+  `--max-usd` to `novelty` steps: the run stops once it has spent that much.
+  `arms run` and `tasks run` have no cap, so size them first: questions times
+  arms, or tasks times harnesses. One measured example: triage on a
+  19k-token skill with a mid-size model was 103 calls, about $1.80; `study` on
+  the same skill was 1,900 calls, about $14.50.
 - Step 5 needs evaluation content: a golden question set for 5a, executable
   tasks for 5b. `arms run` takes no tasks. That content lives outside this repository
   ([external-content.md](dokimi/docs/external-content.md)). Without it, the
@@ -157,7 +159,7 @@ The full path with reading notes: [skill-novelty-walkthrough.md](dokimi/docs/ski
 | Step | Command | Cost |
 |---|---|---|
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
-| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | ~$0.01–0.03 per scenario |
+| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | capped by `--budget` (default $0.10) per scenario |
 | 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
 | 4. Does the guidance change task outcomes? | `dokimi repo run … --arm guidance:none` and again with `--arm guidance:raw`, one batch each | needs the repository's own tasks |
 
