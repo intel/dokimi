@@ -61,7 +61,7 @@ def digest_text(text: str) -> str:
     """
     import hashlib
 
-    return "sha256:" + hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+    return "sha256:" + hashlib.sha256((text or "").encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
 def retry_writable(func: Any, path: str, _exc: Any) -> None:

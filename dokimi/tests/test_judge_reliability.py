@@ -503,6 +503,132 @@ def test_cross_judge_refuses_to_rescore_against_unreproducible_stored_scores(tmp
     assert (tmp_path / "cj.json").exists()
 
 
+def test_cross_judge_judges_with_intact_materials_runs_end_to_end(tmp_path, monkeypatch, capsys):
+    """--judges with intact judge_materials runs and gate passes."""
+    import json
+    from dokimi.utils import digest_text
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, **_):
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    data = _stamped_run()
+    skill_body = "full skill body"
+    digest = digest_text(skill_body)
+    # Stamp the arm records with the digest so from_artifact can rebuild the store.
+    for ans in data["answers"]:
+        ans["arms"]["skill"]["judge_context_sha256"] = digest
+    for ev in data["evaluations"]:
+        ev["scores"]["skill"]["judge_context_sha256"] = digest
+    data["judge_materials"] = {digest: skill_body}
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+            "--output", str(tmp_path / "cj.json")]
+    args = build_parser().parse_args(argv)
+    # Should not raise SystemExit; gate should pass because materials are intact.
+    args.func(args)
+    assert (tmp_path / "cj.json").exists()
+    out = json.loads((tmp_path / "cj.json").read_text(encoding="utf-8"))
+    # Verify the measure was added (stored judge + re-scored judge).
+    measures = out.get("summary", {}).get("measures", [])
+    assert len(measures) >= 1
+
+
+def test_cross_judge_judges_refuses_file_without_materials(tmp_path, monkeypatch, capsys):
+    """--judges on a file without judge_materials exits 2."""
+    import json
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, **_):
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    data = _stamped_run()
+    # No judge_materials, but scores claim to be stored (no file before judge_context exists).
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+            "--output", str(tmp_path / "cj.json")]
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+
+
+def test_cross_judge_pairwise_with_materials_refuses_comparison(tmp_path, monkeypatch):
+    """--pairwise with stored materials refuses to mix judges."""
+    import json
+    from dokimi.utils import digest_text
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, **_):
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    data = _stamped_run()
+    # Pairwise judges see only the answers, so they still refuse stored material.
+    pairwise = tmp_path / "pw.json"
+    pairwise.write_text(json.dumps({"verdicts": {"baseline": {}, "skill": {}}, "summary": {"judge": "p/m"}}), encoding="utf-8")
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(answers), "--pairwise", str(pairwise),
+            "--output", str(tmp_path / "cj.json")]
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+
+
+def test_cross_judge_checklist_with_materials_refuses_comparison(tmp_path, monkeypatch):
+    """--checklist with stored materials refuses to mix judges."""
+    import json
+    from dokimi.utils import digest_text
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, **_):
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    data = _stamped_run()
+    # Checklist judges see only the answers, so they still refuse stored material.
+    checklist = tmp_path / "ck.json"
+    checklist.write_text(json.dumps({"questions": [], "summary": {"judge": "p/m"}}), encoding="utf-8")
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(answers), "--checklist", str(checklist),
+            "--output", str(tmp_path / "cj.json")]
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+
+
 def test_a_failed_gate_also_silences_that_judges_coverage_measure():
     absolute = cj.Measure(name="p/j", kind="aggregate")
     coverage = cj.Measure(name="p/j", kind="coverage")

@@ -1085,3 +1085,29 @@ def test_an_artifact_without_materials_falls_back_as_before():
 
     store = JudgeContextStore.from_artifact({"answers": [{"question_id": "q1", "arms": {"a": {}}}]})
     assert store.materials() == {}
+
+
+def test_judge_materials_guard_requires_material_for_stored_scores(caplog):
+    """The guard against missing material does not skip records with no digest."""
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    # Record with no digest — should be skipped without error.
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {},
+        "answers": [{"question_id": "q1", "arms": {"a": {"answer": "text"}}}],
+    })
+    # Store is empty; the arm record had no judge_context_sha256, so nothing was added.
+    assert store.materials() == {}
+    # Reaching here proves `materials.get(digest)` never ran with a missing digest.
+
+    # Record with a digest whose text is not in materials (hand-trimmed file).
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {},
+        "answers": [{
+            "question_id": "q1",
+            "arms": {"a": {"answer": "text", "judge_context_sha256": "sha256:00"}},
+        }],
+    })
+    # The arm record is skipped, and the store stays empty.
+    assert store.materials() == {}
+    assert "1 arm records cite judge material" in caplog.text

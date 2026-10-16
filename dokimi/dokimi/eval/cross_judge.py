@@ -155,12 +155,13 @@ def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) ->
     Pairwise and checklist judges are shown the answers alone, so for them every
     arm the stored judge saw material for stays unreproducible.
 
-    Since ``judge_context`` the arms run shows its judge the arm's full material
-    (:mod:`dokimi.eval.judge_context`) and keeps it in memory only, so
-    a re-scored judge reading the file sees the 200-char report snippets. In
-    review that was 28 characters of context against 11,079, and the same judge
-    on the same answers read +24.2 (p 0.0006) one way and +1.4 (p 0.65) the
-    other. A baseline arm has no material, so both sides see the same thing.
+    The arms run stores its judge's view of treatment material in ``judge_materials``
+    (:mod:`dokimi.eval.judge_context`). ``cross-judge --judges`` gives its judge
+    that same material by using the artifact's ``judge_materials``. Pairwise and
+    checklist judges see the answers alone. In review, a judge given the full
+    material (11,079 chars) on the perf skill arm read +24.2 (p 0.0006) one way and
+    +1.4 (p 0.65) the other than one seeing only the 28-char snippet. A baseline
+    arm has no material, so all judges see the same thing.
     """
     kinds = {
         arm: (body.get("metadata") or {}).get("arm_kind")
@@ -169,12 +170,20 @@ def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) ->
     }
     materials = data.get("judge_materials") if with_material else None
     held = set(materials) if isinstance(materials, dict) else set()
-    return sorted({
-        arm for ev in data.get("evaluations") or [] for arm, s in (ev.get("scores") or {}).items()
-        if isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
-        and kinds.get(arm) != "baseline"
-        and s.get("judge_context_sha256") not in held
-    })
+    unreproducible = set()
+    for ev in data.get("evaluations") or []:
+        for arm, s in (ev.get("scores") or {}).items():
+            if not (isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
+                    and kinds.get(arm) != "baseline"):
+                continue
+            digest = s.get("judge_context_sha256")
+            # Non-string, non-None digest is malformed; skip it with a warning elsewhere.
+            if digest is not None and not isinstance(digest, str):
+                continue
+            # Unreproducible if: no digest (material never stored), or digest not in held materials.
+            if digest is None or digest not in held:
+                unreproducible.add(arm)
+    return sorted(unreproducible)
 
 
 def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional[Measure]:

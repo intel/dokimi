@@ -216,10 +216,22 @@ class JudgeContextStore:
             return store
         bad = 0
         for record in data.get("answers") or []:
+            if not isinstance(record, dict):
+                bad += 1
+                continue
             qid = question_id(record)
             for arm_name, arm in (record.get("arms") or {}).items():
-                digest = arm.get("judge_context_sha256") if isinstance(arm, dict) else None
-                if qid is None or not digest:
+                if not isinstance(arm, dict):
+                    bad += 1
+                    continue
+                digest = arm.get("judge_context_sha256")
+                if qid is None or digest is None:
+                    continue
+                if not isinstance(digest, str) or not digest:
+                    bad += 1
+                    continue
+                if not isinstance(qid, (str, int)):
+                    bad += 1
                     continue
                 text = materials.get(digest)
                 if not isinstance(text, str) or digest_text(text) != digest:
@@ -242,9 +254,9 @@ class JudgeContextStore:
             if hit is None and key not in self._ambiguous and not self._warned:
                 self._warned = True
                 logger.warning(
-                    "No stored judge context for %s/%s — judging records that were not "
-                    "answered in this process falls back to the 200-char report "
-                    "snippets, which under-scores arms that cite their own material.",
+                    "No stored judge context for %s/%s; this run did not keep its material, "
+                    "so judging falls back to 200-char report snippets, which under-scores "
+                    "arms that cite their own material.",
                     question_id, arm_name,
                 )
         return hit
@@ -291,4 +303,3 @@ def cite(records: List[Dict[str, Any]], store: JudgeContextStore) -> Dict[str, s
                 arm["judge_context_sha256"] = digest
                 cited[digest] = materials[digest]
     return dict(sorted(cited.items()))
-

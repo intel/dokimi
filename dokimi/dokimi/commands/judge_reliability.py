@@ -219,21 +219,35 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     report = CrossJudgeReport(baseline_arm=baseline, require_validated=args.require_validated)
+    from dokimi.eval.judge_context import JudgeContextStore
+
     if not args.no_stored and isinstance(data, dict) and (m := stored_measure(data)):
-        # Every other measure (re-scored, pairwise, checklist) sees at most the report snippets.
-        # A re-scored judge gets the file's judge_materials; pairwise and checklist
-        # judges see the answers alone, so only they lose the stored material.
-        unrepro = (unreproducible_arms(data) if (args.pairwise or args.checklist)
-                   else unreproducible_arms(data, with_material=True) if args.judges else [])
+        # Re-scored judges get the file's judge_materials; pairwise and checklist
+        # judges see the answers alone. Each path sees different input, so we refuse
+        # the comparison to prevent mixing a change of judge with a change of input.
+        if args.judges:
+            # For --judges, validate that every stored score's material can be read back
+            # from the file via from_artifact, not just that the digest key exists.
+            materials = JudgeContextStore.from_artifact(data)
+            unrepro = unreproducible_arms(data, with_material=True)
+            # Additional check: require that every stored non-baseline score is resolvable.
+            for ev in data.get("evaluations") or []:
+                for arm, s in (ev.get("scores") or {}).items():
+                    if (isinstance(s, dict) and s.get("judge_context_source") == "stored"
+                            and arm != "baseline"):
+                        qid = ev.get("question_id")
+                        if qid is not None and materials.get(str(qid), arm) is None:
+                            unrepro.append(arm)
+        else:
+            unrepro = (unreproducible_arms(data) if (args.pairwise or args.checklist) else [])
         if unrepro:
-            print(f"Error: the stored judge saw treatment material for {', '.join(unrepro)} that the "
+            print(f"Error: the stored judge saw treatment material for {', '.join(set(unrepro))} that the "
                   "other measures will not (a pairwise or checklist judge sees only the answers; a "
                   "re-scored judge sees the file's judge_materials, which a file written before them "
                   "does not have), so the comparison would mix a change of judge with a change of "
                   "input. Pass --no-stored to compare them with each other.", file=sys.stderr)
             sys.exit(2)
         report.measures.append(m)
-    from dokimi.eval.judge_context import JudgeContextStore
 
     # What the arms run's judge saw, when the file keeps it (judge_materials).
     materials = JudgeContextStore.from_artifact(data) if isinstance(data, dict) else None
