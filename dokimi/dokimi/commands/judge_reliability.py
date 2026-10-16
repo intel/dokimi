@@ -226,9 +226,17 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     report = CrossJudgeReport(baseline_arm=baseline, require_validated=args.require_validated)
-    if not args.no_stored and isinstance(data, dict) and (m := stored_measure(data)):
+    from dokimi.eval.records import RecordError
+
+    try:
+        stored = None if args.no_stored or not isinstance(data, dict) else stored_measure(data)
+        unrepro = (unreproducible_arms(data)
+                   if stored and (args.judges or args.pairwise or args.checklist) else [])
+    except RecordError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if (m := stored):
         # Every other measure (re-scored, pairwise, checklist) sees at most the report snippets.
-        unrepro = unreproducible_arms(data) if (args.judges or args.pairwise or args.checklist) else []
         if unrepro:
             print(f"Error: the stored judge saw treatment material for {', '.join(unrepro)} that the "
                   "answers file does not keep; the other measures (a re-scored judge sees only the report "

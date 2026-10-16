@@ -21,8 +21,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
 from dokimi.eval import stats as eval_stats
-from dokimi.eval.records import BASELINE, CONTEXT, Record, records
-from dokimi.eval.records import load as load_records
+from dokimi.eval.records import BASELINE, CONTEXT, Record, RecordError, record, records
 
 #: Mirrors :data:`dokimi.eval.stats.HAS_SCIPY`; the tests themselves
 #: live there now. Note this module defines a local ``stats()`` helper, hence
@@ -145,6 +144,33 @@ DIAG_MAP = {
 }
 
 DIFFICULTY_ORDER = ["easy", "beginner", "intermediate", "medium", "advanced", "hard"]
+
+
+def _answers_by_id(answers_path: str) -> dict[str, Record]:
+    """The answers file next to an eval file, by question key, for the Q&A sidecar.
+
+    A missing answers file means no answers in the sidecar. A record that cannot be
+    read drops only itself, with a warning naming it.
+    """
+    import sys
+    from pathlib import Path
+
+    try:
+        data = json.loads(Path(answers_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    items = data.get("answers") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return {}
+    out: dict[str, Record] = {}
+    for i, item in enumerate(items):
+        try:
+            rec = record(item, source=f"{answers_path} answers", index=i, kind="answers")
+        except RecordError as exc:
+            print(f"⚠ {exc}; its answers are left out of the Q&A sidecar", file=sys.stderr)
+            continue
+        out.setdefault(rec.key, rec)
+    return out
 
 
 def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = None):
@@ -425,12 +451,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     if qa_json_out is None:
         qa_json_out = out_path.replace(".md", ".qa.json")
 
-    answers_by_id: dict[str, Record] = {}
-    try:
-        answers_path = eval_path.replace("/eval/", "/answers/")
-        answers_by_id = {a.key: a for a in load_records(answers_path).records}
-    except Exception:
-        answers_by_id = {}
+    answers_by_id = _answers_by_id(eval_path.replace("/eval/", "/answers/"))
 
     def _answer_text(a: Record | None, condition: str):
         answer = a.answer(condition) if a is not None else None

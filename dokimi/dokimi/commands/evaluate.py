@@ -200,7 +200,14 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
     else:
         output_path = Path(f"eval/{args.product}.json")
 
-    evaluations = judge.evaluate_answers(args.product, answers, output_path=output_path, concurrency=args.concurrency)
+    from dokimi.eval.records import RecordError
+
+    try:
+        evaluations = judge.evaluate_answers(args.product, answers, output_path=output_path,
+                                             concurrency=args.concurrency)
+    except RecordError as exc:
+        print(f"Error: {args.answers}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     judge.save_evaluations(evaluations, output_path)
     print(f"\n✅ Saved evaluations to {output_path}")

@@ -192,3 +192,73 @@ def test_plugin_delta_names_the_malformed_record():
 
     with pytest.raises(PluginDeltaError, match=r"answers\[0\]: missing question_id"):
         compare_plugin_runs(run("none"), run("p1"))
+
+
+# ── a malformed record fails cleanly and loses only itself ──────────────
+
+
+def test_baseline_save_refuses_a_malformed_eval_file_before_writing(tmp_path, monkeypatch, capsys):
+    from dokimi.commands import baseline
+
+    monkeypatch.setattr(baseline, "BASELINES_DIR", tmp_path / "baselines")
+    path = tmp_path / "eval.json"
+    path.write_text(json.dumps({"evaluations": [
+        {"question_text": "nq", "with_docs": {"aggregate": 5}, "without_docs": {"aggregate": 1}, "delta": 4}]}),
+        encoding="utf-8")
+    with pytest.raises(SystemExit):
+        baseline.cmd_baseline_save(argparse.Namespace(from_eval=str(path), name="n1", product="P"))
+    assert "evaluations[0]: missing question_id" in capsys.readouterr().err
+    assert not (tmp_path / "baselines" / "n1.json").exists()
+
+
+def test_report_eval_sidecar_drops_only_the_malformed_answers_record(tmp_path, capsys):
+    from dokimi.report.eval_report import generate_report
+
+    root = tmp_path / "run"
+    (root / "eval").mkdir(parents=True)
+    (root / "answers").mkdir()
+    (root / "eval" / "lib.json").write_text(json.dumps(_panel_eval()), encoding="utf-8")
+    answers = _answers()
+    del answers["answers"][1]["question_id"]
+    (root / "answers" / "lib.json").write_text(json.dumps(answers), encoding="utf-8")
+    qa = tmp_path / "lib.qa.json"
+    generate_report(str(root / "eval" / "lib.json"), str(tmp_path / "lib.md"), str(qa))
+    rows = json.loads(qa.read_text(encoding="utf-8"))["records"]
+    assert [r["with_docs_answer"] for r in rows] == ["context answer 0", None, "context answer 2"]
+    assert "answers[1]: missing question_id" in capsys.readouterr().err
+
+
+def test_stored_scores_read_an_arms_run_with_the_fallback_question_id():
+    """The arm runner writes `unknown_q` for every question with no id; no join is needed."""
+    from dokimi.eval import cross_judge as cj
+
+    answers = [{"question_id": "unknown_q", "arms": {"baseline": {"answer": "b"}, "skill": {"answer": "s"}}}
+               for _ in range(3)]
+    evals = [{"question_id": "unknown_q", "scores": {"baseline": {"aggregate": 50}, "skill": {"aggregate": 70}}}
+             for _ in range(3)]
+    data = {"baseline_arm": "baseline", "answers": answers, "evaluations": evals}
+    stored = cj.stored_measure(data)
+    assert stored is not None
+    assert stored.scores == {("unknown_q", "baseline"): 50.0, ("unknown_q", "skill"): 70.0}
+    assert cj.unreproducible_arms(data) == []
+
+
+def test_eval_score_exits_cleanly_on_a_record_without_question_text(tmp_path, capsys):
+    from dokimi.commands.evaluate import cmd_eval_score
+
+    path = tmp_path / "answers.json"
+    path.write_text(json.dumps(_answers()), encoding="utf-8")
+
+    class StubJudge:
+        def __init__(self, **_):
+            pass
+
+        def evaluate_answers(self, *_, **__):
+            raise RecordError("answers[2]: question 'q2' has no question_text")
+
+    args = argparse.Namespace(answers=str(path), judge_provider="openai", judge_model="j", judge_temperature=0.0,
+                              output=str(tmp_path / "eval.json"), product="lib", concurrency=1, run_id=None)
+    with patch("dokimi.eval.Judge", StubJudge), pytest.raises(SystemExit) as exit_:
+        cmd_eval_score(args)
+    assert exit_.value.code == 1
+    assert "answers[2]: question 'q2' has no question_text" in capsys.readouterr().err

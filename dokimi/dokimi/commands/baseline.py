@@ -108,6 +108,14 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     name = args.name or f"{product}-{timestamp}"
 
+    from dokimi.eval.records import RecordError
+
+    try:
+        summary = _compute_summary(eval_data)
+    except RecordError as exc:
+        print(f"❌ {eval_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
     BASELINES_DIR.mkdir(parents=True, exist_ok=True)
     dest = BASELINES_DIR / f"{name}.json"
     if dest.exists():
@@ -121,12 +129,11 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
         "product": product,
         "saved_at": timestamp,
         "path": str(dest),
-        "summary": _compute_summary(eval_data),
+        "summary": summary,
     })
     _save_manifest(manifest)
 
     print(f"✅ Saved baseline '{name}' → {dest}")
-    summary = _compute_summary(eval_data)
     if summary:
         print(f"   n={summary['n']}  with={summary['avg_with']}  without={summary['avg_without']}  delta={summary['avg_delta']:+}")
 

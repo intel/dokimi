@@ -53,7 +53,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
-from dokimi.eval.records import RecordLike, Run, read
+from dokimi.eval.records import Record, RecordLike, Run
 from dokimi.eval.records import records as as_records
 from dokimi.eval.stats import adjust_pvalues, mean_ci
 
@@ -149,6 +149,22 @@ def stored_label(data: Union[Run, Dict[str, Any]]) -> str:
     return f"{provider}/{model}{STORED}" if provider and model else "stored judge"
 
 
+def _unjoined(data: Union[Run, Dict[str, Any]]) -> Sequence[Record]:
+    """The answers and evaluation records of an arms run, read without joining them.
+
+    Neither caller needs a join, and a join refuses repeated question ids, which
+    older arms files hold (the runner's ``unknown_q`` fallback id).
+    """
+    if isinstance(data, Run):
+        return data.records
+    out: List[Record] = []
+    for key in ("answers", "evaluations"):
+        items = data.get(key)
+        if isinstance(items, list):
+            out.extend(as_records(items, source=f"arms run {key}", kind=key))
+    return out
+
+
 def unreproducible_arms(data: Union[Run, Dict[str, Any]]) -> List[str]:
     """Arms whose stored scores saw treatment material the answers file does not hold.
 
@@ -159,7 +175,7 @@ def unreproducible_arms(data: Union[Run, Dict[str, Any]]) -> List[str]:
     on the same answers read +24.2 (p 0.0006) one way and +1.4 (p 0.65) the
     other. A baseline arm has no material, so both sides see the same thing.
     """
-    run = read(data, source="arms run")
+    run = _unjoined(data)
     kinds = {
         arm: (a.raw.get("metadata") or {}).get("arm_kind")
         for r in run for arm, a in r.answers.items()
@@ -173,8 +189,8 @@ def unreproducible_arms(data: Union[Run, Dict[str, Any]]) -> List[str]:
 
 def stored_measure(data: Union[Run, Dict[str, Any]], name: Optional[str] = None) -> Optional[Measure]:
     """The aggregate the arms run itself recorded, if it was judged."""
-    run = read(data, source="arms run")
-    m = Measure(name=name or stored_label(run), kind="aggregate")
+    run = _unjoined(data)
+    m = Measure(name=name or stored_label(data), kind="aggregate")
     for r in run:
         for arm in r.scores:
             if (v := r.score(arm)) is not None:

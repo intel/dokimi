@@ -115,6 +115,39 @@ def test_question_ids_stay_as_written_and_join_as_strings():
     assert records.records([zero])[0] is zero and isinstance(zero, Record)
 
 
+def test_a_binary_join_prefers_stamped_hits_falls_back_for_metadata_and_keeps_eval_only_questions():
+    answers = _answers(
+        _answer("q1", docs=[_doc("ctx")], persona="dev", ground_truth_chunk="gt-a"),
+        {**_answer("q2", docs=[_doc("ctx")]), "question_text": ""},
+    )["answers"]
+    evals = _evals(
+        _eval("q1", 80, 60, retrieval_hit=False, diagnosis={"kind": "eval"}, category="c-eval"),
+        {**_eval("q2", 70, 70), "question_text": "Only the eval has it?", "difficulty": "hard",
+         "error": "judge flaked"},
+        _eval("q3", 50, 40),
+    )["evaluations"]
+    q1, q2, q3 = records.join(answers, evals, source="run")
+    # (a) the evaluation's stamped retrieval_hit wins over the hit the answer's docs imply
+    assert q1.retrieval_hit is False
+    assert q1.persona == "dev" and q1.ground_truth == "gt-a" and q1.category == "c-eval"
+    assert q1.diagnosis == {"kind": "eval"}
+    # answers stay with the answers record, scores come from the evaluation
+    assert q1.answer(CONTEXT).text == "use parallel_for"
+    assert (q1.score(CONTEXT), q1.score(BASELINE), q1.delta) == (80, 60, 20)
+    assert q1.conditions == (CONTEXT, BASELINE)
+    assert q1.raw["library_name"] == "lib" and q1.raw["delta"] == 20
+    # (b) metadata the answers record lacks falls back to the evaluation
+    assert (q2.question_text, q2.difficulty, q2.error) == ("Only the eval has it?", "hard", "judge flaked")
+    assert q2.retrieval_hit is True  # nothing stamped: implied by the answer's docs
+    # (c) a question only the evaluations have is kept, after the answered ones
+    assert q3.key == "q3" and q3.answers == {} and q3.score(CONTEXT) == 50
+
+
+def test_a_join_refuses_a_duplicate_evaluation():
+    with pytest.raises(RecordError, match="duplicate question_id 'q1' in evaluations"):
+        records.join([], [_eval("q1", 1, 1), _eval("q1", 2, 2)], source="run")
+
+
 # ── arms ────────────────────────────────────────────────────────────────
 
 
@@ -177,7 +210,8 @@ def test_section_reads_one_list_and_refuses_a_file_without_it():
     ({"answers": {"q1": {}}}, "'answers' must be a list"),
     ({"answers": ["q1"]}, r"answers\[0\]: expected an object"),
     ({"answers": [{"question_text": "no id"}]}, r"answers\[0\]: missing question_id"),
-    ({"answers": [{"question_id": 1.5}]}, "missing question_id"),
+    ({"answers": [{"question_id": 1.5}]}, r"question_id must be a string or an integer, got 1\.5"),
+    ({"answers": [{"question_id": True}]}, "question_id must be a string or an integer, got True"),
     ({"answers": [{"question_id": "q1", "with_docs": "an answer"}]}, r"\.with_docs: expected an object or null"),
     ({"answers": [{"question_id": "q1", "arms": ["baseline"]}]}, "'arms' must be an object"),
     ({"answers": [{"question_id": "q1", "arms": {}, "expected_skill": 3}]}, "expected_skill must be"),

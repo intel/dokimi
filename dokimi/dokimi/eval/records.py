@@ -40,8 +40,8 @@ written as and an aggregate stays the ``int`` or ``float`` it was written as, so
 report that prints them prints what the file says.
 
 Errors: :class:`RecordError` (a ``ValueError``) for a missing or unparseable file, an
-artifact with no record list, a record that is not an object or has no
-``question_id``, a condition payload that is neither an object nor ``null``, an
+artifact with no record list, a record that is not an object, has no
+``question_id`` or has one that is neither a string nor an integer, a condition payload that is neither an object nor ``null``, an
 ``arms``/``scores`` field that is not an object, an ``expected_skill`` that is not a
 name, a list of names or ``null``, and duplicate question ids where records are
 joined. A missing or non-numeric aggregate is not an error: it is an unscored
@@ -269,7 +269,7 @@ def record(item: RecordLike, *, source: str = "<input>", index: int = 0, kind: O
     where = f"{source}[{index}]"
     if not isinstance(item, Mapping):
         raise RecordError(f"{where}: expected an object, got {type(item).__name__}")
-    qid = _question_id(item)
+    qid = _question_id(item, where)
     if qid is None:
         raise RecordError(f"{where}: missing question_id")
 
@@ -391,15 +391,19 @@ def _run(recs: Sequence[Record], meta: dict[str, Any]) -> Run:
     return Run(tuple(recs), "binary", BINARY, BASELINE, meta)
 
 
-def _question_id(item: Mapping[str, Any]) -> Optional[QuestionId]:
-    """``question_id``, else ``id``; ``0`` is an id, ``None``/``""``/a bool are not."""
+def _question_id(item: Mapping[str, Any], where: str) -> Optional[QuestionId]:
+    """``question_id``, else ``id``; ``0`` is an id, ``None``/``""`` are not.
+
+    ``question_id`` wins over ``id``: it is the field every answers/eval writer uses.
+    A present id that is neither a string nor an integer is a :class:`RecordError`.
+    """
     for key in ("question_id", "id"):
         value = item.get(key)
-        if value is None or value == "" or isinstance(value, bool):
+        if value is None or value == "":
             continue
-        if isinstance(value, (str, int)):
+        if isinstance(value, (str, int)) and not isinstance(value, bool):
             return value
-        return None
+        raise RecordError(f"{where}: {key} must be a string or an integer, got {value!r}")
     return None
 
 
