@@ -115,9 +115,10 @@ class EvaluationPipeline:
             questions_root: Directory holding golden question sets named
                 ``<product_key>_golden.json``, for example a checkout of the
                 evaluation-content repository. When given and the file is
-                present it is auto-included as the manual question set; when it
-                is absent a warning is logged. Without this argument (and
-                without ``custom_questions_path``) the run has no golden set.
+                present it is the run's whole question set and generation is
+                skipped; when it is absent a warning is logged and questions are
+                generated. Without this argument (and without
+                ``custom_questions_path``) the run has no golden set.
         """
         if not repo and not description:
             raise ValueError(
@@ -136,6 +137,10 @@ class EvaluationPipeline:
         # convention name <product_key>_golden.json under the caller-supplied
         # questions root (the question sets live outside this repository).
         self.questions_root = Path(questions_root) if questions_root else None
+        # A golden set found under the root *is* the question set: generation is
+        # skipped, so two runs on one root answer the same questions. An explicit
+        # custom_questions_path is still merged into generated questions.
+        self.golden_pinned = False
         if custom_questions_path:
             _custom_path = Path(custom_questions_path)
             if not _custom_path.exists():
@@ -143,11 +148,12 @@ class EvaluationPipeline:
                     f"--custom-questions path does not exist: {_custom_path}"
                 )
             self.custom_questions_path: Optional[Path] = _custom_path
-        elif self.questions_root is not None:
+        elif questions_from is None and self.questions_root is not None:
             _auto_golden = self.questions_root / f"{self.product_key.lower()}_golden.json"
             if _auto_golden.is_file():
                 self.custom_questions_path = _auto_golden
-                logger.info(f"Auto-including golden questions: {_auto_golden}")
+                self.golden_pinned = True
+                logger.info(f"Using golden questions: {_auto_golden}")
             else:
                 self.custom_questions_path = None
                 logger.warning(
@@ -156,12 +162,13 @@ class EvaluationPipeline:
                 )
         else:
             self.custom_questions_path = None
-            logger.warning(
-                "no questions root given; questions will be generated for "
-                f"{self.product_key.lower()} instead of read from a curated golden "
-                "set. Pass --questions-root <checkout>/questions (or "
-                "--custom-questions <file>) to measure against a fixed set"
-            )
+            if questions_from is None and self.questions_root is None:
+                logger.warning(
+                    "no questions root given; questions will be generated for "
+                    f"{self.product_key.lower()} instead of read from a curated golden "
+                    "set. Pass --questions-root <checkout>/questions, or reuse an "
+                    "earlier run's set, to measure against a fixed set"
+                )
 
         self.model = model
         self.provider = provider
@@ -219,17 +226,26 @@ class EvaluationPipeline:
         }
         
         # Step 1: Discover personas (cached if already exists)
-        logger.info("Step 1/6: Discovering personas...")
-        if (not self.force_regen) and self.personas_path.exists():
-            personas = json.loads(self.personas_path.read_text(encoding="utf-8"))
-            print(f"✓ Loaded {len(personas.get('personas', []))} personas (cached)")
+        # Skip if using golden pinned or external questions (personas not needed)
+        if self.golden_pinned or self.external_questions_path is not None:
+            logger.info("Step 1/6: Skipping persona discovery (using pinned or external questions)")
+            personas: Dict[str, Any] = {"personas": []}
+            results["steps"]["personas"] = {
+                "count": 0,
+                "skipped": True
+            }
         else:
-            personas = self._discover_personas()
-            print(f"✓ Discovered {len(personas.get('personas', []))} personas")
-        results["steps"]["personas"] = {
-            "count": len(personas.get("personas", [])),
-            "path": str(self.personas_path)
-        }
+            logger.info("Step 1/6: Discovering personas...")
+            if (not self.force_regen) and self.personas_path.exists():
+                personas = json.loads(self.personas_path.read_text(encoding="utf-8"))
+                print(f"✓ Loaded {len(personas.get('personas', []))} personas (cached)")
+            else:
+                personas = self._discover_personas()
+                print(f"✓ Discovered {len(personas.get('personas', []))} personas")
+            results["steps"]["personas"] = {
+                "count": len(personas.get("personas", [])),
+                "path": str(self.personas_path)
+            }
 
         # Step 2+3: Generate & merge questions (external / cached / fresh)
         if self.external_questions_path is not None:
@@ -250,9 +266,44 @@ class EvaluationPipeline:
             logger.info("Step 2-3/6: Loading cached questions (skipping generation)...")
             merged_questions = load_questions_payload(self.questions_path)
             print(f"✓ Loaded {len(merged_questions)} questions (cached — skipping generation)")
+            # Warn if cached questions differ from the golden set
+            if self.golden_pinned and self.custom_questions_path is not None:
+                try:
+                    golden_questions = load_questions_payload(self.custom_questions_path)
+                    cached_hash = compute_question_set_hash(merged_questions)
+                    golden_hash = compute_question_set_hash(golden_questions)
+                    if cached_hash != golden_hash:
+                        cached_count = len(merged_questions)
+                        golden_count = len(golden_questions)
+                        logger.warning(
+                            f"cached question set (n={cached_count}, hash={cached_hash}) differs from "
+                            f"golden set (n={golden_count}, hash={golden_hash}); "
+                            f"use a fresh output directory (or --force-regen with benchmark run) to use the golden set"
+                        )
+                except (json.JSONDecodeError, ValueError, TypeError, AttributeError, OSError) as e:
+                    logger.warning(
+                        f"Could not load golden set for comparison: {e}; "
+                        f"using cached questions"
+                    )
             results["steps"]["questions_generated"] = {"count": len(merged_questions), "cached": True}
             results["steps"]["questions_merged"] = {"total": len(merged_questions), "cached": True,
                                                      "path": str(self.questions_path)}
+        elif self.golden_pinned:
+            logger.info(f"Step 2-3/6: Loading golden questions from {self.custom_questions_path}...")
+            merged_questions = self._load_custom_questions()
+            if not merged_questions:
+                raise ValueError(f"Golden set is empty: {self.custom_questions_path}")
+            print(f"✓ Loaded {len(merged_questions)} golden questions (skipping generation)")
+            results["steps"]["questions_generated"] = {
+                "count": len(merged_questions),
+                "golden_source": str(self.custom_questions_path),
+            }
+            results["steps"]["questions_merged"] = {
+                "total": len(merged_questions),
+                "manual": len(merged_questions),
+                "golden_source": str(self.custom_questions_path),
+                "path": str(self.questions_path),
+            }
         else:
             logger.info("Step 2/6: Generating questions...")
             generated_questions = self._generate_questions(personas)
@@ -413,44 +464,48 @@ class EvaluationPipeline:
         
         return questions
     
+    def _load_custom_questions(self) -> List[Dict[str, Any]]:
+        """Read the manual (custom or golden) question set, tagged ``source_type: manual``."""
+        assert self.custom_questions_path is not None
+        custom_data = json.loads(self.custom_questions_path.read_text(encoding="utf-8"))
+
+        # Handle both dict format {"questions": [...]} and direct list format
+        if isinstance(custom_data, dict):
+            custom_questions = custom_data.get("questions")
+            if custom_questions is None:
+                raise ValueError(
+                    f"Custom questions file must have 'questions' key or be a list. "
+                    f"Got dict with keys: {list(custom_data.keys())}"
+                )
+        elif isinstance(custom_data, list):
+            custom_questions = custom_data
+        else:
+            raise ValueError(
+                f"Custom questions must be a dict with 'questions' key or a list. "
+                f"Got: {type(custom_data).__name__}"
+            )
+
+        # Validate it's a list
+        if not isinstance(custom_questions, list):
+            raise ValueError(
+                f"Expected list of questions, got {type(custom_questions).__name__}"
+            )
+
+        # Add source tracking
+        for q in custom_questions:
+            q["source_type"] = "manual"
+            if "persona_id" not in q:
+                q["persona_id"] = "manual"
+
+        return custom_questions
+
     def _merge_questions(self, generated_questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Merge generated + custom questions, deduplicate, save."""
         from dokimi.questions import QuestionValidator
         
         all_questions = generated_questions.copy()
-        
-        # Load custom questions if provided
         if self.custom_questions_path and self.custom_questions_path.exists():
-            custom_data = json.loads(self.custom_questions_path.read_text(encoding="utf-8"))
-            
-            # Handle both dict format {"questions": [...]} and direct list format
-            if isinstance(custom_data, dict):
-                custom_questions = custom_data.get("questions")
-                if custom_questions is None:
-                    raise ValueError(
-                        f"Custom questions file must have 'questions' key or be a list. "
-                        f"Got dict with keys: {list(custom_data.keys())}"
-                    )
-            elif isinstance(custom_data, list):
-                custom_questions = custom_data
-            else:
-                raise ValueError(
-                    f"Custom questions must be a dict with 'questions' key or a list. "
-                    f"Got: {type(custom_data).__name__}"
-                )
-            
-            # Validate it's a list
-            if not isinstance(custom_questions, list):
-                raise ValueError(
-                    f"Expected list of questions, got {type(custom_questions).__name__}"
-                )
-            
-            # Add source tracking
-            for q in custom_questions:
-                q["source_type"] = "manual"
-                if "persona_id" not in q:
-                    q["persona_id"] = "manual"
-            
+            custom_questions = self._load_custom_questions()
             all_questions.extend(custom_questions)
             logger.info(f"Loaded {len(custom_questions)} custom questions")
 
