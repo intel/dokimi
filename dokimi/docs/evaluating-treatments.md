@@ -595,6 +595,15 @@ python scripts/check_treatment_batch.py results/arms/skills \
   --treatment-arm 'skill:*' --expect-n regular=40,golden=20 --expect-files 12
 ```
 
+A batch judged before the 2026-10-13 default change names its judge, since the pin is
+`anthropic/claude-sonnet-5-5`:
+
+```bash
+python scripts/check_treatment_batch.py results/arms/persona-batch \
+  --profile data/agent_profiles/concise_expert.md \
+  --judge-provider amazon-bedrock --judge-model global.anthropic.claude-sonnet-4-6
+```
+
 It checks schema, exactly two arms, the baseline arm, the treatment-arm pattern, a pinned
 `--judge-model`/`--judge-provider`, that the judge is not the answering model
 (self-judging), question and per-arm answer counts, and — for `profile:` arms — that the
