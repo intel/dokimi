@@ -1,0 +1,3 @@
+### Added
+
+- **Repository budget command** — `python cli.py repo budget <source>` lists what the tree puts into an agent's context when the agent starts at the repository root, and when each part loads. The command reads only the tree and calls no model, sizing guidance files, skill listings and descriptions, and MCP server names separately. Output distinguishes four load times: `start` (root CLAUDE.md/AGENTS.md and their `@` imports), `lazy` (nested guidance), `on demand` (skill bodies), and `off` (guidance never loaded). Supports `--json` for structured output, `--harness` to size framework overhead, and `--fail-on-warning` to gate on duplicate skill descriptions and guidance files that are turned off.
