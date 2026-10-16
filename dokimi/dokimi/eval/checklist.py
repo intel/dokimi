@@ -37,6 +37,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.pairwise import ask_parsed, standalone_verdict
+from dokimi.eval.records import RecordLike, records as as_records
 from dokimi.eval.stats import mean_ci
 from dokimi.utils import question_id
 
@@ -263,8 +264,8 @@ def _fmt(x: Optional[float], spec: str) -> str:
 
 
 def run_checklist(
-    records: Sequence[Dict[str, Any]],
-    points_by_qid: Dict[str, List[str]],
+    records: Sequence[RecordLike],
+    points_by_qid: Dict[Any, List[str]],
     ask: Ask,
     *,
     judge: str = "unknown",
@@ -282,17 +283,16 @@ def run_checklist(
     """
     report = ChecklistReport(judge=judge, baseline_arm=baseline_arm)
     jobs = []
-    for rec in records:
-        qid = question_id(rec)
-        points = [] if qid is None else points_by_qid.get(qid) or []
+    for rec in as_records(records, source="answers", kind="answers"):
+        qid: Any = rec.question_id
+        points = points_by_qid.get(qid) or []
         if not points:
             report.n_without_points += 1
             continue
-        report.questions[qid] = rec.get("question_text", "")
-        for arm, body in (rec.get("arms") or {}).items():
-            answer = (body or {}).get("answer") if isinstance(body, dict) else None
-            if answer and (arms is None or arm in arms):
-                jobs.append((qid, arm, rec.get("question_text", ""), answer, points))
+        report.questions[qid] = rec.question_text
+        for arm, a in rec.answers.items():
+            if a.text and (arms is None or arm in arms):
+                jobs.append((qid, arm, rec.question_text, a.text, points))
 
     def one(job):
         qid, arm, question, answer, points = job

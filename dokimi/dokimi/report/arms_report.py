@@ -6,6 +6,7 @@
 from typing import Any, Dict, List
 
 from dokimi.eval.arm_summary import TOOL_COUNTS
+from dokimi.eval.records import records
 
 
 def _md_cell(text: str) -> str:
@@ -210,11 +211,11 @@ def render_arms_report(data: Dict[str, Any]) -> str:
     agentic_stats = data.get("agentic_usage_summary") or {}
     if not agentic_stats:
         # Backward-compatible fallback for older artifacts.
-        answers = data.get("answers", [])
         fallback: Dict[str, Dict[str, Any]] = {}
-        for rec in answers:
-            for arm_name, arm in rec.get("arms", {}).items():
-                if isinstance(arm, dict) and arm.get("agentic"):
+        for rec in records(data.get("answers", []), source="answers", kind="answers"):
+            for arm_name, answer in rec.answers.items():
+                arm = answer.raw
+                if arm.get("agentic"):
                     s = fallback.setdefault(arm_name, {"calls": [], "iters": []})
                     s["calls"].append(arm.get("tool_call_count", 0))
                     s["iters"].append(arm.get("iterations", 0))
@@ -285,17 +286,14 @@ def render_arms_report(data: Dict[str, Any]) -> str:
         sep = "| --- | " + " | ".join("---:" for _ in arms) + " |"
         lines.append(header)
         lines.append(sep)
-        for ev in evaluations:
-            q = ev.get("question_text", "")
+        for ev in records(evaluations, source="evaluations", kind="evaluations"):
+            q = ev.question_text
             q_short = (q[:60] + "…") if len(q) > 60 else q
             q_short = _md_cell(q_short)
             cells = []
             for arm in arms:
-                s = ev.get("scores", {}).get(arm)
-                if isinstance(s, dict) and isinstance(s.get("aggregate"), (int, float)):
-                    cells.append(f"{s['aggregate']:.0f}")
-                else:
-                    cells.append("—")
+                score = ev.score(arm)
+                cells.append("—" if score is None else f"{score:.0f}")
             lines.append(f"| {q_short} | " + " | ".join(cells) + " |")
         lines.append("")
 

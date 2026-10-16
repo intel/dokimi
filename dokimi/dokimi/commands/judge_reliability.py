@@ -16,8 +16,15 @@ from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 
 
 def _load_answers(path: str):
+    """The parsed file and its answers records (eval/records.py), or a clean exit."""
+    from dokimi.eval.records import RecordError, read
+
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    answers = data.get("answers", data) if isinstance(data, dict) else data
+    try:
+        answers = list(read(data, source=path, section="answers").records)
+    except RecordError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
     return data, answers
 
 

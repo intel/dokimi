@@ -47,7 +47,7 @@ import re
 from decimal import Context, Decimal
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
-from dokimi.utils import question_id
+from dokimi.eval.records import RecordLike, records
 
 #: Minimum answer length (characters) worth degrading. Short answers have too
 #: little content for truncation or code-stripping to mean anything.
@@ -585,37 +585,26 @@ def degrade(
     return DEGRADATIONS[variant](answer, rng=random.Random(seed), other=other)
 
 
-def _answer_pool(answers: Iterable[object]) -> List[Dict[str, Any]]:
+def _answer_pool(answers: Iterable[RecordLike]) -> List[Dict[str, Any]]:
     """Flatten a run's answers into (question_id, question_text, arm, answer) rows.
 
-    Accepts both the arm-runner shape (``arms: {name: {answer: ...}}``) and the
-    legacy two-condition shape (``with_docs``/``without_docs``).
+    Any answers shape :mod:`dokimi.eval.records` reads: arms
+    (``arms: {name: {answer: ...}}``) or binary (``with_docs``/``without_docs``).
+    A question with no text is skipped: there is nothing to judge it against.
     """
     pool: List[Dict[str, Any]] = []
-    for item in answers:
-        if not isinstance(item, dict):
+    for rec in records(answers, source="answers", kind="answers"):
+        if not rec.question_text:
             continue
-        qid = question_id(item)
-        qtext = item.get("question_text") or item.get("question")
-        if qid is None or not qtext:
-            continue
-        arms = item.get("arms")
-        candidates: List[tuple[str, Any]] = []
-        if isinstance(arms, dict):
-            candidates = list(arms.items())
-        else:
-            for legacy in ("with_docs", "without_docs"):
-                if legacy in item:
-                    candidates.append((legacy, item[legacy]))
-        for arm, payload in candidates:
-            text = (payload or {}).get("answer") if isinstance(payload, dict) else payload
-            if isinstance(text, str) and text.strip():
-                pool.append({"question_id": qid, "question_text": qtext, "arm": arm, "answer": text})
+        for arm, a in rec.answers.items():
+            if a.text and a.text.strip():
+                pool.append({"question_id": rec.question_id, "question_text": rec.question_text,
+                             "arm": arm, "answer": a.text})
     return pool
 
 
 def build_pairs(
-    answers: Iterable[Dict[str, Any]],
+    answers: Iterable[RecordLike],
     *,
     n_bases: int = 20,
     seed: int = 0,

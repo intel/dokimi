@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from dokimi.eval.records import Record, RecordError, records
+
 
 class PluginDeltaError(ValueError):
     """Raised when two artifacts are not a valid plugin-effect pair."""
@@ -27,11 +29,14 @@ def compare_plugin_runs(control: Dict[str, Any], plugin: Dict[str, Any]) -> Dict
     effect.
     """
 
-    _validate_pair(control, plugin)
-    arms = list(control.get("arms") or [])
-    score_rows = _score_deltas(control, plugin, arms)
-    cost_rows = _cost_deltas(control, plugin, arms)
-    text_rows = _answer_text_deltas(control, plugin, arms)
+    try:
+        _validate_pair(control, plugin)
+        arms = list(control.get("arms") or [])
+        score_rows = _score_deltas(control, plugin, arms)
+        cost_rows = _cost_deltas(control, plugin, arms)
+        text_rows = _answer_text_deltas(control, plugin, arms)
+    except RecordError as exc:
+        raise PluginDeltaError(str(exc)) from exc
     return {
         "schema_version": "plugin_delta.v1",
         "library_name": control.get("library_name"),
@@ -132,23 +137,28 @@ def _validate_question_pair(control: Dict[str, Any], plugin: Dict[str, Any], sec
         )
 
 
+def _section(artifact: Dict[str, Any], section: str) -> list[Record]:
+    """The ``answers`` or ``evaluations`` records of one artifact."""
+    return records(artifact.get(section, []), source=section, kind=section)
+
+
 def _ordered_question_ids(artifact: Dict[str, Any], section: str) -> list[str]:
-    return [str(row.get("question_id")) for row in artifact.get(section, [])]
+    return [r.key for r in _section(artifact, section)]
 
 
 def _score_deltas(control: Dict[str, Any], plugin: Dict[str, Any], arms: list[str]) -> dict[str, Any]:
-    control_scores = _scores_by_question(control)
-    plugin_scores = _scores_by_question(plugin)
+    control_scores = {r.key: r for r in _section(control, "evaluations")}
+    plugin_scores = {r.key: r for r in _section(plugin, "evaluations")}
     out: dict[str, Any] = {}
     for arm in arms:
         pairs: list[tuple[float, float]] = []
-        for qid, scores in control_scores.items():
+        for qid, rec in control_scores.items():
             if qid not in plugin_scores:
                 continue
-            a = _aggregate(scores.get(arm))
-            b = _aggregate(plugin_scores[qid].get(arm))
+            a = rec.score(arm)
+            b = plugin_scores[qid].score(arm)
             if a is not None and b is not None:
-                pairs.append((a, b))
+                pairs.append((float(a), float(b)))
         if pairs:
             base_avg = sum(a for a, _ in pairs) / len(pairs)
             plugin_avg = sum(b for _, b in pairs) / len(pairs)
@@ -202,30 +212,17 @@ def _answer_text_deltas(control: Dict[str, Any], plugin: Dict[str, Any], arms: l
     return out
 
 
-def _scores_by_question(artifact: Dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {
-        str(ev.get("question_id")): (ev.get("scores") or {})
-        for ev in artifact.get("evaluations", [])
-    }
-
-
-def _aggregate(score: Any) -> float | None:
-    if isinstance(score, dict) and isinstance(score.get("aggregate"), (int, float)):
-        return float(score["aggregate"])
-    return None
-
-
 def _answer_metrics(artifact: Dict[str, Any], arms: list[str]) -> dict[str, dict[str, float | None]]:
     values: dict[str, dict[str, list[float]]] = {
         arm: {"raw_answer_chars": [], "final_answer_chars": []}
         for arm in arms
     }
-    for rec in artifact.get("answers", []):
+    for rec in _section(artifact, "answers"):
         for arm in arms:
-            arm_row = (rec.get("arms") or {}).get(arm)
-            if not isinstance(arm_row, dict):
+            answer = rec.answer(arm)
+            if answer is None:
                 continue
-            metrics = arm_row.get("metrics") or {}
+            metrics = answer.raw.get("metrics") or {}
             for field in ("raw_answer_chars", "final_answer_chars"):
                 val = metrics.get(field)
                 if isinstance(val, (int, float)):

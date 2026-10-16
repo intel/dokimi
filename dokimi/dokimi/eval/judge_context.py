@@ -34,7 +34,10 @@ loaded names are enough to rebuild what was read.
 
 import logging
 import threading
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+
+#: A question id as persisted: questions.v1 allows strings and integers.
+_QuestionId = Union[str, int]
 
 logger = logging.getLogger(__name__)
 
@@ -158,16 +161,16 @@ class JudgeContextStore:
     """
 
     def __init__(self) -> None:
-        self._ctx: Dict[Tuple[str, str], str] = {}
+        self._ctx: Dict[Tuple[_QuestionId, str], str] = {}
         #: Keys stored twice with different contexts. A question set without
         #: ids makes every question ``unknown_q``, and duplicated ids do the
         #: same; either way one key would otherwise hold whichever question was
         #: answered last, and every other question would be judged against it.
-        self._ambiguous: Set[Tuple[str, str]] = set()
+        self._ambiguous: Set[Tuple[_QuestionId, str]] = set()
         self._lock = threading.Lock()
         self._warned = False
 
-    def put(self, question_id: str, arm_name: str, context: str) -> None:
+    def put(self, question_id: _QuestionId, arm_name: str, context: str) -> None:
         key = (question_id, arm_name)
         with self._lock:
             if key in self._ambiguous:
@@ -187,7 +190,7 @@ class JudgeContextStore:
                 return
             self._ctx[key] = context
 
-    def get(self, question_id: str, arm_name: str) -> Optional[str]:
+    def get(self, question_id: _QuestionId, arm_name: str) -> Optional[str]:
         """Return the stored context, or ``None`` when this run did not store it
         or stored it ambiguously."""
         with self._lock:
@@ -203,12 +206,12 @@ class JudgeContextStore:
                 )
         return hit
 
-    def resolve(self, question_id: str, arm_name: str, arm: Dict[str, Any]) -> str:
+    def resolve(self, question_id: _QuestionId, arm_name: str, arm: Dict[str, Any]) -> str:
         """The context string to hand the judge for one arm's answer."""
         return self.resolve_with_source(question_id, arm_name, arm)[0]
 
     def resolve_with_source(
-        self, question_id: str, arm_name: str, arm: Dict[str, Any]
+        self, question_id: _QuestionId, arm_name: str, arm: Dict[str, Any]
     ) -> Tuple[str, str]:
         """The judge's context for one arm's answer, and where it came from.
 

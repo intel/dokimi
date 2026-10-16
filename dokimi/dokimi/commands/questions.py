@@ -51,7 +51,15 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
         if "questions" in questions_data:
             raw = questions_data["questions"]
         elif "answers" in questions_data:
-            raw = questions_data["answers"]
+            # An answers file: its records carry the question as `question_text`.
+            from dokimi.eval.records import RecordError, read
+
+            try:
+                answers = read(questions_data, source=args.questions, section="answers")
+            except RecordError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                sys.exit(1)
+            raw = [{"question": r.question_text} for r in answers]
         else:
             raw = list(questions_data.values())
     else:

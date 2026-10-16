@@ -11,7 +11,7 @@ import re
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Any, Iterable, Optional
+from typing import List, Dict, Any, Iterable, Optional, Sequence
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
-from dokimi.eval.diagnoser import diagnose, retrieval_hit
+from dokimi.eval.diagnoser import diagnose
+from dokimi.eval.records import BASELINE, CONTEXT, Record, RecordError, RecordLike, records
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
@@ -270,7 +271,7 @@ class Judge:
     def evaluate_answers(
         self,
         library_name: str,
-        answers: List[Dict[str, Any]],
+        answers: Sequence[RecordLike],
         output_path: Optional[Path] = None,
         concurrency: int = 1,
     ) -> List[Dict[str, Any]]:
@@ -279,24 +280,32 @@ class Judge:
 
         Args:
             library_name: Library name for context
-            answers: List of answer dicts from Answerer
+            answers: Answers records (from Answerer, or read by eval/records.py)
             output_path: If set, write incrementally after each evaluation
             concurrency: Number of parallel judge calls (default: 1 = sequential)
 
         Returns:
             List of evaluation dicts ordered by input order.
+
+        Raises:
+            RecordError: before any judge call, for a malformed answers record or
+                one with no question text (there is nothing to judge it against).
         """
-        n = len(answers)
+        recs = records(answers, source="answers", kind="answers")
+        for i, rec in enumerate(recs):
+            if not rec.question_text:
+                raise RecordError(f"answers[{i}]: question {rec.question_id!r} has no question_text")
+        n = len(recs)
         results: Dict[int, Dict] = {}
         lock = threading.Lock()
         completed = [0]
 
         stop = threading.Event()  # set by a failed save: queued answers are skipped, not paid for
 
-        def _process(idx: int, answer: Dict) -> None:
+        def _process(idx: int, answer: Record) -> None:
             if stop.is_set():
                 return
-            q_id = answer["question_id"]
+            q_id = answer.question_id
             t0 = time.time()
             failure = None
             try:
@@ -307,11 +316,11 @@ class Judge:
                 failure = e
                 logger.exception(f"Evaluation failed for {q_id}")
                 eval_result = {
-                    "question_id": answer["question_id"],
-                    "question_text": answer["question_text"],
-                    "category": answer.get("category"),
-                    "difficulty": answer.get("difficulty"),
-                    "persona": answer.get("persona"),
+                    "question_id": answer.question_id,
+                    "question_text": answer.question_text,
+                    "category": answer.category,
+                    "difficulty": answer.difficulty,
+                    "persona": answer.persona,
                     "error": str(e),
                     "with_docs": None,
                     "without_docs": None,
@@ -336,16 +345,16 @@ class Judge:
         print(f"Evaluating {n} answers with judge: {self.provider}/{self.model} (concurrency={concurrency})", flush=True)
 
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
-            futures = {pool.submit(_process, i, a): i for i, a in enumerate(answers)}
+            futures = {pool.submit(_process, i, a): i for i, a in enumerate(recs)}
             for f in as_completed(futures):
                 f.result()  # wait for completion
 
         evaluations = [results[i] for i in range(n)]
-        valid = [e for e in evaluations if e.get("delta") is not None]
+        valid = [r for r in records(evaluations, kind="evaluations") if r.delta is not None]
         if valid:
-            avg_with = sum((e.get("with_docs") or {}).get("aggregate", 0) for e in valid) / len(valid)
-            avg_without = sum((e.get("without_docs") or {}).get("aggregate", 0) for e in valid) / len(valid)
-            avg_delta = sum(e["delta"] for e in valid) / len(valid)
+            avg_with = sum(r.score(CONTEXT) or 0 for r in valid) / len(valid)
+            avg_without = sum(r.score(BASELINE) or 0 for r in valid) / len(valid)
+            avg_delta = sum(r.delta or 0 for r in valid) / len(valid)
             print("\n✓ Evaluation complete:", flush=True)
             print(f"  Context avg:      {avg_with:.1f}", flush=True)
             print(f"  Baseline avg:     {avg_without:.1f}", flush=True)
@@ -355,31 +364,33 @@ class Judge:
     def _evaluate_answer_pair(
         self,
         library_name: str,
-        answer: Dict[str, Any]
+        item: RecordLike,
     ) -> Dict[str, Any]:
         """Evaluate a single context-arm/baseline answer pair."""
-        question_text = answer["question_text"]
-        ground_truth = answer.get("ground_truth_chunk")  # present for chunk-grounded questions
+        answer = records([item], source="answers", kind="answers")[0]
+        question_text = answer.question_text
+        ground_truth = answer.ground_truth  # present for chunk-grounded questions
+        context_answer = answer.answer(CONTEXT)
+        baseline_answer = answer.answer(BASELINE)
 
         # Evaluate context arm
         with_docs_eval = None
-        if answer.get("with_docs") and answer["with_docs"].get("answer"):
-            context = self._format_context(answer["with_docs"].get("retrieved_docs", []))
+        if context_answer is not None and context_answer.text:
             with_docs_eval = self._judge_answer(
                 library_name=library_name,
                 question=question_text,
-                answer=answer["with_docs"]["answer"],
-                context=context,
+                answer=context_answer.text,
+                context=self._format_context(context_answer.context),
                 ground_truth=ground_truth,
             )
 
         # Evaluate baseline
         without_docs_eval = None
-        if answer.get("without_docs") and answer["without_docs"].get("answer"):
+        if baseline_answer is not None and baseline_answer.text:
             without_docs_eval = self._judge_answer(
                 library_name=library_name,
                 question=question_text,
-                answer=answer["without_docs"]["answer"],
+                answer=baseline_answer.text,
                 context="(No documentation provided)",
                 ground_truth=ground_truth,
             )
@@ -390,21 +401,21 @@ class Judge:
             delta = with_docs_eval["aggregate"] - without_docs_eval["aggregate"]
 
         result = {
-            "question_id": answer["question_id"],
+            "question_id": answer.question_id,
             "question_text": question_text,
-            "category": answer.get("category"),
-            "difficulty": answer.get("difficulty"),
-            "persona": answer.get("persona"),
+            "category": answer.category,
+            "difficulty": answer.difficulty,
+            "persona": answer.persona,
             "with_docs": with_docs_eval,
             "without_docs": without_docs_eval,
             "delta": delta,
         }
 
         # Classify retrieval outcome (why docs helped or didn't)
-        result["diagnosis"] = diagnose(answer, result)
+        result["diagnosis"] = diagnose(context_answer, delta)
         # Carried onto the eval record because the trust gate reads eval.v1, not
         # the answers it was judged from.
-        result["retrieval_hit"] = retrieval_hit(answer)
+        result["retrieval_hit"] = answer.retrieval_hit
         return result
     
     # Dimensions for standard (no ground truth) evaluation
@@ -621,17 +632,11 @@ class Judge:
         )
 
     @staticmethod
-    def _format_context(docs: List[Dict[str, Any]]) -> str:
-        """Format retrieved docs as context string."""
+    def _format_context(docs: List[str]) -> str:
+        """Format the retrieved docs' text (``Answer.docs``) as the judge's context string."""
         if not docs:
             return "(No documentation retrieved)"
-        
-        formatted = []
-        for i, doc in enumerate(docs):
-            snippet = doc.get("snippet", doc.get("content", ""))
-            formatted.append(f"Doc {i+1}: {snippet}")
-        
-        return "\n".join(formatted)
+        return "\n".join(f"Doc {i+1}: {text}" for i, text in enumerate(docs))
     
     def _accumulate_usage(self, usage) -> None:
         """Fold one judge call's UsageRecord into the running totals (thread-safe).

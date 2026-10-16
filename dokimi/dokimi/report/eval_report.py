@@ -21,6 +21,8 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
 from dokimi.eval import stats as eval_stats
+from dokimi.eval.records import BASELINE, CONTEXT, Record, records
+from dokimi.eval.records import load as load_records
 
 #: Mirrors :data:`dokimi.eval.stats.HAS_SCIPY`; the tests themselves
 #: live there now. Note this module defines a local ``stats()`` helper, hence
@@ -54,9 +56,8 @@ def significance_test(evals):
     pairs, or zero-variance deltas) rather than claiming "not significant".
     """
     pairs = []
-    for e in evals:
-        w = (e.get("with_docs") or {}).get("aggregate")
-        wo = (e.get("without_docs") or {}).get("aggregate")
+    for e in records(evals, kind="evaluations"):
+        w, wo = e.score(CONTEXT), e.score(BASELINE)
         if w is not None and wo is not None:
             pairs.append((w, wo))
     if len(pairs) < eval_stats.MIN_PAIRS_FOR_TEST:
@@ -74,18 +75,27 @@ def significance_test(evals):
     return result
 
 
-def has_scores(e):
-    return (
-        e.get("with_docs") and e["with_docs"].get("aggregate") is not None
-        and e.get("without_docs") and e["without_docs"].get("aggregate") is not None
-    )
+def has_scores(e: Record) -> bool:
+    return e.score(CONTEXT) is not None and e.score(BASELINE) is not None
+
+
+def _score_cell(e: Record, condition: str):
+    """The condition's aggregate as written, or ``N/A`` when it has none."""
+    score = e.score(condition)
+    return "N/A" if score is None else score
+
+
+def _difficulty(e: Record, default):
+    # Absent and null differ here, as they always have: a record without the key
+    # prints ``default``, one with ``difficulty: null`` prints None.
+    return e.raw.get("difficulty", default)
 
 
 def stats(qs):
     valid = [e for e in qs if has_scores(e)]
-    with_s = [e["with_docs"]["aggregate"] for e in valid]
-    without_s = [e["without_docs"]["aggregate"] for e in valid]
-    deltas = [e["delta"] for e in valid if e.get("delta") is not None]
+    with_s = [e.score(CONTEXT) for e in valid]
+    without_s = [e.score(BASELINE) for e in valid]
+    deltas = [d for e in valid if (d := e.delta) is not None]
     return {
         "count": len(qs),
         "valid": len(valid),
@@ -116,7 +126,7 @@ def fmt_question(text: str | None) -> str:
 def detect_static_prefix(evals):
     """Detect the prefix used for static/golden questions (e.g. 'onedal-Q', 'onetbb-Q')."""
     for e in evals:
-        qid = e["question_id"]
+        qid = e.question_id
         # Static questions typically look like 'onedal-Q001', 'onetbb-Q001', etc.
         import re
         m = re.match(r"^([a-zA-Z]+-Q)\d+$", str(qid))
@@ -141,13 +151,13 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     with open(eval_path, encoding="utf-8") as f:
         data = json.load(f)
 
-    evals = data["evaluations"]
+    evals = records(data["evaluations"], source=eval_path, kind="evaluations")
     meta = data.get("run_metadata", {})
     library = os.path.basename(eval_path).replace(".json", "")
 
     static_prefix = detect_static_prefix(evals)
-    static_qs = [e for e in evals if static_prefix and str(e["question_id"]).startswith(static_prefix)]
-    dynamic_qs = [e for e in evals if not (static_prefix and str(e["question_id"]).startswith(static_prefix))]
+    static_qs = [e for e in evals if static_prefix and e.key.startswith(static_prefix)]
+    dynamic_qs = [e for e in evals if not (static_prefix and e.key.startswith(static_prefix))]
 
     all_stats = stats(evals)
     static_stats = stats(static_qs)
@@ -155,11 +165,11 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
 
     diff_groups = defaultdict(list)
     for e in evals:
-        diff_groups[e.get("difficulty", "unknown")].append(e)
+        diff_groups[_difficulty(e, "unknown")].append(e)
 
     valid_all = [
         e for e in evals
-        if has_scores(e) and isinstance(e.get("delta"), (int, float)) and not math.isnan(e["delta"])
+        if has_scores(e) and e.delta is not None and not math.isnan(e.delta)
     ]
 
     lines = []
@@ -286,9 +296,9 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
 
     # Diagnosis
     diag = Counter(
-        e["diagnosis"]["label"]
+        e.diagnosis["label"]
         for e in evals
-        if isinstance(e.get("diagnosis"), dict) and "label" in e["diagnosis"]
+        if e.diagnosis is not None and "label" in e.diagnosis
     )
     total_diag = sum(diag.values())
     lines += [
@@ -311,14 +321,14 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "| QID | Source | Delta | Context | Baseline | Difficulty | Question |",
         "|---|---|---:|---:|---:|---|---|",
     ]
-    for e in sorted(valid_all, key=lambda x: x["delta"] if isinstance(x["delta"], (int, float)) else 0, reverse=True)[:15]:
-        src = "🔵 static" if static_prefix and str(e["question_id"]).startswith(static_prefix) else "🟡 gen"
-        q = fmt_question(e.get("question_text", ""))
-        delta = round(e["delta"], 1) if isinstance(e["delta"], float) else e["delta"]
+    for e in sorted(valid_all, key=lambda x: x.delta or 0, reverse=True)[:15]:
+        src = "🔵 static" if static_prefix and e.key.startswith(static_prefix) else "🟡 gen"
+        q = fmt_question(e.question_text)
+        delta = round(e.delta, 1) if isinstance(e.delta, float) else e.delta
         lines.append(
-            f'| {e["question_id"]} | {src} | **{fmt_delta(delta)}** '
-            f'| {e["with_docs"]["aggregate"]} | {e["without_docs"]["aggregate"]} '
-            f'| {e.get("difficulty", "—")} | {q} |'
+            f'| {e.question_id} | {src} | **{fmt_delta(delta)}** '
+            f'| {e.score(CONTEXT)} | {e.score(BASELINE)} '
+            f'| {_difficulty(e, "—")} | {q} |'
         )
     lines.append("")
 
@@ -328,22 +338,19 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "| QID | Source | Delta | Context | Baseline | Difficulty | Question |",
         "|---|---|---:|---:|---:|---|---|",
     ]
-    for e in sorted(valid_all, key=lambda x: x["delta"] if isinstance(x["delta"], (int, float)) else 0)[:15]:
-        src = "🔵 static" if static_prefix and str(e["question_id"]).startswith(static_prefix) else "🟡 gen"
-        q = fmt_question(e.get("question_text", ""))
-        delta = round(e["delta"], 1) if isinstance(e["delta"], float) else e["delta"]
+    for e in sorted(valid_all, key=lambda x: x.delta or 0)[:15]:
+        src = "🔵 static" if static_prefix and e.key.startswith(static_prefix) else "🟡 gen"
+        q = fmt_question(e.question_text)
+        delta = round(e.delta, 1) if isinstance(e.delta, float) else e.delta
         lines.append(
-            f'| {e["question_id"]} | {src} | **{fmt_delta(delta)}** '
-            f'| {e["with_docs"]["aggregate"]} | {e["without_docs"]["aggregate"]} '
-            f'| {e.get("difficulty", "—")} | {q} |'
+            f'| {e.question_id} | {src} | **{fmt_delta(delta)}** '
+            f'| {e.score(CONTEXT)} | {e.score(BASELINE)} '
+            f'| {_difficulty(e, "—")} | {q} |'
         )
     lines.append("")
 
     # Worst baseline by absolute score
-    baseline_sorted = [
-        e for e in evals
-        if e.get("without_docs") and e["without_docs"].get("aggregate") is not None
-    ]
+    baseline_sorted = [e for e in evals if e.score(BASELINE) is not None]
     lines += [
         "## Baseline Weak Spots",
         "_Lowest absolute scores for the base model without retrieval context._",
@@ -351,12 +358,11 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "| QID | Source | Baseline score | Context score | Difficulty | Question |",
         "|---|---|---:|---:|---|---|",
     ]
-    for e in sorted(baseline_sorted, key=lambda x: x["without_docs"]["aggregate"])[:15]:
-        src = "🔵 static" if static_prefix and str(e["question_id"]).startswith(static_prefix) else "🟡 gen"
-        without_abs = e["without_docs"]["aggregate"]
-        with_abs = e["with_docs"]["aggregate"] if e.get("with_docs") and e["with_docs"].get("aggregate") is not None else "N/A"
+    for e in sorted(baseline_sorted, key=lambda x: x.score(BASELINE) or 0)[:15]:
+        src = "🔵 static" if static_prefix and e.key.startswith(static_prefix) else "🟡 gen"
         lines.append(
-            f'| {e["question_id"]} | {src} | **{without_abs}** | {with_abs} | {e.get("difficulty", "—")} | {fmt_question(e.get("question_text", ""))} |'
+            f'| {e.question_id} | {src} | **{e.score(BASELINE)}** | {_score_cell(e, CONTEXT)} '
+            f'| {_difficulty(e, "—")} | {fmt_question(e.question_text)} |'
         )
     lines.append("")
 
@@ -366,14 +372,12 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "| QID | Difficulty | Context | Baseline | Delta | Question |",
         "|---|---|---:|---:|---:|---|",
     ]
-    for e in sorted(static_qs, key=lambda x: (x.get("difficulty", ""), str(x["question_id"]))):
-        wd = e["with_docs"]["aggregate"] if e.get("with_docs") and e["with_docs"].get("aggregate") is not None else "N/A"
-        wod = e["without_docs"]["aggregate"] if e.get("without_docs") and e["without_docs"].get("aggregate") is not None else "N/A"
-        delta = e.get("delta")
+    for e in sorted(static_qs, key=lambda x: (_difficulty(x, ""), x.key)):
+        delta = e.delta
         rounded = round(delta, 1) if isinstance(delta, float) else delta
         lines.append(
-            f'| {e["question_id"]} | {e.get("difficulty", "—")} | {wd} | {wod} '
-            f'| {fmt_delta(rounded)} | {fmt_question(e.get("question_text", ""))} |'
+            f'| {e.question_id} | {_difficulty(e, "—")} | {_score_cell(e, CONTEXT)} | {_score_cell(e, BASELINE)} '
+            f'| {fmt_delta(rounded)} | {fmt_question(e.question_text)} |'
         )
     lines.append("")
 
@@ -383,14 +387,12 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "| QID | Difficulty | Context | Baseline | Delta | Question |",
         "|---|---|---:|---:|---:|---|",
     ]
-    for e in sorted(dynamic_qs, key=lambda x: (x.get("difficulty", ""), str(x["question_id"]))):
-        wd = e["with_docs"]["aggregate"] if e.get("with_docs") and e["with_docs"].get("aggregate") is not None else "N/A"
-        wod = e["without_docs"]["aggregate"] if e.get("without_docs") and e["without_docs"].get("aggregate") is not None else "N/A"
-        delta = e.get("delta")
+    for e in sorted(dynamic_qs, key=lambda x: (_difficulty(x, ""), x.key)):
+        delta = e.delta
         rounded = round(delta, 1) if isinstance(delta, float) else delta
         lines.append(
-            f'| {e["question_id"]} | {e.get("difficulty", "—")} | {wd} | {wod} '
-            f'| {fmt_delta(rounded)} | {fmt_question(e.get("question_text", ""))} |'
+            f'| {e.question_id} | {_difficulty(e, "—")} | {_score_cell(e, CONTEXT)} | {_score_cell(e, BASELINE)} '
+            f'| {fmt_delta(rounded)} | {fmt_question(e.question_text)} |'
         )
     lines.append("")
 
@@ -423,29 +425,30 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     if qa_json_out is None:
         qa_json_out = out_path.replace(".md", ".qa.json")
 
-    answers_by_id = {}
+    answers_by_id: dict[str, Record] = {}
     try:
         answers_path = eval_path.replace("/eval/", "/answers/")
-        with open(answers_path, encoding="utf-8") as af:
-            answers_data = json.load(af)
-        for a in answers_data.get("answers", []):
-            answers_by_id[a.get("question_id")] = a
+        answers_by_id = {a.key: a for a in load_records(answers_path).records}
     except Exception:
         answers_by_id = {}
 
+    def _answer_text(a: Record | None, condition: str):
+        answer = a.answer(condition) if a is not None else None
+        return answer.text if answer is not None else None
+
     qa_records = []
     for e in evals:
-        a = answers_by_id.get(e.get("question_id"), {})
+        a = answers_by_id.get(e.key)
         qa_records.append({
-            "question_id": e.get("question_id"),
-            "question_text": e.get("question_text"),
-            "difficulty": e.get("difficulty"),
-            "source": "static" if static_prefix and str(e.get("question_id", "")).startswith(static_prefix) else "dynamic",
-            "with_docs_score": (e.get("with_docs") or {}).get("aggregate"),
-            "without_docs_score": (e.get("without_docs") or {}).get("aggregate"),
-            "delta": e.get("delta"),
-            "with_docs_answer": ((a.get("with_docs") or {}).get("answer") if isinstance(a.get("with_docs"), dict) else None),
-            "without_docs_answer": ((a.get("without_docs") or {}).get("answer") if isinstance(a.get("without_docs"), dict) else None),
+            "question_id": e.question_id,
+            "question_text": e.question_text or e.raw.get("question_text"),
+            "difficulty": e.difficulty,
+            "source": "static" if static_prefix and e.key.startswith(static_prefix) else "dynamic",
+            "with_docs_score": e.score(CONTEXT),
+            "without_docs_score": e.score(BASELINE),
+            "delta": e.delta,
+            "with_docs_answer": _answer_text(a, CONTEXT),
+            "without_docs_answer": _answer_text(a, BASELINE),
         })
 
     with open(qa_json_out, "w", encoding="utf-8") as jf:

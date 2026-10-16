@@ -443,14 +443,14 @@ def test_delta_avg_is_mean_of_paired_deltas():
     assert "1 (1 unscored)" in lines
 
 
-def test_extract_scores_skips_missing_question_id():
+def test_extract_scores_refuses_a_record_without_question_id():
+    """It used to drop the record; a run with an unidentifiable question is malformed."""
     run = _eval_run([
         {"id": "", "scores": {"baseline": {"aggregate": 60}, "with-ctx": {"aggregate": 80}}},
         {"id": "Q1", "scores": {"baseline": {"aggregate": 60}, "with-ctx": {"aggregate": 80}}},
     ])
-    scores = extract_scores(run)
-    assert len(scores) == 1
-    assert scores[0]["question_id"] == "Q1"
+    with pytest.raises(SystemExit, match=r"evaluations\[0\]: missing question_id"):
+        extract_scores(run)
 
 
 def test_extract_scores_empty_evaluations():
@@ -620,7 +620,7 @@ def test_eval_report_significance_uses_sample_sd():
     from dokimi.report.eval_report import significance_test as er_sig
 
     evals = [
-        {"with_docs": {"aggregate": w + (1 if i % 2 else -1)},
+        {"question_id": f"q{i}", "with_docs": {"aggregate": w + (1 if i % 2 else -1)},
          "without_docs": {"aggregate": wo}}
         for i, (w, wo) in enumerate(zip(WITH, WITHOUT, strict=True))
     ]

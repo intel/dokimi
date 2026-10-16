@@ -19,7 +19,9 @@ before being treated as blocking.
 from __future__ import annotations
 
 import re
+from typing import Iterable
 
+from dokimi.eval.records import CONTEXT, RecordLike, records
 from dokimi.eval.stats import bootstrap_ci
 
 # Minimal stopword set so the overlap reflects content, not function words.
@@ -49,26 +51,22 @@ def grounding_score(answer: str, contexts: list[str]) -> float:
     return round(len(a & ctx) / len(a), 4)
 
 
-def _contexts_of(ans: dict) -> list[str]:
-    docs = (ans.get("with_docs") or {}).get("retrieved_docs", []) or []
-    return [d.get("snippet") or d.get("content", "") for d in docs if d]
-
-
-def evaluate_grounding(answers: list[dict], threshold: float = 0.5) -> dict:
+def evaluate_grounding(answers: Iterable[RecordLike], threshold: float = 0.5) -> dict:
     """Compute per-question and aggregate grounding/citation metrics.
 
     Only ``with_docs`` answers that have retrieved context are scored.
     """
     per_question: list[dict] = []
     scores: list[float] = []
-    for ans in answers:
-        answer = (ans.get("with_docs") or {}).get("answer", "")
-        contexts = _contexts_of(ans)
+    for rec in records(answers, source="answers", kind="answers"):
+        a = rec.answer(CONTEXT)
+        answer = a.text if a is not None else None
+        contexts = a.context if a is not None else []
         if not answer or not contexts:
             continue
         gs = grounding_score(answer, contexts)
         per_question.append({
-            "question_id": ans.get("question_id"),
+            "question_id": rec.question_id,
             "grounding_score": gs,
             "grounded": gs >= threshold,
             "n_contexts": len(contexts),

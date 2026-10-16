@@ -31,13 +31,15 @@ def _save_manifest(manifest: Dict[str, Any]) -> None:
 
 def _compute_summary(eval_data: Dict[str, Any]) -> Dict[str, Any]:
     """Extract key stats from an eval file."""
-    evals = eval_data.get("evaluations", [])
-    valid = [e for e in evals if e.get("delta") is not None]
+    from dokimi.eval.records import BASELINE, CONTEXT, records
+
+    evals = records(eval_data.get("evaluations", []), source="evaluations", kind="evaluations")
+    valid = [e for e in evals if e.delta is not None]
     if not valid:
         return {}
-    avg_with = sum((e.get("with_docs") or {}).get("aggregate", 0) for e in valid) / len(valid)
-    avg_without = sum((e.get("without_docs") or {}).get("aggregate", 0) for e in valid) / len(valid)
-    avg_delta = sum(e["delta"] for e in valid) / len(valid)
+    avg_with = sum(e.score(CONTEXT) or 0 for e in valid) / len(valid)
+    avg_without = sum(e.score(BASELINE) or 0 for e in valid) / len(valid)
+    avg_delta = sum(e.delta or 0 for e in valid) / len(valid)
     return {
         "n": len(valid),
         "avg_with": round(avg_with, 2),
@@ -204,24 +206,30 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
               f" the changes below mix the model change with the content change.{detail}",
               file=sys.stderr)
 
-    baseline_evals = {e["question_id"]: e for e in baseline_data.get("evaluations", [])}
-    current_evals = eval_data.get("evaluations", [])
+    from dokimi.eval.records import RecordError, records
+
+    try:
+        baseline_evals = {e.key: e for e in records(baseline_data.get("evaluations", []),
+                                                    source=entry["path"], kind="evaluations")}
+        current_evals = records(eval_data.get("evaluations", []), source=str(eval_path), kind="evaluations")
+    except RecordError as exc:
+        print(f"❌ {exc}")
+        raise SystemExit(1) from exc
 
     print(f"Comparing against baseline: {entry['name']} (saved {entry.get('saved_at', '?')})\n")
 
     deltas_changed = []
     for e in current_evals:
-        q_id = e["question_id"]
-        base_e = baseline_evals.get(q_id)
+        q_id = e.question_id
+        base_e = baseline_evals.get(e.key)
         if not base_e:
             continue
-        cur_delta = e.get("delta")
-        base_delta = base_e.get("delta")
+        cur_delta = e.delta
+        base_delta = base_e.delta
         if cur_delta is not None and base_delta is not None:
-            change = cur_delta - base_delta
-            if abs(change) >= 1:
-                deltas_changed.append((q_id, base_delta, cur_delta, change,
-                                       e.get("question_text", "")[:60]))
+            moved = cur_delta - base_delta
+            if abs(moved) >= 1:
+                deltas_changed.append((q_id, base_delta, cur_delta, moved, e.question_text[:60]))
 
     # Overall summary
     cur_summary = _compute_summary(eval_data)

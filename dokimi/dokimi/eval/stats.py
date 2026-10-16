@@ -52,6 +52,8 @@ import math
 import random
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from dokimi.eval.records import RecordLike, records
+
 try:
     from scipy import stats as _sp_stats
 
@@ -297,15 +299,8 @@ def _wilson(p: float, n: int, z: float = _Z95) -> Tuple[float, float]:
     return (max(0.0, min(p, centre - half)), min(1.0, max(p, centre + half)))
 
 
-def _aggregate_of(score: Any) -> Optional[float]:
-    """Pull the 0–100 aggregate out of one arm's score block, if present."""
-    if isinstance(score, dict) and isinstance(score.get("aggregate"), (int, float)):
-        return float(score["aggregate"])
-    return None
-
-
 def paired_vectors(
-    evaluations: Iterable[Dict[str, Any]], arm_a: str, arm_b: str
+    evaluations: Iterable[RecordLike], arm_a: str, arm_b: str
 ) -> Tuple[List[float], List[float]]:
     """Per-question score vectors for ``arm_a`` and ``arm_b``, complete cases only.
 
@@ -315,13 +310,11 @@ def paired_vectors(
     """
     a_vals: List[float] = []
     b_vals: List[float] = []
-    for ev in evaluations:
-        scores = ev.get("scores", {}) or {}
-        a = _aggregate_of(scores.get(arm_a))
-        b = _aggregate_of(scores.get(arm_b))
+    for ev in records(evaluations, source="evaluations", kind="evaluations"):
+        a, b = ev.score(arm_a), ev.score(arm_b)
         if a is not None and b is not None:
-            a_vals.append(a)
-            b_vals.append(b)
+            a_vals.append(float(a))
+            b_vals.append(float(b))
     return a_vals, b_vals
 
 
@@ -495,7 +488,7 @@ def paired_test(
 
 
 def arm_significance(
-    evaluations: Iterable[Dict[str, Any]],
+    evaluations: Iterable[RecordLike],
     baseline_arm: str,
     arms: Optional[Sequence[str]] = None,
     *,
@@ -510,11 +503,11 @@ def arm_significance(
     re-sampled control. p-values are then corrected across the arms tested in
     this call (see :func:`adjust_pvalues`).
     """
-    evaluations = list(evaluations)
+    evaluations = records(evaluations, source="evaluations", kind="evaluations")
     if arms is None:
         seen: List[str] = []
         for ev in evaluations:
-            for name in (ev.get("scores", {}) or {}):
+            for name in ev.conditions:
                 if name not in seen:
                     seen.append(name)
         arms = seen

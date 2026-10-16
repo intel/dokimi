@@ -54,9 +54,10 @@ from __future__ import annotations
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
+from dokimi.eval.records import RecordLike, records as as_records
 
 PAIRWISE_PROMPT = """You are comparing two answers to the same technical question about __LIBRARY_NAME__.
 
@@ -268,7 +269,7 @@ class ArmPairwiseReport:
 
 
 def run_arm_pairwise(
-    records: Sequence[Dict[str, Any]],
+    records: Sequence[RecordLike],
     judge: PairwiseJudge,
     *,
     label: str = "unknown",
@@ -278,16 +279,15 @@ def run_arm_pairwise(
     concurrency: int = 1,
     progress: Optional[Callable[[int, int], None]] = None,
 ) -> ArmPairwiseReport:
-    jobs: List[Tuple[str, str, str, str, str]] = []
-    for rec in records:
-        by_arm = rec.get("arms") or {}
-        base = (by_arm.get(baseline_arm) or {}).get("answer")
+    jobs: List[Tuple[str, Union[str, int], str, str, str]] = []
+    for rec in as_records(records, source="answers", kind="answers"):
+        base_answer = rec.answer(baseline_arm)
+        base = base_answer.text if base_answer is not None else None
         if not base:
             continue
-        for arm, body in by_arm.items():
-            answer = (body or {}).get("answer") if isinstance(body, dict) else None
-            if arm != baseline_arm and answer and (arms is None or arm in arms):
-                jobs.append((arm, rec["question_id"], rec.get("question_text", ""), answer, base))
+        for arm, a in rec.answers.items():
+            if arm != baseline_arm and a.text and (arms is None or arm in arms):
+                jobs.append((arm, rec.question_id, rec.question_text, a.text, base))
 
     def one(job):
         arm, qid, question, answer, base = job

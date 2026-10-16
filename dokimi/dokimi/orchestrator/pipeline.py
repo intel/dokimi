@@ -533,15 +533,14 @@ class EvaluationPipeline:
         """Evaluate answers using LLM-as-judge."""
         from dokimi.eval import Judge
         
-        # Use in-memory answers from the previous step (avoid stale disk read)
-        if isinstance(answers, dict):
-            answers_list = answers.get("answers", answers)
-        elif answers:
-            answers_list = answers
+        from dokimi.eval.records import load, read
+
+        # Use in-memory answers from the previous step (avoid stale disk read);
+        # fall back to the answers file when none were passed.
+        if answers:
+            answers_list = list(read(answers, source="answers", section="answers").records)
         else:
-            # Fallback: read from disk if not provided
-            answers_data = json.loads(self.answers_path.read_text(encoding="utf-8"))
-            answers_list = answers_data.get("answers", answers_data)
+            answers_list = list(load(self.answers_path, section="answers").records)
         
         # Evaluate
         judge = Judge(

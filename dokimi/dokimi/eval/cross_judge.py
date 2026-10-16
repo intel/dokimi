@@ -49,10 +49,12 @@ from __future__ import annotations
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
+from dokimi.eval.records import RecordLike, Run, read
+from dokimi.eval.records import records as as_records
 from dokimi.eval.stats import adjust_pvalues, mean_ci
 
 ALPHA = 0.05
@@ -67,7 +69,7 @@ class Measure:
 
     name: str
     kind: str  # "aggregate" | "grounded" | "pairwise" | "coverage"
-    scores: Dict[Tuple[str, str], Optional[float]] = field(default_factory=dict)
+    scores: Dict[Tuple[Union[str, int], str], Optional[float]] = field(default_factory=dict)
     #: "PASS" / "FAIL" from this judge's own judge-validity run; None = not validated.
     gate: Optional[str] = None
 
@@ -137,16 +139,17 @@ def label(rows: Sequence[Dict[str, Any]], *, require_validated: bool = False) ->
     return f"{'CONSISTENT' if same else 'LEANING'} {arrow}" + (" (one judge)" if single else "")
 
 
-def stored_label(data: Dict[str, Any]) -> str:
+def stored_label(data: Union[Run, Dict[str, Any]]) -> str:
     """``provider/model (stored)`` from the file's judge fields, as ``--judges`` and
     ``judge-validity`` label the same judge; ``stored judge`` when the file does not
     say. Named that way, a validity report for the judge reaches its stored scores
     and a stored-plus-re-scored verdict from one judge reads "(one judge)"."""
-    provider, model = data.get("judge_provider"), data.get("judge_model")
+    meta = data.meta if isinstance(data, Run) else data
+    provider, model = meta.get("judge_provider"), meta.get("judge_model")
     return f"{provider}/{model}{STORED}" if provider and model else "stored judge"
 
 
-def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
+def unreproducible_arms(data: Union[Run, Dict[str, Any]]) -> List[str]:
     """Arms whose stored scores saw treatment material the answers file does not hold.
 
     Since ``judge_context`` the arms run shows its judge the arm's full material
@@ -156,25 +159,26 @@ def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
     on the same answers read +24.2 (p 0.0006) one way and +1.4 (p 0.65) the
     other. A baseline arm has no material, so both sides see the same thing.
     """
+    run = read(data, source="arms run")
     kinds = {
-        arm: (body.get("metadata") or {}).get("arm_kind")
-        for r in data.get("answers") or [] for arm, body in (r.get("arms") or {}).items()
-        if isinstance(body, dict)
+        arm: (a.raw.get("metadata") or {}).get("arm_kind")
+        for r in run for arm, a in r.answers.items()
     }
     return sorted({
-        arm for ev in data.get("evaluations") or [] for arm, s in (ev.get("scores") or {}).items()
-        if isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
+        arm for r in run for arm, s in r.scores.items()
+        if s.raw.get("judge_context_source") == SOURCE_STORED
         and kinds.get(arm) != "baseline"
     })
 
 
-def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional[Measure]:
+def stored_measure(data: Union[Run, Dict[str, Any]], name: Optional[str] = None) -> Optional[Measure]:
     """The aggregate the arms run itself recorded, if it was judged."""
-    m = Measure(name=name or stored_label(data), kind="aggregate")
-    for ev in data.get("evaluations") or []:
-        for arm, s in (ev.get("scores") or {}).items():
-            if isinstance(s, dict) and s.get("aggregate") is not None:
-                m.scores[(ev["question_id"], arm)] = float(s["aggregate"])
+    run = read(data, source="arms run")
+    m = Measure(name=name or stored_label(run), kind="aggregate")
+    for r in run:
+        for arm in r.scores:
+            if (v := r.score(arm)) is not None:
+                m.scores[(r.question_id, arm)] = float(v)
     return m if m.scores else None
 
 
@@ -197,7 +201,7 @@ def pairwise_measure(pairwise: Dict[str, Any], name: str, baseline_arm: str) -> 
 
 
 def score_measure(
-    records: Sequence[Dict[str, Any]], scorer: Scorer, *, name: str, library: str,
+    records: Sequence[RecordLike], scorer: Scorer, *, name: str, library: str,
     arms: Optional[Sequence[str]] = None, concurrency: int = 1,
     progress: Optional[Callable[[int, int], None]] = None,
     ground_truth: Optional[Dict[str, str]] = None,
@@ -219,10 +223,10 @@ def score_measure(
     """
     store = JudgeContextStore()
     jobs = [
-        (r["question_id"], arm, r.get("question_text", ""), body["answer"],
-         store.resolve_with_source(r["question_id"], arm, body)[0])
-        for r in records for arm, body in (r.get("arms") or {}).items()
-        if isinstance(body, dict) and body.get("answer") and (arms is None or arm in arms)
+        (r.question_id, arm, r.question_text, a.text,
+         store.resolve_with_source(r.question_id, arm, dict(a.raw))[0])
+        for r in as_records(records, source="answers", kind="answers") for arm, a in r.answers.items()
+        if a.text and (arms is None or arm in arms)
     ]
 
     def one(job):

@@ -171,6 +171,7 @@ def test_arm_runner_emits_metrics_block_and_alias(monkeypatch):
 def test_cost_summary_flags_partial_pricing_by_call():
     runner = ArmRunner([BaselineTreatment()])
     records = [{
+        "question_id": "q1",
         "arms": {
             "agent": {
                 "metrics": {
