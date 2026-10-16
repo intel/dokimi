@@ -147,8 +147,8 @@ def test_coverage_note_printed_to_stderr_for_atoms(tmp_path, monkeypatch, capsys
     assert len(payload["atoms"]) >= 1
     # Check stderr for coverage note about bundled files not being measured
     captured = capsys.readouterr()
-    assert "NOTE:" in captured.err or len(captured.err) > 0
-    assert "will not be measured" in captured.err or "bundled files" in captured.err
+    assert "NOTE:" in captured.err
+    assert "will not be measured" in captured.err
 
 
 def test_answer_key_notes_printed_to_stderr_for_probe(tmp_path, monkeypatch, capsys):
@@ -192,7 +192,7 @@ def test_answer_key_notes_printed_to_stderr_for_probe(tmp_path, monkeypatch, cap
     
     # The probe command should have stderr output about changed files
     captured = capsys.readouterr()
-    assert "changed" in captured.err or "stale" in captured.err or len(captured.err) > 0
+    assert "has changed since" in captured.err
 
 
 def test_max_atoms_rejects_zero():

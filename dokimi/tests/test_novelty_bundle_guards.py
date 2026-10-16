@@ -65,14 +65,25 @@ def test_an_entry_point_run_is_not_warned_about_files_excluded_from_the_measured
     ("references/latin.md", ("caf\xe9 " * 60).encode("latin-1")),    # unknown: does not decode
     ("references/ok.md", WORDS),                                     # selected
 ])
-
-
 def test_new_text_since_extraction_invalidates_the_answer_key(tmp_path, newfile, content):
     root = _skill(tmp_path, {"SKILL.md": HEAD + WORDS, "references/a.md": WORDS})
     record = load_bundle(f"skill:{root}", include_resources=True, max_file_words=100).summary()
     _skill(tmp_path, {newfile: content})
     verdict = check_answer_key(f"skill:{root}", record)
     assert verdict.problem == "files_changed" and newfile in verdict.added
+
+
+def test_mixed_good_and_bad_files_in_no_file_rows_check():
+    """Regression test for THREAD 2: mixed good/bad rows return no_file_rows."""
+    # Mixed good and bad file rows should trigger no_file_rows
+    verdict = check_answer_key("skill:x", {
+        "include_resources": True,
+        "files": [
+            {"path": "a", "role": "entry"},
+            {"path": "b"}  # Missing role
+        ]
+    })
+    assert verdict.problem == "no_file_rows"
 
 
 def test_entry_point_only_scores_nothing_it_cannot_place():

@@ -41,15 +41,23 @@ def test_non_numeric_words_in_decision_row_does_not_crash(words):
     assert cov.policy_excluded_words == 0  # Non-numeric falls back to 0
 
 def test_unreadable_files_with_junk_words_row():
-    """Regression test for THREAD 0 / 6: non-numeric words with unreadable files."""
+    """Regression test for THREAD 0: non-numeric words coerced to 0."""
+    # Non-numeric words in policy row should coerce to 0, not crash
+    record = dict(COUNTS, include_resources=True, n_files=1,
+                  excluded=[{"path": "policy/a.md", "reason": "role policy", "kind": "policy", "words": "n/a"}])
+    cov = Coverage.from_record(record)
+    assert cov.policy_excluded_words == 0
+
+    # Unreadable files with junk words row: should not crash
     record = dict(COUNTS, include_resources=True, n_files=1, unreadable_files=1,
                   excluded=[{"path": "policy/a.md", "reason": "role policy", "kind": "policy", "words": "n/a"}])
-    check = _coverage_check(record)
-    # Should not crash even with junk words and unreadable files
-    assert check.value is not None or check.value is None  # Either gate passes or fails gracefully
     cov = Coverage.from_record(record)
-    assert cov is not None
-    # Both unreadable_files and policy_excluded_words should be safe values
     assert cov.unreadable_files == 1
+    assert cov.policy_excluded_words == 0
+
+    # Infinity in words should coerce to 0 for policy_excluded_words
+    record = dict(COUNTS, include_resources=True, n_files=1,
+                  excluded=[{"path": "policy/a.md", "reason": "over budget", "kind": "policy", "words": float("inf")}])
+    cov = Coverage.from_record(record)
     assert cov.policy_excluded_words == 0
 

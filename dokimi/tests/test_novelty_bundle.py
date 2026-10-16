@@ -857,7 +857,7 @@ def test_the_report_names_excluded_files_and_counts_non_text_ones(tmp_path):
 def test_measured_digest_format_is_pinned(tmp_path):
     """Regression test for THREAD 6: measured_digest format is stable."""
     from dokimi.novelty.bundle import load_bundle
-    
+
     # Create a test skill with two files
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
@@ -868,18 +868,17 @@ def test_measured_digest_format_is_pinned(tmp_path):
     ref = skill.parent / "references" / "ref.md"
     ref.parent.mkdir()
     ref.write_text("Reference text.", encoding="utf-8")
-    
+
     bundle = load_bundle(f"skill:{skill.parent}", include_resources=True)
     digest = bundle.measured_digest()
-    
-    # The digest should follow the format "sha256:<hex>"
-    assert digest.startswith("sha256:")
-    assert len(digest) == len("sha256:") + 64  # sha256 hex is 64 chars
-    
+
+    # Pin the exact literal so edits to measured_digest() cannot silently invalidate stored ref_digest values
+    assert digest == "sha256:f0eb5f66f8b343a03bc6f5fbcd233e3bbf591db23ef075502db96bb35ddd5bf5"
+
     # The digest should be deterministic - same files, same digest
     bundle2 = load_bundle(f"skill:{skill.parent}", include_resources=True)
     assert bundle2.measured_digest() == digest
-    
+
     # Modifying a file should change the digest
     ref.write_text("Modified reference text.", encoding="utf-8")
     bundle3 = load_bundle(f"skill:{skill.parent}", include_resources=True)
