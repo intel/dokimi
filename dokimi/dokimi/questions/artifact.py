@@ -26,6 +26,7 @@ Tolerant reader, strict writer, inputs never mutated:
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 from collections import Counter
@@ -34,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.artifacts import (
+    SCHEMA_DIR,
     SCHEMA_VERSIONS,
     SUPERSEDED_VERSIONS,
     ArtifactValidationError,
@@ -100,6 +102,47 @@ _TEXT_FROM_QUESTION_TEXT = "`question_text` read as `question`"
 _METADATA_LIST = 'list `metadata` read as {"items": [...]}'
 
 
+@functools.cache
+def _v1_open_nulls() -> tuple[frozenset[str], frozenset[str]]:
+    """The (top-level, record) keys where a ``null`` is valid v1 and invalid v2.
+
+    v1 declares only a few keys, so any value (``null`` included) is valid in the others; v2
+    declares and types many of them (``persona_id``, ``topics``, ``model``,
+    ``total_questions``, ...). Read from the two schema files, so a key v2 adds later is
+    covered too.
+    """
+    from jsonschema import Draft202012Validator
+
+    def load(version: str) -> dict:
+        return dict(json.loads((SCHEMA_DIR / f"{version}.json").read_text(encoding="utf-8")))
+
+    def record_schema(doc: dict) -> dict:
+        items = doc["properties"]["questions"]["items"]
+        ref = items.get("$ref", "")
+        if ref.startswith("#/"):  # "#/$defs/question"
+            for part in ref[2:].split("/"):
+                doc = doc[part]
+            return dict(doc)
+        return dict(items)
+
+    v1, v2 = load("questions.v1"), load(SCHEMA_VERSIONS[KIND])
+    defs = {k: v2[k] for k in ("$defs", "definitions") if k in v2}
+
+    def open_nulls(old: dict, new: dict) -> frozenset[str]:
+        declared = old.get("properties", {})
+        return frozenset(
+            key for key, sub in new.get("properties", {}).items()
+            if key not in declared
+            and not Draft202012Validator({**sub, **defs}).is_valid(None))
+
+    return open_nulls(v1, v2), open_nulls(record_schema(v1), record_schema(v2))
+
+
+def _drop_v1_open_nulls(obj: dict, keys: frozenset[str]) -> dict:
+    """``obj`` without its ``null``-valued ``keys``."""
+    return {k: v for k, v in obj.items() if not (v is None and k in keys)}
+
+
 def _read_record(q: dict, idx: int, seen: Counter[str], taken: set) -> dict:
     """``q`` in the v2 record shape, counting each legacy shape it had in ``seen``.
 
@@ -110,14 +153,10 @@ def _read_record(q: dict, idx: int, seen: Counter[str], taken: set) -> dict:
     ``arms run`` used; a list ``metadata`` (v2 declares an object) -> ``{"items": [...]}``.
     Every other key is kept as written. ``q`` is not mutated.
 
-    A None-valued ``persona_id``, ``source_url``, ``topics`` or ``metadata`` is dropped from
-    every record: v1 does not declare these keys, so v1 files may carry null there, and v2
-    types them. Dropping a null optional key loses nothing.
+    A ``null`` in a key v1 leaves open and v2 types without ``null`` (:func:`_v1_open_nulls`)
+    is dropped: such a file is valid v1, and dropping a null optional key loses nothing.
     """
-    out = canonical_question(q)
-
-    _v1_undeclared_v2_typed = {"persona_id", "source_url", "topics", "metadata"}
-    out = {k: v for k, v in out.items() if not (v is None and k in _v1_undeclared_v2_typed)}
+    out = canonical_question(_drop_v1_open_nulls(q, _v1_open_nulls()[1]))
 
     if "question" not in out and "question_text" in out:
         out = {("question" if k == "question_text" else k): v for k, v in out.items()}
@@ -190,6 +229,7 @@ def load_questions(path: Path | str, *, validate: bool = True) -> QuestionSet:
     path = Path(path)
     raw = json.loads(path.read_text(encoding="utf-8"))
     data, bare_list = _records(raw, path)
+    data = _drop_v1_open_nulls(data, _v1_open_nulls()[0])
     current = SCHEMA_VERSIONS[KIND]
     declared = data.get("schema_version")
     known = (current, *SUPERSEDED_VERSIONS.get(KIND, ()))
