@@ -144,9 +144,9 @@ INFO Using golden questions: C:\Users\Public\content-repo\questions\onetbb_golde
 WARNING questions root C:\Users\Public\content-repo\questions has no golden set for onemkl; running without a golden question set
 ```
 
-A missing golden set is a warning, not an error — the run continues with
-generated questions only. If you are comparing arms, that is usually not what
-you want; check the coverage matrix first.
+A missing golden set is a warning in the run, but an error in preflight — preflight
+exits 1 and the run continues with generated questions only. If you are comparing
+arms, that is usually not what you want; check the coverage matrix first.
 
 `benchmark preflight` resolves the whole plan without calling a model, and
 echoes the root it will read:
