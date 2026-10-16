@@ -79,6 +79,17 @@ def test_imports_in_code_and_absolute_paths_are_not_followed(tmp_path):
     assert sorted(e["path"] for e in got["entries"] if e["kind"] == "import") == ["kept.md", "real.md"]
 
 
+def test_claude_dir_claude_md_is_project_memory_read_at_start(tmp_path):
+    tree = _tree(tmp_path, {".claude/CLAUDE.md": "c" * 6 + " @notes.md", ".claude/notes.md": "n" * 3,
+                            "AGENTS.md": "a" * 7})
+    got = budget(tree, NAMES)
+    entries = _by_path(got)
+    assert entries[(".claude/CLAUDE.md", "guidance")]["when"] == "start"
+    assert entries[(".claude/notes.md", "import")]["when"] == "start"
+    assert entries[("AGENTS.md", "guidance")]["when"] == "off"
+    assert len(got["warnings"]) == 1
+
+
 def test_a_nested_claude_md_bridge_loads_its_agents_md_lazily(tmp_path):
     tree = _tree(tmp_path, {
         "CLAUDE.md": "@AGENTS.md\n", "AGENTS.md": "a",

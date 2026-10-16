@@ -47,16 +47,16 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
     names = set(guidance_names)
     guidance = _unaliased(tree, [f for f in files if f.rsplit("/", 1)[-1] in names])
     claude = [f for f in guidance if f.rsplit("/", 1)[-1].startswith("CLAUDE")]
-    root_claude = [f for f in claude if "/" not in f]
+    root_claude = [f for f in claude if _is_root(f)]
     # A root CLAUDE.md's imports load at start; a nested one's when the agent reaches its subtree.
     at_start = _imports(tree, root_claude)
-    lazily = _imports(tree, [f for f in claude if "/" in f]) - at_start
+    lazily = _imports(tree, [f for f in claude if f not in root_claude]) - at_start
 
     entries: list[dict[str, Any]] = []
     for f in guidance:
         if f.rsplit("/", 1)[-1] == "AGENTS.md" and root_claude and f not in at_start | lazily:
             when = "off"
-        elif f in at_start or "/" not in f:
+        elif f in at_start or _is_root(f):
             when = "start"
         else:
             when = "lazy"
@@ -96,6 +96,11 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
         "mcp_servers": _mcp_servers(tree),
         "warnings": warnings,
     }
+
+
+def _is_root(path: str) -> bool:
+    """Guidance Claude Code reads at start: at the root, or the project memory in `.claude/`."""
+    return "/" not in path or path == ".claude/CLAUDE.md"
 
 
 def _target(tree: RepoTree, path: str) -> str:
