@@ -54,6 +54,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
 from dokimi.eval.stats import adjust_pvalues, mean_ci
+from dokimi.utils import digest_text
 
 ALPHA = 0.05
 
@@ -168,7 +169,11 @@ def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) ->
         if isinstance(body, dict)
     }
     materials = data.get("judge_materials") if with_material else None
-    held = set(materials) if isinstance(materials, dict) else set()
+    # Only material that hashes to its digest: JudgeContextStore.from_artifact skips the rest.
+    held = (
+        {d for d, t in materials.items() if isinstance(t, str) and digest_text(t) == d}
+        if isinstance(materials, dict) else set()
+    )
     return sorted({
         arm for ev in data.get("evaluations") or [] for arm, s in (ev.get("scores") or {}).items()
         if isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED

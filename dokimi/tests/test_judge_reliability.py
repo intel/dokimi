@@ -445,11 +445,17 @@ def test_unreproducible_arms_are_those_judged_on_material_the_file_lacks():
 
 def test_an_arm_whose_material_the_file_keeps_is_reproducible_by_a_rescored_judge():
     data = _stamped_run()
-    digest = "sha256:" + "0" * 64
+    from dokimi.utils import digest_text
+
+    digest = digest_text("skill body")
     for ev in data["evaluations"]:
         ev["scores"]["skill"]["judge_context_sha256"] = digest
     data["judge_materials"] = {digest: "skill body"}
     assert cj.unreproducible_arms(data, with_material=True) == []
+    # Material edited after the run no longer hashes to its digest: the store skips it, so the guard must too.
+    data["judge_materials"][digest] = "skill body, edited"
+    assert cj.unreproducible_arms(data, with_material=True) == ["skill"]
+    data["judge_materials"][digest] = "skill body"
     # Pairwise and checklist judges see only the answers: still unreproducible.
     assert cj.unreproducible_arms(data) == ["skill"]
     del data["judge_materials"]
