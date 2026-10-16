@@ -1055,6 +1055,21 @@ def test_a_skill_body_shared_by_every_question_is_stored_once(monkeypatch, skill
     assert score_digests == digests
 
 
+def test_question_id_zero_is_cited_and_served_after_a_round_trip(monkeypatch, skill_with_files):
+    """0 is falsy but a valid id; cite() must stamp it and from_artifact must serve it."""
+    import json
+
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    skill = SkillTreatment(load_skill(skill_with_files))
+    questions = [{"id": 0, "question": "How do I parallelize a loop?"},
+                 {"id": 1, "question": "How do I sum an array in parallel?"}]
+    out, _ = _judged_output(monkeypatch, [BaselineTreatment(), skill], questions)
+    assert all(r["arms"][skill.name].get("judge_context_sha256") for r in out["answers"])
+    store = JudgeContextStore.from_artifact(json.loads(json.dumps(out)))
+    assert store.get(0, skill.name) and store.get(1, skill.name)
+
+
 def test_an_unjudged_run_still_keeps_the_material(monkeypatch, skill_with_files):
     """So an answers-only artifact can be judged later on the same evidence."""
     _patch_llm(monkeypatch, [])

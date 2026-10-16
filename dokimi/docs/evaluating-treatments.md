@@ -40,10 +40,9 @@ source. The artifact keeps the material: each arm record names its text by diges
 (`judge_context_sha256`) and `judge_materials` holds one copy of each distinct
 text — a skill arm's, identical for every question, is stored once (about 4,500
 characters for the perf skill, +0.3% on an 81-question run). For docs arms, the
-material is the retrieved chunks, different for each question and not deduplicated;
+material is the retrieved chunks, rarely identical across questions, so each question adds its own copy (up to the 15,000-char cut);
 on a synthetic 20-question docs run the artifact grew from 93,209 to 392,852 bytes
-(4.2x). Sharing an arms artifact now shares the skill or doc text itself, so if it
-was private, it is no longer confined to answering. With `cross-judge --judges`,
+(4.2x). Sharing an arms artifact shares the skill or doc text it contains. With `cross-judge --judges`,
 the judge is given the same text through `JudgeContextStore.from_artifact`, which
 skips any text that does not match its digest. Question ids must be unique for this
 (a question with no id is given a positional one; duplicated ids are refused).

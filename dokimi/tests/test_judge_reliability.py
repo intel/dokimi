@@ -418,6 +418,58 @@ def _stamped_run(source="stored"):
     }
 
 
+BODY = "full skill body"
+
+
+def _material_run(body=BODY, n=8):
+    """An arms file whose skill records and scores all cite ``body``, kept in judge_materials."""
+    from dokimi.utils import digest_text
+
+    data = _stamped_run()
+    data["answers"], data["evaluations"] = data["answers"][:n], data["evaluations"][:n]
+    digest = digest_text(body)
+    for ans in data["answers"]:
+        ans["arms"]["skill"]["judge_context_sha256"] = digest
+    for ev in data["evaluations"]:
+        ev["scores"]["skill"]["judge_context_sha256"] = digest
+    data["judge_materials"] = {digest: body}
+    return data
+
+
+def _cross_judge(tmp_path, monkeypatch, data, *extra, judges=True):
+    """Run ``eval cross-judge`` on ``data`` with a recording fake Judge.
+
+    Returns ``(exit_code, contexts_seen, args)``; the code is 0 when it did not exit.
+    """
+    import json
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    seen = []
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, **kw):
+            seen.append(kw.get("context"))
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(path), "--output", str(tmp_path / "cj.json")]
+    if judges:
+        argv += ["--judges", "amazon-bedrock/m"]
+    args = build_parser().parse_args(argv + list(extra))
+    try:
+        args.func(args)
+    except SystemExit as e:
+        return e.code, seen
+    return 0, seen
+
+
 def test_stored_measure_is_named_for_its_judge():
     data = _stamped_run()
     stored = cj.stored_measure(data)
@@ -542,7 +594,9 @@ def test_cross_judge_judges_with_intact_materials_runs_end_to_end(tmp_path, monk
     # Judge was called for each question/arm pair; verify at least some contexts got the stored material
     assert len(contexts_seen) > 0, "Judge should have been called"
     # At least one context should have the stored material (not fallback snippets)
-    assert any("full skill body" in str(c or "") for c in contexts_seen), f"No stored material found in: {contexts_seen}"
+    from dokimi.eval.judge_context import NO_CONTEXT
+    assert all("full skill body" in str(c) for c in contexts_seen if c != NO_CONTEXT), contexts_seen
+    assert contexts_seen.count("full skill body") == 8, contexts_seen
     out = json.loads((tmp_path / "cj.json").read_text(encoding="utf-8"))
     # Verify the measure was added (stored judge + re-scored judge).
     measures = out.get("summary", {}).get("measures", [])
@@ -614,7 +668,9 @@ def test_cross_judge_judges_with_int_question_ids(tmp_path, monkeypatch, capsys)
     args.func(args)
     assert (tmp_path / "cj.json").exists()
     # Judge was called; at least some contexts should have the stored material
-    assert any("full skill body for int ids" in str(c or "") for c in contexts_seen)
+    from dokimi.eval.judge_context import NO_CONTEXT
+    skill_ctx = [c for c in contexts_seen if c != NO_CONTEXT]
+    assert len(skill_ctx) == 8 and all(c == "full skill body for int ids" for c in skill_ctx), contexts_seen
 
 
 def test_cross_judge_judges_and_pairwise_refuse_together(tmp_path, monkeypatch, capsys):
@@ -777,7 +833,7 @@ def test_cross_judge_pairwise_with_materials_refuses_comparison(tmp_path, monkey
             return {"aggregate": 50.0}
 
     monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
-    data = _stamped_run()
+    data = _material_run()
     # Pairwise judges see only the answers, so they still refuse stored material.
     pairwise = tmp_path / "pw.json"
     pairwise.write_text(json.dumps({"verdicts": {"baseline": {}, "skill": {}}, "summary": {"judge": "p/m"}}), encoding="utf-8")
@@ -806,7 +862,7 @@ def test_cross_judge_checklist_with_materials_refuses_comparison(tmp_path, monke
             return {"aggregate": 50.0}
 
     monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
-    data = _stamped_run()
+    data = _material_run()
     # Checklist judges see only the answers, so they still refuse stored material.
     checklist = tmp_path / "ck.json"
     checklist.write_text(json.dumps({"questions": [], "summary": {"judge": "p/m"}}), encoding="utf-8")
@@ -875,96 +931,139 @@ def test_cross_judge_refuses_stored_scores_against_pairwise_and_checklist_too(tm
     assert (tmp_path / "cj.json").exists()
 
 
-def test_cross_judge_judges_refuses_partial_material_fallback(tmp_path, monkeypatch, capsys):
-    """--judges refuses when material altered for one question but not others."""
-    import json
+def test_cross_judge_judges_refuses_a_score_citing_other_material_than_the_records_serve(
+    tmp_path, monkeypatch, capsys
+):
+    """Both digests are in judge_materials, so only comparing them catches it."""
     from dokimi.utils import digest_text
 
-    from dokimi.cli import build_parser
-    from dokimi.eval import judge as judge_mod
-
-    contexts_seen = []
-
-    class FakeJudge:
-        def __init__(self, **_):
-            pass
-
-        def score_answer(self, **kw):
-            contexts_seen.append(kw.get("context"))
-            return {"aggregate": 50.0}
-
-    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
-    data = _stamped_run()
-    skill_body = "full skill body"
-    digest = digest_text(skill_body)
-    # Stamp all arm records with the digest
+    data = _material_run()
+    other = "OTHER SKILL BODY"
+    data["judge_materials"][digest_text(other)] = other
     for ans in data["answers"]:
-        ans["arms"]["skill"]["judge_context_sha256"] = digest
-    for ev in data["evaluations"]:
-        ev["scores"]["skill"]["judge_context_sha256"] = digest
-    # Alter material for one question: change the digest in the first evaluation
-    if data["evaluations"]:
-        data["evaluations"][0]["scores"]["skill"]["judge_context_sha256"] = digest_text("ALTERED BODY")
-    data["judge_materials"] = {digest: skill_body}
-    answers = tmp_path / "run.json"
-    answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
-            "--output", str(tmp_path / "cj.json")]
-    args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
-        args.func(args)
-    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+        ans["arms"]["skill"]["judge_context_sha256"] = digest_text(other)
+    code, seen = _cross_judge(tmp_path, monkeypatch, data)
+    err = capsys.readouterr().err
+    assert code == 2 and not seen
+    assert "different material" in err and "'Q0'" in err and "'Q7'" in err
+    assert "written before them" not in err
+
+
+@pytest.mark.parametrize("damage", ["score_digest", "record_digest", "record_material", "null_qid"])
+def test_cross_judge_judges_refuses_one_damaged_question_among_eight(
+    tmp_path, monkeypatch, capsys, damage
+):
+    """The gate must look past the first evaluation: question 5 alone is damaged."""
+    from dokimi.utils import digest_text
+
+    data = _material_run()
+    other = "OTHER SKILL BODY"
+    if damage == "score_digest":
+        data["judge_materials"][digest_text(other)] = other
+        data["evaluations"][5]["scores"]["skill"]["judge_context_sha256"] = digest_text(other)
+    elif damage == "record_digest":
+        data["judge_materials"][digest_text(other)] = other
+        data["answers"][5]["arms"]["skill"]["judge_context_sha256"] = digest_text(other)
+    elif damage == "record_material":
+        # The record's text fails its digest, so the reader skips just that question.
+        bad = digest_text("X")
+        data["judge_materials"][bad] = "not X"
+        data["answers"][5]["arms"]["skill"]["judge_context_sha256"] = bad
+    else:
+        data["evaluations"][5]["question_id"] = None
+    code, seen = _cross_judge(tmp_path, monkeypatch, data)
+    err = capsys.readouterr().err
+    assert code == 2 and not seen
+    assert "skill" in err and ("None" in err if damage == "null_qid" else "'Q5'" in err)
+    assert "'Q4'" not in err and "'Q6'" not in err
+
+
+def test_cross_judge_judges_skips_an_evaluation_with_no_answer_record(tmp_path, monkeypatch, capsys):
+    """score_measure never scores it, so it is no reason to refuse."""
+    data = _material_run()
+    del data["answers"][7]
+    code, seen = _cross_judge(tmp_path, monkeypatch, data)
+    assert code == 0, capsys.readouterr().err
+    assert seen.count(BODY) == 7
+
+
+def test_cross_judge_judges_exits_2_for_an_unhashable_question_id(tmp_path, monkeypatch, capsys):
+    """origin/main exits 2 here; the gate loop must not raise TypeError."""
+    data = _material_run()
+    data["evaluations"][0] = {"question_id": ["a"],
+                              "scores": {"skill": {"error": "x", "judge_context_source": "stored"}}}
+    code, seen = _cross_judge(tmp_path, monkeypatch, data)
+    assert code == 2 and not seen
+    assert "['a']" in capsys.readouterr().err
+
+
+def test_cross_judge_judges_on_an_answers_only_file_hands_the_judge_the_material(tmp_path, monkeypatch):
+    """No stored scores: the gate does not run, and the judge must still get the text."""
+    data = _material_run()
+    del data["evaluations"]
+    code, seen = _cross_judge(tmp_path, monkeypatch, data)
+    assert code == 0
+    assert seen.count(BODY) == 8
+
+
+def test_cross_judge_judges_with_no_stored_hands_the_judge_the_material(tmp_path, monkeypatch):
+    from dokimi.utils import digest_text
+
+    data = _material_run()
+    # A stored score that would fail the gate: --no-stored skips it, not the reader.
+    data["evaluations"][2]["scores"]["skill"]["judge_context_sha256"] = digest_text("elsewhere")
+    code, seen = _cross_judge(tmp_path, monkeypatch, data, "--no-stored")
+    assert code == 0
+    assert seen.count(BODY) == 8
+
+
+def test_cross_judge_builds_the_material_store_once_and_only_for_judges(tmp_path, monkeypatch, caplog):
+    data = _material_run()
+    data["answers"][3]["arms"]["skill"]["judge_context_sha256"] = "sha256:" + "f" * 64
+    with caplog.at_level("WARNING"):
+        _cross_judge(tmp_path, monkeypatch, data, "--no-stored")
+    assert sum("cite judge material" in r.getMessage() for r in caplog.records) == 1
+    caplog.clear()
+    checklist = tmp_path / "ck.json"
+    checklist.write_text('{"questions": [], "summary": {"judge": "p/m"}}', encoding="utf-8")
+    with caplog.at_level("WARNING"):
+        _cross_judge(tmp_path, monkeypatch, data, "--checklist", str(checklist), "--no-stored", judges=False)
+    assert not any("cite judge material" in r.getMessage() for r in caplog.records)
 
 
 def test_cross_judge_judges_handles_falsy_question_ids(tmp_path, monkeypatch):
-    """--judges correctly rejects qid that is not str or int (e.g., qid=None becomes unresolvable)."""
-    import json
-    from dokimi.utils import digest_text
-
-    from dokimi.cli import build_parser
-    from dokimi.eval import judge as judge_mod
-
-    monkeypatch.setattr(judge_mod, "Judge", lambda **_: type("", (), {"score_answer": lambda self, **__: {"aggregate": 50.0}})())
-    data = _stamped_run()
-    skill_body = "full skill body"
-    digest = digest_text(skill_body)
-    # Set all question_ids to the same valid int 0 (falsy but valid as an int)
-    for ans, ev in zip(data["answers"], data["evaluations"]):
-        ans["question_id"] = 0
-        ans["arms"]["skill"]["judge_context_sha256"] = digest
-        ev["question_id"] = 0
-        ev["scores"]["skill"]["judge_context_sha256"] = digest
-    data["judge_materials"] = {digest: skill_body}
-    answers = tmp_path / "run.json"
-    answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
-            "--output", str(tmp_path / "cj.json")]
-    args = build_parser().parse_args(argv)
-    # Should succeed: question_id 0 is a valid int and material is found
-    args.func(args)
-    assert (tmp_path / "cj.json").exists()
+    """Int ids, including 0, resolve in the gate and the reader alike (distinct ids)."""
+    data = _material_run()
+    for i, (ans, ev) in enumerate(zip(data["answers"], data["evaluations"], strict=True)):
+        ans["question_id"] = ev["question_id"] = i
+    code, seen = _cross_judge(tmp_path, monkeypatch, data)
+    assert code == 0
+    assert seen.count(BODY) == 8
 
 
-def test_from_artifact_guards_against_malformed_structures():
-    """from_artifact gracefully handles malformed question_id and answers."""
-    import json
+def test_from_artifact_skips_a_malformed_answer_list_and_non_scalar_ids():
+    """No exception; a record with a list id is skipped and counted, the rest are served."""
     from dokimi.eval.judge_context import JudgeContextStore
 
-    data = _stamped_run()
-    skill_body = "full skill body"
-    data["judge_materials"] = {"sha256:" + "0" * 64: skill_body}
+    data = _material_run(n=2)
+    data["answers"][0]["question_id"] = ["a"]  # from_artifact reads the answer records
+    store = JudgeContextStore.from_artifact(data)
+    assert store.get("Q1", "skill") == BODY and list(store._ctx) == [("Q1", "skill")]
+    data["answers"] = 5
+    assert JudgeContextStore.from_artifact(data).materials() == {}
 
-    # Test: question_id as a list (should be handled gracefully)
-    data_bad_qid = json.loads(json.dumps(data))
-    data_bad_qid["evaluations"][0]["question_id"] = ["a"]  # Invalid: list instead of str/int
-    store = JudgeContextStore.from_artifact(data_bad_qid)
-    assert store is not None  # Should not raise
 
-    # Test: answers as an int (should be handled gracefully)
-    data_bad_answers = json.loads(json.dumps(data))
-    data_bad_answers["answers"] = 5  # Invalid: int instead of list
-    store = JudgeContextStore.from_artifact(data_bad_answers)
-    assert store is not None  # Should not raise
+def test_digest_text_tells_a_lone_surrogate_from_its_removal():
+    """errors="ignore" would hash a lone-surrogate text and its stripped form alike."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.utils import digest_text
+
+    assert digest_text("a\ud83db") != digest_text("ab")
+    data = _material_run(body="a\ud83db", n=1)
+    assert JudgeContextStore.from_artifact(data).get("Q0", "skill") == "a\ud83db"
+    (digest,) = data["judge_materials"]
+    data["judge_materials"][digest] = "ab"
+    assert JudgeContextStore.from_artifact(data).get("Q0", "skill") is None
 
 
 @pytest.mark.parametrize("kind", ["grounded", "coverage"])

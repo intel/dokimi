@@ -261,8 +261,8 @@ class JudgeContextStore:
             if hit is None and key not in self._ambiguous and not self._warned:
                 self._warned = True
                 logger.warning(
-                    "No stored judge context for %s/%s; this run did not keep its material, "
-                    "so judging falls back to 200-char report snippets, which under-scores "
+                    "No stored judge context for %s/%s (the run did not keep it, or the text "
+                    "failed its digest), so judging falls back to 200-char report snippets, which under-scores "
                     "arms that cite their own material.",
                     question_id, arm_name,
                 )
