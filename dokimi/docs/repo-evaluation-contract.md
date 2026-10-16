@@ -29,7 +29,7 @@
 > ```
 >
 > `repo budget` sizes what the tree puts into an agent's context (no manifest,
-> no LLM call): root guidance and its `@` imports plus the skill listing at
+> no LLM call): root CLAUDE.md files and their `@` imports plus the skill listing at
 > start, nested guidance lazily, skill bodies on demand, and AGENTS.md files a
 > root CLAUDE.md turns off:
 >

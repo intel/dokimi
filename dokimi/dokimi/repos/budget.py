@@ -46,8 +46,13 @@ _STOP = frozenset("a an and the of to for in on with use when or is are be this 
 def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
     files = tree.files()
     names = set(guidance_names)
-    guidance = _unaliased(tree, [f for f in files if f.rsplit("/", 1)[-1] in names])
-    claude = [f for f in guidance if f.rsplit("/", 1)[-1].startswith("CLAUDE")]
+    every = [f for f in files if f.rsplit("/", 1)[-1] in names]
+    guidance = _unaliased(tree, every)
+    groups: dict[str, list[str]] = {}
+    for f in every:
+        groups.setdefault(_target(tree, f), []).append(f)
+    # Rules are decided from every path that reaches a file, not only the one shown.
+    claude = [f for f in every if f.rsplit("/", 1)[-1].startswith("CLAUDE")]
     # Only a root CLAUDE.md (not .claude/CLAUDE.md or CLAUDE.local.md) can turn AGENTS.md off
     root_claude = [f for f in claude if _is_root(f)]
     # For off rule: only root CLAUDE.md that resolves (not dangling/out-of-tree); unreadable UTF-8 still counts
@@ -63,9 +68,19 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
     unreadable_warnings: list[str] = []
     for f in guidance:
-        if f.rsplit("/", 1)[-1] == "AGENTS.md" and root_claude_for_off and _target(tree, f) not in loaded_t:
-            when = "off"
-        elif _target(tree, f) in start_t or _is_root(f):
+        t = _target(tree, f)
+        aliases = groups.get(t, [f])
+        root_alias = any(a in root_claude for a in aliases)
+        nested_alias = any(a in claude and a not in root_claude for a in aliases)
+        if f.rsplit("/", 1)[-1] == "AGENTS.md" and root_claude_for_off:
+            # a root CLAUDE.md displaces AGENTS.md: it is read only through a CLAUDE.md that reaches it
+            if root_alias or t in start_t:
+                when = "start"
+            elif nested_alias or t in loaded_t:
+                when = "lazy"
+            else:
+                when = "off"
+        elif t in start_t or _is_root(f):
             when = "start"
         else:
             when = "lazy"
@@ -96,7 +111,9 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
                         f"imports these, so Claude Code reads none of {', '.join(off)} unless the agent opens "
                         "them (import each with `@AGENTS.md` from a CLAUDE.md beside it; `repo reach` measures it)")
     for s in skills:
-        if not s["description"]:
+        if s["unreadable"]:
+            warnings.append(f"{s['path']}: not readable (non-UTF-8 or binary), counted as 0")
+        elif not s["description"]:
             warnings.append(f"{s['path']}: no description; the listing gives the agent nothing to choose it by")
     duplicates = _near_duplicates(skills)
     for d in duplicates:
@@ -205,15 +222,17 @@ def _skills(tree: RepoTree, paths: list[str]) -> list[dict[str, Any]]:
 
     out = []
     for path in paths:
+        unreadable = False
         try:
             meta, body = parse_frontmatter(tree.read_text(path))
         except (OSError, UnicodeDecodeError, ValueError):
-            meta, body = {}, ""
+            meta, body, unreadable = {}, "", True
         meta = meta if isinstance(meta, dict) else {}
         name = str(meta.get("name") or path.split("/")[-2])
         description = str(meta.get("description") or "")
         out.append({"path": path, "name": name, "description": description,
-                    "listing_chars": len(name) + len(description), "body_chars": len(body)})
+                    "listing_chars": len(name) + len(description), "body_chars": len(body),
+                    "unreadable": unreadable})
     return out
 
 

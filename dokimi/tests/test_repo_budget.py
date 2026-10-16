@@ -6,12 +6,13 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 import pytest
 
 from dokimi.cli import build_parser
 from dokimi.repos.budget import budget
-from dokimi.repos.source import WorkTree
+from dokimi.repos.source import GitTree, WorkTree
 
 NAMES = ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md")
 
@@ -26,6 +27,29 @@ def _tree(tmp_path, files):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
     return WorkTree(tmp_path)
+
+
+def _link(path, target):
+    try:
+        path.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+
+def _linked_repo(root, files, links):
+    """A git repository with ``links`` (path -> link text) committed as symlinks; returns its GitTree."""
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+    for rel, text in links.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        _link(root / rel, text)
+    git = lambda *a: subprocess.run(["git", "-C", str(root), *a], check=True, capture_output=True,  # noqa: E731
+                                    text=True).stdout.strip()
+    git("init", "-q")
+    git("add", "-A")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "case")
+    return GitTree(root / ".git", git("rev-parse", "HEAD"))
 
 
 def _by_path(payload):
@@ -263,40 +287,28 @@ def test_duplicate_skills_at_boundary(tmp_path):
 
 
 def test_alias_layouts_thread_1_repro(tmp_path):
-    """Thread 1 three symlink layouts keyed by resolved target. All three tested and fixed."""
+    """Thread 1 three symlink layouts keyed by resolved target."""
     # Layout a: root AGENTS.md and sub/CLAUDE.md -> ../AGENTS.md
-    try:
-        tree_a = _tree(tmp_path / "a", {"AGENTS.md": "a" * 9})
-        (tmp_path / "a" / "sub").mkdir(exist_ok=True)
-        (tmp_path / "a" / "sub" / "CLAUDE.md").symlink_to("../AGENTS.md")
-        got_a = budget(tree_a, NAMES)
-        assert got_a["totals"]["start"] == 9
-        assert got_a["warnings"] == []
+    tree_a = _tree(tmp_path / "a", {"AGENTS.md": "a" * 9})
+    (tmp_path / "a" / "sub").mkdir()
+    _link(tmp_path / "a" / "sub" / "CLAUDE.md", "../AGENTS.md")
+    got_a = budget(tree_a, NAMES)
+    assert got_a["totals"] == {"start": 9, "lazy": 0, "on demand": 0, "off": 0}
+    assert got_a["warnings"] == []
 
-        # Layout b: root CLAUDE.md imports sub/AGENTS.md, a link to sub/CLAUDE.md;
-        # sub/CLAUDE.md loads at start
-        tree_b = _tree(tmp_path / "b", {
-            "CLAUDE.md": "@sub/AGENTS.md".ljust(15),
-            "sub/CLAUDE.md": "c" * 7,
-        })
-        (tmp_path / "b" / "sub" / "AGENTS.md").symlink_to("CLAUDE.md")
-        got_b = budget(tree_b, NAMES)
-        # CLAUDE.md (15) + sub/CLAUDE.md via import (7, both resolve to same, counted once)
-        assert got_b["totals"]["start"] == 22  # 15 + 7
-        assert got_b["warnings"] == []
+    # Layout b: root CLAUDE.md imports sub/AGENTS.md, a link to sub/CLAUDE.md
+    tree_b = _tree(tmp_path / "b", {"CLAUDE.md": "@sub/AGENTS.md".ljust(15), "sub/CLAUDE.md": "c" * 7})
+    _link(tmp_path / "b" / "sub" / "AGENTS.md", "CLAUDE.md")
+    got_b = budget(tree_b, NAMES)
+    assert got_b["totals"] == {"start": 22, "lazy": 0, "on demand": 0, "off": 0}
+    assert got_b["warnings"] == []
 
-        # Layout c: root CLAUDE.md imports link.md -> AGENTS.md
-        tree_c = _tree(tmp_path / "c", {
-            "CLAUDE.md": "@link.md".ljust(13),
-            "AGENTS.md": "a" * 5,
-        })
-        (tmp_path / "c" / "link.md").symlink_to("AGENTS.md")
-        got_c = budget(tree_c, NAMES)
-        assert got_c["totals"]["start"] == 18  # 13 + 5
-        assert got_c["totals"]["off"] == 0
-        assert got_c["warnings"] == []
-    except OSError:
-        pytest.skip("symlinks unavailable")
+    # Layout c: root CLAUDE.md imports link.md -> AGENTS.md
+    tree_c = _tree(tmp_path / "c", {"CLAUDE.md": "@link.md".ljust(13), "AGENTS.md": "a" * 5})
+    _link(tmp_path / "c" / "link.md", "AGENTS.md")
+    got_c = budget(tree_c, NAMES)
+    assert got_c["totals"] == {"start": 18, "lazy": 0, "on demand": 0, "off": 0}
+    assert got_c["warnings"] == []
 
 
 def test_claude_local_md_import_at_start(tmp_path):
@@ -330,34 +342,99 @@ def test_circular_imports_terminate(tmp_path):
 
 
 def test_unreadable_guidance_files_are_warned(tmp_path):
-    """Unreadable guidance files (non-UTF-8, broken links, outside tree) all emit specific warnings."""
-    # Case 1: Non-UTF-8 root CLAUDE.md still counts for off rule (it exists and resolves)
+    """Unreadable guidance files (non-UTF-8, broken links) all emit specific warnings and count 0."""
+    # Non-UTF-8 root CLAUDE.md still counts for the off rule (it exists and resolves)
     tree1 = _tree(tmp_path / "t1", {"AGENTS.md": "a" * 10})
     (tmp_path / "t1" / "CLAUDE.md").write_bytes(b"\xff\xfe")
     got1 = budget(tree1, NAMES)
-    assert any("CLAUDE.md: not readable (non-UTF-8 or binary)" in w for w in got1["warnings"])
-    # Non-UTF-8 CLAUDE.md still turns AGENTS.md off (it exists, just can't be read)
+    assert "CLAUDE.md: not readable (non-UTF-8 or binary), counted as 0" in got1["warnings"]
     entries1 = _by_path(got1)
+    assert entries1[("CLAUDE.md", "guidance")]["chars"] == 0
     assert entries1[("AGENTS.md", "guidance")]["when"] == "off"
 
-    # Case 2: Dangling symlink as guidance file (doesn't count for off rule)
-    try:
-        tree2 = _tree(tmp_path / "t2", {"AGENTS.md": "a"})
-        (tmp_path / "t2" / "CLAUDE.md").symlink_to(tmp_path / "t2" / "missing.md")
-        got2 = budget(tree2, NAMES)
-        assert any("CLAUDE.md: not readable" in w for w in got2["warnings"])
-        assert any("broken link" in w or "not found" in w for w in got2["warnings"])
-        # Dangling CLAUDE.md doesn't count for off rule, so AGENTS.md is start
-        entries2 = _by_path(got2)
-        assert entries2[("AGENTS.md", "guidance")]["when"] == "start"
-    except OSError:
-        pytest.skip("symlinks unavailable")
+    # Dangling symlink as CLAUDE.md does not turn AGENTS.md off
+    tree2 = _tree(tmp_path / "t2", {"AGENTS.md": "a"})
+    _link(tmp_path / "t2" / "CLAUDE.md", tmp_path / "t2" / "missing.md")
+    got2 = budget(tree2, NAMES)
+    assert got2["warnings"] == ["CLAUDE.md: not readable (not found, broken link, or outside tree), counted as 0"]
+    entries2 = _by_path(got2)
+    assert entries2[("CLAUDE.md", "guidance")]["chars"] == 0
+    assert entries2[("AGENTS.md", "guidance")]["when"] == "start"
 
-    # Case 3: Non-UTF-8 import
+    # Non-UTF-8 import
     tree3 = _tree(tmp_path / "t3", {"CLAUDE.md": "@broken.md"})
     (tmp_path / "t3" / "broken.md").write_bytes(b"\x80\x81")
     got3 = budget(tree3, NAMES)
-    assert any("broken.md: not readable" in w for w in got3["warnings"])
+    assert got3["warnings"] == ["broken.md: not readable (non-UTF-8 or binary), counted as 0"]
+    assert _by_path(got3)[("broken.md", "import")]["chars"] == 0
+
+
+def test_unreadable_skill_warns_about_encoding_not_description(tmp_path):
+    tree = _tree(tmp_path, {})
+    skill = tmp_path / ".claude" / "skills" / "a" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_bytes(b"\xff\xfe---\nname: a\ndescription: Do x y z\n---\nbody")
+    got = budget(tree, NAMES)
+    assert got["warnings"] == [".claude/skills/a/SKILL.md: not readable (non-UTF-8 or binary), counted as 0"]
+    entries = _by_path(got)
+    assert entries[(".claude/skills/a/SKILL.md", "skill body")]["chars"] == 0
+
+
+def test_nested_claude_alias_of_agents_md_is_lazy_not_off(tmp_path):
+    """Thread 7: sub/CLAUDE.md -> ../AGENTS.md is a lazy load of AGENTS.md; AGENTS.md is not off."""
+    tree = _tree(tmp_path, {"AGENTS.md": "a" * 100, "CLAUDE.md": "root claude"})
+    (tmp_path / "sub").mkdir()
+    _link(tmp_path / "sub" / "CLAUDE.md", "../AGENTS.md")
+    got = budget(tree, NAMES)
+    entries = _by_path(got)
+    assert entries[("AGENTS.md", "guidance")]["when"] == "lazy"
+    assert entries[("CLAUDE.md", "guidance")]["when"] == "start"
+    assert got["totals"] == {"start": 11, "lazy": 100, "on demand": 0, "off": 0}
+    assert got["warnings"] == []
+
+
+def test_root_claude_aliases_decide_off_from_all_paths(tmp_path):
+    """Thread 7 second layout: CLAUDE.local.md -> CLAUDE.md beside AGENTS.md. CLAUDE.md is still the root CLAUDE.md."""
+    tree = _tree(tmp_path, {"CLAUDE.md": "root claude", "AGENTS.md": "a" * 100})
+    _link(tmp_path / "CLAUDE.local.md", "CLAUDE.md")
+    got = budget(tree, NAMES)
+    entries = _by_path(got)
+    assert entries[("AGENTS.md", "guidance")]["when"] == "off"
+    assert got["totals"] == {"start": 11, "lazy": 0, "on demand": 0, "off": 100}
+    assert len(got["warnings"]) == 1 and "CLAUDE.md turns AGENTS.md loading off" in got["warnings"][0]
+
+
+def test_agents_md_imported_only_by_nested_claude_is_lazy(tmp_path):
+    """Thread 8: the root CLAUDE.md does not import AGENTS.md; only sub/CLAUDE.md does, so it is lazy."""
+    tree = _tree(tmp_path, {"AGENTS.md": "a" * 100, "CLAUDE.md": "root claude", "sub/CLAUDE.md": "@../AGENTS.md"})
+    got = budget(tree, NAMES)
+    entries = _by_path(got)
+    assert entries[("AGENTS.md", "guidance")]["when"] == "lazy"
+    assert entries[("sub/CLAUDE.md", "guidance")]["when"] == "lazy"
+    assert got["totals"] == {"start": 11, "lazy": 113, "on demand": 0, "off": 0}
+    assert got["warnings"] == []
+
+
+def test_link_to_a_non_guidance_file_is_keyed_by_target(tmp_path):
+    """Thread 11: AGENTS.md -> docs/agents.md, imported by the root CLAUDE.md as @docs/agents.md, is start."""
+    tree = _tree(tmp_path, {"CLAUDE.md": "@docs/agents.md", "docs/agents.md": "a" * 20})
+    _link(tmp_path / "AGENTS.md", "docs/agents.md")
+    got = budget(tree, NAMES)
+    entries = _by_path(got)
+    assert entries[("AGENTS.md", "guidance")]["when"] == "start"
+    assert ("docs/agents.md", "import") not in entries
+    assert got["totals"] == {"start": 35, "lazy": 0, "on demand": 0, "off": 0}
+    assert got["warnings"] == []
+
+
+def test_dangling_root_claude_link_in_a_git_tree(tmp_path):
+    """Thread 11: remote sources are GitTrees; a dangling CLAUDE.md link does not turn AGENTS.md off there."""
+    root = tmp_path / "r"
+    tree = _linked_repo(root, {"AGENTS.md": "a" * 10}, {"CLAUDE.md": "missing.md"})
+    got = budget(tree, NAMES)
+    assert _by_path(got)[("AGENTS.md", "guidance")]["when"] == "start"
+    assert got["warnings"] == ["CLAUDE.md: not readable (not found, broken link, or outside tree), counted as 0"]
+    assert got["totals"] == {"start": 10, "lazy": 0, "on demand": 0, "off": 0}
 
 
 def test_mcp_json_with_non_dict_servers(tmp_path):
