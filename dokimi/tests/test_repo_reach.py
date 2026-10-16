@@ -56,6 +56,10 @@ prompt = args[args.index("-p") + 1]
 tools = args[args.index("--tools") + 1] if "--tools" in args else "default"
 if mode == "crash":
     print("boom", file=sys.stderr); sys.exit(3)
+if mode == "line_then_hang":  # some trace, then nothing until it is killed
+    import time
+    print(json.dumps({"type": "system", "subtype": "init", "claude_code_version": "9.8.7"}), flush=True)
+    time.sleep(30)
 if mode in ("hang", "orphan"):  # a helper holding stdout, which killing the harness alone leaves running
     import subprocess, time
     marker = str(Path(__file__).with_name("grandchild-alive"))
@@ -105,6 +109,8 @@ if mode == "error_result":
     events[-1]["is_error"] = True
 if mode == "utf8":
     events[0]["cwd"] = "/home/стас"
+if mode == "big":  # more stream-json than the default capture limit (1 MiB)
+    events.insert(1, {"type": "assistant", "message": {"content": [{"type": "text", "text": "x" * (3 << 19)}]}})
 for e in events:
     sys.stdout.buffer.write((json.dumps(e, ensure_ascii=False) + "\n").encode())
 if mode == "late_exit":
@@ -628,6 +634,23 @@ def test_build_workspace_finds_git_on_the_callers_path(tmp_path, monkeypatch):
     (tmp_path / "ws").mkdir()
     reach.build_workspace(tree, ["CLAUDE.md"], tmp_path / "ws", "s", runner=process.FakeRunner(posix_lookup))
     assert (tmp_path / "ws/.git").is_dir()
+
+
+def test_build_workspace_runs_git_without_the_callers_environment(tmp_path, monkeypatch):
+    """The snapshot commit must not pick up the operator's git config or identity."""
+    from dokimi import process
+    from dokimi.repos import reach
+
+    monkeypatch.setenv("PARENT_ONLY_SECRET", "x")
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
+    tree = WorkTree(_repo(tmp_path))
+    (tmp_path / "ws").mkdir()
+    fake = process.FakeRunner()
+    reach.build_workspace(tree, ["CLAUDE.md"], tmp_path / "ws", "s", runner=fake)
+    assert len(fake.calls) == 3
+    for call in fake.calls:
+        assert "PARENT_ONLY_SECRET" not in call.env and "GIT_DIR" not in call.env
+        assert call.env["GIT_AUTHOR_NAME"] == "reach"
 
 
 def test_reach_records_the_full_commit_sha(tmp_path, monkeypatch):

@@ -281,6 +281,21 @@ tbb::task_arena arena;
             # Should return empty analysis
             assert result == analyzer._empty_analysis()
 
+    def test_analyze_repository_via_gh_cli(self, monkeypatch):
+        """Without PyGithub, gh gives the description and the README, with the caller's token."""
+        from dokimi.process import reply
+
+        monkeypatch.setenv("GH_TOKEN", "t")
+        readme = "# lib\n## Use cases\n- Batch jobs\n```\nlib::run()\n```\n"
+        fake = FakeRunner(lambda call: reply(json.dumps({"description": "A lib"}) if "--json" in call.argv
+                                             else readme))
+        with patch('dokimi.personas.analyzer.GITHUB_AVAILABLE', False):
+            result = PersonaAnalyzer(runner=fake).analyze_repository("o/lib")
+        assert result["description"] == "A lib" and result["readme_content"] == readme
+        assert result["use_cases"] == ["batch jobs"] and result["api_patterns"] == ["lib::run()"]
+        assert [c.argv[:3] for c in fake.calls] == [("gh", "repo", "view")] * 2
+        assert all(c.env.get("GH_TOKEN") == "t" for c in fake.calls)
+
 def test_create_minimal_analysis():
     """Test creating synthetic analysis without GitHub repo."""
     analysis = PersonaAnalyzer.create_minimal_analysis(

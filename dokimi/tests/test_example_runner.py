@@ -162,6 +162,13 @@ def test_docker_backend_locks_the_container_down():
     assert argv[argv.index("timeout") + 1] == "7" and call.timeout == 37
 
 
+def test_docker_backend_reports_a_timeout():
+    """A docker run killed at the deadline is a timeout, not exit 124 from the snippet."""
+    runner = FakeRunner(lambda call: reply(timed_out=True))
+    res = run_example("python", "print(1)", ExecutionPolicy(backend="docker", timeout=7), runner)
+    assert res.status == "failed" and res.error == "Timeout after 7s"
+
+
 def test_subprocess_backend_asks_for_limits_and_a_scrubbed_env(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "x")
     runner = FakeRunner()

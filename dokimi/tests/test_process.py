@@ -73,6 +73,7 @@ def test_output_is_utf8_whatever_the_locale():
     done = _py(code, env=Env.inherit({"LC_ALL": "C", "LANG": "C", "PYTHONIOENCODING": "ascii"}))
     assert done.stdout == "é ✓ 日本\n�\n"  # universal newlines, bad bytes replaced
     assert done.stdout_bytes.endswith(b"\xff\n")  # the raw stream is kept for binary callers
+    assert _py("import sys; sys.stdout.buffer.write(b'a\\rb')").stdout == "a\nb"  # a lone \r too
 
 
 def test_input_reaches_stdin_and_stdin_is_closed_otherwise():
@@ -82,6 +83,22 @@ def test_input_reaches_stdin_and_stdin_is_closed_otherwise():
     start = time.monotonic()
     assert _py(echo, timeout=10).stdout == ""  # EOF at once, not the caller's terminal
     assert time.monotonic() - start < 5
+
+
+@_POSIX_ONLY
+def test_stdin_is_closed_even_when_the_caller_has_an_open_one():
+    """pytest already puts /dev/null on fd 0; an open pipe there shows the child does not inherit it."""
+    read_end, write_end = os.pipe()
+    saved = os.dup(0)
+    os.dup2(read_end, 0)
+    try:
+        done = _py("import sys; print(repr(sys.stdin.read()))", timeout=5)
+    finally:
+        os.dup2(saved, 0)
+        for fd in (saved, read_end, write_end):
+            os.close(fd)
+    assert not done.timed_out and done.stdout == "''\n"
+    assert process._live == {}  # the finished run is no longer a live group
 
 
 def test_capture_stdout_false_discards_it():
@@ -150,7 +167,7 @@ def test_a_background_job_is_killed_when_the_command_exits(tmp_path):
     start = time.monotonic()
     done = process.run(["bash", "-c", f"sleep 60 & echo $! > '{pid_file}'; echo done"], timeout=30,
                        env=INHERIT)
-    assert time.monotonic() - start < 5
+    assert time.monotonic() - start < process.DRAIN_GRACE_SEC  # killed at the exit, not after the grace
     assert done.ok and done.stdout == "done\n"
     assert _gone_soon(int(pid_file.read_text()))
 
@@ -204,6 +221,97 @@ def test_interrupt_kills_the_tree_and_propagates(tmp_path, monkeypatch):
     assert _gone_soon(int(pid_file.read_text()))
 
 
+class _Recorded(process.subprocess.Popen):
+    """Popen that keeps every child it starts, so a test can look at one run() did not return."""
+
+    started: list[process.subprocess.Popen] = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _Recorded.started.append(self)
+
+
+@pytest.mark.parametrize("where", ["_assign_job", "feeder thread"])
+def test_an_error_right_after_popen_kills_the_child(monkeypatch, where):
+    """Between Popen and reading the output (registering the child, starting the stdin
+    feeder) nothing may leave the child running or in the live groups."""
+    def boom(*args, **kwargs):
+        raise RuntimeError("can't start new thread")
+
+    _Recorded.started = []
+    monkeypatch.setattr(process.subprocess, "Popen", _Recorded)
+    if where == "_assign_job":
+        monkeypatch.setattr(process, "_assign_job", boom)
+    else:
+        monkeypatch.setattr(process.threading.Thread, "start", boom)
+    with pytest.raises(RuntimeError):
+        _py("import time; time.sleep(60)", input=b"x")
+    (child,) = _Recorded.started
+    assert child.poll() is not None and process._live == {}
+
+
+@_POSIX_ONLY
+def test_a_signal_between_popen_and_registration_still_kills_the_child(monkeypatch):
+    """The handler runs on the main thread, here right after Popen returns and before the
+    child is in _live: it must still kill that child, then call the earlier handler."""
+    calls = []
+
+    class _SignalledAtStart(_Recorded):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    before = signal.getsignal(signal.SIGTERM)
+    monkeypatch.setattr(process, "_closing", False)
+    _Recorded.started = []
+    signal.signal(signal.SIGTERM, lambda signum, frame: calls.append(signum))
+    try:
+        process.install_signal_handlers([signal.SIGTERM])
+        monkeypatch.setattr(process.subprocess, "Popen", _SignalledAtStart)
+        start = time.monotonic()
+        done = _py("import time; time.sleep(60)", timeout=20)
+    finally:
+        signal.signal(signal.SIGTERM, before)
+    assert done.returncode == -signal.SIGKILL and time.monotonic() - start < 10
+    assert calls == [signal.SIGTERM] and process._live == {}
+    monkeypatch.setattr(process.subprocess, "Popen", _Recorded)
+    assert _py("pass").ok  # the earlier handler returned: the process goes on, and so does run()
+
+
+def test_installing_twice_wraps_the_handler_once(monkeypatch):
+    before = signal.getsignal(signal.SIGTERM)
+    try:
+        process.install_signal_handlers([signal.SIGTERM])
+        once = signal.getsignal(signal.SIGTERM)
+        process.install_signal_handlers([signal.SIGTERM])
+        assert signal.getsignal(signal.SIGTERM) is once
+    finally:
+        signal.signal(signal.SIGTERM, before)
+
+
+def test_the_cli_installs_no_handler_off_the_main_thread(monkeypatch):
+    import threading
+
+    from dokimi import cli
+
+    installed, errors = [], []
+    monkeypatch.setattr(process, "install_signal_handlers", lambda: installed.append(1))
+    monkeypatch.setattr(sys, "argv", ["dokimi", "--help"])
+
+    def call_main():
+        try:
+            cli.main()
+        except SystemExit:  # --help exits 0 after printing
+            pass
+        except BaseException as exc:  # noqa: BLE001 - reported to the test below
+            errors.append(exc)
+
+    worker = threading.Thread(target=call_main)
+    worker.start()
+    worker.join()
+    assert errors == [] and installed == []
+
+
 # ── a terminating signal to the caller ──────────────────────────────────────
 
 _CALLER = """
@@ -246,6 +354,18 @@ def test_sigterm_kills_the_live_groups_then_the_caller_dies_of_it(tmp_path):
 
 
 @_POSIX_ONLY
+def test_sighup_kills_the_live_groups_too(tmp_path):
+    caller, grandchild = _caller(tmp_path, "default")
+    try:
+        caller.send_signal(signal.SIGHUP)
+        assert caller.wait(timeout=30) == -signal.SIGHUP
+        assert _gone_soon(grandchild)
+    finally:
+        caller.kill()
+        caller.wait()  # reaped: an unreaped Popen is a ResourceWarning, now an error
+
+
+@_POSIX_ONLY
 def test_an_earlier_handler_still_runs_and_an_ignored_sighup_stays_ignored(tmp_path):
     caller, grandchild = _caller(tmp_path, "previous")
     try:
@@ -276,8 +396,21 @@ def test_importing_installs_no_signal_handler():
 def test_after_kill_children_nothing_new_starts(monkeypatch):
     monkeypatch.setattr(process, "_closing", False)
     process.kill_children()
-    with pytest.raises(InterruptedError):
+    with pytest.raises(process.ShuttingDown):
         _py("pass")
+
+
+def test_a_shutdown_is_not_an_oserror():
+    """Call sites read an OSError as "the command is not there"; a shutdown must get past them."""
+    assert not issubclass(process.ShuttingDown, Exception)
+
+
+@_POSIX_ONLY
+def test_limits_cap_memory():
+    grab = "b = bytearray(512 * 1024 * 1024); print('allocated')"
+    capped = _py(grab, limits=Limits(memory_bytes=256 * 1024 * 1024))
+    assert capped.returncode != 0 and "MemoryError" in capped.stderr and "allocated" not in capped.stdout
+    assert _py(grab).stdout == "allocated\n"  # the same child, uncapped
 
 
 @_POSIX_ONLY

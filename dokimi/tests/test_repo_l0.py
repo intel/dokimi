@@ -282,3 +282,14 @@ def test_git_text_reads_stay_strict_for_a_blob_that_is_not_utf8(tmp_path):
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "bad")
     with pytest.raises(UnicodeDecodeError):
         GitTree(root / ".git", git("rev-parse", "HEAD")).read_text("AGENTS.md")
+
+
+def test_a_git_timeout_raises_even_unchecked(monkeypatch, tmp_path):
+    """``check=False`` reads a failed git as its output (ls-files, the promisor config); a
+    hung git produced none, and read as "no files" or "not a partial clone" it would pass."""
+    from dokimi import process
+    from dokimi.repos import source
+
+    monkeypatch.setattr(process, "git", lambda *a, **k: process.reply(timed_out=True))
+    with pytest.raises(source.SourceError, match="timed out"):
+        source._git(tmp_path, "ls-files", "-z", check=False)

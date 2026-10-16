@@ -39,7 +39,8 @@ which holds these invariants:
   reads stdin gets EOF instead of the caller's terminal.
 
 Errors: a command that cannot be started (missing binary, missing ``cwd``, no
-permission) raises :class:`OSError`; a non-zero exit never raises. ``argv`` must
+permission) raises :class:`OSError`; a non-zero exit never raises. After
+:func:`kill_children`, a call raises :class:`ShuttingDown` instead of starting anything. ``argv`` must
 be non-empty and ``timeout`` positive, else :class:`ValueError`.
 
 Two adapters satisfy :class:`Runner`: :func:`run` (real processes) and
@@ -173,34 +174,41 @@ def run(
     """Run ``argv`` (no shell) to completion or ``timeout`` seconds; see the module doc."""
     args = _check(argv, timeout, capture_limit)
     data = input.encode("utf-8") if isinstance(input, str) else input
-    with _Spool(stdout_to) as out_file, _Spool(stderr_to) as err_file, _live_lock:
-        if _closing:  # a terminating signal is being handled: start nothing new
-            raise InterruptedError("not starting a process: shutting down on a signal")
+    with _Spool(stdout_to) as out_file, _Spool(stderr_to) as err_file:
         start = time.monotonic()
-        proc = subprocess.Popen(
-            args,
-            cwd=cwd,
-            env=env.resolve(),
-            stdin=subprocess.DEVNULL if data is None else subprocess.PIPE,
-            stdout=out_file or (subprocess.PIPE if capture_stdout else subprocess.DEVNULL),
-            stderr=err_file or subprocess.PIPE,
-            start_new_session=_POSIX,
-            preexec_fn=_limits_preexec(limits) if _POSIX and limits else None,
-        )
-        job = _assign_job(proc)
-        _live[proc.pid] = (proc, job)
-    if data is not None:  # a child that reads late must still get all of it: feed stdin on a thread
-        sink, proc.stdin = proc.stdin, None
-        threading.Thread(target=_feed, args=(sink, data), daemon=True).start()
-    out, err = _Capture(capture_limit), _Capture(capture_limit)
-    pipes = [(pipe, cap) for pipe, cap in ((proc.stdout, out), (proc.stderr, err)) if pipe]
+        try:
+            proc, job = _spawn(
+                args,
+                cwd=cwd,
+                env=env.resolve(),
+                stdin=subprocess.DEVNULL if data is None else subprocess.PIPE,
+                stdout=out_file or (subprocess.PIPE if capture_stdout else subprocess.DEVNULL),
+                stderr=err_file or subprocess.PIPE,
+                start_new_session=_POSIX,
+                preexec_fn=_limits_preexec(limits) if _POSIX and limits else None,
+            )
+        except BaseException:
+            _replay_deferred_signals()  # no child started: a signal that came meanwhile acts now
+            raise
+    # From here the child is in _live: whatever raises below, the except kills its group.
     try:
+        _replay_deferred_signals()
+        if data is not None:  # a child that reads late must still get all of it: feed stdin on a thread
+            sink, proc.stdin = proc.stdin, None
+            try:
+                threading.Thread(target=_feed, args=(sink, data), daemon=True).start()
+            except BaseException:
+                if sink:
+                    sink.close()
+                raise
+        out, err = _Capture(capture_limit), _Capture(capture_limit)
+        pipes = [(pipe, cap) for pipe, cap in ((proc.stdout, out), (proc.stderr, err)) if pipe]
         timed_out = _collect(proc, pipes, start + timeout, job)
     except BaseException:
         _kill_tree(proc, job)
         raise
     finally:
-        _close_pipes(proc, pipes)
+        _close_pipes(proc)
         with _live_lock:
             _live.pop(proc.pid, None)
             if sys.platform == "win32" and job:
@@ -219,11 +227,21 @@ def run(
 _live: dict[int, tuple[subprocess.Popen[bytes], int | None]] = {}  # pid -> (process, job object)
 _live_lock = threading.RLock()  # re-entrant: a handler runs on the main thread, maybe inside run()
 _closing = False
+# Per thread, so only the main thread's (where Python runs signal handlers) is ever read
+# by a handler: whether it is between Popen and registering the child in _live, and the
+# signals that arrived meanwhile, replayed once the child is registered.
+_spawning = threading.local()
+
+
+class ShuttingDown(BaseException):  # noqa: N818 - named for what it means, like KeyboardInterrupt
+    """Raised by :func:`run` after :func:`kill_children`: the caller is on its way out, so
+    nothing new starts. Not an :class:`OSError` (nor an :class:`Exception`), so a call site
+    that reads a command it cannot start as "no answer" does not swallow it."""
 
 
 def kill_children() -> None:
     """Kill the process group (job object) of every :func:`run` in progress, in any thread,
-    and make later calls raise :class:`InterruptedError` instead of starting anything.
+    and make later calls raise :class:`ShuttingDown` instead of starting anything.
     For a caller on its way out; :func:`install_signal_handlers` calls it."""
     global _closing
     locked = _live_lock.acquire(timeout=DRAIN_GRACE_SEC)  # let a thread inside Popen register its child
@@ -239,27 +257,70 @@ def kill_children() -> None:
 def install_signal_handlers(signums: Sequence[int] | None = None) -> None:
     """On SIGTERM and SIGHUP (or ``signums``): :func:`kill_children`, then call the handler
     that was installed before, or, if that was the default, die of the signal as before
-    (exit status 128 + the signal number). A signal the process ignores (SIGHUP under
-    ``nohup``) stays ignored. Call it from the main thread: ``signal.signal`` raises
-    :class:`ValueError` elsewhere. The ``dokimi`` CLI calls it at start-up."""
+    (exit status 128 + the signal number). When the earlier handler returns, the process
+    carries on and :func:`run` starts processes again. A signal the process ignores (SIGHUP
+    under ``nohup``) stays ignored, and one already handled here is not wrapped twice. Call
+    it from the main thread: ``signal.signal`` raises :class:`ValueError` elsewhere. The
+    ``dokimi`` CLI calls it at start-up."""
     if signums is None:
         signums = [s for s in (getattr(signal, "SIGTERM", None), getattr(signal, "SIGHUP", None)) if s]
     for signum in signums:
         previous = signal.getsignal(signum)
-        if previous != signal.SIG_IGN:
+        if previous != signal.SIG_IGN and not getattr(previous, "_kills_children", False):
             signal.signal(signum, _on_signal(previous))
 
 
 def _on_signal(previous: object) -> Callable[[int, object], None]:
     def handler(signum: int, frame: object) -> None:
+        global _closing
+        if getattr(_spawning, "active", False):  # the new child is not in _live yet: kill it once it is
+            _spawning.deferred.append((handler, signum, frame))
+            return
         kill_children()
         if callable(previous):
             previous(signum, frame)
+            with _live_lock:  # the earlier handler let the process go on: so may run()
+                _closing = False
         else:
             signal.signal(signum, signal.SIG_DFL)
             os.kill(os.getpid(), signum)
 
+    handler._kills_children = True  # type: ignore[attr-defined]
     return handler
+
+
+def _spawn(args: list[str], **popen: object) -> tuple[subprocess.Popen[bytes], int | None]:
+    """Start the child and register it in :data:`_live` as one step: a signal handled on this
+    thread in between is deferred until the child is registered (:func:`_replay_deferred_signals`),
+    and an error in between kills the child."""
+    with _live_lock:
+        if _closing:  # a terminating signal is being handled: start nothing new
+            raise ShuttingDown("not starting a process: shutting down on a signal")
+        _spawning.active, _spawning.deferred = True, getattr(_spawning, "deferred", [])
+        try:
+            proc = subprocess.Popen(args, **popen)  # type: ignore[call-overload]
+            job = None
+            try:
+                job = _assign_job(proc)
+                _live[proc.pid] = (proc, job)
+            except BaseException:
+                _kill_tree(proc, job)
+                proc.wait()
+                for pipe in (proc.stdin, proc.stdout, proc.stderr):
+                    if pipe:
+                        pipe.close()
+                raise
+        finally:
+            _spawning.active = False
+    return proc, job
+
+
+def _replay_deferred_signals() -> None:
+    """Run the handlers :func:`_spawn` deferred on this thread, now that the child is in _live."""
+    deferred = getattr(_spawning, "deferred", [])
+    while deferred:
+        handler, signum, frame = deferred.pop(0)
+        handler(signum, frame)
 
 
 class _Capture:
@@ -422,15 +483,16 @@ def _wait(proc: subprocess.Popen[bytes], deadline: float) -> bool:
             continue
 
 
-def _close_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes) -> None:
+def _close_pipes(proc: subprocess.Popen[bytes]) -> None:
     try:
         proc.wait(timeout=DRAIN_GRACE_SEC)
     except subprocess.TimeoutExpired:
         pass
     if _POSIX:  # Windows reader threads own the handles
-        for pipe, _ in pipes:
+        for pipe in (proc.stdout, proc.stderr):
             try:
-                pipe.close()
+                if pipe:
+                    pipe.close()
             except OSError:
                 pass
 

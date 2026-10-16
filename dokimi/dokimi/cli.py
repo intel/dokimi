@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import threading
 
 from dokimi.commands import (
     answers,
@@ -80,7 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Entry point."""
-    process.install_signal_handlers()  # SIGTERM/SIGHUP: kill the process groups we started, then exit
+    if threading.current_thread() is threading.main_thread():  # signal.signal works only there
+        process.install_signal_handlers()  # SIGTERM/SIGHUP: kill the process groups we started, then exit
     tolerate_console_encoding()
     parser = build_parser()
     args = parser.parse_args()

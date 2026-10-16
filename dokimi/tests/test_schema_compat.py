@@ -175,7 +175,7 @@ def test_main_against_a_base(monkeypatch, tmp_path, capsys):
         if rel.startswith(sc.FIXTURE_DIR + "/"):
             name = rel.rsplit("/", 1)[1]
             if name not in fixtures:
-                raise sc.GitError("no such path")
+                raise sc.GitPathMissing("no such path")
             return json.dumps(fixtures[name])
         return json.dumps(base[rel])
 
@@ -335,6 +335,37 @@ def test_compare_against_follows_schemas_that_moved(monkeypatch, tmp_path):
     # Breaking, not a warning: only the base fixture (at its old path) shows "b" is written.
     assert list(results) == ["a.v1.json"]
     assert "/b: was unconstrained, now constrained" in results["a.v1.json"].breaking[0]
+
+
+def test_only_a_path_the_base_lacks_reads_as_no_fixture(monkeypatch, tmp_path):
+    """Real git: a fixture the base does not have is "no fixture"; a base git cannot read
+    is an error, not a missing fixture that would skip the fixture check."""
+    import dokimi.schema_compat as sc
+
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+    (tmp_path / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    subprocess.run([*git, "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "add", "."], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-qm", "base"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    with pytest.raises(sc.GitError):
+        sc._git("show", "nope:x")
+    assert sc._base_fixture("HEAD", "a.v1.json", "./fixtures/") is sc._NO_FIXTURE
+    with pytest.raises(sc.GitError) as err:
+        sc._base_fixture("nope", "a.v1.json", "./fixtures/")
+    assert not isinstance(err.value, sc.GitPathMissing)
+
+
+def test_a_git_timeout_is_not_read_as_no_fixture(monkeypatch):
+    """A ``git show`` that timed out says nothing about the base: read as "no fixture", a
+    breaking change the base fixture would show passed the gate."""
+    import dokimi.schema_compat as sc
+    from dokimi import process
+
+    monkeypatch.setattr(process, "git", lambda *a, **k: process.reply(timed_out=True))
+    with pytest.raises(sc.GitError, match="timed out") as err:
+        sc._base_fixture("HEAD", "a.v1.json")
+    assert not isinstance(err.value, sc.GitPathMissing)
 
 
 def test_main_warns_when_the_base_has_no_schemas_to_compare(monkeypatch, tmp_path, capsys):

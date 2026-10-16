@@ -636,15 +636,18 @@ elsewhere. `{source_dir}` is the source's own git directory, or
 
 Cloning and fetching a remote source (`url@rev`, in every `repo` command) is
 non-interactive by design: git runs with `GIT_TERMINAL_PROMPT=0`, stdin
-closed and no terminal, so neither git nor ssh can ask for a password, a token,
-a key passphrase or a new host key. Set up access before the run: a credential
-helper holding a token for an `https://` URL (for GitHub, `gh auth setup-git`),
-or for an SSH URL a key loaded into `ssh-agent` and the host in
-`~/.ssh/known_hosts`. When git would have prompted, the error names the line
+closed and no terminal, so neither git nor ssh prompts on a terminal for a
+password, a token, a key passphrase or a new host key. An askpass program the
+environment names (`GIT_ASKPASS`, `SSH_ASKPASS`, or `core.askPass`) still runs:
+it is how some CI systems and editors hand git a token, and a graphical one
+(VS Code sets `GIT_ASKPASS`) can still show a dialog. Set up access before
+the run: a credential helper holding a token for an `https://` URL (for
+GitHub, `gh auth setup-git`), or for an SSH URL a key loaded into
+`ssh-agent` and the host in `~/.ssh/known_hosts`. When git would have prompted, the error names the line
 git or ssh printed (`Host key verification failed.`,
 `Permission denied (publickey)`, `could not read Username ...: terminal
 prompts disabled`) and the fix; any other git failure shows its last `fatal:`
-line.
+line, else its last `error:` line, else its last line.
 
 ```bash
 # self-check: no LLM; exits 1 if any task is broken or unsupported

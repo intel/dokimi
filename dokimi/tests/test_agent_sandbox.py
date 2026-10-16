@@ -863,10 +863,11 @@ def test_state_sees_a_file_the_agent_writes_under_a_dot_skill_dir():
         ws.cleanup()
 
 
-def test_run_probe_timeout_raises_and_runs_with_exactly_the_agent_env(tmp_path):
+def test_run_probe_timeout_raises_and_runs_with_exactly_the_agent_env(tmp_path, monkeypatch):
     """A hung probe check showed nothing closed: the caller records every class untested."""
     from dokimi import process
 
+    monkeypatch.setenv("PARENT_ONLY_SECRET", "x")  # in the parent, not in the agent's env
     fake = process.FakeRunner(lambda call: process.reply('{"env": "closed"}', timed_out=True))
     ws = AgentWorkspace.create()
     try:
@@ -878,3 +879,4 @@ def test_run_probe_timeout_raises_and_runs_with_exactly_the_agent_env(tmp_path):
     (call,) = fake.calls
     assert call.argv[:2] == ("sh", "-c") and call.timeout == 5 and call.cwd == ws.work
     assert "DOKIMI_TEST_ONLY_TOKEN" not in call.env and call.env["PATH"] == "/usr/bin:/bin"
+    assert "PARENT_ONLY_SECRET" not in call.env

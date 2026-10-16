@@ -310,7 +310,11 @@ def _run(argv: list[str], env: dict[str, str] | None = None, check: bool = True)
     if proc.timed_out:
         raise PrepError(f"{' '.join(argv[:4])}: timed out after {_GIT_TIMEOUT_S} seconds")
     if check and proc.returncode:
-        raise PrepError(f"{' '.join(argv[:5])} exited {proc.returncode}: {process.git_failure(proc)}")
+        why = process.git_failure(proc)
+        lines = [ln.strip() for ln in (proc.stderr or proc.stdout).splitlines() if ln.strip()]
+        if why in lines:  # no hint: the last lines, as a patch failing on two files names both
+            why = " | ".join(lines[-3:])
+        raise PrepError(f"{' '.join(argv[:5])} exited {proc.returncode}: {why}")
     return proc.stdout
 
 

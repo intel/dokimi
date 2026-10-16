@@ -223,13 +223,27 @@ def _compare(old: Any, new: Any, path: str, diff: Diff, seen: list[Any],
 
 
 class GitError(RuntimeError):
-    """A git command that failed, e.g. a path the base revision does not have."""
+    """A git command that failed or timed out."""
+
+
+class GitPathMissing(GitError):
+    """``git show <rev>:<path>`` for a path the revision does not have. Only this failure
+    means "not there": a timeout or any other error says nothing about the revision."""
+
+
+# git's messages for a <rev>:<path> it does not have (outside the repository, it cannot);
+# LC_ALL=C keeps them untranslated.
+_PATH_MISSING = ("' does not exist in '", "' exists on disk, but not in '", "' is outside repository at '")
+_GIT_ENV = process.Env.inherit({"GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})
 
 
 def _git(*args: str) -> str:
-    proc = process.git(*args, cwd=SCHEMA_DIR, timeout=60)
+    proc = process.git(*args, cwd=SCHEMA_DIR, timeout=60, env=_GIT_ENV)
+    if proc.timed_out:
+        raise GitError(f"git {' '.join(args)}: timed out")
     if not proc.ok:
-        raise GitError(f"git {' '.join(args)}: {'timed out' if proc.timed_out else proc.stderr.strip()}")
+        error = GitPathMissing if any(m in proc.stderr for m in _PATH_MISSING) else GitError
+        raise error(f"git {' '.join(args)}: {proc.stderr.strip()}")
     return proc.stdout
 
 
@@ -272,7 +286,7 @@ def _base_fixture(base: str, name: str, fixture_dir: str = f"./{FIXTURE_DIR}/") 
     """The artifact fixture for schema ``name`` as of ``base``, if it had one."""
     try:
         return json.loads(_git("show", f"{base}:{fixture_dir}{name}"))
-    except (GitError, json.JSONDecodeError):
+    except (GitPathMissing, json.JSONDecodeError):
         return _NO_FIXTURE
 
 

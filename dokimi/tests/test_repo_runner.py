@@ -465,6 +465,23 @@ def test_a_clone_that_needed_a_prompt_says_which_and_what_to_do(monkeypatch, whi
     assert "hint: " in str(err.value) and hint in str(err.value)
 
 
+def test_a_patch_failing_on_two_files_names_both(tmp_path):
+    import dokimi.repos.workspace as workspace
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "a.txt").write_text("one\n")
+    (ws / "b.txt").write_text("one\n")
+    patch = tmp_path / "bad.patch"
+    patch.write_text("".join(f"--- a/{n}\n+++ b/{n}\n@@ -1 +1 @@\n-zero\n+two\n" for n in ("a.txt", "b.txt")))
+    env = {"PATH": os.environ["PATH"], "HOME": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    workspace._run(["git", "-C", str(ws), "init", "-q"], env=env)
+    with pytest.raises(PrepError) as err:
+        workspace._run(["git", "-C", str(ws), "apply", str(patch)], env=env)
+    assert "a.txt: patch does not apply" in str(err.value) and "b.txt: patch does not apply" in str(err.value)
+    assert " | " in str(err.value)
+
+
 def test_a_timed_out_cat_file_is_an_error_not_an_absent_object(tmp_path, monkeypatch):
     from dokimi import process
     from dokimi.repos import workspace
