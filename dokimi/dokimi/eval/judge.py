@@ -485,7 +485,7 @@ class Judge:
     #: (``:``, ``-``, ``(``) and are rejected if preceded by a verdict word (e.g., ``right/wrong``)
     #: or if ``/`` is not preceded by a word character (e.g., ``see /wrong``).
     _QUALIFIED_VERDICT = re.compile(
-        r"(?::|\s[-\u2013\u2014]|\(|(?<=\w)(?<!wrong)(?<!incorrect)(?<!right)(?<!correct)/|,)\s*(not\s+)?(?!(?:hardly|barely|scarcely|seemingly|entirely)\s)(?:([a-z]+ly)\s+)?(wrong|incorrect|right|correct)[\s.)]*$",
+        r"(?::|\s[-\u2013\u2014]|\(|(?<=\w)(?<!wrong)(?<!incorrect)(?<!right)(?<!correct)/|(?<!wrong)(?<!incorrect)(?<!right)(?<!correct),)\s*(not\s+)?(?!(?:hardly|barely|scarcely|seemingly|entirely)\s)(?:([a-z]+ly)\s+)?(wrong|incorrect|right|correct)[\s.)]*$",
         re.I,
     )
 

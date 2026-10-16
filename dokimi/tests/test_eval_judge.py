@@ -312,6 +312,7 @@ class TestJudgeAnswer:
         # Adverbs and slash/comma alternatives that must stay unread.
         (["x: see /wrong"], 95, 95),
         (["x: unverified, right/wrong"], 95, 95),
+        (["x: unverified, right, wrong"], 95, 95),
         (["x: dubious, hardly wrong"], 95, 95),
         # Figures with separators: the end-anchored pattern finds the real verdict.
         (["ratio 3:1, correct alignment assumed: misleading/wrong"], 95, 40),
