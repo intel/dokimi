@@ -75,9 +75,9 @@ spend can pass the cap by up to `--concurrency` − 1 calls. A reply cut at
 `--max-tokens` before any tool call is billed, so it counts. A call that comes
 back with no price leaves the cap blind: no new call starts after it, and the
 command exits 2.
-Items run group by group, so at concurrency > 1 the last one or two groups reached
-may be partial; they are summarized from the cells that ran, so their A/B counterbalancing
-is incomplete. A call priced at exactly 0 does not move the cap.
+Items run group by group; at any concurrency the last group reached may be partial. Partial
+groups are summarized from the cells that ran, so their A/B counterbalancing is incomplete.
+A call priced at exactly 0 does not move the cap.
 
 ## Reading the result
 

@@ -357,6 +357,30 @@ def test_cli_caller_keeps_an_empty_tool_name(monkeypatch):
     assert tp.classify(items[0], out["called"])["outcome"] == "unmatched"
 
 
+def test_cli_caller_attaches_usage_to_exception_from_response_parsing(monkeypatch):
+    import dokimi.llm as llm
+    from dokimi.commands.tools import _first_turn_caller
+
+    def fail_after_response(*a, **k):
+        # Return a response with empty choices: this will fail during parsing
+        r = _Resp([])
+        r.choices = []  # no choices, will fail when accessing choices[0]
+        return r
+
+    monkeypatch.setattr(llm, "chat_completion", fail_after_response)
+    items = tp.build_items(tp.load_groups(json.loads(GROUPS.read_text(encoding="utf-8"))), ["assertive"])
+    # This should fail with usage attached to the exception
+    caller = _first_turn_caller("m", "openai", 77)
+    try:
+        caller(items[0])
+        pytest.fail("should have raised IndexError")
+    except IndexError as exc:
+        # Verify that usage was attached to the exception
+        assert hasattr(exc, "usage"), "usage should be attached to exception"
+        assert isinstance(exc.usage, dict), "usage should be a dict"
+        assert "cost_usd" in exc.usage, "usage should have cost_usd"
+
+
 # ── cost cap ──────────────────────────────────────────────────────────────
 def test_cost_cap_stops_new_calls_and_leaves_them_out(doc):
     items = tp.build_items(doc, ["assertive"])
@@ -592,6 +616,17 @@ def test_non_dict_exc_usage_does_not_crash_payload(doc):
         raise exc
     results = tp.run_probe(items, bad_usage, reps=1, concurrency=1)
     assert results[0]["skipped"] is False and results[0]["error"] is not None
+    assert results[0]["usage"] is None  # non-dict usage converted to None
+    payload_doc = tp.payload(doc, items, results, model="test", provider="test", reps=1, factors=[], max_tokens=2048)
+    assert payload_doc["usage"]["n_calls"] == 0  # no valid dict usage
+
+
+def test_non_dict_success_usage_does_not_crash_payload(doc):
+    items = tp.build_items(doc, ["assertive"])
+    def bad_success_usage(item):
+        return {"called": [item["tools"][0]["function"]["name"]], "usage": "n/a"}  # type: ignore[dict-item]
+    results = tp.run_probe(items, bad_success_usage, reps=1, concurrency=1)
+    assert results[0]["skipped"] is False and results[0]["error"] is None
     assert results[0]["usage"] is None  # non-dict usage converted to None
     payload_doc = tp.payload(doc, items, results, model="test", provider="test", reps=1, factors=[], max_tokens=2048)
     assert payload_doc["usage"]["n_calls"] == 0  # no valid dict usage
