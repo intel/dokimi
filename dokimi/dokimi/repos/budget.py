@@ -146,10 +146,10 @@ def _is_file(tree: RepoTree, path: str) -> bool:
 
 
 def _is_resolvable(tree: RepoTree, path: str) -> bool:
-    """True if the file exists and resolves (not a broken or out-of-tree link)."""
+    """True if the file path resolves (not a dangling link, loop, or out-of-tree)."""
     try:
-        tree.is_file(path)
-        return True
+        tree.resolve(path)  # SourceError if it dangles, loops or escapes
+        return tree.is_file(path)
     except (OSError, ValueError):
         return False
 

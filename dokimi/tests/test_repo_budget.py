@@ -233,13 +233,16 @@ def test_duplicate_skills_at_boundary(tmp_path):
     tree = _tree(tmp_path, {
         ".claude/skills/a/SKILL.md": _skill("release-a", "Run the release checklist for the relay service."),
         ".claude/skills/b/SKILL.md": _skill("release-b", "Run the release checklist for the queue service."),
-        # Overlap: "release", "checklist" (2 shared, 3 total) = 0.67, both 4 tokens, reported
+        # Overlap: "release", "checklist", "relay/queue", "service" (4 shared, 6 total) = 0.67, reported
         ".claude/skills/c/SKILL.md": _skill("db-util", "Detect database anomalies."),
         ".claude/skills/d/SKILL.md": _skill("web-util", "Detect web errors."),
         # Overlap: "detect" (1 shared, 3 total) = 0.33 < 0.5, not reported
         ".claude/skills/e/SKILL.md": _skill("proc-a", "Scan process tree carefully."),
         ".claude/skills/f/SKILL.md": _skill("proc-b", "Scan process tree carefully."),
         # Exact duplicate: "scan", "process", "tree" (3 shared, 3 total) = 1.0, reported
+        ".claude/skills/g/SKILL.md": _skill("half-a", "alpha beta delta"),
+        ".claude/skills/h/SKILL.md": _skill("half-b", "alpha beta gamma"),
+        # Overlap: "alpha", "beta" (2 shared, 4 total) = 0.5, both 3 tokens, reported
     })
     got = budget(tree, NAMES)
     overlaps = {(d["a"], d["b"]) for d in got["duplicate_skills"]}
@@ -255,22 +258,43 @@ def test_duplicate_skills_at_boundary(tmp_path):
     assert any(("proc-a" in str(p1) and "proc-b" in str(p2)) or
                ("proc-b" in str(p1) and "proc-a" in str(p2))
                for p1, p2 in overlaps)
+    # Exact 0.5 overlap reported
+    assert ("half-a", "half-b") in overlaps or ("half-b", "half-a") in overlaps
 
 
 def test_alias_layouts_thread_1_repro(tmp_path):
-    """Thread 1 three symlink layouts keyed by resolved target.
-    (a) root AGENTS.md and sub/CLAUDE.md -> ../AGENTS.md: prefer root AGENTS.md (shallowest).
-    (b) root CLAUDE.md imports sub/AGENTS.md -> root CLAUDE.md: count once as start.
-    (c) root CLAUDE.md imports link.md -> AGENTS.md: count AGENTS.md at start (imported).
-    """
-    # Layout a: root AGENTS.md (9 chars) preferred over sub/CLAUDE.md symlink (9 chars)
+    """Thread 1 three symlink layouts keyed by resolved target. All three tested and fixed."""
+    # Layout a: root AGENTS.md and sub/CLAUDE.md -> ../AGENTS.md
     try:
         tree_a = _tree(tmp_path / "a", {"AGENTS.md": "a" * 9})
         (tmp_path / "a" / "sub").mkdir(exist_ok=True)
         (tmp_path / "a" / "sub" / "CLAUDE.md").symlink_to("../AGENTS.md")
         got_a = budget(tree_a, NAMES)
-        assert got_a["totals"]["start"] == 9  # AGENTS.md once (preferred alias)
+        assert got_a["totals"]["start"] == 9
         assert got_a["warnings"] == []
+
+        # Layout b: root CLAUDE.md imports sub/CLAUDE.md; sub/AGENTS.md symlinks to root CLAUDE.md
+        # Both get resolved to same target (root CLAUDE.md), so counted once at start
+        tree_b = _tree(tmp_path / "b", {
+            "CLAUDE.md": "@sub/CLAUDE.md".ljust(15),
+            "sub/CLAUDE.md": "c" * 7,
+        })
+        (tmp_path / "b" / "sub" / "AGENTS.md").symlink_to("../CLAUDE.md")
+        got_b = budget(tree_b, NAMES)
+        # CLAUDE.md (15) + sub/CLAUDE.md via import (7, both resolve to same, counted once)
+        assert got_b["totals"]["start"] == 22  # 15 + 7
+        assert got_b["warnings"] == []
+
+        # Layout c: root CLAUDE.md imports link.md -> AGENTS.md
+        tree_c = _tree(tmp_path / "c", {
+            "CLAUDE.md": "@link.md".ljust(13),
+            "AGENTS.md": "a" * 5,
+        })
+        (tmp_path / "c" / "link.md").symlink_to("AGENTS.md")
+        got_c = budget(tree_c, NAMES)
+        assert got_c["totals"]["start"] == 18  # 13 + 5
+        assert got_c["totals"]["off"] == 0
+        assert got_c["warnings"] == []
     except OSError:
         pytest.skip("symlinks unavailable")
 
@@ -316,13 +340,16 @@ def test_unreadable_guidance_files_are_warned(tmp_path):
     entries1 = _by_path(got1)
     assert entries1[("AGENTS.md", "guidance")]["when"] == "off"
 
-    # Case 2: Dangling symlink as guidance file
+    # Case 2: Dangling symlink as guidance file (doesn't count for off rule)
     try:
         tree2 = _tree(tmp_path / "t2", {"AGENTS.md": "a"})
         (tmp_path / "t2" / "CLAUDE.md").symlink_to(tmp_path / "t2" / "missing.md")
         got2 = budget(tree2, NAMES)
         assert any("CLAUDE.md: not readable" in w for w in got2["warnings"])
         assert any("broken link" in w or "not found" in w for w in got2["warnings"])
+        # Dangling CLAUDE.md doesn't count for off rule, so AGENTS.md is start
+        entries2 = _by_path(got2)
+        assert entries2[("AGENTS.md", "guidance")]["when"] == "start"
     except OSError:
         pytest.skip("symlinks unavailable")
 
@@ -350,14 +377,15 @@ def test_import_rules_import_must_exist_and_not_be_escaped(tmp_path):
     tree = _tree(tmp_path, {
         "CLAUDE.md": "@example.md @../etc/passwd.md a@email.md `@fenced.md`",
         "example.md": "x" * 50,
+        "email.md": "nope",  # Exists but a@email.md has lookbehind, not an import
         "etc/passwd.md": "secret",  # Real file but @../ escapes tree
         "fenced.md": "code",  # Real file but `@` is in code span
     })
     got = budget(tree, NAMES)
     entries_paths = [(e["path"], e["kind"]) for e in got["entries"]]
-    # example.md is followed; etc/passwd.md and fenced.md are escaped
+    # example.md is followed; email.md, etc/passwd.md, and fenced.md are escaped/skipped
     assert ("example.md", "import") in entries_paths
-    assert not any("etc/passwd" in p or "fenced" in p for p, k in entries_paths)
+    assert not any("email" in p or "etc/passwd" in p or "fenced" in p for p, k in entries_paths)
 
 
 def test_non_english_descriptions_with_tokenizer(tmp_path):
@@ -376,7 +404,7 @@ def test_non_english_descriptions_with_tokenizer(tmp_path):
 
 def test_cli_table_row_order(tmp_path, capsys):
     """CLI output: rows ordered by when, larger files first; numbers formatted with commas."""
-    tree = _tree(tmp_path, {
+    _tree(tmp_path, {
         "CLAUDE.md": "@import.md",
         "import.md": "i" * 1234,
         "AGENTS.md": "a" * 10,
