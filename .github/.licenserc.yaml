@@ -20,10 +20,10 @@ header:
     content: |
       Copyright (C) 2026 Intel Corporation
       SPDX-License-Identifier: Apache-2.0
-    # Any year, so a file added in a later year carries that year.
-    pattern: |
-      Copyright \(C\) \d{4}(-\d{4})? Intel Corporation
-      SPDX-License-Identifier: Apache-2\.0
+    # Any year, so a file added in a later year carries that year. With 0.9.0 a
+    # pattern with a line break or "(C)" rejects every year but the content's.
+    pattern: |-
+      Copyright \d{4}(-\d{4})? Intel Corporation SPDX-License-Identifier: Apache-2\.0
 
   paths:
     - '**'
