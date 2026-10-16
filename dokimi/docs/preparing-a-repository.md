@@ -3,7 +3,7 @@
 > **Status: recommendations.** §1–§7 apply today. The measurement loop in §8 runs
 > today for guidance arms (`guidance:none`, `guidance:raw`, `guidance:bridge`).
 > Arms that add a file or a tool are planned; use `setup_patches` or a distinct
-> `base` per configuration (contract, lines 217, 235) to test them.
+> `base` per configuration ([workspace.py](https://github.com/intel/dokimi/blob/main/dokimi/dokimi/workspace.py#L180)) to test them.
 
 This page is for repository owners who want coding agents (Claude Code, Codex,
 Copilot and others) to build, test, change and review their code reliably. It
@@ -13,8 +13,7 @@ rows marked vendor-documented are based on published harness behavior, not measu
 here.
 
 Every tool and file below is an ordinary repository artifact that people and CI
-use too. No tool is declared to Dokimi; the manifest lists only the tasks, not
-tools the agent may use. Dokimi compares configurations: the same
+use too. No tool is declared to Dokimi. Dokimi compares configurations: the same
 tasks run with and without a change (an arm). See
 [repository evaluation](repo-evaluation-contract.md).
 
@@ -162,17 +161,15 @@ Recurring review comments are review knowledge a repository already has.
 
 | Harness | Loads |
 |---|---|
-| Claude Code 2.1.286 (measured 2026-10) | `CLAUDE.md`. `AGENTS.md` only when no `CLAUDE.md` is in its start-up chain. Subdirectory files lazily, when it reads a file there. |
-| Codex CLI | the root `AGENTS.md`; subdirectory files on demand; `AGENTS.override.md` replaces the `AGENTS.md` in its own directory |
-| Copilot CLI | `AGENTS.md`, `.github/copilot-instructions.md`, `CLAUDE.md`, `GEMINI.md` and path-scoped instruction files; not `REVIEW.md` |
+| Claude Code 2.1.286 (measured 2026-10) | `CLAUDE.md`. `AGENTS.md` only when no `CLAUDE.md` is in its start-up chain. Subdirectory files lazily (only if no `CLAUDE.md` is in the chain), when it reads a file there. |
+| Codex CLI (vendor-documented) | the root `AGENTS.md`; subdirectory files on demand; `AGENTS.override.md` replaces the `AGENTS.md` in its own directory |
+| Copilot CLI (vendor-documented) | `AGENTS.md`, `.github/copilot-instructions.md`, `CLAUDE.md`, `GEMINI.md` and path-scoped instruction files; not `REVIEW.md` |
 
-The Codex and Copilot rows have no version; versions for those harnesses are pending from the author.
-
-A repository with a `CLAUDE.md` containing `@AGENTS.md` next to each `AGENTS.md` is
-necessary for subdirectory files to load, since Claude Code reads no `AGENTS.md` beside
-a root `CLAUDE.md`. Gemini CLI reads `GEMINI.md` unless `context.fileName` in its
-settings lists `AGENTS.md`. The `guidance:bridge` arm writes the `@AGENTS.md`
-import files and can measure this setup's effect.
+Put a `CLAUDE.md` containing `@AGENTS.md` next to each `AGENTS.md`, including in
+subdirectories; Claude Code reads no `AGENTS.md` beside a `CLAUDE.md`. Gemini CLI
+reads `GEMINI.md` unless `context.fileName` in its settings lists `AGENTS.md`. The
+`guidance:bridge` arm (for profiles with a bridge key) writes a `CLAUDE.md`
+containing `@AGENTS.md` and can measure this setup's effect.
 
 Loading changes between versions. Run `dokimi repo reach` for the harness and
 version you use instead of relying on this table. Only the `claude-code` profile is
@@ -191,8 +188,8 @@ What helps depends on the model:
 
 `dokimi repo run` requires the [contract's](repo-evaluation-contract.md) manifest
 (with `eval_dir`, `tasks`, `entry_points`, graders and a container image), docker,
-and `--agent-network` (mandatory while the egress proxy is not implemented, contract
-~48-49, 663); it refuses a guidance-only manifest (contract ~161).
+and `--agent-network` (mandatory while the egress proxy is not implemented,
+contract section "Egress"); it refuses a guidance-only manifest.
 
 Treat each item above as a hypothesis for your repository.
 
@@ -200,10 +197,11 @@ Treat each item above as a hypothesis for your repository.
    ([contract](repo-evaluation-contract.md)).
 2. Run the baseline and the arm with `dokimi repo run`, on the current models you
    use. Today an arm can remove or keep the guidance (`guidance:none`,
-   `guidance:raw`), or inject a file (`guidance:bridge`, which writes `@AGENTS.md`
-   next to each `AGENTS.md`). Testing one added line or tool needs planned arms;
-   use `setup_patches` (contract ~217) or a distinct `base` per configuration
-   (contract ~235) today.
+   `guidance:raw`), or inject a file (`guidance:bridge`, which writes a `CLAUDE.md`
+   containing `@AGENTS.md` next to each `AGENTS.md` for profiles with a bridge key).
+   Testing one added line or tool needs planned arms; use `setup_patches` or a
+   distinct `base` ([workspace.py](https://github.com/intel/dokimi/blob/main/dokimi/dokimi/workspace.py#L180-L189))
+   today.
 3. Look at whether the agent used the change, not only at the score. A guidance
    line can move the score without the tool it names being called; tool use tells
    you whether the tool itself mattered. An arm in which the tool was never called
