@@ -299,7 +299,7 @@ tests/                   Pytest suite
 Among the checks GitHub Actions runs on pull requests (more in
 [docs/architecture.md](docs/architecture.md#ci)):
 
-1. `test` — installs `requirements.lock.txt` and runs pytest offline with coverage; on a PR, 80% of the changed lines must be covered.
+1. `test` — installs `requirements.lock.txt` and runs pytest offline; on a PR, 80% of the changed lines must be covered (coverage measured on Python 3.14 only).
 2. `benchmark` — runs the static agent-quality benchmark in strict mode (a gate or band failure fails the job) and uploads artifacts.
 3. `External catalog smoke test` — clones a pinned public content catalog, scans it, and drives one of its real tasks through the `docker-oracle` harness and the `docker-probe` isolation probe, asserting both pass rates.
 4. `Build docs (strict)` — builds the documentation site with `mkdocs build --strict`, so a broken link or a list that renders differently than on GitHub fails it; a push to `main` publishes the site to GitHub Pages.
