@@ -160,3 +160,16 @@ def test_cli_missing_trace_exits_1(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         _run_cli(["context", "trace", str(tmp_path / "missing.jsonl")], capsys)
     assert exc.value.code == 1
+
+
+@pytest.mark.parametrize("sep", [chr(0x2028), chr(0x2029), chr(0x85)])
+def test_unicode_line_separators_inside_a_record_do_not_split_it(sep):
+    """json.dumps(ensure_ascii=False) and JSON.stringify keep these raw inside strings."""
+    lines = [_assistant("m1", _usage(5, 0, 100), {"type": "text", "text": f"a{sep}b"}),
+             _result("t1", f"x{sep}y"),
+             _assistant("m2", _usage(5, 0, 300))]
+    raw = chr(10).join(json.dumps(r, ensure_ascii=False) for r in lines) + chr(10)
+    got = parse_trace(raw)
+    assert got.errors == []
+    assert [c["prompt_tokens"] for c in got.calls] == [105, 305]
+    assert sum(s.result_chars for s in got.tools.values()) == 3

@@ -111,7 +111,7 @@ def parse_trace(raw: str) -> ContextTrace:
     by_message: dict[str, dict[str, Any]] = {}  # message id -> its call
     names: dict[str, str] = {}  # tool_use id -> tool name
     seen: set[tuple[Any, str, str]] = set()
-    for n, line in enumerate(raw.splitlines(), 1):
+    for n, line in enumerate(raw.split(chr(10)), 1):
         if not line.strip():
             continue
         try:
