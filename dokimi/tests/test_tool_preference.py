@@ -371,14 +371,10 @@ def test_cli_caller_attaches_usage_to_exception_from_response_parsing(monkeypatc
     items = tp.build_items(tp.load_groups(json.loads(GROUPS.read_text(encoding="utf-8"))), ["assertive"])
     # This should fail with usage attached to the exception
     caller = _first_turn_caller("m", "openai", 77)
-    try:
+    with pytest.raises(IndexError) as info:
         caller(items[0])
-        pytest.fail("should have raised IndexError")
-    except IndexError as exc:
-        # Verify that usage was attached to the exception
-        assert hasattr(exc, "usage"), "usage should be attached to exception"
-        assert isinstance(exc.usage, dict), "usage should be a dict"
-        assert "cost_usd" in exc.usage, "usage should have cost_usd"
+    usage = getattr(info.value, "usage", None)
+    assert isinstance(usage, dict) and "cost_usd" in usage
 
 
 # ── cost cap ──────────────────────────────────────────────────────────────
