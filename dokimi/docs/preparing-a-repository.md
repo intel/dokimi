@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Preparing a repository for coding agents
 
 > **Status: recommendations.** §1–§7 apply today. The measurement loop in §8 runs
