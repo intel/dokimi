@@ -118,9 +118,11 @@ def pytest_sessionfinish(session, exitstatus):
     verdict = _worst(c["verdict"] for c in checked)
     report = {"verdict": verdict, "outcomes": checked}
     Path(config.getoption("outcomes_report")).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    reporter = config.pluginmanager.get_plugin("terminalreporter")
-    reporter.write_line("")
-    for c in checked:
-        bad = [f"{e['id']}={e['verdict']}" for e in c["evidence"] if e["verdict"] != "pass"]
-        reporter.write_line(f"outcome {c['id']}: {c['verdict']}" + (f" ({', '.join(bad + c['missing_refs'])})" if bad or c["missing_refs"] else ""))
+    # Set exit status before printing (in case reporter is None)
     session.exitstatus = max(int(exitstatus), EXIT[verdict]) if verdict != "pass" else exitstatus
+    reporter = config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is not None:
+        reporter.write_line("")
+        for c in checked:
+            bad = [f"{e['id']}={e['verdict']}" for e in c["evidence"] if e["verdict"] != "pass"]
+            reporter.write_line(f"outcome {c['id']}: {c['verdict']}" + (f" ({', '.join(bad + c['missing_refs'])})" if bad or c["missing_refs"] else ""))
