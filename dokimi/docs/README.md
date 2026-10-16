@@ -2,10 +2,7 @@
 
 *Dokimi* — Greek δοκιμή, "test, proof" ([why the name](../../README.md)).
 
-Published at <https://intel.github.io/dokimi/>, with a
-[CLI reference](https://intel.github.io/dokimi/reference/cli/) and an
-[API reference](https://intel.github.io/dokimi/reference/api/dokimi/);
-source on GitHub: [intel/dokimi](https://github.com/intel/dokimi).
+Source on GitHub: [intel/dokimi](https://github.com/intel/dokimi).
 
 The idea in three points:
 
