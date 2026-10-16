@@ -9,6 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Optional
 
 from dokimi.defaults import DEFAULT_CONCURRENCY, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -228,7 +229,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         if args.judges:
             # For --judges, validate that every stored score's material can be read back
             # from the file via from_artifact, not just that the digest key exists.
-            materials = JudgeContextStore.from_artifact(data)
+            gate_store = JudgeContextStore.from_artifact(data)
             unrepro = unreproducible_arms(data, with_material=True)
             # Additional check: require that every stored non-baseline score is resolvable.
             for ev in data.get("evaluations") or []:
@@ -236,7 +237,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
                     if (isinstance(s, dict) and s.get("judge_context_source") == "stored"
                             and arm != "baseline"):
                         qid = ev.get("question_id")
-                        if qid is not None and materials.get(str(qid), arm) is None:
+                        if qid is not None and gate_store.get(str(qid), arm) is None:
                             unrepro.append(arm)
         else:
             unrepro = (unreproducible_arms(data) if (args.pairwise or args.checklist) else [])
@@ -250,7 +251,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         report.measures.append(m)
 
     # What the arms run's judge saw, when the file keeps it (judge_materials).
-    materials = JudgeContextStore.from_artifact(data) if isinstance(data, dict) else None
+    materials: Optional[JudgeContextStore] = JudgeContextStore.from_artifact(data) if isinstance(data, dict) else None
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     _check_judge_temperature([(m, p) for p, _, m in (s.partition("/") for s in specs) if m and p in JUDGE_PROVIDERS],
                              args.judge_temperature)

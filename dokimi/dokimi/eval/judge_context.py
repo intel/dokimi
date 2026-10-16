@@ -237,7 +237,7 @@ class JudgeContextStore:
                 if not isinstance(text, str) or digest_text(text) != digest:
                     bad += 1
                     continue
-                store.put(qid, arm_name, text)
+                store.put(str(qid), arm_name, text)
         if bad:
             logger.warning(
                 "%d arm records cite judge material that is missing from the artifact "
