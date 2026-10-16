@@ -32,11 +32,11 @@ turns and leads to work-arounds.
   agents then run the same thing.
 - **The same version as CI.** If CI pins clang-format 20.1.8 and the environment
   has 18, every formatted file can fail the CI check.
-  - With Haiku 4.5, a named command for the pinned formatter raised the share of
-    runs that passed the CI format check from 5/16 to 12/16. Installing the right
-    version without naming it raised it only to 7/16.
-  - With Haiku 5.5, runs already passed 12/16 without it. With Sonnet 5.5 the
-    share went from 5/8 to 7/8.
+    - With Haiku 4.5, a named command for the pinned formatter raised the share of
+      runs that passed the CI format check from 5/16 to 12/16. Installing the right
+      version without naming it raised it only to 7/16.
+    - With Haiku 5.5, runs already passed 12/16 without it. With Sonnet 5.5 the
+      share went from 5/8 to 7/8.
 - **Installed where the agent runs.** A guidance file told agents to run
   `pre-commit run --all-files`, but pre-commit was not installed in the agent
   image, so the command could never work. Check every command in the image or dev
@@ -85,9 +85,9 @@ real repository:
   tool it advertised ever being called.
 - Guidance coverage alone does not predict where agents struggle. Neither naming a
   module nor writing about it predicted agent errors. Structure did:
-  - modules called from many places;
-  - modules that bridge two parts of the code base;
-  - names shared by many functions.
+    - modules called from many places;
+    - modules that bridge two parts of the code base;
+    - names shared by many functions.
 
   Write guidance there first, and confirm with a small probe run.
 
@@ -109,12 +109,12 @@ Indexers, language servers, linters and fast compile checks all start from
   returned no references inside an agent run. A static index built ahead of time
   takes a minute or two per commit and can be cached by commit SHA.
 - **Use a compiler-based index for C++.**
-  - Tree-sitter call graphs reached F1 below 0.5 against the compiler-resolved
-    callers.
-  - Three compiler front-ends (CodeQL, scip-clang, clangd) agreed at F1 0.82 to
-    0.91, each scored against the other two.
-  - clangd alone drops many template call sites; its union with scip-clang covers
-    them.
+    - Tree-sitter call graphs reached F1 below 0.5 against the compiler-resolved
+      callers.
+    - Three compiler front-ends (CodeQL, scip-clang, clangd) agreed at F1 0.82 to
+      0.91, each scored against the other two.
+    - clangd alone drops many template call sites; its union with scip-clang covers
+      them.
 
 ## 5. When code navigation tools help
 
@@ -144,11 +144,11 @@ has.
 - **Keep them where every harness reads them,** in a review section of the root
   `AGENTS.md`.
 - **Expect help on recurring defects, not one-offs.**
-  - On review tasks with seeded recurring defects, rules raised the recall of
-    Codex with a small OpenAI model (gpt-6-luna) from 0.68 to 0.875.
-  - Current Claude models were already near that level without them.
-  - On replays of real PRs, whose comments were almost all specific to that PR,
-    the rules matched 1 to 2 of 44 comments and changed nothing.
+    - On review tasks with seeded recurring defects, rules raised the recall of
+      Codex with a small OpenAI model (gpt-6-luna) from 0.68 to 0.875.
+    - Current Claude models were already near that level without them.
+    - On replays of real PRs, whose comments were almost all specific to that PR,
+      the rules matched 1 to 2 of 44 comments and changed nothing.
 - **Linters on the changed lines** (clang-tidy, cppcheck) given to the reviewer as
   hints helped in the same way, and distracted one weaker model.
 
@@ -166,6 +166,7 @@ version you use instead of relying on this table.
 ## 8. Measure each change, and measure again when the model changes
 
 What helps depends on the model:
+
 - With Haiku 4.5, a fast compile check of the edited files cut new build breaks in
   a cross-module rename from 5.9 to 0.4 per run.
 - With Haiku 5.5 and Sonnet 5.5, both arms passed every run.
