@@ -66,7 +66,9 @@ the `changelog` workflow asks for it.
    rebuilt.
 
 `workflow_dispatch` runs the same build and smoke test without uploading
-anything; pass a tag to also run the readiness check.
+anything. Given a tag, it checks out that tag (and fails if it does not exist)
+and also runs the readiness check on it; without one it builds the ref it was
+dispatched from.
 
 ## Enabling PyPI
 
