@@ -273,7 +273,7 @@ def _root_with_invalid_golden(tmp_path):
 
 @pytest.mark.outcome("pinned-questions-preflight")
 @pytest.mark.parametrize(
-    "extra, env, message",
+    "preflight_args, env, message",
     [
         (lambda p: [], (), "missing OPENAI_API_KEY"),
         (lambda p: ["--questions-from", str(p / "nowhere")], ("OPENAI_API_KEY",), "questions source not found"),
@@ -287,9 +287,9 @@ def _root_with_invalid_golden(tmp_path):
         "root-missing", "root-without-golden", "root-golden-invalid",
     ],
 )
-def test_preflight_fails_before_any_call(monkeypatch, tmp_path, capsys, extra, env, message):
+def test_preflight_fails_before_any_call(monkeypatch, tmp_path, capsys, preflight_args, env, message):
     with pytest.raises(SystemExit) as exc:
-        _preflight(monkeypatch, tmp_path, *extra(tmp_path), env=env)
+        _preflight(monkeypatch, tmp_path, *preflight_args(tmp_path), env=env)
 
     assert exc.value.code == 1
     captured = capsys.readouterr()
