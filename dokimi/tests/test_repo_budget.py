@@ -88,6 +88,22 @@ def test_an_import_outside_the_tree_is_ignored(tmp_path):
     assert [e["path"] for e in budget(tree, NAMES)["entries"]] == ["CLAUDE.md"]
 
 
+def test_an_import_through_a_link_out_of_the_tree_is_skipped(tmp_path):
+    outside = tmp_path / "outside.md"
+    outside.write_text("secret", encoding="utf-8")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    try:
+        (repo / "notes.md").symlink_to(outside)
+        (repo / ".mcp.json").symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    tree = _tree(repo, {"CLAUDE.md": "see @notes.md"})
+    got = budget(tree, NAMES)
+    assert [e["path"] for e in got["entries"]] == ["CLAUDE.md"]
+    assert got["mcp_servers"] == []
+
+
 def test_skill_listing_starts_body_on_demand(tmp_path):
     tree = _tree(tmp_path, {".claude/skills/fmt/SKILL.md": _skill("fmt", "Format code.", "x" * 50)})
     got = budget(tree, NAMES)

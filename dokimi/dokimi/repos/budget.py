@@ -59,7 +59,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
             when = "lazy"
         entries.append({"path": f, "kind": "guidance", "when": when, "chars": _chars(tree, f)})
     for f in sorted((at_start | lazily) - set(guidance)):
-        if tree.is_file(f):
+        if _is_file(tree, f):
             entries.append({"path": f, "kind": "import", "when": "start" if f in at_start else "lazy",
                             "chars": _chars(tree, f)})
 
@@ -91,6 +91,13 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
         "mcp_servers": _mcp_servers(tree),
         "warnings": warnings,
     }
+
+
+def _is_file(tree: RepoTree, path: str) -> bool:
+    try:
+        return tree.is_file(path)
+    except (OSError, ValueError):  # a link that leaves the tree is not a file of it
+        return False
 
 
 def _chars(tree: RepoTree, path: str) -> int:
@@ -164,7 +171,7 @@ def _near_duplicates(skills: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _mcp_servers(tree: RepoTree) -> list[str]:
-    if not tree.is_file(MCP_FILE):
+    if not _is_file(tree, MCP_FILE):
         return []
     try:
         servers = json.loads(tree.read_text(MCP_FILE)).get("mcpServers") or {}
