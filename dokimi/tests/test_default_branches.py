@@ -21,6 +21,11 @@ def test_routing_provider_default_is_the_answer_provider():
     assert a.provider == DEFAULT_ANSWER_PROVIDER
 
 
+def test_tools_preference_provider_default_is_the_answer_provider():
+    a = build_parser().parse_args(["tools", "preference", "--groups", "g.json", "--model", "m"])
+    assert a.provider == DEFAULT_ANSWER_PROVIDER
+
+
 @pytest.mark.parametrize("measured", [
     "anthropic/claude-sonnet-5-5", "openrouter/anthropic/claude-sonnet-5-5", "us.anthropic.claude-sonnet-5-5",
 ])
