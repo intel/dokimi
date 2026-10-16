@@ -107,9 +107,10 @@ cd dokimi
 pip install -e .                 # installs the `dokimi` command
 ```
 
-The `novelty` and `arms` steps take `--model` and `--provider`; `tasks run` and
-`repo` take `--model` only. The provider is one of `openai`, `anthropic`,
-`amazon-bedrock`, `google-vertex` or `openrouter`.
+The `novelty` and `arms` steps take `--model` and `--provider`; `arms run` also
+needs `--judge-provider` (it does not fall back to `--provider` for the judge);
+`tasks run` and `repo` take `--model` only. The provider is one of `openai`,
+`anthropic`, `amazon-bedrock`, `google-vertex` or `openrouter`.
 Credentials are read from the environment: `OPENAI_API_KEY`,
 `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AWS_REGION` with
 `AWS_BEARER_TOKEN_BEDROCK` for Bedrock, and Google application-default
@@ -117,7 +118,7 @@ credentials (`GOOGLE_APPLICATION_CREDENTIALS`, with `VERTEXAI_PROJECT` and
 `VERTEXAI_LOCATION`) for Vertex. The judge must be a different model from the
 one under measurement, because a model that grades its own answers inflates
 the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
-`--judge --judge-model <other>` yourself.
+`--judge --judge-model <other> --judge-provider <p>` yourself.
 
 ### A skill
 
@@ -127,8 +128,8 @@ the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
 | 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --catalog <catalog> --queries queries.json [--model …]` | free without `--model` |
 | 3. What will step 4 cost? | `dokimi novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
 | 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
-| 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <m> --judge --judge-model <other>` | one answer and one grade per question and arm |
-| 5b. Does code improve? | `dokimi tasks run --tasks-root <checkout>/tasks --all --harnesses docker-claude,docker-claude-skill:<dir> --baseline-harness docker-claude` ([coding-harnesses.md](dokimi/docs/coding-harnesses.md)) | one agent run per task and harness |
+| 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <m> --provider <p> --judge --judge-model <other> --judge-provider <p>` | one answer and one grade per question and arm |
+| 5b. Does code improve? | `dokimi tasks run --tasks-root <checkout>/evaluation/harbor/tasks --all --harnesses docker-claude,docker-claude-skill:<dir> --baseline-harness docker-claude` ([coding-harnesses.md](dokimi/docs/coding-harnesses.md)) | one agent run per task and harness; needs Docker and credentials |
 
 - **Competitors** are the other skills an agent sees next to this one when it
   picks a skill to load. For a catalog skill they are its siblings in the
@@ -161,7 +162,7 @@ The full path with reading notes: [skill-novelty-walkthrough.md](dokimi/docs/ski
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
 | 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | capped by `--budget` (default $0.10) per scenario |
 | 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
-| 4. Does the guidance change task outcomes? | `dokimi repo run … --arm guidance:none` and again with `--arm guidance:raw`, one batch each | needs the repository's own tasks |
+| 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>` | needs the repository's own tasks, Docker, and `claude` binary on PATH |
 
 With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
 guidance globs (`<repo>/**/AGENTS.md`, `<repo>/**/CLAUDE.md`,
@@ -172,11 +173,13 @@ it with `--manifest-file`:
 
 ```yaml
 schema: repo_manifest.v1
-id: <name>
+id: my-repo
 guidance:
   globs: ["**/AGENTS.md", "**/CLAUDE.md", ".github/copilot-instructions.md"]
   also_scan: ["CONTRIBUTING.md"]
 ```
+
+The `id` must be lowercase letters, numbers, and `.`, `_`, `-`.
 
 A guidance-only manifest has no tasks, so step 4 refuses it.
 
@@ -184,7 +187,8 @@ How to read the results:
 
 - **Scan:** only `fail` counts against the guidance, and each `fail` still
   needs a look. Harness tool names (`run_in_background`) and placeholders
-  (`<name>`, `caseNN_*`) can show up as `fail` too. `unresolved` means not checkable, not wrong.
+  (`<name>`, `caseNN_*`) can show up as `fail` too. `unresolved` needs a look:
+  it can be a path the scan could not check, or one whose directory is gone.
 - **Reach:** a guidance file nobody loads cannot help anyone. Run `reach`
   before you judge the guidance's content. `loaded` comes from the harness
   itself, not from the harness's documentation, so a result that contradicts
