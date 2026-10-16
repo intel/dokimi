@@ -2,8 +2,8 @@
 
 > **Status: recommendations.** §1–§7 apply today. The measurement loop in §8 runs
 > today for guidance arms (`guidance:none`, `guidance:raw`, `guidance:bridge`).
-> Arms that add a file or a tool are planned; until then, test them with separate
-> runs per configuration and the `setup_patches` route in the contract.
+> Arms that add a file or a tool are planned; use `setup_patches` or a distinct
+> `base` per configuration (contract, lines 217, 235) to test them.
 
 This page is for repository owners who want coding agents (Claude Code, Codex,
 Copilot and others) to build, test, change and review their code reliably. It
@@ -22,10 +22,7 @@ The recommendations come from measurements on two C++ libraries (oneDAL and
 ScalableVectorSearch). Agents were Claude Code with Haiku and Sonnet 5.5, plus
 earlier generations where noted, and Codex. Samples were small: 8 to 24 cells per
 arm. Some effects disappeared when the model changed, so measure before you rely
-on any of them (§8). Measurement details are in the `task` definitions and cell
-counts in each run: see the earlier PRs and the content repository for the oneDAL
-and ScalableVectorSearch eval sets, or contact the maintainers for access to the
-measurement data and runs.
+on any of them (§8).
 
 ## 1. Make every command in the guidance runnable
 
@@ -40,8 +37,8 @@ turns and leads to work-arounds.
   has 18, every formatted file can fail the CI check.
     - With Haiku 4.5, a named command for the pinned formatter raised the share of
       runs that passed the CI format check from 5/16 to 12/16 (p = 0.032). Installing
-      the right version without naming it raised it only to 7/16 (p = 0.149 vs 12/16,
-      not significant at n=16).
+      the right version without naming it raised it to 7/16 (p = 0.149 vs 12/16, and
+      p = 0.716 vs 5/16; n too small to separate the strategies).
     - With Haiku 5.5, runs already passed 12/16 without it. With Sonnet 5.5 the
       share went from 5/8 to 7/8 (p = 0.569, sample too small to resolve).
 - **Installed where the agent runs.** A guidance file told agents to run
@@ -96,7 +93,7 @@ real repository:
     - modules that bridge two parts of the code base;
     - names shared by many functions.
 
-  Write guidance there first, and confirm with a small probe run.
+    Write guidance there first, and confirm with a small probe run.
 
 `dokimi repo scan` reports paths, commands, identifiers and links in the guidance
 that no longer match the tree; it cannot check statements like the last two rows
@@ -131,14 +128,15 @@ A compiler-resolved call graph exposed as tools (who calls, callees, subclasses,
 files that change together, likely tests) paid off for questions that enumerate
 code. On "who calls X" questions with many callers or ambiguous names:
 
-| Model | Without (recall) | With tool and guidance line (recall) |
+| Model | Without | With tool and guidance line |
 |---|---|---|
 | Sonnet 5.5 | 0.906 | 0.968, at half the cost per run |
 | Haiku 5.5 | 0.874 | 0.951 |
 
-On the fix and review tasks measured, with Sonnet 5.5, agents did not call it and
-results did not change; this was measured against earlier work with Sonnet 5. Offer it when the repository has many cross-module call sites or shared
-names, and measure on your own tasks.
+On the fix and review tasks measured, with Sonnet 5, agents did not call it and
+results did not change; this was not repeated on the 5.5 models. Offer it when
+the repository has many cross-module call sites or shared names, and measure on
+your own tasks.
 
 ## 6. Review rules learned from past reviews
 
@@ -153,9 +151,8 @@ Recurring review comments are review knowledge a repository already has.
   harness you use loads that file (§7).
 - **Expect help on recurring defects, not one-offs.**
     - On review tasks with seeded recurring defects, rules raised the recall of
-      Codex with an older OpenAI model from 0.68 to 0.875.
-    - Current Claude models (Sonnet 5.5 and Haiku 5.5) were already near that level
-      (0.874–0.906) without additional rules.
+      Codex with a small OpenAI model (gpt-6-luna) from 0.68 to 0.875.
+    - Current Claude models were already near that level without them.
     - On replays of real PRs, whose comments were almost all specific to that PR,
       the rules matched 1 to 2 of 44 comments and changed nothing.
 - **Linters on the changed lines** (clang-tidy, cppcheck) given to the reviewer as
@@ -166,14 +163,16 @@ Recurring review comments are review knowledge a repository already has.
 | Harness | Loads |
 |---|---|
 | Claude Code 2.1.286 (measured 2026-10) | `CLAUDE.md`. `AGENTS.md` only when no `CLAUDE.md` is in its start-up chain. Subdirectory files lazily, when it reads a file there. |
-| Codex CLI (vendor-documented behavior) | the root `AGENTS.md`; subdirectory files on demand; `AGENTS.override.md` replaces the `AGENTS.md` in its own directory |
-| Copilot CLI (vendor-documented behavior) | `AGENTS.md`, `.github/copilot-instructions.md`, `CLAUDE.md`, `GEMINI.md` and path-scoped instruction files; not `REVIEW.md` |
+| Codex CLI | the root `AGENTS.md`; subdirectory files on demand; `AGENTS.override.md` replaces the `AGENTS.md` in its own directory |
+| Copilot CLI | `AGENTS.md`, `.github/copilot-instructions.md`, `CLAUDE.md`, `GEMINI.md` and path-scoped instruction files; not `REVIEW.md` |
 
-A repository with a `CLAUDE.md` should import the shared file (`@AGENTS.md`) next to
-each `AGENTS.md`, including the ones in subdirectories, or Claude Code does not read
-them. Gemini CLI reads `GEMINI.md` unless `context.fileName` in its settings lists
-`AGENTS.md`. The `guidance:bridge` arm writes the `@AGENTS.md` import files and can
-measure this setup's effect.
+The Codex and Copilot rows have no version; versions for those harnesses are pending from the author.
+
+A repository with a `CLAUDE.md` containing `@AGENTS.md` next to each `AGENTS.md` is
+necessary for subdirectory files to load, since Claude Code reads no `AGENTS.md` beside
+a root `CLAUDE.md`. Gemini CLI reads `GEMINI.md` unless `context.fileName` in its
+settings lists `AGENTS.md`. The `guidance:bridge` arm writes the `@AGENTS.md`
+import files and can measure this setup's effect.
 
 Loading changes between versions. Run `dokimi repo reach` for the harness and
 version you use instead of relying on this table. Only the `claude-code` profile is
@@ -191,8 +190,9 @@ What helps depends on the model:
 - With Haiku 5.5 and Sonnet 5.5, both arms passed every run.
 
 `dokimi repo run` requires the [contract's](repo-evaluation-contract.md) manifest
-(with `eval_dir`, `tasks`, `entry_points`, graders and a container image) and docker;
-the agent has network access today, though the egress proxy is not yet implemented.
+(with `eval_dir`, `tasks`, `entry_points`, graders and a container image), docker,
+and `--agent-network` (mandatory while the egress proxy is not implemented, contract
+~48-49, 663); it refuses a guidance-only manifest (contract ~161).
 
 Treat each item above as a hypothesis for your repository.
 
@@ -200,9 +200,10 @@ Treat each item above as a hypothesis for your repository.
    ([contract](repo-evaluation-contract.md)).
 2. Run the baseline and the arm with `dokimi repo run`, on the current models you
    use. Today an arm can remove or keep the guidance (`guidance:none`,
-   `guidance:raw`). Testing one added line, file or tool needs the planned arms
-   (`guidance:rev:<sha>`, `patch:<file>`, #41 step D7); until then it takes a
-   separate run per configuration.
+   `guidance:raw`), or inject a file (`guidance:bridge`, which writes `@AGENTS.md`
+   next to each `AGENTS.md`). Testing one added line or tool needs planned arms;
+   use `setup_patches` (contract ~217) or a distinct `base` per configuration
+   (contract ~235) today.
 3. Look at whether the agent used the change, not only at the score. A guidance
    line can move the score without the tool it names being called; tool use tells
    you whether the tool itself mattered. An arm in which the tool was never called
