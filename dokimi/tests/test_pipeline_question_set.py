@@ -587,3 +587,67 @@ def test_cached_resume_with_custom_input_at_same_path_leaves_input_unchanged(tmp
     # The input file must not be rewritten (same bytes)
     cache_bytes_after = cache_file.read_bytes()
     assert cache_bytes_after == cache_bytes_before
+
+
+def test_same_path_force_regen_with_deduped_generation_leaves_input_unchanged(tmp_path, monkeypatch):
+    """When dedup drops every generated question, custom input at same path is not written."""
+    custom_file = tmp_path / "questions" / "oneTBB.json"
+    custom_questions = [{"id": "c1", "question": "Custom v1?"}]
+    _write_json(custom_file, custom_questions)
+    custom_bytes_before = custom_file.read_bytes()
+    _write_json(tmp_path / "personas" / "oneTBB.json", {"personas": []})
+
+    def stub_discover(self):
+        return {"personas": []}
+
+    def stub_generate(self, personas):
+        return [{"id": "g1", "question": "Custom v1 paraphrase?", "source_type": "generated"}]
+
+    # Stub expensive steps
+    def generate_answers(self, questions, concurrency=5, question_set_hash=None):
+        return [
+            {
+                "question_id": q["id"],
+                "question_text": q["question"],
+                "with_docs": {"answer": "context"},
+                "without_docs": {"answer": "baseline"},
+            }
+            for q in questions
+        ]
+
+    def evaluate_answers(self, answers, concurrency=5, question_set_hash=None):
+        data = {
+            "run_metadata": {"question_set_hash": question_set_hash},
+            "evaluations": [],
+        }
+        self.eval_path.write_text(json.dumps(data), encoding="utf-8")
+        return []
+
+    def generate_report(self, evaluations, questions):
+        self.report_path.write_text("report", encoding="utf-8")
+        return "report"
+
+    monkeypatch.setattr(
+        "dokimi.questions.QuestionValidator._deduplicate",
+        lambda self, qs, protect=None: (
+            [q for q in qs if q.get("source_type") == "manual"], [[q["id"] for q in qs]]
+        ),
+    )
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", stub_discover)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_questions", stub_generate)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_answers", generate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_evaluate_answers", evaluate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_report", generate_report)
+
+    pipeline = EvaluationPipeline(
+        product="oneTBB",
+        output_dir=tmp_path,
+        description="Threading Building Blocks",
+        custom_questions_path=custom_file,
+        force_regen=True,
+    )
+    pipeline.run(concurrency=1)
+
+    # Input file must not be rewritten (no generated questions to merge)
+    custom_bytes_after = custom_file.read_bytes()
+    assert custom_bytes_after == custom_bytes_before

@@ -457,10 +457,7 @@ class EvaluationPipeline:
         return custom_questions
 
     def _merge_questions(self, generated_questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Merge generated + custom questions, deduplicate.
-
-        Stores _merge_custom_questions_count for use by run() to determine write_over_input.
-        """
+        """Merge generated + custom questions, deduplicate."""
         from dokimi.questions import QuestionValidator
 
         all_questions = generated_questions.copy()
@@ -471,8 +468,6 @@ class EvaluationPipeline:
         if custom_questions is None:
             custom_questions = self._load_custom_questions()
 
-        # Store count for run() to detect if merge added records
-        self._merge_custom_questions_count = len(custom_questions)
         all_questions.extend(custom_questions)
 
         # Deduplicate. Curated questions are never the ones dropped: a merge
