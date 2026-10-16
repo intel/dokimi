@@ -98,8 +98,11 @@ python cli.py novelty probe --artifact skill:skills/my-skill --atoms atoms.json 
 ```
 
 The extractor must not be the model under measurement, or the model writes its own answer
-key — `probe` warns when it detects that. `atoms.json` records which files it came from and
-`probe` rebuilds exactly that set, refusing if the artifact's files changed since.
+key — `probe` warns when it detects that. Without `--extract-model`/`--model`, `atoms` (and
+the `shorten` adjudicator) use the default judge, `anthropic/claude-sonnet-5-5`, the same
+model `analyze` extracts with; an extractor from another provider needs `--provider`. `probe`
+and `analyze` measure `openai/gpt-6.1-sol` unless given `--model`. `atoms.json` records which
+files it came from and `probe` rebuilds exactly that set, refusing if the artifact's files changed since.
 
 With three or more models, check which probes measured anything:
 

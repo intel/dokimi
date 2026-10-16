@@ -4,6 +4,8 @@
 import os
 from typing import Tuple, Dict, Any
 
+from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
+
 
 def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
     """Split a Markdown document into (frontmatter dict, body).
@@ -87,8 +89,14 @@ def retry_writable(func: Any, path: str, _exc: Any) -> None:
 
 
 def normalize_model_ref(provider: str, model: str) -> str:
-    """Normalize provider and model names for comparison."""
-    return f"{(provider or '').strip().lower()}/{(model or '').strip().lower()}"
+    """Normalize provider and model names for comparison.
+
+    On Bedrock a bare known name and its inference profile are the same model.
+    """
+    prov, name = (provider or "").strip().lower(), (model or "").strip()
+    if prov == "amazon-bedrock":
+        name = BEDROCK_MODEL_IDS.get(name, name)
+    return f"{prov}/{name.lower()}"
 
 
 def _read_key(value: str) -> str:
@@ -108,9 +116,10 @@ def _read_key(value: str) -> str:
 def bedrock_litellm_model(model: str) -> str:
     """The litellm model string ``get_llm`` sends to Bedrock for ``model``."""
     # A Bedrock id always has a dot ("anthropic.", "us.anthropic.", "amazon.").
-    # Only a bare name such as the default judge model gets mapped.
+    # Only a bare name gets mapped: a known one (such as the default judge) to its
+    # inference profile, any other to the box's default Sonnet.
     if not model.startswith("arn:") and "." not in model:
-        model = os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL", model)
+        model = bedrock_profile(model) or os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL", model)
     # Bedrock's openai.* namespace 404s on the plain invoke route; it only
     # answers via Converse (mirrors the fix in llm.py's _build_litellm_model).
     prefix = "bedrock/converse/" if "openai." in model else "bedrock/"

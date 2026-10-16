@@ -23,22 +23,23 @@ context7:
   timeout: 30
   max_retries: 3
 
-# LLM configuration
+# LLM configuration. The defaults mirror dokimi/defaults.py (a test pins them
+# together); changed 2026-10-13, so default-flag scores from before are not comparable.
 llm:
   # Model for answering questions
   answerer:
-    default: "gpt-5.5"
-    alternatives: ["gpt-5.1", "claude-sonnet-4-5-20250929"]
-  
-  # Model for judging answers (separate to avoid bias)
+    default: "gpt-6.1-sol"
+    alternatives: ["gpt-6-astra", "claude-sonnet-5-5", "claude-opus-5-5"]
+
+  # Model for judging answers (a different family from the answerer, to avoid bias)
   judge:
-    default: "claude-sonnet-4-5-20250929"
-    alternatives: ["gpt-5.5", "claude-opus-4-1-20250805"]
-  
+    default: "claude-sonnet-5-5"
+    alternatives: ["claude-opus-5-5", "gpt-6-astra"]
+
   # Model for persona/question generation
   generator:
-    default: "gpt-5.5"
-    alternatives: ["gpt-5.1-mini", "claude-haiku-4-5"]
+    default: "gpt-6.1-sol"
+    alternatives: ["gpt-6-luna", "claude-sonnet-5-5", "claude-haiku-5-5"]
 
 # Question generation settings
 questions:

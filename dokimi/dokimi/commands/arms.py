@@ -14,6 +14,12 @@ from pathlib import Path
 
 from dokimi.utils import question_id
 from dokimi.eval.judge import JUDGE_PROVIDERS
+from dokimi.defaults import (
+    DEFAULT_ANSWER_MODEL,
+    DEFAULT_ANSWER_PROVIDER,
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_PROVIDER,
+)
 
 # Run-configuration fields the arms commands read off parsed args, shared with
 # any other command that drives an arms run by constructing its own Namespace.
@@ -214,8 +220,8 @@ def register(sub, positive_int) -> None:
              "'baseline,docs', 'baseline,docs:local:./docs,profile:data/agent_profiles/concise_expert.md', "
              "'baseline,mcp:http=https://mcp.context7.com/mcp,skill:/path/to/skills-repo/skills/<name>'",
     )
-    arms_run_p.add_argument("--model", default="gpt-4o-mini", help="LLM for answering")
-    arms_run_p.add_argument("--provider", default="openai",
+    arms_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
+    arms_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
                             choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
     arms_run_p.add_argument("--harness", default="arms-runner",
                             help="Execution harness label stamped into output (default: arms-runner)")
@@ -240,8 +246,8 @@ def register(sub, positive_int) -> None:
                                  "discovery rate)")
     arms_run_p.add_argument("--judge", action="store_true",
                             help="Also score each arm with the LLM-as-judge")
-    arms_run_p.add_argument("--judge-model", default="gpt-4o-mini", dest="judge_model")
-    arms_run_p.add_argument("--judge-provider", default="openai", dest="judge_provider",
+    arms_run_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    arms_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                             choices=JUDGE_PROVIDERS)
     arms_run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
                             help="Docs to retrieve before reranking, for doc/MCP arms (default: 5)")
@@ -351,8 +357,8 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
              "'baseline,docs', 'baseline,docs:local:./docs,profile:data/agent_profiles/concise_expert.md', "
              "'baseline,mcp:http=https://mcp.context7.com/mcp,skill:/path/to/skills-repo/skills/<name>'",
     )
-    parser.add_argument("--model", default="gpt-4o-mini", help="LLM for answering")
-    parser.add_argument("--provider", default="openai",
+    parser.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
+    parser.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
                         choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
     parser.add_argument("--harness", default="arms-runner",
                         help="Execution harness label stamped into output (default: arms-runner)")
@@ -379,8 +385,8 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
                              "or 'bh' (Benjamini-Hochberg, controls false discovery rate)")
     parser.add_argument("--judge", action="store_true",
                         help="Also score each arm with the LLM-as-judge")
-    parser.add_argument("--judge-model", default="gpt-4o-mini", dest="judge_model")
-    parser.add_argument("--judge-provider", default="openai", dest="judge_provider",
+    parser.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    parser.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                         choices=JUDGE_PROVIDERS)
     parser.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
                         help="Docs to retrieve before reranking, for doc/MCP arms (default: 5)")
