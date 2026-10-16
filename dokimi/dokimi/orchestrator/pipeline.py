@@ -6,6 +6,7 @@
 import hashlib
 import logging
 import json
+from collections import Counter
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -31,6 +32,13 @@ def compute_question_set_hash(questions: List[Dict[str, Any]]) -> str:
     )
     raw = "\n".join(fingerprints).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:12]
+
+
+def _record_ids(questions: List[Dict[str, Any]]) -> Counter[str]:
+    """How many records carry each id (``repr``, so ``0`` and ``"0"`` differ)."""
+    from dokimi.utils import question_id
+
+    return Counter(repr(question_id(q)) for q in questions)
 
 
 def load_questions_payload(path: Path) -> List[Dict[str, Any]]:
@@ -273,10 +281,11 @@ class EvaluationPipeline:
 
             # Step 3: Merge with custom questions + deduplicate
             logger.info("Step 3/6: Merging and deduplicating questions...")
+            custom_ids = _record_ids(getattr(self, "_custom_questions", None) or [])
             merged_questions = self._merge_questions(generated_questions)
-            # Write the merged set only if it contains any generated questions
-            # (i.e., when force-regen added generated questions before dedup)
-            write_over_input = any(q.get("source_type") == "generated" for q in merged_questions)
+            # A --custom-questions file that is this run's own output is written only when the
+            # merge added a record to what was read from it.
+            write_over_input = bool(_record_ids(merged_questions) - custom_ids)
 
             results["steps"]["questions_merged"] = {
                 "total": len(merged_questions),
@@ -444,13 +453,23 @@ class EvaluationPipeline:
         return None
 
     def _load_custom_questions(self) -> List[Dict[str, Any]]:
-        """The --custom-questions (or auto-included golden) set, tagged ``source_type: manual``."""
+        """The --custom-questions (or auto-included golden) set, tagged ``source_type: manual``.
+
+        A custom set that is this run's own ``questions/<product>.json`` (a ``--force-regen``
+        run through the Python API) keeps the ``source_type`` a previous run wrote, so its
+        generated records are not relabelled manual and protected from dedup on the next run.
+        """
         path = self.custom_questions_path
         if not (path and path.exists()):
             return []
         custom_questions = load_questions_payload(path)
+        output = getattr(self, "questions_path", None)
+        own_output = output is not None and Path(path).resolve() == Path(output).resolve()
         for q in custom_questions:  # records read from the file, not the file
-            q.setdefault("source_type", "manual")
+            if own_output:
+                q.setdefault("source_type", "manual")
+            else:
+                q["source_type"] = "manual"
             if "persona_id" not in q:
                 q["persona_id"] = "manual"
         logger.info(f"Loaded {len(custom_questions)} custom questions")

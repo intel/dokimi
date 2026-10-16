@@ -651,3 +651,87 @@ def test_same_path_force_regen_with_deduped_generation_leaves_input_unchanged(tm
     # Input file must not be rewritten (no generated questions to merge)
     custom_bytes_after = custom_file.read_bytes()
     assert custom_bytes_after == custom_bytes_before
+
+
+def _stub_regen_steps(monkeypatch: pytest.MonkeyPatch, generated: list[dict]) -> None:
+    """A --force-regen run whose generation returns ``generated``; answers and judging stubbed."""
+    _stub_expensive_steps(monkeypatch)
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", lambda self: {"personas": []})
+    monkeypatch.setattr(EvaluationPipeline, "_generate_questions",
+                        lambda self, personas: [dict(q) for q in generated])
+
+
+def _own_output_pipeline(tmp_path: Path) -> EvaluationPipeline:
+    return EvaluationPipeline(
+        product="oneTBB",
+        output_dir=tmp_path,
+        description="Threading Building Blocks",
+        custom_questions_path=tmp_path / "questions" / "oneTBB.json",
+        force_regen=True,
+    )
+
+
+def test_a_stubbed_merge_that_returns_the_custom_set_does_not_write_it(tmp_path, monkeypatch):
+    """No merge-side signal is needed: the run compares ids with what it read, so it fails closed."""
+    custom_file = tmp_path / "questions" / "oneTBB.json"
+    _write_json(custom_file, [{"id": "c1", "text": "Custom v1?"}])
+    before = custom_file.read_bytes()
+    _stub_regen_steps(monkeypatch, [{"id": "g1", "question": "Generated?"}])
+    monkeypatch.setattr(EvaluationPipeline, "_merge_questions",
+                        lambda self, generated: [{"id": "c1", "question": "Custom v1?"}])
+
+    _own_output_pipeline(tmp_path).run(concurrency=1)
+
+    assert custom_file.read_bytes() == before
+
+
+def test_same_path_force_regen_validates_the_merged_set_before_any_answer(tmp_path, monkeypatch):
+    from dokimi.artifacts import ArtifactValidationError
+
+    custom_file = tmp_path / "questions" / "oneTBB.json"
+    _write_json(custom_file, [{"id": "c1", "text": "Custom v1?"}])
+    before = custom_file.read_bytes()
+    _stub_regen_steps(monkeypatch, [{"id": "g1", "question": "", "source_type": "generated"}])
+
+    def no_answers(self, *a, **kw):
+        raise AssertionError("answers were generated for an invalid set")
+
+    monkeypatch.setattr(EvaluationPipeline, "_generate_answers", no_answers)
+    with pytest.raises(ArtifactValidationError, match="should be non-empty"):
+        _own_output_pipeline(tmp_path).run(concurrency=1)
+    assert custom_file.read_bytes() == before
+
+
+def test_a_custom_set_elsewhere_is_still_tagged_manual(tmp_path, monkeypatch):
+    """Only the run's own file keeps its labels; any other custom set is curated, as on main."""
+    custom_file = tmp_path / "golden.json"
+    _write_json(custom_file, [{"id": "c1", "question": "Custom?", "source_type": "generated"}])
+    _stub_regen_steps(monkeypatch, [])
+
+    pipeline = EvaluationPipeline(product="oneTBB", output_dir=tmp_path / "run",
+                                  description="Threading Building Blocks",
+                                  custom_questions_path=custom_file, force_regen=True)
+    pipeline.run(concurrency=1)
+
+    saved = json.loads((tmp_path / "run" / "questions" / "oneTBB.json").read_text())
+    assert [q["source_type"] for q in saved["questions"]] == ["manual"]
+
+
+def test_a_rerun_that_adds_nothing_leaves_the_previous_runs_merge_unchanged(tmp_path, monkeypatch):
+    """Run 1 saves g1 + c1 over its own file; run 2 generates nothing, so the file stays as is.
+
+    The file now holds a generated record, so "the set has a generated record" is not the
+    signal: only a record the merge added to what was read is.
+    """
+    custom_file = tmp_path / "questions" / "oneTBB.json"
+    _write_json(custom_file, [{"id": "c1", "text": "Custom v1?"}])
+    _stub_regen_steps(monkeypatch, [{"id": "g1", "question": "Generated one?",
+                                     "source_type": "generated"}])
+    _own_output_pipeline(tmp_path).run(concurrency=1)
+    after_first = custom_file.read_bytes()
+    assert {q["id"] for q in json.loads(after_first)["questions"]} == {"g1", "c1"}
+
+    _stub_regen_steps(monkeypatch, [])
+    _own_output_pipeline(tmp_path).run(concurrency=1)
+
+    assert custom_file.read_bytes() == after_first
