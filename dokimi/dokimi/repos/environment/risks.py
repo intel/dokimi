@@ -122,7 +122,7 @@ _SCRIPT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("destructive", re.compile(r"\brm\s+-(rf|fr|r\s+-f|f\s+-r)\b", re.I)),
     ("destructive", re.compile(r"\bgit\s+clean\s+-[a-z]*f", re.I)),
     ("destructive", re.compile(r"\b(mkfs|dd\s+if=|>\s*/dev/sd)", re.I)),
-    ("network-exec", re.compile(r"\b(curl|wget|fetch)\b[^|]*\|\s*(sudo\s+)?(sh|bash|zsh|node|python3?)\b", re.I)),
+    ("network-exec", re.compile(r"\b(curl|wget|fetch)\b[^|]{0,200}\|\s*(sudo\s+)?(sh|bash|zsh|node|python3?)\b", re.I)),
     ("deploy", re.compile(r"\b(npm|yarn|pnpm)\s+publish\b", re.I)),
     ("deploy", re.compile(r"\b(vercel|netlify|wrangler|firebase)\s+deploy\b", re.I)),
     ("deploy", re.compile(r"\bgh\s+release\s+(create|upload)\b", re.I)),
