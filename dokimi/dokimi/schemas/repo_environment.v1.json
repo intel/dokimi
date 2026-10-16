@@ -62,7 +62,7 @@
         "required": ["path", "kind", "harness", "risk", "note"],
         "properties": {
           "path": {"type": "string"},
-          "kind": {"enum": ["mcp", "hook", "plugin", "skill", "editor"]},
+          "kind": {"enum": ["mcp", "hook", "command", "plugin", "skill", "editor"]},
           "harness": {"type": "string"},
           "risk": {"enum": ["high", "medium", "low"]},
           "note": {"type": ["string", "null"]}

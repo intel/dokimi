@@ -126,7 +126,9 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
                                  f"{h.event} hook runs `{h.command}`", h.path, key=f"{h.path}:{h.event}:{h.command}"))
     for c in capabilities:
         if c.risk == "high":
-            findings.append(_finding("safety.capability.high-risk", f"{c.kind} for {c.harness}", c.path, "medium"))
+            findings.append(_finding("safety.capability.high-risk",
+                                     f"{c.kind} for {c.harness}" + (f": {c.note}" if c.note else ""),
+                                     c.path, "medium", key=f"{c.path}:{c.note}" if c.note else None))
     for f in files["large"]:
         findings.append(_finding("files.large", f"{f['bytes']} bytes", f["path"]))
     for path in files["minified"]:

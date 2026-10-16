@@ -187,6 +187,8 @@ def test_cli_writes_the_artifact(tmp_path, capsys):
 @pytest.mark.parametrize("files, expected", [
     ({"CMakeLists.txt": "enable_testing()\nadd_test(NAME a COMMAND a)\n"},
      {("cmake", "build", "toolchain"), ("cmake", "test", "declared")}),
+    ({"cpp/CMakeLists.txt": "enable_testing()\nadd_test(a a)\n", "cpp/a_test.cc": ""},
+     {("cmake", "build", "toolchain"), ("cmake", "test", "declared")}),
     ({"MODULE.bazel": "", "lib/BUILD": 'cc_test(name = "t")\n'},
      {("bazel", "build", "toolchain"), ("bazel", "test", "declared")}),
     ({"build.gradle": "plugins {\n  id 'checkstyle'\n}\n"},
@@ -260,20 +262,23 @@ def test_network_exec_pattern_is_linear_on_repeated_tokens(tmp_path):
 
 @pytest.mark.parametrize("path", ["src/Credit.java", "Unit.java", "Edit.kt", "Exit.java",
                                   "Sources/Latest.swift", "Contest.cs", "docs/spec/api.yaml",
-                                  "docs/specs/api.yaml"])
+                                  "docs/specs/api.yaml", "tests/__init__.py", "Tests.swift"])
 def test_test_file_excludes_false_positives(path):
-    """THREAD 11: Java/Kotlin/C# files without Test/Tests/IT/Spec prefix and doc dirs should not match."""
+    """Java/Kotlin/C# files without Test/Tests/IT/Spec prefix and doc dirs should not match."""
     from dokimi.repos.environment import files as F
-    assert not F._TEST_FILE.search(path), path
+    assert not F.is_test_file(path), path
 
 
 @pytest.mark.parametrize("path", ["src/FooTest.java", "FooTests.kt", "FooIT.java", "BarSpec.scala",
-                                  "FooTests.swift", "Tests.swift", "a.test.ts", "x_test.go",
-                                  "tests/test_a.py", "spec/a_spec.rb", "__tests__/a.js"])
+                                  "FooTests.swift", "Sources/AppTests.swift", "a.test.ts", "x_test.go",
+                                  "tests/test_a.py", "spec/a_spec.rb", "__tests__/a.js",
+                                  "tests/foo.c", "tests/foo.cc", "tests/foo.cpp", "tests/foo.cxx", "tests/foo.h",
+                                  "tests/foo.hh", "tests/foo.hpp", "test/a.lua", "test/a.dart", "tests/a.hs",
+                                  "tests/a.sh", "test/a.bats"])
 def test_test_file_includes_true_positives(path):
-    """THREAD 11: Legitimate test files should still match."""
+    """Legitimate test files should still match."""
     from dokimi.repos.environment import files as F
-    assert F._TEST_FILE.search(path), path
+    assert F.is_test_file(path), path
 
 
 @pytest.mark.parametrize("files", [
@@ -282,7 +287,7 @@ def test_test_file_includes_true_positives(path):
     {".pre-commit-config.yaml": "repos:\n- repo: x\n  rev: 2020-02-30\n"},
 ])
 def test_odd_manifests_do_not_crash(tmp_path, files):
-    """THREAD 8: Large integers and invalid dates in manifests should not crash."""
+    """Large integers and invalid dates in manifests should not crash."""
     _repo(tmp_path, {"AGENTS.md": "x", **files})
     payload = inspect_repo(WorkTree(tmp_path))
     assert payload is not None
@@ -294,7 +299,7 @@ def test_odd_manifests_do_not_crash(tmp_path, files):
     {"node_modules/left-pad/package.json": '{"scripts": {"test": "mocha"}}'},
 ])
 def test_vendored_build_files_do_not_suppress_missing_tests(tmp_path, files):
-    """THREAD 9: Vendored/generated files should not count toward test detection."""
+    """Vendored/generated files should not count toward test detection."""
     _repo(tmp_path, {"AGENTS.md": "x", **files})
     payload = inspect_repo(WorkTree(tmp_path))
     rules = {f["rule"] for f in payload["findings"]}
@@ -302,7 +307,7 @@ def test_vendored_build_files_do_not_suppress_missing_tests(tmp_path, files):
 
 
 def test_blob_less_clone_respects_partial_clone_boundary(tmp_path):
-    """THREAD 6: Inspect should not fetch blobs from a partial clone."""
+    """Inspect should not fetch blobs from a partial clone."""
     import subprocess
     src = tmp_path / "src"
     src.mkdir()
@@ -326,7 +331,7 @@ def test_blob_less_clone_respects_partial_clone_boundary(tmp_path):
 
 
 def test_runner_unknown_warning_when_tests_present(tmp_path):
-    """THREAD 5: Test files present but no runner known should give warning, not error."""
+    """Test files present but no runner known should give warning, not error."""
     _repo(tmp_path, {"AGENTS.md": "x", "pyproject.toml": "[build-system]\n[project]\nname='a'\n",
                      "tests/test_a.py": "def test(): pass\n"})
     payload = inspect_repo(WorkTree(tmp_path))
@@ -338,7 +343,7 @@ def test_runner_unknown_warning_when_tests_present(tmp_path):
 
 
 def test_runner_unknown_for_ruby_tests(tmp_path):
-    """THREAD 5: Ruby tests with Gemfile but no runner should give runner-unknown."""
+    """Ruby tests with Gemfile but no runner should give runner-unknown."""
     _repo(tmp_path, {"AGENTS.md": "x", "Gemfile": "gem 'rake'\n", "spec/a_spec.rb": "x"})
     payload = inspect_repo(WorkTree(tmp_path))
     rules = _rules(payload)
@@ -347,7 +352,7 @@ def test_runner_unknown_for_ruby_tests(tmp_path):
 
 
 def test_fail_on_error_exits_zero_for_runner_unknown(tmp_path, capsys):
-    """THREAD 5: --fail-on-error should exit 0 for warning-level runner-unknown."""
+    """--fail-on-error should exit 0 for warning-level runner-unknown."""
     root = tmp_path / "toy"
     _repo(root, {"AGENTS.md": "x", "pyproject.toml": "[project]\n", "tests/test_a.py": "x"})
     out = tmp_path / "env.json"
@@ -358,7 +363,7 @@ def test_fail_on_error_exits_zero_for_runner_unknown(tmp_path, capsys):
 
 
 def test_nested_makefile_am_with_tests(tmp_path):
-    """THREAD 2: Tests in nested Makefile.am should be detected."""
+    """Tests in nested Makefile.am should be detected."""
     _repo(tmp_path, {"AGENTS.md": "x", "configure.ac": "", "tests/Makefile.am": "TESTS = t\n"})
     payload = inspect_repo(WorkTree(tmp_path))
     checks = {(c["ecosystem"], c["kind"]) for c in payload["checks"]}
@@ -366,7 +371,7 @@ def test_nested_makefile_am_with_tests(tmp_path):
 
 
 def test_user_prompt_submit_and_stop_hook_risks(tmp_path):
-    """THREAD 1: UserPromptSubmit and Stop events should be detected as automatic."""
+    """UserPromptSubmit and Stop events should be detected as automatic."""
     settings = {
         "hooks": {
             "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "npm ci"}]}],
@@ -381,20 +386,20 @@ def test_user_prompt_submit_and_stop_hook_risks(tmp_path):
 
 
 def test_subagentstop_in_automatic_events(tmp_path):
-    """THREAD 1/5: SubagentStop should be in AUTOMATIC_EVENTS."""
+    """SubagentStop should be in AUTOMATIC_EVENTS."""
     from dokimi.repos.environment import risks
     assert "SubagentStop" in risks.AUTOMATIC_EVENTS
 
 
 def test_deeply_nested_yaml_does_not_crash(tmp_path):
-    """THREAD 8: Deeply nested YAML should not cause RecursionError."""
+    """Deeply nested YAML should not cause RecursionError."""
     _repo(tmp_path, {"AGENTS.md": "x", ".pre-commit-config.yaml": "[" * 100000})
     payload = inspect_repo(WorkTree(tmp_path))
     assert payload is not None  # Should not crash
 
 
 def test_npm_install_1mb_completes_quickly(tmp_path):
-    """THREAD 7/1: 1 MB of npm install hook should complete in under 1 second."""
+    """1 MB of npm install hook should complete in under 1 second."""
     import time
     hook_cmd = "npm " + "-npm " * (1_000_000 // 5)  # ~1 MB total
     settings = {
@@ -409,8 +414,8 @@ def test_npm_install_1mb_completes_quickly(tmp_path):
     assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
 
 
-def test_thread_0_npm_run_detected(tmp_path):
-    """THREAD 0: npm run commands should be detected as hook risks."""
+def test_hook_npm_run_detected(tmp_path):
+    """npm run commands should be detected as hook risks."""
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": "npm run build"}]}],
@@ -422,8 +427,8 @@ def test_thread_0_npm_run_detected(tmp_path):
     assert any("npm run" in r for r in risks)
 
 
-def test_thread_0_make_detected(tmp_path):
-    """THREAD 0: make commands should be detected as hook risks."""
+def test_hook_make_detected(tmp_path):
+    """make commands should be detected as hook risks."""
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": "make build"}]}],
@@ -435,8 +440,8 @@ def test_thread_0_make_detected(tmp_path):
     assert any("make" in r for r in risks)
 
 
-def test_thread_0_path_detected(tmp_path):
-    """THREAD 0: Paths like ./script.sh should be detected as hook risks."""
+def test_hook_path_detected(tmp_path):
+    """Paths like ./script.sh should be detected as hook risks."""
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": "./setup.sh"}]}],
@@ -448,8 +453,8 @@ def test_thread_0_path_detected(tmp_path):
     assert any("setup.sh" in r or "./setup" in r for r in risks)
 
 
-def test_thread_0_make_not_in_echo(tmp_path):
-    """THREAD 0: make in echo should NOT be flagged."""
+def test_hook_make_not_in_echo(tmp_path):
+    """make in echo should NOT be flagged."""
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": "echo 'make sure deps are installed'"}]}],
@@ -461,8 +466,8 @@ def test_thread_0_make_not_in_echo(tmp_path):
     assert not any("echo" in r for r in risks)
 
 
-def test_thread_0_make_case_insensitive(tmp_path):
-    """THREAD 0: Make in echo case should NOT be flagged."""
+def test_hook_make_case_insensitive(tmp_path):
+    """Make in echo case should NOT be flagged."""
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": "echo Make it so"}]}],
@@ -474,8 +479,8 @@ def test_thread_0_make_case_insensitive(tmp_path):
     assert not any("echo" in r for r in risks)
 
 
-def test_thread_2_path_not_flagged_for_cd_parent(tmp_path):
-    """THREAD 2: cd ../other should not be flagged as a path risk."""
+def test_hook_path_not_flagged_for_cd_parent(tmp_path):
+    """cd ../other should not be flagged as a path risk."""
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": "cd ../other && ls"}]}],
@@ -487,8 +492,8 @@ def test_thread_2_path_not_flagged_for_cd_parent(tmp_path):
     assert not any("cd ../other" in r for r in risks)
 
 
-def test_thread_2_path_not_flagged_for_cat_file(tmp_path):
-    """THREAD 2: cat package.json should not be flagged as a path risk."""
+def test_hook_path_not_flagged_for_cat_file(tmp_path):
+    """cat package.json should not be flagged as a path risk."""
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": "cat package.json"}]}],
@@ -500,8 +505,8 @@ def test_thread_2_path_not_flagged_for_cat_file(tmp_path):
     assert not any("cat package.json" in r for r in risks)
 
 
-def test_thread_4_ignore_scripts_with_url_fragment(tmp_path):
-    """THREAD 4: URL fragments should not be stripped as comments."""
+def test_hook_ignore_scripts_with_url_fragment(tmp_path):
+    """URL fragments should not be stripped as comments."""
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": "npm ci --registry=https://r/#x --ignore-scripts"}]}],
@@ -515,14 +520,14 @@ def test_thread_4_ignore_scripts_with_url_fragment(tmp_path):
 
 
 def test_test_file_case_insensitive_and_mjs(tmp_path):
-    """THREAD 8: Test dirs should be case-insensitive, and .mjs/.cjs should be recognized."""
+    """Test dirs should be case-insensitive, and .mjs/.cjs should be recognized."""
     _repo(tmp_path, {"Tests/a.mjs": "x", "TESTS/b.cjs": "x", "specs/c.ts": "x"})
     payload = inspect_repo(WorkTree(tmp_path))
     assert payload["files"]["test_files"] == 3
 
 
 def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
-    """ITEM 1: 1 MB hook with unbalanced quote should complete in under 1 second."""
+    """1 MB hook with unbalanced quote should complete in under 1 second."""
     import time
     hook_cmd = "echo '" + "a" * 1_000_000  # 1 MB, unbalanced quote
     settings = {
@@ -540,7 +545,7 @@ def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
 
 
 def test_npm_install_with_10_options_followed_by_ci(tmp_path):
-    """ITEM 3: npm with 10 options followed by ci should be detected."""
+    """npm with 10 options followed by ci should be detected."""
     # Use 10 options to test the {0,16} bound
     hook_cmd = "npm -a -b -c -d -e -f -g -h -i -j ci"
     settings = {
@@ -555,7 +560,7 @@ def test_npm_install_with_10_options_followed_by_ci(tmp_path):
 
 
 def test_python3_with_flag_and_tracked_script(tmp_path):
-    """ITEM 4: python3 -u tools/bootstrap.py should be detected as a path risk."""
+    """python3 -u tools/bootstrap.py should be detected as a path risk."""
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": "python3 -u tools/bootstrap.py"}]}],
@@ -568,7 +573,7 @@ def test_python3_with_flag_and_tracked_script(tmp_path):
 
 
 def test_sh_with_c_flag_and_relative_path(tmp_path):
-    """ITEM 4: sh -c './scripts/x.sh' should be detected as a path risk."""
+    """sh -c './scripts/x.sh' should be detected as a path risk."""
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": "sh -c './scripts/x.sh'"}]}],
@@ -581,7 +586,7 @@ def test_sh_with_c_flag_and_relative_path(tmp_path):
 
 
 def test_bash_with_dollar_env_and_unbalanced_quote(tmp_path):
-    """ITEM 4: bash '$CLAUDE_PROJECT_DIR/x.sh with unbalanced quote should be detected."""
+    """bash '$CLAUDE_PROJECT_DIR/x.sh with unbalanced quote should be detected."""
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": "bash '$CLAUDE_PROJECT_DIR/x.sh"}]}],
@@ -594,10 +599,73 @@ def test_bash_with_dollar_env_and_unbalanced_quote(tmp_path):
     assert any("$CLAUDE_PROJECT_DIR" in r for r in risks)
 
 
-@pytest.mark.parametrize("settings, kind", [({"statusLine": {"type": "command", "command": "x"}}, "hook"),
-                                            ({"apiKeyHelper": "x"}, "hook"),
+@pytest.mark.parametrize("settings, kind", [({"statusLine": {"type": "command", "command": "x"}}, "command"),
+                                            ({"apiKeyHelper": "x"}, "command"),
                                             ({"enableAllProjectMcpServers": True}, "mcp")])
 def test_settings_capabilities_without_hooks(tmp_path, settings, kind):
     _repo(tmp_path, {"AGENTS.md": "x", ".claude/settings.json": json.dumps(settings)})
     caps = inspect_repo(WorkTree(tmp_path))["capabilities"]
     assert [(c["kind"], c["risk"]) for c in caps] == [(kind, "high")]
+
+
+def test_settings_capabilities_get_distinct_findings(tmp_path):
+    settings = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "echo hi"}]}]},
+                "statusLine": {"type": "command", "command": "x"}, "apiKeyHelper": "./k.sh",
+                "enableAllProjectMcpServers": True}
+    _repo(tmp_path, {"AGENTS.md": "x", ".claude/settings.json": json.dumps(settings)})
+    found = [f for f in inspect_repo(WorkTree(tmp_path))["findings"] if f["rule"] == "safety.capability.high-risk"]
+    assert len(found) == 4
+    assert len({f["id"] for f in found}) == 4 and len({f["why"] for f in found}) == 4
+
+
+@pytest.mark.parametrize("command, flagged", [
+    ("npm run build", True), ("npm test", True), ("npm start", True), ("yarn build", True), ("pnpm lint", True),
+    ("./setup.sh", True), ("bash setup.sh", True), ("FOO=1 ./setup.sh", True), ("timeout 5 ./setup.sh", True),
+    ("sudo ./setup.sh", True), ("source ./setup.sh", True), (". ./setup.sh", True),
+    ("python3 -W ignore setup.sh", True), ("sh -c 'make test'", True), ("FOO=1 make", True),
+    ("env A=1 make check", True), ("nohup ./setup.sh", True),
+    ("npm --version", False), ("yarn --version", False), ("npm view x", False), ("echo make", False),
+    ("cmake .", False), ("cat package.json", False), ("cd ../x", False), ("echo 'run npm test'", False),
+])
+def test_hook_command_runs_repository_code(tmp_path, command, flagged):
+    settings = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": command}]}]}}
+    _repo(tmp_path, {"AGENTS.md": "x", "setup.sh": "true\n", "package.json": json.dumps({"scripts": {"test": "jest"}}),
+                     ".claude/settings.json": json.dumps(settings)})
+    assert bool(inspect_repo(WorkTree(tmp_path))["hook_risks"]) is flagged
+
+
+@pytest.mark.parametrize("files", [
+    {"setup.cfg": "[" * 40_000},
+    {"build.gradle": "plugins {" * 20_000},
+    {"pom.xml": "<artifactId>" + "checkstyle " * 20_000},
+])
+def test_manifest_readers_are_linear_on_repeated_tokens(tmp_path, files):
+    import time
+    _repo(tmp_path, {"AGENTS.md": "x", "setup.py": "", **files})
+    start = time.monotonic()
+    inspect_repo(WorkTree(tmp_path))
+    assert time.monotonic() - start < 2
+
+
+def test_blob_less_clone_reads_manifests_in_few_requests(tmp_path):
+    import os
+    src = tmp_path / "src"
+    files = {"AGENTS.md": "x"}
+    for i in range(8):
+        files[f"p{i}/package.json"] = json.dumps({"name": f"p{i}", "scripts": {"test": f"jest {i}"}})
+        files[f"p{i}/pyproject.toml"] = f"[project]\nname = 'p{i}'\n"
+        files[f"p{i}/Makefile"] = f"test:\n\techo {i}\n"
+    _repo(src, files)
+    subprocess.run(["git", "-C", str(src), "config", "uploadpack.allowfilter", "true"], check=True)
+    pc = tmp_path / "pc"
+    subprocess.run(["git", "clone", "-q", "--bare", "--filter=blob:none", f"file://{src}", str(pc)], check=True)
+    sha = subprocess.run(["git", "-C", str(pc), "rev-parse", "HEAD"], check=True, capture_output=True,
+                         text=True).stdout.strip()
+    trace = tmp_path / "trace"
+    os.environ["GIT_TRACE"] = str(trace)
+    try:
+        inspect_repo(GitTree(pc, sha))
+    finally:
+        del os.environ["GIT_TRACE"]
+    fetches = sum("fetch" in line and "built-in: git fetch" in line for line in trace.read_text().splitlines())
+    assert fetches <= 6, fetches

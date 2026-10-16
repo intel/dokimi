@@ -24,25 +24,20 @@ _LOCKFILES = frozenset({
 _GENERATED = re.compile(r"(^|/)(deps|vendor|third[_-]?party|generated|__generated__|node_modules)/|(^|/)tests?/(fixtures|baselines)/"
                         r"|\.generated\.|\.pb\.(go|cc|h)$|_pb2\.py$", re.I)
 _MINIFIED = re.compile(r"\.(min|bundle)\.(js|css)$", re.I)
-# Case-sensitive for Java/Kotlin/C# to avoid false positives on files like "Unit.java"
+# Name-based test files. The JVM/C#/Swift suffix is case-sensitive and needs a capital before it,
+# so ``Unit.java`` or ``Latest.swift`` do not count.
 _TEST_FILE_STRICT = re.compile(
     r"\.(test|spec)\.[cm]?[jt]sx?$|_test\.go$|(^|/)(test_[^/]+|[^/]+_test)\.py$"
-    r"|(^|/)[A-Z][A-Za-z0-9]*(?:Test|Tests|IT|Spec)\.(java|kt|kts|scala|cs)$|_(test|spec)\.(rb|exs?)$"
-    r"|_test\.(cc|cpp|cxx|c)$|[A-Z]\w*Tests?\.swift$|Tests?\.swift$")
-# Case-insensitive for directories only
+    r"|(^|/)[A-Z][A-Za-z0-9]*(?:Test|Tests|IT|Spec)\.(java|kt|kts|scala|cs|swift)$|_(test|spec)\.(rb|exs?)$"
+    r"|_test\.(cc|cpp|cxx|c)$")
+# Any source file under a test directory, except a package marker such as ``__init__.py``.
 _TEST_FILE_DIR = re.compile(
-    r"(^|/)(?:__tests__|tests?|specs?)/.*\.(?:[cm]?[jt]sx?|mjs|cjs|java|kts?|scala|py|rb|exs?|go|rs|c(?:pp|xx)?|cs|swift|php)$", re.I)
+    r"(^|/)(?:__tests__|tests?|specs?)/(?:.*/)?(?!__init__\.py$)[^/]+\.(?:[cm]?[jt]sx?|java|kts?|scala|py|rb|exs?|go|rs"
+    r"|c|cc|cpp|cxx|h|hh|hpp|hxx|cs|swift|php|lua|dart|hs|sh|bats)$", re.I)
 
-class _TestFileMatcher:
-    """Regex-like object that combines strict and directory patterns."""
-    def search(self, path):
-        if _TEST_FILE_STRICT.search(path):
-            return True
-        if _TEST_FILE_DIR.search(path):
-            return True
-        return None
 
-_TEST_FILE = _TestFileMatcher()
+def is_test_file(path: str) -> bool:
+    return bool(_TEST_FILE_STRICT.search(path) or _TEST_FILE_DIR.search(path))
 
 
 def is_generated(path: str) -> bool:
@@ -79,7 +74,7 @@ def sizes(tree: RepoTree) -> dict[str, int] | None:
 def inventory(files: list[str], size_of: dict[str, int] | None, large: int = LARGE_BYTES) -> dict[str, Any]:
     generated = [f for f in files if is_generated(f)]
     minified = [f for f in files if _MINIFIED.search(f)]
-    tests = [f for f in files if _TEST_FILE.search(f) and not is_generated(f)]
+    tests = [f for f in files if is_test_file(f) and not is_generated(f)]
     skip = set(generated) | set(minified)
     big = [] if size_of is None else [
         {"path": f, "bytes": -n} for n, f in sorted((-size_of.get(f, 0), f) for f in files

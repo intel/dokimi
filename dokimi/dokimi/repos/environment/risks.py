@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,7 +28,7 @@ MAX_SETTINGS_BYTES = 1_000_000
 @dataclass(frozen=True)
 class Capability:
     path: str
-    kind: str  # mcp | hook | plugin | skill | editor
+    kind: str  # mcp | hook | command | plugin | skill | editor
     harness: str
     risk: str  # high | medium | low
     note: str | None = None
@@ -113,17 +114,17 @@ def detect_capabilities(scan: Scan) -> list[Capability]:
             else:
                 hooks = _hook_entries(doc)
                 capabilities = []
-                # Check for hooks (original behavior)
+                # Check for hooks
                 if hooks:
                     capabilities.append(("hook", "high", "hooks on " + ", ".join(sorted(hooks))))
-                # Check for statusLine commands (THREAD 4)
+                # Check for statusLine commands
                 status_line = doc.get("statusLine") if isinstance(doc, dict) else None
                 if isinstance(status_line, dict) and status_line.get("type") == "command" and isinstance(status_line.get("command"), str):
-                    capabilities.append(("hook", "high", "statusLine command"))
-                # Check for apiKeyHelper (THREAD 4)
+                    capabilities.append(("command", "high", "statusLine command"))
+                # Check for apiKeyHelper
                 if isinstance(doc, dict) and isinstance(doc.get("apiKeyHelper"), str):
-                    capabilities.append(("hook", "high", "apiKeyHelper command"))
-                # Check for enableAllProjectMcpServers (THREAD 4)
+                    capabilities.append(("command", "high", "apiKeyHelper command"))
+                # Check for enableAllProjectMcpServers
                 if isinstance(doc, dict) and doc.get("enableAllProjectMcpServers") is True:
                     capabilities.append(("mcp", "high", "enables all MCP servers"))
                 # Add capability records for all detected capabilities
@@ -167,8 +168,25 @@ AUTOMATIC_EVENTS = ("SessionStart", "SessionEnd", "PreCompact", "Notification", 
 _OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,16}"
 _INSTALL = re.compile(rf"(?<![\w-])(?:npm|yarn|pnpm|bun){_OPT}\s+install\b|(?<![\w-])(?:npm|pnpm){_OPT}\s+ci\b"
                       rf"|(?<![\w-])(?:npm|pnpm|bun){_OPT}\s+i\b", re.I)
-_RUN_COMMAND = re.compile(r"(?<![\w-])(?:npm|yarn|pnpm|bun)\s+run\s+[\w:-]+\b", re.I)
-_MAKE = re.compile(r"^(?:\w+=\S*\s+)*(?:sudo\s+)?g?make\b")
+_PACKAGE_MANAGERS = ("npm", "yarn", "pnpm", "bun")
+# npm subcommands that run a script from the checked-out package.json.
+_NPM_SCRIPT_COMMANDS = frozenset({"run", "run-script", "rum", "urn", "test", "t", "tst", "start", "stop", "restart",
+                                  "rebuild", "rb", "exec", "x"})
+# yarn/pnpm/bun run a package.json script by bare name, so anything that is not one of their own
+# commands counts. Install forms are matched by ``_INSTALL`` first.
+_PM_BUILTINS = frozenset({"install", "i", "ci", "add", "remove", "rm", "uninstall", "un", "ls", "list", "info", "view",
+                          "config", "why", "outdated", "help", "audit", "init", "create", "link", "unlink", "upgrade",
+                          "update", "up", "cache", "store", "dlx", "login", "logout", "whoami", "pack", "publish",
+                          "version", "set", "dedupe", "prune", "env", "bin", "root", "-v", "--version", "-h", "--help"})
+# Words that run the command after them: wrappers, with how many of their own arguments to skip.
+_WRAPPERS = {"sudo": 0, "exec": 0, "nohup": 0, "env": 0, "command": 0, "nice": 0, "time": 0, "timeout": 1,
+             "source": 0, ".": 0}
+_INTERPRETERS = frozenset({"bash", "sh", "zsh", "dash", "python", "python3", "node", "ruby", "perl", "bun", "deno",
+                           "tsx", "ts-node"})
+# Interpreter options that take a separate value (``python3 -W ignore x.py``).
+_INTERPRETER_VALUE_OPTS = frozenset({"-W", "-X", "--require", "-r", "--import", "-O0"})
+_VAR_ASSIGN = re.compile(r"^[A-Za-z_]\w*=")
+_MAX_SHELL_DEPTH = 3
 _HOOK_SPLIT = re.compile(r"&&|\|\||;|\n")  # not a single `|`: `npm ci | tee log` still installs
 
 
@@ -184,17 +202,74 @@ def _ignores_scripts(segment: str) -> bool:
     # --no-ignore-scripts always means scripts WILL run (not safe)
     if flag.startswith("--no-ignore-scripts"):
         return False
-    # --ignore-scripts with explicit false means scripts WILL run
-    if "false" in flag or "0" in flag:
+    # --ignore-scripts with an explicit false value means scripts WILL run
+    if (last.group(1) or "").lower() in ("false", "0"):
         return False
     # --ignore-scripts with true/1 or no value defaults to true (safe)
     return True
 
 
+def _argv(segment: str) -> list[str]:
+    if len(segment) > 4096:  # shlex is slow on a long unbalanced quote
+        return segment.split()
+    try:
+        return shlex.split(segment, comments=True)
+    except ValueError:
+        return segment.split()
+
+
+def _in_tree(word: str, tracked: set[str]) -> bool:
+    word = word.lstrip("'\"")
+    return word.startswith(("./", "$CLAUDE_PROJECT_DIR", "${CLAUDE_PROJECT_DIR}")) or word in tracked
+
+
+def _runs_repository_code(segment: str, tracked: set[str], depth: int = 0) -> bool:
+    """Whether a hook command runs a script, makefile or file from the checked-out tree."""
+    argv = _argv(segment)
+    i = 0
+    while i < len(argv):  # skip VAR=value words and wrappers such as sudo, timeout N, env, source
+        word = argv[i]
+        if _VAR_ASSIGN.match(word):
+            i += 1
+        elif word in _WRAPPERS:
+            i += 1 + _WRAPPERS[word]
+            while i < len(argv) and argv[i].startswith("-"):
+                i += 1
+        else:
+            break
+    if i >= len(argv):
+        return False
+    cmd, rest = argv[i], argv[i + 1:]
+    name = cmd.rsplit("/", 1)[-1]
+    if name in ("make", "gmake"):
+        return True
+    if name in _PACKAGE_MANAGERS:
+        sub = next((w for w in rest if not w.startswith("-")), None)
+        if sub is None:
+            return False
+        if name == "npm":
+            return sub in _NPM_SCRIPT_COMMANDS
+        return sub not in _PM_BUILTINS
+    if name in _INTERPRETERS:
+        j = 0
+        while j < len(rest):
+            word = rest[j]
+            if word == "-c" and name in ("bash", "sh", "zsh", "dash"):
+                return j + 1 < len(rest) and depth < _MAX_SHELL_DEPTH and any(
+                    _runs_repository_code(part.strip(), tracked, depth + 1)
+                    for part in _HOOK_SPLIT.split(rest[j + 1]) if part.strip())
+            if word in _INTERPRETER_VALUE_OPTS:
+                j += 2
+            elif word.startswith("-"):
+                j += 1
+            else:
+                return _in_tree(word, tracked)
+        return False
+    return _in_tree(cmd, tracked)
+
+
 def detect_hook_risks(scan: Scan) -> list[HookRisk]:
     """Automatic Claude Code hooks that execute repository code (install with lifecycle scripts, run, make, paths)."""
-    import shlex
-
     out = set()
     tracked_files = set(scan.files)
     for path in CLAUDE_SETTINGS:
@@ -211,50 +286,6 @@ def detect_hook_risks(scan: Scan) -> list[HookRisk]:
                     # Check for install with lifecycle scripts
                     if _INSTALL.search(segment) and not _ignores_scripts(segment):
                         out.add(HookRisk(path, event, segment))
-                    # Check for npm/yarn/pnpm/bun run commands (THREAD 0)
-                    elif _RUN_COMMAND.search(segment):
+                    elif _runs_repository_code(segment, tracked_files):
                         out.add(HookRisk(path, event, segment))
-                    # Check for make commands (THREAD 0)
-                    elif _MAKE.search(segment):
-                        out.add(HookRisk(path, event, segment))
-                    # Check for paths into the tree (THREAD 0): ./path, $CLAUDE_PROJECT_DIR/path, or tracked files
-                    else:
-                        # Skip shlex for very long segments (DOS protection: shlex.split is slow on unbalanced quotes)
-                        if len(segment) > 4096:
-                            argv = segment.split()
-                        else:
-                            # Shlex-split the segment to extract the command word
-                            try:
-                                argv = shlex.split(segment)
-                            except ValueError:
-                                argv = segment.split()
-
-                        if argv:
-                            # Get the command word, skipping interpreter flags
-                            cmd_word = None
-                            if argv[0] in ('bash', 'sh', 'zsh', 'python', 'python3', 'node', 'ruby', 'perl', 'bun', 'deno', 'tsx'):
-                                # For interpreters, find the first arg that doesn't start with -
-                                for i in range(1, len(argv)):
-                                    if not argv[i].startswith('-'):
-                                        cmd_word = argv[i]
-                                        break
-                                    # For -c, also check the argument after -c (the code snippet)
-                                    if argv[i] in ('-c',):
-                                        if i + 1 < len(argv):
-                                            next_word = argv[i + 1]
-                                            # Strip quotes from the -c argument
-                                            next_word = next_word.lstrip("'\"")
-                                            if next_word.startswith('./') or next_word.startswith('$CLAUDE_PROJECT_DIR') or next_word.startswith('${CLAUDE_PROJECT_DIR}') or next_word in tracked_files:
-                                                out.add(HookRisk(path, event, segment))
-                                                break
-                            else:
-                                # Not an interpreter, use argv[0]
-                                cmd_word = argv[0]
-
-                            if cmd_word:
-                                # Strip quotes from the command word
-                                cmd_word = cmd_word.lstrip("'\"")
-                                # Check if it starts with ./ or $CLAUDE_PROJECT_DIR or is a tracked file
-                                if cmd_word.startswith('./') or cmd_word.startswith('$CLAUDE_PROJECT_DIR') or cmd_word.startswith('${CLAUDE_PROJECT_DIR}') or cmd_word in tracked_files:
-                                    out.add(HookRisk(path, event, segment))
     return sorted(out, key=lambda r: (r.path, r.event, r.command))

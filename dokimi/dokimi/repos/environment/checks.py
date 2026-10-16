@@ -32,7 +32,7 @@ _NODE_TYPE_NAME = re.compile(r"(^|[:/_-])(?:type-?check|check[:_-]?types?|typing
 _NODE_TYPE_TOOL = re.compile(r"\btsc\b[^\n]{0,256}?--noemit\b|\btsd\b|\bvue-tsc\b|\bsvelte-check\b|\battw\b", re.I)
 _NODE_INSTALL = re.compile(r"\b(npm (ci|install|i)|yarn (install|add)|pnpm (install|i|add)|bun (install|i|add))\b")
 _SEGMENTS = re.compile(r"&&|\|\||[;\n]")
-_INI_SECTION = re.compile(r"^\[+([^\]#;]+)\]+", re.M)
+_INI_SECTION = re.compile(r"^\[{1,2}([^\[\]#;\n]+)\]{1,2}", re.M)  # no `[` inside: linear on `[[[[`
 _JVM_LINT = r"checkstyle|pmd|spotbugs|spotless|ktlint|detekt"
 _TEST_DIR = re.compile(r"(^|/)(tests?|unit|unittests?)/", re.I)
 # pre-commit hook ids that lint or type-check; anything else in the config still counts as lint
@@ -100,13 +100,14 @@ def _make(scan: Scan, root: str) -> list[Check]:
 
 
 def _cmake(scan: Scan) -> list[Check]:
-    if "CMakeLists.txt" not in scan.file_set and "CMakePresets.json" not in scan.file_set:
-        return []
-    evidence = "CMakeLists.txt" if "CMakeLists.txt" in scan.file_set else "CMakePresets.json"
-    if is_generated(evidence):
+    lists = [f for f in scan.files if posixpath.basename(f) == "CMakeLists.txt" and not is_generated(f)]
+    evidence: str | None = next((m for m in ("CMakeLists.txt", "CMakePresets.json") if m in scan.file_set), None)
+    evidence = evidence or (lists[0] if lists else None)  # a project in a subdirectory (`cpp/CMakeLists.txt`)
+    if evidence is None:
         return []
     out = [Check("cmake", "build", "toolchain", evidence)]
-    sources = "\n".join(scan.text(f) for f in scan.files if posixpath.basename(f) == "CMakeLists.txt" and not is_generated(f))
+    scan.preload(lists)
+    sources = "\n".join(scan.text(f) for f in lists)
     if re.search(r"\b(?:enable_testing|add_test|ctest_|gtest_discover_tests|catch_discover_tests)\s*\(", sources,
                  re.I):
         out.append(Check("cmake", "test", "declared", evidence, "ctest"))
@@ -119,8 +120,6 @@ def _bazel(scan: Scan) -> list[Check]:
     if marker is None and not builds:
         return []
     evidence = marker or builds[0]
-    if is_generated(evidence):
-        return []
     out = [Check("bazel", "build", "toolchain", evidence)]
     scan.preload(builds)
     test_rule = next((f for f in builds if re.search(r"\b\w+_test\s*\(", scan.text(f))), None)
@@ -147,6 +146,7 @@ def _autotools(scan: Scan) -> list[Check]:
         return []
     out = [Check("autotools", "build", "toolchain", marker)]
     am_files = [f for f in scan.files if posixpath.basename(f) == "Makefile.am"]
+    scan.preload(am_files)
     if any(re.search(r"\b(?:TESTS|check_PROGRAMS|check_SCRIPTS|check_LTLIBRARIES)\b", scan.text(f)) for f in am_files):
         out.append(Check("autotools", "test", "declared", am_files[0], "make check"))
     return out
@@ -187,9 +187,11 @@ def _gradle(scan: Scan) -> list[Check]:
         return []
     evidence = files[0] if files else "gradlew"
     out = [Check("gradle", k, "toolchain", evidence) for k in ("build", "test")]
+    scan.preload(files)
     for f in files:
         text = scan.text(f)
-        blocks = " ".join(re.findall(r"\bplugins\s*\{([\s\S]*?)\}", text, re.I))
+        # `[^{}]`, not a lazy `[\s\S]*?`: linear on a file of repeated `plugins {`
+        blocks = " ".join(re.findall(r"\bplugins\s*\{([^{}]*)\}", text, re.I))
         applied = re.search(rf"\bapply\s+plugin:\s*[\"'][^\"']*\b(?:{_JVM_LINT})\b", text, re.I)
         if applied or re.search(rf"\b(?:{_JVM_LINT})\b", blocks, re.I):
             out.append(Check("gradle", "lint", "declared", f))
@@ -197,13 +199,18 @@ def _gradle(scan: Scan) -> list[Check]:
     return out
 
 
+_MAVEN_ARTIFACT = re.compile(r"<artifactId>([^<]*)</artifactId>", re.I)
+_MAVEN_LINT = re.compile(rf"\b(?:{_JVM_LINT})\b", re.I)
+
+
 def _maven(scan: Scan) -> list[Check]:
     poms = [f for f in scan.files if posixpath.basename(f) == "pom.xml"]
     if not poms:
         return []
     out = [Check("maven", k, "toolchain", poms[0]) for k in ("build", "test")]
-    lint = next((f for f in poms if re.search(rf"<artifactId>\s*[^<]*\b(?:{_JVM_LINT})\b[^<]*plugin[^<]*</artifactId>",
-                                              scan.text(f), re.I)), None)
+    scan.preload(poms)
+    lint = next((f for f in poms if any(_MAVEN_LINT.search(a) and "plugin" in a.lower()
+                                        for a in _MAVEN_ARTIFACT.findall(scan.text(f)))), None)
     if lint:
         out.append(Check("maven", "lint", "declared", lint))
     return out
@@ -249,7 +256,10 @@ def project_roots(scan: Scan) -> list[str]:
 def detect_checks(scan: Scan) -> list[Check]:
     """Every check surface found, per project root for per-project ecosystems, in ecosystem order."""
     found: list[Check] = []
-    for root in project_roots(scan):
+    roots = project_roots(scan)
+    # one request for every per-root manifest, not one per file, on a blob-less clone
+    scan.preload([_at(r, m) for r in roots for m in sorted(PROJECT_MARKERS | {"setup.cfg"})])
+    for root in roots:
         found += (_node(scan, root) + _make(scan, root)
                   + _toolchain(scan, root, "go", "go.mod", ("build", "test", "lint"))
                   + _toolchain(scan, root, "rust", "Cargo.toml", ("build", "test", "lint", "typecheck"))
