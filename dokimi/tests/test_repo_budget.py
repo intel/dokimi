@@ -69,6 +69,16 @@ def test_imports_load_at_start_transitively(tmp_path):
     assert ("ignored.md", "import") not in entries and ("example.md", "import") not in entries
 
 
+def test_imports_in_code_and_absolute_paths_are_not_followed(tmp_path):
+    fence = "`" * 3
+    lines = ["real @real.md", fence + "md", "@fenced.md", fence, "use `see @span.md` here",
+             "~~~", "@tilde.md", "~~~", "@/abs.md", "@kept.md"]
+    names = ("real", "fenced", "span", "tilde", "abs", "kept")
+    tree = _tree(tmp_path, {"CLAUDE.md": "\n".join(lines), **{f"{n}.md": "x" for n in names}})
+    got = budget(tree, NAMES)
+    assert sorted(e["path"] for e in got["entries"] if e["kind"] == "import") == ["kept.md", "real.md"]
+
+
 def test_a_nested_claude_md_bridge_loads_its_agents_md_lazily(tmp_path):
     tree = _tree(tmp_path, {
         "CLAUDE.md": "@AGENTS.md\n", "AGENTS.md": "a",

@@ -34,6 +34,9 @@ from dokimi.repos.source import RepoTree
 SKILL_GLOB = re.compile(r"^\.claude/skills/[^/]+/SKILL\.md$")
 MCP_FILE = ".mcp.json"
 IMPORT = re.compile(r"(?<![\w`])@([\w./-]+\.md)\b")
+# Claude Code does not follow an @path inside a code block or a code span.
+_CODE_BLOCK = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", re.S | re.M)
+_CODE_SPAN = re.compile(r"`[^`\n]*`")
 DUPLICATE_JACCARD = 0.5
 _WORD = re.compile(r"[a-z0-9]+")
 _STOP = frozenset("a an and the of to for in on with use when or is are be this that it its from by as at".split())
@@ -137,7 +140,9 @@ def _imports(tree: RepoTree, roots: list[str]) -> set[str]:
         except (OSError, UnicodeDecodeError, ValueError):
             continue
         here = f.rsplit("/", 1)[0] + "/" if "/" in f else ""
-        for target in IMPORT.findall(text):
+        for target in IMPORT.findall(_CODE_SPAN.sub("", _CODE_BLOCK.sub("", text))):
+            if target.startswith("/"):
+                continue  # an absolute path names the host filesystem, not a file of the tree
             path = _normalize(here + target)
             if path and path not in seen:
                 seen.add(path)
