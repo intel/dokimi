@@ -8,7 +8,8 @@ The benchmark produces long-lived JSON artifact kinds: ``questions``,
 ``task_runs`` (executable task results), ``explore_runs`` (ExploreBench
 localization results), ``novelty`` (what an artifact's content adds to one
 model), ``guidance_reach`` (L1 reach probes) and ``repo_readiness`` (L0 claim
-checks). This module stamps each with a ``schema_version`` and
+checks) and ``tool_preference`` (which of two equal tools a model picks, and
+what moves it). This module stamps each with a ``schema_version`` and
 validates it against the JSON Schema in ``dokimi/schemas/`` on save
 and load, so fixtures and baselines stay forward-compatible and self-describing.
 
@@ -45,6 +46,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "explore_runs": "explore_runs.v1",
     "guidance_reach": "guidance_reach.v1",
     "repo_readiness": "repo_readiness.v1",
+    "tool_preference": "tool_preference.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. A bump is additive by policy,

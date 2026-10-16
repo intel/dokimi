@@ -161,7 +161,7 @@ class Context7Client(MCPClient):
             
             # Context7 sometimes returns HTML or error text with HTTP 200
             # Basic validation: check if response looks like documentation
-            if content.startswith("<!DOCTYPE") or content.startswith("<html"):
+            if content.startswith(("<!DOCTYPE", "<html")):
                 raise MCPLibraryNotFoundError(
                     f"Context7 returned HTML (library not found?): {library_id}"
                 )

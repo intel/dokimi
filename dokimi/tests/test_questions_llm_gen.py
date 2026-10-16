@@ -105,7 +105,7 @@ class TestGenerateQuestions:
             questions = gen.generate_questions("oneTBB", sample_personas, sample_topics)
             ids = [q["id"] for q in questions]
             assert len(ids) == len(set(ids))  # All unique
-            assert all(id.startswith("q_") for id in ids)
+            assert all(qid.startswith("q_") for qid in ids)
     
     def test_includes_required_fields(self, sample_personas, sample_topics, mock_llm):
         mock_cls = Mock(return_value=mock_llm)

@@ -70,6 +70,55 @@ Score anchors — interpolate between these points:
     0 = completely wrong, irrelevant, or harmful to follow
 """
 
+# ── Numeric claims (shared with the single judge) ─────────────────────────────
+#
+# Wrong *magnitudes* were invisible to every judge measured: the judge-validity
+# gate's `wrong_numbers` degradation — which scales figures by 10x and swaps
+# units, leaving the prose intact and the length unchanged — scored 0.60 on the
+# shipped prompt (Haiku, 4 seeds, 156 pairs; 27% ties, mean score drop 1.9
+# points), i.e. the judge barely saw the edit. A single 20-base run of the full
+# 9-variant gate put it at 0.71; run-to-run spread on this gate is wide. It is attached to `correctness` rather than
+# given its own dimension because that is where a wrong number belongs, and
+# because `correctness` already carries double weight in the aggregate; a sixth
+# dimension would both re-dilute the weighting and break score comparability
+# with stored runs a second time.
+#
+# The wording names the *class* of error and deliberately no example of it. An
+# earlier version listed "ms where ns is meant, MB/s where GB/s, Hz where MHz"
+# and "off by an order of magnitude" — which are, verbatim, the substitutions and
+# the 10x scaling the gate's `wrong_numbers` generator applies, so its measured
+# gain was taken on the same perturbations the prompt described.
+NUMERIC_CLAIMS = """   Check the answer's *numbers*, not only its prose: every quoted magnitude,
+   unit, size, width, latency, rate or ratio is a factual claim. A figure that
+   is wrong for this question — wrong value or wrong unit — is a factual error
+   even when the sentence around it is fluent and confident, and caps
+   correctness at 40."""
+
+# Listed first in the output so the figures are written out before any score
+# is. Criterion + enumeration moved `wrong_numbers` significantly where the
+# criterion alone did not; the two were not compared head-to-head, so this is
+# the best reading, not an isolated effect. Putting it in the JSON makes the
+# enumeration visible in every stored judgement instead of asserted.
+NUMERIC_INSTRUCTION = """- First fill `numeric_claims`: copy out every figure the answer quotes, with
+  its unit (at most 20), and mark each right or wrong for this question. Then
+  score correctness; a single wrong figure caps it at 40"""
+
+# A JSON array, one entry per figure. A semicolon-separated string was tried to
+# cut malformed replies (with an array first, the model sometimes closes the
+# later `reasoning` object with `]`): it did — 9 extra calls per 247 judgements
+# instead of 26, against 5 for the stock prompt — but it scored lower on every
+# numeric variant in two independent runs, and in the replication it no longer
+# beat the old wording anywhere while the array did on all three (paired
+# McNemar p = 0.016 / 0.035 / 0.039). The malformed replies are retried by
+# `Judge._judge_answer` and `JudgePanel._call_judge`; 0-1 judgements per 247 still fail all three attempts.
+NUMERIC_OUTPUT = """  "numeric_claims": ["<figure with unit>: right|wrong", ...],"""
+
+# The panel had none of this until it was measured against the gate's own
+# `wrong_numbers` degradation (Haiku 4.5, 3 roles, 60 bases): 0.604 -> 0.792 on
+# Sonnet's answers and 0.590 -> 0.795 on Opus's, pooled +25/-8 pairs, McNemar
+# p = 0.0046. `wrong_tools` dipped in both runs (0.947 -> 0.895, 0.942 -> 0.904;
+# pooled +5/-10, p = 0.30) — not significant, and reported, not hidden.
+
 # ── Judge role prompts ────────────────────────────────────────────────────────
 
 _ROLE_INTROS: Dict[str, str] = {
@@ -114,6 +163,7 @@ __ANCHORS__
 
 Dimensions to rate:
 1. correctness   — Is the answer factually accurate for __LIBRARY__?
+__NUMERIC_CLAIMS__
 2. completeness  — Does it address ALL parts of the question?
 3. specificity   — Do the identifiers it names — APIs, functions, flags, tools —
                    actually belong to __LIBRARY__ and fit this question? Naming
@@ -124,14 +174,18 @@ Dimensions to rate:
 5. actionability — Can the user directly apply this to their problem right now?
 
 IMPORTANT: Output ONLY a JSON object. Do NOT wrap in markdown. Do NOT add any text before or after.
-Put "reasoning" FIRST (it helps you think before scoring):
-{"reasoning": "one sentence: main strength or weakness", "correctness": N, "completeness": N, "specificity": N, "code_quality": N, "actionability": N}
+__NUMERIC_INSTRUCTION__
+Put "numeric_claims" first, then "reasoning":
+{__NUMERIC_OUTPUT__ "reasoning": "one sentence: main strength or weakness", "correctness": N, "completeness": N, "specificity": N, "code_quality": N, "actionability": N}
 """
 
 JUDGE_ROLES: Dict[str, str] = {
     role: _PROMPT_TEMPLATE
     .replace("__ROLE_INTRO__", intro)
     .replace("__ANCHORS__", SCORE_ANCHORS)
+    .replace("__NUMERIC_CLAIMS__", NUMERIC_CLAIMS)
+    .replace("__NUMERIC_INSTRUCTION__", NUMERIC_INSTRUCTION)
+    .replace("__NUMERIC_OUTPUT__", NUMERIC_OUTPUT.strip())
     for role, intro in _ROLE_INTROS.items()
 }
 
@@ -148,6 +202,13 @@ class JudgeVote:
     reasoning: str
     aggregate: Optional[float] = None   # Python-computed weighted aggregate
     error: Optional[str] = None
+    #: The judged score a cap replaced, and the indexes of `numeric_claims`
+    #: entries with no readable verdict — the same fields `Judge` records.
+    caps: Optional[Dict[str, Any]] = None
+    unread_claims: Optional[List[int]] = None
+    #: The figures the judge wrote out, as replied. Kept so a cap, or an
+    #: `unread_claims` index, can be traced to the figure behind it.
+    numeric_claims: Optional[List[Any]] = None
 
 
 @dataclass
@@ -284,8 +345,8 @@ class JudgePanel:
                 return False
             return True
 
-        # judge.py imports this module, so its reminder is read here, not at import.
-        from dokimi.eval.judge import _FORMAT_REMINDER
+        # judge.py imports this module, so its helpers are read here, not at import.
+        from dokimi.eval.judge import _FORMAT_REMINDER, Judge
 
         pinned = config.temperature is not None or config.seed is not None
         try:
@@ -313,11 +374,19 @@ class JudgePanel:
                     )
             else:
                 raise last_parse_exc
+            # Hold the prompt's wrong-figure cap in Python, with the single
+            # judge's own rule, so the two cannot disagree about what it means.
+            capped: Dict[str, Any] = {"correctness": scores["correctness"],
+                                      "numeric_claims": data.get("numeric_claims")}
+            Judge._cap_for_wrong_figures(capped)
+            scores["correctness"] = capped["correctness"]
             # Python computes aggregate (ignores any aggregate LLM might have returned)
             agg = self._compute_aggregate(config.role, scores) if scores else None
             return JudgeVote(
                 role=config.role, model=config.model, provider=config.provider,
                 scores=scores, reasoning=str(data.get("reasoning", "")), aggregate=agg,
+                caps=capped.get("caps"), unread_claims=capped.get("unread_claims"),
+                numeric_claims=claims if isinstance(claims := data.get("numeric_claims"), list) else None,
             )
         except Exception as exc:
             logger.warning(f"Judge '{config.role}' ({config.model}) failed: {exc}")
@@ -361,7 +430,7 @@ class JudgePanel:
             "disagreement_flag": verdict.disagreement_flag,
             "votes": [
                 {"role": v.role, "model": v.model, "provider": v.provider,
-                 "aggregate": v.aggregate, "error": v.error}
+                 "aggregate": v.aggregate, "error": v.error, **_numeric_fields(v)}
                 for v in verdict.votes
             ],
         }
@@ -450,6 +519,22 @@ class JudgePanel:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _numeric_fields(vote: JudgeVote) -> Dict[str, Any]:
+    """The vote's figure check, when it made one: what it listed and what that capped.
+
+    An empty `numeric_claims` is kept, as the single judge keeps it: a check
+    that found no figures is not the same as no check.
+    """
+    fields: Dict[str, Any] = {}
+    if vote.numeric_claims is not None:
+        fields["numeric_claims"] = vote.numeric_claims
+    if vote.caps:
+        fields["caps"] = vote.caps
+    if vote.unread_claims:
+        fields["unread_claims"] = vote.unread_claims
+    return fields
+
+
 def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
     if v is None:
         return None
@@ -461,7 +546,8 @@ def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
         "dimensions": v.mean_dimensions,
         "votes": [
             {"role": vt.role, "model": vt.model, "aggregate": vt.aggregate,
-             "scores": vt.scores, "reasoning": vt.reasoning, "error": vt.error}
+             "scores": vt.scores, "reasoning": vt.reasoning, "error": vt.error,
+             **_numeric_fields(vt)}
             for vt in v.votes
         ],
     }
@@ -479,6 +565,7 @@ def _save_incremental(results: List[Dict], path: Path, library_name: str,
             "size": len(panel.judges),
             "roles": [j.role for j in panel.judges],
             "models": [f"{j.provider}/{j.model}" for j in panel.judges],
+            "prompt_sha256": panel.prompt_sha256,
         },
         "library_name": library_name,
         "total_evaluations": len(results),

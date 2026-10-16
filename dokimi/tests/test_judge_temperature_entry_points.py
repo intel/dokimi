@@ -40,6 +40,15 @@ def _run(argv):
     args.func(args)
 
 
+def _exit_code(argv):
+    """Run the CLI and return its exit code: None when it returns, else the SystemExit code."""
+    try:
+        _run(argv)
+    except SystemExit as exc:
+        return exc.code
+    return None
+
+
 @pytest.mark.parametrize("flag, expected", [(["--judge-temperature", "0"], 0.0), ([], None)])
 def test_eval_score_forwards_and_records_judge_temperature(tmp_path, requests, flag, expected):
     out = tmp_path / "eval.json"
@@ -162,10 +171,7 @@ RELIABILITY_COMMANDS = ["pairwise", "checklist", "judge-wording", "cross-judge",
 @pytest.mark.parametrize("command", RELIABILITY_COMMANDS)
 def test_judge_reliability_commands_forward_and_record_judge_temperature(tmp_path, routed, command):
     out = tmp_path / "out.json"
-    try:
-        _run([*_reliability_argv(command, tmp_path, out), "--judge-temperature", "0"])
-    except SystemExit as exc:
-        assert exc.code in (0, 1, None)
+    assert _exit_code([*_reliability_argv(command, tmp_path, out), "--judge-temperature", "0"]) in (0, 1, None)
     judged = [r for r in routed if not _is_probe(r)]
     assert judged and all(r["temperature"] == 0.0 for r in judged)
     assert len(routed) - len(judged) == 1
@@ -175,10 +181,7 @@ def test_judge_reliability_commands_forward_and_record_judge_temperature(tmp_pat
 @pytest.mark.parametrize("command", RELIABILITY_COMMANDS)
 def test_judge_reliability_commands_send_no_sampling_without_the_flag(tmp_path, routed, command):
     out = tmp_path / "out.json"
-    try:
-        _run(_reliability_argv(command, tmp_path, out))
-    except SystemExit as exc:
-        assert exc.code in (0, 1, None)
+    assert _exit_code(_reliability_argv(command, tmp_path, out)) in (0, 1, None)
     assert routed and not any(_is_probe(r) for r in routed)
     assert not any("temperature" in r or "seed" in r for r in routed)
     assert json.loads(out.read_text(encoding="utf-8"))["judge_temperature"] is None
