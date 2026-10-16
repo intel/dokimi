@@ -48,19 +48,24 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
     names = set(guidance_names)
     guidance = _unaliased(tree, [f for f in files if f.rsplit("/", 1)[-1] in names])
     claude = [f for f in guidance if f.rsplit("/", 1)[-1].startswith("CLAUDE")]
-    # Only root CLAUDE files that are readable can turn AGENTS.md off
+    # Only a root CLAUDE.md (not .claude/CLAUDE.md or CLAUDE.local.md) can turn AGENTS.md off
     root_claude = [f for f in claude if _is_root(f)]
-    root_claude_readable = [f for f in root_claude if _is_readable(tree, f)]
+    # For off rule: only root CLAUDE.md that resolves (not dangling/out-of-tree); unreadable UTF-8 still counts
+    root_claude_for_off = [f for f in root_claude if f == "CLAUDE.md" and _is_resolvable(tree, f)]
+    root_claude_readable = [f for f in root_claude if _is_resolvable(tree, f)]
     # A root CLAUDE.md's imports load at start; a nested one's when the agent reaches its subtree.
     at_start = _imports(tree, root_claude_readable)
     lazily = _imports(tree, [f for f in claude if f not in root_claude]) - at_start
 
+    start_t = {_target(tree, p) for p in at_start}
+    loaded_t = start_t | {_target(tree, p) for p in lazily}
+
     entries: list[dict[str, Any]] = []
     unreadable_warnings: list[str] = []
     for f in guidance:
-        if f.rsplit("/", 1)[-1] == "AGENTS.md" and root_claude_readable and f not in at_start | lazily:
+        if f.rsplit("/", 1)[-1] == "AGENTS.md" and root_claude_for_off and _target(tree, f) not in loaded_t:
             when = "off"
-        elif f in at_start or _is_root(f):
+        elif _target(tree, f) in start_t or _is_root(f):
             when = "start"
         else:
             when = "lazy"
@@ -87,7 +92,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
     warnings = unreadable_warnings[:]
     off = [e["path"] for e in entries if e["when"] == "off"]
     if off:
-        warnings.append(f"{', '.join(root_claude_readable)} turns AGENTS.md loading off and no CLAUDE.md "
+        warnings.append(f"{', '.join(root_claude_for_off)} turns AGENTS.md loading off and no CLAUDE.md "
                         f"imports these, so Claude Code reads none of {', '.join(off)} unless the agent opens "
                         "them (import each with `@AGENTS.md` from a CLAUDE.md beside it; `repo reach` measures it)")
     for s in skills:
@@ -96,7 +101,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
     duplicates = _near_duplicates(skills)
     for d in duplicates:
         warnings.append(f"skills {d['a']} and {d['b']} have near-duplicate descriptions "
-                        f"(word overlap {d['overlap']:.2f}); the listing is all the agent picks from")
+                        f"(Jaccard {d['overlap']:.2f} on words, stop words removed); the listing is all the agent picks from")
     return {
         "tree": tree.label,
         "entries": entries,
@@ -126,7 +131,10 @@ def _unaliased(tree: RepoTree, guidance: list[str]) -> list[str]:
     groups: dict[str, list[str]] = {}
     for f in guidance:
         groups.setdefault(_target(tree, f), []).append(f)
-    keep = {min(g, key=lambda p: (not p.rsplit("/", 1)[-1].startswith("CLAUDE"), p)) for g in groups.values()}
+    keep = {
+        min(g, key=lambda p: (p.count("/"), not p.rsplit("/", 1)[-1].startswith("CLAUDE"), p))
+        for g in groups.values()
+    }
     return [f for f in guidance if f in keep]
 
 
@@ -137,12 +145,12 @@ def _is_file(tree: RepoTree, path: str) -> bool:
         return False
 
 
-def _is_readable(tree: RepoTree, path: str) -> bool:
-    """True if the file exists and can be read as text (UTF-8 decodable)."""
+def _is_resolvable(tree: RepoTree, path: str) -> bool:
+    """True if the file exists and resolves (not a broken or out-of-tree link)."""
     try:
-        tree.read_text(path)
+        tree.is_file(path)
         return True
-    except (OSError, ValueError, UnicodeDecodeError):
+    except (OSError, ValueError):
         return False
 
 
@@ -212,21 +220,21 @@ def _skills(tree: RepoTree, paths: list[str]) -> list[dict[str, Any]]:
 def _near_duplicates(skills: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Pairs of skills with similar descriptions, named by ``name`` (by path when two share a name).
 
-    Compares Jaccard indices (word overlap after removing stop words) of descriptions with 3+ tokens each.
+    Reports exact duplicates (words[i] == words[j]) always, and partial overlaps (Jaccard >= 0.5)
+    only when both descriptions have 3+ meaningful tokens after stop-word removal.
     """
     taken = [s["name"] for s in skills]
     label = [s["path"] if taken.count(s["name"]) > 1 else s["name"] for s in skills]
     words = [set(_WORD.findall(s["description"].lower())) - _STOP for s in skills]
     out = []
     for i, j in combinations(sorted(range(len(skills)), key=lambda k: (label[k], k)), 2):
-        # Skip pairs where either side has fewer than 3 meaningful tokens
-        if len(words[i]) < 3 or len(words[j]) < 3:
-            continue
         union = words[i] | words[j]
         if not union:
             continue
         overlap = len(words[i] & words[j]) / len(union)
-        if overlap >= DUPLICATE_JACCARD:
+        is_exact = words[i] == words[j] and words[i]  # Exact match and non-empty
+        is_partial = overlap >= DUPLICATE_JACCARD and len(words[i]) >= 3 and len(words[j]) >= 3
+        if is_exact or is_partial:
             out.append({"a": label[i], "b": label[j], "overlap": round(overlap, 2)})
     return out
 

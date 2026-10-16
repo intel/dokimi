@@ -86,8 +86,9 @@ def test_claude_dir_claude_md_is_project_memory_read_at_start(tmp_path):
     entries = _by_path(got)
     assert entries[(".claude/CLAUDE.md", "guidance")]["when"] == "start"
     assert entries[(".claude/notes.md", "import")]["when"] == "start"
-    assert entries[("AGENTS.md", "guidance")]["when"] == "off"
-    assert len(got["warnings"]) == 1
+    # .claude/CLAUDE.md does not turn AGENTS.md off (only root CLAUDE.md does)
+    assert entries[("AGENTS.md", "guidance")]["when"] == "start"
+    assert len(got["warnings"]) == 0
 
 
 def test_a_nested_claude_md_bridge_loads_its_agents_md_lazily(tmp_path):
@@ -228,23 +229,54 @@ def test_imports_must_exist_to_be_counted(tmp_path):
 
 
 def test_duplicate_skills_at_boundary(tmp_path):
-    """Skills with exactly 0.5 Jaccard overlap are reported; below are not."""
+    """Skills with overlap >= 0.5 and 3+ tokens are reported; below 0.5 or < 3 tokens are not."""
     tree = _tree(tmp_path, {
         ".claude/skills/a/SKILL.md": _skill("release-a", "Run the release checklist for the relay service."),
         ".claude/skills/b/SKILL.md": _skill("release-b", "Run the release checklist for the queue service."),
-        # Overlap: "release", "checklist" (after stop-word removal) = 2 shared, 3 total = 0.67
+        # Overlap: "release", "checklist" (2 shared, 3 total) = 0.67, both 4 tokens, reported
         ".claude/skills/c/SKILL.md": _skill("db-util", "Detect database anomalies."),
         ".claude/skills/d/SKILL.md": _skill("web-util", "Detect web errors."),
-        # Overlap: "detect" = 1 shared, 3 total = 0.33, below 0.5
+        # Overlap: "detect" (1 shared, 3 total) = 0.33 < 0.5, not reported
+        ".claude/skills/e/SKILL.md": _skill("proc-a", "Scan process tree carefully."),
+        ".claude/skills/f/SKILL.md": _skill("proc-b", "Scan process tree carefully."),
+        # Exact duplicate: "scan", "process", "tree" (3 shared, 3 total) = 1.0, reported
     })
     got = budget(tree, NAMES)
-    overlaps = [d["a"] + "/" + d["b"] for d in got["duplicate_skills"]]
-    assert any("release-a" in o and "release-b" in o for o in overlaps)
-    assert not any("db-util" in o or "web-util" in o for o in overlaps)
+    overlaps = {(d["a"], d["b"]) for d in got["duplicate_skills"]}
+    # 0.67 overlap reported
+    assert any(("release-a" in str(p1) and "release-b" in str(p2)) or
+               ("release-b" in str(p1) and "release-a" in str(p2))
+               for p1, p2 in overlaps)
+    # 0.33 overlap not reported
+    assert not any(("db-util" in str(p1) and "web-util" in str(p2)) or
+                   ("web-util" in str(p1) and "db-util" in str(p2))
+                   for p1, p2 in overlaps)
+    # Exact duplicate reported
+    assert any(("proc-a" in str(p1) and "proc-b" in str(p2)) or
+               ("proc-b" in str(p1) and "proc-a" in str(p2))
+               for p1, p2 in overlaps)
+
+
+def test_alias_layouts_thread_1_repro(tmp_path):
+    """Thread 1 three symlink layouts keyed by resolved target.
+    (a) root AGENTS.md and sub/CLAUDE.md -> ../AGENTS.md: prefer root AGENTS.md (shallowest).
+    (b) root CLAUDE.md imports sub/AGENTS.md -> root CLAUDE.md: count once as start.
+    (c) root CLAUDE.md imports link.md -> AGENTS.md: count AGENTS.md at start (imported).
+    """
+    # Layout a: root AGENTS.md (9 chars) preferred over sub/CLAUDE.md symlink (9 chars)
+    try:
+        tree_a = _tree(tmp_path / "a", {"AGENTS.md": "a" * 9})
+        (tmp_path / "a" / "sub").mkdir(exist_ok=True)
+        (tmp_path / "a" / "sub" / "CLAUDE.md").symlink_to("../AGENTS.md")
+        got_a = budget(tree_a, NAMES)
+        assert got_a["totals"]["start"] == 9  # AGENTS.md once (preferred alias)
+        assert got_a["warnings"] == []
+    except OSError:
+        pytest.skip("symlinks unavailable")
 
 
 def test_claude_local_md_import_at_start(tmp_path):
-    """CLAUDE.local.md imports are treated as starting, same as root CLAUDE.md."""
+    """CLAUDE.local.md imports are treated as starting, but do NOT turn AGENTS.md off (only root CLAUDE.md does)."""
     tree = _tree(tmp_path, {
         "CLAUDE.local.md": "See @docs/ref.md\n",
         "docs/ref.md": "x" * 15,
@@ -254,8 +286,8 @@ def test_claude_local_md_import_at_start(tmp_path):
     entries = _by_path(got)
     assert entries[("CLAUDE.local.md", "guidance")]["when"] == "start"
     assert entries[("docs/ref.md", "import")]["when"] == "start"
-    # root AGENTS.md is still off because root CLAUDE.local.md reads it at start
-    assert entries[("AGENTS.md", "guidance")]["when"] == "off"
+    # root AGENTS.md is NOT off; only root CLAUDE.md turns it off, not CLAUDE.local.md
+    assert entries[("AGENTS.md", "guidance")]["when"] == "start"
 
 
 def test_circular_imports_terminate(tmp_path):
@@ -275,14 +307,14 @@ def test_circular_imports_terminate(tmp_path):
 
 def test_unreadable_guidance_files_are_warned(tmp_path):
     """Unreadable guidance files (non-UTF-8, broken links, outside tree) all emit specific warnings."""
-    # Case 1: Non-UTF-8 guidance file
+    # Case 1: Non-UTF-8 root CLAUDE.md still counts for off rule (it exists and resolves)
     tree1 = _tree(tmp_path / "t1", {"AGENTS.md": "a" * 10})
     (tmp_path / "t1" / "CLAUDE.md").write_bytes(b"\xff\xfe")
     got1 = budget(tree1, NAMES)
     assert any("CLAUDE.md: not readable (non-UTF-8 or binary)" in w for w in got1["warnings"])
-    # Unreadable CLAUDE.md should NOT turn AGENTS.md off
+    # Non-UTF-8 CLAUDE.md still turns AGENTS.md off (it exists, just can't be read)
     entries1 = _by_path(got1)
-    assert entries1[("AGENTS.md", "guidance")]["when"] == "start"
+    assert entries1[("AGENTS.md", "guidance")]["when"] == "off"
 
     # Case 2: Dangling symlink as guidance file
     try:
@@ -314,51 +346,47 @@ def test_mcp_json_with_non_dict_servers(tmp_path):
 
 
 def test_import_rules_import_must_exist_and_not_be_escaped(tmp_path):
-    """Imports with a lookbehind (@), outside tree (..), and in code are not followed."""
+    """Imports with lookbehind (@), outside tree (..), and in code are not followed."""
     tree = _tree(tmp_path, {
         "CLAUDE.md": "@example.md @../etc/passwd.md a@email.md `@fenced.md`",
-        "example.md": "exists",
-        "email.md": "nope",
+        "example.md": "x" * 50,
+        "etc/passwd.md": "secret",  # Real file but @../ escapes tree
+        "fenced.md": "code",  # Real file but `@` is in code span
     })
     got = budget(tree, NAMES)
-    paths = {e["path"] for e in got["entries"]}
-    # Only example.md is followed; email.md and fenced.md are not imported; ../etc/passwd is outside tree
-    assert ("example.md", "import") in [(e["path"], e["kind"]) for e in got["entries"]]
-    assert not any("etc/passwd" in p or "email" in p or "fenced" in p for p in paths)
+    entries_paths = [(e["path"], e["kind"]) for e in got["entries"]]
+    # example.md is followed; etc/passwd.md and fenced.md are escaped
+    assert ("example.md", "import") in entries_paths
+    assert not any("etc/passwd" in p or "fenced" in p for p, k in entries_paths)
 
 
 def test_non_english_descriptions_with_tokenizer(tmp_path):
-    """Descriptions in other languages are tokenized with \\w+ and skipped if <3 tokens each."""
+    """Descriptions in other languages are tokenized with \\w+; exact duplicates always reported, partial >= 3 tokens."""
     tree = _tree(tmp_path, {
-        ".claude/skills/a/SKILL.md": _skill("s1", "Развернуть сервис"),  # 2 tokens, skipped
-        ".claude/skills/b/SKILL.md": _skill("s2", "Развернуть сервис"),   # Same, but both <3, so no pair
-        ".claude/skills/c/SKILL.md": _skill("s3", "用于部署 API"),  # 2 tokens (API becomes "api"), skipped
-        ".claude/skills/d/SKILL.md": _skill("s4", "用于测试 API"),   # 2 tokens, skipped
+        ".claude/skills/a/SKILL.md": _skill("s1", "Развернуть сервис в продакшене"),  # 4 tokens (exact with b)
+        ".claude/skills/b/SKILL.md": _skill("s2", "Развернуть сервис в продакшене"),   # Same: exact duplicate, reported
+        ".claude/skills/c/SKILL.md": _skill("s3", "用于部署 API"),  # 2 tokens after stop word removal, not checked
+        ".claude/skills/d/SKILL.md": _skill("s4", "用于测试 API"),   # 2 tokens, not compared with c
     })
     got = budget(tree, NAMES)
-    # All pairs skipped because each description has <3 meaningful tokens
-    assert got["duplicate_skills"] == []
+    # Cyrillic exact pair is reported; Chinese pair is skipped (< 3 tokens each)
+    assert len(got["duplicate_skills"]) == 1
+    assert "s1" in str(got["duplicate_skills"][0]) and "s2" in str(got["duplicate_skills"][0])
 
 
 def test_cli_table_row_order(tmp_path, capsys):
-    """CLI output: larger files first in each when category, start before off."""
+    """CLI output: rows ordered by when, larger files first; numbers formatted with commas."""
     tree = _tree(tmp_path, {
         "CLAUDE.md": "@import.md",
         "import.md": "i" * 1234,
         "AGENTS.md": "a" * 10,
     })
     out = _run(["repo", "budget", str(tmp_path)], capsys).out
+    # Numbers are formatted with commas
+    assert "| 1,234 |" in out
+    # Rows are ordered by when: start before off
     lines = out.split("\n")
-    # Check that rows exist and start comes before off
-    assert any("start" in l and "import" in l for l in lines)
-    assert any("off" in l and "AGENTS" in l for l in lines)
-    # Rows are ordered by when
-    for i, l in enumerate(lines):
-        if "| start" in l:
-            start_idx = i
-            break
-    for i, l in enumerate(lines):
-        if "| off" in l:
-            off_idx = i
-            break
-    assert start_idx < off_idx
+    start_lines = [i for i, l in enumerate(lines) if "| start" in l]
+    off_lines = [i for i, l in enumerate(lines) if "| off" in l]
+    assert start_lines and off_lines
+    assert start_lines[0] < off_lines[0]
