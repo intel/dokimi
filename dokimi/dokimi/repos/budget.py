@@ -177,15 +177,18 @@ def _skills(tree: RepoTree, paths: list[str]) -> list[dict[str, Any]]:
 
 
 def _near_duplicates(skills: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    words = {s["name"]: set(_WORD.findall(s["description"].lower())) - _STOP for s in skills}
+    """Pairs of skills with similar descriptions, named by ``name`` (by path when two share a name)."""
+    taken = [s["name"] for s in skills]
+    label = [s["path"] if taken.count(s["name"]) > 1 else s["name"] for s in skills]
+    words = [set(_WORD.findall(s["description"].lower())) - _STOP for s in skills]
     out = []
-    for a, b in combinations(sorted(words), 2):
-        union = words[a] | words[b]
+    for i, j in combinations(sorted(range(len(skills)), key=lambda k: (label[k], k)), 2):
+        union = words[i] | words[j]
         if not union:
             continue
-        overlap = len(words[a] & words[b]) / len(union)
+        overlap = len(words[i] & words[j]) / len(union)
         if overlap >= DUPLICATE_JACCARD:
-            out.append({"a": a, "b": b, "overlap": round(overlap, 2)})
+            out.append({"a": label[i], "b": label[j], "overlap": round(overlap, 2)})
     return out
 
 

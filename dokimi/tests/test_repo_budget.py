@@ -145,6 +145,18 @@ def test_near_duplicate_and_missing_descriptions_warn(tmp_path):
     assert ".claude/skills/d/SKILL.md" in names  # still counted, under its directory name
 
 
+def test_skills_sharing_a_name_are_still_compared(tmp_path):
+    tree = _tree(tmp_path, {
+        ".claude/skills/p/SKILL.md": _skill("fmt", "Format Python code with ruff."),
+        ".claude/skills/q/SKILL.md": _skill("fmt", "Format Python code with ruff."),
+        ".claude/skills/r/SKILL.md": _skill("lint", "Lint shell scripts."),
+    })
+    got = budget(tree, NAMES)
+    assert got["duplicate_skills"] == [
+        {"a": ".claude/skills/p/SKILL.md", "b": ".claude/skills/q/SKILL.md", "overlap": 1.0}]
+    assert any(".claude/skills/p/SKILL.md and .claude/skills/q/SKILL.md" in w for w in got["warnings"])
+
+
 def test_mcp_servers_are_listed(tmp_path):
     tree = _tree(tmp_path, {".mcp.json": json.dumps({"mcpServers": {"docs": {}, "db": {}}})})
     assert budget(tree, NAMES)["mcp_servers"] == ["db", "docs"]
