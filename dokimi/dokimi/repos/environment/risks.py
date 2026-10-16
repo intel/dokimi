@@ -79,7 +79,7 @@ def _json(scan: Scan, path: str) -> Any:
         return None
     try:
         return json.loads(text.lstrip("\ufeff"))
-    except (json.JSONDecodeError, RecursionError):
+    except (json.JSONDecodeError, RecursionError, ValueError):
         return None
 
 
@@ -118,15 +118,15 @@ def detect_capabilities(scan: Scan) -> list[Capability]:
 
 _INSTALL_HOOKS = ("preinstall", "install", "postinstall", "prepare", "prepublish")
 _SCRIPT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("destructive", re.compile(r"\brm\s+-[a-z]*\s*(-[a-z]*\s+)*(/|~|\$HOME|\*)", re.I)),
+    ("destructive", re.compile(r"\brm\s+-[a-z]*\s*(?:-[a-z]*\s+){0,2}(?:/|~|\$HOME|\*)", re.I)),
     ("destructive", re.compile(r"\brm\s+-(rf|fr|r\s+-f|f\s+-r)\b", re.I)),
     ("destructive", re.compile(r"\bgit\s+clean\s+-[a-z]*f", re.I)),
-    ("destructive", re.compile(r"\b(mkfs|dd\s+if=|>\s*/dev/sd)", re.I)),
-    ("network-exec", re.compile(r"\b(curl|wget|fetch)\b[^|]{0,200}\|\s*(sudo\s+)?(sh|bash|zsh|node|python3?)\b", re.I)),
-    ("deploy", re.compile(r"\b(npm|yarn|pnpm)\s+publish\b", re.I)),
-    ("deploy", re.compile(r"\b(vercel|netlify|wrangler|firebase)\s+deploy\b", re.I)),
-    ("deploy", re.compile(r"\bgh\s+release\s+(create|upload)\b", re.I)),
-    ("deploy", re.compile(r"\b(kubectl\s+apply|terraform\s+apply|aws\s+s3\s+(cp|sync|rm)|gcloud\s+\w+\s+deploy)\b",
+    ("destructive", re.compile(r"\b(?:mkfs|dd\s+if=|>\s*/dev/sd)", re.I)),
+    ("network-exec", re.compile(r"\b(?:curl|wget|fetch)\b[^|]{0,200}\|\s*(?:sudo\s+)?(?:sh|bash|zsh|node|python3?)\b", re.I)),
+    ("deploy", re.compile(r"\b(?:npm|yarn|pnpm)\s+publish\b", re.I)),
+    ("deploy", re.compile(r"\b(?:vercel|netlify|wrangler|firebase)\s+deploy\b", re.I)),
+    ("deploy", re.compile(r"\bgh\s+release\s+(?:create|upload)\b", re.I)),
+    ("deploy", re.compile(r"\b(?:kubectl\s+apply|terraform\s+apply|aws\s+s3\s+(?:cp|sync|rm)|gcloud\s+\w+\s+deploy)\b",
                           re.I)),
 )
 
@@ -148,7 +148,7 @@ def detect_script_signals(scan: Scan) -> list[ScriptSignal]:
 
 # Events the harness fires without the agent choosing to run anything.
 AUTOMATIC_EVENTS = ("SessionStart", "SessionEnd", "PreCompact", "Notification")
-_OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?)*"
+_OPT = r"(?:\s+(?<![\w-])-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,8}"
 _INSTALL = re.compile(rf"\b(?:npm|yarn|pnpm|bun){_OPT}\s+install\b|\b(?:npm|pnpm){_OPT}\s+ci\b"
                       rf"|\b(?:npm|pnpm|bun){_OPT}\s+i\b", re.I)
 _IGNORE_SCRIPTS = re.compile(r"--(no-)?ignore-scripts\b(?:[= ]+(true|false|1|0)\b)?", re.I)

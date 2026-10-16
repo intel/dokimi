@@ -27,9 +27,9 @@ from .files import is_generated
 KINDS = ("build", "test", "lint", "typecheck")
 
 _NODE_LINT_NAME = re.compile(r"(^|[:/_-])lints?([:/_-]|$)", re.I)
-_NODE_LINT_TOOL = re.compile(r"\b(eslint|prettier|xo|biome|standard|tslint|oxlint|rome)\b(?!-)")
-_NODE_TYPE_NAME = re.compile(r"(^|[:/_-])(type-?check|check[:_-]?types?|typings?)([:/_-]|$)", re.I)
-_NODE_TYPE_TOOL = re.compile(r"\btsc\b[^\n]*?--noemit\b|\btsd\b|\bvue-tsc\b|\bsvelte-check\b|\battw\b", re.I)
+_NODE_LINT_TOOL = re.compile(r"\b(?:eslint|prettier|xo|biome|standard|tslint|oxlint|rome)\b(?!-)")
+_NODE_TYPE_NAME = re.compile(r"(^|[:/_-])(?:type-?check|check[:_-]?types?|typings?)([:/_-]|$)", re.I)
+_NODE_TYPE_TOOL = re.compile(r"\btsc\b[^\n]{0,100}?--noemit\b|\btsd\b|\bvue-tsc\b|\bsvelte-check\b|\battw\b", re.I)
 _NODE_INSTALL = re.compile(r"\b(npm (ci|install|i)|yarn (install|add)|pnpm (install|i|add)|bun (install|i|add))\b")
 _SEGMENTS = re.compile(r"&&|\|\||[;\n]")
 _INI_SECTION = re.compile(r"^\[+([^\]#;]+)\]+", re.M)
@@ -61,7 +61,7 @@ def package_scripts(scan: Scan, path: str = "package.json") -> dict[str, str]:
     """``scripts`` of a ``package.json`` (empty when it is missing or not an object)."""
     try:
         doc = json.loads((scan.text(path) or "{}").lstrip("\ufeff"))
-    except (json.JSONDecodeError, RecursionError):
+    except (json.JSONDecodeError, RecursionError, ValueError):
         return {}
     scripts = doc.get("scripts") if isinstance(doc, dict) else None
     return {k: v for k, v in scripts.items() if isinstance(v, str)} if isinstance(scripts, dict) else {}
@@ -103,9 +103,11 @@ def _cmake(scan: Scan) -> list[Check]:
     if "CMakeLists.txt" not in scan.file_set and "CMakePresets.json" not in scan.file_set:
         return []
     evidence = "CMakeLists.txt" if "CMakeLists.txt" in scan.file_set else "CMakePresets.json"
+    if is_generated(evidence):
+        return []
     out = [Check("cmake", "build", "toolchain", evidence)]
-    sources = "\n".join(scan.text(f) for f in scan.files if posixpath.basename(f) == "CMakeLists.txt")
-    if re.search(r"\b(enable_testing|add_test|ctest_|gtest_discover_tests|catch_discover_tests)\s*\(", sources,
+    sources = "\n".join(scan.text(f) for f in scan.files if posixpath.basename(f) == "CMakeLists.txt" and not is_generated(f))
+    if re.search(r"\b(?:enable_testing|add_test|ctest_|gtest_discover_tests|catch_discover_tests)\s*\(", sources,
                  re.I):
         out.append(Check("cmake", "test", "declared", evidence, "ctest"))
     return out
@@ -113,10 +115,12 @@ def _cmake(scan: Scan) -> list[Check]:
 
 def _bazel(scan: Scan) -> list[Check]:
     marker = next((m for m in ("MODULE.bazel", "WORKSPACE.bazel", "WORKSPACE") if m in scan.file_set), None)
-    builds = [f for f in scan.files if posixpath.basename(f) in ("BUILD", "BUILD.bazel")]
+    builds = [f for f in scan.files if posixpath.basename(f) in ("BUILD", "BUILD.bazel") and not is_generated(f)]
     if marker is None and not builds:
         return []
     evidence = marker or builds[0]
+    if is_generated(evidence):
+        return []
     out = [Check("bazel", "build", "toolchain", evidence)]
     scan.preload(builds)
     test_rule = next((f for f in builds if re.search(r"\b\w+_test\s*\(", scan.text(f))), None)
@@ -131,8 +135,8 @@ def _toolchain(scan: Scan, root: str, ecosystem: str, marker: str, kinds: tuple[
 
 
 def _dotnet(scan: Scan) -> list[Check]:
-    marker = next((f for f in scan.files if re.search(r"\.(sln|slnx|csproj|fsproj|vbproj)$", f, re.I)), None)
-    marker = marker or ("global.json" if "global.json" in scan.file_set else None)
+    marker = next((f for f in scan.files if re.search(r"\.(sln|slnx|csproj|fsproj|vbproj)$", f, re.I) and not is_generated(f)), None)
+    marker = marker or ("global.json" if "global.json" in scan.file_set and not is_generated("global.json") else None)
     return [Check("dotnet", k, "toolchain", marker) for k in ("build", "test")] if marker else []
 
 
@@ -209,7 +213,7 @@ def _pre_commit(scan: Scan) -> list[Check]:
         return []
     try:
         cfg = yaml.safe_load(scan.text(".pre-commit-config.yaml")) or {}
-    except yaml.YAMLError:
+    except (yaml.YAMLError, ValueError, RecursionError):
         return []
     out = []
     repos = cfg.get("repos") if isinstance(cfg, dict) else None

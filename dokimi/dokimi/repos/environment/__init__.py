@@ -100,8 +100,12 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
 
     by_kind = {k: [c for c in checks if c.kind == k] for k in KINDS}
     if not by_kind["test"]:
-        findings.append(_finding("checks.test.missing", "no test script, target, config or toolchain found",
-                                 confidence="medium"))
+        if files["test_files"] > 0:
+            findings.append(_finding("checks.test.missing", f"{files['test_files']} test files found but no test runner known",
+                                     confidence="low"))
+        else:
+            findings.append(_finding("checks.test.missing", "no test script, target, config or toolchain found",
+                                     confidence="medium"))
     elif all(c.basis == "toolchain" for c in by_kind["test"]) and not files["test_files"]:
         tools = ", ".join(sorted({c.ecosystem for c in by_kind["test"]}))
         findings.append(_finding("checks.test.toolchain-only", f"{tools} can run tests, but no test file was found",

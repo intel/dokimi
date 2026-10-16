@@ -21,13 +21,13 @@ _LOCKFILES = frozenset({
     "poetry.lock", "Pipfile.lock", "pdm.lock", "Cargo.lock", "go.sum", "composer.lock", "Gemfile.lock",
     "gradle.lockfile",
 })
-_GENERATED = re.compile(r"(^|/)(deps|vendor|third[_-]?party|generated|__generated__)/|(^|/)tests?/(fixtures|baselines)/"
+_GENERATED = re.compile(r"(^|/)(deps|vendor|third[_-]?party|generated|__generated__|node_modules)/|(^|/)tests?/(fixtures|baselines)/"
                         r"|\.generated\.|\.pb\.(go|cc|h)$|_pb2\.py$", re.I)
 _MINIFIED = re.compile(r"\.(min|bundle)\.(js|css)$", re.I)
 _TEST_FILE = re.compile(
     r"\.(test|spec)\.[cm]?[jt]sx?$|_test\.go$|(^|/)(test_[^/]+|[^/]+_test)\.py$"
-    r"|(^|/)[A-Za-z0-9]+(Test|Tests|Spec|IT)\.(java|kt|kts|scala|cs)$|_(test|spec)\.(rb|exs?)$"
-    r"|_test\.(cc|cpp|cxx|c)$|Tests?\.swift$|(^|/)(__tests__|tests?|spec|specs)/", re.I)
+    r"|(^|/)(?:[A-Z][A-Za-z0-9]*)(Test|Tests|IT|Spec)\.(java|kt|kts|scala|cs)$|_(test|spec)\.(rb|exs?)$"
+    r"|_test\.(cc|cpp|cxx|c)$|^Tests?\.swift$|(^|/)(__tests__|tests?|spec(?:s)?)/", re.I)
 
 
 def is_generated(path: str) -> bool:
@@ -46,7 +46,7 @@ def sizes(tree: RepoTree) -> dict[str, int] | None:
         return out
     if isinstance(tree, GitTree):
         try:
-            if _git(tree.git_dir, "config", "--get", "extensions.partialclone", check=False).strip():
+            if _git(tree.git_dir, "config", "--get", "remote.origin.promisor", check=False).strip():
                 return None  # `ls-tree -l` would fetch every missing blob one by one
             listing = _git(tree.git_dir, "ls-tree", "-r", "-z", "-l", tree.sha)
         except SourceError:
