@@ -78,8 +78,8 @@ def _json(scan: Scan, path: str) -> Any:
     if not text or len(text) > MAX_SETTINGS_BYTES:
         return None
     try:
-        return json.loads(text)
-    except json.JSONDecodeError:
+        return json.loads(text.lstrip("\ufeff"))
+    except (json.JSONDecodeError, RecursionError):
         return None
 
 

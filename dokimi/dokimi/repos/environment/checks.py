@@ -60,8 +60,8 @@ def _at(root: str, name: str) -> str:
 def package_scripts(scan: Scan, path: str = "package.json") -> dict[str, str]:
     """``scripts`` of a ``package.json`` (empty when it is missing or not an object)."""
     try:
-        doc = json.loads(scan.text(path) or "{}")
-    except json.JSONDecodeError:
+        doc = json.loads((scan.text(path) or "{}").lstrip("\ufeff"))
+    except (json.JSONDecodeError, RecursionError):
         return {}
     scripts = doc.get("scripts") if isinstance(doc, dict) else None
     return {k: v for k, v in scripts.items() if isinstance(v, str)} if isinstance(scripts, dict) else {}

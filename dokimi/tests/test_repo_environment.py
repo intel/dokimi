@@ -220,3 +220,19 @@ def test_inspect_does_not_run_the_repository_git_config(tmp_path):
     subprocess.run(["git", "-C", str(root), "config", "core.fsmonitor", f"touch {marker.as_posix()}"], check=True)
     inspect_repo(WorkTree(root))
     assert not marker.exists()
+
+
+@pytest.mark.parametrize("kind", ["bom", "plain", "nested"])
+def test_package_json_bom_is_read_and_nesting_does_not_crash(tmp_path, kind):
+    text = {"bom": "\ufeff", "plain": ""}.get(kind, "") + '{"scripts": {"test": "jest"}}'
+    if kind == "nested":
+        text = "[" * 200_000 + "]" * 200_000
+    _repo(tmp_path, {"AGENTS.md": "x\n", "package.json": text})
+    kinds = {c["kind"] for c in inspect_repo(WorkTree(tmp_path))["checks"]}
+    assert ("test" in kinds) is (kind != "nested")
+
+
+def test_settings_json_bom_still_reports_hook_risk(tmp_path):
+    hooks = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "npm ci"}]}]}}
+    _repo(tmp_path, {".claude/settings.json": "\ufeff" + json.dumps(hooks)})
+    assert [h["command"] for h in inspect_repo(WorkTree(tmp_path))["hook_risks"]] == ["npm ci"]
