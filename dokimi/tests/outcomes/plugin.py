@@ -13,12 +13,14 @@ with ``=``: as a separate argument an existing path is taken for a test path
 and moves the rootdir away from this conftest). An id no test claimed
 is an error, never a pass; an id whose tests were all skipped is inconclusive.
 Exit codes: 0 pass, 1 a claimed test failed, 2 a contract or reference is
-broken, 3 inconclusive. Without ``--outcomes`` only the marker is registered.
+broken (a missing file, or a ``#anchor`` that is no heading of a markdown file),
+3 inconclusive. Without ``--outcomes`` only the marker is registered.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -71,10 +73,35 @@ def _evidence(evidence_id: str) -> dict:
     return {"id": evidence_id, "verdict": "pass", "tests": len(outcomes)}
 
 
+def _anchors(doc: Path) -> set[str]:
+    """GitHub-style heading slugs of a markdown file, ignoring fenced code."""
+    slugs: set[str] = set()
+    fenced = False
+    for line in doc.read_text(encoding="utf-8").splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+        elif not fenced and (heading := re.match(r"#{1,6}\s+(.*?)\s*#*\s*$", line)):
+            slug = re.sub(r"[^\w\- ]", "", heading.group(1).lower()).replace(" ", "-")
+            n, unique = 0, slug
+            while unique in slugs:
+                n += 1
+                unique = f"{slug}-{n}"
+            slugs.add(unique)
+    return slugs
+
+
+def _ref_resolves(ref: str) -> bool:
+    name, _, anchor = ref.partition("#")
+    target = REPO_ROOT / name
+    if not target.exists():
+        return False
+    return not anchor or (target.suffix == ".md" and anchor in _anchors(target))
+
+
 def _check(path: Path) -> dict:
     contract = json.loads(path.read_text(encoding="utf-8"))
     refs = contract.get("intent_refs", []) + contract.get("implementation_refs", [])
-    missing = [r for r in refs if not (REPO_ROOT / r.split("#")[0]).exists()]
+    missing = [r for r in refs if not _ref_resolves(r)]
     evidence = [_evidence(i) for i in contract.get("evidence_ids", [])]
     if missing or not evidence:
         verdict = "error"
