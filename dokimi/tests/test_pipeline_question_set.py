@@ -393,6 +393,93 @@ def test_same_path_force_regen_merge_persists_merged_set(tmp_path, monkeypatch):
     ids = {q["id"] for q in saved["questions"]}
     assert ids == {"g1", "c1"}
     assert "question_set_id" in saved
+    # Verify source_types are correct: g1 is generated, c1 is manual
+    questions_by_id = {q["id"]: q for q in saved["questions"]}
+    assert questions_by_id["g1"].get("source_type") == "generated"
+    assert questions_by_id["c1"].get("source_type") == "manual"
+
+
+def test_same_path_force_regen_preserves_source_types(tmp_path, monkeypatch):
+    """Generated questions keep source_type: generated when reloaded from same-path write."""
+    # Run 1: Generate g1, merge with c1, save to same-path file
+    custom_file = tmp_path / "questions" / "oneTBB.json"
+    custom_questions = [{"id": "c1", "question": "Custom question?"}]
+    _write_json(custom_file, custom_questions)
+    _write_json(tmp_path / "personas" / "oneTBB.json", {"personas": []})
+
+    def stub_discover(self):
+        return {"personas": []}
+
+    call_count = [0]
+    def stub_generate(self, personas):
+        # Run 1: generate g1
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return [{"id": "g1", "question": "Generated question?", "source_type": "generated"}]
+        # Run 2: generate g2
+        return [{"id": "g2", "question": "Generated question 2?", "source_type": "generated"}]
+
+    # Stub expensive steps
+    def generate_answers(self, questions, concurrency=5, question_set_hash=None):
+        return [
+            {
+                "question_id": q["id"],
+                "question_text": q["question"],
+                "with_docs": {"answer": "context"},
+                "without_docs": {"answer": "baseline"},
+            }
+            for q in questions
+        ]
+
+    def evaluate_answers(self, answers, concurrency=5, question_set_hash=None):
+        data = {
+            "run_metadata": {"question_set_hash": question_set_hash},
+            "evaluations": [],
+        }
+        self.eval_path.write_text(json.dumps(data), encoding="utf-8")
+        return []
+
+    def generate_report(self, evaluations, questions):
+        self.report_path.write_text("report", encoding="utf-8")
+        return "report"
+
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", stub_discover)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_questions", stub_generate)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_answers", generate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_evaluate_answers", evaluate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_report", generate_report)
+
+    # Run 1: force_regen with custom input at same path
+    pipeline1 = EvaluationPipeline(
+        product="oneTBB",
+        output_dir=tmp_path,
+        description="Threading Building Blocks",
+        custom_questions_path=custom_file,
+        force_regen=True,
+    )
+    pipeline1.run(concurrency=1)
+
+    saved1 = json.loads(custom_file.read_text())
+    assert {q["id"] for q in saved1["questions"]} == {"g1", "c1"}
+    assert {q.get("source_type") for q in saved1["questions"]} == {"generated", "manual"}
+
+    # Run 2: force_regen again; g1 should still be "generated", not downgraded to "manual"
+    pipeline2 = EvaluationPipeline(
+        product="oneTBB",
+        output_dir=tmp_path,
+        description="Threading Building Blocks",
+        custom_questions_path=custom_file,
+        force_regen=True,
+    )
+    pipeline2.run(concurrency=1)
+
+    saved2 = json.loads(custom_file.read_text())
+    # Now we have g2, g1, c1 (g2 is generated, g1 kept "generated", c1 is "manual")
+    questions_by_id = {q["id"]: q for q in saved2["questions"]}
+    assert questions_by_id["g1"].get("source_type") == "generated", \
+        "g1 from Run 1 should keep source_type: generated, not be downgraded to manual"
+    assert questions_by_id["g2"].get("source_type") == "generated"
+    assert questions_by_id["c1"].get("source_type") == "manual"
 
 
 def test_generation_returning_empty_question_fails_before_answers(tmp_path, monkeypatch):

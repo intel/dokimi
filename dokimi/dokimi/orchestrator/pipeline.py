@@ -451,7 +451,7 @@ class EvaluationPipeline:
             return []
         custom_questions = load_questions_payload(path)
         for q in custom_questions:  # records read from the file, not the file
-            q["source_type"] = "manual"
+            q.setdefault("source_type", "manual")
             if "persona_id" not in q:
                 q["persona_id"] = "manual"
         logger.info(f"Loaded {len(custom_questions)} custom questions")

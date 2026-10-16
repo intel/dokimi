@@ -605,3 +605,35 @@ def test_a_mistyped_optional_field_is_still_refused(tmp_path):
         {"id": "q1", "text": "How?", "topics": "perf", "persona_id": 5}]}))
     with pytest.raises(ArtifactValidationError):
         load_questions(path)
+
+
+def test_report_generate_refuses_malformed_questions_with_error_exit(tmp_path, monkeypatch, capsys):
+    """report generate refuses an invalid questions argument with SystemExit(1) and Error message."""
+    monkeypatch.chdir(tmp_path)
+    ev = tmp_path / "eval.json"
+    ev.write_text(json.dumps({"evaluations": []}), encoding="utf-8")
+    src = tmp_path / "q.json"
+    # Pass a dict where a list is expected: invalid structure
+    src.write_text(json.dumps({"questions": {"a": 1}}), encoding="utf-8")
+    out = tmp_path / "report.md"
+    args = build_parser().parse_args(["report", "generate", "--product", "oneTBB", "--eval", str(ev),
+                                      "--questions", str(src), "--output", str(out)])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert exc_info.value.code == 1
+    assert "Error:" in capsys.readouterr().err
+
+
+def test_questions_refine_refuses_malformed_questions_with_error_exit(tmp_path, monkeypatch, capsys):
+    """questions refine refuses an invalid questions argument with SystemExit(1) and Error message."""
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "q.json"
+    # Pass an empty dict where a list or questions object is expected: invalid structure
+    src.write_text(json.dumps({}), encoding="utf-8")
+    out = tmp_path / "refined.json"
+    args = build_parser().parse_args(["questions", "refine", "--product", "oneTBB",
+                                      "--questions", str(src), "--output", str(out)])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert exc_info.value.code == 1
+    assert "Error:" in capsys.readouterr().err
