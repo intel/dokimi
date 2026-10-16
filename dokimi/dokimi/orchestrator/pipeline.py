@@ -148,7 +148,7 @@ class EvaluationPipeline:
                     f"--custom-questions path does not exist: {_custom_path}"
                 )
             self.custom_questions_path: Optional[Path] = _custom_path
-        elif self.questions_root is not None:
+        elif questions_from is None and self.questions_root is not None:
             _auto_golden = self.questions_root / f"{self.product_key.lower()}_golden.json"
             if _auto_golden.is_file():
                 self.custom_questions_path = _auto_golden
@@ -162,7 +162,7 @@ class EvaluationPipeline:
                 )
         else:
             self.custom_questions_path = None
-            if questions_from is None:
+            if questions_from is None and self.questions_root is None:
                 logger.warning(
                     "no questions root given; questions will be generated for "
                     f"{self.product_key.lower()} instead of read from a curated golden "
@@ -232,7 +232,8 @@ class EvaluationPipeline:
             personas = {"personas": []}
             results["steps"]["personas"] = {
                 "count": 0,
-                "skipped": True
+                "skipped": True,
+                "path": str(self.personas_path)
             }
         else:
             logger.info("Step 1/6: Discovering personas...")
@@ -266,6 +267,16 @@ class EvaluationPipeline:
             logger.info("Step 2-3/6: Loading cached questions (skipping generation)...")
             merged_questions = load_questions_payload(self.questions_path)
             print(f"✓ Loaded {len(merged_questions)} questions (cached — skipping generation)")
+            # Warn if cached questions differ from the golden set
+            if self.golden_pinned and self.custom_questions_path is not None:
+                golden_questions = self._load_custom_questions()
+                cached_ids = {q.get("id") for q in merged_questions}
+                golden_ids = {q.get("id") for q in golden_questions}
+                if cached_ids != golden_ids:
+                    logger.warning(
+                        f"cached question ids {cached_ids} differ from golden set ids {golden_ids}; "
+                        f"pass --force-regen to use the golden set"
+                    )
             results["steps"]["questions_generated"] = {"count": len(merged_questions), "cached": True}
             results["steps"]["questions_merged"] = {"total": len(merged_questions), "cached": True,
                                                      "path": str(self.questions_path)}
