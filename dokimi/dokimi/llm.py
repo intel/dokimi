@@ -1,7 +1,13 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Every LLM call in the framework goes through this module.
+"""The entry point for LLM calls in the framework.
+
+``llm_call``, ``chat_completion``, the shims and ``utils.get_llm`` already delegate
+here. Not yet moved: ``utils.get_llm``'s own route and key table,
+``commands/benchmark.py``'s ``_credential_env_var``, ``eval/ragas_eval.py``'s
+``_resolve_key``, and the judge, persona and validator redraw loops (which do not
+use :func:`ask_parsed` yet).
 
 Interface
 ---------
@@ -20,8 +26,8 @@ replies" loop, for any ``ask(prompt, draw=, cache_if=) -> str`` callable.
 What a caller can rely on:
 
 - **Providers.** :data:`PROVIDERS` (canonical name -> key variable) plus
-  :data:`PROVIDER_ALIASES`. :func:`resolve_model` is the one model-name map and
-  :func:`api_key_env` the one key-variable map. A provider outside the table is
+  :data:`PROVIDER_ALIASES`. :func:`resolve_model` is this module's model-name map and
+  :func:`api_key_env` its key-variable map. A provider outside the table is
   passed to litellm as its own route prefix (``azure/<model>``), reading
   ``OPENAI_API_KEY``. An explicit ``api_key`` wins over the environment; either
   may be ``file:<path>``, and an unreadable file raises ``ValueError``.
@@ -43,8 +49,9 @@ What a caller can rely on:
   be stored *or replayed*. A replay returns the stored usage record.
 - **Usage.** Every reply carries a :class:`UsageRecord`; ``cost_usd`` is ``None``
   when litellm has no price for the model, never a fake ``0.0``.
-- **Truncation.** A live reply cut at the output ceiling (``reply.truncated``)
-  is logged as a warning; a replay is not logged again.
+- **Truncation.** A live ``complete``/``ask`` reply cut at the output ceiling
+  (``reply.truncated``) is logged as a warning; a replay is not logged again.
+  ``chat`` does not log it.
 
 Seam
 ----
@@ -627,7 +634,7 @@ def _warn_if_truncated(reply: Reply, model: str, max_tokens: Optional[int]) -> N
             f"LLM reply hit the output ceiling ({model}, max_tokens="
             f"{max_tokens or 'provider default'}, "
             f"{reply.usage.completion_tokens} tokens); "
-            "pass a higher --max-tokens if this repeats"
+            "raise max_tokens if this repeats"
         )
 
 
@@ -740,7 +747,10 @@ class LLM:
     def metrics(self) -> UsageRecord:
         """The sum of every reply this object returned, cache replays included.
 
-        ``n_calls`` counts replies; ``cost_usd`` is ``None`` when none was priced.
+        ``n_calls`` counts replies; ``cost_usd`` is ``None`` when none was priced. A
+        replay is summed at its stored usage and cost, and the total is not marked
+        ``replayed``: it is the modelled cost, not this process's spend (a spend cap
+        reads the per-reply records and skips ``usage.replayed`` ones).
         """
         with self._lock:
             return self._total
@@ -1012,19 +1022,6 @@ def llm_call_with_usage(
     reply = llm.complete(prompt, system=system, cache_prefix=cache_prefix, stream=stream,
                          draw=draw, cache_if=cache_if)
     return cast(str, reply.text), reply.usage
-
-
-def _stream_call(completion: Any, litellm_model: str, messages: List[Dict[str, Any]],
-                 api_key: Optional[str], model: str, provider: str,
-                 max_tokens: Optional[int] = None, temperature: Optional[float] = None,
-                 seed: Optional[int] = None) -> Tuple[str, UsageRecord]:
-    """One streamed completion as ``(text, usage)``; the adapter's streaming path."""
-    request = Request(model=model, provider=provider, litellm_model=litellm_model,
-                      messages=messages, api_key=api_key, max_tokens=max_tokens,
-                      temperature=temperature, seed=seed, stream=True)
-    reply = _stream(completion, request)
-    _warn_if_truncated(reply, model, max_tokens)
-    return reply.text or "", reply.usage
 
 
 def chat_completion(

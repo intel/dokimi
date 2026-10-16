@@ -136,6 +136,13 @@ def test_transient_errors_are_retried_with_doubling_backoff(error, fake_llm, no_
     assert sleeps == [2.0, 4.0]
 
 
+def test_the_backoff_doubles_from_retry_delay(fake_llm, no_cache, sleeps):
+    error = RuntimeError("ThrottlingException: rate limit")
+    fake_llm.push(error, error, error, "ok")
+    assert LLM("m.x", "amazon-bedrock", retry_delay=0.5, max_retries=3).ask("p") == "ok"
+    assert sleeps == [0.5, 1.0, 2.0]  # doubling, not adding
+
+
 @pytest.mark.parametrize("error", [
     ValueError("AccessDeniedException"),
     RuntimeError("This model is unavailable in this region"),
@@ -351,7 +358,7 @@ def test_a_live_cut_reply_is_logged_and_its_replay_is_not(cache_dir, fake_llm, c
         llm.complete("p")
     cut = [r.getMessage() for r in caplog.records if "output ceiling" in r.getMessage()]
     assert cut == ["LLM reply hit the output ceiling (m, max_tokens=4096, 4096 tokens); "
-                   "pass a higher --max-tokens if this repeats"]
+                   "raise max_tokens if this repeats"]
 
 
 def test_metrics_total_every_reply_and_stay_null_when_unpriced(cache_dir):
@@ -382,6 +389,38 @@ def test_llm_call_sends_what_llm_complete_sends(fake_llm, no_cache):
     assert (text, usage.model, usage.provider) == ("two", "claude-sonnet-5-5", "anthropic")
 
 
+def test_the_legacy_calls_forward_retries_max_tokens_and_stream(fake_llm, no_cache, sleeps):
+    error = RuntimeError("ThrottlingException: rate limit")
+    fake_llm.push(error, error, "ok")
+    text, _ = llm_call_with_usage("q", "m.x", "amazon-bedrock", max_retries=2, retry_delay=0.25,
+                                  max_tokens=77, stream=True)
+    assert text == "ok" and sleeps == [0.25, 0.5]
+    assert {(r.max_tokens, r.stream) for r in fake_llm.requests} == {(77, True)}
+    fake_llm.push(error)
+    with pytest.raises(RuntimeError, match="Throttling"):
+        llm_call("q", "m.x", "amazon-bedrock", max_retries=0)
+    assert sleeps == [0.25, 0.5]  # max_retries=0: no retry, no sleep
+
+
+def test_draw_is_forwarded_by_the_legacy_calls_and_the_shims(fake_llm, cache_dir):
+    fake_llm.push("d0", "d1", "c1")
+    shim = llm_mod.ChatOpenAI("gpt-6.1-sol", api_key="k")
+    assert shim.invoke("q").content == "d0"
+    assert shim.invoke("q", draw=1).content == "d1"  # its own sample, not draw 0's entry
+    assert shim.invoke("q", draw=1).content == "d1"  # and replayed as such
+    assert llm_call("q", "gpt-6.1-sol", "openai", api_key="k", draw=1) == "d1"
+    assert llm_call("q", "gpt-6.1-sol", "openai", api_key="k", draw=2) == "c1"
+    assert len(fake_llm.requests) == 3
+
+
+def test_get_llm_reads_an_explicit_file_key(tmp_path, fake_llm, no_cache):
+    key_file = tmp_path / "key"
+    key_file.write_text("secret\n", encoding="utf-8")
+    fake_llm.push("ok")
+    get_llm("openai", "gpt-6.1-sol", api_key=f"file:{key_file}").invoke("q")
+    assert fake_llm.requests[0].api_key == "secret"
+
+
 def test_the_chat_shims_delegate_with_their_provider(fake_llm, no_cache):
     fake_llm.push("a", "b")
     assert llm_mod.ChatOpenAI("gpt-6.1-sol", api_key="k", temperature=0.0).invoke("q").content == "a"
@@ -395,11 +434,11 @@ def test_chat_completion_is_llm_chat_returning_the_raw_response(fake_llm):
     fake_llm.push(Reply(None, UsageRecord(), response=raw))
     tools = [{"type": "function", "function": {"name": "search"}}]
     out = chat_completion([{"role": "user", "content": "q"}], model="m", provider="openai",
-                          tools=tools, api_key="k", max_tokens=0, seed=1)
+                          tools=tools, tool_choice="required", api_key="k", max_tokens=0, seed=1)
     assert out is raw
     (req,) = fake_llm.requests
     assert (req.tools, req.tool_choice, req.max_tokens, req.seed, req.api_key) == (
-        tools, None, 0, 1, "k")
+        tools, "required", 0, 1, "k")
 
 
 @pytest.mark.parametrize("provider, model, route, env, max_tokens", [
@@ -508,6 +547,27 @@ def test_the_litellm_adapter_streams_and_measures_ttft(monkeypatch):
     assert "max_tokens" not in sent[0] and sent[0]["stream_options"] == {"include_usage": True}
     assert (reply.text, reply.finish_reason, reply.usage.total_tokens) == ("Hello world", "stop", 7)
     assert reply.usage.ttft_sec is not None
+
+
+def test_a_streamed_llm_call_sends_its_key_and_sampling_and_stamps_the_first_chunk(monkeypatch, no_cache):
+    import litellm
+
+    def chunk(content, usage=None):
+        return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=content),
+                                                        finish_reason=None)], usage=usage)
+
+    ticks = iter(range(100))
+    monkeypatch.setattr(llm_mod.time, "time", lambda: float(next(ticks)))
+    sent = []
+    chunks = [chunk("a"), chunk("b"), chunk("c"),
+              chunk(None, usage=SimpleNamespace(prompt_tokens=1, completion_tokens=3, total_tokens=4))]
+    monkeypatch.setattr(litellm, "completion", lambda **kw: sent.append(kw) or iter(chunks))
+    monkeypatch.setattr(llm_mod, "_safe_completion_cost", lambda r, m, **kw: None)
+    llm = LLM("m", "openai", api_key="k", temperature=0.0, seed=0, adapter=LiteLLMAdapter())
+    reply = llm.complete("q", stream=True)
+    assert reply.text == "abc"
+    assert (sent[0]["api_key"], sent[0]["temperature"], sent[0]["seed"]) == ("k", 0.0, 0)
+    assert reply.usage.ttft_sec == 1.0  # one tick after the request: the first chunk, not the last
 
 
 # ── ask_parsed ──────────────────────────────────────────────────────────────

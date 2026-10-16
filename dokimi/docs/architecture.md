@@ -302,7 +302,7 @@ prints one or more traces as a comparison table; it calls no model. Guide:
   file; git output is kept whole), and every call states its environment policy (`Env.inherit` or
   an `Env.only` allow-list). `FakeRunner` is its test adapter: code that spawns
   takes a `runner` argument.
-- `dokimi/llm.py` — every LLM call. `LLM` (one model at one provider:
+- `dokimi/llm.py` — the entry point for LLM calls. `LLM` (one model at one provider:
   `complete`/`ask`/`chat`, retry, the response cache, usage) sits on one
   adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
   `fake_llm` fixture). `ask_parsed` is the redraw-until-it-parses loop.
