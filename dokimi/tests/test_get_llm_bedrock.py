@@ -39,6 +39,25 @@ def test_a_known_bare_name_maps_to_its_own_profile_not_the_env_sonnet(monkeypatc
     assert _build_litellm_model(bare, "amazon-bedrock") == f"bedrock/{profile}"
 
 
+@pytest.mark.parametrize("bare, var", [
+    ("claude-sonnet-5-5", "ANTHROPIC_DEFAULT_SONNET_MODEL"),
+    ("claude-opus-5-5", "ANTHROPIC_DEFAULT_OPUS_MODEL"),
+    ("claude-haiku-5-5", "ANTHROPIC_DEFAULT_HAIKU_MODEL"),
+])
+def test_the_env_profile_for_the_same_model_wins(monkeypatch, bare, var):
+    # A run outside the US keeps its regional profile for the default names.
+    monkeypatch.setenv(var, f"eu.anthropic.{bare}")
+    assert get_llm("amazon-bedrock", bare).litellm_model == f"bedrock/eu.anthropic.{bare}"
+    assert _build_litellm_model(bare, "amazon-bedrock") == f"bedrock/eu.anthropic.{bare}"
+
+
+@pytest.mark.parametrize("override", ["us.anthropic.claude-sonnet-4-6", "claude-sonnet-5-5"])
+def test_an_env_profile_for_another_model_or_not_a_bedrock_id_is_ignored(monkeypatch, override):
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", override)
+    assert get_llm("amazon-bedrock", DEFAULT_JUDGE_MODEL).litellm_model == \
+        f"bedrock/us.anthropic.{DEFAULT_JUDGE_MODEL}"
+
+
 def test_the_default_judge_resolves_on_bedrock(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_DEFAULT_SONNET_MODEL", raising=False)
     assert get_llm("amazon-bedrock", DEFAULT_JUDGE_MODEL).litellm_model.startswith("bedrock/us.anthropic.")

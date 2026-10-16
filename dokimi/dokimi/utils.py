@@ -4,7 +4,7 @@
 import os
 from typing import Tuple, Dict, Any
 
-from dokimi.defaults import BEDROCK_MODEL_IDS
+from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
 
 
 def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
@@ -119,7 +119,7 @@ def bedrock_litellm_model(model: str) -> str:
     # Only a bare name gets mapped: a known one (such as the default judge) to its
     # inference profile, any other to the box's default Sonnet.
     if not model.startswith("arn:") and "." not in model:
-        model = BEDROCK_MODEL_IDS.get(model) or os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL", model)
+        model = bedrock_profile(model) or os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL", model)
     # Bedrock's openai.* namespace 404s on the plain invoke route; it only
     # answers via Converse (mirrors the fix in llm.py's _build_litellm_model).
     prefix = "bedrock/converse/" if "openai." in model else "bedrock/"
