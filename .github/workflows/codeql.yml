@@ -23,7 +23,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# intel-ubuntu-latest for the long jobs, ubuntu-latest elsewhere: see ci.yml.
+# intel-ubuntu-latest: see ci.yml.
 jobs:
   analyze:
     name: CodeQL (${{ matrix.language }})

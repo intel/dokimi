@@ -23,10 +23,11 @@ defaults:
   run:
     working-directory: dokimi
 
+# intel-ubuntu-latest: see ci.yml.
 jobs:
   fragment:
     name: Changelog fragment
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

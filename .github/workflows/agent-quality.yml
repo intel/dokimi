@@ -23,13 +23,13 @@ defaults:
   run:
     working-directory: dokimi
 
-# intel-ubuntu-latest for the long jobs, ubuntu-latest elsewhere: see ci.yml.
+# Every job on intel-ubuntu-latest, `changes` too: see ci.yml.
 jobs:
   # Whether a PR changes anything besides Markdown. The Docker smoke test below
   # cannot be affected by a docs-only change, and it holds a runner
   # for minutes; the benchmark job measures the docs, so it always runs.
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     outputs:
       code: ${{ steps.diff.outputs.code }}
     defaults:
