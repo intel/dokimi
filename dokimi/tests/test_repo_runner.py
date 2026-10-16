@@ -265,6 +265,8 @@ def test_docker_cli_env_keeps_host_HOME_and_USER(tmp_path, monkeypatch):
     argv = seen["argv"]
     assert "HOME=/eval/run/home" in argv and "USER=eval" in argv and "X=1" in argv
     assert "ANTHROPIC_API_KEY" in argv and "s3cret" not in " ".join(argv)
+    # `-e NAME` reads the value from the CLI's own environment: it must be there.
+    assert seen["env"]["ANTHROPIC_API_KEY"] == "s3cret"
 
 
 @pytest.mark.parametrize("metrics", [{}, {"recall": True}, {"recall": None}], ids=["missing", "bool", "null"])
@@ -405,19 +407,21 @@ def test_trees_are_checked_out_without_host_config_or_export_attributes(tmp_path
     assert (content / "g.py").read_bytes() == b"y\n"
 
 
-def test_a_docker_kill_that_times_out_still_ends_the_run(tmp_path):
+def test_a_docker_kill_that_times_out_still_ends_the_run(tmp_path, monkeypatch):
     """The CLI gets SIGTERM (it stops the container) before SIGKILL; then the container is
     killed by name, and a `docker kill` that hangs too still ends the run."""
     from dokimi import process
 
+    monkeypatch.setenv("DOKIMI_TEST_ONLY_DOCKER", "kept")
     fake = process.FakeRunner(lambda call: process.reply("partial", timed_out=True))
     spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x")
     res = DockerRunner("docker", runner=fake).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e",
                                                   timeout_s=1)
     assert res.timed_out and res.returncode is None
     run, kill = fake.calls
-    assert run.argv[:2] == ("docker", "run") and run.term_grace > 0 and run.timeout == 1
+    assert run.argv[:2] == ("docker", "run") and run.term_grace == 10 and run.timeout == 1
     assert kill.argv == ("docker", "kill", "dokimi-x") and kill.timeout == 60
+    assert kill.env.get("DOKIMI_TEST_ONLY_DOCKER") == "kept"
     assert (tmp_path / "o").read_text() == "partial"
 
 
@@ -440,7 +444,7 @@ def test_a_docker_cli_that_cannot_start_is_a_container_error(tmp_path):
     assert res.timed_out and res.returncode is None
 
 
-def test_docker_build_and_inspect_are_bounded(tmp_path):
+def test_docker_build_and_inspect_are_bounded(tmp_path, monkeypatch):
     """A wedged daemon fails the build or the image lookup (a ContainerError) instead of hanging
     the batch; an image that is not there is still just absent."""
     import dokimi.repos.container as container
@@ -453,7 +457,14 @@ def test_docker_build_and_inspect_are_bounded(tmp_path):
     with pytest.raises(ContainerError, match="no answer in 60s"):
         runner.image_exists("img:t")
     build, inspect = fake.calls
-    assert build.timeout == container.BUILD_TIMEOUT_S and inspect.timeout == container.DOCKER_CALL_TIMEOUT_S
+    assert container.BUILD_TIMEOUT_S == 3 * 3600 and container.DOCKER_CALL_TIMEOUT_S == 60
+    assert build.timeout == 3 * 3600 and inspect.timeout == 60
+    # Both inherit the caller's environment (registry credentials, DOCKER_HOST, proxies).
+    monkeypatch.setenv("DOKIMI_TEST_ONLY_DOCKER", "kept")
+    fake = process.FakeRunner()
+    DockerRunner(runner=fake).build(tmp_path, tmp_path / "Dockerfile", "img:t")
+    DockerRunner(runner=fake).image_exists("img:t")
+    assert [c.env.get("DOKIMI_TEST_ONLY_DOCKER") for c in fake.calls] == ["kept", "kept"]
     missing = DockerRunner(runner=process.FakeRunner(lambda call: process.reply(returncode=1)))
     assert missing.image_exists("img:t") is False and DockerRunner(runner=process.FakeRunner()).image_exists("x")
 
@@ -523,3 +534,12 @@ def test_a_timed_out_cat_file_is_an_error_not_an_absent_object(tmp_path, monkeyp
         workspace._has_object(tmp_path, "HEAD:x")
     with pytest.raises(PrepError, match="timed out"):
         workspace._has_commit(tmp_path, "abc")
+
+
+def test_a_run_that_does_not_time_out_kills_no_container(tmp_path):
+    from dokimi import process
+
+    fake = process.FakeRunner()
+    spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x")
+    res = DockerRunner("docker", runner=fake).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=5)
+    assert not res.timed_out and [c.argv[:2] for c in fake.calls] == [("docker", "run")]

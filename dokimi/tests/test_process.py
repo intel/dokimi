@@ -258,17 +258,20 @@ def test_term_grace_ends_in_sigkill_for_a_child_that_ignores_sigterm():
 def test_term_grace_waits_for_the_whole_group_not_only_the_child(tmp_path):
     """The command exits on SIGTERM; a helper of its that ignores SIGTERM still gets the grace,
     then the kill, and is gone when the call returns."""
-    pid_file = tmp_path / "pid"
+    pid_file, got_term = tmp_path / "pid", tmp_path / "helper-term"
+    helper = ("import signal, sys, time; "
+              "signal.signal(signal.SIGTERM, lambda *_: open(sys.argv[1], 'w').write('t')); "
+              "time.sleep(60)")
     code = ("import signal, subprocess, sys, time\n"
-            "helper = subprocess.Popen([sys.executable, '-c', 'import signal, time; "
-            "signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])\n"
+            f"helper = subprocess.Popen([sys.executable, '-c', {helper!r}, sys.argv[2]])\n"
             "open(sys.argv[1], 'w').write(str(helper.pid))\n"
             "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n"
             "time.sleep(60)\n")
     start = time.monotonic()
-    done = _py(code, str(pid_file), timeout=1, term_grace=1.5)
+    done = _py(code, str(pid_file), str(got_term), timeout=1, term_grace=1.5)
     elapsed = time.monotonic() - start
     assert done.timed_out and 1 + 1.5 - 0.5 < elapsed < 1 + 1.5 + process.DRAIN_GRACE_SEC + 3
+    assert got_term.read_text() == "t"  # the SIGTERM went to the group, not only the leader
     assert _gone_soon(int(pid_file.read_text()))
 
 
@@ -690,3 +693,97 @@ def test_fake_runner_applies_the_capture_limit_and_spools(tmp_path):
     assert (tmp_path / "err").read_bytes() == b"e" * 30
     assert fake.calls[0].capture_limit == 10 and fake.calls[0].stderr_to == tmp_path / "err"
     assert not fake(["x"], timeout=1, env=INHERIT).truncated
+
+
+_IGNORE_TERM_CLOSED = ("import os, signal, sys, time\n"
+                       "signal.signal(signal.SIGTERM, lambda *_: open(sys.argv[1], 'a').write('T'))\n"
+                       "os.close(1); os.close(2)\n"
+                       "open(sys.argv[1] + '.pid', 'w').write(str(os.getpid()))\n"
+                       "time.sleep(60)\n")
+
+
+@_POSIX_ONLY
+def test_term_grace_is_honoured_then_killed_when_the_output_closed_first(tmp_path):
+    log = tmp_path / "term"
+    start = time.monotonic()
+    done = _py(_IGNORE_TERM_CLOSED, str(log), timeout=0.5, term_grace=1.5)
+    elapsed = time.monotonic() - start
+    assert done.timed_out and 0.5 + 1.5 - 0.3 < elapsed < 0.5 + 1.5 + 3
+    assert log.read_text() == "T"
+    assert _gone_soon(int(Path(str(log) + ".pid").read_text()))
+
+
+@_POSIX_ONLY
+def test_term_grace_is_honoured_then_killed_on_an_interrupt(tmp_path, monkeypatch):
+    log = tmp_path / "term"
+
+    def interrupted(*args, **kwargs):
+        _wait_for(Path(str(log) + ".pid"))
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(process, "_collect", interrupted)
+    start = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        _py(_IGNORE_TERM_CLOSED, str(log), timeout=30, term_grace=1.5)
+    elapsed = time.monotonic() - start
+    assert 1.5 - 0.3 < elapsed < 1.5 + 5
+    assert log.read_text() == "T"
+    assert _gone_soon(int(Path(str(log) + ".pid").read_text()))
+
+
+@_POSIX_ONLY
+def test_an_interrupt_during_the_grace_sends_no_second_sigterm(tmp_path, monkeypatch):
+    """The timeout's SIGTERM already started the grace; Ctrl-C then waits out only what is left."""
+    log = tmp_path / "term"
+    code = ("import os, signal, sys, time\n"
+            "def term(*_):\n"
+            "    open(sys.argv[1], 'a').write('T')\n"
+            "    try:\n"
+            "        os.close(1); os.close(2)\n"
+            "    except OSError:\n"
+            "        pass\n"
+            "signal.signal(signal.SIGTERM, term)\n"
+            "time.sleep(60)\n")
+    real_wait_group = process._wait_group
+    calls = []
+
+    def wait_group(proc, until):
+        calls.append(until)
+        if len(calls) == 1:  # the timeout's grace, after the output closed: Ctrl-C now
+            time.sleep(0.3)
+            raise KeyboardInterrupt
+        real_wait_group(proc, until)
+
+    monkeypatch.setattr(process, "_wait_group", wait_group)
+    start = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        _py(code, str(log), timeout=0.5, term_grace=2)
+    elapsed = time.monotonic() - start
+    assert log.read_text() == "T"
+    assert calls[1] == calls[0]  # the same grace, not a fresh one
+    assert elapsed < 0.5 + 2 + 1.5
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="PR_SET_CHILD_SUBREAPER and /proc are Linux")
+def test_a_zombie_group_member_does_not_hold_the_grace_open(tmp_path):
+    """As PID 1 or a subreaper, a member orphaned by the leader stays a zombie of ours."""
+    script = tmp_path / "subreaper.py"
+    script.write_text(
+        "import ctypes, sys, time\n"
+        "from dokimi import process\n"
+        "assert ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0) == 0\n"
+        "code = ('import os, signal, subprocess, sys, time\\n'\n"
+        "        'subprocess.Popen([sys.executable, \"-c\", \"import time; time.sleep(60)\"])\\n'\n"
+        "        'signal.signal(signal.SIGTERM, lambda *_: os._exit(0))\\n'\n"
+        "        'time.sleep(60)\\n')\n"
+        "start = time.monotonic()\n"
+        "done = process.run([sys.executable, '-c', code], timeout=1, env=process.Env.inherit(), term_grace=8)\n"
+        "print(done.timed_out, round(time.monotonic() - start, 2))\n",
+        encoding="utf-8")
+    import subprocess
+    root = str(Path(process.__file__).resolve().parents[1])
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [root, os.environ.get("PYTHONPATH")]))}
+    proc = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=60, env=env)
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout.split()
+    assert out[0] == "True" and float(out[1]) < 1 + 4, out

@@ -155,6 +155,8 @@ def test_command_harness_collects_reward_and_operations(tmp_path, monkeypatch):
     assert call.argv[0] == "fake-agent" and call.cwd == task.path.parent.parent
     # The command is the operator's own CLI: it runs with the operator's environment.
     assert call.env["DOKIMI_TEST_ONLY_OPERATOR"] == "kept"
+    # Reward, operations and telemetry are parsed from this output: none of it may be cut.
+    assert call.capture_limit is None
 
     assert result.passed is True
     assert result.reward == 1.0

@@ -21,8 +21,8 @@ which holds these invariants:
   module does not. A library caller calls it from its main thread, or calls
   :func:`kill_children` from its own handler. Nothing handles ``SIGKILL``.
 * **A timeout can stop the group gently.** With ``term_grace`` (POSIX), a timeout or
-  an interrupt first sends the group ``SIGTERM`` and gives it that many seconds to
-  exit, its output still read, before the kill: a ``docker`` CLI stops its
+  an interrupt first sends the group ``SIGTERM`` (once) and gives it that many seconds
+  to exit before the kill; on a timeout its output is still read meanwhile: a ``docker`` CLI stops its
   container, ``bench`` its Compose project. Windows terminates the job at once. The
   kill when the child exits, and :func:`kill_children`, are immediate.
 * **A timeout is a result, not an exception.** ``timed_out`` is set, ``returncode``
@@ -219,6 +219,7 @@ def run(
         raise
     finally:
         _close_pipes(proc)
+        _term_until.pop(proc.pid, None)
         with _live_lock:
             _live.pop(proc.pid, None)
             if sys.platform == "win32" and job:
@@ -235,6 +236,8 @@ def run(
 # ── the groups alive right now, for a terminating signal ────────────────────
 
 _live: dict[int, tuple[subprocess.Popen[bytes], int | None]] = {}  # pid -> (process, job object)
+#: pid -> when the grace of the SIGTERM already sent to its group ends.
+_term_until: dict[int, float] = {}
 _live_lock = threading.RLock()  # re-entrant: a handler runs on the main thread, maybe inside run()
 _closing = False
 # Per thread, so only the main thread's (where Python runs signal handlers) is ever read
@@ -450,11 +453,12 @@ def _select_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float,
             now = time.monotonic()
             if killed_at is None:
                 # It exited (after a SIGTERM: its whole group did), or it is time for the next signal.
-                done = proc.poll() is not None and not (termed and _signal_group(proc, 0))
+                done = proc.poll() is not None and not (termed and _group_alive(proc))
                 if not done and now >= stop_at:
                     timed_out = True
                     if not termed and term_grace > 0 and _signal_group(proc, signal.SIGTERM):
                         termed, stop_at = True, now + term_grace
+                        _term_until[proc.pid] = stop_at  # an interrupt now waits out this grace only
                     else:
                         done = True
                 if done:
@@ -517,17 +521,53 @@ def _wait(proc: subprocess.Popen[bytes], deadline: float) -> bool:
 
 def _terminate(proc: subprocess.Popen[bytes], grace: float) -> None:
     """With a ``grace`` (POSIX): ``SIGTERM`` the group and wait up to ``grace`` seconds for all
-    of it to exit. The caller kills what is left."""
-    if _POSIX and grace > 0 and _signal_group(proc, signal.SIGTERM):
-        _wait_group(proc, time.monotonic() + grace)
+    of it to exit. The caller kills what is left. A group already sent ``SIGTERM`` (an
+    interrupt during the timeout's grace) is not signalled again: the wait ends with the
+    grace it already has."""
+    until = _term_until.get(proc.pid)
+    if until is not None:
+        _wait_group(proc, until)
+    elif _POSIX and grace > 0 and _signal_group(proc, signal.SIGTERM):
+        _term_until[proc.pid] = until = time.monotonic() + grace
+        _wait_group(proc, until)
 
 
 def _wait_group(proc: subprocess.Popen[bytes], until: float) -> None:
     """Wait until the child and the rest of its group have exited, or until ``until``."""
     while (remaining := until - time.monotonic()) > 0:
-        if proc.poll() is not None and not _signal_group(proc, 0):  # reap the leader, or it keeps the group
+        if proc.poll() is not None and not _group_alive(proc):  # reap the leader, or it keeps the group
             return
         time.sleep(min(_POLL_SEC, remaining))
+
+
+def _group_alive(proc: subprocess.Popen[bytes]) -> bool:
+    """Whether the child's process group has a member that has not exited.
+
+    ``killpg(pgid, 0)`` also counts a zombie nobody has reaped yet, which is what a
+    member orphaned to this process stays when it is PID 1 or a subreaper. On Linux
+    the members' states are read from ``/proc`` and zombies are left out.
+    """
+    if not _signal_group(proc, 0):
+        return False
+    if sys.platform != "linux":
+        return True
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return True
+    pgid = str(proc.pid)
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat", encoding="ascii", errors="replace") as f:
+                stat = f.read()
+        except OSError:  # it exited meanwhile
+            continue
+        fields = stat[stat.rfind(")") + 2:].split()  # state, ppid, pgrp, ...
+        if len(fields) > 2 and fields[2] == pgid and fields[0] not in ("Z", "X"):
+            return True
+    return False
 
 
 def _signal_group(proc: subprocess.Popen[bytes], sig: int) -> bool:

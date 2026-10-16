@@ -36,7 +36,8 @@ class TaskSuiteRunner:
     command_template: str | None = None
     dry_run: bool = False
     repeats: int = 1
-    runner: process.Runner = field(default=process.run, repr=False)  # starts every harness's processes
+    # Starts the processes of every harness except the `docker-*` ones (docker_solver spawns its own).
+    runner: process.Runner = field(default=process.run, repr=False)
 
     def validate_harnesses(self) -> None:
         """Build every harness id once; a bad id (e.g. a missing skill path)

@@ -566,5 +566,6 @@ def test_command_explorer_spawns_through_its_runner(tmp_path, monkeypatch):
     assert result.returncode == 124 and result.final_answer.startswith("<final_answer>")
     (call,) = fake.calls
     assert call.argv == ("fc", "--q", "where?") and call.cwd == tmp_path and call.timeout == 7
+    assert call.capture_limit is None  # the final answer and the markers are parsed from all of it
     assert call.env["X"] == "1" and call.env["DOKIMI_TEST_ONLY_OPERATOR"] == "kept"
     assert call.env["DOKIMI_OUTPUT_DIR"] == str((tmp_path / "o").resolve())
