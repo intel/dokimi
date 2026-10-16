@@ -130,7 +130,9 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
     output_path = Path(args.output) if args.output else Path(f"eval/{args.product}_panel.json")
     results = panel.evaluate_answers(answers, library_name=args.product,
                                      output_path=output_path,
-                                     limit=getattr(args, "limit", None))
+                                     limit=getattr(args, "limit", None),
+                                     run_metadata={"answer_model": answer_model,
+                                                   "answer_provider": answer_provider})
 
     # Summary
     valid = [r for r in results if r.get("with_docs") and r["with_docs"].get("aggregate") is not None]

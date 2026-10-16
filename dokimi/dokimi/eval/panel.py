@@ -485,7 +485,8 @@ class JudgePanel:
 
     def evaluate_answers(self, answers: List[Dict[str, Any]], library_name: str,
                          output_path: Optional[Path] = None,
-                         limit: Optional[int] = None) -> List[Dict[str, Any]]:
+                         limit: Optional[int] = None,
+                         run_metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         if limit:
             answers = answers[:limit]
         results = []
@@ -514,7 +515,7 @@ class JudgePanel:
                 "retrieval_hit": retrieval_hit(answer),
             })
             if output_path:
-                _save_incremental(results, output_path, library_name, self)
+                _save_incremental(results, output_path, library_name, self, run_metadata)
         return results
 
 
@@ -555,7 +556,7 @@ def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
 
 
 def _save_incremental(results: List[Dict], path: Path, library_name: str,
-                      panel: JudgePanel) -> None:
+                      panel: JudgePanel, run_metadata: Optional[Dict[str, Any]] = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     output = {
@@ -572,6 +573,8 @@ def _save_incremental(results: List[Dict], path: Path, library_name: str,
         "total_evaluations": len(results),
         "evaluations": results,
     }
+    if run_metadata:
+        output["run_metadata"] = run_metadata
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
     os.replace(tmp, path)

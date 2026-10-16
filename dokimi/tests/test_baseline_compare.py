@@ -83,8 +83,80 @@ def test_compare_treats_a_bedrock_alias_and_its_profile_as_one_judge(compare, ca
     assert capsys.readouterr().err == ""
 
 
-def test_compare_skips_a_role_the_baseline_does_not_record(compare, capsys):
+def test_compare_names_a_role_the_baseline_does_not_record(compare, capsys):
     old = _eval()
     del old["run_metadata"]
-    compare(old, _eval(), "--strict")
+    compare(old, _eval())
+    out, err = capsys.readouterr()
+    assert "answer model not recorded in baseline; not compared" in err
+    assert "judge model" not in err
+    assert "Avg delta" in out
+
+
+def test_compare_strict_refuses_a_role_it_cannot_verify(compare, capsys):
+    old = _eval()
+    del old["run_metadata"]
+    with pytest.raises(SystemExit) as exc:
+        compare(old, _eval(), "--strict")
+    assert exc.value.code == 1
+    assert "--strict cannot verify the answer model" in capsys.readouterr().err
+
+
+def test_an_unknown_answer_model_is_not_a_model_change(compare, capsys):
+    # `eval score` writes "unknown" when the answers file names no model.
+    old = _eval(answer=("unknown", "unknown"))
+    compare(old, _eval())
+    err = capsys.readouterr().err
+    assert "answer model not recorded in baseline; not compared" in err
+    assert "unknown/unknown" not in err and "Baseline model warning" not in err
+
+
+def test_a_judge_recorded_only_in_run_metadata_is_compared(compare, capsys):
+    old = _eval(judge=("openai", "gpt-4o-mini"))
+    old["run_metadata"].update(judge_provider=old.pop("judge_provider"),
+                               judge_model=old.pop("judge_model"))
+    compare(old, _eval())
+    assert "judge model: baseline openai/gpt-4o-mini, current anthropic/claude-sonnet-5-5" \
+        in capsys.readouterr().err
+
+
+def test_provider_and_model_case_and_whitespace_do_not_count_as_a_change(compare, capsys):
+    compare(_eval(answer=(" OpenAI ", "GPT-6.1-sol "), judge=("Anthropic", "Claude-Sonnet-5-5")),
+            _eval(), "--strict")
     assert capsys.readouterr().err == ""
+
+
+def _panel(*models: str) -> dict:
+    data = _eval()
+    del data["judge_provider"]
+    data["judge_model"] = f"panel({len(models)})"
+    data["panel_config"] = {"size": len(models), "models": list(models)}
+    return data
+
+
+def test_compare_strict_refuses_a_panel_whose_judges_changed(compare, capsys):
+    with pytest.raises(SystemExit) as exc:
+        compare(_panel("anthropic/claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"),
+                _panel("openai/gpt-4o-mini", "openai/gpt-4o-mini"), "--strict")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "judge model: baseline panel/anthropic/claude-sonnet-5-5" in err
+    assert "current panel/openai/gpt-4o-mini" in err
+
+
+def test_a_panel_with_the_same_judges_in_another_order_is_one_judge(compare, capsys):
+    compare(_panel("anthropic/claude-sonnet-5-5", "amazon-bedrock/claude-opus-5-5"),
+            _panel("amazon-bedrock/us.anthropic.claude-opus-5-5", "Anthropic/claude-sonnet-5-5"),
+            "--strict")
+    assert capsys.readouterr().err == ""
+
+
+def test_panel_score_records_the_answer_model_for_compare(tmp_path):
+    from dokimi.eval.panel import JudgeConfig, JudgePanel, _save_incremental
+
+    panel = JudgePanel(judges=[JudgeConfig(role="r", model="m", provider="anthropic")])
+    path = tmp_path / "p.json"
+    _save_incremental([], path, "lib", panel, {"answer_model": "a", "answer_provider": "openai"})
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert baseline_mod._recorded_models(data) == {
+        "answer": ("openai", "a"), "judge": ("panel", "anthropic/m")}

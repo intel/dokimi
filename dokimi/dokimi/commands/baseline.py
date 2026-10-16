@@ -50,7 +50,9 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
     """The (provider, model) an eval artifact records for its answerer and its judge.
 
     The judge is top-level (``judge_provider``/``judge_model``); the answerer is in
-    ``run_metadata``. A role the artifact does not record maps to ``None``.
+    ``run_metadata``. A panel (``judge_model: "panel(N)"``) records its judges only in
+    ``panel_config.models``; it maps to ``("panel", <sorted, normalized models>)``. A role
+    the artifact does not record maps to ``None``.
     """
     meta = eval_data.get("run_metadata") or {}
 
@@ -59,26 +61,35 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
             return None
         return str(provider), str(model)
 
+    judge_model = eval_data.get("judge_model") or meta.get("judge_model")
+    if str(judge_model or "").startswith("panel("):
+        models = (eval_data.get("panel_config") or {}).get("models") or []
+        judge = ("panel", ",".join(sorted(
+            normalize_model_ref(*m.split("/", 1)) if "/" in m else m for m in models))) if models else None
+    else:
+        judge = pair(eval_data.get("judge_provider") or meta.get("judge_provider"), judge_model)
     return {
         "answer": pair(meta.get("answer_provider"), meta.get("answer_model")),
-        "judge": pair(eval_data.get("judge_provider") or meta.get("judge_provider"),
-                      eval_data.get("judge_model") or meta.get("judge_model")),
+        "judge": judge,
     }
 
 
-def _model_mismatches(baseline_data: Dict[str, Any], eval_data: Dict[str, Any]) -> List[str]:
-    """One line per role (answer, judge) whose recorded model differs between the two runs.
+def _model_mismatches(baseline_data: Dict[str, Any],
+                      eval_data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    """Per role (answer, judge): lines for a recorded model that differs between the two
+    runs, and the roles that could not be compared because a side does not record them.
 
-    A role either side does not record is not compared; a Bedrock alias and its
-    inference profile count as one model.
+    A Bedrock alias and its inference profile count as one model.
     """
     base, cur = _recorded_models(baseline_data), _recorded_models(eval_data)
-    lines = []
+    lines, unverified = [], []
     for role in ("answer", "judge"):
         b, c = base[role], cur[role]
-        if b and c and normalize_model_ref(*b) != normalize_model_ref(*c):
+        if not (b and c):
+            unverified.append(role)
+        elif normalize_model_ref(*b) != normalize_model_ref(*c):
             lines.append(f"{role} model: baseline {b[0]}/{b[1]}, current {c[0]}/{c[1]}")
-    return lines
+    return lines, unverified
 
 
 def cmd_baseline_save(args: argparse.Namespace) -> None:
@@ -173,10 +184,19 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
         entry = candidates[-1]   # most recent
 
     baseline_data = json.loads(Path(entry["path"]).read_text(encoding="utf-8"))
-    mismatches = _model_mismatches(baseline_data, eval_data)
+    mismatches, unverified = _model_mismatches(baseline_data, eval_data)
+    strict = getattr(args, "strict", False)
+    for role in unverified:
+        sides = [name for name, data in (("baseline", baseline_data), ("current eval", eval_data))
+                 if _recorded_models(data)[role] is None]
+        print(f"⚠ {role} model not recorded in {' and '.join(sides)}; not compared", file=sys.stderr)
+    if unverified and strict:
+        print(f"❌ --strict cannot verify the {' and '.join(unverified)} model against "
+              f"baseline '{entry['name']}'", file=sys.stderr)
+        raise SystemExit(1)
     if mismatches:
         detail = "".join(f"\n  {line}" for line in mismatches)
-        if getattr(args, "strict", False):
+        if strict:
             print(f"❌ Baseline '{entry['name']}' was scored with different models (--strict):{detail}",
                   file=sys.stderr)
             raise SystemExit(1)
