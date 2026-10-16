@@ -157,6 +157,20 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
             except Exception as exc:
                 errors.append(f"questions source invalid: {qf} ({exc})")
 
+    if plan["questions_root"]:
+        root = Path(plan["questions_root"])
+        golden = root / f"{entry.key.lower()}_golden.json"
+        if not root.is_dir():
+            errors.append(f"questions root not found: {root}")
+        elif not golden.is_file():
+            errors.append(f"questions root has no golden set: {golden}")
+        else:
+            try:
+                questions = load_questions_payload(golden)
+                print(f"  golden questions: {golden} ({len(questions)} items)")
+            except Exception as exc:
+                errors.append(f"golden set invalid: {golden} ({exc})")
+
     same = _warn_judge_independence(
         answer_provider=args.provider,
         answer_model=args.model,

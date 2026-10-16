@@ -83,6 +83,7 @@ def test_cached_questions_skip_generation_and_get_question_set_id(tmp_path, monk
     assert result["steps"]["questions_generated"]["cached"] is True
 
 
+@pytest.mark.outcome("pinned-questions-from")
 def test_questions_from_directory_is_reused_and_normalized(tmp_path, monkeypatch):
     _stub_expensive_steps(monkeypatch)
     questions = [
@@ -175,6 +176,7 @@ def test_missing_golden_set_under_questions_root_warns(tmp_path, caplog):
     assert "has no golden set for demo" in caplog.text
 
 
+@pytest.mark.outcome("pinned-questions-warn")
 def test_no_questions_root_means_no_golden_set(tmp_path, caplog):
     """Without a root (and without --custom-questions) nothing is auto-included.
 
@@ -260,3 +262,63 @@ def test_load_questions_payload_rejects_invalid_wrapped_payload(tmp_path):
 
     with pytest.raises(ValueError, match="Expected a list of questions"):
         load_questions_payload(path)
+
+@pytest.mark.outcome("pinned-questions-root")
+def test_two_runs_on_one_questions_root_answer_the_same_questions(tmp_path, monkeypatch):
+    """Runs into fresh output dirs that share a root answer exactly the golden set.
+
+    Generation is stubbed to return different ids on each call, so a run that
+    still generated (and merged) would hand a different set to the answer step.
+    """
+    golden = [
+        {"id": "g1", "question": "How do I cancel a task_group?"},
+        {"id": "g2", "question": "When does parallel_for split a range?"},
+    ]
+    questions_root = tmp_path / "content" / "questions"
+    _write_json(questions_root / "demo_golden.json", {"questions": golden})
+
+    calls = iter(range(100))
+    answered: list[list[str]] = []
+
+    def generate_questions(self, personas):
+        n = next(calls)
+        return [{"id": f"gen{n}", "question": f"Generated question {n}?", "source_type": "generated"}]
+
+    def generate_answers(self, questions, concurrency=5, question_set_hash=None):
+        answered.append([q["id"] for q in questions])
+        return []
+
+    monkeypatch.setattr(EvaluationPipeline, "_generate_questions", generate_questions)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_answers", generate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_evaluate_answers", lambda self, a, concurrency=5, question_set_hash=None: [])
+    monkeypatch.setattr(EvaluationPipeline, "_generate_report", lambda self, e, q: "report")
+
+    for run in ("run_a", "run_b"):
+        output_dir = tmp_path / run
+        _write_json(output_dir / "personas" / "demo.json", {"personas": []})
+        EvaluationPipeline(
+            product="DemoProduct",
+            product_key="demo",
+            output_dir=output_dir,
+            description="A demo product",
+            questions_root=questions_root,
+        ).run(concurrency=1)
+
+    assert answered == [["g1", "g2"], ["g1", "g2"]]
+
+
+@pytest.mark.outcome("pinned-questions-warn")
+def test_questions_from_does_not_warn_that_questions_are_generated(tmp_path, caplog):
+    source_dir = tmp_path / "source"
+    _write_json(source_dir / "questions" / "demo.json", [{"id": "q1", "question": "Q?"}])
+
+    with caplog.at_level(logging.WARNING):
+        EvaluationPipeline(
+            product="DemoProduct",
+            product_key="demo",
+            output_dir=tmp_path / "out",
+            description="A demo product",
+            questions_from=source_dir,
+        )
+
+    assert "questions will be generated" not in caplog.text

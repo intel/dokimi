@@ -109,9 +109,11 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.lock.txt
       # Offline by construction: pytest-socket (addopts in pyproject.toml) fails
-      # any test that opens a network socket.
+      # any test that opens a network socket. --outcomes also checks the user
+      # outcomes in tests/outcomes/: an evidence id that no test claims fails the
+      # job even when every test passes.
       - name: Run tests
-        run: pytest --cov=dokimi --cov-branch --cov-report=term --cov-report=xml
+        run: pytest --outcomes --outcomes-report=outcomes-result.json --cov=dokimi --cov-branch --cov-report=term --cov-report=xml
       # Coverage of the lines this PR changes, not of the whole tree: the total
       # moves too little per PR to gate on, an untested new function does not.
       # Below 20 measurable changed lines one missed line swings the percentage
@@ -143,6 +145,7 @@ jobs:
             dokimi/coverage.xml
             dokimi/diff-cover.json
             dokimi/diff-cover.md
+            dokimi/outcomes-result.json
           if-no-files-found: ignore
       # Trend, PR comment and badge. Informational only (codecov.yml): the gate
       # is the changed-lines step above, and a Codecov outage does not fail CI.

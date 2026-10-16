@@ -29,20 +29,22 @@ It checks:
 - writable output directory
 - judge/answer independence warning
 - optional `--questions-from` path and JSON shape
+- optional `--questions-root`: the directory exists and holds a readable `<target>_golden.json`
 
 It also reports the resolved fixed retrieval policy: semantic-only, `top_k=3`.
 
 ## 3. Run canonical benchmark
 
 Question sets live in a separate evaluation-content checkout, so name its
-`questions/` directory. The run picks up `<target>_golden.json` from there:
+`questions/` directory. The run reads `<target>_golden.json` from there and
+answers exactly that set; no questions are generated:
 
 ```bash
 python cli.py benchmark run --target onetbb \
   --questions-root <content-checkout>/questions
 ```
 
-Without `--questions-root` (or `--custom-questions <file>`) the run **generates**
+Without `--questions-root` or `--questions-from` the run **generates**
 questions instead of reading a curated set, and logs a warning saying so. That is
 fine for a first look, but two runs then answer different questions and cannot be
 compared. See [external-content.md](external-content.md).

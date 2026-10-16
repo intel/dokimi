@@ -32,6 +32,9 @@ also holds a PR to:
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
   network calls.
+- User outcomes (`tests/outcomes/*.json`, checked by `pytest --outcomes`): a
+  test marked `@pytest.mark.outcome(...)` is evidence for a promise in the docs;
+  weaken or drop it only together with the doc and the contract.
 
 ## Before changing a subsystem, read its doc
 

@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import json
 
+import pytest
+
 from dokimi.cli import build_parser
 from dokimi.commands import benchmark
 from dokimi.registry import ProductEntry
@@ -24,6 +26,7 @@ class _Registry:
         )
 
 
+@pytest.mark.outcome("pinned-questions-reuse")
 def test_multi_run_reuses_first_run_questions(monkeypatch, tmp_path, capsys):
     calls: list[dict[str, object]] = []
 
@@ -178,6 +181,9 @@ def test_preflight_reports_the_questions_root(monkeypatch, tmp_path, capsys):
     )
     questions_root = tmp_path / "questions"
     questions_root.mkdir()
+    (questions_root / "onetbb_golden.json").write_text(
+        json.dumps({"questions": [{"id": "g1", "question": "How?"}]}), encoding="utf-8"
+    )
 
     args = build_parser().parse_args([
         "benchmark", "preflight", "--library", "onetbb",
@@ -188,9 +194,12 @@ def test_preflight_reports_the_questions_root(monkeypatch, tmp_path, capsys):
     ])
     args.func(args)
 
-    assert f"questions_root: {questions_root}" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert f"questions_root: {questions_root}" in out
+    assert "golden questions:" in out and "(1 items)" in out
 
 
+@pytest.mark.outcome("pinned-questions-preflight")
 def test_preflight_validates_questions_from(monkeypatch, tmp_path, capsys):
     questions_dir = tmp_path / "source" / "questions"
     questions_dir.mkdir(parents=True)
@@ -222,3 +231,78 @@ def test_preflight_validates_questions_from(monkeypatch, tmp_path, capsys):
     benchmark.cmd_benchmark_preflight(args)
 
     assert "questions:" in capsys.readouterr().out
+
+
+def _preflight(monkeypatch, tmp_path, *extra, env=("OPENAI_API_KEY",)):
+    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    for key in env:
+        monkeypatch.setenv(key, "test")
+    monkeypatch.setattr(benchmark, "_load_registry", lambda args: _Registry())
+    monkeypatch.setattr(
+        "dokimi.mcp.factory.create_doc_source_client",
+        lambda doc_source: object(),
+    )
+    args = build_parser().parse_args([
+        "benchmark", "preflight", "--library", "onetbb",
+        "--doc-source", "local:docs",
+        "--provider", "openai", "--judge-provider", "openai",
+        *extra,
+    ])
+    if "--output-dir" not in extra:
+        args.output_dir = str(tmp_path / "out")
+    args.func(args)
+
+
+def _bad_questions_from(tmp_path):
+    (tmp_path / "bad").mkdir()
+    (tmp_path / "bad" / "onetbb.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
+    return ["--questions-from", str(tmp_path / "bad" / "onetbb.json")]
+
+
+def _empty_root(tmp_path):
+    (tmp_path / "questions").mkdir()
+    return ["--questions-root", str(tmp_path / "questions")]
+
+
+def _root_with_invalid_golden(tmp_path):
+    (tmp_path / "questions").mkdir()
+    (tmp_path / "questions" / "onetbb_golden.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
+    return ["--questions-root", str(tmp_path / "questions")]
+
+
+@pytest.mark.outcome("pinned-questions-preflight")
+@pytest.mark.parametrize(
+    "extra, env, message",
+    [
+        (lambda p: [], (), "missing OPENAI_API_KEY"),
+        (lambda p: ["--questions-from", str(p / "nowhere")], ("OPENAI_API_KEY",), "questions source not found"),
+        (_bad_questions_from, ("OPENAI_API_KEY",), "questions source invalid"),
+        (lambda p: ["--questions-root", str(p / "nowhere")], ("OPENAI_API_KEY",), "questions root not found"),
+        (_empty_root, ("OPENAI_API_KEY",), "questions root has no golden set"),
+        (_root_with_invalid_golden, ("OPENAI_API_KEY",), "golden set invalid"),
+    ],
+    ids=[
+        "no-key", "questions-from-missing", "questions-from-invalid",
+        "root-missing", "root-without-golden", "root-golden-invalid",
+    ],
+)
+def test_preflight_fails_before_any_call(monkeypatch, tmp_path, capsys, extra, env, message):
+    with pytest.raises(SystemExit) as exc:
+        _preflight(monkeypatch, tmp_path, *extra(tmp_path), env=env)
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert message in captured.err
+    assert "Preflight OK" not in captured.out
+
+
+def test_preflight_rejects_an_unwritable_output_dir(monkeypatch, tmp_path, capsys):
+    blocker = tmp_path / "file"
+    blocker.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        _preflight(monkeypatch, tmp_path, "--output-dir", str(blocker / "out"))
+
+    assert exc.value.code == 1
+    assert "output dir not writable" in capsys.readouterr().err
