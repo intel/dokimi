@@ -266,7 +266,7 @@ def register(sub, positive_int) -> None:
     """Add the `repo` subcommand group."""
     repo_p = sub.add_parser(
         "repo",
-        help="Repositories as evaluation subjects: validate repo-eval.yaml, L0 scan, reach probe, budget, fetch sources, "
+        help="Repositories as evaluation subjects: validate repo-eval.yaml, L0 scan, fetch sources, reach probe, budget, "
         "task self-check, agent runs and their report",
     )
     repo_sub = repo_p.add_subparsers(dest="repo_cmd", required=True)
@@ -364,8 +364,8 @@ def register(sub, positive_int) -> None:
         "budget",
         help="What the repository puts into an agent's context when it starts at the root: guidance "
         "files and their imports, the skill listing, lazily loaded and on-demand files, in characters; "
-        "warns on skills with no description, near-duplicate skill descriptions, and AGENTS.md files a "
-        "root CLAUDE.md turns off (Claude Code rules). No LLM call.",
+        "warns on skills with no description, skills with near-duplicate descriptions (Jaccard index >= 0.5 "
+        "after removing stop words), and AGENTS.md files a root CLAUDE.md turns off (Claude Code rules). No LLM call.",
     )
     budget_p.add_argument("source", help=source_help)
     budget_p.add_argument("--harness", default="claude-code",

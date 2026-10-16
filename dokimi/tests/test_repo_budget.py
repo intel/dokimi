@@ -201,7 +201,7 @@ def test_cli_table_and_gate(tmp_path, capsys):
     assert "| start | guidance | CLAUDE.md | 20 |" in out
     assert "| off | guidance | AGENTS.md | 10 |" in out
     assert "MCP servers in .mcp.json: docs" in out
-    assert "warning: CLAUDE.md at the root turns AGENTS.md loading off" in out
+    assert "warning: CLAUDE.md turns AGENTS.md loading off" in out
 
 
 def test_cli_json_and_bad_source(tmp_path, capsys):
@@ -273,17 +273,32 @@ def test_circular_imports_terminate(tmp_path):
     assert got["warnings"] == []
 
 
-def test_non_utf8_guidance_file_is_counted_and_warned(tmp_path):
-    """An unreadable guidance file is listed with 0 chars and a clear warning."""
-    tree = _tree(tmp_path, {"AGENTS.md": "a" * 10})
-    # Overwrite with non-UTF-8 bytes
-    (tmp_path / "CLAUDE.md").write_bytes(b"\xff\xfe")
-    got = budget(tree, NAMES)
-    entries = _by_path(got)
-    assert entries[("CLAUDE.md", "guidance")]["chars"] == 0
-    assert any("not readable" in w or "CLAUDE.md" in w for w in got["warnings"])
-    # AGENTS.md is still off because a root CLAUDE.md turns it off
-    assert entries[("AGENTS.md", "guidance")]["when"] == "off"
+def test_unreadable_guidance_files_are_warned(tmp_path):
+    """Unreadable guidance files (non-UTF-8, broken links, outside tree) all emit specific warnings."""
+    # Case 1: Non-UTF-8 guidance file
+    tree1 = _tree(tmp_path / "t1", {"AGENTS.md": "a" * 10})
+    (tmp_path / "t1" / "CLAUDE.md").write_bytes(b"\xff\xfe")
+    got1 = budget(tree1, NAMES)
+    assert any("CLAUDE.md: not readable (non-UTF-8 or binary)" in w for w in got1["warnings"])
+    # Unreadable CLAUDE.md should NOT turn AGENTS.md off
+    entries1 = _by_path(got1)
+    assert entries1[("AGENTS.md", "guidance")]["when"] == "start"
+
+    # Case 2: Dangling symlink as guidance file
+    try:
+        tree2 = _tree(tmp_path / "t2", {"AGENTS.md": "a"})
+        (tmp_path / "t2" / "CLAUDE.md").symlink_to(tmp_path / "t2" / "missing.md")
+        got2 = budget(tree2, NAMES)
+        assert any("CLAUDE.md: not readable" in w for w in got2["warnings"])
+        assert any("broken link" in w or "not found" in w for w in got2["warnings"])
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    # Case 3: Non-UTF-8 import
+    tree3 = _tree(tmp_path / "t3", {"CLAUDE.md": "@broken.md"})
+    (tmp_path / "t3" / "broken.md").write_bytes(b"\x80\x81")
+    got3 = budget(tree3, NAMES)
+    assert any("broken.md: not readable" in w for w in got3["warnings"])
 
 
 def test_mcp_json_with_non_dict_servers(tmp_path):
@@ -294,3 +309,56 @@ def test_mcp_json_with_non_dict_servers(tmp_path):
     assert budget(tree2, NAMES)["mcp_servers"] == []
     tree3 = _tree(tmp_path / "t3", {".mcp.json": json.dumps({})})
     assert budget(tree3, NAMES)["mcp_servers"] == []
+    tree4 = _tree(tmp_path / "t4", {".mcp.json": json.dumps({"mcpServers": [1]})})
+    assert budget(tree4, NAMES)["mcp_servers"] == []
+
+
+def test_import_rules_import_must_exist_and_not_be_escaped(tmp_path):
+    """Imports with a lookbehind (@), outside tree (..), and in code are not followed."""
+    tree = _tree(tmp_path, {
+        "CLAUDE.md": "@example.md @../etc/passwd.md a@email.md `@fenced.md`",
+        "example.md": "exists",
+        "email.md": "nope",
+    })
+    got = budget(tree, NAMES)
+    paths = {e["path"] for e in got["entries"]}
+    # Only example.md is followed; email.md and fenced.md are not imported; ../etc/passwd is outside tree
+    assert ("example.md", "import") in [(e["path"], e["kind"]) for e in got["entries"]]
+    assert not any("etc/passwd" in p or "email" in p or "fenced" in p for p in paths)
+
+
+def test_non_english_descriptions_with_tokenizer(tmp_path):
+    """Descriptions in other languages are tokenized with \\w+ and skipped if <3 tokens each."""
+    tree = _tree(tmp_path, {
+        ".claude/skills/a/SKILL.md": _skill("s1", "Развернуть сервис"),  # 2 tokens, skipped
+        ".claude/skills/b/SKILL.md": _skill("s2", "Развернуть сервис"),   # Same, but both <3, so no pair
+        ".claude/skills/c/SKILL.md": _skill("s3", "用于部署 API"),  # 2 tokens (API becomes "api"), skipped
+        ".claude/skills/d/SKILL.md": _skill("s4", "用于测试 API"),   # 2 tokens, skipped
+    })
+    got = budget(tree, NAMES)
+    # All pairs skipped because each description has <3 meaningful tokens
+    assert got["duplicate_skills"] == []
+
+
+def test_cli_table_row_order(tmp_path, capsys):
+    """CLI output: larger files first in each when category, start before off."""
+    tree = _tree(tmp_path, {
+        "CLAUDE.md": "@import.md",
+        "import.md": "i" * 1234,
+        "AGENTS.md": "a" * 10,
+    })
+    out = _run(["repo", "budget", str(tmp_path)], capsys).out
+    lines = out.split("\n")
+    # Check that rows exist and start comes before off
+    assert any("start" in l and "import" in l for l in lines)
+    assert any("off" in l and "AGENTS" in l for l in lines)
+    # Rows are ordered by when
+    for i, l in enumerate(lines):
+        if "| start" in l:
+            start_idx = i
+            break
+    for i, l in enumerate(lines):
+        if "| off" in l:
+            off_idx = i
+            break
+    assert start_idx < off_idx

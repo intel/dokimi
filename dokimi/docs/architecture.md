@@ -235,11 +235,12 @@ next release.
   file and any other harness is another YAML.
 - `dokimi/repos/budget.py` — `repo budget`: what the tree puts into an
   agent's context when it starts at the root, in characters, with no LLM call.
-  Root guidance files and their `@` imports and the skill listing load at
+  Root CLAUDE.md files and their `@` imports and the skill listing load at
   start; nested guidance and what nested CLAUDE.md files import load lazily;
   skill bodies on demand; with a CLAUDE.md at the root, an AGENTS.md no
-  CLAUDE.md imports is reported off. It warns on skills
-  with near-duplicate descriptions and on AGENTS.md files turned off.
+  CLAUDE.md imports is reported off. It warns on skills with no description,
+  skills with near-duplicate descriptions (Jaccard index >= 0.5 after stop-word removal),
+  and on AGENTS.md files turned off.
 - `dokimi/repos/static.py` — the `repo_static.v1` schema: what the
   repository's own `static` entry point writes, so its checks can be merged
   into L0.
@@ -269,7 +270,7 @@ next release.
   isolation probe must not see the tasks or the source from the agent's
   container.
 
-Entry points: `python cli.py repo {validate,scan,budget,fetch,reach,tasks check,run,report}`
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
