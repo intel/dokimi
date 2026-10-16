@@ -58,7 +58,7 @@ A tool the agent is not told about is rarely used.
   called in 2 of 24 runs with Haiku 5.5 and 1 of 24 with Sonnet 5.5. Scores did not
   change.
 - The same server plus one line in the root `AGENTS.md` saying when to use it was
-  called in 13 and 16 of 24 runs, and only then did the scores improve (§5).
+  called in 13 and 16 of 24 runs, and the scores improved in those arms (§5).
 
 Write one line per tool: what it answers and when to prefer it over the default.
 For example:
@@ -169,7 +169,7 @@ Put a `CLAUDE.md` containing `@AGENTS.md` next to each `AGENTS.md`, including in
 subdirectories; Claude Code reads no `AGENTS.md` beside a `CLAUDE.md`. Gemini CLI
 reads `GEMINI.md` unless `context.fileName` in its settings lists `AGENTS.md`. The
 `guidance:bridge` arm (for profiles with a bridge key) writes a `CLAUDE.md`
-containing `@AGENTS.md` and can measure this setup's effect.
+containing `@AGENTS.md` where no `CLAUDE.md` exists yet, and can measure this setup's effect.
 
 Loading changes between versions. Run `dokimi repo reach` for the harness and
 version you use instead of relying on this table. Only the `claude-code` profile is
@@ -201,7 +201,10 @@ Treat each item above as a hypothesis for your repository.
    containing `@AGENTS.md` next to each `AGENTS.md` for profiles with a bridge key).
    Testing one added line or tool needs planned arms; use `setup_patches` or a
    distinct `base` (see [workspace preparation](repo-evaluation-contract.md#workspace-preparation-done-by-the-framework))
-   today.
+   today. To test one added line with `setup_patches`, write two tasks that differ in
+   a `setup_patches` entry (or use two `base` commits), and run both under
+   `guidance:raw` so that the patch is not removed; a tool still needs to be in the
+   image already.
 3. Look at whether the agent used the change, not only at the score. A guidance
    line can move the score without the tool it names being called; tool use tells
    you whether the tool itself mattered. An arm in which the tool was never called
