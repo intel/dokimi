@@ -264,3 +264,67 @@ def test_load_questions_payload_rejects_invalid_wrapped_payload(tmp_path):
 
     with pytest.raises(ValueError, match="Expected a list of questions"):
         load_questions_payload(path)
+
+
+def test_questions_from_wins_over_cache(tmp_path, monkeypatch):
+    """When both --questions-from and cache are present, --questions-from is used."""
+    _stub_expensive_steps(monkeypatch)
+    external_questions = [
+        {"id": "external", "question": "From external source?", "source_type": "generated"}
+    ]
+    cached_questions = [
+        {"id": "cached", "question": "From cache?", "source_type": "generated"}
+    ]
+    external_dir = tmp_path / "external"
+    output_dir = tmp_path / "target"
+    _write_json(external_dir / "questions" / "oneTBB.json", external_questions)
+    _write_json(output_dir / "personas" / "oneTBB.json", {"personas": []})
+    _write_json(output_dir / "questions" / "oneTBB.json", cached_questions)
+
+    pipeline = EvaluationPipeline(
+        product="oneTBB",
+        output_dir=output_dir,
+        description="Threading Building Blocks",
+        questions_from=external_dir,
+    )
+    result = pipeline.run(concurrency=1)
+
+    # Verify external set was used, not cache
+    saved = json.loads((output_dir / "questions" / "oneTBB.json").read_text())
+    assert saved["questions"][0]["id"] == "external"
+    assert len(saved["questions"]) == 1
+
+
+def test_relative_questions_from_path_not_confused_with_output(tmp_path, monkeypatch):
+    """A relative input path equal to output must be resolved correctly."""
+    _stub_expensive_steps(monkeypatch)
+    import os
+
+    questions = [
+        {"id": "q1", "question": "What is this?", "source_type": "generated"}
+    ]
+    # Create structure: cwd/questions/oneTBB.json -> same as output
+    questions_dir = tmp_path / "questions"
+    questions_dir.mkdir()
+    _write_json(questions_dir / "oneTBB.json", questions)
+
+    output_dir = tmp_path / "output"
+    _write_json(output_dir / "personas" / "oneTBB.json", {"personas": []})
+
+    # Change to tmp_path to use relative paths
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        pipeline = EvaluationPipeline(
+            product="oneTBB",
+            output_dir=output_dir,
+            description="Threading Building Blocks",
+            questions_from=Path("questions"),  # Relative path
+        )
+        result = pipeline.run(concurrency=1)
+
+        # The external source must be used, not treated as same as output
+        saved = json.loads((output_dir / "questions" / "oneTBB.json").read_text())
+        assert saved["questions"][0]["id"] == "q1"
+    finally:
+        os.chdir(old_cwd)
