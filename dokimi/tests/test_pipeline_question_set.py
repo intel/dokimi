@@ -401,7 +401,7 @@ def test_cached_questions_differing_from_golden_warns(tmp_path, monkeypatch, cap
             description="A demo product",
             questions_root=questions_root,
         )
-        result = pipeline.run(concurrency=1)
+        pipeline.run(concurrency=1)
 
     assert "cached question ids" in caplog.text
     assert "differ from golden set ids" in caplog.text
@@ -434,6 +434,9 @@ def test_golden_pinned_run_skips_persona_discovery(tmp_path, monkeypatch):
 
     assert not discover_personas_called, "persona discovery should not have been called"
     assert result["steps"]["personas"]["skipped"] is True
+    # Regression: orchestrate.py:73 reads results['steps']['personas']['path']
+    assert "path" in result["steps"]["personas"], "path key must exist for orchestrate.py"
+    assert result["steps"]["personas"]["path"] == str(pipeline.personas_path)
 
 
 @pytest.mark.outcome("pinned-questions-reuse")
@@ -490,13 +493,38 @@ def test_questions_from_with_root_ignores_root(tmp_path, caplog):
     assert "Using golden questions" not in caplog.text
 
 
-def test_custom_questions_path_with_root(tmp_path):
-    """With explicit --custom-questions and a root, custom takes precedence; golden_pinned stays False."""
+def test_custom_questions_path_with_root(tmp_path, monkeypatch):
+    """With explicit --custom-questions and a root, custom merges into generated; golden_pinned stays False."""
     questions_root = tmp_path / "questions"
     custom_q = tmp_path / "custom.json"
     output_dir = tmp_path / "out"
     _write_json(questions_root / "demo_golden.json", [{"id": "g1", "question": "Golden?"}])
     _write_json(custom_q, [{"id": "c1", "question": "Custom?"}])
+
+    # Stub all expensive steps
+    def discover_personas(self):
+        return {"personas": []}
+
+    def generate_questions(self, personas):
+        return [{"id": "gen1", "question": "Generated?", "source_type": "generated"}]
+
+    def generate_answers(self, questions, concurrency=5, question_set_hash=None):
+        return []
+
+    def evaluate_answers(self, answers, concurrency=5, question_set_hash=None):
+        data = {"run_metadata": {"question_set_hash": question_set_hash}, "evaluations": []}
+        self.eval_path.write_text(json.dumps(data), encoding="utf-8")
+        return []
+
+    def generate_report(self, evaluations, questions):
+        self.report_path.write_text("report", encoding="utf-8")
+        return "report"
+
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", discover_personas)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_questions", generate_questions)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_answers", generate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_evaluate_answers", evaluate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_report", generate_report)
 
     pipeline = EvaluationPipeline(
         product="DemoProduct",
@@ -510,4 +538,12 @@ def test_custom_questions_path_with_root(tmp_path):
     # custom_questions_path is set, but golden_pinned stays False (explicit custom != auto-golden)
     assert pipeline.custom_questions_path == custom_q
     assert pipeline.golden_pinned is False
-    # The root's golden set is ignored (not even discovered as auto-golden)
+
+    # Run should merge custom into generated questions (generation still runs)
+    pipeline.run(concurrency=1)
+    saved = json.loads((output_dir / "questions" / "demo.json").read_text())
+    # Custom and generated questions should both be present
+    question_ids = {q["id"] for q in saved["questions"]}
+    assert "c1" in question_ids, "custom question should be in result"
+    assert "gen1" in question_ids, "generated question should be in result"
+    assert "g1" not in question_ids, "golden-only question should not be in result"

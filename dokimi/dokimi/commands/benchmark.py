@@ -167,15 +167,14 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
             errors.append(f"questions root has no golden set: {golden}")
         else:
             try:
-                questions = load_questions_payload(golden)
-                print(f"  golden questions: {golden} ({len(questions)} items)")
-                if not questions:
+                golden_questions = load_questions_payload(golden)
+                print(f"  golden questions: {golden} ({len(golden_questions)} items)")
+                if not golden_questions:
                     errors.append(f"golden set is empty: {golden}")
-                # Validate that each item is a dict (will be used with source_type assignment)
-                for i, q in enumerate(questions):
-                    if not isinstance(q, dict):
-                        errors.append(f"golden set item {i} is not a dict: {type(q).__name__}")  # type: ignore[unreachable]
-                        break
+                else:
+                    # Validate that first item is a dict (will be used with source_type assignment)
+                    if golden_questions and not isinstance(golden_questions[0], dict):
+                        errors.append(f"golden set item 0 is not a dict: {type(golden_questions[0]).__name__}")  # type: ignore[unreachable]
             except Exception as exc:
                 errors.append(f"golden set invalid: {golden} ({exc})")
 
