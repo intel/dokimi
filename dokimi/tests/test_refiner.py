@@ -206,7 +206,7 @@ from dokimi.questions.refiner import GapFiller
 
 
 def test_gap_filler_generates_for_missing_level():
-    filler = GapFiller("oneTBB", model="gpt-4o-mini", provider="openai")
+    filler = GapFiller("oneTBB", model="gpt-6.1-sol", provider="openai")
     fake_response = _json.dumps(["How does oneTBB handle NUMA?", "Explain task_arena internals."])
     with patch("dokimi.questions.refiner.llm_call", return_value=fake_response):
         new_qs, filled = filler.fill([], gaps={"advanced": 2})

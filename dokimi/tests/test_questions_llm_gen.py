@@ -59,8 +59,8 @@ class TestQuestionGeneratorInit:
         mock_cls = Mock()
         with patch('dokimi.questions.llm_gen.ChatOpenAI', mock_cls, create=True), \
              patch('dokimi.questions.llm_gen.LANGCHAIN_AVAILABLE', True):
-            gen = QuestionGenerator(model="gpt-4o-mini", provider="openai")
-            assert gen.model == "gpt-4o-mini"
+            gen = QuestionGenerator(model="gpt-6.1-sol", provider="openai")
+            assert gen.model == "gpt-6.1-sol"
             assert gen.provider == "openai"
             mock_cls.assert_called_once()
     

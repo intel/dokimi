@@ -161,8 +161,8 @@ Resolved benchmark plan
   description: Worked example product for the external-content walkthrough.
   doc_source: context7
   output_dir: results/demo_final
-  answer: openai/gpt-5.5
-  judge: anthropic/claude-sonnet-4-5-20250929
+  answer: openai/gpt-6.1-sol
+  judge: anthropic/claude-sonnet-5-5
   questions_root: C:/Users/Public/content-repo/questions
   retrieval: semantic-only, top_k=3
   arms: without_docs vs with_docs

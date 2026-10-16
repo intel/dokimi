@@ -99,10 +99,10 @@ class TestPersonaGenerator:
         mock_cls = Mock()
         with patch('dokimi.personas.generator.ChatOpenAI', mock_cls, create=True), \
              patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
-            generator = PersonaGenerator(model="gpt-4o-mini", provider="openai")
-            assert generator.model == "gpt-4o-mini"
+            generator = PersonaGenerator(model="gpt-6.1-sol", provider="openai")
+            assert generator.model == "gpt-6.1-sol"
             assert generator.provider == "openai"
-            mock_cls.assert_called_once_with(model="gpt-4o-mini", api_key=None)
+            mock_cls.assert_called_once_with(model="gpt-6.1-sol", api_key=None)
     
     def test_init_anthropic(self):
         """Test initialization with Anthropic provider."""
@@ -140,7 +140,7 @@ class TestPersonaGenerator:
         
         with patch('dokimi.personas.generator.ChatOpenAI', mock_cls, create=True), \
              patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
-            generator = PersonaGenerator(model="gpt-4o-mini")
+            generator = PersonaGenerator(model="gpt-6.1-sol")
             result = generator.generate_personas("oneTBB", sample_analysis, target_count=5)
         
         # Verify structure
@@ -151,7 +151,7 @@ class TestPersonaGenerator:
         assert "personas" in result
         
         assert result["product"] == "oneTBB"
-        assert result["model"] == "gpt-4o-mini"
+        assert result["model"] == "gpt-6.1-sol"
         assert result["provider"] == "openai"
         
         # Verify personas
@@ -254,7 +254,7 @@ class TestPersonaGenerator:
         personas_data = {
             "product": "oneTBB",
             "generated_at": "2026-02-20T00:00:00Z",
-            "model": "gpt-4o-mini",
+            "model": "gpt-6.1-sol",
             "provider": "openai",
             "personas": sample_llm_response["personas"]
         }

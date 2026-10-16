@@ -91,7 +91,7 @@ def test_short_prefix_skips_the_breakpoint():
 def test_openai_needs_no_breakpoint():
     """OpenAI caches long prefixes itself; the field would be rejected."""
     messages, cached = caching.build_messages(
-        "ask", cache_prefix=LONG, model="gpt-4o-mini", provider="openai"
+        "ask", cache_prefix=LONG, model="gpt-6.1-sol", provider="openai"
     )
     assert cached is False
     assert isinstance(messages[0]["content"], str)
@@ -105,7 +105,7 @@ def test_openai_needs_no_breakpoint():
         ("amazon-bedrock", "meta.llama3-70b-instruct-v1:0", False),
         ("google-vertex", "claude-3-5-haiku@20241022", True),
         ("google-vertex", "gemini-2.0-flash", False),
-        ("openai", "gpt-4o-mini", False),
+        ("openai", "gpt-6.1-sol", False),
         ("", "", False),
     ],
 )

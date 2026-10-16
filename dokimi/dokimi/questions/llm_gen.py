@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
+from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 
 QUESTION_GENERATION_PROMPT = """You are generating technical questions for documentation quality evaluation.
@@ -72,8 +73,8 @@ class QuestionGenerator:
     
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
-        provider: str = "openai",
+        model: str = DEFAULT_GENERATOR_MODEL,
+        provider: str = DEFAULT_GENERATOR_PROVIDER,
         api_key: Optional[str] = None
     ):
         """

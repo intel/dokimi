@@ -23,6 +23,7 @@ except ImportError:
 
 from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
+from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 
 #: Failures of the embedding *backend* — unreachable hub, uncached model,
@@ -96,8 +97,8 @@ class QuestionValidator:
     
     def __init__(
         self,
-        llm_model: str = "gpt-4o-mini",
-        llm_provider: str = "openai",
+        llm_model: str = DEFAULT_GENERATOR_MODEL,
+        llm_provider: str = DEFAULT_GENERATOR_PROVIDER,
         embedding_model: Optional[str] = None,
         threshold: int = 60,
         similarity_threshold: Optional[float] = None,

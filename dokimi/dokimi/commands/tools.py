@@ -11,6 +11,8 @@ import sys
 import time
 from pathlib import Path
 
+from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
+
 PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"]
 
 
@@ -117,7 +119,7 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     pref_p.add_argument("--groups", required=True,
                         help="tool_preference_groups.v1 JSON: requests with twin tools and distractors")
     pref_p.add_argument("--model", help="Model under test")
-    pref_p.add_argument("--provider", default="openai", choices=PROVIDERS)
+    pref_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
     pref_p.add_argument("--factors", default=None,
                         help="Comma list of factors (default: vendor_name,assertive,social_proof,long_desc,exclusion)")
     pref_p.add_argument("--reps", type=positive_int, default=3,

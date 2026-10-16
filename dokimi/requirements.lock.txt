@@ -232,7 +232,7 @@ langsmith==0.14.4
     #   langchain-classic
     #   langchain-community
     #   langchain-core
-litellm==1.104.1
+litellm==1.105.0
     # via
     #   -r requirements-test.txt
     #   -r requirements.txt

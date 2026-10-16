@@ -20,6 +20,7 @@ from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose, retrieval_hit
+from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
 from dokimi.eval.panel import NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS
@@ -200,8 +201,8 @@ class Judge:
     
     def __init__(
         self,
-        model: str = "claude-sonnet-4",
-        provider: str = "anthropic",
+        model: str = DEFAULT_JUDGE_MODEL,
+        provider: str = DEFAULT_JUDGE_PROVIDER,
         api_key: Optional[str] = None,
         run_metadata: Optional[Dict[str, Any]] = None,
         temperature: Optional[float] = None,
