@@ -291,4 +291,3 @@ def cite(records: List[Dict[str, Any]], store: JudgeContextStore) -> Dict[str, s
                 arm["judge_context_sha256"] = digest
                 cited[digest] = materials[digest]
     return dict(sorted(cited.items()))
-

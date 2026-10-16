@@ -71,6 +71,8 @@ class Measure:
     scores: Dict[Tuple[str, str], Optional[float]] = field(default_factory=dict)
     #: "PASS" / "FAIL" from this judge's own judge-validity run; None = not validated.
     gate: Optional[str] = None
+    #: "stored" when scores have judge_context_source==SOURCE_STORED or store has material; "none" otherwise.
+    context: str = "none"
 
     def versus(self, arm: str, baseline: str) -> Dict[str, Any]:
         pairs = [
@@ -156,12 +158,12 @@ def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) ->
     Pairwise and checklist judges are shown the answers alone, so for them every
     arm the stored judge saw material for stays unreproducible.
 
-    Since ``judge_context`` the arms run shows its judge the arm's full material
-    (:mod:`dokimi.eval.judge_context`) and keeps it in memory only, so
-    a re-scored judge reading the file sees the 200-char report snippets. In
-    review that was 28 characters of context against 11,079, and the same judge
-    on the same answers read +24.2 (p 0.0006) one way and +1.4 (p 0.65) the
-    other. A baseline arm has no material, so both sides see the same thing.
+    With ``judge_context``, the arms run stores its judge's context material
+    in the artifact (:mod:`dokimi.eval.judge_context`), so a re-scored judge
+    reading the file sees the same material. In review that was 28 characters
+    of context against 11,079, and the same judge on the same answers read
+    +24.2 (p 0.0006) one way and +1.4 (p 0.65) the other. A baseline arm has
+    no material, so both sides see the same thing.
     """
     kinds = {
         arm: (body.get("metadata") or {}).get("arm_kind")
@@ -184,7 +186,7 @@ def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) ->
 
 def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional[Measure]:
     """The aggregate the arms run itself recorded, if it was judged."""
-    m = Measure(name=name or stored_label(data), kind="aggregate")
+    m = Measure(name=name or stored_label(data), kind="aggregate", context="stored")
     for ev in data.get("evaluations") or []:
         for arm, s in (ev.get("scores") or {}).items():
             if isinstance(s, dict) and s.get("aggregate") is not None:
@@ -248,7 +250,8 @@ def score_measure(
         except Exception:  # an unscored answer drops out of the pairing, it does not kill the run
             return (qid, arm), None
 
-    m = Measure(name=name, kind="grounded" if ground_truth else "aggregate")
+    has_material = bool(store and store.materials())
+    m = Measure(name=name, kind="grounded" if ground_truth else "aggregate", context="stored" if has_material else "none")
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         for i, (key, value) in enumerate(pool.map(one, jobs), 1):
             m.scores[key] = value
@@ -293,16 +296,9 @@ class CrossJudgeReport:
                 m_name = m.name.removesuffix(STORED)
                 if m_name != v_judge:
                     continue
-                # A stored-context validity should only gate measures scored with material (no STORED suffix);
-                # a none-context validity should only gate non-stored measures.
-                m_is_stored = STORED in m.name
-                if v_context == "stored" and m_is_stored:
-                    # Validity from --context stored gates the stored measure
-                    pass
-                elif v_context == "none" and not m_is_stored:
-                    # Validity from --context none (or unspecified) gates non-stored measures
-                    pass
-                else:
+                # Match on (label, context): stored-context validity gates measures with context="stored",
+                # none-context validity gates measures with context="none".
+                if m.context != v_context:
                     # Mismatch: skip this measure
                     continue
                 if m.kind in ("aggregate", "pairwise"):

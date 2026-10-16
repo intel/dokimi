@@ -1498,7 +1498,11 @@ def test_judge_scorer_forwards_the_context_only_when_given():
     s = judge_scorer(J())
     s("lib", "q", "a")
     s("lib", "q", "a", context="material")
+    s_with_draw = judge_scorer(J(), draw=2)
+    s_with_draw("lib", "q", "a")
     assert "context" not in got[0] and got[1]["context"] == "material"
+    assert "draw" not in got[0]
+    assert got[2]["draw"] == 2 and "context" not in got[2]
 
 
 def test_sequential_mode_takes_the_store_too():
