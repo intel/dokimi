@@ -145,13 +145,13 @@ covers is shown.) `onetbb` is `covered` because the checkout has both
 Resolution is logged, including the miss:
 
 ```text
-INFO Auto-including golden questions: C:\Users\Public\content-repo\questions\onetbb_golden.json
+INFO Using golden questions: C:\Users\Public\content-repo\questions\onetbb_golden.json
 WARNING questions root C:\Users\Public\content-repo\questions has no golden set for onemkl; running without a golden question set
 ```
 
-A missing golden set is a warning, not an error — the run continues with
-generated questions only. If you are comparing arms, that is usually not what
-you want; check the coverage matrix first.
+`benchmark run` logs a warning and continues with generated questions only.
+`benchmark preflight` treats a missing golden set as an error and exits 1.
+If you are comparing arms, that is usually not what you want; check the coverage matrix first.
 
 `benchmark preflight` resolves the whole plan without calling a model, and
 echoes the root it will read:
@@ -174,6 +174,7 @@ Resolved benchmark plan
   max_tokens_per_question: 4000
   concurrency: 5
   context7_id: demo-org/demo
+  golden questions: C:\Users\Public\content-repo\questions\demo_golden.json (2 items)
 ```
 
 (It exited 1 here because no API keys were set: `✗ missing OPENAI_API_KEY for

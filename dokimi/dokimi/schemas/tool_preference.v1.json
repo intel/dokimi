@@ -13,6 +13,7 @@
     "reps": {"type": "integer", "minimum": 1},
     "factors": {"type": "array", "items": {"enum": ["vendor_name", "assertive", "social_proof", "long_desc", "exclusion"]}},
     "max_tokens": {"type": "integer", "minimum": 1, "description": "Per-call output ceiling; reasoning models spend part of it before the tool call."},
+    "max_cost_usd": {"type": ["number", "null"], "description": "--max-cost-usd: no new call started once priced calls had spent it; null: no cap."},
     "system": {"type": "string", "description": "System prompt sent with every item; empty: none."},
     "cues": {
       "type": "object",
@@ -60,6 +61,7 @@
           },
           "text_preview": {"type": "string"},
           "usage": {"type": ["object", "null"]},
+          "skipped": {"type": "boolean", "description": "Not run: --max-cost-usd was reached first. Left out of the summary."},
           "truncated": {"type": "boolean", "description": "The reply hit max_tokens after its tool call: the choice is scored, its arguments may be cut."},
           "error": {"type": ["string", "null"], "description": "Why the call produced no choice; such records are left out of the summary."},
           "elapsed_sec": {"type": "number"}
@@ -73,6 +75,7 @@
         "n_items": {"type": "integer"},
         "n_calls": {"type": "integer"},
         "n_errors": {"type": "integer"},
+        "n_skipped": {"type": "integer", "description": "Calls not run because --max-cost-usd was reached."},
         "n_truncated": {"type": "integer", "description": "Scored calls whose reply hit max_tokens after the tool call."},
         "first_twin_share_baseline": {"$ref": "#/$defs/estimate"},
         "factor_effects": {"type": "object", "additionalProperties": {"$ref": "#/$defs/estimate"}},

@@ -76,7 +76,8 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
         print("✅ Pipeline completed successfully!")
         print("="*80)
         print("\nOutput files:")
-        print(f"  Personas:   {results['steps']['personas']['path']}")
+        if not results['steps']['personas'].get('skipped', False):
+            print(f"  Personas:   {results['steps']['personas']['path']}")
         print(f"  Questions:  {results['steps']['questions_merged']['path']}")
         print(f"  Answers:    {results['steps']['answers']['path']}")
         print(f"  Evaluation: {results['steps']['evaluation']['path']}")
