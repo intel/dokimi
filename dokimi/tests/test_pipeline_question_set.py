@@ -374,3 +374,140 @@ def test_questions_from_does_not_warn_that_questions_are_generated(tmp_path, cap
         )
 
     assert "questions will be generated" not in caplog.text
+
+
+@pytest.mark.outcome("pinned-questions-warn")
+def test_cached_questions_differing_from_golden_warns(tmp_path, monkeypatch, caplog):
+    """When cached question ids differ from golden ids, a warning is logged."""
+    _stub_expensive_steps(monkeypatch)
+    questions_root = tmp_path / "questions"
+    output_dir = tmp_path / "out"
+    # Golden set with different ids
+    _write_json(questions_root / "demo_golden.json", [
+        {"id": "g1", "question": "Golden 1?"},
+        {"id": "g2", "question": "Golden 2?"}
+    ])
+    # Cached set with different ids
+    _write_json(output_dir / "questions" / "demo.json", [
+        {"id": "old1", "question": "Old 1?"},
+        {"id": "old2", "question": "Old 2?"}
+    ])
+
+    with caplog.at_level(logging.WARNING):
+        pipeline = EvaluationPipeline(
+            product="DemoProduct",
+            product_key="demo",
+            output_dir=output_dir,
+            description="A demo product",
+            questions_root=questions_root,
+        )
+        result = pipeline.run(concurrency=1)
+
+    assert "cached question ids" in caplog.text
+    assert "differ from golden set ids" in caplog.text
+
+
+@pytest.mark.outcome("pinned-questions-reuse")
+def test_golden_pinned_run_skips_persona_discovery(tmp_path, monkeypatch):
+    """With a golden pinned root, persona discovery should not run even if no cache."""
+    _stub_expensive_steps(monkeypatch)
+    questions_root = tmp_path / "questions"
+    output_dir = tmp_path / "out"
+    _write_json(questions_root / "demo_golden.json", [{"id": "g1", "question": "Q?"}])
+
+    discover_personas_called = []
+
+    def track_discover_personas(self):
+        discover_personas_called.append(True)
+        raise AssertionError("persona discovery should be skipped for golden pinned")
+
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", track_discover_personas)
+
+    pipeline = EvaluationPipeline(
+        product="DemoProduct",
+        product_key="demo",
+        output_dir=output_dir,
+        description="A demo product",
+        questions_root=questions_root,
+    )
+    result = pipeline.run(concurrency=1)
+
+    assert not discover_personas_called, "persona discovery should not have been called"
+    assert result["steps"]["personas"]["skipped"] is True
+
+
+@pytest.mark.outcome("pinned-questions-reuse")
+def test_questions_from_run_skips_persona_discovery(tmp_path, monkeypatch):
+    """With --questions-from, persona discovery should not run."""
+    _stub_expensive_steps(monkeypatch)
+    source_dir = tmp_path / "source"
+    output_dir = tmp_path / "out"
+    _write_json(source_dir / "questions" / "demo.json", [{"id": "q1", "question": "Q?"}])
+
+    discover_personas_called = []
+
+    def track_discover_personas(self):
+        discover_personas_called.append(True)
+        raise AssertionError("persona discovery should be skipped for external questions")
+
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", track_discover_personas)
+
+    pipeline = EvaluationPipeline(
+        product="DemoProduct",
+        product_key="demo",
+        output_dir=output_dir,
+        description="A demo product",
+        questions_from=source_dir,
+    )
+    result = pipeline.run(concurrency=1)
+
+    assert not discover_personas_called, "persona discovery should not have been called"
+    assert result["steps"]["personas"]["skipped"] is True
+
+
+def test_questions_from_with_root_ignores_root(tmp_path, caplog):
+    """When --questions-from is set with a --questions-root, the root is ignored."""
+    source_dir = tmp_path / "source"
+    questions_root = tmp_path / "questions"
+    output_dir = tmp_path / "out"
+    _write_json(source_dir / "questions" / "demo.json", [{"id": "q1", "question": "Q?"}])
+    _write_json(questions_root / "demo_golden.json", [{"id": "g1", "question": "Golden?"}])
+
+    with caplog.at_level(logging.WARNING):
+        pipeline = EvaluationPipeline(
+            product="DemoProduct",
+            product_key="demo",
+            output_dir=output_dir,
+            description="A demo product",
+            questions_from=source_dir,
+            questions_root=questions_root,
+        )
+
+    # golden_pinned should be False and external_questions_path should be set
+    assert pipeline.golden_pinned is False
+    assert pipeline.external_questions_path is not None
+    # Should not log "Using golden questions"
+    assert "Using golden questions" not in caplog.text
+
+
+def test_custom_questions_path_with_root(tmp_path):
+    """With explicit --custom-questions and a root, custom takes precedence; golden_pinned stays False."""
+    questions_root = tmp_path / "questions"
+    custom_q = tmp_path / "custom.json"
+    output_dir = tmp_path / "out"
+    _write_json(questions_root / "demo_golden.json", [{"id": "g1", "question": "Golden?"}])
+    _write_json(custom_q, [{"id": "c1", "question": "Custom?"}])
+
+    pipeline = EvaluationPipeline(
+        product="DemoProduct",
+        product_key="demo",
+        output_dir=output_dir,
+        description="A demo product",
+        custom_questions_path=custom_q,
+        questions_root=questions_root,
+    )
+
+    # custom_questions_path is set, but golden_pinned stays False (explicit custom != auto-golden)
+    assert pipeline.custom_questions_path == custom_q
+    assert pipeline.golden_pinned is False
+    # The root's golden set is ignored (not even discovered as auto-golden)
