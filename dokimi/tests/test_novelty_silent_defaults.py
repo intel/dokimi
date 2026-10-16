@@ -602,3 +602,123 @@ def test_the_need_graph_caches_only_a_graph_with_a_node(monkeypatch, tmp_path, r
         graph = build_need_graph("n", "d", client=LLMClient(model="m", provider="openai"))
         assert len(graph.nodes) == n_nodes
     assert len(calls) == asked
+
+
+_UNUSABLE_ROWS = '[{"text": "Setting 1 defaults to 10.", "ids": ["s0001"]}]'
+_USABLE_ROWS = json.dumps([{"statement": "Setting 1 defaults to 10.", "question": "q",
+                            "answer": "10", "span_ids": ["s0001"]}])
+
+
+def _one_span():
+    from dokimi.novelty.spans import segment
+
+    spans = segment("Setting 1 defaults to 10.")
+    assert [s.id for s in spans] == ["s0001"]
+    return spans
+
+
+def test_the_response_cache_does_not_replay_a_reply_with_no_usable_atom(monkeypatch, tmp_path):
+    from dokimi.novelty.atoms import ExtractionError, extract_atoms
+
+    calls = _completion_counter(monkeypatch, tmp_path, _UNUSABLE_ROWS)
+    for _ in range(2):
+        with pytest.raises(ExtractionError):
+            extract_atoms(_one_span(), client=LLMClient(model="m", provider="openai"))
+    assert len(calls) == 2
+
+
+def test_a_healthy_model_is_asked_again_after_a_useless_cached_run(monkeypatch, tmp_path):
+    from dokimi.novelty.atoms import ExtractionError, extract_atoms
+
+    _completion_counter(monkeypatch, tmp_path, _UNUSABLE_ROWS)
+    with pytest.raises(ExtractionError):
+        extract_atoms(_one_span(), client=LLMClient(model="m", provider="openai"))
+    calls = _completion_counter(monkeypatch, tmp_path, _USABLE_ROWS)
+    for _ in range(2):
+        atoms = extract_atoms(_one_span(), client=LLMClient(model="m", provider="openai"))
+        assert len(atoms) == 1
+    assert len(calls) == 1  # asked once, then the usable reply is replayed
+
+
+def test_the_response_cache_still_replays_a_legitimately_empty_extraction(monkeypatch, tmp_path):
+    from dokimi.novelty.atoms import extract_atoms
+
+    calls = _completion_counter(monkeypatch, tmp_path, "[]")
+    for _ in range(2):
+        assert extract_atoms(_one_span(), client=LLMClient(model="m", provider="openai")) == []
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("row", [
+    {"n": 1},
+    {"n": 1, "needed": None},
+    {"n": 1, "need": True, "scaffold": False},
+    {"n": 1, "needed": "false"},
+    {"n": 1, "needed": "no"},
+    {"n": 1, "needed": 0},
+    {"n": 1, "needed": True, "scaffolding": "false"},
+    {"n": 1, "needed": True, "scaffolding": None},
+    {"n": "\u00b2", "needed": True},
+])
+def test_a_judge_row_without_a_real_verdict_is_unjudged_not_a_default(row):
+    atoms = _atoms(1)
+    report = ClassifyReport()
+    verdicts = judge_value(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (json.dumps([row]), None)),
+        task="t", report=report,
+    )
+    assert verdicts == {} and report.unjudged == [atoms[0].id]
+    assert report.unjudged_skipped == 1
+
+
+def test_a_malformed_judge_row_does_not_cost_the_atoms_beside_it():
+    atoms = _atoms(3)
+    reply = json.dumps([{"n": 1, "needed": True}, {"n": 2, "needed": "yes"},
+                        {"n": 3, "needed": False, "scaffolding": True}])
+    report = ClassifyReport()
+    verdicts = judge_value(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (reply, None)),
+        task="t", report=report,
+    )
+    assert sorted(verdicts) == sorted([atoms[0].id, atoms[2].id])
+    assert (verdicts[atoms[0].id].needed, verdicts[atoms[0].id].scaffolding) == (True, False)
+    assert (verdicts[atoms[2].id].needed, verdicts[atoms[2].id].scaffolding) == (False, True)
+    assert report.unjudged == [atoms[1].id]
+
+
+def test_a_real_false_is_a_verdict_and_raises_no_warning():
+    atoms = _atoms(2)
+    reply = json.dumps([{"n": 1, "needed": False, "scaffolding": False}, {"n": 2, "needed": False}])
+    report = ClassifyReport()
+    verdicts = judge_value(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (reply, None)),
+        task="t", report=report,
+    )
+    assert [verdicts[a.id].needed for a in atoms] == [False, False]
+    assert report.unjudged == [] and report.warnings(len(atoms)) == []
+
+
+@pytest.mark.parametrize("a, b", [(2, 2), ("2", "2"), (2.0, 2), (2, "2"), (True, True), (True, 1)])
+def test_an_atom_does_not_conflict_with_itself(a, b):
+    atoms = _atoms(3)
+    reply = json.dumps({"conflicts": [{"a": a, "b": b, "why": "x"}]})
+    conflicts = detect_conflicts(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (reply, None))
+    )
+    assert conflicts == []
+    verdicts: dict = {}
+    apply_conflicts(verdicts, conflicts)
+    assert verdicts == {}
+
+
+def test_two_different_atoms_still_conflict():
+    atoms = _atoms(3)
+    reply = json.dumps({"conflicts": [{"a": 2, "b": 3, "why": "x"}, {"a": 2, "b": 2, "why": "y"}]})
+    conflicts = detect_conflicts(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (reply, None))
+    )
+    assert conflicts == [{"a": atoms[1].id, "b": atoms[2].id, "why": "x"}]
+    verdicts: dict = {}
+    apply_conflicts(verdicts, conflicts)
+    assert categorize(atoms, verdicts, {}) == {
+        atoms[1].id: "harmful_conflicting", atoms[2].id: "harmful_conflicting"}

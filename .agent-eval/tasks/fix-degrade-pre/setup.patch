@@ -1,0 +1,63 @@
+diff --git a/dokimi/dokimi/eval/degrade.py b/dokimi/dokimi/eval/degrade.py
+index 6d25de5..a807d47 100644
+--- a/dokimi/dokimi/eval/degrade.py
++++ b/dokimi/dokimi/eval/degrade.py
+@@ -331,9 +331,6 @@ PADDING_PARAGRAPHS: Sequence[str] = (
+ #: item: a fence inside a nested list item sits 4+ spaces in (9 of 1215 stored
+ #: answers have one) and is still a fence.
+ _FENCE_LINE = re.compile(r"^[ \t]*(`{3,}|~{3,})")
+-_PRE = "<pre>"
+-_PRE_OPEN = re.compile(r"\s*<pre[\s>]", re.I)
+-_PRE_CLOSE = re.compile(r"</pre\s*>", re.I)
+ 
+ 
+ def _fence_state(lines: Sequence[str], fence: Optional[str]) -> Optional[str]:
+@@ -343,17 +340,9 @@ def _fence_state(lines: Sequence[str], fence: Optional[str]) -> Optional[str]:
+     "    ~~~~") of the block we are inside, or None outside one. A block closes on
+     a line starting with the same character, at least as many times, nothing
+     else after it (a table cell's ``|`` aside), and indented at most 3 columns
+-    past the opener: deeper, it is content (a fence quoted inside a ```markdown block). A ``<pre>`` element is a
+-    block too, closed by ``</pre>``.
++    past the opener: deeper, it is content (a fence quoted inside a ```markdown block).
+     """
+     for line in lines:
+-        if fence == _PRE:
+-            if _PRE_CLOSE.search(line):
+-                fence = None
+-            continue
+-        if fence is None and _PRE_OPEN.match(line) and not _PRE_CLOSE.search(line):
+-            fence = _PRE
+-            continue
+         m = _FENCE_LINE.match(line)
+         if not m:
+             continue
+diff --git a/dokimi/tests/test_judge_validity.py b/dokimi/tests/test_judge_validity.py
+index 3f0bf5e..2f9de9c 100644
+--- a/dokimi/tests/test_judge_validity.py
++++ b/dokimi/tests/test_judge_validity.py
+@@ -130,7 +130,6 @@ class TestDegradations:
+         "It takes 5 ms.\n\n~~~bash timeout=100ms\nsleep 100 ms\n~~~",
+         "It takes 5 ms.\n\n````md\n```bash\nsleep 100 ms\n```\n````",
+         "It takes 5 ms.\n\n```markdown\n1. Run:\n\n    ```bash\n    sleep 100 ms\n    ```\n\nIt waits 100 ms.\n```",
+-        "It takes 5 ms.\n\n<pre>\nsleep 100 ms\n</pre>",
+     ])
+     def test_wrong_numbers_finds_the_code_as_padding_does(self, answer):
+         assert wrong_numbers(answer) == answer.replace("5 ms", "50 ms", 1)
+@@ -273,9 +272,6 @@ class TestDegradations:
+         # a fence quoted inside a ```markdown block is content, not its closer
+         ("Template:\n\n```markdown\n1. Install:\n\n    ```bash\n    pip install x\n    ```\n\n2. Run.\n```\n\nDone.",
+          "```markdown\n1. Install:\n\n    ```bash\n    pip install x\n    ```\n\n2. Run.\n```"),
+-        # an HTML <pre> block
+-        ("Code:\n\n<pre>\nline1\n\nline2\n</pre>\n\nDone.",
+-         "<pre>\nline1\n\nline2\n</pre>"),
+     ])
+     def test_padding_respects_every_fence_form(self, answer, block):
+         out = padding(answer)
+@@ -1315,7 +1311,6 @@ def test_contradiction_negation_reaches_forty_characters(gap, picked):
+         # ``` mentioned mid-line in prose must not pair with the next real fence.
+         ("Wrap code in ``` fences.\n\n```bash\nmake\n```\n\nEnd.", ("make", "bash"), ("Wrap code in ``` fences.", "End.")),
+         ("Intro.\n\n~~~bash\nmake all\n~~~\n\nEnd.", ("make all", "~~~"), ("Intro.", "End.")),
+-        ("Intro.\n\n<pre>\nmake all\n</pre>\n\nEnd.", ("make all", "pre>"), ("Intro.", "End.")),
+         ("1. Install:\n\n    ```bash\n    make all\n    ```\n\n2. Run.", ("make all", "```"), ("1. Install:", "2. Run.")),
+         # A same-line span, as in a table cell.
+         ("| a | b |\n| - | - |\n| x | ```make all``` |\n| y | z |", ("make all", "`"), ("| x |", "| y | z |")),

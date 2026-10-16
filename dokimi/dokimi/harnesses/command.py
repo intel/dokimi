@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from dokimi.utils import retry_writable
+
 from .models import HarnessResult, OperationRecord
 from .operations import load_operations
 from .tasks import TaskSpec, harbor_task_problem
@@ -72,7 +74,7 @@ class CommandHarness:
             # The cell's dir is deterministic: a reward left by a previous run
             # would otherwise be read back as this run's.
             if not dry_run:
-                shutil.rmtree(output_dir, ignore_errors=True)
+                clear_run_dir(output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
 
         command = self.build_command(task, model=model, output_dir=output_dir)
@@ -189,6 +191,32 @@ class CommandHarness:
         context["prompt_quoted"] = shlex.quote(prompt)
         rendered = _render_template(self.command_template, context)
         return shlex.split(rendered)
+
+
+def clear_run_dir(path: Path) -> None:
+    """Delete a cell's previous run dir, or refuse to run the cell.
+
+    The dir is deterministic, so a ``reward.txt``, ``result.json`` or
+    ``operations.jsonl`` a previous run left there would be read back as this
+    run's. Raising makes the cell errored (missing data) instead of a verdict
+    taken from stale files. Pass only the cell's own dir, never ``--output-dir``.
+    """
+    cause = ""
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        cause = f" ({type(exc).__name__}: {exc})"
+        # A read-only file (git objects) is not deletable on Windows: retry writable.
+        shutil.rmtree(path, onerror=retry_writable)
+    if path.exists() or path.is_symlink():
+        raise RuntimeError(
+            f"could not clear {path}, left by a previous run{cause}; a reward or "
+            "result in it would be read as this run's, so the cell was not run. "
+            "Delete it by hand (check the owner and permissions of what is left, "
+            "or on Windows whether another process holds a file open) and rerun."
+        )
 
 
 def _render_template(template: str, context: dict[str, Any]) -> str:

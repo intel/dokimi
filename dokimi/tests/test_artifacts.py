@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -204,6 +205,45 @@ def test_save_does_not_mutate_caller():
     assert "schema_version" not in data  # caller dict untouched
 
 
+def test_save_puts_the_current_version_first_and_returns_what_it_wrote(tmp_path):
+    out = tmp_path / "deep" / "q.json"
+    written = save_artifact("questions", {"questions": [], "schema_version": "questions.v0"}, out)
+    on_disk = json.loads(out.read_text(encoding="utf-8"))
+    assert on_disk == written
+    assert list(on_disk) == ["schema_version", "questions"]
+    assert on_disk["schema_version"] == SCHEMA_VERSIONS["questions"]
+    assert [p.name for p in out.parent.iterdir()] == ["q.json"]  # the .tmp sibling is gone
+
+
+def test_a_rejected_save_leaves_the_target_alone_and_keeps_the_payload(tmp_path):
+    out = tmp_path / "answers.json"
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, out)
+    before = out.read_text(encoding="utf-8")
+    with pytest.raises(ArtifactValidationError, match=r"(?s)answers/0: 'question_id'.*answers\.json\.rejected"):
+        save_artifact("answers", {"answers": [{"question_text": "Q?"}]}, out)
+    assert out.read_text(encoding="utf-8") == before
+    kept = json.loads((tmp_path / "answers.json.rejected").read_text(encoding="utf-8"))
+    assert kept["answers"] == [{"question_text": "Q?"}]
+
+
+def test_save_rejects_an_unknown_kind_before_writing(tmp_path):
+    with pytest.raises(KeyError):
+        save_artifact("nope", {}, tmp_path / "x.json")
+    assert not list(tmp_path.iterdir())
+
+
+def test_schema_errors_by_name_and_by_path(tmp_path):
+    from dokimi.artifacts import SCHEMA_DIR, schema_errors
+
+    bad = {"claims": [{"file": 1}]}
+    by_name = schema_errors("repo_static.v1", bad)
+    assert by_name and by_name == schema_errors(SCHEMA_DIR / "repo_static.v1.json", bad)
+    assert all(": " in e for e in by_name)
+    assert schema_errors("repo_static.v1", {"schema": "repo_static.v1", "claims": []}) == []
+    with pytest.raises(OSError):
+        schema_errors(tmp_path / "missing.json", {})
+
+
 def test_schema_version_const_rejects_wrong_value():
     with pytest.raises(ArtifactValidationError):
         validate_artifact("questions", {"schema_version": "questions.v2", "questions": []})
@@ -354,3 +394,110 @@ def test_arms_schema_rejects_non_array_interactions():
             "answers": [],
             "summary": {"interactions": {"interaction": -8.0}},
         })
+
+
+@pytest.mark.skipif(sys.platform == "win32",
+                    reason="Windows os.replace refuses a destination another thread is replacing")
+def test_concurrent_saves_to_one_path_each_publish_a_whole_payload(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    out = tmp_path / "answers.json"
+    payloads = [{"answers": [{"question_id": f"t{t}-{i}"} for i in range(200)]} for t in range(6)]
+
+    def hammer(payload):
+        for _ in range(30):
+            save_artifact("answers", payload, out)
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for f in [pool.submit(hammer, p) for p in payloads]:
+            f.result()  # a shared tmp name made the losing writer raise FileNotFoundError
+    final = json.loads(out.read_text(encoding="utf-8"))["answers"]
+    assert final in [p["answers"] for p in payloads]
+    assert [p.name for p in tmp_path.iterdir()] == ["answers.json"]
+
+
+def test_a_crash_at_the_rename_keeps_the_previous_file_and_leaves_no_tmp(tmp_path, monkeypatch):
+    out = tmp_path / "answers.json"
+    save_artifact("answers", {"answers": [{"question_id": "old"}]}, out)
+
+    def boom(src, dst):
+        raise OSError("disk gone")
+
+    monkeypatch.setattr("dokimi.artifacts.os.replace", boom)
+    with pytest.raises(OSError, match="disk gone"):
+        save_artifact("answers", {"answers": [{"question_id": "new"}]}, out)
+    assert json.loads(out.read_text(encoding="utf-8"))["answers"] == [{"question_id": "old"}]
+    assert [p.name for p in tmp_path.iterdir()] == ["answers.json"]
+
+
+def test_a_good_save_clears_a_stale_rejected_payload(tmp_path):
+    out = tmp_path / "answers.json"
+    with pytest.raises(ArtifactValidationError):
+        save_artifact("answers", {"answers": [{"question_text": "Q?"}]}, out)
+    assert (tmp_path / "answers.json.rejected").exists()
+    (tmp_path / "other.json.rejected").write_text("{}", encoding="utf-8")
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, out)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["answers.json", "other.json.rejected"]
+
+
+def test_a_rejected_payload_that_cannot_be_cleared_warns_but_the_save_stands(tmp_path, caplog):
+    out = tmp_path / "answers.json"
+    (tmp_path / "answers.json.rejected").mkdir()  # unlink() of a directory fails on every OS
+
+    with caplog.at_level("WARNING", logger="dokimi.artifacts"):
+        save_artifact("answers", {"answers": [{"question_id": "q1"}]}, out)
+    assert json.loads(out.read_text(encoding="utf-8"))["answers"] == [{"question_id": "q1"}]
+    assert "answers.json.rejected" in caplog.text
+
+
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError) as exc:  # Windows without symlink privilege
+        pytest.skip(f"cannot create a symlink here: {exc}")
+
+
+def test_a_save_through_a_symlink_writes_the_target_and_keeps_the_link(tmp_path):
+    real_dir = tmp_path / "store"
+    real_dir.mkdir()
+    target = real_dir / "answers.json"
+    target.write_text("{}", encoding="utf-8")
+    link = tmp_path / "answers.json"
+    _symlink_or_skip(link, target)
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, link)
+    assert link.is_symlink()
+    assert json.loads(target.read_text(encoding="utf-8"))["answers"] == [{"question_id": "q1"}]
+    assert [p.name for p in real_dir.iterdir()] == ["answers.json"]  # no tmp left beside the target
+
+
+def test_a_save_through_a_dangling_symlink_creates_the_target(tmp_path):
+    target = tmp_path / "store" / "answers.json"
+    target.parent.mkdir()
+    link = tmp_path / "answers.json"
+    _symlink_or_skip(link, target)
+
+    save_artifact("answers", {"answers": [{"question_id": "q1"}]}, link)
+    assert link.is_symlink()
+    assert json.loads(target.read_text(encoding="utf-8"))["answers"] == [{"question_id": "q1"}]
+
+
+def test_a_dangling_symlink_into_a_missing_directory_is_an_error(tmp_path):
+    link = tmp_path / "answers.json"
+    _symlink_or_skip(link, tmp_path / "gone" / "answers.json")
+
+    with pytest.raises(FileNotFoundError, match=r"symlink .*answers\.json.* points into a missing directory"):
+        save_artifact("answers", {"answers": [{"question_id": "q1"}]}, link)
+    assert link.is_symlink()
+    assert not (tmp_path / "gone").exists()
+
+
+def test_a_symlink_loop_is_an_error_and_both_links_survive(tmp_path):
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    _symlink_or_skip(a, b)
+    b.symlink_to(a)
+
+    with pytest.raises(OSError, match="link loop"):
+        save_artifact("answers", {"answers": []}, a)
+    assert a.is_symlink() and b.is_symlink()

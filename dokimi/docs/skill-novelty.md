@@ -551,6 +551,9 @@ python cli.py novelty routing --artifact skill:path/to/skill \
     --queries queries.json [--model M]
 ```
 
+`--catalog <dir>` takes the competitors from a skill directory instead: every `SKILL.md`
+under it except the artifact itself.
+
 Two numbers, reported side by side and never merged:
 
 - **Lexical** — BM25 over each candidate's `name + description`, which is exactly the text
@@ -792,26 +795,29 @@ first run after upgrading therefore pays one adjudication call per pair the old 
 **Pass `--max-tokens` when the provider has a low default output ceiling.** litellm sends
 4096 to Bedrock-hosted Claude when none is given, and on a dense skill a 25-span extraction
 batch can need more than that: in the run below, replies came back with `finish_reason=length`
-at exactly 4096 tokens, cut mid-array. Extraction recovers by splitting an unparseable batch in
-half and re-asking, down to one span per call, so a truncation costs extra calls rather than
+at exactly 4096 tokens, cut mid-array. Extraction recovers by splitting an unparseable batch (or one whose rows are
+all unusable) in half and re-asking, down to one span per call, so a truncation costs extra calls rather than
 atoms: up to 2n−1 calls for an n-span batch that never parses. The artifact's `extraction`
 block counts them (`calls` against `batches`, the calls the run would make with no splitting; a
 capped run counts only the batches it reached), and a warning (`atom extraction re-asked N
-unparseable batches as halves`) says what they cost; `--max-tokens 16000` avoids them. A call
+unparseable batches as halves`) says what they cost; `--max-tokens 16000` avoids the truncated ones, not those with unusable rows. A call
 that fails or returns an empty reply is not split, since half a batch fails the same way.
 
 Spans that still cannot be read are *unread*, not text that carries nothing. The warning
 (`atom extraction could not read N of M spans`) gives their count and token cost, and separates
-three causes: spans whose reply never parsed, even alone (raise `--max-tokens`); spans whose call
+four causes: spans whose reply never parsed, even alone (raise `--max-tokens`); spans whose call
 came back empty, which is what a reasoning model returns when it spends the output ceiling before
-answering (raise `--max-tokens` too); and spans lost to a failed call (with its error). The
+answering (raise `--max-tokens` too); spans whose reply parsed to rows none of which is a usable atom
+(wrong keys, strings, span ids outside the document; an empty array is a result, not this); and spans
+lost to a failed call (with its error). The
 `extraction` block, in the artifact and in `atoms.json`, records:
 
 | field | meaning |
 |---|---|
 | `unread_span_ids`, `unread_tokens` | spans no call read, in document order, and their token cost |
 | `unparseable_span_ids` | the subset whose reply arrived and never parsed, even alone |
-| `retried_batches` | batches whose reply did not parse and were split and re-asked |
+| `unusable_span_ids` | the subset whose reply parsed to rows none of which is a usable atom |
+| `retried_batches` | batches whose reply did not parse, or had no usable atom, and were split and re-asked |
 | `calls`, `batches` | calls made, splits included, against the calls the run would make with no splitting |
 | `last_error` | the error behind the unread spans (a failed call first); errors a split recovered from are not recorded |
 

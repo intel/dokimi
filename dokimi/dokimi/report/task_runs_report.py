@@ -325,12 +325,12 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
                     pass_s = "ERR"
                 else:
                     pass_s = "✅" if det["passed"] else ("❌ ⚠️" if claimed else "❌")
-                turns = det["turns"] if det["turns"] is not None else "—"
+                turns_s = det["turns"] if det["turns"] is not None else "—"
                 claim = det["claim"] or (
                     "(timeout rc124)" if det["rc"] == 124
                     else "(harness error)" if det["errored"] else "(no result)"
                 )
-                lines.append(f"| `{h}` | {det['repeat']} | {rw_s} | {pass_s} | {turns} | "
+                lines.append(f"| `{h}` | {det['repeat']} | {rw_s} | {pass_s} | {turns_s} | "
                              f"{_fmt_cost(det['cost'])} | {_md_cell(claim)} |")
         lines.append("")
 

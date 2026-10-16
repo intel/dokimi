@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -15,7 +17,7 @@ import pytest
 
 from dokimi.artifacts import validate_artifact
 from dokimi.harnesses import TaskSuiteRunner, discover_tasks, load_task
-from dokimi.harnesses.command import CommandHarness
+from dokimi.harnesses.command import CommandHarness, clear_run_dir
 from dokimi.harnesses.operations import load_operations
 from dokimi.harnesses.registry import create_harness, known_harnesses
 from dokimi.harnesses.runner import summarize_task_results
@@ -700,3 +702,123 @@ def test_command_harness_ignores_a_reward_left_by_a_previous_run(tmp_path):
 
     assert (result.passed, result.reward) == (False, 0.0)
     assert not (cell / "a-old-job").exists()
+
+
+def _rmtree_that_cannot_delete(path, ignore_errors=False, onerror=None, **kwargs):
+    """``shutil.rmtree`` on a tree it may not delete (root-owned, written by a container)."""
+    if not (ignore_errors or onerror):  # with a hook, its retry fails too
+        raise PermissionError(13, "Permission denied", str(path))
+
+
+def test_cell_whose_previous_run_dir_cannot_be_cleared_is_errored_not_scored(
+    tmp_path, monkeypatch
+):
+    import shutil
+
+    from dokimi.harnesses.runner import _safe_id
+
+    _fixture_task(tmp_path / "tasks")
+    # The agent writes no reward and exits 0; it runs from tmp_path (the dir above the tasks root).
+    (tmp_path / "agent.py").write_text("open('agent-ran', 'w').close()\n", encoding="utf-8")
+    harness_id = f"command:{Path(sys.executable).as_posix()} agent.py"
+    runs = tmp_path / "runs"
+    cell = runs / "toy-task" / _safe_id(harness_id)
+    (cell / "old-job").mkdir(parents=True)
+    (cell / "old-job" / "reward.txt").write_text("1.0")
+    ran = tmp_path / "agent-ran"
+    monkeypatch.setattr(shutil, "rmtree", _rmtree_that_cannot_delete)
+
+    output = TaskSuiteRunner(
+        tasks=discover_tasks(tmp_path / "tasks"), harnesses=[harness_id], output_root=runs
+    ).run()
+
+    validate_artifact("task_runs", output)
+    [row] = output["results"]
+    assert (row["passed"], row["reward"]) == (False, None), "the stale 1.0 was read as this run's"
+    assert "could not clear" in row["metrics"]["error"]
+    assert str(cell.absolute()) in row["metrics"]["error"]
+    assert not ran.exists(), "the agent ran on top of the previous run's files"
+    stats = output["summary"]["per_harness"][harness_id]
+    assert (stats["errored"], stats["scored"]) == (1, 0)
+    assert (cell / "old-job" / "reward.txt").read_text() == "1.0"  # left for the operator
+
+
+def test_clear_run_dir_error_gives_a_remedy_that_fits_any_cause(tmp_path, monkeypatch):
+    import shutil
+
+    cell = tmp_path / "cell"
+    cell.mkdir()
+    monkeypatch.setattr(shutil, "rmtree", _rmtree_that_cannot_delete)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        clear_run_dir(cell)
+
+    message = str(excinfo.value)
+    assert f"could not clear {cell}" in message
+    assert "(PermissionError: [Errno 13] Permission denied" in message
+    assert "owner and permissions" in message and "Windows" in message
+    assert "root" not in message.replace(str(tmp_path), "")
+
+
+def test_clear_run_dir_deletes_read_only_files_windows_will_not_unlink(tmp_path, monkeypatch):
+    """Windows refuses to delete a read-only file (git objects); the clear retries it writable."""
+    cell = tmp_path / "cell"
+    obj = cell / "repo" / ".git" / "objects" / "ab" / "cdef01"
+    obj.parent.mkdir(parents=True)
+    obj.write_text("blob")
+    (cell / "reward.txt").write_text("1.0")
+    obj.chmod(stat.S_IREAD)
+    refused = []
+    real_unlink = os.unlink
+
+    def windows_unlink(path, *, dir_fd=None):
+        if not os.stat(path, dir_fd=dir_fd, follow_symlinks=False).st_mode & stat.S_IWRITE:
+            refused.append(path)
+            raise PermissionError(13, "Access is denied", path)
+        real_unlink(path, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "unlink", windows_unlink)
+
+    clear_run_dir(cell)
+
+    assert refused, "the read-only file was never refused: Windows was not simulated"
+    assert not cell.exists()
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0, reason="needs POSIX modes that bind"
+)
+def test_clear_run_dir_does_not_chmod_through_a_symlink(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep")
+    outside.chmod(0o444)
+    cell = tmp_path / "cell"
+    cell.mkdir()
+    (cell / "link").symlink_to(outside)
+    cell.chmod(0o555)  # the link cannot be unlinked, so the retry hook sees it
+    try:
+        with pytest.raises(RuntimeError, match="could not clear"):
+            clear_run_dir(cell)
+        # The retry only adds the write bit: what is left stays listable.
+        assert stat.S_IMODE(cell.stat().st_mode) & 0o555 == 0o555
+    finally:
+        cell.chmod(0o755)
+
+    assert stat.S_IMODE(outside.stat().st_mode) == 0o444
+    assert outside.read_text() == "keep"
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0, reason="needs POSIX modes that bind"
+)
+def test_clear_run_dir_on_an_unreadable_dir_is_a_clean_cell_error(tmp_path):
+    """rmtree reports a failed os.open on a mode-000 dir; the retry hook must not raise TypeError."""
+    cell = tmp_path / "cell"
+    (cell / "job").mkdir(parents=True)
+    (cell / "job" / "reward.txt").write_text("1.0")
+    (cell / "job").chmod(0)
+    try:
+        with pytest.raises(RuntimeError, match="could not clear"):
+            clear_run_dir(cell)
+    finally:
+        (cell / "job").chmod(0o755)

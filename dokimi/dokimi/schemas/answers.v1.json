@@ -62,9 +62,33 @@
               "object",
               "null"
             ]
+          },
+          "category": {
+            "description": "Copied from the question record."
+          },
+          "difficulty": {
+            "description": "Copied from the question record."
+          },
+          "persona": {
+            "description": "Copied from the question record."
+          },
+          "error": {
+            "description": "Why this record has no result; present only on a failed question."
+          },
+          "ground_truth_chunk": {
+            "description": "The documentation excerpt a chunk-grounded question was generated from."
+          },
+          "question_source": {
+            "description": "How a chunk-grounded question was produced (e.g. chunk)."
           }
         }
       }
+    },
+    "token_usage_summary": {
+      "description": "Prompt/completion/total tokens summed over all answers, overall and per condition."
+    },
+    "question_set_hash": {
+      "description": "Fingerprint of the question set answered (see orchestrator.pipeline.compute_question_set_hash)."
     }
   }
 }

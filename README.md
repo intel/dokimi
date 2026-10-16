@@ -1,5 +1,7 @@
 # Dokimi — agent measurement framework
 
+[![codecov](https://codecov.io/gh/intel/dokimi/graph/badge.svg?branch=main)](https://codecov.io/gh/intel/dokimi)
+
 > **dokimi** — Greek *δοκιμή*, "test, proof". The name is the method: an
 > artifact does not get trusted because it was written or because it is popular,
 > it gets trusted because it passed a test that could have failed.

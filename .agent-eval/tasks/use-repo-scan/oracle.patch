@@ -1,0 +1,19 @@
+diff --git a/examples/toy-repo/repo-eval.yaml b/examples/toy-repo/repo-eval.yaml
+new file mode 100644
+index 0000000..19f7355
+--- /dev/null
++++ b/examples/toy-repo/repo-eval.yaml
+@@ -0,0 +1,13 @@
++# dokimi manifest for an L0 scan of this repository's agent guidance:
++#   python cli.py repo scan <path-to-toy-repo> --manifest repo-eval.yaml
++# eval_dir, entry_points and tasks are required by repo_manifest.v1 and unused by a scan
++# (`repo validate` would refuse this file: the repository has no evaluation tasks).
++schema: repo_manifest.v1
++id: tinycalc
++eval_dir: .agent-eval
++guidance:
++  globs: ["**/AGENTS.md"]
++  also_scan: ["AGENTS.md", "README.md"]
++entry_points: {grade: "true"}
++tasks: .agent-eval/tasks
++build_systems: [make, pytest]

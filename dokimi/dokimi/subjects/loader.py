@@ -10,6 +10,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from dokimi.treatments.specs import combine_specs
+
 from .models import NON_ARM_KINDS, SUBJECT_KINDS, SubjectArtifact, SubjectDescriptor, SubjectMember, SubjectSuite
 
 
@@ -182,11 +184,7 @@ def _subject_specs(subject: SubjectArtifact, *, agentic: bool) -> list[str]:
         parts = []
         for member in subject.members:
             parts.extend(_member_specs(member.kind, member.ref, agentic=agentic))
-        if len(parts) > 1 and parts[0].startswith("mcp:"):
-            first_non_mcp = next((idx for idx, part in enumerate(parts) if not part.startswith("mcp:")), None)
-            if first_non_mcp is not None:
-                parts.insert(0, parts.pop(first_non_mcp))
-        return ["+".join(parts)]
+        return [combine_specs(parts)]
     return _member_specs(subject.kind, subject.ref or "", agentic=agentic)
 
 

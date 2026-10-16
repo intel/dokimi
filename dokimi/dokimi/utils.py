@@ -64,6 +64,28 @@ def digest_text(text: str) -> str:
     return "sha256:" + hashlib.sha256((text or "").encode("utf-8")).hexdigest()
 
 
+def retry_writable(func: Any, path: str, _exc: Any) -> None:
+    """``shutil.rmtree`` ``onerror`` hook: set the write bit on ``path`` and retry once.
+
+    Windows will not delete a read-only file, and git leaves its object files
+    read-only. A symlink is left alone, since chmod would follow it out of the
+    tree. A retry that still fails is ignored; the caller checks what is left.
+    Only the delete calls are retried: on POSIX ``rmtree`` also reports a failed
+    ``os.open`` or ``os.scandir`` (an unreadable dir), which ``func(path)`` would
+    call with the wrong arguments and raise ``TypeError``.
+    """
+    import stat
+
+    try:
+        mode = os.lstat(path).st_mode
+        if not stat.S_ISLNK(mode):
+            os.chmod(path, stat.S_IMODE(mode) | stat.S_IWRITE)
+            if func in (os.unlink, os.remove, os.rmdir):
+                func(path)
+    except OSError:
+        pass
+
+
 def normalize_model_ref(provider: str, model: str) -> str:
     """Normalize provider and model names for comparison."""
     return f"{(provider or '').strip().lower()}/{(model or '').strip().lower()}"
@@ -76,7 +98,8 @@ def _read_key(value: str) -> str:
     if value.startswith("file:"):
         path = os.path.expanduser(value[5:])
         try:
-            return open(path, encoding="utf-8").read().strip()
+            with open(path, encoding="utf-8") as fh:
+                return fh.read().strip()
         except Exception:
             return value
     return value
@@ -94,8 +117,8 @@ def bedrock_litellm_model(model: str) -> str:
     return f"{prefix}{model}"
 
 
-def get_llm(provider: str, model: str, api_key: str = None,
-            temperature: float = None, seed: int = None):
+def get_llm(provider: str, model: str, api_key: str | None = None,
+            temperature: float | None = None, seed: int | None = None):
     """Return a minimal chat wrapper with .invoke(prompt) -> object(content=...)."""
     from litellm import completion
 
@@ -105,8 +128,9 @@ def get_llm(provider: str, model: str, api_key: str = None,
             self.usage = usage   # UsageRecord | None — lets the judge track cost
 
     class _LLM:
-        def __init__(self, litellm_model: str, key: str = None, default_max_tokens: int = None,
-                     temperature: float = None, seed: int = None):
+        def __init__(self, litellm_model: str, key: str | None = None,
+                     default_max_tokens: int | None = None,
+                     temperature: float | None = None, seed: int | None = None):
             self.litellm_model = litellm_model
             self.key = key
             self.default_max_tokens = default_max_tokens
@@ -160,10 +184,10 @@ def get_llm(provider: str, model: str, api_key: str = None,
                 caching.store_response(key, text, usage)
             return _Resp(text, usage=usage)
 
-    api_key = _read_key(api_key)
+    api_key = _read_key(api_key) if api_key else api_key
 
     if provider == "openrouter":
-        key = api_key or _read_key(os.environ.get("OPENROUTER_API_KEY", ""))
+        key: str | None = api_key or _read_key(os.environ.get("OPENROUTER_API_KEY", ""))
         litellm_model = model if model.startswith("openrouter/") else f"openrouter/{model}"
         return _LLM(litellm_model=litellm_model, key=key, default_max_tokens=2000,
                     temperature=temperature, seed=seed)
@@ -196,3 +220,16 @@ def get_llm(provider: str, model: str, api_key: str = None,
     litellm_model = model if "/" in model else f"{provider}/{model}"
     return _LLM(litellm_model=litellm_model, key=key,
                 temperature=temperature, seed=seed)
+
+
+def question_id(q: Dict[str, Any]) -> Any:
+    """The question's ``id`` or ``question_id``; ``None`` when neither is set.
+
+    ``0`` is an id (``questions.v1`` allows integer ids), so ``q.get("id") or ...``
+    — which reads it as missing — is not a substitute.
+    """
+    for key in ("id", "question_id"):
+        if q.get(key) not in (None, ""):
+            return q[key]
+    return None
+

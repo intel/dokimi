@@ -198,7 +198,8 @@ def judge_value(
 
     An atom the judge did not answer for gets no verdict, rather than ``needed=False``:
     a default would read as *inert* and bias the category table toward cutting. Its id
-    goes to ``report.unjudged``.
+    goes to ``report.unjudged``. So does an atom whose row has no boolean ``needed`` (or
+    a non-boolean ``scaffolding``): ``"false"`` is not ``False``.
     """
     from dokimi.llm import extract_json_array
 
@@ -217,18 +218,25 @@ def judge_value(
     for chunk, rows in result.answered:
         by_index = {
             int(row["n"]): row for row in rows
-            if isinstance(row, dict) and str(row.get("n", "")).isdigit()
+            if isinstance(row, dict) and str(row.get("n", "")).isdecimal()
         }
         for index, atom in enumerate(chunk, start=1):
             row = by_index.get(index)
-            if row is None:
+            # A row is a verdict only if `needed` is a real boolean (`bool("false")` is
+            # True, and a missing or null value would read as inert) and `scaffolding`
+            # is a boolean or absent.
+            if (
+                row is None
+                or not isinstance(row.get("needed"), bool)
+                or not isinstance(row.get("scaffolding", False), bool)
+            ):
                 report.unjudged.append(atom.id)
                 report.unjudged_skipped += 1
                 continue
             verdicts[atom.id] = AtomVerdict(
                 atom_id=atom.id,
-                needed=bool(row.get("needed", False)),
-                scaffolding=bool(row.get("scaffolding", False)),
+                needed=row["needed"],
+                scaffolding=row.get("scaffolding", False),
             )
     return verdicts
 
@@ -285,7 +293,10 @@ def detect_conflicts(
                 a_index, b_index = int(row["a"]) - 1, int(row["b"]) - 1
             except (KeyError, TypeError, ValueError):
                 continue
-            if not (0 <= a_index < len(chunk) and 0 <= b_index < len(chunk)):
+            # A statement cannot contradict itself; a == b would flag one atom harmful.
+            if a_index == b_index or not (
+                0 <= a_index < len(chunk) and 0 <= b_index < len(chunk)
+            ):
                 continue
             conflicts.append({
                 "a": chunk[a_index].id,

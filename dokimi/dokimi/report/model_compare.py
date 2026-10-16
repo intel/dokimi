@@ -34,10 +34,11 @@ import json
 import math
 import statistics
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from dokimi.utils import question_id
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import stats as arm_stats
 
@@ -49,7 +50,7 @@ HAS_SCIPY = arm_stats.HAS_SCIPY
 try:
     from zoneinfo import ZoneInfo
 
-    _TZ = ZoneInfo("America/Los_Angeles")
+    _TZ: ZoneInfo | None = ZoneInfo("America/Los_Angeles")
 except ImportError:
     _TZ = None
 
@@ -233,12 +234,13 @@ def pool_cost_summaries(summaries: list[dict | None]) -> dict:
 
     A field any replicate lacks stays None, so a partial total is never shown as a full one.
     """
-    summaries = [s or {} for s in summaries]
+    present = [s or {} for s in summaries]
     pooled: dict = {}
-    for arm in dict.fromkeys(a for s in summaries for a in s):
-        rows = [s.get(arm) or {} for s in summaries]
+    for arm in dict.fromkeys(a for s in present for a in s):
+        rows = [s.get(arm) or {} for s in present]
         fields = (*_SUMMED_COST_FIELDS, "mean_latency_sec", "cache_hit_ratio")
-        known = {f: v for f in fields if None not in (v := [r.get(f) for r in rows])}
+        known = {f: [r[f] for r in rows] for f in fields
+                 if all(r.get(f) is not None for r in rows)}
         out: dict = {f: sum(known[f]) if f in known else None for f in _SUMMED_COST_FIELDS}
         latency = known.get("mean_latency_sec")
         out["mean_latency_sec"] = sum(latency) / len(latency) if latency else None
@@ -473,8 +475,8 @@ def extract_scores(
             return []
 
         for evaluation in run_data["evaluations"]:
-            qid = evaluation.get("question_id")
-            if not qid:
+            qid = question_id(evaluation)
+            if qid is None:
                 continue
             eval_scores = evaluation.get("scores", {})
 
@@ -503,7 +505,7 @@ def extract_scores(
                         f"Error: --treatment-arm '{force_treatment_arm}' not found in "
                         f"question '{qid}'. Available arms: {list(eval_scores.keys())}"
                     )
-                target_arm = force_treatment_arm
+                target_arm: str | None = force_treatment_arm
             else:
                 if len(treatment_arms) > 1:
                     raise SystemExit(
@@ -551,8 +553,8 @@ def extract_scores(
             return []
 
         for answer in run_data.get("answers", []):
-            qid = answer.get("question_id")
-            if not qid:
+            qid = question_id(answer)
+            if qid is None:
                 continue
             arms = answer.get("arms", {})
             if not isinstance(arms, dict) or baseline_arm not in arms or len(arms) < 2:
@@ -677,6 +679,13 @@ def significance_test(
 # ---------------------------------------------------------------------------
 
 
+def _generated_stamp() -> str:
+    """The report's creation time: Pacific time, or UTC without zoneinfo."""
+    if _TZ is not None:
+        return datetime.now(tz=_TZ).strftime('%Y-%m-%d %H:%M %Z')
+    return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+
+
 def generate_combined_report(
     regular_runs: list[tuple[str, dict]],
     golden_runs: list[tuple[str, dict]],
@@ -696,7 +705,7 @@ def generate_combined_report(
 
     lines += [
         "#  Model Comparison Report",
-        f"_Generated: {datetime.now(tz=_TZ).strftime('%Y-%m-%d %H:%M %Z') if _TZ else datetime.now().strftime('%Y-%m-%d %H:%M UTC')}_",
+        f"_Generated: {_generated_stamp()}_",
         "",
     ]
 
@@ -1064,17 +1073,16 @@ def generate_section_report(
                 paired = [(s["with_docs"], s["without_docs"]) for s in scores
                           if s["with_docs"] is not None and s["without_docs"] is not None]
                 if paired:
-                    with_scores, without_scores = zip(*paired, strict=True)
-                    sigs[run_id] = significance_test(list(with_scores), list(without_scores))
+                    with_paired, without_paired = zip(*paired, strict=True)
+                    sigs[run_id] = significance_test(list(with_paired), list(without_paired))
                 else:
                     sigs[run_id] = None
 
-            tested = [rid for rid in run_ids if sigs[rid] and sigs[rid]["p_ttest"] is not None]
+            tested = [sig for rid in run_ids if (sig := sigs[rid]) and sig["p_ttest"] is not None]
             adjusted = arm_stats.adjust_pvalues(
-                [sigs[rid]["p_ttest"] for rid in tested], method=correction
+                [sig["p_ttest"] for sig in tested], method=correction
             )
-            for rid, p_adj in zip(tested, adjusted, strict=True):
-                sig = sigs[rid]
+            for sig, p_adj in zip(tested, adjusted, strict=True):
                 sig["p_adjusted"] = p_adj
                 # Same conjunction as the raw verdict, with the adjusted p in
                 # place of the raw one.

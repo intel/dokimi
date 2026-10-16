@@ -1,0 +1,22 @@
+{
+  "id": "fix-degrade-pre",
+  "family": "fix",
+  "base": "16e319fdcb2f4eb6e0dfa44b7c05a2d451599586",
+  "prompt": "Bug in the judge-validity degradations (dokimi/dokimi/eval/degrade.py): an answer that contains an HTML <pre> block is mangled. `padding` inserts filler paragraphs inside the <pre> block at a blank line, `wrong_numbers` edits numbers inside it, and `strip_code` / `hedge_concrete` leave its contents in place. A <pre> ... </pre> element should be treated as a code block, the same way fenced blocks are. Fix it, add tests, and commit your change.",
+  "grader": "code",
+  "setup_patches": [
+    "setup.patch"
+  ],
+  "hidden_tests": [
+    "dokimi/tests/test_hidden_degrade_pre.py"
+  ],
+  "gate": [
+    "hidden_pass",
+    "regress_pass",
+    "ruff_ok",
+    "mypy_ok"
+  ],
+  "timeout_s": 1800,
+  "max_turns": 120,
+  "budget_usd": 4
+}

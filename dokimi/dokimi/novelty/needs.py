@@ -203,13 +203,13 @@ def match_atoms(atoms: list[Atom], graph: NeedGraph) -> dict[str, dict]:
             )
             if score > best[0]:
                 best = (score, node)
-        score, node = best
+        score, match = best
         out[atom.id] = {
-            "node_id": node.id if node else None,
-            "path_class": node.path_class if node else None,
+            "node_id": match.id if match else None,
+            "path_class": match.path_class if match else None,
             "score": round(score, 4),
-            "relevance": round(score * node.weight, 4) if node else 0.0,
-            "out_of_scope": bool(node and node.path_class == "out_of_scope"),
+            "relevance": round(score * match.weight, 4) if match else 0.0,
+            "out_of_scope": bool(match and match.path_class == "out_of_scope"),
         }
     return out
 

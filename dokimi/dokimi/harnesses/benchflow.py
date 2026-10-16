@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
+from .command import clear_run_dir
 from .models import HarnessResult, OperationRecord, PreflightError
 from .tasks import TaskSpec
 
@@ -167,7 +168,7 @@ class BenchflowHarness:
         # The cell's output dir is deterministic, so a previous run's rollout
         # would otherwise be read back when this one dies before writing its
         # own (install failure, auth, full disk) — reported as a pass.
-        shutil.rmtree(jobs_dir, ignore_errors=True)
+        clear_run_dir(jobs_dir)
         start = time.time()
         returncode, stdout, stderr, timed_out = BenchRun(*_run_bench(
             command, timeout, env, cwd=output_dir,

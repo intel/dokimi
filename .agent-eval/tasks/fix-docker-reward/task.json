@@ -1,0 +1,19 @@
+{
+  "id": "fix-docker-reward",
+  "family": "fix",
+  "base": "16e319fdcb2f4eb6e0dfa44b7c05a2d451599586",
+  "prompt": "Bug report: with the docker-oracle / docker-claude harnesses, a task whose verifier writes only /logs/verifier/reward.json (Harbor's format, e.g. {\"reward\": 0.0, \"answer_present\": 0.0}) and then exits 0 is reported as passed with reward 1.0: the reward.json is ignored and the verifier's exit code decides. Separately, a reward of 1e-1 in a reward file (for example a reward.json saying {\"reward\": 1e-1}, whether a command harness or a docker harness reads it) comes out as 1.0 instead of 0.1. Please fix both and add tests. Commit your change.",
+  "grader": "code",
+  "hidden_tests": [
+    "dokimi/tests/test_hidden_docker_reward.py"
+  ],
+  "gate": [
+    "hidden_pass",
+    "regress_pass",
+    "ruff_ok",
+    "mypy_ok"
+  ],
+  "timeout_s": 1800,
+  "max_turns": 150,
+  "budget_usd": 5
+}

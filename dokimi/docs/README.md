@@ -228,6 +228,9 @@ code.
 - [evaluating-treatments.md](evaluating-treatments.md) — compare
   context-augmentation arms (docs, MCP, skills, agent persona prompts) with
   `cli.py arms run`.
+- [tool-preference.md](tool-preference.md) — two equal tools per request: how
+  much a name, wording or list position moves a model's choice
+  (`cli.py tools preference`).
 - [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
   through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
   verifier pass rate against a baseline.

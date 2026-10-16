@@ -49,7 +49,7 @@ class DocQueryTool(Tool):
         self.library_id = library_id
         self.max_results = max_results
         self.keep = keep
-        self.calls = []  # query strings, for transcript/provenance
+        self.calls: list[str] = []  # query strings, for transcript/provenance
 
     def call(self, query: str = "", **_) -> str:
         self.calls.append(query)

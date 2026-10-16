@@ -107,6 +107,7 @@ nav:
       - benchmarking-and-comparison.md
       - adding-doc-source.md
       - evaluating-treatments.md
+      - tool-preference.md
       - coding-harnesses.md
   - Content novelty:
       - skill-novelty.md

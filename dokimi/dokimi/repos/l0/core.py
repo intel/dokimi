@@ -42,6 +42,10 @@ _ALLCAPS = re.compile(r"^[A-Z][A-Z0-9_]{3,}$")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_]\w*\+?=")
 _PROMPT = re.compile(r"^\s*(?:\$|>|#\s*\$)\s+")
 _PLACEHOLDER = re.compile(r"^(?:<[^>]+>|\{[^}]+\}|\$\w+|\$\{[^}]+\}|\.\.\.)$")
+# `actions/checkout@v6`, `owner/repo/sub@<sha>…`: a GitHub Action reference, not a path in the tree.
+# A ref ending in a file extension (`assets/icon@2x.png`) is a file name instead.
+_ACTION_REF = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w./-]+)?@(?![\w.-]*\.[A-Za-z][A-Za-z0-9]{0,4}$)"
+                         r"[\w.-]+?(?:\.\.\.|…)?$")
 _WRAPPED = re.compile(r"^`([^`]+)`(\s+#.*)?$")  # a whole command in backticks, maybe with a comment
 # `2>&1`, `> log`, `>>log`, `&>/dev/null`, `< in`: a redirection and its target, not arguments.
 _REDIRECT = re.compile(r"(?:(?<=\s)|^)[0-9]?(?:&>>?|>>?|<)(?:&[0-9]+|\s*[^\s|;&<>]+)")
@@ -264,6 +268,8 @@ class Scan:
             bases = self._cd
         rel = re.sub(r"(^|/)\.\.\.(?=/|$)", r"\1**", p.lstrip("/"))  # `a/.../b` elides directories
         cands = list(dict.fromkeys(posixpath.normpath(posixpath.join(b, rel)) for b in bases))
+        if _ACTION_REF.match(p) and not any(self.exists(c) for c in cands):
+            return None
         if any(c.startswith("..") for c in cands) and all(c.startswith("..") for c in cands):
             return "fail", f"resolves to {cands[0]}, outside the repository"
         sub = self.submodule_of(cands)

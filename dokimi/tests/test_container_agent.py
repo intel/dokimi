@@ -136,9 +136,9 @@ def test_proxy_chains_allowed_tunnels_through_the_host_proxy():
             head += conn.recv(1)
         seen.append(head.split(b"\r\n", 1)[0])
         conn.sendall(b"HTTP/1.1 200 OK\r\n\r\n")
-        target = socket.create_connection(("127.0.0.1", port))
-        target.sendall(conn.recv(64))
-        conn.sendall(target.recv(64))
+        with socket.create_connection(("127.0.0.1", port)) as target:
+            target.sendall(conn.recv(64))
+            conn.sendall(target.recv(64))
         conn.close()
 
     threading.Thread(target=fake_upstream, daemon=True).start()
@@ -983,9 +983,9 @@ def test_a_verifier_on_a_dead_container_is_errored_not_zero(tmp_path, monkeypatc
 
     monkeypatch.setattr(solver_mod, "_docker", docker)
     task = load_task(_task(tmp_path))
-    with pytest.raises(RuntimeError, match="not running at verify time"):
+    with open(tmp_path / "log", "w") as log, pytest.raises(RuntimeError, match="not running at verify time"):
         DockerSolverHarness(harness_id="docker-oracle", mode="oracle")._verify(
-            task, "dokimi-run-x", tmp_path, open(tmp_path / "log", "w"))
+            task, "dokimi-run-x", tmp_path, log)
 
 
 def test_container_skill_arm_ships_the_skill_with_links_followed(tmp_path, docker_calls, monkeypatch):

@@ -28,6 +28,7 @@ from dokimi.eval.stats import (
     _finalize,
     _mean,
 )
+from dokimi.treatments.specs import split_combined_name
 
 
 def detect_factorial_cells(arms: Sequence[str]) -> List[Tuple[str, str, str]]:
@@ -48,13 +49,9 @@ def detect_factorial_cells(arms: Sequence[str]) -> List[Tuple[str, str, str]]:
     present = set(arms)
     cells: List[Tuple[str, str, str]] = []
     for arm in arms:
-        for i, char in enumerate(arm):
-            if char != "+":
-                continue
-            a, b = arm[:i], arm[i + 1:]
-            if a in present and b in present:
-                cells.append((a, b, arm))
-                break
+        split = split_combined_name(arm, present)
+        if split is not None:
+            cells.append((split[0], split[1], arm))
     return cells
 
 

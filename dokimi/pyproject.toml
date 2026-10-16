@@ -45,8 +45,10 @@ dev = [
   "pytest-cov>=4.1.0",
   "pytest-mock>=3.12.0",
   "pytest-socket>=0.7",
+  "pytest-timeout>=2.2",
+  "pytest-randomly>=3.15",
   "diff-cover>=10.0",
-  "ruff>=0.12",
+  "ruff==0.17.0",
   "mypy>=1.8",
   "types-PyYAML",
   "types-jsonschema",
@@ -83,59 +85,103 @@ extend-exclude = ["benchmarks", "data"]
 # These two run on another interpreter, not dokimi's: the hook on the task
 # image's python3, the proxy in the sidecar (DOKIMI_PROXY_IMAGE can be any image
 # with Python 3). Either may still be 3.10, so keep its syntax checked there.
-# per-file-target-version needs ruff 0.9.8; the version-related syntax errors it
-# feeds are reported by default from ruff 0.12.
+# per-file-target-version feeds ruff's version-related syntax errors, which the
+# pinned ruff (dev extra above) reports by default.
 [tool.ruff.per-file-target-version]
 "dokimi/repos/support/no_background.py" = "py310"
 "dokimi/harnesses/egress_proxy.py" = "py310"
 
-# Correctness-focused gate to start (pyflakes + bugbear + syntax). Stylistic
-# modernization (import sorting, PEP 585/604 hints) is deferred to a follow-up
-# so the initial gate is enforceable without a repo-wide reformat.
+# A correctness gate: rules that flag code that misbehaves (a swallowed
+# KeyboardInterrupt, a naive datetime, a file handle never closed, an assert
+# that never runs), not style. A family is taken whole where its rules are of
+# that kind and its few style rules are cheap or ignored below; elsewhere the
+# rules are listed one by one, so a ruff upgrade cannot add style rules to it.
+# A whole family does gain rules with ruff releases (0.16.0 stabilized LOG004
+# and PLE0304, preview-only in 0.12), so ruff is pinned to one version here, in
+# ci.yml, in .pre-commit-config.yaml and in .agent-eval/Dockerfile, and
+# Renovate bumps all four in one PR that runs the new rules.
+#
+# Not enabled yet, with their violation counts at ruff 0.17.0. These three are
+# autofixes across most files: they land in a PR of their own while few PRs
+# are open, and per-file-target-version keeps UP from rewriting the py310
+# files above for 3.11:
+#   UP (pyupgrade) 1399, of which PEP 585/604 annotations 1185, imports 162
+#   I (isort) 156
+#   RUF100 (unused noqa) 22: most name rules not selected (BLE001, E402), so
+#   select those or list them in lint.external first
+# Hand fixes deferred because an open PR rewrites the same lines (#29, one
+# process runner for the spawn sites):
+#   PLW1509 (preexec_fn with threads) 1, PLW1510 (subprocess.run without
+#   check=) 15
+# Bug-prone, each site needs a look:
+#   PLW2901 (loop variable reassigned) 20, RUF043 (pytest.raises match= with
+#   unescaped regex characters) 24, ISC004 (implicit concatenation in a
+#   collection, i.e. a missing comma) 67, BLE001 (blind except) 64,
+#   PT011 (pytest.raises too broad) 53, RUF012 (mutable class attribute) 8:
+#   constants and test stubs, but Tool.parameters is also set per instance
 [tool.ruff.lint]
-select = ["F", "B", "E9"]
-ignore = ["B008"]
+select = [
+  "F",      # pyflakes
+  "B",      # bugbear
+  "E9",     # syntax errors
+  "E711", "E712", "E713", "E714", "E721", "E722",  # None/bool/type compares, bare except
+  "A",      # shadowed builtins and stdlib modules
+  "ASYNC",  # blocking calls in async code
+  "DTZ",    # naive datetimes
+  "EXE",    # shebang vs executable bit
+  "G",      # logging call arguments
+  "ISC001", # implicit concatenation on one line (a missing comma)
+  "LOG",    # logger misuse
+  "PGH",    # blanket noqa / type: ignore
+  "PIE",    # duplicate class fields, non-unique enums, no-op statements
+  "PLE",    # pylint errors
+  "PLW",    # pylint warnings (exceptions below)
+  "SIM115", # open() outside a context manager
+  "T10",    # leftover debugger
+  "YTT",    # sys.version misuse
+  # pytest: checks that never run or match the wrong thing
+  "PT008", "PT010", "PT014", "PT015", "PT017", "PT025", "PT026", "PT028", "PT030",
+  # ruff-specific bug rules (the rest of RUF is style)
+  "RUF006", "RUF008", "RUF009", "RUF013", "RUF016", "RUF017", "RUF018",
+  "RUF020", "RUF024", "RUF026", "RUF028", "RUF030", "RUF032", "RUF033", "RUF034",
+  "RUF040", "RUF048", "RUF049", "RUF053", "RUF060", "RUF061", "RUF063", "RUF064",
+  "RUF068", "RUF071", "RUF101", "RUF102", "RUF103", "RUF104", "RUF200",
+]
+ignore = [
+  "A002",     # argument named like a builtin: keyword APIs mirror subprocess's input=
+  "G004",     # f-string in a logging call: style, 108 sites
+  "PLW0108",  # unnecessary lambda: its fix evaluates the call eagerly
+  "PLW0603",  # global statement: style
+  "PLW1509", "PLW1510", "PLW2901",  # deferred, see above
+  "PLW3301",  # nested min/max: style
+]
 
 # Type checking covers the whole package. The modules listed in the override
 # below carried type errors when the gate was widened from a hand-picked file
-# list; they are exempt until fixed. Do not add to that list: a new module is
-# checked from its first commit. Removing an entry is the way to shrink it.
+# list; they are exempt until fixed. The list can only shrink:
+# tests/test_mypy_config.py fails on an entry that is not in its frozen
+# baseline, so a new module is checked from its first commit. Fix the types
+# and remove the entry (from both places) to shrink it.
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
 disable_error_code = ["import-untyped"]
-warn_unused_ignores = false
+# Pydantic models (the LangChain chat classes) take field aliases such as
+# model= and api_key=; without the plugin mypy sees only the field names.
+plugins = ["pydantic.mypy"]
 no_implicit_optional = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+strict_equality = true
+extra_checks = true
 files = ["dokimi"]
 
 [[tool.mypy.overrides]]
 module = [
   "dokimi.commands.catalog",
-  "dokimi.eval.agent_runner",
-  "dokimi.eval.answerer",
-  "dokimi.eval.arm_runner",
-  "dokimi.eval.judge",
-  "dokimi.eval.panel",
-  "dokimi.llm",
-  "dokimi.mcp.context7",
-  "dokimi.mcp.factory",
-  "dokimi.novelty.attribute",
-  "dokimi.novelty.needs",
-  "dokimi.novelty.spans",
-  "dokimi.orchestrator.pipeline",
   "dokimi.personas.analyzer",
-  "dokimi.personas.generator",
-  "dokimi.questions.llm_gen",
-  "dokimi.questions.panel_reviewer",
-  "dokimi.questions.quality_analyzer",
-  "dokimi.questions.validator",
-  "dokimi.report.eval_report",
-  "dokimi.report.model_compare",
-  "dokimi.report.task_runs_report",
-  "dokimi.treatments.arms",
-  "dokimi.treatments.factory",
-  "dokimi.treatments.tools",
-  "dokimi.utils",
 ]
 ignore_errors = true
 
@@ -146,3 +192,18 @@ testpaths = ["tests"]
 # that run a local server (the egress proxy). Needs pytest-socket
 # (requirements-test.txt).
 addopts = ["--allow-hosts=127.0.0.1,::1"]
+# A hung test fails after 60 s instead of holding the job until its 6 h limit
+# (pytest-timeout). The slowest test takes ~20 s. On POSIX the default method,
+# signal (SIGALRM, handled in the main thread), fails only the hung test: its
+# fixtures still tear down and the run goes on, whatever the proxy and server
+# threads it started are doing. Without SIGALRM (Windows) it falls back to
+# thread, which dumps the stacks and ends the whole run.
+timeout = 60
+# A warning is a failure: deprecations surface when they appear, not when the
+# removal breaks the suite, and an unclosed file or socket is a ResourceWarning.
+# A third-party warning gets a narrow ignore (module, category, message) with
+# the reason; ours are fixed where they are raised.
+filterwarnings = ["error"]
+# Test order is shuffled and `random` reseeded per test (pytest-randomly), so a
+# test that leans on another's leftovers fails. The header prints the seed;
+# `--randomly-seed=<seed>` replays that order, `-p no:randomly` keeps file order.

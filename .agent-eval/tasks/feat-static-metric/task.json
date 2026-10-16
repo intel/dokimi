@@ -1,0 +1,23 @@
+{
+  "id": "feat-static-metric",
+  "family": "feature",
+  "base": "16e319fdcb2f4eb6e0dfa44b7c05a2d451599586",
+  "prompt": "Add a static documentation metric with the id `code_block_lang`: for each Markdown doc, the share of its fenced code blocks whose opening fence declares a language (```bash rather than a bare ```). Unlabelled blocks render without highlighting and leave the reader guessing whether a block is shell, Python or program output. Enable it in the default benchmark spec so it shows up in the static benchmark run (`cli.py run`) like the other metrics. Commit your change.",
+  "grader": "code",
+  "gate": [
+    "module_ok",
+    "spec_wired",
+    "run_per_doc",
+    "run_summary",
+    "readme_listed",
+    "test_refs",
+    "regress_pass",
+    "ruff_ok",
+    "mypy_ok",
+    "schema_ok",
+    "config_ok"
+  ],
+  "timeout_s": 1800,
+  "max_turns": 150,
+  "budget_usd": 5
+}

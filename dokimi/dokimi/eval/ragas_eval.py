@@ -221,6 +221,8 @@ class RagasEvaluator:
             from ragas.llms import LangchainLLMWrapper
             from langchain_openai import ChatOpenAI
             from langchain_anthropic import ChatAnthropic
+            from langchain_core.language_models import BaseChatModel
+            lc_llm: BaseChatModel  # either provider's chat model
 
             key = self._resolve_key()
 

@@ -161,7 +161,7 @@ class Context7Client(MCPClient):
             
             # Context7 sometimes returns HTML or error text with HTTP 200
             # Basic validation: check if response looks like documentation
-            if content.startswith("<!DOCTYPE") or content.startswith("<html"):
+            if content.startswith(("<!DOCTYPE", "<html")):
                 raise MCPLibraryNotFoundError(
                     f"Context7 returned HTML (library not found?): {library_id}"
                 )
@@ -199,7 +199,9 @@ class Context7Client(MCPClient):
         except Exception as e:
             raise MCPConnectionError(f"Context7 request failed: {e}") from e
     
-    def check_connection(self, library_id: str, query: str = "overview") -> bool:
+    # A remote source has nothing local to probe, so the caller must name the library
+    # (MCPClient.check_connection documents this exception to its signature).
+    def check_connection(self, library_id: str, query: str = "overview") -> bool:  # type: ignore[override]
         """
         Verify that Context7 is accessible, by probing a caller-named library.
 

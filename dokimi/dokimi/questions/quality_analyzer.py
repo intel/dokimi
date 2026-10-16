@@ -149,7 +149,7 @@ class QuestionQualityAnalyzer:
 
     @staticmethod
     def _build_recommendations(dist: Dict[str, int], total: int, trivial_pct: float) -> List[str]:
-        recs = []
+        recs: List[str] = []
         if total == 0:
             return recs
         beginner_pct = dist.get("beginner", 0) / total * 100

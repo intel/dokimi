@@ -216,7 +216,7 @@ class QuestionPanelReviewer:
         std = None
         agreement = None
         if valid:
-            scores = [v.primary_score for v in valid]
+            scores = [v.primary_score for v in valid if v.primary_score is not None]
             panel_score = round(statistics.mean(scores), 1)
             std = round(statistics.stdev(scores), 1) if len(scores) > 1 else 0.0
             agreement = round(max(0.0, 1.0 - std / 50.0), 3)

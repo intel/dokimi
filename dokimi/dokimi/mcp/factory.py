@@ -189,21 +189,21 @@ def _build_mcp_protocol_client(ref: str):
     transport_key = transport_key.strip()
     target = target.strip()
 
-    kwargs = {
-        "docs_tool": options.get("tool"),
-        "resolve_tool": options.get("resolve"),
-        "default_library_id": options.get("id"),
-    }
+    docs_tool, resolve_tool, library_id = options.get("tool"), options.get("resolve"), options.get("id")
 
     if transport_key == "cmd":
         argv = target.split()
         if not argv:
             raise ValueError("mcp 'cmd=' requires a command, e.g. 'cmd=npx -y @upstash/context7-mcp'")
-        return MCPProtocolClient(transport="stdio", command=argv[0], args=argv[1:], **kwargs)
-    if transport_key == "http":
-        return MCPProtocolClient(transport="http", url=target, **kwargs)
-    if transport_key == "sse":
-        return MCPProtocolClient(transport="sse", url=target, **kwargs)
+        return MCPProtocolClient(
+            transport="stdio", command=argv[0], args=argv[1:],
+            docs_tool=docs_tool, resolve_tool=resolve_tool, default_library_id=library_id,
+        )
+    if transport_key in ("http", "sse"):
+        return MCPProtocolClient(
+            transport=transport_key, url=target,
+            docs_tool=docs_tool, resolve_tool=resolve_tool, default_library_id=library_id,
+        )
 
     raise ValueError(
         f"Unknown mcp transport '{transport_key}' in '{ref}'. "

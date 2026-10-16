@@ -179,12 +179,36 @@ def _skill(tmp_path, name, description, body="# B\n\n## A section here\n"):
 
 
 def test_routing_against_a_single_candidate_is_refused(tmp_path):
-    # argparse already requires one competitor; this covers the programmatic path, where
-    # selecting from one candidate measures tool use rather than this artifact winning.
+    # Selecting from one candidate measures tool use rather than this artifact winning.
     args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
-                  "--competitors", _skill(tmp_path, "b", "e"), "--queries", "x")
-    args.competitors = []
+                  "--queries", "x")
     with pytest.raises(SystemExit, match="needs competitors"):
+        args.func(args)
+
+
+def test_the_catalog_supplies_every_sibling_but_the_artifact(tmp_path, capsys):
+    catalog = tmp_path / "skills"
+    catalog.mkdir()
+    gold = _skill(catalog, "perf", "profile a slow binary with perf")
+    _skill(catalog, "xpu", "profile a slow GPU kernel")
+    _skill(catalog, "db", "tune a slow database query")
+    extra = _skill(tmp_path, "gdb", "debug a crashing binary")
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["my binary is slow, where is the time going"]),
+                       encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing", "--artifact", gold, "--catalog", str(catalog),
+                  "--competitors", extra, "--queries", str(queries), "--out", str(out))
+    args.func(args)
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["n_candidates"] == 4                # perf + xpu, db from the catalog + gdb
+    assert "--catalog" in capsys.readouterr().err
+
+
+def test_a_catalog_that_is_not_a_directory_is_refused(tmp_path):
+    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
+                  "--catalog", str(tmp_path / "nope"), "--queries-from-headings")
+    with pytest.raises(SystemExit, match="--catalog is not a directory"):
         args.func(args)
 
 

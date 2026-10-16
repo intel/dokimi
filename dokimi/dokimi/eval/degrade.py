@@ -47,6 +47,8 @@ import re
 from decimal import Context, Decimal
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+from dokimi.utils import question_id
+
 #: Minimum answer length (characters) worth degrading. Short answers have too
 #: little content for truncation or code-stripping to mean anything.
 DEFAULT_MIN_CHARS = 1500
@@ -583,7 +585,7 @@ def degrade(
     return DEGRADATIONS[variant](answer, rng=random.Random(seed), other=other)
 
 
-def _answer_pool(answers: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _answer_pool(answers: Iterable[object]) -> List[Dict[str, Any]]:
     """Flatten a run's answers into (question_id, question_text, arm, answer) rows.
 
     Accepts both the arm-runner shape (``arms: {name: {answer: ...}}``) and the
@@ -593,9 +595,9 @@ def _answer_pool(answers: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for item in answers:
         if not isinstance(item, dict):
             continue
-        qid = item.get("question_id")
+        qid = question_id(item)
         qtext = item.get("question_text") or item.get("question")
-        if not qid or not qtext:
+        if qid is None or not qtext:
             continue
         arms = item.get("arms")
         candidates: List[tuple[str, Any]] = []

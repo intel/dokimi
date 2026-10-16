@@ -1,0 +1,20 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+#
+# dokimi evaluated as a repository subject: the tasks agents do on this repo,
+# graded by .agent-eval/run.py. See dokimi/docs/repo-evaluation-contract.md.
+schema: repo_manifest.v1
+id: dokimi
+source: {url: https://github.com/intel/dokimi}
+eval_dir: .agent-eval
+guidance:
+  globs: ["**/AGENTS.md", "**/CLAUDE.md"]
+  also_scan: ["CONTRIBUTING.md", "dokimi/CONTRIBUTING.md", "dokimi/README.md", "README.md"]
+image:
+  dockerfile: .agent-eval/Dockerfile
+  network: none
+entry_points:
+  grade:  "python3 {eval_dir}/run.py grade --contract {run_dir}"
+  oracle: "python3 {eval_dir}/run.py oracle --contract {run_dir}"
+tasks: .agent-eval/tasks
+build_systems: [pytest]

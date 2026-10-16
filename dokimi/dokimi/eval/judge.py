@@ -7,7 +7,6 @@ import hashlib
 import logging
 import json
 import math
-import os
 import re
 import time
 import threading
@@ -17,11 +16,13 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from dokimi.artifacts import save_artifact
+from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose, retrieval_hit
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
-from dokimi.eval.panel import SCORE_ANCHORS
+from dokimi.eval.panel import NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS
 
 # The output format below uses N placeholders on purpose. Concrete example
 # scores anchor the model: a prompt that shows 85/90/80/85/90 gets those exact
@@ -30,46 +31,12 @@ from dokimi.eval.panel import SCORE_ANCHORS
 _NO_EXAMPLE_SCORES = """- Replace every N with an integer 0-100, picked from the anchors above
 - Score each dimension independently; do not round them toward each other"""
 
-# Wrong *magnitudes* were invisible to every judge measured: the judge-validity
-# gate's `wrong_numbers` degradation — which scales figures by 10x and swaps
-# units, leaving the prose intact and the length unchanged — scored 0.60 on the
-# shipped prompt (Haiku, 4 seeds, 156 pairs; 27% ties, mean score drop 1.9
-# points), i.e. the judge barely saw the edit. A single 20-base run of the full
-# 9-variant gate put it at 0.71; run-to-run spread on this gate is wide. It is attached to `correctness` rather than
-# given its own dimension because that is where a wrong number belongs, and
-# because `correctness` already carries double weight in the aggregate; a sixth
-# dimension would both re-dilute the weighting and break score comparability
-# with stored runs a second time.
-#
-# The wording names the *class* of error and deliberately no example of it. An
-# earlier version listed "ms where ns is meant, MB/s where GB/s, Hz where MHz"
-# and "off by an order of magnitude" — which are, verbatim, the substitutions and
-# the 10x scaling the gate's `wrong_numbers` generator applies, so its measured
-# gain was taken on the same perturbations the prompt described.
-_NUMERIC_CLAIMS = """   Check the answer's *numbers*, not only its prose: every quoted magnitude,
-   unit, size, width, latency, rate or ratio is a factual claim. A figure that
-   is wrong for this question — wrong value or wrong unit — is a factual error
-   even when the sentence around it is fluent and confident, and caps
-   correctness at 40."""
-
-# Listed first in the output so the figures are written out before any score
-# is. Criterion + enumeration moved `wrong_numbers` significantly where the
-# criterion alone did not; the two were not compared head-to-head, so this is
-# the best reading, not an isolated effect. Putting it in the JSON makes the
-# enumeration visible in every stored judgement instead of asserted.
-_NUMERIC_INSTRUCTION = """- First fill `numeric_claims`: copy out every figure the answer quotes, with
-  its unit (at most 20), and mark each right or wrong for this question. Then
-  score correctness; a single wrong figure caps it at 40"""
-
-# A JSON array, one entry per figure. A semicolon-separated string was tried to
-# cut malformed replies (with an array first, the model sometimes closes the
-# later `reasoning` object with `]`): it did — 9 extra calls per 247 judgements
-# instead of 26, against 5 for the stock prompt — but it scored lower on every
-# numeric variant in two independent runs, and in the replication it no longer
-# beat the old wording anywhere while the array did on all three (paired
-# McNemar p = 0.016 / 0.035 / 0.039). The malformed replies are retried by
-# `_judge_answer`; 0-1 judgements per 247 still fail all three attempts.
-_NUMERIC_OUTPUT = """  "numeric_claims": ["<figure with unit>: right|wrong", ...],"""
+# The numeric-claims criterion, its enumeration step and output slot are shared
+# with the panel and live next to the shared score anchors in `eval/panel.py`,
+# with the measurements behind them.
+_NUMERIC_CLAIMS = NUMERIC_CLAIMS
+_NUMERIC_INSTRUCTION = NUMERIC_INSTRUCTION
+_NUMERIC_OUTPUT = NUMERIC_OUTPUT
 
 
 JUDGE_PROMPT = """You are evaluating the quality of an answer to a technical question.
@@ -199,7 +166,7 @@ _FORMAT_REMINDER = (
 JUDGE_PROVIDERS = ("openai", "anthropic", "google", "google-vertex", "openrouter", "amazon-bedrock")
 
 
-def _clip_ground_truth(ground_truth: str, limit: int = MAX_GROUND_TRUTH_CHARS) -> str:
+def _clip_ground_truth(ground_truth: Optional[str], limit: int = MAX_GROUND_TRUTH_CHARS) -> str:
     """Bound ground-truth length while preserving line structure.
 
     ``textwrap.shorten`` collapses all whitespace, which would flatten a
@@ -277,6 +244,7 @@ class Judge:
             "redrawn_judgements": 0,
         }
 
+        self.llm: ChatModel
         if provider == "openai":
             self.llm = ChatOpenAI(model=model, api_key=api_key,
                                   temperature=temperature, seed=seed)
@@ -322,41 +290,47 @@ class Judge:
         lock = threading.Lock()
         completed = [0]
 
+        stop = threading.Event()  # set by a failed save: queued answers are skipped, not paid for
+
         def _process(idx: int, answer: Dict) -> None:
+            if stop.is_set():
+                return
             q_id = answer["question_id"]
             t0 = time.time()
+            failure = None
             try:
                 eval_result = self._evaluate_answer_pair(library_name, answer)
-                elapsed = time.time() - t0
                 delta = eval_result.get("delta")
                 delta_str = f"delta={delta:+}" if delta is not None else "delta=n/a"
-                with lock:
-                    results[idx] = eval_result
-                    completed[0] += 1
-                    print(f"[{completed[0]}/{n}] {q_id} ✓ {delta_str} ({elapsed:.1f}s)", flush=True)
-                    if output_path is not None:
-                        ordered = [results[i] for i in sorted(results)]
-                        self._save_incremental(ordered, output_path)
             except Exception as e:
-                elapsed = time.time() - t0
+                failure = e
                 logger.exception(f"Evaluation failed for {q_id}")
-                with lock:
-                    results[idx] = {
-                        "question_id": answer["question_id"],
-                        "question_text": answer["question_text"],
-                        "category": answer.get("category"),
-                        "difficulty": answer.get("difficulty"),
-                        "persona": answer.get("persona"),
-                        "error": str(e),
-                        "with_docs": None,
-                        "without_docs": None,
-                        "delta": None
-                    }
-                    completed[0] += 1
-                    print(f"[{completed[0]}/{n}] {q_id} ✗ ({elapsed:.1f}s): {e}", flush=True)
-                    if output_path is not None:
-                        ordered = [results[i] for i in sorted(results)]
+                eval_result = {
+                    "question_id": answer["question_id"],
+                    "question_text": answer["question_text"],
+                    "category": answer.get("category"),
+                    "difficulty": answer.get("difficulty"),
+                    "persona": answer.get("persona"),
+                    "error": str(e),
+                    "with_docs": None,
+                    "without_docs": None,
+                    "delta": None
+                }
+            elapsed = time.time() - t0
+            with lock:
+                results[idx] = eval_result
+                completed[0] += 1
+                if failure is None:
+                    print(f"[{completed[0]}/{n}] {q_id} ✓ {delta_str} ({elapsed:.1f}s)", flush=True)
+                else:
+                    print(f"[{completed[0]}/{n}] {q_id} ✗ ({elapsed:.1f}s): {failure}", flush=True)
+                if output_path is not None:
+                    ordered = [results[i] for i in sorted(results)]
+                    try:
                         self._save_incremental(ordered, output_path)
+                    except BaseException:
+                        stop.set()
+                        raise
 
         print(f"Evaluating {n} answers with judge: {self.provider}/{self.model} (concurrency={concurrency})", flush=True)
 
@@ -688,8 +662,7 @@ class Judge:
 
     def _build_evaluation_output(self, evaluations: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Build the serialisable output structure for a set of evaluations."""
-        output = {
-            "schema_version": "eval.v1",
+        output: Dict[str, Any] = {
             "evaluated_at": self._get_timestamp(),
             "judge_model": self.model,
             "judge_provider": self.provider,
@@ -701,21 +674,17 @@ class Judge:
             totals = dict(self._usage_totals)
         # cost_usd is null (not 0.0) when no judge call had known pricing, so a
         # missing price reads distinct from a genuinely free judge.
-        totals["cost_usd"] = (
-            round(totals["cost_usd"], 6) if totals["cost_known_calls"] else None
-        )
-        output["judge_metrics"] = totals
+        output["judge_metrics"] = {
+            **totals,
+            "cost_usd": round(totals["cost_usd"], 6) if totals["cost_known_calls"] else None,
+        }
         if self.run_metadata:
             output["run_metadata"] = self.run_metadata
         return output
 
     def _save_incremental(self, evaluations: List[Dict[str, Any]], output_path: Path) -> None:
         """Write current evaluations to disk atomically (called after each question)."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            json.dump(self._build_evaluation_output(evaluations), f, indent=2)
-        os.replace(tmp_path, output_path)
+        save_artifact("eval", self._build_evaluation_output(evaluations), output_path)
 
     def save_evaluations(
         self,
@@ -723,9 +692,7 @@ class Judge:
         output_path: Path
     ):
         """Save evaluations to JSON file."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(self._build_evaluation_output(evaluations), f, indent=2)
+        save_artifact("eval", self._build_evaluation_output(evaluations), output_path)
         logger.info(f"✓ Saved evaluations for {len(evaluations)} answers to {output_path}")
     
     @staticmethod

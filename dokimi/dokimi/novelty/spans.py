@@ -249,9 +249,9 @@ def index_atoms(spans: list[Span], atoms: list) -> None:
         span.atom_ids = []
     for atom in atoms:
         for span_id in getattr(atom, "span_ids", ()) or ():
-            span = by_id.get(span_id)
-            if span is not None and atom.id not in span.atom_ids:
-                span.atom_ids.append(atom.id)
+            target = by_id.get(span_id)
+            if target is not None and atom.id not in target.atom_ids:
+                target.atom_ids.append(atom.id)
 
 
 def span_summary(spans: list[Span], atoms: list | None = None, *, atom_cap: int | None = None) -> dict:

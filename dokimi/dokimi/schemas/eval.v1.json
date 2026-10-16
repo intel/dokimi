@@ -63,9 +63,36 @@
               "object",
               "null"
             ]
+          },
+          "category": {
+            "description": "Copied from the question record."
+          },
+          "difficulty": {
+            "description": "Copied from the question record."
+          },
+          "persona": {
+            "description": "Copied from the question record."
+          },
+          "error": {
+            "description": "Why this record has no result; present only on a failed question."
+          },
+          "diagnosis": {
+            "description": "Retrieval-outcome classification for the context arm (eval.diagnoser)."
+          },
+          "retrieval_hit": {
+            "description": "Whether retrieval put at least one document into the context-arm prompt (eval.diagnoser.retrieval_hit); null when the record has no context arm. Read by the trust gate."
           }
         }
       }
+    },
+    "judge_temperature": {
+      "description": "Sampling temperature the judge ran at; null when left to the provider default."
+    },
+    "judge_metrics": {
+      "description": "Judge-side call count, token and cost totals for the run."
+    },
+    "run_metadata": {
+      "description": "Caller-supplied description of the run (judge settings, inputs)."
     }
   }
 }

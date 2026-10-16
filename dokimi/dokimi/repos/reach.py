@@ -38,7 +38,6 @@ import hashlib
 import os
 import re
 import shutil
-import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -46,9 +45,11 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from dokimi.utils import retry_writable
+
 from .events import Transcript, convert
 from .harness_profile import HarnessProfile, run_harness
-from .manifest import RepoManifest, _is_within, check_repo
+from .manifest import RepoManifest, check_repo
 from .source import RepoTree, SourceError
 
 TOKEN_RE = re.compile(r"\bRC[0-9A-F]{6}\b")
@@ -107,7 +108,7 @@ def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile)
     declared = set(check_repo(tree, manifest).guidance_files)
     names = set(profile.guidance_names)
     native = {p for p in tree.files() if PurePosixPath(p).name in names}
-    return sorted(p for p in declared | native if not _is_within(p, manifest.eval_dir))
+    return sorted(p for p in declared | native if not manifest.in_eval_dir(p))
 
 
 def scenarios(files: list[str], kinds: tuple[str, ...] = ("root", "cwd", "read"),
@@ -330,7 +331,7 @@ def run_reach(
                                 "harness_version": version, "model": model, **classify(item, transcript)})
     finally:
         if not keep:
-            shutil.rmtree(base, onerror=_retry_writable)
+            shutil.rmtree(base, onerror=retry_writable)
 
     by_class = {c: sum(1 for r in records if r["class"] == c) for c in CLASSES}
     return {
@@ -355,15 +356,6 @@ def run_reach(
             "matrix": _matrix(records),
         },
     }
-
-
-def _retry_writable(func: Any, path: str, _exc: Any) -> None:
-    """rmtree hook: git leaves read-only object files, which Windows will not delete."""
-    try:
-        os.chmod(path, stat.S_IWRITE)
-        func(path)
-    except OSError:
-        pass
 
 
 def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace: Path,

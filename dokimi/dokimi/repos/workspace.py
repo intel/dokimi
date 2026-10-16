@@ -91,7 +91,8 @@ class Task:
 
 def load_tasks(content_dir: Path, manifest: RepoManifest, ids: list[str] | None = None) -> list[Task]:
     """Tasks of the exported eval dir; ``ids`` selects (and must name existing tasks)."""
-    tasks_dir = content_dir / PurePosixPath(manifest.tasks).relative_to(manifest.eval_dir)
+    eval_dir, tasks = manifest.run_paths()
+    tasks_dir = content_dir / PurePosixPath(tasks).relative_to(eval_dir)
     found = {p.parent.name: p for p in sorted(tasks_dir.glob("*/task.json"))}
     wanted = ids or sorted(found)
     missing = [t for t in wanted if t not in found]
@@ -126,13 +127,13 @@ def source_git_dir(source: RepoSource, tree: RepoTree, cache_dir: Path | None = 
 
 def export_eval_dir(tree: RepoTree, manifest: RepoManifest, dest: Path) -> Path:
     """Copy ``eval_dir`` of the eval tree to ``dest`` (the host side of ``{eval_dir}``)."""
-    _export(tree, dest, manifest.eval_dir, exclude=None)
+    _export(tree, dest, manifest.run_paths()[0], exclude=None)
     return dest
 
 
 def export_build_context(tree: RepoTree, manifest: RepoManifest, dest: Path) -> Path:
     """The image build context: the eval tree's root without the tasks directory (contract §1.1)."""
-    _export(tree, dest, None, exclude=manifest.tasks)
+    _export(tree, dest, None, exclude=manifest.run_paths()[1])
     return dest
 
 
@@ -186,7 +187,7 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
         shutil.rmtree(ws)
     ws.mkdir(parents=True)
     _checkout_tree(git_dir, base_sha, ws)                                                    # 1
-    shutil.rmtree(ws / manifest.eval_dir, ignore_errors=True)                                # 2
+    shutil.rmtree(ws / manifest.run_paths()[0], ignore_errors=True)                          # 2
     env = _git_env(SNAPSHOT_AUTHOR)
     _git(ws, env, "init", "-q")                                                               # 3
     _git(ws, env, "add", "-A")

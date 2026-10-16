@@ -352,6 +352,16 @@ def test_evaluate_answers_incremental_save(tmp_path):
     assert "panel_config" in data
 
 
+def test_saved_panel_output_stamps_the_role_prompt_digest(tmp_path):
+    """Runs before and after a prompt change must be told apart from the file alone."""
+    panel = JudgePanel()
+    out = tmp_path / "eval_panel.json"
+    with patch("dokimi.eval.panel.llm_call", return_value=FAKE_LLM_RESPONSE):
+        panel.evaluate_answers(_fake_answers(1), library_name="oneTBB", output_path=out)
+    config = json.loads(out.read_text())["panel_config"]
+    assert config["prompt_sha256"] == panel.prompt_sha256
+
+
 def test_evaluate_answers_limit(tmp_path):
     panel = JudgePanel()
     with patch("dokimi.eval.panel.llm_call", return_value=FAKE_LLM_RESPONSE):
@@ -374,3 +384,139 @@ def test_evaluate_answers_records_retrieval_hit():
     with patch("dokimi.eval.panel.llm_call", return_value=FAKE_LLM_RESPONSE):
         results = panel.evaluate_answers(answers, library_name="oneTBB")
     assert [r["retrieval_hit"] for r in results] == [True, False]
+
+
+# ── Numeric claims: the panel checks figures the way the single judge does ────
+
+def test_every_role_carries_the_numeric_criterion_and_enumeration():
+    import re
+
+    from dokimi.eval.panel import JUDGE_ROLES, NUMERIC_CLAIMS, NUMERIC_INSTRUCTION
+
+    for role, prompt in JUDGE_ROLES.items():
+        assert NUMERIC_CLAIMS in prompt, role
+        assert NUMERIC_INSTRUCTION in prompt, role
+        out = prompt[prompt.index("IMPORTANT: Output ONLY"):]
+        # Figures are written out before any score or the reasoning.
+        assert out.index('"numeric_claims"') < out.index('"reasoning"') < out.index('"correctness"'), role
+        # Names the class of error, never the gate's own generator.
+        criteria = " ".join(prompt[:prompt.index("IMPORTANT: Output ONLY")].split())
+        assert "order of magnitude" not in criteria.lower(), role
+        assert not re.search(r"\b10\s*[x×]", criteria), role  # wrong_numbers' own edit
+
+
+def test_panel_and_single_judge_share_one_numeric_criterion():
+    """One copy: the two judges diverged once already when only one was edited."""
+    import dokimi.eval.judge as J
+    from dokimi.eval import panel as P
+
+    assert J._NUMERIC_CLAIMS is P.NUMERIC_CLAIMS
+    assert J._NUMERIC_INSTRUCTION is P.NUMERIC_INSTRUCTION
+    assert J._NUMERIC_OUTPUT is P.NUMERIC_OUTPUT
+    assert P.NUMERIC_CLAIMS in J.JUDGE_PROMPT and P.NUMERIC_CLAIMS in J.JUDGE_PROMPT_GROUNDED
+
+
+def test_call_judge_reads_scores_past_the_numeric_claims_list():
+    reply = json.dumps({
+        "numeric_claims": ["64 B cache line: right", "3.2 ms per call: wrong"],
+        "reasoning": "One wrong latency",
+        "correctness": 40, "completeness": 75, "specificity": 70,
+        "code_quality": 90, "actionability": 85,
+    })
+    panel = JudgePanel()
+    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        vote = panel._call_judge(cfg, "How fast?", "3.2 ms per call.", "oneTBB", "")
+    assert vote.error is None
+    assert vote.scores["correctness"] == 40.0
+
+
+def test_a_wrong_figure_caps_the_vote_like_the_single_judge():
+    reply = json.dumps({
+        "numeric_claims": ["64 B cache line: right", "3.2 s per call: wrong"],
+        "reasoning": "One wrong latency",
+        "correctness": 85, "completeness": 75, "specificity": 70,
+        "code_quality": 90, "actionability": 85,
+    })
+    panel = JudgePanel()
+    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        vote = panel._call_judge(cfg, "How fast?", "3.2 s per call.", "oneTBB", "")
+    assert vote.scores["correctness"] == 40.0
+    assert vote.caps == {"correctness": {"judged": 85.0, "rule": "wrong_figure"}}
+    serialised = _verdict_to_dict(_aggregate([vote]))["votes"][0]
+    assert serialised["caps"]["correctness"]["judged"] == 85.0
+
+
+def test_unreadable_claims_are_reported_and_a_low_score_is_not_capped():
+    def vote(correctness):
+        reply = json.dumps({
+            "numeric_claims": ["64 B cache line", "3.2 s per call: wrong"],
+            "reasoning": "r", "correctness": correctness, "completeness": 75,
+            "specificity": 70, "code_quality": 90, "actionability": 85,
+        })
+        cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+        with patch("dokimi.eval.panel.llm_call", return_value=reply):
+            return JudgePanel()._call_judge(cfg, "q", "a", "oneTBB", "")
+
+    low = vote(30)
+    assert low.scores["correctness"] == 30.0 and low.caps is None
+    assert low.unread_claims == [0]
+    assert _verdict_to_dict(_aggregate([low]))["votes"][0]["unread_claims"] == [0]
+
+
+def test_all_right_figures_leave_the_vote_alone():
+    reply = json.dumps({
+        "numeric_claims": ["64 B cache line: right"], "reasoning": "fine",
+        "correctness": 85, "completeness": 75, "specificity": 70,
+        "code_quality": 90, "actionability": 85,
+    })
+    panel = JudgePanel()
+    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        vote = panel._call_judge(cfg, "q", "a", "oneTBB", "")
+    assert vote.scores["correctness"] == 85.0 and vote.caps is None
+
+
+def test_a_cap_can_be_traced_to_its_figure_in_every_stored_form():
+    """The vote kept `caps` but not the list behind it, so a cap could not be
+    traced to the figure that triggered it. Both serialisations carry it now:
+    the panel's own output and the score dict an arms run stores."""
+    claims = ["64 B cache line: right", "3.2 s per call: wrong"]
+    reply = json.dumps({"numeric_claims": claims, "reasoning": "One wrong latency",
+                        "correctness": 85, "completeness": 75, "specificity": 70,
+                        "code_quality": 90, "actionability": 85})
+    panel = JudgePanel(judges=[JudgeConfig(role="technical_expert", model="m", provider="p")])
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        vote = panel._call_judge(panel.judges[0], "How fast?", "3.2 s per call.", "oneTBB", "")
+        stored = panel.score_answer("oneTBB", "How fast?", "3.2 s per call.")
+    assert vote.numeric_claims == claims
+    saved = _verdict_to_dict(_aggregate([vote]))["votes"][0]
+    assert saved["numeric_claims"] == claims and saved["caps"]["correctness"]["judged"] == 85.0
+    arm_vote = stored["panel"]["votes"][0]
+    assert arm_vote["numeric_claims"] == claims
+    assert arm_vote["caps"]["correctness"]["judged"] == 85.0
+
+
+def test_a_vote_without_a_figure_check_stores_no_numeric_fields():
+    reply = json.dumps({"reasoning": "fine", "correctness": 85, "completeness": 75,
+                        "specificity": 70, "code_quality": 90, "actionability": 85})
+    panel = JudgePanel(judges=[JudgeConfig(role="technical_expert", model="m", provider="p")])
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        stored = panel.score_answer("oneTBB", "q", "a")
+    assert not {"numeric_claims", "caps", "unread_claims"} & set(stored["panel"]["votes"][0])
+
+
+def test_a_check_that_found_no_figures_is_stored_as_an_empty_list():
+    """`[]` means the judge looked and found none; the single judge keeps it too."""
+    reply = json.dumps({"numeric_claims": [], "reasoning": "fine", "correctness": 85,
+                        "completeness": 75, "specificity": 70, "code_quality": 90,
+                        "actionability": 85})
+    panel = JudgePanel(judges=[JudgeConfig(role="technical_expert", model="m", provider="p")])
+    with patch("dokimi.eval.panel.llm_call", return_value=reply):
+        vote = panel._call_judge(panel.judges[0], "q", "a", "oneTBB", "")
+        stored = panel.score_answer("oneTBB", "q", "a")
+    saved = _verdict_to_dict(_aggregate([vote]))["votes"][0]
+    for form in (saved, stored["panel"]["votes"][0]):
+        assert form["numeric_claims"] == []
+        assert not {"caps", "unread_claims"} & set(form)

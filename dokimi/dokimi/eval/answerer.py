@@ -5,7 +5,6 @@
 
 import logging
 import json
-import os
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,6 +13,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from dokimi.utils import question_id
+from dokimi.artifacts import save_artifact
+from dokimi.llm import ChatModel
 from dokimi.llm import llm_call_with_usage, ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.metrics.usage import UsageRecord, to_record
 
@@ -83,6 +85,7 @@ class Answerer:
         self.provider = provider
         self.api_key = api_key
 
+        self.llm: Optional[ChatModel]
         if provider == "openai":
             self.llm = ChatOpenAI(model=model, api_key=api_key)
         elif provider == "anthropic":
@@ -99,6 +102,7 @@ class Answerer:
         self.debug_retrieval = debug_retrieval
         
         # Initialize reranker (prefer semantic, fallback to lexical)
+        self.reranker: SentenceTransformerReranker | SimpleReranker
         if SENTENCE_TRANSFORMERS_AVAILABLE:
             try:
                 self.reranker = SentenceTransformerReranker(threshold=rerank_threshold)
@@ -140,9 +144,15 @@ class Answerer:
         lock = threading.Lock()
         completed = [0]
 
+        stop = threading.Event()  # set by a failed save: queued questions are skipped, not paid for
+
         def _process(idx: int, q: Dict) -> None:
-            q_id = q.get("id") or q.get("question_id") or str(idx)
+            if stop.is_set():
+                return
+            q_id = question_id(q)
+            q_id = str(idx) if q_id is None else q_id
             t0 = time.time()
+            failure = None
             try:
                 pair = self._generate_answer_pair(
                     library_name=library_name,
@@ -150,33 +160,36 @@ class Answerer:
                     question=q,
                     max_tokens=max_tokens_per_question
                 )
-                elapsed = time.time() - t0
-                with lock:
-                    results[idx] = pair
-                    completed[0] += 1
-                    print(f"[{completed[0]}/{n}] {q_id} ✓ ({elapsed:.1f}s)", flush=True)
-                    if output_path is not None:
-                        ordered = [results[i] for i in sorted(results)]
-                        self._save_incremental(ordered, output_path)
             except Exception as e:
-                elapsed = time.time() - t0
-                with lock:
-                    results[idx] = {
-                        "question_id": q_id,
-                        "question_text": q.get("question") or q.get("text", ""),
-                        "library_name": library_name,
-                        "category": q.get("category"),
-                        "difficulty": q.get("difficulty"),
-                        "persona": q.get("persona"),
-                        "error": str(e),
-                        "with_docs": None,
-                        "without_docs": None
-                    }
-                    completed[0] += 1
-                    print(f"[{completed[0]}/{n}] {q_id} ✗ ({elapsed:.1f}s): {e}", flush=True)
-                    if output_path is not None:
-                        ordered = [results[i] for i in sorted(results)]
+                failure = e
+                pair = {
+                    "question_id": q_id,
+                    "question_text": q.get("question") or q.get("text", ""),
+                    "library_name": library_name,
+                    "category": q.get("category"),
+                    "difficulty": q.get("difficulty"),
+                    "persona": q.get("persona"),
+                    "error": str(e),
+                    "with_docs": None,
+                    "without_docs": None
+                }
+            elapsed = time.time() - t0
+            with lock:
+                results[idx] = pair
+                completed[0] += 1
+                if failure is None:
+                    print(f"[{completed[0]}/{n}] {q_id} ✓ ({elapsed:.1f}s)", flush=True)
+                else:
+                    print(f"[{completed[0]}/{n}] {q_id} ✗ ({elapsed:.1f}s): {failure}", flush=True)
+                if output_path is not None:
+                    ordered = [results[i] for i in sorted(results)]
+                    try:
+                        # Outside the generation try: a rejected save must not turn a paid answer
+                        # into an error record, and must not be retried per question.
                         self._save_incremental(ordered, output_path)
+                    except BaseException:
+                        stop.set()
+                        raise
 
         print(f"Generating answers for {n} questions (concurrency={concurrency})", flush=True)
 
@@ -210,7 +223,8 @@ class Answerer:
             or question.get("text")
             or question.get("question_text", "")
         )
-        qid = question.get("id") or question.get("question_id") or "unknown_q"
+        qid = question_id(question)
+        qid = "unknown_q" if qid is None else qid
         
         # Context arm
         with_docs_answer = None
@@ -417,21 +431,19 @@ class Answerer:
     def _build_output(self, answers: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Build the serialisable output structure for a set of answers."""
         # Aggregate token usage across all answers
-        total_usage = {
-            "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
-            "with_docs": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            "without_docs": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-        }
+        keys = ("prompt_tokens", "completion_tokens", "total_tokens")
+        totals = dict.fromkeys(keys, 0)
+        by_mode = {mode: dict.fromkeys(keys, 0) for mode in ("with_docs", "without_docs")}
         for a in answers:
-            for mode in ("with_docs", "without_docs"):
+            for mode, sums in by_mode.items():
                 u = (a.get(mode) or {}).get("token_usage") or {}
-                for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                for k in keys:
                     v = u.get(k, 0) or 0
-                    total_usage[mode][k] += v
-                    total_usage[k] += v
+                    sums[k] += v
+                    totals[k] += v
+        total_usage = {**totals, **by_mode}
 
         return {
-            "schema_version": "answers.v1",
             "generated_at": self._get_timestamp(),
             "model": self.model,
             "provider": self.provider,
@@ -442,25 +454,19 @@ class Answerer:
 
     def _save_incremental(self, answers: List[Dict[str, Any]], output_path: Path) -> None:
         """Write current answers to disk atomically (called after each question)."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            json.dump(self._build_output(answers), f, indent=2)
-        os.replace(tmp_path, output_path)
+        save_artifact("answers", self._build_output(answers), output_path)
 
     def save_answers(
         self,
         answers: List[Dict[str, Any]],
         output_path: Path,
-        question_set_hash: str = None,
+        question_set_hash: Optional[str] = None,
     ):
         """Save answers to JSON file."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
         data = self._build_output(answers)
         if question_set_hash:
             data["question_set_hash"] = question_set_hash
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
+        save_artifact("answers", data, output_path)
         logger.info(f"✓ Saved answers for {len(answers)} questions to {output_path}")
     
     @staticmethod

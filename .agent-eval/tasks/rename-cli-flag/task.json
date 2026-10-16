@@ -1,0 +1,18 @@
+{
+  "id": "rename-cli-flag",
+  "family": "docs",
+  "base": "16e319fdcb2f4eb6e0dfa44b7c05a2d451599586",
+  "prompt": "Please rename the `benchmark run` flag `--multi-run N` to `--repeats N`. The current name reads as if it ran several models or targets at once, while it repeats answer generation and evaluation N times on one question set, and `tasks run` already calls the same idea `--repeats`. No deprecated alias is needed: the old spelling can simply stop working. Commit your change.",
+  "grader": "code",
+  "gate": [
+    "new_flag_ok",
+    "old_flag_gone",
+    "docs_updated",
+    "regress_pass",
+    "ruff_ok",
+    "mypy_ok"
+  ],
+  "timeout_s": 1200,
+  "max_turns": 100,
+  "budget_usd": 3
+}

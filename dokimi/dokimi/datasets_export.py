@@ -85,7 +85,7 @@ def flatten(kind: str, data: dict) -> list[dict]:
     return rows
 
 
-def _lift_task_run_metrics(rec: dict, row: dict) -> None:
+def _lift_task_run_metrics(rec: object, row: dict) -> None:
     """Promote selected ``metrics`` fields to top-level columns for analysis.
 
     The full ``metrics``/``operations`` blocks stay as JSON-encoded columns
