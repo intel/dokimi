@@ -22,6 +22,8 @@ import tomllib
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
+# A release section has entries, not just a category heading.
+_ENTRY = re.compile(r"^\s*[-*] \S", re.MULTILINE)
 
 
 def release_notes(changelog: str, version: str) -> str | None:
@@ -42,7 +44,7 @@ def problems(tag: str, project: Path = PROJECT) -> tuple[list[str], str | None]:
     if tag != f"v{version}":
         found.append(f"tag {tag!r} does not match project.version {version!r} (want v{version})")
     notes = release_notes((project / "CHANGELOG.md").read_text(encoding="utf-8"), version)
-    if not notes:
+    if not notes or not _ENTRY.search(notes):
         found.append(f"CHANGELOG.md has no entries under '## [{version}]': "
                      f"run `scriv collect --version {version}`")
     pending = sorted(p.name for p in (project / "changelog.d").glob("*.md") if p.name != "README.md")
@@ -56,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("tag", help="the release tag, e.g. v0.1.0")
     parser.add_argument("--notes", action="store_true", help="print the release notes")
     args = parser.parse_args(argv)
-    found, notes = problems(args.tag)
+    found, notes = problems(args.tag, PROJECT)
     for problem in found:
         print(f"::error::{problem}", file=sys.stderr)
     if found:
