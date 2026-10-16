@@ -296,7 +296,7 @@ def test_questions_from_wins_over_cache(tmp_path, monkeypatch):
 
 
 def test_relative_questions_from_path_not_confused_with_output(tmp_path, monkeypatch):
-    """A relative input path resolves correctly to detect same-path inputs."""
+    """A relative input path resolves correctly even when input and output paths match."""
     _stub_expensive_steps(monkeypatch)
     import os
 
@@ -307,6 +307,8 @@ def test_relative_questions_from_path_not_confused_with_output(tmp_path, monkeyp
     shared_dir = tmp_path / "shared"
     _write_json(shared_dir / "questions" / "oneTBB.json", questions)
     _write_json(shared_dir / "personas" / "oneTBB.json", {"personas": []})
+
+    input_bytes_before = (shared_dir / "questions" / "oneTBB.json").read_bytes()
 
     # Change to tmp_path to use relative paths
     old_cwd = os.getcwd()
@@ -321,12 +323,10 @@ def test_relative_questions_from_path_not_confused_with_output(tmp_path, monkeyp
         )
         result = pipeline.run(concurrency=1)
 
-        # The source file bytes must not be changed (external questions are never written)
-        saved_bytes = Path("shared/questions/oneTBB.json").read_bytes()
-        original_bytes = json.dumps(questions, indent=2, sort_keys=True, ensure_ascii=False).encode("utf-8")
-        # Note: we can't compare exact bytes since the pipeline writes v2 with question_set_id,
-        # but we can verify the file was not overwritten with the original content
-        assert saved_bytes != json.dumps(questions).encode("utf-8")
+        # External input files (--questions-from) are never written, even if they're the output path
+        input_bytes_after = Path("shared/questions/oneTBB.json").read_bytes()
+        assert input_bytes_after == input_bytes_before, \
+            "input file should not be modified by --questions-from even when it is the output path"
     finally:
         os.chdir(old_cwd)
 
