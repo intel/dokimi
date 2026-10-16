@@ -20,6 +20,7 @@ from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose, retrieval_hit
+from dokimi.eval.question_text import require_question_text, require_question_texts
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
@@ -286,6 +287,7 @@ class Judge:
         Returns:
             List of evaluation dicts ordered by input order.
         """
+        require_question_texts(answers)  # before any judge call: refuse, do not grade against ""
         n = len(answers)
         results: Dict[int, Dict] = {}
         lock = threading.Lock()
@@ -308,7 +310,7 @@ class Judge:
                 logger.exception(f"Evaluation failed for {q_id}")
                 eval_result = {
                     "question_id": answer["question_id"],
-                    "question_text": answer["question_text"],
+                    "question_text": require_question_text(answer),
                     "category": answer.get("category"),
                     "difficulty": answer.get("difficulty"),
                     "persona": answer.get("persona"),
@@ -358,7 +360,7 @@ class Judge:
         answer: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Evaluate a single context-arm/baseline answer pair."""
-        question_text = answer["question_text"]
+        question_text = require_question_text(answer)
         ground_truth = answer.get("ground_truth_chunk")  # present for chunk-grounded questions
 
         # Evaluate context arm

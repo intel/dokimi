@@ -37,6 +37,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.pairwise import ask_parsed, standalone_verdict
+from dokimi.eval.question_text import require_question_text, require_question_texts
 from dokimi.eval.stats import mean_ci
 from dokimi.utils import question_id
 
@@ -280,6 +281,7 @@ def run_checklist(
     judge turned lenient (baseline coverage 0.76 -> 0.91, 62 of 81 questions
     tied) and the skill effect vanished (p 0.06 -> 0.36).
     """
+    require_question_texts(records)  # before any judge call: refuse, do not check against ""
     report = ChecklistReport(judge=judge, baseline_arm=baseline_arm)
     jobs = []
     for rec in records:
@@ -288,11 +290,12 @@ def run_checklist(
         if not points:
             report.n_without_points += 1
             continue
-        report.questions[qid] = rec.get("question_text", "")
+        question = require_question_text(rec)
+        report.questions[qid] = question
         for arm, body in (rec.get("arms") or {}).items():
             answer = (body or {}).get("answer") if isinstance(body, dict) else None
             if answer and (arms is None or arm in arms):
-                jobs.append((qid, arm, rec.get("question_text", ""), answer, points))
+                jobs.append((qid, arm, question, answer, points))
 
     def one(job):
         qid, arm, question, answer, points = job

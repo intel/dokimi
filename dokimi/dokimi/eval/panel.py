@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dokimi.eval.diagnoser import retrieval_hit
+from dokimi.eval.question_text import require_question_text, require_question_texts
 from dokimi.llm import llm_call
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 
@@ -489,15 +490,14 @@ class JudgePanel:
                          run_metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         if limit:
             answers = answers[:limit]
+        require_question_texts(answers)  # before any judge call: refuse, do not grade against ""
         results = []
         n = len(answers)
         for i, answer in enumerate(answers, 1):
             q_id = answer.get("question_id", answer.get("id", f"q{i}"))
             # answers.v1 writes ``question_text``; ``question``/``text`` are the
             # question-set spellings, accepted for hand-built inputs.
-            question = (
-                answer.get("question_text") or answer.get("question") or answer.get("text", "")
-            )
+            question = require_question_text(answer, i - 1)
             print(f"[{i}/{n}] Panel: {q_id}…", flush=True)
             with_v = self._score_answer_entry(answer.get("with_docs"), question, library_name)
             without_v = self._score_answer_entry(answer.get("without_docs"), question, library_name)

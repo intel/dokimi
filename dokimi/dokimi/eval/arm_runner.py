@@ -27,6 +27,7 @@ from dokimi.eval.arm_summary import (
     cost_summary, summarize_agentic_usage, summarize_skill_selection,
 )
 from dokimi.eval.cells import Cell
+from dokimi.eval.question_text import require_question_text, require_question_texts
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import stamp_for as judge_context_stamp
 from dokimi.eval.judge_context import JudgeContextStore
@@ -452,7 +453,7 @@ class ArmRunner:
                 try:
                     score = judge.score_answer(
                         library_name=library_name,
-                        question=rec["question_text"],
+                        question=require_question_text(rec),
                         answer=arm["answer"],
                         context=context,
                         ground_truth=gt,
@@ -481,6 +482,7 @@ class ArmRunner:
                 "deltas_vs_baseline": deltas,
             }
 
+        require_question_texts(records)  # before any judge call: refuse, do not grade against ""
         n = len(records)
         out: Dict[int, Dict[str, Any]] = {}
         with ThreadPoolExecutor(max_workers=concurrency) as pool:

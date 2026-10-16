@@ -47,6 +47,7 @@ import re
 from decimal import Context, Decimal
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+from dokimi.eval.question_text import require_question_text
 from dokimi.utils import question_id
 
 #: Minimum answer length (characters) worth degrading. Short answers have too
@@ -592,13 +593,14 @@ def _answer_pool(answers: Iterable[object]) -> List[Dict[str, Any]]:
     legacy two-condition shape (``with_docs``/``without_docs``).
     """
     pool: List[Dict[str, Any]] = []
-    for item in answers:
+    for i, item in enumerate(answers):
         if not isinstance(item, dict):
             continue
         qid = question_id(item)
-        qtext = item.get("question_text") or item.get("question")
-        if qid is None or not qtext:
+        if qid is None:
             continue
+        # Refused, not skipped: a pair built without its question is graded against nothing.
+        qtext = require_question_text(item, i)
         arms = item.get("arms")
         candidates: List[tuple[str, Any]] = []
         if isinstance(arms, dict):

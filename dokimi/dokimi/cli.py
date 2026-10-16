@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import threading
 
 from dokimi.commands import (
@@ -89,7 +90,13 @@ def main() -> None:
     tolerate_console_encoding()
     parser = build_parser()
     args = parser.parse_args()
-    args.func(args)
+    from dokimi.eval.question_text import EmptyQuestionError
+
+    try:
+        args.func(args)
+    except EmptyQuestionError as exc:  # a bad input record, not a bug: no traceback
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
