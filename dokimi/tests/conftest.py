@@ -14,6 +14,8 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import pytest
 
+pytest_plugins = ["tests.outcomes.plugin"]
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
