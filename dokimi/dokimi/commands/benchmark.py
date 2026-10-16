@@ -157,7 +157,8 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
             except Exception as exc:
                 errors.append(f"questions source invalid: {qf} ({exc})")
 
-    if plan["questions_root"]:
+    # Check golden set only if no external questions source (--questions-from takes precedence)
+    if plan["questions_root"] and not plan["questions_from"]:
         root = Path(plan["questions_root"])
         golden = root / f"{entry.key.lower()}_golden.json"
         if not root.is_dir():
@@ -170,6 +171,11 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
                 print(f"  golden questions: {golden} ({len(questions)} items)")
                 if not questions:
                     errors.append(f"golden set is empty: {golden}")
+                # Validate that each item is a dict (will be used with source_type assignment)
+                for i, q in enumerate(questions):
+                    if not isinstance(q, dict):
+                        errors.append(f"golden set item {i} is not a dict: {type(q).__name__}")
+                        break
             except Exception as exc:
                 errors.append(f"golden set invalid: {golden} ({exc})")
 
