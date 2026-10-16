@@ -519,8 +519,8 @@ class EvaluationPipeline:
             if before_merge is not None:
                 # Compare the merged set to what was read from the custom path
                 # If they differ (merge added records), write the new set
-                merged_ids = sorted(q.get("id") for q in questions)
-                before_ids = sorted(q.get("id") for q in before_merge)
+                merged_ids = sorted(q.get("id", "") for q in questions)
+                before_ids = sorted(q.get("id", "") for q in before_merge)
                 if merged_ids != before_ids:
                     # Merge added records; persist the result
                     pass  # Continue to write

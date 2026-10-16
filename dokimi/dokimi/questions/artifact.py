@@ -208,7 +208,7 @@ def load_questions(path: Path | str, *, validate: bool = True) -> QuestionSet:
         # they are valid v1.
         if declared in SUPERSEDED_VERSIONS.get(KIND, ()) or matched in SUPERSEDED_VERSIONS.get(KIND, ()):
             # This is a v1 file (declared or matched); validate against v1 on original data
-            validate_schema = declared or matched
+            validate_schema: str = declared if isinstance(declared, str) else matched  # type: ignore[assignment]
             errors = schema_errors(validate_schema, data)
         else:
             # This is v2 or an unknown version; validate against v2
