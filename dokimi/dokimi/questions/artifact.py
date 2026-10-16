@@ -201,10 +201,22 @@ def load_questions(path: Path | str, *, validate: bool = True) -> QuestionSet:
 
     source_version: str | None
     if validate:
-        errors = schema_errors(current, artifact)
+        matched = None if bare_list else schema_version_for(KIND, data)
+        # For v1-declared or v1-matching files, validate against v1 (on original data),
+        # not v2. v1 files can have undeclared fields with null values; v2 declares them
+        # with specific types. After upgrade, the v2 schema would reject them even though
+        # they are valid v1.
+        if declared in SUPERSEDED_VERSIONS.get(KIND, ()) or matched in SUPERSEDED_VERSIONS.get(KIND, ()):
+            # This is a v1 file (declared or matched); validate against v1 on original data
+            validate_schema = declared or matched
+            errors = schema_errors(validate_schema, data)
+        else:
+            # This is v2 or an unknown version; validate against v2
+            validate_schema = current
+            errors = schema_errors(current, artifact)
+
         if errors:
             raise ArtifactValidationError(_explain(path, artifact, errors))
-        matched = None if bare_list else schema_version_for(KIND, data)
         source_version = matched if matched and not schema_errors(matched, data) else None
         if source_version is None and not bare_list and not seen:
             notes.append(f"not valid as the {matched} it "

@@ -461,6 +461,11 @@ class EvaluationPipeline:
         self._custom_questions = None
         if custom_questions is None:
             custom_questions = self._load_custom_questions()
+
+        # Track the custom-only set (before merging) to detect if save should happen
+        # when output path equals custom input path
+        self._questions_before_merge = custom_questions.copy()
+
         all_questions.extend(custom_questions)
 
         # Deduplicate. Curated questions are never the ones dropped: a merge
@@ -503,9 +508,27 @@ class EvaluationPipeline:
                               getattr(self, "custom_questions_path", None)) if p is not None]
         target = self.questions_path.resolve()
         if any(Path(p).resolve() == target for p in inputs):
-            logger.info("questions output %s is an input of this run; leaving it unchanged",
-                        self.questions_path)
-            return
+            # Skip save for --questions-from (external path).
+            if self.external_questions_path and Path(self.external_questions_path).resolve() == target:
+                logger.info("questions output %s is an input of this run; leaving it unchanged",
+                            self.questions_path)
+                return
+            # For --custom-questions pointing to output, only skip if the set wasn't changed by merge.
+            # When _merge_questions adds generated questions, write the merged result.
+            before_merge = getattr(self, "_questions_before_merge", None)
+            if before_merge is not None:
+                # Compare the merged set to what was read from the custom path
+                # If they differ (merge added records), write the new set
+                merged_ids = sorted(q.get("id") for q in questions)
+                before_ids = sorted(q.get("id") for q in before_merge)
+                if merged_ids != before_ids:
+                    # Merge added records; persist the result
+                    pass  # Continue to write
+                else:
+                    # No merge happened or dedup only; skip write
+                    logger.info("questions output %s is an input of this run; leaving it unchanged",
+                                self.questions_path)
+                    return
 
         output = {
             "product": self.product,
