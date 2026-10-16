@@ -163,16 +163,26 @@ def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) ->
     +1.4 (p 0.65) the other than one seeing only the 28-char snippet. A baseline
     arm has no material, so all judges see the same thing.
     """
-    kinds = {
-        arm: (body.get("metadata") or {}).get("arm_kind")
-        for r in data.get("answers") or [] for arm, body in (r.get("arms") or {}).items()
-        if isinstance(body, dict)
-    }
+    kinds = {}
+    for r in data.get("answers") or []:
+        if not isinstance(r, dict):
+            continue
+        arms = r.get("arms")
+        if not isinstance(arms, dict):
+            continue
+        for arm, body in arms.items():
+            if isinstance(body, dict):
+                kinds[arm] = (body.get("metadata") or {}).get("arm_kind")
     materials = data.get("judge_materials") if with_material else None
     held = set(materials) if isinstance(materials, dict) else set()
     unreproducible = set()
     for ev in data.get("evaluations") or []:
-        for arm, s in (ev.get("scores") or {}).items():
+        if not isinstance(ev, dict):
+            continue
+        scores = ev.get("scores")
+        if not isinstance(scores, dict):
+            continue
+        for arm, s in scores.items():
             if not (isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
                     and kinds.get(arm) != "baseline"):
                 continue
