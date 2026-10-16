@@ -19,8 +19,8 @@ Differences from CI, all printed as notices:
   Jobs that install the package itself (package-smoke) run in a throwaway venv
   on a copy of the tracked tree instead, so the dev venv stays as CI's.
 - Every step runs even when an earlier one fails, so one failure does not hide
-  the next, except `static` whose steps all run under `if: ${{ !cancelled() }}`.
-  CI and `make ci-local` now behave the same there.
+  the next (CI stops a job at its first failing step, except `static`, whose
+  steps all run under `if: ${{ !cancelled() }}`).
 - A matrix runs one leg: the dev venv's Python, standing in for the coverage
   leg too (`matrix.coverage` is true), so the changed-lines gate runs here. A
   notice says so when that is not the Python CI's single-version jobs use.
