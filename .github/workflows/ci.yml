@@ -44,10 +44,11 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
-      # At least 0.12: per-file-target-version, and the version syntax errors it
-      # enables. Pinned to the ruff-check rev in .pre-commit-config.yaml and the
-      # dev extra in dokimi/pyproject.toml, so the hook, a local run and CI report
-      # the same findings; Renovate bumps the three together.
+      # An exact pin, not a floor: a ruff release adds rules to the families
+      # dokimi/pyproject.toml selects whole. The same version as the ruff-check
+      # rev in .pre-commit-config.yaml, the dev extra in dokimi/pyproject.toml
+      # and .agent-eval/Dockerfile, so the hook, a local run, the eval image and
+      # CI report the same findings; Renovate bumps them together.
       - run: pip install ruff==0.17.0
       - name: ruff check
         run: ruff check .
