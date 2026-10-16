@@ -223,7 +223,7 @@ def cmd_repo_report(args: argparse.Namespace) -> None:
 
 
 def cmd_repo_compare(args: argparse.Namespace) -> None:
-    """Per (treatment, model, measure): per-task deltas against the baseline, bootstrap CI, sign-flip p."""
+    """Per (treatment, model, measure): per-task deltas against the baseline, 95% CI, sign-flip p."""
     from dokimi.repos.compare import CompareError, compare, format_compare
 
     dirs = [Path(d) for d in args.batch_dirs]

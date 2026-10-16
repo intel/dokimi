@@ -100,6 +100,38 @@ def test_sign_flip_has_no_p_when_every_task_tied():
     assert sign_flip_p([0.0, 0.0, 1e-12]) is None
 
 
+def test_sign_flip_monte_carlo_counts_the_observed_pattern_and_follows_its_seed():
+    # 18 identical wins: no resample beats the observed sum by chance alone, so p is 1 / (N + 1), never 0
+    assert compare_mod.EXACT_MAX == 16 and compare_mod.N_RESAMPLES == 20_000
+    assert sign_flip_p([1.0] * 18) == pytest.approx(1 / 20_001, abs=1e-6)
+    assert sign_flip_p([1.0] * 16) == pytest.approx(2 / 2 ** 16, abs=1e-6)  # 16 changed tasks: still exact
+    d18 = [1.0] * 12 + [-1.0] * 6
+    assert sign_flip_p(d18, seed=1) != sign_flip_p(d18, seed=2)
+    assert sign_flip_p(d18, seed=1) == sign_flip_p(d18, seed=1)
+
+
+def test_seed_reaches_the_bootstrap_and_the_sign_flip(tmp_path, monkeypatch):
+    seen = []
+
+    def spy(name, result):
+        return lambda deltas, seed: seen.append((name, seed)) or result
+
+    monkeypatch.setattr(compare_mod, "bootstrap_ci", spy("bootstrap", {"mean": 0.0, "lo": -1.0, "hi": 1.0}))
+    monkeypatch.setattr(compare_mod, "mean_ci", spy("t", {"mean": 0.0, "lo": -1.0, "hi": 1.0}))
+    monkeypatch.setattr(compare_mod, "sign_flip_p", spy("p", 1.0))
+    b = tmp_path / "b1"
+    for task in ("fix_a", "fix_b"):
+        _cell(b, task, "guidance:none", 1, success=False)
+        _cell(b, task, "guidance:raw", 1)
+    compare([b], "guidance:none", seed=7)
+    assert {name for name, _ in seen} == {"bootstrap", "t", "p"}
+    assert {seed for _, seed in seen} == {7}
+
+
+def test_a_small_but_real_delta_is_not_a_tie():
+    assert sign_flip_p([1e-5, 1.0]) == 0.5
+
+
 def test_sign_flip_monte_carlo_tracks_the_exact_distribution(monkeypatch):
     deltas = [0.33, -0.67, 1.0, 0.33, 0.33, -0.33, 0.67, 0.33, 1.0, -0.33, 0.67, 0.33, 0.33, 0.67, -1.0, 0.33,
               0.67, 0.33]
@@ -147,8 +179,8 @@ def test_unpaired_tasks_are_listed_not_compared(tmp_path):
     _cell(b, "fix_only_treat", "guidance:raw", 1)
     s = compare([b], "guidance:none")
     assert _row(s, "gate")["n_tasks"] == 1
-    assert {(u["task"], u["missing_in"]) for u in s["unpaired"]} == {("fix_only_base", "treatment"),
-                                                                    ("fix_only_treat", "baseline")}
+    assert {(u["task"], u["reason"]) for u in s["unpaired"]} == {("fix_only_base", "no cells in treatment"),
+                                                                ("fix_only_treat", "no cells in baseline")}
     assert "unpaired" in format_compare(s)
 
 
@@ -164,6 +196,65 @@ def test_holm_runs_over_gate_and_score_comparisons_only(tmp_path):
     assert raw["p_holm"] == pytest.approx(2 * 2 / 64) and bridge["p_holm"] == pytest.approx(2 / 32)
     cost = _row(s, "cost_usd")
     assert cost["p"] == pytest.approx(2 / 64) and cost["p_holm"] is None
+
+
+def test_holm_family_includes_the_score_comparisons(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(6):
+        _cell(b, f"fix_{i}", "guidance:none", 1, success=False)
+        _cell(b, f"fix_{i}", "guidance:raw", 1, success=True)
+        _cell(b, f"review_{i}", "guidance:none", 1, score=0.2)
+        _cell(b, f"review_{i}", "guidance:raw", 1, score=0.8)
+    s = compare([b], "guidance:none")
+    for measure in ("gate", "score"):
+        row = _row(s, measure)
+        assert row["p"] == pytest.approx(2 / 64) and row["p_holm"] == pytest.approx(4 / 64)
+
+
+def test_up_down_and_tied_count_each_task_once(tmp_path):
+    b = tmp_path / "b1"
+    for task, (was, now) in {"t1": (False, True), "t2": (False, True), "t3": (True, False), "t4": (True, True)}.items():
+        _cell(b, task, "guidance:none", 1, success=was)
+        _cell(b, task, "guidance:raw", 1, success=now)
+    gate = _row(compare([b], "guidance:none"), "gate")
+    assert (gate["up"], gate["down"], gate["tied"]) == (2, 1, 1)
+
+
+def test_one_task_has_no_interval(tmp_path):
+    b = tmp_path / "b1"
+    _cell(b, "fix_a", "guidance:none", 1, success=False, turns=10)
+    _cell(b, "fix_a", "guidance:raw", 1, success=True, turns=30)
+    s = compare([b], "guidance:none")
+    for measure in ("gate", "turns"):
+        delta = _row(s, measure)["delta"]
+        assert delta["mean"] is not None and delta["lo"] is None and delta["hi"] is None
+    text = format_compare(s)
+    assert "+1.000 -" in text and "+20.000 -" in text and "[+1.000, +1.000]" not in text
+
+
+def test_continuous_measures_get_a_t_interval_and_shares_the_bootstrap(tmp_path):
+    from dokimi.eval.stats import bootstrap_ci, mean_ci
+
+    b = tmp_path / "b1"
+    for task, extra in (("fix_a", 10), ("fix_b", 12), ("fix_c", 11)):
+        _cell(b, task, "guidance:none", 1, success=False, turns=10)
+        _cell(b, task, "guidance:raw", 1, success=True, turns=10 + extra)
+    s = compare([b], "guidance:none")
+    turns, gate = _row(s, "turns")["delta"], _row(s, "gate")["delta"]
+    t = mean_ci([10, 12, 11])
+    assert (turns["lo"], turns["hi"]) == (t["lo"], t["hi"])
+    if t.get("method") == "student_t":  # SciPy present
+        assert (turns["lo"], turns["hi"]) == pytest.approx((8.52, 13.48), abs=0.01)
+    boot = bootstrap_ci([1.0, 1.0, 1.0])
+    assert (gate["lo"], gate["hi"]) == (boot["lo"], boot["hi"])
+
+
+def test_two_selectors_of_the_same_cells_are_refused(tmp_path):
+    b = tmp_path / "t6d"
+    _cell(b, "fix_a", "A", 1, success=False)
+    _cell(b, "fix_a", "B", 1)
+    with pytest.raises(CompareError, match="'B' and 't6d/B' select the same cells"):
+        compare([b], "A", ["B", "t6d/B"])
 
 
 def test_selector_takes_one_arm_from_one_batch(tmp_path):
@@ -192,12 +283,39 @@ def test_metrics_read_grade_json_and_skip_cells_without_them(tmp_path):
     _cell(b, "fix_a", "guidance:none", 1, metrics={"ran_tests": False, "n_build_fail": 3})
     _cell(b, "fix_a", "guidance:none", 2, metrics={"ran_tests": True})
     _cell(b, "fix_a", "guidance:raw", 1, metrics={"ran_tests": True, "n_build_fail": 1})
-    s = compare([b], "guidance:none", metrics=("ran_tests", "n_build_fail", "absent"))
+    s = compare([b], "guidance:none", metrics=("ran_tests", "n_build_fail"))
     ran = _row(s, "metric:ran_tests")["tasks"][0]
     assert (ran["baseline"], ran["treatment"]) == (0.5, 1.0)
     fails = _row(s, "metric:n_build_fail")["tasks"][0]
     assert (fails["baseline"], fails["treatment"]) == (3.0, 1.0)
-    assert not [r for r in s["comparisons"] if r["measure"] == "metric:absent"]
+    # the cells behind each value: 2 report ran_tests, 1 of the 2 baseline cells reports n_build_fail
+    assert (ran["n_baseline"], fails["n_baseline"], fails["n_treatment"]) == (2, 1, 1)
+
+
+def test_a_metric_no_cell_reports_is_refused(tmp_path, capsys):
+    b = tmp_path / "b1"
+    _cell(b, "fix_a", "guidance:none", 1, metrics={"hits": 1, "label": "x"})
+    _cell(b, "fix_a", "guidance:raw", 1, metrics={"hits": 2})
+    with pytest.raises(CompareError, match="--metric typo"):
+        compare([b], "guidance:none", metrics=("hits", "typo"))
+    with pytest.raises(CompareError, match="--metric label"):  # reported, but not a number
+        compare([b], "guidance:none", metrics=("label",))
+    args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--metric", "typo"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1 and "--metric typo" in capsys.readouterr().err
+
+
+def test_a_task_lacking_a_metric_is_listed_as_unpaired_for_that_metric(tmp_path):
+    b = tmp_path / "b1"
+    for task in ("fix_a", "fix_b", "fix_c"):
+        _cell(b, task, "guidance:none", 1, metrics={"hits": 1} if task != "fix_c" else {})
+        _cell(b, task, "guidance:raw", 1, metrics={"hits": 2})
+    s = compare([b], "guidance:none", metrics=("hits",))
+    assert _row(s, "metric:hits")["n_tasks"] == 2 and _row(s, "gate")["n_tasks"] == 3
+    assert s["unpaired"] == [{"treatment": "guidance:raw", "model": "m-1", "task": "fix_c",
+                              "measure": "metric:hits", "reason": "no metric:hits in baseline"}]
+    assert "fix_c (m-1, no metric:hits in baseline)" in format_compare(s)
 
 
 def test_models_are_compared_separately_and_can_be_selected(tmp_path):
@@ -233,6 +351,19 @@ def test_a_task_whose_kind_differs_between_arms_is_left_out_of_gate_and_score(tm
     assert [t["task"] for t in _row(s, "gate", treatment="new/guidance:raw")["tasks"]] == ["fix_a"]
     assert not [r for r in s["comparisons"] if r["measure"] == "score"]
     assert len(_row(s, "turns", treatment="new/guidance:raw")["tasks"]) == 2  # process measures still pair
+    assert [(u["task"], u["reason"]) for u in s["unpaired"]] == [("task_x", "gate task in baseline, score in treatment")]
+
+
+def test_a_task_of_another_kind_in_every_arm_still_says_so(tmp_path):
+    # Every task differs in kind: no gate or score row at all, so the output must name what was left out.
+    k1, k2 = tmp_path / "k1", tmp_path / "k2"
+    for task in ("t1", "t2", "t3"):
+        _cell(k1, task, "A", 1, success=True)
+        _cell(k2, task, "B", 1, score=0.5)
+    s = compare([k1, k2], "k1/A", ["B"])
+    assert {r["measure"] for r in s["comparisons"]} == {"cost_usd", "turns"}
+    assert [u["task"] for u in s["unpaired"]] == ["t1", "t2", "t3"]
+    assert "t1 (m-1, gate task in baseline, score in treatment)" in format_compare(s)
 
 
 def test_a_model_with_no_compared_cells_is_refused(tmp_path):
@@ -306,18 +437,18 @@ def test_cli_passes_model_and_metric_and_refuses_a_missing_dir(tmp_path, capsys)
     assert {r["model"] for r in rows} == {"m-2"}
     assert [r["delta"]["mean"] for r in rows if r["measure"] == "metric:n_build_fail"] == [-2.0]
     args = build_parser().parse_args(["repo", "compare", str(tmp_path / "nope"), "--baseline", "guidance:none"])
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert "not a directory" in capsys.readouterr().err
+    assert exc.value.code == 1 and "not a directory" in capsys.readouterr().err
 
 
 def test_cli_exits_on_a_bad_baseline(tmp_path, capsys):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1)
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:raw"])
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert "no finished cell matches the baseline" in capsys.readouterr().err
+    assert exc.value.code == 1 and "no finished cell matches the baseline" in capsys.readouterr().err
 
 
 def test_a_repeated_treatment_or_metric_is_one_comparison(tmp_path):
@@ -340,9 +471,9 @@ def test_an_empty_arm_list_is_refused_not_an_empty_comparison(tmp_path, capsys, 
     with pytest.raises(CompareError, match="no treatment arms"):
         compare([b], "guidance:none", [])
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--arm", spec])
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert "no treatment arms" in capsys.readouterr().err
+    assert exc.value.code == 1 and "no treatment arms" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
@@ -375,9 +506,11 @@ def test_a_model_only_one_arm_ran_is_listed_as_unpaired(tmp_path):
     s = compare([b], "guidance:none")
     assert s["comparisons"] == []
     assert s["unpaired"] == [
-        {"treatment": "guidance:raw", "model": "m-A", "task": "fix_a", "missing_in": "treatment"},
-        {"treatment": "guidance:raw", "model": "m-B", "task": "fix_a", "missing_in": "baseline"}]
-    assert "fix_a (m-A, none in treatment)" in format_compare(s)
+        {"treatment": "guidance:raw", "model": "m-A", "task": "fix_a", "measure": None,
+         "reason": "no cells in treatment"},
+        {"treatment": "guidance:raw", "model": "m-B", "task": "fix_a", "measure": None,
+         "reason": "no cells in baseline"}]
+    assert "fix_a (m-A, no cells in treatment)" in format_compare(s)
 
 
 def test_each_selector_names_its_batches_and_a_bare_arm_over_several_warns(tmp_path):
@@ -417,6 +550,29 @@ def test_another_tree_alone_is_not_a_mismatch(tmp_path):
     _cell(new, "fix_a", "guidance:raw", 1)
     s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
     assert s["warnings"] == [] and s["stamps"]["new"]["tree"] == "repo@def"
+
+
+def test_an_unstamped_batch_beside_a_stamped_one_is_named(tmp_path):
+    old, new = tmp_path / "old", tmp_path / "new"
+    _stamp(old, tree="r1", eval_dir="aaa", image="img1")
+    _cell(old, "fix_a", "guidance:raw", 1)
+    _cell(new, "fix_a", "guidance:raw", 1)
+    s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
+    assert s["warnings"] == ["batch new has no stamp (_eval/batch.json); its eval_dir and image are not compared"]
+
+
+def test_images_built_from_each_tree_follow_the_tree(tmp_path):
+    old, new = tmp_path / "t4c1", tmp_path / "t4c2"
+    _stamp(old, tree="repo@111111111111aaaa", eval_dir="e1", image="dokimi/x:111111111111")
+    _stamp(new, tree="repo@222222222222bbbb", eval_dir="e1", image="dokimi/x:222222222222")
+    for b in (old, new):
+        _cell(b, "fix_a", "A", 1)
+    assert compare([old, new], "t4c1/A", ["t4c2/A"])["warnings"] == []
+    _stamp(new, tree="/work/tree", eval_dir="e1", image="dokimi/x:worktree-0123456789ab")  # a working tree
+    assert compare([old, new], "t4c1/A", ["t4c2/A"])["warnings"] == []
+    _stamp(new, tree="repo@222222222222bbbb", eval_dir="e1", image="my/own:image")  # an --image of its own
+    assert compare([old, new], "t4c1/A", ["t4c2/A"])["warnings"] == [
+        "t4c2/A vs t4c1/A: the batches ran from different image (dokimi/x:111111111111, my/own:image)"]
 
 
 def test_cells_on_different_harness_versions_warn(tmp_path):

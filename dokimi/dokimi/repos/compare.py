@@ -16,9 +16,12 @@ cells are first reduced to one value per (task, arm, model):
   cells that report it (``true`` is 1), for ``--metric``.
 
 A task enters a comparison only when both arms have a value for it; the others
-are listed as unpaired. Per measure the comparison gives the mean per-task
-delta (treatment minus baseline) with a percentile bootstrap interval over
-tasks, the tasks that went up, down or stayed, and a two-sided sign-flip
+are listed as unpaired, with the reason (no cells in one arm, a task kind that
+differs between the arms, a measure one arm lacks). Per measure the comparison
+gives the mean per-task delta (treatment minus baseline) with a 95% interval
+over tasks (a percentile bootstrap for gate and score, a t interval for the
+continuous measures; none for a single task), the tasks that went up, down or
+stayed, and a two-sided sign-flip
 permutation p on the per-task deltas: exact up to :data:`EXACT_MAX` non-zero
 deltas, Monte Carlo above. At one cell per task and arm the deltas are -1, 0
 or +1 and the exact p equals McNemar's exact test. Holm's correction runs over
@@ -28,9 +31,12 @@ descriptive and keep their raw p.
 Each selector's batches are reported with the stamp ``repo run`` pins a batch
 to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
 cells. A warning is printed, not an error, when a bare ``ARM`` pools cells of
-several batches, or when the two arms of a comparison ran from different
-``eval_dir`` or ``image`` stamps or harness versions: the deltas then mix the
-treatment with whatever else changed between the batches.
+several batches, when a batch of a comparison has no stamp to compare, or when
+the two arms of a comparison ran from different ``eval_dir`` or ``image``
+stamps or harness versions: the deltas then mix the treatment with whatever
+else changed between the batches. An image ``repo run`` tagged from the tree's
+own revision follows the tree, so it is compared only against an ``--image``
+given explicitly.
 """
 
 from __future__ import annotations
@@ -43,7 +49,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from dokimi.eval.stats import adjust_pvalues, bootstrap_ci
+from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
 from .report import load_cells
 
@@ -106,6 +112,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
             models: list[str] | None = None, metrics: tuple[str, ...] = (), seed: int = 0) -> dict[str, Any]:
     metrics = tuple(dict.fromkeys(metrics))
     cells, missing = load_batches(batch_dirs, metrics)
+    _check_metrics(metrics, cells)
     base_sel = parse_selector(baseline)
     if not any(selector_matches(base_sel, c) for c in cells):
         raise CompareError(f"no finished cell matches the baseline {baseline!r}")
@@ -135,8 +142,7 @@ def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, A
     for model in sorted(base_models ^ treat_models):
         if not models or model in models:
             seen, gone = (base_vals, "treatment") if model in base_models else (treat_vals, "baseline")
-            out += [{"treatment": treatment, "model": model, "task": t, "missing_in": gone}
-                    for m, t in sorted(seen) if m == model]
+            out += [_unpaired(treatment, model, t, None, f"no cells in {gone}") for m, t in sorted(seen) if m == model]
     return out
 
 
@@ -158,10 +164,18 @@ def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments:
     """Pooled batches and stamp mismatches between the arms of each comparison."""
     out = [f"{text} pools cells of {len(batches)} batches ({', '.join(batches)}); name one as BATCH/ARM"
            for text, batches in sources.items() if parse_selector(text)[0] is None and len(batches) > 1]
+    unstamped = set()
     for text in treatments:
         batches = sorted(set(sources[baseline]) | set(sources[text]))
+        for b in batches if len(batches) > 1 else ():  # the arms of one batch share its pin
+            if b not in unstamped and not any(k in stamps[b] for k in STAMP_KEYS):
+                unstamped.add(b)
+                out.append(f"batch {b} has no stamp (_eval/batch.json); its eval_dir and image are not compared")
         for key in STAMP_KEYS:
-            seen = {stamps[b][key] for b in batches if key in stamps[b]}
+            pinned = [b for b in batches if key in stamps[b]]
+            if key == "image" and all(_built_from_tree(stamps[b]) for b in pinned):
+                continue  # each image follows its own tree, and another tree is the treatment
+            seen = {stamps[b][key] for b in pinned}
             if len(seen) > 1:
                 out.append(f"{text} vs {baseline}: the batches ran from different {key} ({', '.join(sorted(seen))})")
         versions = {str(c.get("harness_version")) for sel in (baseline, text) for c in cells
@@ -169,6 +183,21 @@ def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments:
         if len(versions) > 1:
             out.append(f"{text} vs {baseline}: cells ran on different harness versions ({', '.join(sorted(versions))})")
     return out
+
+
+def _built_from_tree(stamp: dict[str, Any]) -> bool:
+    """Whether the stamped image is the one ``repo run`` tags from the tree (``dokimi/<id>:<sha12>``, or
+    ``:worktree-<digest>`` for a working tree), not one ``--image`` named."""
+    repo, _, tag = stamp.get("image", "").rpartition(":")
+    revision = stamp.get("tree", "").rpartition("@")[2]
+    return repo.startswith("dokimi/") and (tag.startswith("worktree-") or bool(revision) and tag == revision[:12])
+
+
+def _check_metrics(metrics: tuple[str, ...], cells: list[dict[str, Any]]) -> None:
+    """A ``--metric`` that no finished cell reports is a typo or not a number: refuse it, not print nothing."""
+    unknown = [m for m in metrics if not any(m in c["metrics"] for c in cells)]
+    if unknown:
+        raise CompareError(f"no finished cell reports a numeric or boolean --metric {', '.join(unknown)}")
 
 
 def _check_models(models: list[str] | None, rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> None:
@@ -192,15 +221,35 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
     base_tasks = {t for m, t in base_vals if m == model}
     treat_tasks = {t for m, t in treat_vals if m == model}
     for task in sorted(base_tasks ^ treat_tasks):
-        unpaired.append({"treatment": treatment, "model": model, "task": task,
-                         "missing_in": "treatment" if task in base_tasks else "baseline"})
+        unpaired.append(_unpaired(treatment, model, task, None,
+                                  "no cells in " + ("treatment" if task in base_tasks else "baseline")))
     shared = sorted(base_tasks & treat_tasks)
+    for task in shared:
+        b, t = base_vals[(model, task)]["kind"], treat_vals[(model, task)]["kind"]
+        if b != t:  # batches of different eval trees: the primary result of this task has no pair
+            unpaired.append(_unpaired(treatment, model, task, None, f"{b} task in baseline, {t} in treatment"))
     for measure in measures:
-        found = (_pair(task, base_vals[(model, task)], treat_vals[(model, task)], measure) for task in shared)
-        pairs = [p for p in found if p is not None]
+        pairs = []
+        for task in shared:
+            base, treat = base_vals[(model, task)], treat_vals[(model, task)]
+            if measure in PRIMARY and not base["kind"] == treat["kind"] == measure:
+                continue  # a task of the other kind, or one listed above
+            pair = _pair(task, base, treat, measure)
+            if pair is None:
+                lacking = [arm for arm, v in (("baseline", base), ("treatment", treat))
+                           if v["values"].get(measure) is None]
+                unpaired.append(_unpaired(treatment, model, task, measure,
+                                          f"no {measure} in {' or '.join(lacking)}"))
+            else:
+                pairs.append(pair)
         if pairs:
             rows.append({"treatment": treatment, "model": model, "measure": measure,
-                         **paired_summary(pairs, seed=seed)})
+                         **paired_summary(pairs, measure, seed=seed)})
+
+
+def _unpaired(treatment: str, model: str, task: str, measure: str | None, reason: str) -> dict[str, Any]:
+    """A task left out of the comparison: of every measure (``measure`` None) or of one."""
+    return {"treatment": treatment, "model": model, "task": task, "measure": measure, "reason": reason}
 
 
 def _treatments(cells: list[dict[str, Any]], baseline: str, base_sel: tuple[str | None, str],
@@ -222,38 +271,47 @@ def _treatments(cells: list[dict[str, Any]], baseline: str, base_sel: tuple[str 
         if any(selector_matches(base_sel, c) for c in matched):
             raise CompareError(f"treatment {text!r} also matches cells of the baseline {baseline!r}; "
                                "name its batch (BATCH/ARM)")
-    return list(dict.fromkeys(treatments))  # a repeated arm would double its rows and its share of Holm's family
+    # a repeated arm would double its rows and its share of Holm's family; so would two spellings of one arm
+    treatments = list(dict.fromkeys(treatments))
+    selected: dict[frozenset[tuple[str, str]], str] = {}
+    for text in treatments:
+        sel = parse_selector(text)
+        key = frozenset((c["batch"], c["cell"]) for c in cells if selector_matches(sel, c))
+        if key in selected:
+            raise CompareError(f"treatments {selected[key]!r} and {text!r} select the same cells; name one")
+        selected[key] = text
+    return treatments
 
 
 def _pair(task: str, base: dict[str, Any], treat: dict[str, Any], measure: str) -> dict[str, Any] | None:
     """One task's values of ``measure`` in both arms, or ``None`` when either arm has none.
 
-    gate and score apply only to tasks of that kind in both arms; arms that disagree on the kind (batches of
-    different eval trees) leave the task out of both.
+    ``n_baseline``/``n_treatment`` count the cells behind each value: for a metric, the cells that report it.
     """
-    if measure in PRIMARY and not base["kind"] == treat["kind"] == measure:
-        return None
     bv, tv = base["values"].get(measure), treat["values"].get(measure)
     if bv is None or tv is None:
         return None
     return {"task": task, "baseline": bv, "treatment": tv, "delta": tv - bv,
-            "n_baseline": base["n"], "n_treatment": treat["n"]}
+            "n_baseline": base["n"][measure], "n_treatment": treat["n"][measure]}
 
 
-def paired_summary(pairs: list[dict[str, Any]], seed: int = 0) -> dict[str, Any]:
+def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int = 0) -> dict[str, Any]:
     """Statistics over per-task pairs ``{task, baseline, treatment, delta, ...}``.
 
     The values are taken at full precision and rounded only in the output: rounded rates such as 1/3 and 2/3
     no longer sum to the same totals, which would move sign patterns across the observed one in the
-    permutation test.
+    permutation test. The interval is a percentile bootstrap for the bounded gate and score shares and a t
+    interval (:func:`~dokimi.eval.stats.mean_ci`) for the continuous measures, where the bootstrap
+    under-covers at these task counts; one task has no interval (``lo``/``hi`` None), not a zero-width one.
     """
     deltas = [p["delta"] for p in pairs]
-    ci = bootstrap_ci(deltas, seed=seed)
+    ci = (bootstrap_ci if measure in PRIMARY else mean_ci)(deltas, seed=seed)
+    lo, hi = (float(ci["lo"]), float(ci["hi"])) if len(deltas) > 1 else (None, None)  # mean_ci gives numpy floats
     return {
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
         "treatment_mean": _round(_mean([p["treatment"] for p in pairs])),
-        "delta": {"mean": ci["mean"], "lo": ci["lo"], "hi": ci["hi"]},
+        "delta": {"mean": ci["mean"], "lo": lo, "hi": hi},
         "p": sign_flip_p(deltas, seed=seed),
         "p_holm": None,
         "up": sum(d > EPS for d in deltas),
@@ -294,7 +352,7 @@ def format_compare(summary: dict[str, Any]) -> str:
                   f"{'delta [95% CI]':<26}  {'p':>6}  {'p_holm':>6}  up/down/tied"]
         for r in rows:
             d = r["delta"]
-            delta = f"{d['mean']:+.3f} [{d['lo']:+.3f}, {d['hi']:+.3f}]"
+            delta = f"{d['mean']:+.3f} " + ("-" if d["lo"] is None else f"[{d['lo']:+.3f}, {d['hi']:+.3f}]")
             lines.append(f"  {r['measure']:<{width}}  {r['n_tasks']:>5}  {_num(r['baseline_mean']):>9}  "
                          f"{_num(r['treatment_mean']):>9}  {delta:<26}  {_p(r['p']):>6}  {_p(r['p_holm']):>6}  "
                          f"{r['up']}/{r['down']}/{r['tied']}")
@@ -306,8 +364,8 @@ def format_compare(summary: dict[str, Any]) -> str:
                         f"{t['task']} {t['delta']:+.2f}" for t in sorted(moved, key=lambda t: t["delta"])))
     if summary["unpaired"]:
         shown = summary["unpaired"][:10]
-        lines.append("unpaired (no cells in one arm): " + ", ".join(
-            f"{u['task']} ({u['model']}, none in {u['missing_in']})" for u in shown)
+        lines.append("unpaired: " + ", ".join(
+            f"{u['task']} ({u['model']}, {u['reason']})" for u in shown)
             + (f" and {len(summary['unpaired']) - len(shown)} more" if len(summary["unpaired"]) > 10 else ""))
     if summary["missing"]:
         lines.append(f"{len(summary['missing'])} cells missing (no result.json): `repo report` lists them")
@@ -334,18 +392,18 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
     out = {}
     for key, recs in groups.items():
         score_task = any(r["score_task"] for r in recs)
-        values: dict[str, float | None] = {
-            "cost_usd": _mean([r["agent"].get("cost_usd") for r in recs]),
-            "turns": _mean([r["agent"].get("num_turns") for r in recs]),
-        }
+        found = {"cost_usd": [r["agent"].get("cost_usd") for r in recs],
+                 "turns": [r["agent"].get("num_turns") for r in recs],
+                 **{f"metric:{name}": [r["metrics"].get(name) for r in recs] for name in metrics}}
         if score_task:
-            values["score"] = _mean([0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
-                                     for r in recs])
+            found["score"] = [0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
+                              for r in recs]
         else:
-            values["gate"] = sum(bool(r["grade"]["success"]) for r in recs) / len(recs)
-        for name in metrics:
-            values[f"metric:{name}"] = _mean([r["metrics"].get(name) for r in recs])
-        out[key] = {"kind": "score" if score_task else "gate", "n": len(recs), "values": values}
+            found["gate"] = [float(bool(r["grade"]["success"])) for r in recs]
+        nums = {measure: _finite(vals) for measure, vals in found.items()}
+        out[key] = {"kind": "score" if score_task else "gate",
+                    "n": {measure: len(v) for measure, v in nums.items()},
+                    "values": {measure: (sum(v) / len(v) if v else None) for measure, v in nums.items()}}
     return out
 
 
@@ -368,8 +426,12 @@ def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
     return out
 
 
+def _finite(values: list[Any]) -> list[float]:
+    return [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)]
+
+
 def _mean(values: list[Any]) -> float | None:
-    nums = [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)]
+    nums = _finite(values)
     return sum(nums) / len(nums) if nums else None
 
 
