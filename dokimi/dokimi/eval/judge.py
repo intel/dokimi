@@ -472,14 +472,15 @@ class Judge:
     )
     #: The first of those separators; what follows is the verdict part, the text before it the figure.
     _VERDICT_PART = re.compile(r":|\s[-\u2013\u2014]|\(")
-    #: For a claim ``_VERDICT`` cannot read, searched in the verdict part only (a ``/`` or ``,``
-    #: in the figure, ``left/right shift by 3: wrong``, is not a verdict): a qualifier list
-    #: (``misleading/wrong``) or a trailing clause (``reasonable, not wrong``) ends in
-    #: the verdict, and ``not`` flips it. ``not entirely wrong`` is a hedge, not a verdict: unread.
-    #: A verdict word with no separator in front stays unread on purpose: ``correctly marked
-    #: as WRONG to claim`` says the answer flagged a bad claim, not that its figure is wrong.
+    #: For a claim ``_VERDICT`` cannot read, the search starts at the first separator and
+    #: the verdict word must end the claim (no text after it except whitespace and closing
+    #: brackets). A qualifier list (``misleading/wrong``) or a trailing clause
+    #: (``reasonable, not wrong``) ends in the verdict, and ``not`` flips it. ``not entirely
+    #: wrong`` is a hedge, not a verdict: unread. A verdict word with no separator in front
+    #: stays unread on purpose: ``correctly marked as WRONG to claim`` says the answer
+    #: flagged a bad claim, not that its figure is wrong.
     _QUALIFIED_VERDICT = re.compile(
-        r"(?::|\s[-\u2013\u2014]|\(|/|,)\s*(not\s+)?(?:([a-z]+ly)\s+)?(wrong|incorrect|right|correct)\b",
+        r"(?::|\s[-\u2013\u2014]|\(|/|,)\s*(not\s+)?(?:([a-z]+ly)\s+)?(wrong|incorrect|right|correct)[\s.)]*$",
         re.I,
     )
 

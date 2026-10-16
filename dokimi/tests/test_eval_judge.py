@@ -275,7 +275,7 @@ class TestJudgeAnswer:
         (["500 ns threshold: contextual (neither universally right nor wrong)"], 95, 95),
         # The answer's figure is the wrong one; the right one is the correction.
         (["8 ms: wrong -> corrected: right"], 95, 40),
-        # A "/" or "," in the figure is not a verdict: these capped on main and still do.
+        # A "/" or "," in the figure is not a verdict: these read as on main and still do.
         (["left/right shift by 3: wrong"], 95, 40),
         (["4 KiB, correct alignment assumed: wrong"], 95, 40),
         (["TILE 64 (not wrong): wrong"], 95, 40),
@@ -283,6 +283,37 @@ class TestJudgeAnswer:
         # "not entirely wrong" is a hedge: no cap, and not read as right either.
         (["8 ms: not entirely wrong"], 95, 95),
         (["8 ms: not right"], 95, 40),
+        # Mutation coverage: figures with separators read correctly with the end-anchored pattern.
+        (["x (misleading/wrong)"], 95, 40),
+        (["x - misleading/wrong"], 95, 40),
+        (["x — misleading/wrong"], 95, 40),  # em-dash
+        # Mutation coverage: case-insensitivity on the fallback path.
+        (["x: misleading/WRONG"], 95, 40),
+        # Mutation coverage: adverbs and "incorrect" and "not" forms on the fallback.
+        (["x: dubious, partially wrong"], 95, 40),
+        (["x: misleading/incorrect"], 95, 40),
+        (["x: dubious, not correct"], 95, 40),
+        (["x - not wrong"], 95, 95),
+        # Mutation coverage: claims with no separator are unread.
+        (["64 bytes, wrong"], 95, 95),
+        # Mutation coverage: dict claims with qualified verdicts.
+        ([{"figure": "x", "verdict": "misleading/wrong"}], 95, 40),
+        ([{"figure": "x", "verdict": "reasonable, not wrong"}], 95, 95),
+        # False positives that must stay unread with the end-anchored pattern.
+        (["TILE (default, wrong on ARM): unverified"], 95, 95),
+        (["buffer 64 B - 128 B, wrong alignment assumed: unverified"], 95, 95),
+        (["2x: correctly identified, wrong claim by user"], 95, 95),
+        (["x: depends, wrong if cached"], 95, 95),
+        (["x: see /wrong/path"], 95, 95),
+        # Figures with separators: the end-anchored pattern finds the real verdict.
+        (["ratio 3:1, correct alignment assumed: misleading/wrong"], 95, 40),
+        (["ratio 3:1, correct alignment assumed: not right"], 95, 40),
+        (["latency 4 cycles (L1, correct for Skylake): misleading/wrong"], 95, 40),
+        (["f(x) = 4, correct rounding: misleading/wrong"], 95, 40),
+        (["64 - 128 B, correct range: misleading/wrong"], 95, 40),
+        # Multi-line claims: the pattern requires the verdict to end the string, not at a line break.
+        (["TILE (default, wrong\non ARM): unverified"], 95, 95),
+        (["AVX2 (256-bit, correct\nwidth): dubious"], 95, 95),
     ])
     def test_a_wrong_figure_caps_correctness_at_forty(self, mock_llm, claims, correctness, expected):
         """The prompt promises "a single wrong figure caps it at 40". A reply that
@@ -316,6 +347,8 @@ class TestJudgeAnswer:
         "4.5x speedup threshold: reasonable, not wrong",
         "SIMD_SORT_MIN_N = 32: reasonable heuristic (not wrong)",
         "p < 0.05 threshold: standard statistical convention, correct",
+        "x: dubious, not incorrect",
+        "x - not wrong",
     ])
     def test_a_qualified_or_negated_verdict_is_read(self, mock_llm, claim):
         """Real Haiku entries that used to land in `unread_claims`."""
@@ -325,6 +358,8 @@ class TestJudgeAnswer:
         "left/right shift by 3: dubious",
         "8 ms: not entirely wrong",
         "8 ms: not necessarily right",
+        "AVX2 (256-bit, correct width): dubious",
+        "x: see docs/correct-usage",
     ])
     def test_a_figure_with_a_slash_or_a_hedge_is_not_read_as_right(self, mock_llm, claim):
         assert self._judge(mock_llm, [claim], 95)["unread_claims"] == [0]
