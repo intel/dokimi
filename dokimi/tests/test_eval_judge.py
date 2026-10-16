@@ -293,6 +293,11 @@ class TestJudgeAnswer:
         (["x: misleading/incorrect"], 95, 40),
         (["x: dubious, not correct"], 95, 40),
         (["x - not wrong"], 95, 95),
+        # Additional mutations: case-insensitive fallback, trailing punctuation, negation, em-dash
+        (["x: Not Right"], 95, 40),
+        (["x: misleading/wrong."], 95, 40),
+        (["64 B: WRONG (expected 128)"], 95, 40),
+        (["x — not wrong"], 95, 95),
         # A claim with no real separator (`:`, `-`, `(`) is unread, even if `,` appears.
         (["64 bytes, wrong"], 95, 95),
         # Qualified verdicts work the same in dict claims and strings.
@@ -352,6 +357,7 @@ class TestJudgeAnswer:
         "p < 0.05 threshold: standard statistical convention, correct",
         "x: dubious, not incorrect",
         "x - not wrong",
+        "x — not wrong",
     ])
     def test_a_qualified_or_negated_verdict_is_read(self, mock_llm, claim):
         """Qualified and negated verdicts: slash-separated qualifiers, trailing commas, and `not` all read correctly."""
