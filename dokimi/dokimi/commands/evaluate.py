@@ -342,8 +342,9 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
 
         store = JudgeContextStore.from_artifact(data) if isinstance(data, dict) else None
         if store is None or not any(store.materials().values()):
-            print("Error: --context stored needs an arms artifact with judge_materials; this "
-                  "file has none (written before arms runs kept it?)", file=sys.stderr)
+            print("Error: --context stored needs an arms artifact with non-empty stored judge "
+                  "material; this file has none (judge_materials missing, or no record cites a "
+                  "digest that matches)", file=sys.stderr)
             sys.exit(2)
     pair_scorer = None
     if args.mode == "pairwise":

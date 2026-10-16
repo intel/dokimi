@@ -220,7 +220,6 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     report = CrossJudgeReport(baseline_arm=baseline, require_validated=args.require_validated)
     if not args.no_stored and isinstance(data, dict) and (m := stored_measure(data)):
-        # Every other measure (re-scored, pairwise, checklist) sees at most the report snippets.
         # A re-scored judge gets the file's judge_materials; pairwise and checklist
         # judges see the answers alone, so only they lose the stored material.
         unrepro = (unreproducible_arms(data) if (args.pairwise or args.checklist)
@@ -269,7 +268,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             print(f"⚠️  --validity for `{v.get('judge')}` was measured on {v['answers_model']} answers, "
                   f"these are {answers_model}'s — the gate may not transfer", file=sys.stderr)
     for missed in report.apply_validity(validity):
-        print(f"⚠️  --validity for `{missed}` matches no measure (compare the judge labels)", file=sys.stderr)
+        print(f"⚠️  --validity for `{missed}` matches no measure (compare the judge labels and contexts)", file=sys.stderr)
     if not report.measures:
         print("Error: nothing to compare — give --judges, --checklist, or an answers file with evaluations",
               file=sys.stderr)

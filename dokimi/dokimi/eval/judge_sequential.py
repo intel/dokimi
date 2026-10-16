@@ -174,7 +174,11 @@ def run_sequential(
     # them ran out of pool even when another variant reached the cap. With
     # more usable answers than the cap, a higher --max-bases adds bases to
     # every variant, so that is the cap even for a variant with few pairs.
-    usable = sum(1 for r in _answer_pool(answers) if len(r["answer"]) > DEFAULT_MIN_CHARS)
+    # With a store, only answers with verified material can ever be scored.
+    if store is not None:
+        usable = sum(c["kept"] for c in by_arm.values())
+    else:
+        usable = sum(1 for r in _answer_pool(answers) if len(r["answer"]) > DEFAULT_MIN_CHARS)
     for variant, d in decisions.items():
         if d["decision"] == "continue":
             bases = len({(p["base_id"], p.get("arm", "")) for p in pairs if p["variant"] == variant})

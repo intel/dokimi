@@ -426,15 +426,18 @@ def test_stored_measure_is_named_for_its_judge():
     report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[stored, rescored])
     # Both measures are Haiku: agreement between them is not agreement across judges.
     assert report.summary()["arms"]["skill"]["label"] == "CONSISTENT + (one judge)"
-    # A stored-context validity gates the stored measure; none-context does not.
-    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "context": "stored", "passed": False}]) == []
-    assert stored.gate == "FAIL"
-    assert rescored.gate is None
-    # A none-context validity gates the rescored measure, not the stored one.
-    rescored.gate = None  # reset
-    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "context": "none", "passed": False}]) == []
-    assert rescored.gate == "FAIL"
-    assert stored.gate == "FAIL"  # still FAIL from the previous call
+    assert stored.context == "stored" and rescored.context == "none"
+    # A PASS gates only the measure of its own context.
+    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "context": "stored", "passed": True}]) == []
+    assert (stored.gate, rescored.gate) == ("PASS", None)
+    stored.gate = None
+    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "passed": True}]) == []  # no key: none
+    assert (stored.gate, rescored.gate) == (None, "PASS")
+    # A FAIL in either context reaches every measure of the judge.
+    for ctx in ("stored", "none"):
+        stored.gate = rescored.gate = None
+        assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "context": ctx, "passed": False}]) == []
+        assert (stored.gate, rescored.gate) == ("FAIL", "FAIL")
     assert cj.stored_measure({"evaluations": data["evaluations"]}).name == "stored judge"
 
 
@@ -466,6 +469,28 @@ def test_an_arm_whose_material_the_file_keeps_is_reproducible_by_a_rescored_judg
     assert cj.unreproducible_arms(data) == ["skill"]
     del data["judge_materials"]
     assert cj.unreproducible_arms(data, with_material=True) == ["skill"]
+
+
+@pytest.mark.parametrize("source", ["snippet_fallback", None])
+def test_a_stored_measure_judged_on_snippets_is_none_context_and_gated_by_a_none_report(source):
+    data = _stamped_run(source) if source else _stamped_run()
+    if source is None:  # a file from before judge_context: no source at all
+        for ev in data["evaluations"]:
+            for s in ev["scores"].values():
+                s.pop("judge_context_source", None)
+    stored = cj.stored_measure(data)
+    assert stored.context == "none"
+    report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[stored])
+    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "passed": True}]) == []
+    assert stored.gate == "PASS"
+
+
+def test_a_stored_fail_also_silences_the_judges_coverage_and_pairwise_measures():
+    measures = [cj.Measure(name="p/j", kind=k, context=c) for k, c in
+                (("coverage", "none"), ("pairwise", "none"), ("grounded", "stored"), ("aggregate", "stored"))]
+    report = cj.CrossJudgeReport(baseline_arm="baseline", measures=measures)
+    assert report.apply_validity([{"judge": "p/j", "context": "stored", "passed": False}]) == []
+    assert [m.gate for m in measures] == ["FAIL"] * 4
 
 
 def test_score_measure_hands_the_stored_material_to_the_rescored_judge():

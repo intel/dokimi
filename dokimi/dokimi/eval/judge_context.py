@@ -229,7 +229,9 @@ class JudgeContextStore:
         if bad:
             logger.warning(
                 "%d arm records cite judge material that is missing from the artifact "
-                "or does not match its digest; those answers fall back to snippets.", bad,
+                "or does not match its digest; those answers have no verified material "
+                "(callers that fall back use the report snippets; judge-validity "
+                "--context stored drops them).", bad,
             )
         return store
 

@@ -397,11 +397,13 @@ under several judges (absolute, and with `--grounded` against each question's
 measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` or
 `NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote. With
 `--validity` reports, a judge that failed its gate is shown but does not vote
-(its grounded and checklist measures included); `--require-validated` leaves
-only judges that passed. The stored scores are labelled from the file's
-`judge_provider`/`judge_model` (`provider/model`), and are only gated by a
-`--validity` report of the same judge with `--context stored`; a `--context none`
-report does not gate measures scored with material. Re-scoring resolves each arm's
+(its grounded and checklist measures included, in any context);
+`--require-validated` leaves only judges that passed. The stored measure is
+named `provider/model (stored)` from the file's `judge_provider`/`judge_model`,
+and a validity report names `provider/model`. A PASS validates only measures of
+the same context: a `--context stored` report for measures scored with material,
+a `--context none` report (or one without `context`) for the rest. A stored file
+whose scores fell back to snippets counts as `none`. Re-scoring resolves each arm's
 context the way the arms run does, from the file's `judge_materials`, so a `--judges`
 judge sees what the stored judge saw. A file written before `judge_materials` has
 only the report snippets; with stored scores on such material, `--judges` refuses

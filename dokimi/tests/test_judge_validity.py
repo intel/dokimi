@@ -1471,10 +1471,12 @@ def test_bases_with_no_stored_material_are_dropped_and_counted():
     report = run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=9,
                           variants=["truncate_20"], store=JudgeContextStore.from_artifact(data))
     assert report.n_without_context == 1
-    assert report.by_arm == {"baseline": {"kept": 3, "dropped": 0}, "skill": {"kept": 1, "dropped": 1}}
+    assert report.by_arm == {"baseline": {"kept": 3, "dropped": 0, "sampled": 3},
+                             "skill": {"kept": 1, "dropped": 1, "sampled": 1}}
     assert report.summary()["by_arm"] == report.by_arm
     text = report.format_summary()
-    assert "1 bases dropped, no verified material" in text and "skill: 1 kept, 1 dropped" in text
+    assert "1 answers without verified material (counted before --bases sampling)" in text
+    assert "skill: 1 kept, 1 dropped, 1 bases sampled" in text
 
 
 def test_no_stored_material_at_all_is_an_error_not_a_no_context_run():
@@ -1721,9 +1723,12 @@ def test_a_stored_validity_report_gates_the_rescored_judge_in_cross_judge(tmp_pa
     assert failing["passed"] is False and failing["judge"] == "amazon-bedrock/m"
     stored_report = tmp_path / "stored.json"
     stored_report.write_text(json.dumps({"summary": failing}))
-    none_summary = {**failing, "context": "none"}
     none_report = tmp_path / "none.json"
-    none_report.write_text(json.dumps({"summary": none_summary}))
+    none_report.write_text(json.dumps({"summary": {**failing, "context": "none"}}))
+    none_pass = tmp_path / "none_pass.json"
+    none_pass.write_text(json.dumps({"summary": {**failing, "context": "none", "passed": True}}))
+    stored_pass = tmp_path / "stored_pass.json"
+    stored_pass.write_text(json.dumps({"summary": {**failing, "passed": True}}))
 
     digest = digest_text("FULL SKILL BODY")
     run = {"library_name": "L", "judge_provider": "amazon-bedrock", "judge_model": "m",
@@ -1744,7 +1749,12 @@ def test_a_stored_validity_report_gates_the_rescored_judge_in_cross_judge(tmp_pa
         return {r["measure"]: r["gate"] for r in rows}
 
     assert gates(stored_report) == {"amazon-bedrock/m": "FAIL"}
-    assert gates(none_report) == {"amazon-bedrock/m": None}
+    # A FAIL reaches the judge in any context; a PASS only in the context it ran in.
+    assert gates(none_report) == {"amazon-bedrock/m": "FAIL"}
+    assert gates(stored_pass) == {"amazon-bedrock/m": "PASS"}
+    capsys.readouterr()
+    assert gates(none_pass) == {"amazon-bedrock/m": None}
+    assert "report context none; its measures are stored" in capsys.readouterr().err
 
 
 def test_a_missing_material_warning_does_not_promise_a_snippet_fallback_on_the_gate(caplog):
@@ -1754,3 +1764,25 @@ def test_a_missing_material_warning_does_not_promise_a_snippet_fallback_on_the_g
         assert JudgeContextStore().get("Q1", "skill") is None
     text = caplog.text
     assert "No stored judge context for Q1/skill" in text and "drops such bases" in text
+
+
+def test_sequential_stored_context_reports_pool_and_dropped_answers():
+    """Only answers with verified material count toward the pool, so an exhausted pool is 'pool'."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.utils import digest_text
+
+    digest = digest_text("FULL SKILL BODY")
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?",
+                "arms": {"skill": {"answer": ANSWER + f" Detail {i}. ",
+                                   **({"judge_context_sha256": digest} if i < 4 else {})}}}
+               for i in range(20)]
+    data = {"answers": answers, "judge_materials": {digest: "FULL SKILL BODY"}}
+    report = run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)),
+                            max_bases=10, variants=["truncate_20"],
+                            store=JudgeContextStore.from_artifact(data))
+    assert report.n_without_context == 16
+    assert report.by_arm == {"skill": {"kept": 4, "dropped": 16, "sampled": 4}}
+    assert "16 answers without verified material" in report.format_summary()
+    d = report.sequential["truncate_20"]
+    assert d["decision"] == "continue" and d["stopped_by"] == "pool"

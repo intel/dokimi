@@ -164,11 +164,13 @@ class ValidityReport:
     #: gate's original setting) or ``stored`` (the arm's treatment material from
     #: the artifact's ``judge_materials`` — the setting arms runs score in).
     context: str = "none"
-    #: With ``context="stored"``, bases dropped because the file held no material
-    #: for their arm; scoring them without it would mix the two settings.
+    #: With ``context="stored"``, eligible answers dropped because the file held
+    #: no verified material for their arm, counted over the whole pool before
+    #: ``--bases`` sampling; scoring them without it would mix the two settings.
     n_without_context: int = 0
     #: With ``context="stored"``, per arm: eligible answers kept (material
-    #: verified) and dropped (none), before ``--bases`` sampling.
+    #: verified) and dropped (none), before ``--bases`` sampling, and the bases
+    #: sampled from the kept ones.
     by_arm: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
     @property
@@ -358,9 +360,11 @@ class ValidityReport:
             f"  tie rate     : {s['tie_rate']:.3f}   (saturated scale if high)",
             f"  no-op pairs  : {sum(s['n_noop'].values())} dropped (degradation left the text unchanged)",
             *(["  context      : stored treatment material (as the arms run judged)"
-               + (f"; {s['n_without_context']} bases dropped, no verified material"
+               + (f"; {s['n_without_context']} answers without verified material "
+                  "(counted before --bases sampling)"
                   if s["n_without_context"] else "")] if s.get("context") == "stored" else []),
-            *([f"  per arm      : {a}: {c['kept']} kept, {c['dropped']} dropped"
+            *([f"  per arm      : {a}: {c['kept']} kept, {c['dropped']} dropped, "
+               f"{c.get('sampled', 0)} bases sampled"
                for a, c in s["by_arm"].items()] if s.get("context") == "stored" else []),
         ]
         if s["mode"] == "sequential":

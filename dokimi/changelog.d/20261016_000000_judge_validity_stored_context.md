@@ -9,8 +9,11 @@
 
 ### Changed
 
-- **`cross-judge --validity` matches a report by judge and context** — a report
-  is applied to a measure only when both the judge label and the context
-  (`stored` or `none`) agree, so a no-context validity report no longer gates a
-  judge that read the stored material. `cross-judge --judges` re-scores with the
+- **`cross-judge --validity` matches a PASS by judge and context** — a passing
+  report validates a measure only when both the judge label and the context
+  (`stored` or `none`) agree, so a no-context PASS no longer validates a judge
+  that read the stored material. A FAIL still silences every measure of that
+  judge in any context. Reports without a `context` key (written before this
+  change) count as `none`, and a stored measure whose scores fell back to
+  snippets is `none` too. `cross-judge --judges` re-scores with the
   stored material.

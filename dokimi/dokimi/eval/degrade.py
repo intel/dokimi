@@ -648,15 +648,22 @@ def build_pairs(
     long_answers_before_store = len(long_answers)
     # Filter by material before sampling if store is provided
     if store is not None:
-        has_material = [row for row in long_answers if store.get(row["question_id"], row["arm"]) is not None]
-        if by_arm is not None:
-            for row in long_answers:
-                counts = by_arm.setdefault(row["arm"], {"kept": 0, "dropped": 0})
-                counts["kept" if row in has_material else "dropped"] += 1
+        # One pass: decide kept or dropped per row and count it there.
+        has_material = []
+        for row in long_answers:
+            ok = store.get(row["question_id"], row["arm"]) is not None
+            if ok:
+                has_material.append(row)
+            if by_arm is not None:
+                counts = by_arm.setdefault(row["arm"], {"kept": 0, "dropped": 0, "sampled": 0})
+                counts["kept" if ok else "dropped"] += 1
         long_answers = has_material
         if dropped is not None:
             dropped["total"] = long_answers_before_store - len(long_answers)
     bases = long_answers[:n_bases]
+    if store is not None and by_arm is not None:
+        for row in bases:
+            by_arm[row["arm"]]["sampled"] += 1
 
     pairs: List[Dict[str, Any]] = []
     for base in bases:
