@@ -275,7 +275,7 @@ class TestJudgeAnswer:
         (["500 ns threshold: contextual (neither universally right nor wrong)"], 95, 95),
         # The answer's figure is the wrong one; the right one is the correction.
         (["8 ms: wrong -> corrected: right"], 95, 40),
-        # A "/" or "," in the figure is not a verdict: these read as on main and still do.
+        # A "/" or "," in the figure is not a verdict: the verdict after the colon is read.
         (["left/right shift by 3: wrong"], 95, 40),
         (["4 KiB, correct alignment assumed: wrong"], 95, 40),
         (["TILE 64 (not wrong): wrong"], 95, 40),
@@ -293,7 +293,7 @@ class TestJudgeAnswer:
         (["x: misleading/incorrect"], 95, 40),
         (["x: dubious, not correct"], 95, 40),
         (["x - not wrong"], 95, 95),
-        # Additional mutations: case-insensitive fallback, trailing punctuation, negation, em-dash
+        # Case-insensitive, trailing punctuation and whitespace, negation, en and em dash.
         (["x: Not Right"], 95, 40),
         (["x: misleading/wrong."], 95, 40),
         (["64 B: WRONG (expected 128)"], 95, 40),
@@ -314,6 +314,26 @@ class TestJudgeAnswer:
         (["x: unverified, right/wrong"], 95, 95),
         (["x: unverified, right, wrong"], 95, 95),
         (["x: dubious, hardly wrong"], 95, 95),
+        (["x: unverified, wrong/right"], 95, 95),
+        (["x: unverified, wrong, right"], 95, 95),
+        (["x: unverified, correct/wrong"], 95, 95),
+        (["x: unverified, correct, wrong"], 95, 95),
+        (["x: dubious, barely wrong"], 95, 95),
+        (["x: dubious, scarcely wrong"], 95, 95),
+        (["x: dubious, seemingly right"], 95, 95),
+        (["x: unverified, possibly wrong"], 95, 95),
+        (["x: dubious, nearly wrong"], 95, 95),
+        (["x: unverified, formerly correct"], 95, 95),
+        (["x: non-wrong"], 95, 95),
+        (["x: semi-correct"], 95, 95),
+        (["x: misleading/wrong!"], 95, 95),
+        # Intensifiers strengthen the verdict; the en dash, a figure-like qualifier and a
+        # trailing space still read.
+        (["x: dubious, entirely wrong"], 95, 40),
+        (["x: dubious, completely wrong"], 95, 40),
+        (["x \u2013 misleading/wrong"], 95, 40),
+        (["x: L2/wrong"], 95, 40),
+        (["x: misleading/wrong "], 95, 40),
         # Figures with separators: the end-anchored pattern finds the real verdict.
         (["ratio 3:1, correct alignment assumed: misleading/wrong"], 95, 40),
         (["ratio 3:1, correct alignment assumed: not right"], 95, 40),
@@ -359,6 +379,7 @@ class TestJudgeAnswer:
         "x: dubious, not incorrect",
         "x - not wrong",
         "x — not wrong",
+        "x \u2013 not wrong",
     ])
     def test_a_qualified_or_negated_verdict_is_read(self, mock_llm, claim):
         """Qualified and negated verdicts: slash-separated qualifiers, trailing commas, and `not` all read correctly."""

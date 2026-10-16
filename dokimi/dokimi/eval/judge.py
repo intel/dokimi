@@ -470,24 +470,28 @@ class Judge:
     _VERDICT = re.compile(
         r"(?::|\s[-\u2013\u2014]|\()\s*(?:[a-z]+ly\s+)?(wrong|incorrect|right|correct)\b", re.I
     )
-    #: A gate to confirm that there is a verdict part after a real separator. The search offset
-    #: is advisory only: the fallback regex's own end-anchor ensures it matches the real verdict
-    #: at the end of the claim, so offset 0 and offset part.start() give the same result.
+    #: Gate for the fallback: the claim must contain a ``:``, `` -`` or ``(`` somewhere (it may be
+    #: inside the figure). The fallback searches the whole claim; its end-anchor, not a start
+    #: offset, is what keeps a ``/`` or ``,`` in the figure from being read as the verdict.
     _VERDICT_PART = re.compile(r":|\s[-\u2013\u2014]|\(")
-    #: For a claim ``_VERDICT`` cannot read, the verdict word must end the claim (no text after it
-    #: except whitespace and closing brackets). A qualifier list (``misleading/wrong``) or a trailing
-    #: clause (``reasonable, not wrong``) ends in the verdict, and ``not`` flips it. Adverbs like
-    #: ``hardly``, ``barely``, ``scarcely`` and ``seemingly`` are hedges, not verdict qualifiers,
-    #: so they keep the claim unread: ``hardly wrong`` does not cap. ``not entirely wrong`` is also
-    #: a hedge: unread. A verdict word with no separator in front stays unread on purpose:
-    #: ``correctly marked as WRONG to claim`` says the answer flagged a bad claim, not that its
-    #: figure is wrong. Separators ``/`` and ``,`` only match after a real separator
-    #: (``:``, ``-``, ``(``) and are rejected if preceded by a verdict word (e.g., ``right/wrong``)
-    #: or if ``/`` is not preceded by a word character (e.g., ``see /wrong``).
+    #: Fallback for a claim ``_VERDICT`` cannot read. The verdict word must end the claim (only
+    #: whitespace, ``.`` and ``)`` may follow) and come after a separator, a ``/`` that follows a
+    #: word character, or a ``,``: a qualifier list (``misleading/wrong``) or a trailing clause
+    #: (``reasonable, not wrong``). ``not`` flips it. A ``/`` or ``,`` right after another
+    #: verdict word (``right/wrong``, ``correct, wrong``) is an alternative, not a verdict, so the
+    #: claim stays unread; ``(?<!correct)`` also covers ``incorrect``. Only the intensifiers in
+    #: ``_INTENSIFIERS`` may qualify the word here; any other ``-ly`` adverb (``hardly``,
+    #: ``possibly``, ``formerly``) hedges or dates the verdict and leaves the claim unread, as
+    #: does a negated adverb (``not entirely wrong``). A verdict word with no separator in front
+    #: stays unread on purpose: ``correctly marked as WRONG to claim`` says the answer flagged a
+    #: bad claim, not that its figure is wrong.
     _QUALIFIED_VERDICT = re.compile(
-        r"(?::|\s[-\u2013\u2014]|\(|(?<=\w)(?<!wrong)(?<!incorrect)(?<!right)(?<!correct)/|(?<!wrong)(?<!incorrect)(?<!right)(?<!correct),)\s*(not\s+)?(?!(?:hardly|barely|scarcely|seemingly|entirely)\s)(?:([a-z]+ly)\s+)?(wrong|incorrect|right|correct)[\s.)]*$",
+        r"(?::|\s[-\u2013\u2014]|\(|(?<=\w)(?<!wrong)(?<!right)(?<!correct)/|(?<!wrong)(?<!right)(?<!correct),)"
+        r"\s*(not\s+)?(?:([a-z]+ly)\s+)?(wrong|incorrect|right|correct)[\s.)]*$",
         re.I,
     )
+    #: Adverbs that strengthen a fallback verdict instead of hedging it.
+    _INTENSIFIERS = frozenset({"partially", "mostly", "largely", "completely", "totally", "entirely"})
 
     @classmethod
     def _is_wrong_figure(cls, claim: Any) -> Optional[bool]:
@@ -498,13 +502,14 @@ class Judge:
         match = cls._VERDICT.search(text)
         if match is not None:
             return match.group(1).lower() in ("wrong", "incorrect")
-        part = cls._VERDICT_PART.search(text)
-        match = cls._QUALIFIED_VERDICT.search(text, part.start()) if part else None
+        match = cls._QUALIFIED_VERDICT.search(text) if cls._VERDICT_PART.search(text) else None
         if match is None:
             return None
         negated, adverb, word = match.groups()
+        if adverb and (negated or adverb.lower() not in cls._INTENSIFIERS):
+            return None
         if negated:
-            return None if adverb else word.lower() in ("right", "correct")
+            return word.lower() in ("right", "correct")
         return word.lower() in ("wrong", "incorrect")
 
     @classmethod
