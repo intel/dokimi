@@ -572,7 +572,6 @@ def test_cross_judge_judges_refuses_file_without_materials(tmp_path, monkeypatch
 def test_cross_judge_pairwise_with_materials_refuses_comparison(tmp_path, monkeypatch):
     """--pairwise with stored materials refuses to mix judges."""
     import json
-    from dokimi.utils import digest_text
 
     from dokimi.cli import build_parser
     from dokimi.eval import judge as judge_mod
@@ -602,7 +601,6 @@ def test_cross_judge_pairwise_with_materials_refuses_comparison(tmp_path, monkey
 def test_cross_judge_checklist_with_materials_refuses_comparison(tmp_path, monkeypatch):
     """--checklist with stored materials refuses to mix judges."""
     import json
-    from dokimi.utils import digest_text
 
     from dokimi.cli import build_parser
     from dokimi.eval import judge as judge_mod
