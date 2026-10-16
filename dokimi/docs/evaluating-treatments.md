@@ -39,17 +39,21 @@ score saw the stored material, and `judge_context_sources` counts the scores by
 source. The artifact keeps the material: each arm record names its text by digest
 (`judge_context_sha256`) and `judge_materials` holds one copy of each distinct
 text — a skill arm's, identical for every question, is stored once (about 4,500
-characters for the perf skill, +0.3% on an 81-question run). With `cross-judge
---judges`, the judge is given the same text through `JudgeContextStore.from_artifact`,
-which skips any text that does not match its digest. Question ids must be unique
-for this (a question with no id is given a positional one; duplicated ids are
-refused). Scores that fell back to the 200-character report snippets leave the run
-unstamped if all of them did — the protocol runs used before the stamp existed —
-and stamp it `treatment_material.v1+snippet_fallback` if only some did, which pools
-with nothing. A `baseline` arm's empty material always counts as stored, so with a
-baseline arm a fallback gives the mixed stamp. To compare with an older run, written
-before `judge_materials`, run answering and judging again: re-judging that file
-sees only the snippets.
+characters for the perf skill, +0.3% on an 81-question run). For docs arms, the
+material is the retrieved chunks, different for each question and not deduplicated;
+on a synthetic 20-question docs run the artifact grew from 93,209 to 392,852 bytes
+(4.2x). Sharing an arms artifact now shares the skill or doc text itself, so if it
+was private, it is no longer confined to answering. With `cross-judge --judges`,
+the judge is given the same text through `JudgeContextStore.from_artifact`, which
+skips any text that does not match its digest. Question ids must be unique for this
+(a question with no id is given a positional one; duplicated ids are refused).
+Scores that fell back to the 200-character report snippets leave the run unstamped
+if all of them did — the protocol runs used before the stamp existed — and stamp it
+`treatment_material.v1+snippet_fallback` if only some did, which pools with nothing.
+A `baseline` arm's empty material always counts as stored, so with a baseline arm a
+fallback gives the mixed stamp. To compare with an older run, written before
+`judge_materials`, run answering and judging again: re-judging that file sees only
+the snippets.
 
 What this changes is the evidence the judge has, not how well it separates good
 answers from bad ones. On 81 skill-arm answers to the perf golden set (Haiku 4.5

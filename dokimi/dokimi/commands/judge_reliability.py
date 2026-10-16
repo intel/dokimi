@@ -220,7 +220,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     report = CrossJudgeReport(baseline_arm=baseline, require_validated=args.require_validated)
-    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
 
     if not args.no_stored and isinstance(data, dict) and (m := stored_measure(data)):
         # Re-scored judges get the file's judge_materials; pairwise and checklist
@@ -228,28 +228,23 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         # the comparison to prevent mixing a change of judge with a change of input.
         unrepro: set[str] = set()
 
-        # Check pairwise/checklist first: they always refuse stored material
+        # Pairwise and checklist judges see only answers, so stored material makes them incompatible
         if args.pairwise or args.checklist:
             unrepro.update(unreproducible_arms(data))
-
-        # Check --judges: validate that every stored score's material can be read back
-        if args.judges:
-            # Also check pairwise/checklist refuse --judges combination
-            if args.pairwise or args.checklist:
-                unrepro.update(unreproducible_arms(data))
-            else:
-                gate_store = JudgeContextStore.from_artifact(data)
-                unrepro.update(unreproducible_arms(data, with_material=True))
-                # Additional check: require that every stored non-baseline score is resolvable.
-                for ev in data.get("evaluations") or []:
-                    if not isinstance(ev, dict):
-                        continue
-                    for arm, s in (ev.get("scores") or {}).items():
-                        if (isinstance(s, dict) and s.get("judge_context_source") == "stored"
-                                and arm != baseline):
-                            qid = ev.get("question_id")
-                            if qid is not None and gate_store.get(qid, arm) is None:
-                                unrepro.add(arm)
+        # Cross-judge with --judges validates that stored material is preserved in the file
+        elif args.judges:
+            gate_store = JudgeContextStore.from_artifact(data)
+            unrepro.update(unreproducible_arms(data, with_material=True))
+            # Require that every stored non-baseline score's material is resolvable.
+            for ev in data.get("evaluations") or []:
+                if not isinstance(ev, dict):
+                    continue
+                for arm, s in (ev.get("scores") or {}).items():
+                    if (isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
+                            and arm != baseline):
+                        qid = ev.get("question_id")
+                        if not isinstance(qid, (str, int)) or gate_store.get(qid, arm) is None:
+                            unrepro.add(arm)
 
         if unrepro:
             print(f"Error: the stored judge saw treatment material for {', '.join(sorted(unrepro))} that the "

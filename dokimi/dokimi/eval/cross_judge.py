@@ -158,10 +158,10 @@ def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) ->
     The arms run stores its judge's view of treatment material in ``judge_materials``
     (:mod:`dokimi.eval.judge_context`). ``cross-judge --judges`` gives its judge
     that same material by using the artifact's ``judge_materials``. Pairwise and
-    checklist judges see the answers alone. In review, a judge given the full
-    material (11,079 chars) on the perf skill arm read +24.2 (p 0.0006) one way and
-    +1.4 (p 0.65) the other than one seeing only the 28-char snippet. A baseline
-    arm has no material, so all judges see the same thing.
+    checklist judges see the answers alone. In review, the same judge on the same
+    answers read +24.2 (p 0.0006) with the full material (11,079 chars) and +1.4
+    (p 0.65) with the 28-char snippet. A baseline arm has no material, so all judges
+    see the same thing.
     """
     kinds = {}
     for r in data.get("answers") or []:

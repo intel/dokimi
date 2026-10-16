@@ -215,7 +215,10 @@ class JudgeContextStore:
         if not isinstance(materials, dict):
             return store
         bad = 0
-        for record in data.get("answers") or []:
+        answers = data.get("answers") if isinstance(data, dict) else None
+        if not isinstance(answers, list):
+            return store
+        for record in answers:
             if not isinstance(record, dict):
                 bad += 1
                 continue
