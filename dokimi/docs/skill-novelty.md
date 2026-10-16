@@ -236,9 +236,17 @@ for what each output means.
 ### 1. Whole-artifact triage
 
 ```bash
-python cli.py novelty analyze --artifact skill:path/to/skill --model claude-opus-5 \
-    --judge-model gpt-5.6-luna [--include-resources]
+python cli.py novelty analyze --artifact skill:path/to/skill \
+    --model claude-opus-5-5 --provider anthropic \
+    --judge-model gpt-6.1-sol --judge-provider openai [--include-resources]
 ```
+
+With no `--judge-model`/`--judge-provider`, the judge is `anthropic/claude-sonnet-5-5`
+whatever `--provider` is; a Bedrock-only run adds `--judge-provider amazon-bedrock`.
+`--judge-provider` alone takes the default judge that runs on that provider; when none
+does (measuring `claude-sonnet-5-5` with `--judge-provider amazon-bedrock`, or the
+default `gpt-6.1-sol` with `--judge-provider openai`) the run exits and asks for
+`--judge-model`.
 
 Without `--include-resources` this measures `SKILL.md` alone and prints, before spending
 anything, what share of the artifact that leaves out — see

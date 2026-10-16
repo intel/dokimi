@@ -628,7 +628,7 @@ tasks = []
 
 [[matrix.cells]]
 id = "arms-runner"
-model = "gpt-4o-mini"
+model = "gpt-6.1-sol"
 provider = "openai"
 harness = "arms-runner"
 plugins = []

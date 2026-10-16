@@ -50,8 +50,10 @@ compared. See [external-content.md](external-content.md).
 Defaults:
 
 - output: `results/<target>_final/`
-- answer model: `openai/gpt-5.5`
-- judge model: `anthropic/claude-sonnet-4-5-20250929`
+- answer model: `openai/gpt-6.1-sol`
+- judge model: `anthropic/claude-sonnet-5-5`
+  (changed 2026-10-13: not comparable with older baselines; re-baseline, see
+  [Default models](benchmarking-and-comparison.md#default-models))
 - retrieval: semantic-only, `top_k=3`
 - comparison: `without_docs` vs `with_docs`
 
@@ -70,8 +72,8 @@ results/<target>_final/
 
 ```bash
 python cli.py benchmark run --target onetbb --questions-root <content-checkout>/questions --output-dir results/onetbb_seed
-python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-5.1
-python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model claude-sonnet-4-5-20250929 --provider anthropic
+python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-6-astra
+python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model claude-opus-5-5 --provider anthropic
 ```
 
 Never compare models on different generated questions. `--questions-from` reuses

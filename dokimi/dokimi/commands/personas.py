@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.personas.analyzer import PersonaAnalyzer
 from dokimi.personas.generator import PersonaGenerator
 
@@ -115,8 +116,8 @@ def register(sub, positive_int) -> None:
     discover_p.add_argument("--description", default=None, help="Plain-text product description (used when --repo is not available).")
     discover_p.add_argument("--output", default=None, help="Output file (default: personas/{product}.json)")
     discover_p.add_argument("--count", type=int, default=5, help="Target number of personas (5-8)")
-    discover_p.add_argument("--model", default="gpt-4o-mini", help="LLM model for generation")
-    discover_p.add_argument("--provider", default="openai", choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    discover_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL, help="LLM model for generation")
+    discover_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
     discover_p.add_argument("--github-token", default=None, help="GitHub token (or set GITHUB_TOKEN env)")
     discover_p.add_argument("--save-analysis", action="store_true", help="Save intermediate analysis JSON")
     discover_p.set_defaults(func=cmd_personas_discover)

@@ -107,7 +107,7 @@ def test_load_matrix_cells_accepts_matrix_block(tmp_path):
                 "cells": [
                     {
                         "id": "agent-caveman",
-                        "model": "gpt-4o-mini",
+                        "model": "gpt-6.1-sol",
                         "provider": "openai",
                         "harness": "agent",
                         "plugins": ["plugin:caveman:lite"],
@@ -133,7 +133,7 @@ def test_load_matrix_cells_accepts_object_plugin_descriptors(tmp_path):
                 "cells": [
                     {
                         "id": "agent-caveman",
-                        "model": "gpt-4o-mini",
+                        "model": "gpt-6.1-sol",
                         "provider": "openai",
                         "harness": "agent",
                         "plugins": [

@@ -329,7 +329,7 @@ def register(eval_sub, positive_int) -> None:
     cj.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json)")
     cj.add_argument("--judges", default=None,
                     help="Comma-separated provider/model judges to re-score with, e.g. "
-                         "amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0,amazon-bedrock/openai.gpt-oss-120b-1:0")
+                         "amazon-bedrock/us.anthropic.claude-haiku-5-5,amazon-bedrock/openai.gpt-oss-120b-1:0")
     cj.add_argument("--checklist", action="append", default=None,
                     help="An `eval checklist` JSON to include as a coverage measure (repeatable)")
     cj.add_argument("--pairwise", action="append", default=None,

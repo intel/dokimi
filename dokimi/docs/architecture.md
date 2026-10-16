@@ -150,7 +150,7 @@ time.
 Novelty is a property of the (artifact, model) pair, not of the file — the same
 skill is worth very different amounts to a frontier and to a small model, so the
 model under measurement is always recorded with the result. `--model` defaults to
-`gpt-4o-mini`; pass it explicitly, or the run measures that model instead of the
+`gpt-6.1-sol` (the default answer model); pass it explicitly, or the run measures that model instead of the
 one you meant.
 [skill-novelty.md](skill-novelty.md) is the authoring guide;
 [skill-novelty-evidence.md](skill-novelty-evidence.md) is the study the default

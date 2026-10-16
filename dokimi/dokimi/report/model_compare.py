@@ -916,7 +916,7 @@ def generate_section_report(
             "> python cli.py arms run \\",
             ">   --arms \"baseline,docs\" \\",
             ">   --judge \\",
-            ">   --judge-model claude-sonnet-4-6 \\",
+            ">   --judge-model claude-sonnet-5-5 \\",
             ">   [other parameters]",
             "> ```",
             "> ",

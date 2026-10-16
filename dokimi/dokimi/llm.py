@@ -5,7 +5,7 @@
 
 Usage:
     from dokimi.llm import llm_call
-    text = llm_call("Your prompt", model="gpt-4o-mini", provider="openai")
+    text = llm_call("Your prompt", model="gpt-6.1-sol", provider="openai")
 """
 import os
 import re
@@ -14,6 +14,7 @@ import logging
 from typing import Callable, Optional, Protocol
 
 from dokimi import caching
+from dokimi.defaults import bedrock_profile
 from dokimi.metrics.usage import UsageRecord
 
 logger = logging.getLogger(__name__)
@@ -252,16 +253,32 @@ def _build_litellm_model(model: str, provider: str) -> str:
         # models on Bedrock work fine either way, so this is scoped narrowly).
         if "openai." in model:
             return f"bedrock/converse/{model}"
-        return f"bedrock/{model}"
+        return f"bedrock/{bedrock_profile(model) or model}"
     else:
         return f"{provider}/{model}"
+
+
+def _has_price_entry(litellm_model: str, model: str) -> bool:
+    """Whether litellm's price map has an entry for this model.
+
+    Looks up the routed name (``bedrock/us.anthropic.x``), the name without its
+    route prefixes (``us.anthropic.x``; ``bedrock/converse/openai.x`` ->
+    ``openai.x``) and the caller's bare model name.
+    """
+    from litellm import model_cost
+
+    candidates = {litellm_model, model, litellm_model.rsplit("/", 1)[-1]}
+    if "/" in litellm_model:
+        candidates.add(litellm_model.split("/", 1)[1])
+    return any(c in model_cost for c in candidates)
 
 
 def _safe_completion_cost(resp, model: str, litellm_model: Optional[str] = None) -> Optional[float]:
     """Dollar cost of a completion via litellm, or ``None`` if no pricing.
 
     A missing price is logged once per model and returns ``None`` — distinct
-    from a genuinely free ``0.0`` call.
+    from a genuinely free ``0.0`` call. A ``0.0`` for a model that is not in
+    litellm's price map is a missing price too, not a free call.
 
     ``litellm_model`` is the provider-prefixed model string (e.g.
     ``vertex_ai/claude-3-5-haiku@20241022``). Passing it is required for
@@ -278,7 +295,13 @@ def _safe_completion_cost(resp, model: str, litellm_model: Optional[str] = None)
         cost = completion_cost(**kwargs)
         if cost is None:
             raise ValueError("completion_cost returned None")
-        return float(cost)
+        cost = float(cost)
+        # litellm prices a model it has no entry for at 0.0 when the provider
+        # route is known (claude-sonnet-5-5 on litellm 1.104), which would read
+        # as a valid $0 total. Only a model in the price map can cost $0.
+        if cost == 0.0 and not _has_price_entry(litellm_model or model, model):
+            raise ValueError("model is not in litellm's price map")
+        return cost
     except Exception as exc:
         if model not in _COST_UNKNOWN_LOGGED:
             _COST_UNKNOWN_LOGGED.add(model)
@@ -364,7 +387,7 @@ def llm_call(
 
     Args:
         prompt: User prompt string.
-        model: Model name (e.g. "gpt-4o-mini", "claude-3-5-sonnet-20241022").
+        model: Model name (e.g. "gpt-6.1-sol", "claude-sonnet-5-5").
         provider: Provider name — "openai", "anthropic", "openrouter", "bedrock".
         api_key: Optional API key (falls back to env var).
         max_retries: Max retry attempts on transient errors (default 3).

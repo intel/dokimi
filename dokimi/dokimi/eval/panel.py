@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from dokimi.eval.diagnoser import retrieval_hit
 from dokimi.llm import llm_call
+from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 
 logger = logging.getLogger(__name__)
 
@@ -245,8 +246,8 @@ class JudgePanel:
     def __init__(
         self,
         judges: Optional[List[JudgeConfig]] = None,
-        default_model: str = "gpt-4o-mini",
-        default_provider: str = "openai",
+        default_model: str = DEFAULT_JUDGE_MODEL,
+        default_provider: str = DEFAULT_JUDGE_PROVIDER,
         concurrency: int = 6,
         temperature: Optional[float] = None,
         seed: Optional[int] = None,
@@ -484,7 +485,8 @@ class JudgePanel:
 
     def evaluate_answers(self, answers: List[Dict[str, Any]], library_name: str,
                          output_path: Optional[Path] = None,
-                         limit: Optional[int] = None) -> List[Dict[str, Any]]:
+                         limit: Optional[int] = None,
+                         run_metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         if limit:
             answers = answers[:limit]
         results = []
@@ -513,7 +515,7 @@ class JudgePanel:
                 "retrieval_hit": retrieval_hit(answer),
             })
             if output_path:
-                _save_incremental(results, output_path, library_name, self)
+                _save_incremental(results, output_path, library_name, self, run_metadata)
         return results
 
 
@@ -554,7 +556,7 @@ def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
 
 
 def _save_incremental(results: List[Dict], path: Path, library_name: str,
-                      panel: JudgePanel) -> None:
+                      panel: JudgePanel, run_metadata: Optional[Dict[str, Any]] = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     output = {
@@ -571,6 +573,8 @@ def _save_incremental(results: List[Dict], path: Path, library_name: str,
         "total_evaluations": len(results),
         "evaluations": results,
     }
+    if run_metadata:
+        output["run_metadata"] = run_metadata
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2)
     os.replace(tmp, path)
