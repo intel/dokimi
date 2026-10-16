@@ -146,7 +146,9 @@ def test_unknown_job_id_is_an_error(env: dict[str, Any], capsys: Any) -> None:
     """A stale --jobs id fails before anything runs instead of being skipped."""
     assert cl.run(ns(jobs="a,lint")) == 2
     assert not env["calls"]
-    assert "unknown job id(s) lint" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "unknown job id(s) lint" in out
+    assert "make hooks" in out
     cl.run(ns(jobs="a,semgrep"))  # the semgrep pseudo-job is known
     assert env["calls"] and "unknown job id" not in capsys.readouterr().out
 
