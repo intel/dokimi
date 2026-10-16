@@ -59,16 +59,26 @@ def sh(argv, cwd, timeout=1200, split=False):
     return (p.returncode, p.stdout, p.stderr) if split else (p.returncode, p.stdout + p.stderr)
 
 
-def git(ws, *args):
-    return sh(["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", *args], ws)
+def git(ws, *args, split=False):
+    return sh(["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", *args], ws, split=split)
 
 
 def changed_files(ws, start):
-    _, committed = git(ws, "diff", "--name-only", start, "HEAD")
-    _, dirty = git(ws, "status", "--porcelain", "--untracked-files=all")
-    files = set(committed.split())
-    for line in dirty.splitlines():
-        files.add(line[3:].split(" -> ")[-1])
+    """Paths changed since *start*: committed, staged, unstaged and untracked.
+
+    Read NUL-separated (``-z``): plain output C-quotes a path with spaces or non-ASCII
+    characters, which would then match neither the artifact patterns nor the committed list.
+    """
+    _, committed, _ = git(ws, "diff", "--name-only", "-z", start, "HEAD", split=True)
+    _, dirty, _ = git(ws, "status", "--porcelain", "-z", "--untracked-files=all", split=True)
+    files = set(committed.split("\0"))
+    entries = iter(dirty.split("\0"))
+    for entry in entries:
+        if len(entry) < 4:
+            continue
+        files.add(entry[3:])
+        if "R" in entry[:2] or "C" in entry[:2]:   # a rename or copy: its source path is the next entry
+            next(entries, None)
     return sorted(f for f in files if f)
 
 

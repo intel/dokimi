@@ -38,7 +38,7 @@ def _make_scores(value: float = 80.0) -> dict:
 
 def _make_vote(role="technical_expert", agg=80.0, error=None) -> JudgeVote:
     return JudgeVote(
-        role=role, model="gpt-4o-mini", provider="openai",
+        role=role, model="gpt-6.1-sol", provider="openai",
         scores=_make_scores(agg), reasoning="ok", aggregate=agg, error=error,
     )
 
@@ -165,7 +165,7 @@ FAKE_LLM_RESPONSE = json.dumps({
 
 def test_call_judge_success():
     panel = JudgePanel()
-    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    cfg = JudgeConfig(role="technical_expert", model="gpt-6.1-sol", provider="openai")
     with patch("dokimi.eval.panel.llm_call", return_value=FAKE_LLM_RESPONSE):
         vote = panel._call_judge(cfg, "How to use TBB?", "Use parallel_for.", "oneTBB", "")
     assert vote.error is None
@@ -177,7 +177,7 @@ def test_call_judge_success():
 def test_call_judge_clamps_scores():
     """Scores outside 0-100 should be clamped."""
     panel = JudgePanel()
-    cfg = JudgeConfig(role="developer_advocate", model="gpt-4o-mini", provider="openai")
+    cfg = JudgeConfig(role="developer_advocate", model="gpt-6.1-sol", provider="openai")
     out_of_range = json.dumps({
         "reasoning": "test", "correctness": 150, "completeness": -10,
         "specificity": 80, "code_quality": 80, "actionability": 80,
@@ -190,7 +190,7 @@ def test_call_judge_clamps_scores():
 
 def test_call_judge_error_returns_error_vote():
     panel = JudgePanel()
-    cfg = JudgeConfig(role="doc_reviewer", model="gpt-4o-mini", provider="openai")
+    cfg = JudgeConfig(role="doc_reviewer", model="gpt-6.1-sol", provider="openai")
     with patch("dokimi.eval.panel.llm_call", side_effect=RuntimeError("API down")):
         vote = panel._call_judge(cfg, "q", "a", "oneTBB", "")
     assert vote.error == "API down"
@@ -201,7 +201,7 @@ def test_call_judge_error_returns_error_vote():
 
 def test_evaluate_runs_all_judges():
     panel = JudgePanel(judges=[
-        JudgeConfig("technical_expert", "gpt-4o-mini", "openai"),
+        JudgeConfig("technical_expert", "gpt-6.1-sol", "openai"),
         JudgeConfig("developer_advocate", "claude-sonnet-4", "anthropic"),
         JudgeConfig("doc_reviewer", "gemini-2.0-flash", "google"),
     ])
@@ -302,7 +302,7 @@ def test_panel_judges_real_answerer_output_with_question_and_context(tmp_path):
         prompts.append(prompt)
         return FAKE_LLM_RESPONSE
 
-    panel = JudgePanel(judges=[JudgeConfig("doc_reviewer", "gpt-4o-mini", "openai")])
+    panel = JudgePanel(judges=[JudgeConfig("doc_reviewer", "gpt-6.1-sol", "openai")])
     with patch("dokimi.eval.panel.llm_call", side_effect=fake_llm):
         results = panel.evaluate_answers(data["answers"], library_name="oneTBB")
 

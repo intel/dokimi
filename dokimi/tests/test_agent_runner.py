@@ -260,12 +260,9 @@ def test_failed_call_keeps_the_tool_usage_so_far(monkeypatch):
         return _FakeResp(loop_step)
 
     monkeypatch.setattr(ar_mod, "chat_completion", fake)
-    try:
+    with pytest.raises(RuntimeError, match="provider refused") as exc:
         run_agent_loop("q", [tool], model="m", max_iterations=3)
-    except RuntimeError as exc:
-        assert exc.tool_usage["called_tools"] == ["search_documentation"]
-    else:
-        raise AssertionError("expected the provider error to propagate")
+    assert exc.value.tool_usage["called_tools"] == ["search_documentation"]
 
 
 def test_agent_loop_unknown_tool_is_handled(monkeypatch):

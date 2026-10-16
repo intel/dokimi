@@ -109,6 +109,7 @@ nav:
       - evaluating-treatments.md
       - tool-preference.md
       - coding-harnesses.md
+      - context-window.md
   - Content novelty:
       - skill-novelty.md
       - skill-novelty-walkthrough.md
@@ -121,6 +122,7 @@ nav:
       - architecture.md
       - contributing-metric.md
       - contributing-terminal-bench-task.md
+      - releasing.md
   - Methodology:
       - methodology.md
       - difficulty-rubric.md

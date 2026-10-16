@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # dokimi's own repository evals
 
 The coding jobs agents are given on this repository, run and graded by dokimi's

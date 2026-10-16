@@ -19,9 +19,13 @@ Differences from CI, all printed as notices:
   Jobs that install the package itself (package-smoke) run in a throwaway venv
   on a copy of the tracked tree instead, so the dev venv stays as CI's.
 - Every step runs even when an earlier one fails, so one failure does not hide
-  the next (CI stops a job at its first failing step).
-- A matrix runs one leg: the dev venv's Python. A notice says so when that is
-  not the Python CI's single-version jobs use.
+  the next (CI stops a job's checks at its first failing step, except
+  `static`, whose steps after the install all run under
+  `if: ${{ !cancelled() }}`).
+- A matrix runs one leg: the dev venv's Python, standing in for the coverage
+  leg too (`matrix.coverage` is true), so the changed-lines gate runs here. A
+  notice says so when that is not the Python CI's single-version jobs use.
+- An unknown --jobs id is an error, not an empty run.
 - Steps that need the network are skipped when PyPI is unreachable or with
   --offline; the docker job runs only with --with-docker.
 - Semgrep Secrets is an org-level check with no workflow file here; it runs as
@@ -60,7 +64,7 @@ WORKFLOWS = REPO / ".github" / "workflows"
 
 # Jobs or steps that cannot run offline. Keyed by job id, or (job id, step name).
 # pre-commit clones its hook repositories on first use.
-NEEDS_NETWORK = {"package-smoke", "pre-commit", ("security", "pip-audit")}
+NEEDS_NETWORK = {"package-smoke", ("static", "pre-commit"), ("static", "pip-audit")}
 NEEDS_DOCKER = {"external-catalog-smoke"}
 # Jobs that `pip install .`: run on a copy of the tree in a throwaway venv.
 ISOLATED = {"package-smoke"}
@@ -178,10 +182,12 @@ class Context:
             "github.event.pull_request.base.ref": base,
             "github.event_name": "pull_request",
             "matrix.python-version": py,
+            "matrix.coverage": "true",
             "runner.temp": str(tmp),
             "github.workspace": str(REPO),
             "needs.changes.outputs.code": "true",
             "contains(github.event.pull_request.labels.*.name, 'schema-break-ok')": "false",
+            "contains(github.event.pull_request.labels.*.name, 'skip-changelog')": "false",
         }
 
     def expand(self, text: str) -> str:
@@ -239,6 +245,13 @@ def make_isolated_env(tmp: Path, py: str) -> tuple[Path, dict]:
 def run(args: argparse.Namespace) -> int:
     py = f"{sys.version_info.major}.{sys.version_info.minor}"
     want = set(args.jobs.split(",")) if args.jobs else None
+    if want is not None:
+        known = {job_id for _, wf in load_workflows() for job_id in wf["jobs"]} | {"semgrep"}
+        if unknown := sorted(want - known):
+            print(f"ERROR: unknown job id(s) {', '.join(unknown)}; "
+                  f"the PR workflows have: {', '.join(sorted(known))}. "
+                  f"If this comes from the pre-push hook, re-run make hooks.")
+            return 2
     ci_py, legs = ci_pythons()
     other_py = (f"NOTICE: this venv runs Python {py}, CI's single-version jobs {ci_py}: "
                 "steps conditioned on CI's version are skipped. Re-run `make dev` to "

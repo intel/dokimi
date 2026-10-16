@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Tests for scripts/ci_local.py: synthetic workflows, stubbed subprocess, no network."""
 
 from __future__ import annotations
@@ -137,6 +140,28 @@ def test_pip_install_line_dropped_rest_of_step_runs(env: dict[str, Any]) -> None
     (cl.WORKFLOWS / "x.yml").write_text(wf)
     cl.run(ns())
     assert [c["cmd"][-1].strip() for c in env["calls"]] == ["echo after"]
+
+
+def test_unknown_job_id_is_an_error(env: dict[str, Any], capsys: Any) -> None:
+    """A stale --jobs id fails before anything runs instead of being skipped."""
+    assert cl.run(ns(jobs="a,lint")) == 2
+    assert not env["calls"]
+    out = capsys.readouterr().out
+    assert "unknown job id(s) lint" in out
+    assert "make hooks" in out
+    cl.run(ns(jobs="a,semgrep"))  # the semgrep pseudo-job is known
+    assert env["calls"] and "unknown job id" not in capsys.readouterr().out
+
+
+def test_the_local_leg_is_the_coverage_leg(env: dict[str, Any]) -> None:
+    """Steps gated on matrix.coverage run locally, whatever the venv's Python."""
+    wf = ("on: pull_request\njobs:\n  t:\n    steps:\n"
+          "      - env:\n          COVERAGE: ${{ matrix.coverage }}\n        run: echo cov\n"
+          "      - if: github.event_name == 'pull_request' && matrix.coverage\n        run: echo gate\n")
+    (cl.WORKFLOWS / "x.yml").write_text(wf)
+    cl.run(ns())
+    assert [c["cmd"][-1].strip() for c in env["calls"]] == ["echo cov", "echo gate"]
+    assert env["calls"][0]["env"]["COVERAGE"] == "true"
 
 
 PY_WF = """on: pull_request
@@ -288,3 +313,29 @@ def test_resolve_base_reports_missing_and_unrelated_refs(repo: Any) -> None:
     repo("update-ref", "refs/remotes/origin/main", repo("commit-tree", tree, "-m", "other"))
     ref, err = cl.resolve_base("main", "origin")
     assert err and "no merge base" in err and "--remote" in err
+
+
+def test_needs_network_entries_match_real_jobs_and_steps() -> None:
+    """Every tuple in NEEDS_NETWORK names a real job id and step name, catching renames."""
+    workflows = cl.load_workflows()
+    job_ids = {job_id for _, wf in workflows for job_id in wf["jobs"]}
+    step_names_by_job = {}
+    for _, wf in workflows:
+        for job_id, job in wf["jobs"].items():
+            step_names_by_job.setdefault(job_id, set()).update(
+                step.get("name", "") for step in job.get("steps", []) if step.get("name")
+            )
+
+    for entry in cl.NEEDS_NETWORK:
+        if isinstance(entry, str):
+            # Plain job id
+            assert entry in job_ids, f"NEEDS_NETWORK job id '{entry}' does not exist in workflows"
+        else:
+            # (job_id, step_name) tuple
+            job_id, step_name = entry
+            assert job_id in job_ids, f"NEEDS_NETWORK job id '{job_id}' does not exist in workflows"
+            steps = step_names_by_job.get(job_id, set())
+            assert step_name in steps, (
+                f"NEEDS_NETWORK step name '{step_name}' not found in job '{job_id}'. "
+                f"Job has steps: {sorted(steps)}"
+            )

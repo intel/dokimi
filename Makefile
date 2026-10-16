@@ -18,7 +18,7 @@ help:
 	@echo "  make validate-benchmark-spec Validate the benchmark spec schema"
 	@echo "  make dev                     Build .venv (uv, CI's Python, the lock + every CI tool)"
 	@echo "  make ci-local                Run the PR CI steps locally, read from the workflow files"
-	@echo "                               (CI_LOCAL_ARGS='--offline', '--jobs lint,typecheck', '--with-docker')"
+	@echo "                               (CI_LOCAL_ARGS='--offline', '--jobs static,typecheck', '--with-docker')"
 	@echo "  make hooks                   Install a git pre-push hook running the fast offline subset"
 	@echo ""
 	@echo "All targets delegate into $(BENCH_DIR)/."

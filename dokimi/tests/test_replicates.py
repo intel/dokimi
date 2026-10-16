@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Replicate handling: pooling, duplicate detection, and report provenance.
 
 A "replicate" is a rerun of an identical configuration — same answer model,

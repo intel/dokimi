@@ -22,7 +22,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # Default registry bundled with the package
-_DEFAULT_INTENTS = Path(__file__).parent.parent / "intents.yaml"
+_DEFAULT_INTENTS = Path(__file__).parent / "intents.yaml"
 
 
 @dataclass

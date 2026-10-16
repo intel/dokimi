@@ -7,11 +7,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from pathlib import Path
 
+from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
+
 PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"]
+
+
+class CutBeforeToolCall(RuntimeError):
+    """A reply cut at ``max_tokens`` before any tool call: billed in full, so it carries its usage."""
+
+    def __init__(self, message: str, usage: dict):
+        super().__init__(message)
+        self.usage = usage
 
 
 def _first_turn_caller(model: str, provider: str, max_tokens: int):
@@ -26,18 +37,31 @@ def _first_turn_caller(model: str, provider: str, max_tokens: int):
         t0 = time.time()
         resp = chat_completion(item["messages"], model=model, provider=provider, tools=item["tools"],
                                tool_choice="auto", max_tokens=max_tokens)
-        msg = resp.choices[0].message
-        calls = getattr(msg, "tool_calls", None) or []
-        # an empty or missing name is kept as "": a call was made, to no tool on offer
-        names = [getattr(getattr(tc, "function", None), "name", None) or "" for tc in calls]
-        truncated = getattr(resp.choices[0], "finish_reason", None) in _TRUNCATED
-        if not calls and truncated:
-            raise RuntimeError(f"reply cut at max_tokens={max_tokens} before any tool call")
-        usage = _extract_usage(resp, model, provider, latency_sec=time.time() - t0)
-        return {"called": names, "text": getattr(msg, "content", None) or "",
-                "usage": usage.as_metrics_dict(), "truncated": truncated}
+        usage = _extract_usage(resp, model, provider, latency_sec=time.time() - t0).as_metrics_dict()
+        try:
+            msg = resp.choices[0].message
+            calls = getattr(msg, "tool_calls", None) or []
+            # an empty or missing name is kept as "": a call was made, to no tool on offer
+            names = [getattr(getattr(tc, "function", None), "name", None) or "" for tc in calls]
+            truncated = getattr(resp.choices[0], "finish_reason", None) in _TRUNCATED
+            if not calls and truncated:
+                raise CutBeforeToolCall(f"reply cut at max_tokens={max_tokens} before any tool call", usage)
+            return {"called": names, "text": getattr(msg, "content", None) or "",
+                    "usage": usage, "truncated": truncated}
+        except CutBeforeToolCall:
+            raise
+        except Exception as exc:
+            exc.usage = usage  # type: ignore[attr-defined]
+            raise
 
     return call
+
+
+def _positive_usd(value: str) -> float:
+    usd = float(value)
+    if not math.isfinite(usd) or usd <= 0:
+        raise argparse.ArgumentTypeError(f"must be > 0, got {value}")
+    return usd
 
 
 def _print_summary(summary: dict) -> None:
@@ -76,7 +100,8 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     items = tp.build_items(doc, factors)
     n_pair = sum(i["kind"] == "pair" for i in items)
     print(f"{len(doc['groups'])} groups -> {len(items)} items ({n_pair} pair, {len(items) - n_pair} control)"
-          f" x {args.reps} reps = {len(items) * args.reps} calls")
+          f" x {args.reps} reps = {len(items) * args.reps} calls"
+          + (f", stopping at ${args.max_cost_usd:g}" if args.max_cost_usd else ""))
     if args.items_out:
         Path(args.items_out).write_text(json.dumps(items, indent=1), encoding="utf-8")
         print(f"items -> {args.items_out}")
@@ -90,18 +115,30 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
             print(f"  {done}/{total}", file=sys.stderr, flush=True)
 
     results = tp.run_probe(items, _first_turn_caller(args.model, args.provider, args.max_tokens),
-                           reps=args.reps, concurrency=args.concurrency, on_progress=progress)
+                           reps=args.reps, concurrency=args.concurrency, on_progress=progress,
+                           max_cost_usd=args.max_cost_usd)
     data = tp.payload(doc, items, results, model=args.model, provider=args.provider,
-                      reps=args.reps, factors=factors, max_tokens=args.max_tokens)
+                      reps=args.reps, factors=factors, max_tokens=args.max_tokens,
+                      max_cost_usd=args.max_cost_usd)
     save_artifact("tool_preference", data, args.out_json)
     _print_summary(data["summary"])
     u = data["usage"]
     print(f"cost: {u['cost_usd']} USD over {u['n_calls']} calls ({u['cost_known_calls']} priced)")
     print(f"-> {args.out_json}")
+    if args.max_cost_usd and u["cost_known_calls"] < u["n_calls"] and data["summary"]["n_skipped"] == 0:
+        print(f"Warning: {u['n_calls'] - u['cost_known_calls']} call(s) had no price and did not count "
+              f"toward --max-cost-usd", file=sys.stderr)
     if data["summary"]["n_calls"] and data["summary"]["n_errors"] == data["summary"]["n_calls"]:
         first = next(r["error"] for r in results if r["error"])
         print(f"Error: all {len(results)} call(s) failed ({first}); see results[].error in {args.out_json}",
               file=sys.stderr)
+        raise SystemExit(2)
+    if data["summary"]["n_skipped"]:
+        why = (f"--max-cost-usd {args.max_cost_usd:g} reached"
+               if u["cost_known_calls"] == u["n_calls"]
+               else "a call came back with no price, so --max-cost-usd cannot be enforced")
+        print(f"Error: {why}; {data['summary']['n_skipped']} of {len(results)} call(s) not run, "
+              f"the summary covers the rest. See {args.out_json}", file=sys.stderr)
         raise SystemExit(2)
 
 
@@ -117,7 +154,7 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     pref_p.add_argument("--groups", required=True,
                         help="tool_preference_groups.v1 JSON: requests with twin tools and distractors")
     pref_p.add_argument("--model", help="Model under test")
-    pref_p.add_argument("--provider", default="openai", choices=PROVIDERS)
+    pref_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
     pref_p.add_argument("--factors", default=None,
                         help="Comma list of factors (default: vendor_name,assertive,social_proof,long_desc,exclusion)")
     pref_p.add_argument("--reps", type=positive_int, default=3,
@@ -125,6 +162,9 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     pref_p.add_argument("--max-tokens", type=positive_int, default=2048, dest="max_tokens",
                         help="Per call; reasoning models spend part of it before the tool call (default: 2048)")
     pref_p.add_argument("--concurrency", type=positive_int, default=8)
+    pref_p.add_argument("--max-cost-usd", type=_positive_usd, default=None, dest="max_cost_usd",
+                        help="Start no new call once the priced calls have spent this much; the rest are "
+                             "recorded as skipped and the command exits 2 (default: no cap)")
     pref_p.add_argument("--out-json", default="tool_preference.json", dest="out_json")
     pref_p.add_argument("--items-out", default=None, dest="items_out",
                         help="Also write the expanded items (messages + tools per item) here")

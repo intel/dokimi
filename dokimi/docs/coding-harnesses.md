@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Coding Harnesses And Task Runs
 
 Executable task runs measure whether an agent can do the work, not only answer
@@ -628,7 +633,7 @@ tasks = []
 
 [[matrix.cells]]
 id = "arms-runner"
-model = "gpt-4o-mini"
+model = "gpt-6.1-sol"
 provider = "openai"
 harness = "arms-runner"
 plugins = []
