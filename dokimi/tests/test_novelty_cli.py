@@ -51,6 +51,35 @@ def test_measuring_the_default_judge_moves_the_judge_to_the_other_family(model):
     assert (judge.model, judge.provider) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
 
 
+def test_a_judge_provider_alone_picks_the_default_judge_that_runs_there():
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--judge-provider", "amazon-bedrock")
+    extractor, _answerer, judge = novelty_cmd._clients(args)
+    assert (judge.model, judge.provider) == (DEFAULT_JUDGE_MODEL, "amazon-bedrock")
+    assert (extractor.model, extractor.provider) == (DEFAULT_JUDGE_MODEL, "amazon-bedrock")
+
+
+def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured():
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", DEFAULT_JUDGE_MODEL,
+                  "--provider", "anthropic", "--judge-provider", DEFAULT_GENERATOR_PROVIDER)
+    _extractor, _answerer, judge = novelty_cmd._clients(args)
+    assert (judge.model, judge.provider) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
+
+
+@pytest.mark.parametrize("argv", [
+    # Measuring the default judge leaves only the generator, which Bedrock and anthropic
+    # do not serve: the swap must not build bedrock/gpt-6.1-sol or anthropic/gpt-6.1-sol.
+    ("--model", f"us.anthropic.{DEFAULT_JUDGE_MODEL}", "--provider", "amazon-bedrock",
+     "--judge-provider", "amazon-bedrock"),
+    ("--model", DEFAULT_JUDGE_MODEL, "--provider", "anthropic", "--judge-provider", "anthropic"),
+    # The default answerer is the generator, so openai has no default judge left either.
+    ("--judge-provider", "openai"),
+])
+def test_a_judge_provider_with_no_default_judge_there_exits(argv):
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", *argv)
+    with pytest.raises(SystemExit, match="--judge-model"):
+        novelty_cmd._clients(args)
+
+
 def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():
     args = _parse("novelty", "analyze", "--artifact", "skill:x", "--provider", "openrouter",
                   "--judge-model", "j")
