@@ -162,8 +162,9 @@ The full path with reading notes: [skill-novelty-walkthrough.md](dokimi/docs/ski
 | 4. Does the guidance change task outcomes? | `dokimi repo run … --arm guidance:none` and again with `--arm guidance:raw`, one batch each | needs the repository's own tasks |
 
 With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
-guidance globs (`**/AGENTS.md`, `**/CLAUDE.md`,
-`.github/copilot-instructions.md`, `.github/instructions/*.md`) and say so.
+guidance globs (`<repo>/**/AGENTS.md`, `<repo>/**/CLAUDE.md`,
+`<repo>/.github/copilot-instructions.md`, `<repo>/.github/instructions/*.md`)
+and say so.
 To choose the files, write a guidance-only manifest outside the tree and pass
 it with `--manifest-file`:
 
