@@ -1582,3 +1582,54 @@ def test_a_lone_surrogate_in_material_is_hashed_not_fatal():
     data = {"answers": [{"question_id": "q1", "arms": {"docs": {"judge_context_sha256": digest}}}],
             "judge_materials": {digest: text}}
     assert JudgeContextStore.from_artifact(data).get("q1", "docs") == text
+
+
+
+
+def test_dropped_bases_counted_correctly_kills_m3():
+    """M3 mutant: build_pairs store pre-filter disabled.
+    
+    When a base lacks material, it should be filtered before sampling (in build_pairs).
+    This test verifies the dropped count is correct.
+    """
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    # Create store with material only for baseline
+    store = JudgeContextStore()
+    store.put("Q001", "baseline", "")
+    store.put("Q002", "baseline", "")
+    store.put("Q002", "skill", "skill material")
+    # Note: Q001/skill has NO material
+    
+    # Build data
+    data = {
+        "answers": [
+            {
+                "question_id": "Q001",
+                "question_text": "q1",
+                "arms": {
+                    "baseline": {"answer": "b" * 2000},
+                    "skill": {"answer": "s" * 2000}
+                }
+            },
+            {
+                "question_id": "Q002", 
+                "question_text": "q2",
+                "arms": {
+                    "baseline": {"answer": "b" * 2000},
+                    "skill": {"answer": "s" * 2000}
+                }
+            }
+        ]
+    }
+    
+    # Run validity with n_bases=2 - if pre-filter is off, both Q001/skill and Q002/skill
+    # would be sampled and then dropped later. With pre-filter on, Q001/skill is never sampled.
+    report = run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=2,
+                          variants=["truncate_20"], store=store)
+    
+    # With pre-filter on: only 2 bases (Q001/baseline, Q002/baseline, Q002/skill) -> Q001/skill dropped
+    # We should see only baseline arm in rows
+    assert {r.arm for r in report.rows} == {"baseline"}
+    assert report.n_without_context == 1  # Q001/skill was dropped
+

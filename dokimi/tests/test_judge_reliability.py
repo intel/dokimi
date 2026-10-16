@@ -840,3 +840,96 @@ def test_eval_checklist_writes_the_json_before_rendering(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="render failed"):
         args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["summary"]["n_questions"] == 1
+
+
+
+def test_score_measure_context_forced_to_none_kills_m1():
+    """M1 mutant: score_measure context forced to 'none'.
+    
+    A store with only empty materials (baseline) should have context='none', not 'stored'.
+    The old code would mark it as 'stored' because bool(store and store.materials()) is True,
+    but the fix checks any(values) which is False for all-empty materials.
+    """
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    scorer_calls = []
+
+    def scorer(library, question, answer, ground_truth, context):
+        scorer_calls.append(context)
+        return 50.0
+
+    records = [{"question_id": "q1", "question_text": "q?",
+                "arms": {"baseline": {"answer": "a1", "context_chunks": [{"snippet": "snip"}]}}}]
+    
+    # Create a store with only EMPTY material (baseline)
+    store = JudgeContextStore()
+    store.put("q1", "baseline", "")  # Empty material
+    
+    measure = cj.score_measure(records, scorer, name="p/m", library="lib", store=store)
+    
+    # The measure should have context='none' because store has only empty materials
+    assert measure.context == "none", f"Expected context='none', got {measure.context}"
+
+
+def test_cross_judge_with_store_none_kills_m4():
+    """M4 mutant: store=None passed in cross-judge wiring.
+    
+    When score_measure is called without a store (store=None), it should still work
+    and fall back to context_chunks.
+    """
+
+    scorer_calls = []
+
+    def scorer(library, question, answer, ground_truth, context):
+        scorer_calls.append(context)
+        return 50.0
+
+    records = [{"question_id": "q1", "question_text": "q?",
+                "arms": {"skill": {"answer": "a1", "context_chunks": [{"snippet": "chunk1"}, {"snippet": "chunk2"}]}}}]
+    
+    # Call without store
+    measure = cj.score_measure(records, scorer, name="p/m", library="lib", store=None)
+    
+    # Should have context='none' when store is None
+    assert measure.context == "none"
+    # Should use context_chunks as fallback
+    assert "chunk1" in scorer_calls[0]
+
+
+def test_exit_code_2_on_edited_material_kills_m5(tmp_path):
+    """M5 mutant: evaluate.py exit code changed from 2 to 1.
+    
+    When material is edited (digest mismatch), the run should exit with code 2.
+    """
+    import json
+    import subprocess
+
+    # Create answers with mismatched digest
+    answers_data = {
+        "library_name": "L",
+        "answers": [{
+            "question_id": "Q1",
+            "question_text": "q",
+            "arms": {
+                "baseline": {"answer": "base" * 500},
+                "skill": {"answer": "skill" * 500,
+                         "judge_context_sha256": "sha256:wrong_digest"}
+            }
+        }],
+        "judge_materials": {"sha256:correct_digest": "MATERIAL"}
+    }
+    
+    answers_file = tmp_path / "answers.json"
+    answers_file.write_text(json.dumps(answers_data))
+    output_file = tmp_path / "out.json"
+    
+    # Run cross-judge - should exit 2
+    result = subprocess.run([
+        "python", "-m", "dokimi.cli", "eval", "cross-judge",
+        "--answers", str(answers_file),
+        "--judges", "p/m",
+        "--output", str(output_file)
+    ], cwd="/localdisk/napetrov/scratch/prfix-73/dokimi/dokimi")
+    
+    assert result.returncode == 2, f"Expected exit code 2, got {result.returncode}"
+
