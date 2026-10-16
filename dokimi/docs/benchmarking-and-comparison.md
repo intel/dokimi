@@ -84,14 +84,20 @@ Every command takes its models from `dokimi/defaults.py`, and every surface
 
 The judge is a different family from the answerer, so the judge-independence
 warning stays quiet on default flags; answering with `claude-sonnet-5-5` moves the
-novelty judge to `openai/gpt-6.1-sol` and makes the other commands warn. Escalation
+novelty judge to `openai/gpt-6.1-sol` and makes `benchmark`, `eval score`,
+`eval panel-score` and `evaluate` warn (`arms` and `subjects` do not check). Escalation
 judges (`--escalate-model`) have no default; `claude-opus-5-5` ($4 / $20) is the
 natural tie-break above the Sonnet judge. On `--provider amazon-bedrock` the bare
 names `claude-sonnet-5-5`, `claude-opus-5-5` and `claude-haiku-5-5` resolve to the
-`us.anthropic.*` inference profiles of the same name. The `novelty` judge no
+`us.anthropic.*` inference profiles of the same name; outside the US, set
+`ANTHROPIC_DEFAULT_SONNET_MODEL` (or `_OPUS_`/`_HAIKU_`) to the regional profile of
+the same model (`eu.anthropic.claude-sonnet-5-5`), or pass the full profile id or ARN.
+A variable naming another model is ignored for these names. The `novelty` judge no
 longer follows `--provider`: with no judge flags it runs on `anthropic`, so a
 Bedrock-only run passes `--judge-provider amazon-bedrock` (and `atoms`/`shorten`
-`--provider amazon-bedrock`).
+`--provider amazon-bedrock`). `--judge-provider` alone takes the default judge that
+runs there; when none does (measuring `claude-sonnet-5-5` on Bedrock) the run exits
+and asks for `--judge-model`.
 
 **Defaults changed on 2026-10-13: results are not comparable with older baselines;
 re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and
@@ -684,7 +690,11 @@ When the answer or judge model recorded in the baseline differs from the
 current eval's (a Bedrock alias and its inference profile count as one model),
 `compare` prints a warning naming both before the table: the score changes then
 mix the model change with the content change. With `--strict` it exits 1
-instead. A baseline saved before a default-model change is such a baseline.
+instead. A baseline saved before a default-model change is such a baseline. A panel
+artifact (`eval panel-score`) is compared by its set of judge models. A role either
+side does not record (an older artifact, or answers with no model) is named on
+stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
+vouch for that role.
 
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.

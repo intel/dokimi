@@ -226,6 +226,7 @@ These are the earlier measured figures (on `gpt-5.5` + `claude-sonnet-4-5`, ~$13
 scaled by list price, not a new measurement. The defaults changed on 2026-10-13,
 so results from before are not comparable with older baselines; re-baseline — see
 [Default models](benchmarking-and-comparison.md#default-models).
+
 Costs scale roughly linearly with question count. Token counts are recorded
 per answer in `answers/<product>.json`.
 

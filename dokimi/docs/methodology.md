@@ -62,13 +62,13 @@ Outputs are written under `results/<library>/` or the requested `--output-dir`:
 The benchmark separates model responsibilities because self-judging can inflate scores.
 
 - **Generator model**: creates personas and questions. Default `openai/gpt-6.1-sol` on every command.
-- **Answer model**: answers every question in both conditions (`--model`). Default `openai/gpt-6.1-sol` on every command.
+- **Answer model**: answers every question in both conditions (`--model`). Default `openai/gpt-6.1-sol` on every command that has one; `tasks run`, `explore run`, `repo run`, `novelty routing` and `tools preference` have no default `--model`.
 - **Judge model**: scores answers. It should differ from the answer model/provider for stronger evaluator independence. Default `anthropic/claude-sonnet-5-5` on every command.
 - **Panel judges**: optional role-diverse judges for stricter review.
 
 The defaults live in `dokimi/defaults.py` and changed on 2026-10-13; scores from earlier default-flag runs are not comparable with later ones — re-baseline ([Default models](benchmarking-and-comparison.md#default-models)).
 
-The CLI emits a warning when the normalized answer model and judge model match. Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
+`benchmark`, `eval score`, `eval panel-score` and `evaluate` warn when the normalized answer model and judge model match (`arms` and `subjects` do not check). Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
 
 Supported providers in the main pipeline include OpenAI, Anthropic, Google Vertex, OpenRouter, Amazon Bedrock, and OpenAI Codex where wired by the CLI.
 
