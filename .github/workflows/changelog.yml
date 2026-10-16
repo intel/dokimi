@@ -3,8 +3,9 @@
 
 name: changelog
 
-# A PR that changes the package (dokimi/dokimi/**) adds a changelog fragment
-# under dokimi/changelog.d/ instead of editing CHANGELOG.md, so open PRs never
+# A PR that changes the package (dokimi/dokimi/**), dokimi/data/** or what
+# installing it gives a user ([project] and [tool.setuptools] of
+# dokimi/pyproject.toml) adds a changelog fragment under dokimi/changelog.d/ instead of editing CHANGELOG.md, so open PRs never
 # conflict there (dokimi/changelog.d/README.md). The skip-changelog label, for
 # a change with no user-visible effect, turns the check off.
 on:

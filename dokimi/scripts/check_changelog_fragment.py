@@ -5,7 +5,10 @@
 """Fail a PR that changes the dokimi package without a changelog fragment.
 
 Every PR that touches the package (``dokimi/dokimi/**``: code and the data it
-ships) adds its own ``dokimi/changelog.d/<name>.md`` (``scriv create``) instead
+ships), the data it reads from a checkout (``dokimi/data/**``) or what
+``pip install`` does (``[project]`` and ``[tool.setuptools]`` of
+``dokimi/pyproject.toml``: dependencies, Python versions, entry points,
+package-data) adds its own ``dokimi/changelog.d/<name>.md`` (``scriv create``) instead
 of editing CHANGELOG.md, so concurrent PRs never conflict on the same lines.
 At release time ``scriv collect`` folds the fragments into CHANGELOG.md; see
 ``changelog.d/README.md``.
@@ -22,15 +25,26 @@ import argparse
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 PACKAGE = "dokimi/dokimi/"
+NEEDS_FRAGMENT = (PACKAGE, "dokimi/data/")
+PYPROJECT = "dokimi/pyproject.toml"
 FRAGMENTS = "dokimi/changelog.d/"
 NOT_FRAGMENTS = {"README.md"}
 # The template wraps every section in an HTML comment; scriv drops comments, so
 # a fragment committed unedited contributes nothing to the changelog.
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# The template's example bullet, left in under an uncommented category.
+_PLACEHOLDER = re.compile(r"^\s*- \*\*Short bold summary\*\*.*?(?=^\s*$|^\s*[-#]|\Z)",
+                          re.MULTILINE | re.DOTALL)
+
+
+def _git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, check=False)
 
 
 def changed_files(base: str, head: str) -> list[tuple[str, str]]:
@@ -39,19 +53,39 @@ def changed_files(base: str, head: str) -> list[tuple[str, str]]:
     ``--no-renames``: a file moved out of the package shows as a deletion of its
     package path, which is a user-visible change like any other.
     """
-    out = subprocess.run(
-        ["git", "diff", "--no-renames", "--name-status", "--diff-filter=ACDM", f"{base}...{head}"],
-        cwd=REPO, capture_output=True, text=True, check=True,
-    ).stdout
-    pairs = []
-    for line in filter(None, out.splitlines()):
-        status, path = line.split("\t", 1)
-        pairs.append((status, path))
-    return pairs
+    result = _git("diff", "-z", "--no-renames", "--name-status", "--diff-filter=ACDM",
+                  f"{base}...{head}")
+    result.check_returncode()
+    # -z: status NUL path NUL ..., and a non-ASCII path comes back as itself,
+    # not quoted as "caf\303\251".
+    fields = result.stdout.split("\0")
+    return list(zip(fields[0:-1:2], fields[1::2], strict=True))
 
 
-def needs_fragment(changed: list[tuple[str, str]]) -> bool:
-    return any(path.startswith(PACKAGE) for _, path in changed)
+def _install_tables(rev: str) -> tuple[Any, Any]:
+    """``[project]`` (bar the dev extra) and ``[tool.setuptools]`` of pyproject.toml at ``rev``."""
+    shown = _git("show", f"{rev}:{PYPROJECT}")
+    pyproject = tomllib.loads(shown.stdout) if shown.returncode == 0 else {}
+    project = dict(pyproject.get("project", {}))
+    project["optional-dependencies"] = {
+        k: v for k, v in project.get("optional-dependencies", {}).items() if k != "dev"}
+    return project, pyproject.get("tool", {}).get("setuptools")
+
+
+def pyproject_install_changed(base: str, head: str) -> bool:
+    """True if ``base...head`` changes what installing dokimi gives a user."""
+    fork = _git("merge-base", base, head)
+    fork.check_returncode()
+    return _install_tables(fork.stdout.strip()) != _install_tables(head)
+
+
+def needs_fragment(changed: list[tuple[str, str]], base: str | None = None,
+                   head: str | None = None) -> bool:
+    if any(path.startswith(NEEDS_FRAGMENT) for _, path in changed):
+        return True
+    return (base is not None and head is not None
+            and any(path == PYPROJECT for _, path in changed)
+            and pyproject_install_changed(base, head))
 
 
 def fragment_paths(changed: list[tuple[str, str]]) -> list[str]:
@@ -67,10 +101,11 @@ def fragment_paths(changed: list[tuple[str, str]]) -> list[str]:
 
 
 def has_content(text: str) -> bool:
-    """True if anything but comments and headings is left: an entry, not just a category."""
+    """True if anything but comments, headings and the template's example is left:
+    an entry, not just a category."""
     return any(
         line.strip() and not line.strip().startswith("#")
-        for line in _COMMENT.sub("", text).splitlines()
+        for line in _PLACEHOLDER.sub("", _COMMENT.sub("", text)).splitlines()
     )
 
 
@@ -93,14 +128,16 @@ def main(argv: list[str] | None = None) -> int:
         print("skip-changelog label present: no changelog fragment required.")
         return 0
     changed = changed_files(args.base, args.head)
-    if not needs_fragment(changed):
-        print(f"No changes under {PACKAGE}: no changelog fragment required.")
+    if not needs_fragment(changed, args.base, args.head):
+        print("No change to the package, dokimi/data/ or what pip installs: "
+              "no changelog fragment required.")
         return 0
     if has_fragment(changed):
         print(f"Changelog fragment found in {FRAGMENTS}.")
         return 0
     print(
-        f"::error::This PR changes {PACKAGE} but adds no changelog fragment (or only the "
+        f"::error::This PR changes {PACKAGE}, dokimi/data/ or the install metadata of "
+        f"{PYPROJECT} but adds no changelog fragment (or only the "
         "unedited template). Run `scriv create` in dokimi/, uncomment one category in the "
         f"new {FRAGMENTS}<name>.md and write the entry (see {FRAGMENTS}README.md), or ask "
         "a maintainer for the skip-changelog label if the change has no user-visible effect.",

@@ -1,7 +1,10 @@
 # Changelog fragments
 
 A PR that changes the `dokimi` package (anything under `dokimi/dokimi/`: code,
-bundled registries, schemas, profiles) adds one small file here instead of
+bundled registries, schemas, profiles), the data it reads from a checkout
+(`dokimi/data/`) or what `pip install` gives a user (the `[project]` and
+`[tool.setuptools]` tables of `pyproject.toml`: dependencies, supported Python
+versions, entry points, package-data) adds one small file here instead of
 editing `CHANGELOG.md`. Every PR editing the same `## [Unreleased]` lines of one
 file conflicts with every other open PR; one new file per PR never does. The
 directory is managed by [scriv](https://scriv.readthedocs.io/), configured in
@@ -34,11 +37,14 @@ adds two fragments (or two sections in one).
 | `Documentation` | docs-only changes worth announcing |
 
 Commit the fragment in the same PR as the change. The `changelog` workflow
-(`scripts/check_changelog_fragment.py`) fails a PR that touches `dokimi/dokimi/`
-without a fragment that has an entry in it. For a change with no user-visible
-effect (an internal refactor, a test-only or CI-only change inside the package)
-a maintainer adds the `skip-changelog` label instead. Changes outside the
-package (tests, docs, scripts, CI) need no fragment.
+(`scripts/check_changelog_fragment.py`) fails a PR that touches any of these
+without a fragment that has an entry in it (the unedited template, or its
+example bullet left under an uncommented category, does not count). For a
+change with no user-visible effect (an internal refactor, a test-only or CI-only
+change inside the package) a maintainer adds the `skip-changelog` label
+instead. Changes outside them
+(tests, docs, scripts, CI, the `dev` extra and tool settings such as
+`[tool.ruff]` in `pyproject.toml`) need no fragment.
 
 ## Releasing
 

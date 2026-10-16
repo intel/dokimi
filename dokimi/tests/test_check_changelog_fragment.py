@@ -33,6 +33,7 @@ def _write(root: Path, rel: str, text: str) -> None:
 @pytest.mark.parametrize("path, needed", [
     ("dokimi/dokimi/cli.py", True),
     ("dokimi/dokimi/products.yaml", True),        # shipped data is user-visible too
+    ("dokimi/data/explore_tasks/t.yaml", True),   # read by `explore` from a checkout
     ("dokimi/tests/test_cli.py", False),
     ("dokimi/docs/quickstart.md", False),
     ("dokimi/scripts/ci_local.py", False),
@@ -76,6 +77,14 @@ def test_the_unedited_template_has_no_content():
 
 def test_a_bare_category_heading_has_no_content():
     assert not ccf.has_content("### Fixed\n\n<!-- - **x** — y. -->\n")
+
+
+def test_the_template_example_under_an_uncommented_category_has_no_content():
+    example = ("### Added\n\n- **Short bold summary** — the rest of the sentence: what changed,"
+               " for whom,\n  and why it matters. Backtick commands, flags and fields, like\n"
+               "  `dokimi repo run` or `--tasks-root`.\n\n")
+    assert not ccf.has_content(example)
+    assert ccf.has_content(example + "- **Real** — entry.\n")
 
 
 def test_main_exit_codes(monkeypatch, capsys):
@@ -128,6 +137,39 @@ def test_a_change_that_landed_on_main_after_the_fork_is_not_the_prs(repo):
     changed = ccf.changed_files("main", "pr")
     assert changed == [("M", "other.txt")]
     assert not ccf.needs_fragment(changed)
+
+
+def test_a_non_ascii_package_path_is_not_quoted(repo):
+    _write(repo, "dokimi/dokimi/café.yaml", "x: 1\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "accent")
+    assert ccf.changed_files("main", "pr") == [("A", "dokimi/dokimi/café.yaml")]
+
+
+@pytest.mark.parametrize("edit, needed", [
+    ('requires-python = ">=3.12"', True),
+    ('dependencies = ["pyyaml>=6", "httpx"]', True),
+    ('[project.scripts]\ndokimi = "dokimi.cli:run"', True),
+    ('[tool.setuptools.package-data]\ndokimi = ["*.yaml"]', True),
+    ('[project.optional-dependencies]\ndev = ["ruff", "scriv"]', False),  # contributors only
+    ('[tool.ruff]\nline-length = 120', False),
+])
+def test_a_pyproject_change_needs_a_fragment_if_it_changes_the_install(repo, edit, needed):
+    base = ('[project]\nname = "dokimi"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n'
+            'dependencies = ["pyyaml>=6"]\n')
+    _write(repo, "dokimi/pyproject.toml", base)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "pyproject")
+    _git(repo, "branch", "-qf", "main")
+    key = edit.split(" = ")[0]
+    text = "\n".join(line for line in base.splitlines() if not line.startswith(key + " "))
+    _write(repo, "dokimi/pyproject.toml", text + "\n" + edit + "\n")
+    _git(repo, "commit", "-qam", "edit")
+    changed = ccf.changed_files("main", "pr")
+    assert changed == [("M", "dokimi/pyproject.toml")]
+    assert ccf.needs_fragment(changed, "main", "pr") is needed
+    assert not ccf.needs_fragment(changed)   # paths alone never flag pyproject.toml
+    assert ccf.main(["--base", "main", "--head", "pr"]) == int(needed)
 
 
 def test_main_exit_code_against_a_real_repository(repo):
