@@ -181,7 +181,9 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.lock.txt
       # Offline by construction: pytest-socket (addopts in pyproject.toml) fails
-      # any test that opens a network socket. -n auto: one pytest-xdist worker
+      # any test that opens a network socket. --outcomes also checks the user
+      # outcomes in tests/outcomes/: an evidence id that no test claims fails the
+      # job even when every test passes. -n auto: one pytest-xdist worker
       # per CPU. Coverage on the coverage leg only: one report is gated and
       # uploaded, and 3.14 traces through sys.monitoring, where the tracer costs
       # the least (the suite with --cov-branch takes about 40% longer on 3.11-3.13).
@@ -190,9 +192,9 @@ jobs:
           COVERAGE: ${{ matrix.coverage }}
         run: |
           if [ "$COVERAGE" = true ]; then
-            pytest -n auto --cov=dokimi --cov-branch --cov-report=term --cov-report=xml
+            pytest -n auto --outcomes --outcomes-report=outcomes-result.json --cov=dokimi --cov-branch --cov-report=term --cov-report=xml
           else
-            pytest -n auto
+            pytest -n auto --outcomes --outcomes-report=outcomes-result.json
           fi
       # Coverage of the lines this PR changes, not of the whole tree: the total
       # moves too little per PR to gate on, an untested new function does not.
@@ -225,6 +227,7 @@ jobs:
             dokimi/coverage.xml
             dokimi/diff-cover.json
             dokimi/diff-cover.md
+            dokimi/outcomes-result.json
           if-no-files-found: ignore
       # Trend, PR comment and badge. Informational only (codecov.yml): the gate
       # is the changed-lines step above, and a Codecov outage does not fail CI.

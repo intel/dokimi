@@ -84,6 +84,7 @@ def test_cached_questions_skip_generation_and_get_question_set_id(tmp_path, monk
     assert result["steps"]["questions_generated"]["cached"] is True
 
 
+@pytest.mark.outcome("pinned-questions-from")
 def test_questions_from_directory_is_reused_and_normalized(tmp_path, monkeypatch):
     _stub_expensive_steps(monkeypatch)
     questions = [
@@ -179,6 +180,7 @@ def test_missing_golden_set_under_questions_root_warns(tmp_path, caplog):
     assert "has no golden set for demo" in caplog.text
 
 
+@pytest.mark.outcome("pinned-questions-warn")
 def test_no_questions_root_means_no_golden_set(tmp_path, caplog):
     """Without a root (and without --custom-questions) nothing is auto-included.
 
@@ -735,3 +737,448 @@ def test_a_rerun_that_adds_nothing_leaves_the_previous_runs_merge_unchanged(tmp_
     _own_output_pipeline(tmp_path).run(concurrency=1)
 
     assert custom_file.read_bytes() == after_first
+
+
+@pytest.mark.outcome("pinned-questions-root")
+def test_two_runs_on_one_questions_root_answer_the_same_questions(tmp_path, monkeypatch):
+    """Runs into fresh output dirs that share a root answer exactly the golden set.
+
+    Generation is stubbed to return different ids on each call, so a run that
+    still generated (and merged) would hand a different set to the answer step.
+    """
+    golden = [
+        {"id": "g1", "question": "How do I cancel a task_group?"},
+        {"id": "g2", "question": "When does parallel_for split a range?"},
+    ]
+    questions_root = tmp_path / "content" / "questions"
+    _write_json(questions_root / "demo_golden.json", {"questions": golden})
+
+    calls = iter(range(100))
+    answered: list[list[str]] = []
+
+    def generate_questions(self, personas):
+        n = next(calls)
+        return [{"id": f"gen{n}", "question": f"Generated question {n}?", "source_type": "generated"}]
+
+    def generate_answers(self, questions, concurrency=5, question_set_hash=None):
+        answered.append([q["id"] for q in questions])
+        return []
+
+    monkeypatch.setattr(EvaluationPipeline, "_generate_questions", generate_questions)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_answers", generate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_evaluate_answers", lambda self, a, concurrency=5, question_set_hash=None: [])
+    monkeypatch.setattr(EvaluationPipeline, "_generate_report", lambda self, e, q: "report")
+
+    for run in ("run_a", "run_b"):
+        output_dir = tmp_path / run
+        _write_json(output_dir / "personas" / "demo.json", {"personas": []})
+        EvaluationPipeline(
+            product="DemoProduct",
+            product_key="demo",
+            output_dir=output_dir,
+            description="A demo product",
+            questions_root=questions_root,
+        ).run(concurrency=1)
+
+    assert answered == [["g1", "g2"], ["g1", "g2"]]
+
+
+@pytest.mark.outcome("pinned-questions-root")
+def test_empty_golden_set_fails_the_run_and_writes_no_cache(tmp_path, monkeypatch):
+    questions_root = tmp_path / "questions"
+    _write_json(questions_root / "demo_golden.json", {"questions": []})
+    output_dir = tmp_path / "out"
+    _write_json(output_dir / "personas" / "demo.json", {"personas": []})
+    _stub_expensive_steps(monkeypatch)
+    pipeline = EvaluationPipeline(
+        product="DemoProduct",
+        product_key="demo",
+        output_dir=output_dir,
+        description="A demo product",
+        questions_root=questions_root,
+    )
+
+    with pytest.raises(ValueError, match="Golden set is empty"):
+        pipeline.run(concurrency=1)
+
+    assert not pipeline.questions_path.exists()
+
+
+@pytest.mark.outcome("pinned-questions-root")
+def test_cached_set_wins_over_questions_root_until_force_regen(tmp_path, monkeypatch):
+    questions_root = tmp_path / "questions"
+    _write_json(questions_root / "demo_golden.json", {"questions": [{"id": "g1", "question": "Golden?"}]})
+    output_dir = tmp_path / "out"
+    _write_json(output_dir / "personas" / "demo.json", {"personas": []})
+    _write_json(output_dir / "questions" / "demo.json", {"questions": [{"id": "old", "question": "Cached?"}]})
+    answered: list[list[str]] = []
+
+    def generate_answers(self, questions, concurrency=5, question_set_hash=None):
+        answered.append([q["id"] for q in questions])
+        return []
+
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", lambda self: {"personas": []})
+    monkeypatch.setattr(EvaluationPipeline, "_generate_answers", generate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_evaluate_answers", lambda self, a, concurrency=5, question_set_hash=None: [])
+    monkeypatch.setattr(EvaluationPipeline, "_generate_report", lambda self, e, q: "report")
+
+    for force_regen in (False, True):
+        EvaluationPipeline(
+            product="DemoProduct",
+            product_key="demo",
+            output_dir=output_dir,
+            description="A demo product",
+            questions_root=questions_root,
+            force_regen=force_regen,
+        ).run(concurrency=1)
+
+    assert answered == [["old"], ["g1"]]
+
+
+@pytest.mark.outcome("pinned-questions-warn")
+def test_questions_from_does_not_warn_that_questions_are_generated(tmp_path, caplog):
+    source_dir = tmp_path / "source"
+    _write_json(source_dir / "questions" / "demo.json", [{"id": "q1", "question": "Q?"}])
+
+    with caplog.at_level(logging.WARNING):
+        EvaluationPipeline(
+            product="DemoProduct",
+            product_key="demo",
+            output_dir=tmp_path / "out",
+            description="A demo product",
+            questions_from=source_dir,
+        )
+
+    assert "questions will be generated" not in caplog.text
+
+
+@pytest.mark.outcome("pinned-questions-warn")
+def test_cached_questions_differing_from_golden_warns(tmp_path, monkeypatch, caplog):
+    """When cached question ids differ from golden ids, a warning is logged."""
+    _stub_expensive_steps(monkeypatch)
+    questions_root = tmp_path / "questions"
+    output_dir = tmp_path / "out"
+    # Golden set with different ids
+    _write_json(questions_root / "demo_golden.json", [
+        {"id": "g1", "question": "Golden 1?"},
+        {"id": "g2", "question": "Golden 2?"}
+    ])
+    # Cached set with different ids
+    _write_json(output_dir / "questions" / "demo.json", [
+        {"id": "old1", "question": "Old 1?"},
+        {"id": "old2", "question": "Old 2?"}
+    ])
+
+    with caplog.at_level(logging.WARNING):
+        pipeline = EvaluationPipeline(
+            product="DemoProduct",
+            product_key="demo",
+            output_dir=output_dir,
+            description="A demo product",
+            questions_root=questions_root,
+        )
+        pipeline.run(concurrency=1)
+
+    assert "cached question set" in caplog.text
+    assert "hash=" in caplog.text
+    assert "differs from golden set" in caplog.text
+
+
+@pytest.mark.outcome("pinned-questions-reuse")
+def test_golden_pinned_run_skips_persona_discovery(tmp_path, monkeypatch):
+    """With a golden pinned root, persona discovery should not run even if no cache."""
+    _stub_expensive_steps(monkeypatch)
+    questions_root = tmp_path / "questions"
+    output_dir = tmp_path / "out"
+    _write_json(questions_root / "demo_golden.json", [{"id": "g1", "question": "Q?"}])
+
+    discover_personas_called = []
+
+    def track_discover_personas(self):
+        discover_personas_called.append(True)
+        raise AssertionError("persona discovery should be skipped for golden pinned")
+
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", track_discover_personas)
+
+    pipeline = EvaluationPipeline(
+        product="DemoProduct",
+        product_key="demo",
+        output_dir=output_dir,
+        description="A demo product",
+        questions_root=questions_root,
+    )
+    result = pipeline.run(concurrency=1)
+
+    assert not discover_personas_called, "persona discovery should not have been called"
+    assert result["steps"]["personas"]["skipped"] is True
+    # When skipped, path is not set; orchestrate.py checks skipped flag before printing
+    assert "path" not in result["steps"]["personas"], "path should not be set when skipped"
+
+
+@pytest.mark.outcome("pinned-questions-reuse")
+def test_questions_from_run_skips_persona_discovery(tmp_path, monkeypatch):
+    """With --questions-from, persona discovery should not run."""
+    _stub_expensive_steps(monkeypatch)
+    source_dir = tmp_path / "source"
+    output_dir = tmp_path / "out"
+    _write_json(source_dir / "questions" / "demo.json", [{"id": "q1", "question": "Q?"}])
+
+    discover_personas_called = []
+
+    def track_discover_personas(self):
+        discover_personas_called.append(True)
+        raise AssertionError("persona discovery should be skipped for external questions")
+
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", track_discover_personas)
+
+    pipeline = EvaluationPipeline(
+        product="DemoProduct",
+        product_key="demo",
+        output_dir=output_dir,
+        description="A demo product",
+        questions_from=source_dir,
+    )
+    result = pipeline.run(concurrency=1)
+
+    assert not discover_personas_called, "persona discovery should not have been called"
+    assert result["steps"]["personas"]["skipped"] is True
+
+
+def test_questions_from_with_root_ignores_root(tmp_path, caplog):
+    """When --questions-from is set with a --questions-root, the root is ignored."""
+    source_dir = tmp_path / "source"
+    questions_root = tmp_path / "questions"
+    output_dir = tmp_path / "out"
+    _write_json(source_dir / "questions" / "demo.json", [{"id": "q1", "question": "Q?"}])
+    _write_json(questions_root / "demo_golden.json", [{"id": "g1", "question": "Golden?"}])
+
+    with caplog.at_level(logging.WARNING):
+        pipeline = EvaluationPipeline(
+            product="DemoProduct",
+            product_key="demo",
+            output_dir=output_dir,
+            description="A demo product",
+            questions_from=source_dir,
+            questions_root=questions_root,
+        )
+
+    # golden_pinned should be False and external_questions_path should be set
+    assert pipeline.golden_pinned is False
+    assert pipeline.external_questions_path is not None
+    # Should not log "Using golden questions"
+    assert "Using golden questions" not in caplog.text
+
+
+def test_custom_questions_path_with_root(tmp_path, monkeypatch):
+    """With explicit --custom-questions and a root, custom merges into generated; golden_pinned stays False."""
+    questions_root = tmp_path / "questions"
+    custom_q = tmp_path / "custom.json"
+    output_dir = tmp_path / "out"
+    _write_json(questions_root / "demo_golden.json", [{"id": "g1", "question": "Golden?"}])
+    _write_json(custom_q, [{"id": "c1", "question": "Custom?"}])
+
+    # Stub all expensive steps
+    def discover_personas(self):
+        return {"personas": []}
+
+    def generate_questions(self, personas):
+        return [{"id": "gen1", "question": "Generated?", "source_type": "generated"}]
+
+    def generate_answers(self, questions, concurrency=5, question_set_hash=None):
+        return []
+
+    def evaluate_answers(self, answers, concurrency=5, question_set_hash=None):
+        data = {"run_metadata": {"question_set_hash": question_set_hash}, "evaluations": []}
+        self.eval_path.write_text(json.dumps(data), encoding="utf-8")
+        return []
+
+    def generate_report(self, evaluations, questions):
+        self.report_path.write_text("report", encoding="utf-8")
+        return "report"
+
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", discover_personas)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_questions", generate_questions)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_answers", generate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_evaluate_answers", evaluate_answers)
+    monkeypatch.setattr(EvaluationPipeline, "_generate_report", generate_report)
+
+    pipeline = EvaluationPipeline(
+        product="DemoProduct",
+        product_key="demo",
+        output_dir=output_dir,
+        description="A demo product",
+        custom_questions_path=custom_q,
+        questions_root=questions_root,
+    )
+
+    # custom_questions_path is set, but golden_pinned stays False (explicit custom != auto-golden)
+    assert pipeline.custom_questions_path == custom_q
+    assert pipeline.golden_pinned is False
+
+    # Run should merge custom into generated questions (generation still runs)
+    pipeline.run(concurrency=1)
+    saved = json.loads((output_dir / "questions" / "demo.json").read_text())
+    # Custom and generated questions should both be present
+    question_ids = {q["id"] for q in saved["questions"]}
+    assert "c1" in question_ids, "custom question should be in result"
+    assert "gen1" in question_ids, "generated question should be in result"
+    assert "g1" not in question_ids, "golden-only question should not be in result"
+
+
+def _golden_run(tmp_path, golden, cached, *, raw=False, custom=False):
+    root = tmp_path / "questions"
+    out = tmp_path / "out"
+    if raw:
+        root.mkdir(parents=True)
+        (root / "demo_golden.json").write_text(golden, encoding="utf-8")
+    else:
+        _write_json(root / "demo_golden.json", golden)
+    if cached is not None:
+        _write_json(out / "questions" / "demo.json", cached)
+    kwargs = {"custom_questions_path": root / "demo_golden.json"} if custom else {"questions_root": root}
+    return EvaluationPipeline(
+        product="DemoProduct", product_key="demo", output_dir=out,
+        description="A demo product", **kwargs,
+    ).run(concurrency=1)
+
+
+@pytest.mark.parametrize("golden,raw", [(["just a string"], False), ('{"questions": [', True)])
+def test_cached_run_tolerates_unreadable_golden_file(tmp_path, monkeypatch, caplog, golden, raw):
+    _stub_expensive_steps(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        _golden_run(tmp_path, golden, [{"id": "a", "question": "A?"}], raw=raw)
+    assert "Could not load golden set" in caplog.text
+
+
+def test_pinned_run_without_cache_still_raises_on_corrupt_golden(tmp_path, monkeypatch):
+    _stub_expensive_steps(monkeypatch)
+    with pytest.raises(json.JSONDecodeError):
+        _golden_run(tmp_path, '{"questions": [', None, raw=True)
+
+
+def test_cached_same_ids_edited_text_warns(tmp_path, monkeypatch, caplog):
+    _stub_expensive_steps(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        _golden_run(tmp_path, [{"id": "g1", "question": "NEW?"}], [{"id": "g1", "question": "OLD?"}])
+    assert "differs from golden set" in caplog.text
+
+
+def test_cached_equal_to_golden_does_not_warn(tmp_path, monkeypatch, caplog):
+    _stub_expensive_steps(monkeypatch)
+    qs = [{"id": "g1", "question": "Same?"}, {"id": "g2", "question": "Also?"}]
+    with caplog.at_level(logging.WARNING):
+        _golden_run(tmp_path, qs, [dict(q) for q in qs])
+    assert "differs from golden set" not in caplog.text
+    assert "Could not load golden set" not in caplog.text
+
+
+def test_custom_questions_with_merged_cache_does_not_warn(tmp_path, monkeypatch, caplog):
+    _stub_expensive_steps(monkeypatch)
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", lambda self: {"personas": []})
+    cached = [{"id": "g1", "question": "Golden?"}, {"id": "x", "question": "Generated?"}]
+    with caplog.at_level(logging.WARNING):
+        _golden_run(tmp_path, [{"id": "g1", "question": "Golden?"}], cached, custom=True)
+    assert "differs from golden set" not in caplog.text
+
+
+def test_evaluate_prints_no_personas_line_when_personas_skipped(tmp_path, monkeypatch, capsys):
+    from dokimi.cli import build_parser
+
+    def run(self, concurrency=5):
+        return {"steps": {
+            "personas": {"count": 0, "skipped": True},
+            "questions_merged": {"path": "q"},
+            "answers": {"path": "a"},
+            "evaluation": {"path": "e"},
+            "report": {"path": "r"},
+        }}
+
+    monkeypatch.setattr(EvaluationPipeline, "run", run)
+    args = build_parser().parse_args([
+        "evaluate", "--product", "DemoProduct", "--description", "d",
+        "--output-dir", str(tmp_path / "out"),
+    ])
+    args.func(args)
+    out = capsys.readouterr().out
+    assert "Questions:" in out
+    assert "Personas:" not in out
+
+
+@pytest.mark.parametrize("exc", [OSError("permission denied"), TypeError("bad item")])
+def test_cached_run_tolerates_golden_read_errors(tmp_path, monkeypatch, caplog, exc):
+    import dokimi.orchestrator.pipeline as pl
+
+    _stub_expensive_steps(monkeypatch)
+    real = pl.load_questions_payload
+
+    def flaky(path):
+        if path.name.endswith("_golden.json"):
+            raise exc
+        return real(path)
+
+    monkeypatch.setattr(pl, "load_questions_payload", flaky)
+    with caplog.at_level(logging.WARNING):
+        _golden_run(tmp_path, [{"id": "g", "question": "G?"}], [{"id": "a", "question": "A?"}])
+    assert "Could not load golden set" in caplog.text
+
+
+
+def test_a_regeneration_under_a_colliding_id_is_saved(tmp_path, monkeypatch):
+    """Generated ids restart at q_001; a new text under an old id is a different set, so it is saved."""
+    custom_file = tmp_path / "questions" / "oneTBB.json"
+    _write_json(custom_file, [{"id": "q_001", "question": "Old generated one?",
+                               "source_type": "generated"}])
+    _stub_regen_steps(monkeypatch, [{"id": "q_001", "question": "Brand new generated one?",
+                                     "source_type": "generated"}])
+    _own_output_pipeline(tmp_path).run(concurrency=1)
+
+    saved = json.loads(custom_file.read_text())
+    assert sorted(q["question"] for q in saved["questions"]) == [
+        "Brand new generated one?", "Old generated one?"]
+
+
+def test_without_a_read_custom_set_the_own_file_is_not_written(tmp_path, monkeypatch):
+    custom_file = tmp_path / "questions" / "oneTBB.json"
+    _write_json(custom_file, [{"id": "c1", "question": "Custom?"}])
+    before = custom_file.read_bytes()
+    _stub_regen_steps(monkeypatch, [])
+    monkeypatch.setattr(EvaluationPipeline, "_read_question_inputs", lambda self: None)
+    _own_output_pipeline(tmp_path).run(concurrency=1)
+    assert custom_file.read_bytes() == before
+
+
+def test_generated_records_of_the_own_file_get_no_manual_persona(tmp_path, monkeypatch):
+    custom_file = tmp_path / "questions" / "oneTBB.json"
+    _write_json(custom_file, [{"id": "c1", "question": "Custom?"}])
+    _stub_regen_steps(monkeypatch, [{"id": "g1", "question": "Generated one?",
+                                     "source_type": "generated"}])
+    _own_output_pipeline(tmp_path).run(concurrency=1)
+    _stub_regen_steps(monkeypatch, [{"id": "g2", "question": "Generated two?",
+                                     "source_type": "generated"}])
+    _own_output_pipeline(tmp_path).run(concurrency=1)
+
+    by_id = {q["id"]: q for q in json.loads(custom_file.read_text())["questions"]}
+    assert "persona_id" not in by_id["g1"]
+    assert by_id["c1"]["persona_id"] == "manual"
+
+
+def test_a_relative_own_output_path_keeps_source_types(tmp_path, monkeypatch):
+    import os
+
+    custom_file = tmp_path / "questions" / "oneTBB.json"
+    _write_json(custom_file, [{"id": "g0", "question": "Earlier generated?",
+                               "source_type": "generated"}])
+    _stub_regen_steps(monkeypatch, [{"id": "g1", "question": "Generated one?",
+                                     "source_type": "generated"}])
+    (tmp_path / "sub").mkdir()
+    old = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        EvaluationPipeline(product="oneTBB", output_dir=Path("."),
+                           description="Threading Building Blocks",
+                           custom_questions_path=Path("sub/../questions/oneTBB.json"),
+                           force_regen=True).run(concurrency=1)
+    finally:
+        os.chdir(old)
+    by_id = {q["id"]: q for q in json.loads(custom_file.read_text())["questions"]}
+    assert by_id["g0"]["source_type"] == "generated"

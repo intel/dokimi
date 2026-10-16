@@ -130,12 +130,16 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
         from dokimi.questions.artifact import save_questions_artifact
 
         out = Path(args.output) if args.output else Path(f"questions/{args.product}_refined.json")
-        save_questions_artifact({
-            "library": args.product,
-            "total": len(report.questions),
-            "difficulty_distribution": report.difficulty_after,
-            "questions": report.questions,
-        }, out)
+        try:
+            save_questions_artifact({
+                "library": args.product,
+                "total": len(report.questions),
+                "difficulty_distribution": report.difficulty_after,
+                "questions": report.questions,
+            }, out)
+        except ValueError as exc:  # ArtifactValidationError: the refined set is not valid v2
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
         print(f"\n✅ Refined questions saved to {out}")
     else:
         print("\n(dry-run: no file written)")

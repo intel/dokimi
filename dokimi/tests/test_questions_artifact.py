@@ -564,8 +564,9 @@ def test_answers_generate_refuses_an_unusable_set_before_any_call(tmp_path, monk
     monkeypatch.setattr("dokimi.mcp.factory.create_doc_source_client", no_client)
     args = build_parser().parse_args(["answers", "generate", "--product", "oneTBB",
                                       "--questions", str(src)])
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
+    assert exc.value.code == 1
     assert "record 0 (id 'q1'), `question`: '' should be non-empty" in capsys.readouterr().err
 
 
@@ -683,3 +684,59 @@ def test_report_generate_prints_an_error_for_an_empty_question(tmp_path, capsys)
         args.func(args)
     assert exc.value.code == 1
     assert capsys.readouterr().err.startswith("Error: ")
+
+
+def _open_null_cases():
+    from dokimi.questions.artifact import _v1_open_nulls
+
+    top, record = _v1_open_nulls()
+    return ([pytest.param({k: None}, {}, id=f"top-{k}") for k in sorted(top)]
+            + [pytest.param({}, {k: None}, id=f"record-{k}") for k in sorted(record)
+               if k not in ("id", "text")])
+
+
+@pytest.mark.parametrize("top, record", _open_null_cases())
+def test_every_key_v1_leaves_open_drops_its_null_on_read(tmp_path, top, record):
+    data = {"schema_version": "questions.v1", **top,
+            "questions": [{"id": "q1", "text": "How?", **record}]}
+    validate_artifact("questions", data)
+    path = tmp_path / "q.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    loaded = load_questions(path)
+    assert loaded.questions[0] == {"id": "q1", "question": "How?"}
+    assert not top.keys() & loaded.artifact.keys()
+
+
+def test_a_null_in_a_key_v1_declares_is_still_refused(tmp_path):
+    data = {"schema_version": "questions.v1",
+            "questions": [{"id": "a", "text": "hi", "expected_topics": None}]}
+    path = tmp_path / "q.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ArtifactValidationError, match="expected_topics"):
+        load_questions(path)
+
+
+def test_questions_refine_prints_an_error_when_the_refined_set_is_invalid(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "q.json"
+    src.write_text(json.dumps({"questions": [
+        {"id": "q1", "text": ""},
+        {"id": "q2", "text": "Why does my task_arena deadlock under nested parallelism?"},
+    ]}), encoding="utf-8")
+    out = tmp_path / "refined.json"
+    args = build_parser().parse_args(["questions", "refine", "--product", "oneTBB",
+                                      "--questions", str(src), "--output", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert "Error:" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_checklist_points_load_from_a_record_without_question_text(tmp_path):
+    from dokimi.eval.checklist import load_points
+
+    path = tmp_path / "q.json"
+    path.write_text(json.dumps({"questions": [{"id": "q1", "expected_topics": ["a point"]}]}),
+                    encoding="utf-8")
+    assert load_points(str(path)) == {"q1": ["a point"]}
