@@ -92,7 +92,7 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
 
 def cmd_questions_refine(args: argparse.Namespace) -> None:
     """Refine a question set: normalise schema, deduplicate, filter trivial, report gaps."""
-    from dokimi.questions.refiner import QuestionRefiner, GapFiller
+    from dokimi.questions.refiner import QuestionRefiner, GapFiller, _count_difficulty
 
     from dokimi.questions.artifact import load_questions
 
@@ -123,7 +123,24 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
         sim_threshold=args.sim_threshold,
         gap_filler=gap_filler,
     )
-    report = refiner.refine(raw)
+    def _validate_before_fill(cleaned: list) -> None:
+        # The set the gap filler extends must already be valid, so a set that would be refused
+        # at save time fails here, before any paid model call.
+        from dokimi.artifacts import validate_artifact
+        from dokimi.questions.artifact import upgrade_questions
+
+        validate_artifact("questions", upgrade_questions({
+            "library": args.product,
+            "total": len(cleaned),
+            "difficulty_distribution": _count_difficulty(cleaned),
+            "questions": cleaned,
+        }))
+
+    try:
+        report = refiner.refine(raw, before_fill=_validate_before_fill if gap_filler else None)
+    except ValueError as exc:  # ArtifactValidationError: the input set cannot be gap-filled
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
     print(report.summary())
 
     if not args.dry_run:

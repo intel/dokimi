@@ -733,6 +733,31 @@ def test_questions_refine_prints_an_error_when_the_refined_set_is_invalid(tmp_pa
     assert not out.exists()
 
 
+def test_questions_refine_fill_gaps_refuses_an_invalid_set_before_any_model_call(
+        tmp_path, monkeypatch, capsys):
+    from dokimi.questions.refiner import GapFiller
+
+    def fail_fill(self, *a, **k):
+        raise AssertionError("GapFiller.fill must not run on an invalid set")
+
+    monkeypatch.setattr(GapFiller, "fill", fail_fill)
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "q.json"
+    src.write_text(json.dumps({"questions": [
+        {"id": "q1", "text": ""},
+        {"id": "q2", "text": "Why does my task_arena deadlock under nested parallelism?"},
+    ]}), encoding="utf-8")
+    out = tmp_path / "refined.json"
+    args = build_parser().parse_args(["questions", "refine", "--product", "oneTBB",
+                                      "--questions", str(src), "--output", str(out),
+                                      "--fill-gaps"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert "Error:" in capsys.readouterr().err
+    assert not out.exists()
+
+
 def test_checklist_points_load_from_a_record_without_question_text(tmp_path):
     from dokimi.eval.checklist import load_points
 

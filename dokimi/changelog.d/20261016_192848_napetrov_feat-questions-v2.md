@@ -21,7 +21,8 @@
   it is the run's own `questions/<product>.json` (the one exception is a Python-API
   `force_regen=True` merge that adds records to that file); the run writes its own v2 copy.
   `report generate` and `questions refine` print `Error: ...` and exit 1 on an unusable set
-  instead of a traceback.
+  instead of a traceback; `questions refine --fill-gaps` validates the cleaned set before
+  any gap-fill model call, so an invalid set costs nothing.
 - **`question_set_hash` changes for sets whose records had no `id` key** — such records now
   take their `question_id`, or are numbered `q0000`, `q0001`, ... by position, so the hash
   of such a legacy set differs from earlier runs and their results are not paired with new
