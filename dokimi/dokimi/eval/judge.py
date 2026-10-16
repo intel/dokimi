@@ -466,17 +466,20 @@ class Judge:
 
     #: A verdict after a colon, a dash or an opening parenthesis, optionally
     #: qualified: "64 B: wrong", "64 B - wrong", "64 B (wrong)", "64 B: partially wrong".
-    #: The first verdict word right after a separator. Besides ``:``, `` -`` and
-    #: ``(``, a qualifier list (``misleading/wrong``) and a trailing clause
-    #: (``reasonable, not wrong``) introduce one, and ``not`` flips it. Measured on
-    #: 6,424 `numeric_claims` entries from Haiku judgements, this read 13 more:
-    #: 6 newly wrong (all ``<qualifier>/wrong``, which the cap had let through)
-    #: and 7 newly right, with no entry moving between right and wrong. Words with
-    #: no separator in front stay unread on purpose — ``correctly marked as WRONG
-    #: to claim`` is the judge saying the answer flagged a bad claim, not that its
-    #: figure is wrong.
+    #: It is tried first, so every claim it reads keeps its reading.
     _VERDICT = re.compile(
-        r"(?::|\s[-\u2013\u2014]|\(|/|,)\s*(not\s+)?(?:[a-z]+ly\s+)?(wrong|incorrect|right|correct)\b",
+        r"(?::|\s[-\u2013\u2014]|\()\s*(?:[a-z]+ly\s+)?(wrong|incorrect|right|correct)\b", re.I
+    )
+    #: The first of those separators; what follows is the verdict part, the text before it the figure.
+    _VERDICT_PART = re.compile(r":|\s[-\u2013\u2014]|\(")
+    #: For a claim ``_VERDICT`` cannot read, searched in the verdict part only (a ``/`` or ``,``
+    #: in the figure, ``left/right shift by 3: wrong``, is not a verdict): a qualifier list
+    #: (``misleading/wrong``) or a trailing clause (``reasonable, not wrong``) ends in
+    #: the verdict, and ``not`` flips it. ``not entirely wrong`` is a hedge, not a verdict: unread.
+    #: A verdict word with no separator in front stays unread on purpose: ``correctly marked
+    #: as WRONG to claim`` says the answer flagged a bad claim, not that its figure is wrong.
+    _QUALIFIED_VERDICT = re.compile(
+        r"(?::|\s[-\u2013\u2014]|\(|/|,)\s*(not\s+)?(?:([a-z]+ly)\s+)?(wrong|incorrect|right|correct)\b",
         re.I,
     )
 
@@ -484,11 +487,19 @@ class Judge:
     def _is_wrong_figure(cls, claim: Any) -> Optional[bool]:
         """True for a claim judged wrong, None for one with no readable verdict."""
         text = f": {claim.get('verdict')}" if isinstance(claim, dict) else claim
-        match = cls._VERDICT.search(text) if isinstance(text, str) else None
+        if not isinstance(text, str):
+            return None
+        match = cls._VERDICT.search(text)
+        if match is not None:
+            return match.group(1).lower() in ("wrong", "incorrect")
+        part = cls._VERDICT_PART.search(text)
+        match = cls._QUALIFIED_VERDICT.search(text, part.start()) if part else None
         if match is None:
             return None
-        wrong = match.group(2).lower() in ("wrong", "incorrect")
-        return not wrong if match.group(1) else wrong
+        negated, adverb, word = match.groups()
+        if negated:
+            return None if adverb else word.lower() in ("right", "correct")
+        return word.lower() in ("wrong", "incorrect")
 
     @classmethod
     def _cap_for_wrong_figures(cls, scores: Dict[str, Any]) -> None:

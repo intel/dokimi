@@ -275,6 +275,14 @@ class TestJudgeAnswer:
         (["500 ns threshold: contextual (neither universally right nor wrong)"], 95, 95),
         # The answer's figure is the wrong one; the right one is the correction.
         (["8 ms: wrong -> corrected: right"], 95, 40),
+        # A "/" or "," in the figure is not a verdict: these capped on main and still do.
+        (["left/right shift by 3: wrong"], 95, 40),
+        (["4 KiB, correct alignment assumed: wrong"], 95, 40),
+        (["TILE 64 (not wrong): wrong"], 95, 40),
+        (["note, wrong figure: right"], 95, 95),
+        # "not entirely wrong" is a hedge: no cap, and not read as right either.
+        (["8 ms: not entirely wrong"], 95, 95),
+        (["8 ms: not right"], 95, 40),
     ])
     def test_a_wrong_figure_caps_correctness_at_forty(self, mock_llm, claims, correctness, expected):
         """The prompt promises "a single wrong figure caps it at 40". A reply that
@@ -312,6 +320,14 @@ class TestJudgeAnswer:
     def test_a_qualified_or_negated_verdict_is_read(self, mock_llm, claim):
         """Real Haiku entries that used to land in `unread_claims`."""
         assert "unread_claims" not in self._judge(mock_llm, [claim], 95)
+
+    @pytest.mark.parametrize("claim", [
+        "left/right shift by 3: dubious",
+        "8 ms: not entirely wrong",
+        "8 ms: not necessarily right",
+    ])
+    def test_a_figure_with_a_slash_or_a_hedge_is_not_read_as_right(self, mock_llm, claim):
+        assert self._judge(mock_llm, [claim], 95)["unread_claims"] == [0]
 
     def test_readable_claims_record_no_unread_marker(self, mock_llm):
         assert "unread_claims" not in self._judge(mock_llm, ["4 B: right", "8 ms: wrong"], 95)
