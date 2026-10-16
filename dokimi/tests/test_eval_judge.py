@@ -391,6 +391,9 @@ class TestJudgeAnswer:
         "8 ms: not necessarily right",
         "AVX2 (256-bit, correct width): dubious",
         "x: see docs/correct-usage",
+        # A non-intensifier adverb hedges the fallback verdict, as `hardly` does.
+        "x: dubious, typically correct",
+        "x: plausible, typically correct",
     ])
     def test_a_figure_with_a_slash_or_a_hedge_is_not_read_as_right(self, mock_llm, claim):
         assert self._judge(mock_llm, [claim], 95)["unread_claims"] == [0]
