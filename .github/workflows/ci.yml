@@ -15,6 +15,14 @@ on:
 permissions:
   contents: read
 
+# Runners: the jobs that run for a minute or more (here, and in agent-quality.yml,
+# docs.yml and codeql.yml) run on intel-ubuntu-latest, Intel's ephemeral runner
+# pool. ubuntu-latest is shared by every intel/ repository: a job there waited
+# 28 min or more for a runner one time in ten (October 2026). The pool boots a
+# runner per job, a wait of about 4 min (median), so the jobs that take seconds
+# stay on ubuntu-latest. Outside intel/ (a fork's own pushes) the pool does not
+# exist and every job falls back to ubuntu-latest.
+
 # A new push to a PR supersedes the run in flight. Every other run gets a group of its
 # own (run_id): in a shared group a third queued run cancels the pending second one
 # even with cancel-in-progress false, so pushes to main would be dropped.
@@ -55,7 +63,7 @@ jobs:
 
   typecheck:
     name: mypy
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -88,7 +96,7 @@ jobs:
 
   test:
     name: Tests (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     permissions:
       contents: read
       # Codecov upload over OIDC, so no upload token is stored. PRs from forks
@@ -163,7 +171,7 @@ jobs:
   test-latest:
     name: Tests (latest deps, py3.13)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -257,7 +265,7 @@ jobs:
   # the lock: the floor version checks what `pip install dokimi` gives a 3.11 user.
   package-smoke:
     name: Package install smoke test (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:

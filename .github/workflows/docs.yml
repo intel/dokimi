@@ -36,10 +36,11 @@ env:
   NO_MKDOCS_2_WARNING: 'true'
   DISABLE_MKDOCS_2_WARNING: 'true'
 
+# intel-ubuntu-latest for the long jobs, ubuntu-latest elsewhere: see ci.yml.
 jobs:
   build:
     name: Build docs (strict)
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
