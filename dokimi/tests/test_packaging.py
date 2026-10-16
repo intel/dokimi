@@ -9,7 +9,6 @@ it earlier, without a build.
 
 from __future__ import annotations
 
-import fnmatch
 import re
 import tomllib
 from pathlib import Path
@@ -38,11 +37,26 @@ def test_cli_prints_the_version(capsys):
     assert capsys.readouterr().out.strip() == f"dokimi {dokimi.__version__}"
 
 
+def _metadata_version(name):
+    if name == "dokimi":
+        return "9.8.7"
+    raise _version.metadata.PackageNotFoundError(name)
+
+
 def test_version_without_pyproject_reads_the_metadata(tmp_path, monkeypatch):
     # An installed wheel: no pyproject.toml next to the package.
     monkeypatch.setattr(_version, "_PYPROJECT", tmp_path / "pyproject.toml")
-    monkeypatch.setattr(_version.metadata, "version", lambda name: "9.8.7")
+    monkeypatch.setattr(_version.metadata, "version", _metadata_version)
     assert _version._read_version() == "9.8.7"
+
+
+def test_the_source_pyproject_wins_over_stale_metadata(tmp_path, monkeypatch):
+    # An editable install whose metadata predates a version bump.
+    ours = tmp_path / "pyproject.toml"
+    ours.write_text('[project]\nname = "dokimi"\nversion = "1.2.3"\n', encoding="utf-8")
+    monkeypatch.setattr(_version, "_PYPROJECT", ours)
+    monkeypatch.setattr(_version.metadata, "version", _metadata_version)
+    assert _version._read_version() == "1.2.3"
 
 
 def test_version_ignores_another_projects_pyproject(tmp_path, monkeypatch):
@@ -65,10 +79,20 @@ def test_a_local_runtime_config_overrides_the_bundled_one(tmp_path, monkeypatch)
     assert config.runtime_config_path() == config.LOCAL_PRODUCTS_PATH
 
 
-def _shipped(path: Path) -> bool:
-    rel = path.relative_to(PACKAGE).as_posix()
+def _package_data(package: Path) -> set[Path]:
+    """The files the package-data globs pick up. Path.glob, like setuptools and
+    unlike fnmatch, does not let ``*`` match across ``/``."""
     globs = PYPROJECT["tool"]["setuptools"]["package-data"]["dokimi"]
-    return path.suffix == ".py" or any(fnmatch.fnmatch(rel, g) for g in globs)
+    return {p.resolve() for g in globs for p in package.glob(g) if p.is_file()}
+
+
+def _stray(package: Path) -> list[str]:
+    shipped = _package_data(package)
+    return sorted(
+        p.relative_to(package).as_posix() for p in package.rglob("*")
+        if p.is_file() and "__pycache__" not in p.parts
+        and p.suffix != ".py" and p.resolve() not in shipped
+    )
 
 
 @pytest.mark.parametrize("path", [
@@ -80,15 +104,19 @@ def _shipped(path: Path) -> bool:
 def test_default_data_files_ship_in_the_wheel(path):
     assert path.is_file()
     assert path.resolve().is_relative_to(PACKAGE)
-    assert _shipped(path.resolve())
+    assert path.resolve() in _package_data(PACKAGE)
 
 
 def test_every_non_python_file_in_the_package_ships():
-    stray = [
-        p.relative_to(PACKAGE).as_posix() for p in PACKAGE.rglob("*")
-        if p.is_file() and "__pycache__" not in p.parts and not _shipped(p)
-    ]
+    stray = _stray(PACKAGE)
     assert not stray, f"add these to [tool.setuptools.package-data] or move them out: {stray}"
+
+
+def test_a_data_file_one_level_too_deep_is_stray(tmp_path):
+    for rel in ("schemas/x.json", "schemas/v2/x.json", "config/sub/x.yaml"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("{}", encoding="utf-8")
+    assert _stray(tmp_path) == ["config/sub/x.yaml", "schemas/v2/x.json"]
 
 
 @pytest.mark.parametrize("name", ["LICENSE", "NOTICE"])
