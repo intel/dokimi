@@ -427,6 +427,26 @@ def test_link_to_a_non_guidance_file_is_keyed_by_target(tmp_path):
     assert got["warnings"] == []
 
 
+def test_nested_import_of_a_link_to_a_non_guidance_file_is_lazy(tmp_path):
+    """Thread 11: the lazy import names AGENTS.md, a link to docs/agents.md; the load is keyed by target."""
+    tree = _tree(tmp_path, {"docs/agents.md": "a" * 100, "CLAUDE.md": "root claude", "sub/CLAUDE.md": "@../AGENTS.md"})
+    _link(tmp_path / "AGENTS.md", "docs/agents.md")
+    got = budget(tree, NAMES)
+    assert _by_path(got)[("AGENTS.md", "guidance")]["when"] == "lazy"
+    assert got["totals"] == {"start": 11, "lazy": 113, "on demand": 0, "off": 0}
+    assert got["warnings"] == []
+
+
+def test_dot_claude_claude_md_alias_keeps_agents_md_at_start(tmp_path):
+    """.claude/CLAUDE.md -> ../AGENTS.md is project memory read at start, so AGENTS.md is not off."""
+    tree = _tree(tmp_path, {"AGENTS.md": "a" * 100, "CLAUDE.md": "root claude", ".claude/x": ""})
+    _link(tmp_path / ".claude" / "CLAUDE.md", "../AGENTS.md")
+    got = budget(tree, NAMES)
+    assert _by_path(got)[("AGENTS.md", "guidance")]["when"] == "start"
+    assert got["totals"] == {"start": 111, "lazy": 0, "on demand": 0, "off": 0}
+    assert got["warnings"] == []
+
+
 def test_dangling_root_claude_link_in_a_git_tree(tmp_path):
     """Thread 11: remote sources are GitTrees; a dangling CLAUDE.md link does not turn AGENTS.md off there."""
     root = tmp_path / "r"

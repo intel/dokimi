@@ -6,7 +6,8 @@
 A static inventory, in characters, of the context a harness takes from the tree when it
 starts at the repository root:
 
-- **start**: guidance files at the root (with the files they ``@import``) and the skill
+- **start**: guidance files at the root, the files a root CLAUDE.md ``@import``s (imports are
+  followed from ``CLAUDE*`` files only), and the skill
   listing (each project skill's ``name`` and ``description``). Every model call pays for these.
 - **lazy**: guidance files in subdirectories, and what a nested CLAUDE.md imports, loaded
   when the agent works in that subtree.
@@ -18,9 +19,9 @@ Characters, not tokens: how many tokens a character costs depends on the model's
 and differs between model families. The exact cost is the first-call prompt difference
 between a run with the file and one without.
 
-Three checks ride along: skills with no description, skills whose descriptions are near-duplicates
-(the agent has to choose between them from the listing alone), and AGENTS.md files turned off by a
-CLAUDE.md at the root.
+Four checks ride along: skills with no description, skills whose descriptions are near-duplicates
+(the agent has to choose between them from the listing alone), AGENTS.md files turned off by a
+CLAUDE.md at the root, and unreadable files (non-UTF-8, dangling link).
 """
 
 from __future__ import annotations
