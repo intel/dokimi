@@ -327,14 +327,17 @@ label.
 
 **`ci.yml`** — fast code checks:
 
-1. **lint** — `ruff check .`.
+1. **static** — the checks that need no lock install, as steps of one job:
+   `ruff check .`, zizmor on the workflows, the license headers, the pre-commit
+   hooks, bandit and pip-audit, and the schema checks of item 3.
 2. **mypy** — type check of the whole package (modules listed in the
    `pyproject.toml` override are exempt until fixed).
-3. **schema** — `schema_check` validates `benchmarks/spec.v1.yaml`;
+3. **schema** (steps of the static job) — `schema_check` validates `benchmarks/spec.v1.yaml`;
    `config_check` checks `products.yaml`/`intents.yaml`/`dokimi/config/products.yaml`
    drift.
-4. **test** — pytest from `requirements.lock.txt`, offline, with coverage
-   (Python 3.11–3.14); on a PR, 80% of the changed lines must be covered.
+4. **test** — pytest from `requirements.lock.txt`, offline, in parallel
+   (pytest-xdist), on Python 3.11–3.14; coverage is measured on the 3.14 leg,
+   and on a PR 80% of the changed lines must be covered.
 5. **package-smoke** — builds/installs the package with a fresh resolve of its
    dependency ranges (Python 3.11 and 3.13) and exercises the console and
    module entry points.

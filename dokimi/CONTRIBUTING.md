@@ -22,7 +22,7 @@ uses an HTML comment, after any front matter):
 # SPDX-License-Identifier: Apache-2.0
 ```
 
-The year is the year the file is added. CI's license-header job checks the
+The year is the year the file is added. CI's license header step checks the
 header; the files exempt (JSON, generated locks, text agents read verbatim,
 changelog fragments) are listed in
 [`.github/.licenserc.yaml`](../.github/.licenserc.yaml). `make ci-local` does
@@ -72,7 +72,8 @@ CI additionally holds a PR to:
 
 - **Coverage of changed lines ≥ 80%** (when 20+ lines are measurable) —
   `diff-cover coverage.xml --compare-branch=<remote>/main` after
-  `pytest --cov=dokimi --cov-branch --cov-report=xml`, where `<remote>` is the
+  `pytest --cov=dokimi --cov-branch --cov-report=xml` (CI measures it on the
+  Python 3.14 leg), where `<remote>` is the
   remote pointing at `intel/dokimi` (`origin` in CI). `make ci-local` finds
   that remote by URL and prints the ref it compares against; pick another with
   `CI_LOCAL_ARGS='--remote <name>'`.
@@ -109,7 +110,7 @@ markers and files over 500 KB. From the repo root:
 
 ```bash
 pip install pre-commit && pre-commit install   # `make dev` already installs pre-commit
-pre-commit run --all-files                     # the whole tree, as CI's pre-commit job does
+pre-commit run --all-files                     # the whole tree, as CI's pre-commit step does
 ```
 
 mypy and pytest are not hooks: they need the full environment and pytest takes

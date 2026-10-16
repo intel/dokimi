@@ -64,6 +64,6 @@ The `ragas>=0.3.0` floor keeps out 0.2.3–0.2.x, which are affected by
 CVE-2025-45691 (GHSA-v2xr-wvrv-p969, file read through `retrieved_contexts`,
 fixed in 0.3.0).
 
-The `security` job in `.github/workflows/ci.yml` runs `pip-audit` with exactly
+The `static` job in `.github/workflows/ci.yml` runs `pip-audit` with exactly
 these two IDs ignored, and `bandit -ll` with no Medium or High finding allowed,
 so a new advisory or finding fails CI until it is fixed or listed here.

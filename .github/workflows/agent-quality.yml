@@ -97,6 +97,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: dokimi/requirements.lock.txt
       - name: Install deps
         run: pip install -r requirements.lock.txt
       - name: Clone uxlfoundation/skills (pinned commit, retried)
@@ -151,6 +153,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: dokimi/requirements.lock.txt
       - name: Install deps
         run: pip install -r requirements.lock.txt
       - name: Run benchmark

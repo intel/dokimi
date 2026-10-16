@@ -1,8 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# License header check (apache/skywalking-eyes), run by the license-header job
-# in ci.yml. Every tracked file carries the two-line SPDX header, in the
+# License header check (apache/skywalking-eyes), a step of the static job in
+# ci.yml. Every tracked file carries the two-line SPDX header, in the
 # file's comment syntax, at the top (after a shebang line or front matter;
 # the check does not enforce the position):
 #

@@ -17,7 +17,7 @@ Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
 ```
 
-CI's license-header job checks it; the exempt files and the command for a local
+CI's license header step checks it; the exempt files and the command for a local
 check are in [dokimi/CONTRIBUTING.md](dokimi/CONTRIBUTING.md#license-of-contributions).
 
 ### Sign your work

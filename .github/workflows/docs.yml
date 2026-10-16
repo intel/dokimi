@@ -48,6 +48,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'  # ci.yml's single-version Python
+          cache: pip
+          cache-dependency-path: |
+            dokimi/requirements.lock.txt
+            dokimi/requirements-docs.lock.txt
       # The locks, not the ranges, as in ci.yml: a PR's result should not depend on
       # what was released upstream that morning.
       - run: pip install -r requirements.lock.txt -r requirements-docs.lock.txt

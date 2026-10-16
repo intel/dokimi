@@ -84,8 +84,8 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
   the tree has no ADRs or status reports.
 - A new file starts with the SPDX header (`Copyright (C) <year> Intel
   Corporation` / `SPDX-License-Identifier: Apache-2.0`) in its comment syntax.
-  The license-header CI job checks it and `make ci-local` does not: exemptions
-  and the local command are in `dokimi/CONTRIBUTING.md`.
+  CI's license header step (static job) checks it and `make ci-local` does
+  not: exemptions and the local command are in `dokimi/CONTRIBUTING.md`.
 
 ## Commits and pull requests
 

@@ -60,7 +60,7 @@ WORKFLOWS = REPO / ".github" / "workflows"
 
 # Jobs or steps that cannot run offline. Keyed by job id, or (job id, step name).
 # pre-commit clones its hook repositories on first use.
-NEEDS_NETWORK = {"package-smoke", "pre-commit", ("security", "pip-audit")}
+NEEDS_NETWORK = {"package-smoke", ("static", "pre-commit"), ("static", "pip-audit")}
 NEEDS_DOCKER = {"external-catalog-smoke"}
 # Jobs that `pip install .`: run on a copy of the tree in a throwaway venv.
 ISOLATED = {"package-smoke"}
