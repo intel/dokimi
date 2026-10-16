@@ -169,7 +169,8 @@ Put a `CLAUDE.md` containing `@AGENTS.md` next to each `AGENTS.md`, including in
 subdirectories; Claude Code reads no `AGENTS.md` beside a `CLAUDE.md`. Gemini CLI
 reads `GEMINI.md` unless `context.fileName` in its settings lists `AGENTS.md`. The
 `guidance:bridge` arm (for profiles with a bridge key) writes a `CLAUDE.md`
-containing `@AGENTS.md` where no `CLAUDE.md` exists yet, and can measure this setup's effect.
+containing `@AGENTS.md` where no `CLAUDE.md` exists yet, and can measure this
+setup's effect.
 
 Loading changes between versions. Run `dokimi repo reach` for the harness and
 version you use instead of relying on this table. Only the `claude-code` profile is
@@ -203,8 +204,9 @@ Treat each item above as a hypothesis for your repository.
    distinct `base` (see [workspace preparation](repo-evaluation-contract.md#workspace-preparation-done-by-the-framework))
    today. To test one added line with `setup_patches`, write two tasks that differ in
    a `setup_patches` entry (or use two `base` commits), and run both under
-   `guidance:raw` so that the patch is not removed; a tool still needs to be in the
-   image already.
+   `guidance:raw` so that the patch is not removed. With the `claude-code` profile,
+   which passes `--strict-mcp-config` with no `--mcp-config`, an MCP server added by
+   a patch is not loaded, so this route cannot test an added MCP tool yet.
 3. Look at whether the agent used the change, not only at the score. A guidance
    line can move the score without the tool it names being called; tool use tells
    you whether the tool itself mattered. An arm in which the tool was never called
