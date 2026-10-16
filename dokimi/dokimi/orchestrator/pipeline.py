@@ -263,6 +263,8 @@ class EvaluationPipeline:
         elif self.golden_pinned:
             logger.info(f"Step 2-3/6: Loading golden questions from {self.custom_questions_path}...")
             merged_questions = self._load_custom_questions()
+            if not merged_questions:
+                raise ValueError(f"Golden set is empty: {self.custom_questions_path}")
             print(f"✓ Loaded {len(merged_questions)} golden questions (skipping generation)")
             results["steps"]["questions_generated"] = {
                 "count": len(merged_questions),

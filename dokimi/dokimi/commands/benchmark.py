@@ -168,6 +168,8 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
             try:
                 questions = load_questions_payload(golden)
                 print(f"  golden questions: {golden} ({len(questions)} items)")
+                if not questions:
+                    errors.append(f"golden set is empty: {golden}")
             except Exception as exc:
                 errors.append(f"golden set invalid: {golden} ({exc})")
 

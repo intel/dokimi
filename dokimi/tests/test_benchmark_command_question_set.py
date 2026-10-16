@@ -271,6 +271,12 @@ def _root_with_invalid_golden(tmp_path):
     return ["--questions-root", str(tmp_path / "questions")]
 
 
+def _root_with_empty_golden(tmp_path):
+    (tmp_path / "questions").mkdir()
+    (tmp_path / "questions" / "onetbb_golden.json").write_text(json.dumps({"questions": []}), encoding="utf-8")
+    return ["--questions-root", str(tmp_path / "questions")]
+
+
 @pytest.mark.outcome("pinned-questions-preflight")
 @pytest.mark.parametrize(
     "preflight_args, env, message",
@@ -281,10 +287,11 @@ def _root_with_invalid_golden(tmp_path):
         (lambda p: ["--questions-root", str(p / "nowhere")], ("OPENAI_API_KEY",), "questions root not found"),
         (_empty_root, ("OPENAI_API_KEY",), "questions root has no golden set"),
         (_root_with_invalid_golden, ("OPENAI_API_KEY",), "golden set invalid"),
+        (_root_with_empty_golden, ("OPENAI_API_KEY",), "golden set is empty"),
     ],
     ids=[
         "no-key", "questions-from-missing", "questions-from-invalid",
-        "root-missing", "root-without-golden", "root-golden-invalid",
+        "root-missing", "root-without-golden", "root-golden-invalid", "root-golden-empty",
     ],
 )
 def test_preflight_fails_before_any_call(monkeypatch, tmp_path, capsys, preflight_args, env, message):

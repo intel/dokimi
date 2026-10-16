@@ -307,6 +307,27 @@ def test_two_runs_on_one_questions_root_answer_the_same_questions(tmp_path, monk
     assert answered == [["g1", "g2"], ["g1", "g2"]]
 
 
+@pytest.mark.outcome("pinned-questions-root")
+def test_empty_golden_set_fails_the_run_and_writes_no_cache(tmp_path, monkeypatch):
+    questions_root = tmp_path / "questions"
+    _write_json(questions_root / "demo_golden.json", {"questions": []})
+    output_dir = tmp_path / "out"
+    _write_json(output_dir / "personas" / "demo.json", {"personas": []})
+    _stub_expensive_steps(monkeypatch)
+    pipeline = EvaluationPipeline(
+        product="DemoProduct",
+        product_key="demo",
+        output_dir=output_dir,
+        description="A demo product",
+        questions_root=questions_root,
+    )
+
+    with pytest.raises(ValueError, match="Golden set is empty"):
+        pipeline.run(concurrency=1)
+
+    assert not pipeline.questions_path.exists()
+
+
 @pytest.mark.outcome("pinned-questions-warn")
 def test_questions_from_does_not_warn_that_questions_are_generated(tmp_path, caplog):
     source_dir = tmp_path / "source"

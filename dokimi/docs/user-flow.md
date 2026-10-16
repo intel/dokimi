@@ -29,7 +29,7 @@ It checks:
 - writable output directory
 - judge/answer independence warning
 - optional `--questions-from` path and JSON shape
-- optional `--questions-root`: the directory exists and holds a readable `<target>_golden.json`
+- optional `--questions-root`: the directory exists and holds a readable, non-empty `<target>_golden.json`
 
 It also reports the resolved fixed retrieval policy: semantic-only, `top_k=3`.
 
