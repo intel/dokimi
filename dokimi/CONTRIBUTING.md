@@ -64,9 +64,10 @@ CI additionally holds a PR to:
   `tests/outcomes/*.json` (what a doc tells the user, the code that keeps it,
   and evidence ids) against the tests that ran. A test claims an id with
   `@pytest.mark.outcome("<id>")`. An id no test claims, or a claimed test that
-  fails or is skipped, fails the job; `outcomes-result.json` says which. Changing
-  a promised behaviour means changing the doc, the test and the contract
-  together. `pytest --outcomes -m outcome` runs only the evidence.
+  fails, fails the job; if every claimed test is skipped, the job is inconclusive.
+  `outcomes-result.json` says which. Changing a promised behaviour means changing
+  the doc, the test and the contract together. `pytest --outcomes -m outcome` runs
+  only the evidence.
 - **Docs build** — `mkdocs build --strict`, from `dokimi/`. `make dev` already
   installs its packages and `make ci-local` runs it; by hand, install them with
   `pip install -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
