@@ -641,3 +641,19 @@ def test_an_import_path_runs_to_the_next_whitespace(tmp_path):
     tree = _tree(tmp_path, {"CLAUDE.md": "\n\n".join(texts.values()), **{f"{n}.md": "x" for n in texts}})
     got = budget(tree, NAMES)
     assert sorted(e["path"] for e in got["entries"] if e["kind"] == "import") == ["item.md", "tail.md"]
+
+
+def test_a_code_span_does_not_wrap_onto_a_new_block(tmp_path):
+    """Claude Code 2.1.300 loaded each import below: a heading, quote, list item or underline ends the span, and so does the end of a heading."""
+    tick = "`"
+    texts = {"heading": "## {i} ", "quote": "> {i} ", "dash": "- {i} ", "star": "* {i} ", "plus": "+ {i} ",
+             "ordered": "1. {i} ", "underline": "---\n{i} "}
+    files = {f"{n}.md": "x" for n in [*texts, "para", "hash"]}
+    blocks = [f"x {tick}y\n" + t.format(i=f"@{n}.md") + f"{tick}z" for n, t in texts.items()]
+    blocks += [f"x {tick}y\n@para.md {tick}z", f"#hash {tick}y\n@hash.md {tick}z"]  # one paragraph: hidden
+    blocks.append(f"- Do not put a {tick} in names\n- See @list.md\n- Run {tick}make{tick}")
+    blocks.append(f"# Head {tick}y\n@after.md {tick}z")
+    tree = _tree(tmp_path, {"CLAUDE.md": "\n\n".join(blocks), **files, "list.md": "x", "after.md": "x"})
+    got = budget(tree, NAMES)
+    imported = {e["path"] for e in got["entries"] if e["kind"] == "import"}
+    assert imported == {f"{n}.md" for n in texts} | {"list.md", "after.md"}

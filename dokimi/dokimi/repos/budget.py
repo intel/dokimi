@@ -43,9 +43,12 @@ LISTING_TEXT_CAP = 1536
 IMPORT = re.compile(r"(?<!\S)@(\S+\.md)(?!\S)")
 # Claude Code does not follow an @path inside a code block or a code span.
 _CODE_BLOCK = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", re.S | re.M)
-# A code span may wrap onto the next line (CommonMark), but not across a blank line.
+# A code span may wrap onto the next line of its paragraph (CommonMark), but not across a blank
+# line, onto a heading, quote, list item or underline line, or past the end of a heading.
 _BACKTICKS = re.compile(r"`+")
-_BLANK_LINE = re.compile(r"\n[ \t]*\n")
+_BLOCK_BREAK = re.compile(
+    r"\n(?:[ \t]*\n| {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-*+][ \t]|\d{1,9}[.)][ \t]|=+[ \t]*$|(?:[-*_][ \t]*)+$))", re.M)
+_HEADING = re.compile(r"^ {0,3}#{1,6}(?:[ \t][^\n]*)?$", re.M)
 DUPLICATE_JACCARD = 0.5
 _WORD = re.compile(r"\w+")
 _STOP = frozenset("a an and the of to for in on with use when or is are be this that it its from by as at".split())
@@ -280,12 +283,12 @@ def _mcp_servers(tree: RepoTree) -> list[str]:
 
 
 def _strip_code_spans(text: str) -> str:
-    """Remove code spans: a backtick run closed by the next run of equal length, not across a blank line.
+    """Remove code spans: a backtick run closed by the next run of equal length, not across a block break.
 
     A linear scan rather than a regex, which backtracks exponentially on long backtick runs.
     """
     runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(text)]
-    blanks = [m.start() for m in _BLANK_LINE.finditer(text)]
+    blanks = sorted([m.start() for m in _BLOCK_BREAK.finditer(text)] + [m.end() for m in _HEADING.finditer(text)])
     # closer[i]: index of the next run after i with the same length, or None.
     closer: list[int | None] = [None] * len(runs)
     seen: dict[int, int] = {}
