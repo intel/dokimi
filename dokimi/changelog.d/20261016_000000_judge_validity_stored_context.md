@@ -4,7 +4,7 @@
   artifact's verified `judge_materials`, the same material the arms were scored
   with. Bases without verified material are dropped before `--bases` /
   `--max-bases` sampling; the summary reports `n_without_context` and per-arm
-  kept/dropped counts in `by_arm`. The run exits 2 with a typed scorer or
+  kept/dropped counts in `by_arm` (with `scored` bases in `--sequential` mode). The run exits 2 with a typed scorer or
   `--mode pairwise`, on a file with no non-empty verified material, if an arm
   loses all its bases or gets none sampled, or if no pair is usable.
 

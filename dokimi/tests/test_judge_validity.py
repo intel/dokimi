@@ -1475,7 +1475,7 @@ def test_bases_with_no_stored_material_are_dropped_and_counted():
                              "skill": {"kept": 1, "dropped": 1, "sampled": 1}}
     assert report.summary()["by_arm"] == report.by_arm
     text = report.format_summary()
-    assert "1 answers without verified material (counted before --bases sampling)" in text
+    assert "1 answers without verified material (counted before sampling)" in text
     assert "skill: 1 kept, 1 dropped, 1 bases sampled" in text
 
 
@@ -1782,7 +1782,7 @@ def test_sequential_stored_context_reports_pool_and_dropped_answers():
                             max_bases=10, variants=["truncate_20"],
                             store=JudgeContextStore.from_artifact(data))
     assert report.n_without_context == 16
-    assert report.by_arm == {"skill": {"kept": 4, "dropped": 16, "sampled": 4}}
+    assert report.by_arm == {"skill": {"kept": 4, "dropped": 16, "sampled": 4, "scored": 4}}
     assert "16 answers without verified material" in report.format_summary()
     d = report.sequential["truncate_20"]
     assert d["decision"] == "continue" and d["stopped_by"] == "pool"
@@ -1862,3 +1862,26 @@ def test_cli_stored_context_refusal_names_the_real_cause(tmp_path, capsys, extra
         args.func(args)
     err = capsys.readouterr().err
     assert exc.value.code == 2 and message in err and wrong not in err
+
+
+def test_sequential_reports_the_bases_scored_not_the_pool_built():
+    """An early SPRT stop scores fewer bases than --max-bases built; the summary says which."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.utils import digest_text
+
+    digest = digest_text("FULL SKILL BODY")
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?",
+                "arms": {"skill": {"answer": ANSWER + f" Detail {i}. ",
+                                   "judge_context_sha256": digest}}}
+               for i in range(100)]
+    data = {"answers": answers, "judge_materials": {digest: "FULL SKILL BODY"}}
+    report = run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)),
+                            max_bases=50, variants=["truncate_20"],
+                            store=JudgeContextStore.from_artifact(data))
+    assert report.sequential["truncate_20"]["decision"] == "PASS"
+    counts = report.by_arm["skill"]
+    scored = len({r.base_id for r in report.rows})
+    assert counts["sampled"] == 50 and counts["scored"] == scored < 50
+    text = report.format_summary()
+    assert f"{scored} bases scored" in text and "bases sampled" not in text

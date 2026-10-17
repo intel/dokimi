@@ -170,7 +170,8 @@ class ValidityReport:
     n_without_context: int = 0
     #: With ``context="stored"``, per arm: eligible answers kept (material
     #: verified) and dropped (none), before ``--bases`` sampling, and the bases
-    #: sampled from the kept ones.
+    #: sampled from the kept ones. In --sequential mode also ``scored``: the
+    #: bases that got rows before the SPRT stopped (``sampled`` is the pool built).
     by_arm: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
     @property
@@ -328,7 +329,9 @@ class ValidityReport:
             v = s["per_variant"][variant]
             if "sequential" in v:
                 why = (
-                    "answer pool exhausted — more answers, not a higher --max-bases, would settle it"
+                    "answer pool exhausted — more answers"
+                    + (" with verified material" if s.get("n_without_context") else "")
+                    + ", not a higher --max-bases, would settle it"
                     if v["sequential"].get("stopped_by") == "pool"
                     else "cap reached — true accuracy is inside the gate's indifference band"
                 )
@@ -361,10 +364,11 @@ class ValidityReport:
             f"  no-op pairs  : {sum(s['n_noop'].values())} dropped (degradation left the text unchanged)",
             *(["  context      : stored treatment material (as the arms run judged)"
                + (f"; {s['n_without_context']} answers without verified material "
-                  "(counted before --bases sampling)"
+                  "(counted before sampling)"
                   if s["n_without_context"] else "")] if s.get("context") == "stored" else []),
             *([f"  per arm      : {a}: {c['kept']} kept, {c['dropped']} dropped, "
-               f"{c.get('sampled', 0)} bases sampled"
+               + (f"{c['scored']} bases scored" if "scored" in c
+                  else f"{c.get('sampled', 0)} bases sampled")
                for a, c in s["by_arm"].items()] if s.get("context") == "stored" else []),
         ]
         if s["mode"] == "sequential":
@@ -504,23 +508,21 @@ def run_validity(
     return report
 
 
-def attach_stored_context(pairs: List[Dict[str, Any]], store: Any) -> Tuple[List[Dict[str, Any]], int]:
-    """Give each pair its arm's stored material; drop bases the store has none for.
+def attach_stored_context(pairs: List[Dict[str, Any]], store: Any) -> List[Dict[str, Any]]:
+    """Give each pair its arm's stored material.
 
-    Returns the kept pairs and the number of bases dropped. An arm whose stored
+    ``build_pairs`` has already dropped every base the store has no entry for,
+    so each pair here resolves. An arm whose stored
     material is empty (``baseline``) is judged with the no-context marker, which
     is what the arms run showed its judge for it.
     """
     from dokimi.eval.judge_context import NO_CONTEXT
 
-    kept, missing = [], set()
+    kept = []
     for pair in pairs:
         text = store.get(pair["base_id"], pair.get("arm", ""))
-        if text is None:
-            missing.add((pair["base_id"], pair.get("arm", "")))
-            continue
         kept.append({**pair, "context": text or NO_CONTEXT})
-    return kept, len(missing)
+    return kept
 
 
 def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropped=None,
@@ -565,7 +567,7 @@ def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropp
                 f"Arm(s) {starved} have verified judge material but no base was sampled, so the "
                 "gate would not cover them: raise --bases / --max-bases or drop those arms"
             )
-        pairs, n_missing = attach_stored_context(pairs, store)
+        pairs = attach_stored_context(pairs, store)
         if dropped is not None:
-            dropped[0] = dropped_from_pairs.get("total", 0) + n_missing
+            dropped[0] = dropped_from_pairs.get("total", 0)
     return pairs

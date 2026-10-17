@@ -144,6 +144,7 @@ def run_sequential(
     report.context = "stored" if store is not None else "none"
     report.n_without_context = dropped[0]
     report.by_arm = by_arm
+    scored_bases: set = set()
     intact_cache: Dict[tuple, Any] = {}
     started = time.time()
     for start in range(0, len(order), batch):
@@ -157,6 +158,7 @@ def run_sequential(
             and (p["variant"] in open_variants
                  or (p["variant"] in NEUTRAL_VARIANTS and start < NEUTRAL_MAX_BASES))
         ]
+        scored_bases.update((p["base_id"], p.get("arm", "")) for p in todo)
         report.rows += _score_pairs(
             scorer, todo, intact_cache, concurrency=concurrency, progress=progress,
             done_offset=len(report.rows), total=len(pairs), pair_scorer=pair_scorer,
@@ -183,5 +185,9 @@ def run_sequential(
         if d["decision"] == "continue":
             bases = len({(p["base_id"], p.get("arm", "")) for p in pairs if p["variant"] == variant})
             d["stopped_by"] = "cap" if bases >= max_bases or usable > max_bases else "pool"
+    # The pool is built up to --max-bases, but the SPRT may stop early: report
+    # per arm the bases that were actually scored, not the pool that was built.
+    for arm, counts in by_arm.items():
+        counts["scored"] = sum(1 for _, a in scored_bases if a == arm)
     report.wall_seconds = time.time() - started
     return report
