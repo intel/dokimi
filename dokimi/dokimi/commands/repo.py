@@ -178,6 +178,39 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_repo_budget(args: argparse.Namespace) -> None:
+    """What the repository puts into an agent's context at start-up, lazily and on demand."""
+    from dokimi.repos import RepoSource, SourceError, open_source
+    from dokimi.repos.budget import budget
+    from dokimi.repos.harness_profile import ProfileError, load_profile
+
+    try:
+        profile = load_profile(args.harness)
+        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
+    except (SourceError, ProfileError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    payload = budget(tree, profile.guidance_names)
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        t = payload["totals"]
+        print(f"{payload['tree']}: start {t['start']:,} chars, lazy {t['lazy']:,}, "
+              f"on demand {t['on demand']:,}, off {t['off']:,}")
+        print("| when | kind | path | chars |")
+        print("|---|---|---|---|")
+        order = {"start": 0, "lazy": 1, "on demand": 2, "off": 3}
+        for e in sorted(payload["entries"], key=lambda e: (order[e["when"]], -e["chars"])):
+            print(f"| {e['when']} | {e['kind']} | {e['path']} | {e['chars']:,} |")
+        if payload["mcp_servers"]:
+            print(f"MCP servers in .mcp.json: {', '.join(payload['mcp_servers'])} "
+                  "(their tools are listed by the server at start-up, not counted here)")
+        for warning in payload["warnings"]:
+            print(f"warning: {warning}")
+    if args.fail_on_warning and payload["warnings"]:
+        sys.exit(1)
+
+
 # The guidance `scan` and `reach` check in a repository that has no manifest yet.
 DEFAULT_GUIDANCE_GLOBS = (
     "**/AGENTS.md", "**/CLAUDE.md", ".github/copilot-instructions.md", ".github/instructions/*.md",
@@ -233,7 +266,7 @@ def register(sub, positive_int) -> None:
     """Add the `repo` subcommand group."""
     repo_p = sub.add_parser(
         "repo",
-        help="Repositories as evaluation subjects: validate repo-eval.yaml, L0 scan, fetch sources, reach probe, "
+        help="Repositories as evaluation subjects: validate repo-eval.yaml, L0 scan, fetch sources, reach probe, budget, "
         "task self-check, agent runs and their report",
     )
     repo_sub = repo_p.add_subparsers(dest="repo_cmd", required=True)
@@ -326,6 +359,25 @@ def register(sub, positive_int) -> None:
                          help="Print the files and the exact argv of every scenario; run nothing")
     reach_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     reach_p.set_defaults(func=cmd_repo_reach)
+
+    budget_p = repo_sub.add_parser(
+        "budget",
+        help="What the repository puts into an agent's context when it starts at the root: guidance "
+        "files and their imports, the skill listing, lazily loaded and on-demand files, in characters; "
+        "warns on skills with no description, skills with near-duplicate descriptions (identical, or Jaccard "
+        "index >= 0.5 after removing stop words when both have 3+ words), AGENTS.md files a root CLAUDE.md turns off "
+        "(Claude Code rules), and unreadable files (non-UTF-8, dangling link). No LLM call.",
+    )
+    budget_p.add_argument("source", help=source_help)
+    budget_p.add_argument("--harness", default="claude-code",
+                          help="Built-in profile name or a harness_profile.v1 YAML path; its guidance names "
+                          "supply the file names, but the classification rules (root vs nested, off rule) are "
+                          "hardcoded to Claude Code until other harnesses are measured (default: claude-code)")
+    budget_p.add_argument("--json", action="store_true", help="Print the full inventory as JSON")
+    budget_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
+                          help="Exit 1 when any warning is printed (for a CI gate)")
+    budget_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
+    budget_p.set_defaults(func=cmd_repo_budget)
 
     from . import repo_run
 

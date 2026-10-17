@@ -238,6 +238,20 @@ next release.
   (no usable answer). Harness behaviour is data, not code:
   `dokimi/repos/profiles/claude-code.yaml` is a `harness_profile.v1`
   file and any other harness is another YAML.
+- `dokimi/repos/budget.py` — `repo budget`: what the tree puts into an
+  agent's context when it starts at the root, in characters, with no LLM call.
+  Root CLAUDE.md files and their `@` imports and the skill listing (without
+  skills marked `disable-model-invocation: true`) load at start; nested
+  guidance and what nested CLAUDE.md files import load lazily;
+  skill bodies on demand; with a CLAUDE.md at the root, an AGENTS.md no
+  CLAUDE.md imports is reported off. It warns on skills with no description,
+  skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
+  after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, and on
+  unreadable files (non-UTF-8, dangling or out-of-tree link), each of which also trips
+  `--fail-on-warning`. `start` is not an upper bound: `.claude/rules/*.md` files are not
+  counted, only `@path.md` imports are followed (`@notes.txt` adds nothing), skills are read
+  only from the root `.claude/skills/*/SKILL.md`, and imports are followed past Claude Code's
+  four-hop limit.
 - `dokimi/repos/static.py` — the `repo_static.v1` schema: what the
   repository's own `static` entry point writes, so its checks can be merged
   into L0.
@@ -272,7 +286,7 @@ next release.
   isolation probe must not see the tasks or the source from the agent's
   container.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,tasks check,run,report}`
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so

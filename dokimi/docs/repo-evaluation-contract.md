@@ -33,6 +33,16 @@ SPDX-License-Identifier: Apache-2.0
 >     [--json] [--fail-on-fail]
 > ```
 >
+> `repo budget` sizes what the tree puts into an agent's context (no manifest,
+> no LLM call): root CLAUDE.md files and their `@` imports plus the skill listing at
+> start, nested guidance lazily, skill bodies on demand, and AGENTS.md files a
+> root CLAUDE.md turns off. `start` is not an upper bound: `.claude/rules/*.md` files are not
+> counted, and imports are followed past Claude Code's four-hop limit:
+>
+> ```bash
+> python cli.py repo budget <source> [--harness claude-code] [--json] [--fail-on-warning]
+> ```
+>
 > `--manifest-file <local.yaml>` on `validate`, `scan` and `reach` reads the manifest
 > from outside the tree, for a repository that has not added it yet. `scan` and `reach`
 > need only `guidance`; given neither a manifest in the tree nor `--manifest-file`, they
