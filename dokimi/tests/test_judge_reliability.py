@@ -1098,6 +1098,23 @@ def test_cross_judge_judges_handles_falsy_question_ids(tmp_path, monkeypatch):
     assert seen.count(BODY) == 8
 
 
+def test_cross_judge_judges_refuses_one_damaged_question_among_eight_int_ids(
+    tmp_path, monkeypatch, capsys
+):
+    """The gate reads int ids too: question 5 alone is damaged, and its id is the int 5."""
+    from dokimi.utils import digest_text
+
+    data = _material_run()
+    for i, (ans, ev) in enumerate(zip(data["answers"], data["evaluations"], strict=True)):
+        ans["question_id"] = ev["question_id"] = i
+    other = "OTHER SKILL BODY"
+    data["judge_materials"][digest_text(other)] = other
+    data["evaluations"][5]["scores"]["skill"]["judge_context_sha256"] = digest_text(other)
+    code, seen = _cross_judge(tmp_path, monkeypatch, data)
+    assert code == 2 and not seen
+    assert "different material" in capsys.readouterr().err
+
+
 def test_from_artifact_skips_a_malformed_answer_list_and_non_scalar_ids():
     """No exception; a record with a list id is skipped and counted, the rest are served."""
     from dokimi.eval.judge_context import JudgeContextStore
@@ -1185,6 +1202,24 @@ def test_from_artifact_guards_against_malformed_data():
         "answers": [{"question_id": "q1", "arms": [1]}],
     })
     assert store.materials() == {}
+
+    # An arm entry that is not a dict, next to one that is served
+    data = _material_run(n=1)
+    data["answers"][0]["arms"]["broken"] = 1
+    store = JudgeContextStore.from_artifact(data)
+    assert store.get("Q0", "skill") == BODY and store.get("Q0", "broken") is None
+
+
+def test_unreproducible_arms_skips_malformed_records_and_scores():
+    """Records, arms, evaluations and scores of the wrong type are skipped, not raised on."""
+    from dokimi.eval import cross_judge as cj
+
+    data = _stamped_run()
+    data["answers"] += [5, {"question_id": "Qa", "arms": [1]},
+                        {"question_id": "Qb", "arms": {"skill": 3}}]
+    data["evaluations"] += [7, {"question_id": "Qc", "scores": 3},
+                            {"question_id": "Qd", "scores": {"skill": "x"}}]
+    assert cj.unreproducible_arms(data) == ["skill"]
 
 
 def test_unreproducible_arms_with_non_string_score_digest():

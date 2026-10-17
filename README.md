@@ -164,7 +164,8 @@ the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
 - **At triage** with `--include-resources`, the 25-atom cap takes atoms in
   document order, and the entry point comes first: the flag reaches
   `references/` only if `SKILL.md` has fewer than 25 atoms. For such skills,
-  use `--tier standard` (60 atoms), or `--all-atoms` for a full sweep, which costs more.
+  use `--tier standard` (60 atoms), or add `--all-atoms` to the tier command for
+  a full sweep; run `--estimate-only` first, it costs more.
 - Step 5 needs evaluation content: a golden question set for 5a, executable
   tasks for 5b. `arms run` takes no tasks. That content lives outside this repository
   ([external-content.md](dokimi/docs/external-content.md)). Without it, the
@@ -177,7 +178,7 @@ The full path with reading notes: [skill-novelty-walkthrough.md](dokimi/docs/ski
 | Step | Command | Cost |
 |---|---|---|
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
-| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and Anthropic or Bedrock credentials |
+| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
 | 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
 | 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>` | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
 
