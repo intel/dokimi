@@ -256,3 +256,58 @@ def test_run_reading_edges(tmp_path):
         records.join([], [_eval("q1", 80, 60), _eval("q1", 70, 60)])
     with pytest.raises(RecordError, match="cannot read"):
         records.load(tmp_path)  # a directory
+
+
+# ── join precedence, pinned (a change of any rule here fails a test) ─────
+
+
+def test_a_join_takes_the_evaluations_score_over_an_inline_legacy_score_for_the_same_arm():
+    answers = [{"question_id": "q1", "question_text": "Q1?", "arms": {
+        "baseline": {"answer": "b", "evaluation": {"aggregate_score": 10}},
+        "only_answers": {"answer": "o", "evaluation": {"aggregate_score": 33}},
+        "skill:x": {"answer": "s"}}}]
+    evals = [{"question_id": "q1", "question_text": "Q1?", "scores": {
+        "baseline": {"aggregate": 60.0}, "skill:x": {"aggregate": 75.0}, "only_evaluation": {"aggregate": 5.0}}}]
+    [q1] = records.join(answers, evals, source="run")
+    # the evaluation's score wins for an arm both sides score; a one-sided score is kept
+    assert q1.score("baseline") == 60.0
+    assert q1.score("only_answers") == 33
+    assert (q1.score("skill:x"), q1.score("only_evaluation")) == (75.0, 5.0)
+    # conditions: the answers record's order first, then the evaluation-only ones
+    assert q1.conditions == ("baseline", "only_answers", "skill:x", "only_evaluation")
+    # answers come from the answers record only
+    assert set(q1.answers) == {"baseline", "only_answers", "skill:x"}
+
+
+def test_a_join_where_both_sides_carry_different_metadata():
+    answers = [{**_answer("q1", docs=[_doc("ctx")], persona="dev-a", ground_truth_chunk="gt-a",
+                          category="c-a", difficulty="easy", error="answer-error",
+                          diagnosis={"kind": "answers"}, expected_skill="skill-a"),
+                "question_text": "From the answers?", "shared": "answers", "only_a": 1}]
+    evals = [_eval("q1", 80, 60, question_text="From the eval?", persona="dev-e", ground_truth_chunk="gt-e",
+                   category="c-e", difficulty="hard", error="judge-error", diagnosis={"kind": "eval"},
+                   expected_skill="skill-e", retrieval_hit=False, shared="eval", only_e=2)]
+    [q1] = records.join(answers, evals, source="run")
+    # the answers record wins for the question's text and metadata ...
+    assert (q1.question_text, q1.category, q1.difficulty, q1.persona, q1.ground_truth) == (
+        "From the answers?", "c-a", "easy", "dev-a", "gt-a")
+    assert q1.error == "answer-error"
+    assert q1.expected_skills == records.record(answers[0], kind="answers").expected_skills
+    # ... the evaluation wins for what the judge produced: diagnosis and a stamped retrieval_hit
+    assert q1.diagnosis == {"kind": "eval"}
+    assert q1.retrieval_hit is False
+    # raw: the answers record's keys win, keys from either side are kept
+    assert (q1.raw["shared"], q1.raw["only_a"], q1.raw["only_e"]) == ("answers", 1, 2)
+
+
+def test_a_join_keeps_an_answers_record_with_no_evaluation_and_appends_eval_only_ones_in_order():
+    answers = [_answer("q1"), _answer("q2")]
+    evals = [_eval("q4", 1, 1), _eval("q2", 70, 60), _eval("q3", 2, 2)]
+    out = records.join(answers, evals, source="run")
+    assert [r.key for r in out] == ["q1", "q2", "q4", "q3"]
+    assert out[0].scores == {} and out[1].score(CONTEXT) == 70
+
+
+def test_a_join_refuses_a_duplicate_answers_record():
+    with pytest.raises(RecordError, match="duplicate question_id 'q1' in answers"):
+        records.join([_answer("q1"), _answer("q1")], [], source="run")

@@ -356,3 +356,55 @@ def test_a_binary_record_with_a_stray_null_scores_keeps_its_scores():
 
     r = record({**_ev(0, 80, 60, 20), "scores": None}, kind="evaluations")
     assert (r.score(CONTEXT), r.score(BASELINE)) == (80, 60)
+
+
+def test_a_binary_record_with_a_stray_null_arms_keeps_its_answers():
+    """`arms: null` does not make a binary record an arms record with no conditions."""
+    from dokimi.eval.records import BASELINE, CONTEXT, record
+
+    r = record({"question_id": 0, "question_text": "q0", "arms": None,
+                "with_docs": {"answer": "with"}, "without_docs": {"answer": "without"}}, kind="answers")
+    assert (r.answer(CONTEXT).text, r.answer(BASELINE).text) == ("with", "without")
+    assert r.conditions == (CONTEXT, BASELINE)
+
+
+def test_report_top_and_bottom_deltas_are_ordered():
+    from dokimi.eval.records import records
+    from dokimi.report.generator import ReportGenerator
+
+    evals = records([_ev(0, 70, 60, 10), _ev(1, 90, 60, 30), _ev(2, 80, 60, 20)], source="e", kind="evaluations")
+    gen = ReportGenerator.__new__(ReportGenerator)
+    assert [t["question_id"] for t in gen._top_deltas(evals, limit=2)] == [1, 2]
+    assert [t["question_id"] for t in gen._bottom_deltas(evals, limit=2)] == [0, 2]
+
+
+def test_baseline_summary_leaves_out_a_question_with_an_unscored_baseline():
+    from dokimi.commands.baseline import _compute_summary
+
+    evals = [_ev(i, 80, 60, 20) for i in range(4)] + [_ev(4, 80, None, 15)]
+    summary = _compute_summary({"evaluations": evals})
+    assert summary == {"n": 4, "avg_with": 80.0, "avg_without": 60.0, "avg_delta": 20.0}
+
+
+def test_eval_pairwise_reads_a_binary_answers_file_as_two_arms(tmp_path, monkeypatch):
+    """Accepted on purpose (changelog): with_docs/without_docs are judged as arms, and paid for."""
+    import sys
+    from unittest.mock import MagicMock
+
+    from dokimi import cli
+
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps({"answers": [
+        {"question_id": f"q{i}", "question_text": f"Q{i}?",
+         "with_docs": {"answer": f"with {i}"}, "without_docs": {"answer": f"without {i}"}}
+        for i in range(2)]}), encoding="utf-8")
+    judge = MagicMock()
+    judge.compare.return_value = MagicMock(winner="a", escalated=False)
+    monkeypatch.setattr("dokimi.commands.judge_reliability.pairwise_judge", lambda args: (judge, "stub/judge"))
+    monkeypatch.setattr("dokimi.eval.pairwise.ArmPairwiseReport.format_markdown", lambda self: "md\n")
+    monkeypatch.setattr("dokimi.eval.pairwise.ArmPairwiseReport.to_dict", lambda self: {})
+    monkeypatch.setattr(sys, "argv", ["dokimi", "eval", "pairwise", "--answers", str(answers),
+                                      "--baseline-arm", "without_docs", "--output", str(tmp_path / "pw.json")])
+    cli.main()
+    calls = {(c.args[2], c.args[3]) for c in judge.compare.call_args_list}
+    assert calls == {("with 0", "without 0"), ("with 1", "without 1")}

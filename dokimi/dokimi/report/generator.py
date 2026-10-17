@@ -537,7 +537,10 @@ def _columns(evaluations: Sequence[Record]) -> "tuple[List[float], List[float], 
     """Each arm's scores and the persisted deltas, each over the records that have one.
 
     The arms are averaged over different question sets when a question is scored
-    in one arm only; the deltas are over the questions scored in both.
+    in one arm only. The deltas are the persisted ``delta`` values, whatever the
+    arms' scores: a record with a delta and one unscored arm counts in the delta
+    mean but not in that arm's, so the delta mean need not equal the difference
+    of the arm means (and the top/bottom tables, which need both arms, leave it out).
     """
     with_scores = [s for e in evaluations if (s := e.score(CONTEXT)) is not None]
     without_scores = [s for e in evaluations if (s := e.score(BASELINE)) is not None]

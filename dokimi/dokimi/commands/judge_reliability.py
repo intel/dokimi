@@ -363,7 +363,7 @@ def register(eval_sub, positive_int) -> None:
         "checklist",
         help="Required-point coverage per arm: is each expected_topic in the answer? (both polarities)",
     )
-    ck.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json)")
+    ck.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json); a binary answers file is read as arms with_docs/without_docs (paid judge calls)")
     ck.add_argument("--questions", required=True, help="Questions JSON whose expected_topics are the points")
     ck.add_argument("--baseline-arm", default=None, dest="baseline_arm",
                     help="Arm the others are compared to (default: the run's baseline_arm)")
@@ -404,7 +404,7 @@ def register(eval_sub, positive_int) -> None:
         "cross-judge",
         help="Each arm's delta under several judges and axes, labelled CONSISTENT / JUDGE-DEPENDENT / ...",
     )
-    cj.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json)")
+    cj.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json); a binary answers file is read as arms with_docs/without_docs (paid judge calls)")
     cj.add_argument("--judges", default=None,
                     help="Comma-separated provider/model judges to re-score with, e.g. "
                          "amazon-bedrock/us.anthropic.claude-haiku-5-5,amazon-bedrock/openai.gpt-oss-120b-1:0")
@@ -438,7 +438,7 @@ def register(eval_sub, positive_int) -> None:
         "pairwise",
         help="Every arm vs the baseline, both answers shown together in both orders; optional escalation",
     )
-    pw.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json)")
+    pw.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json); a binary answers file is read as arms with_docs/without_docs (paid judge calls)")
     pw.add_argument("--product", default=None, help="Library name (default: read from answers file)")
     pw.add_argument("--baseline-arm", default=None, dest="baseline_arm")
     pw.add_argument("--arms", default=None, help="Comma-separated arms to compare (default: all)")
