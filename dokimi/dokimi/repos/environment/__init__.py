@@ -16,11 +16,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from dokimi.repos.l0.core import Scan
-from dokimi.repos.source import RepoTree
+from dokimi.repos.source import RepoTree, SourceError
 
 from .checks import KINDS, detect_checks
 from .files import LARGE_BYTES, inventory, sizes
 from .instructions import LARGE_INSTRUCTION_BYTES, detect_instructions
+from .instructions import RULES as INSTRUCTION_RULES
 from .risks import detect_capabilities, detect_hook_risks, detect_script_signals
 
 STAGES = ("orient", "bootstrap", "navigate", "edit", "verify", "review", "merge", "deploy")
@@ -75,11 +76,28 @@ def _finding(rule: str, why: str, path: str | None = None, confidence: str = "hi
             "confidence": confidence, "stages": list(info.stages), "path": path, "why": why}
 
 
+def _read_sizes(tree: RepoTree, files: list[str], size_of: dict[str, int] | None) -> dict[str, int] | None:
+    """``size_of`` with a linked instruction file sized by the file it names: the harness reads that."""
+    if size_of is None:
+        return None
+    out = dict(size_of)
+    for path in files:
+        if not any(rule.match(path) for rule in INSTRUCTION_RULES):
+            continue
+        try:
+            target = tree.resolve(path)
+        except SourceError:
+            continue
+        if target != path and target in size_of:
+            out[path] = size_of[target]
+    return out
+
+
 def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
     """The ``repo_environment.v1`` payload (without ``schema_version``) for ``tree``."""
     scan = Scan(tree, frozenset())
     size_of = sizes(tree)
-    instructions = detect_instructions(scan.files, size_of)
+    instructions = detect_instructions(scan.files, _read_sizes(tree, scan.files, size_of))
     checks = detect_checks(scan)
     capabilities = detect_capabilities(scan)
     scripts = detect_script_signals(scan)

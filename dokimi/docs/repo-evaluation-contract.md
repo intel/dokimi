@@ -653,8 +653,9 @@ The report keeps observations apart from findings:
   `.github/instructions/*.instructions.md`, …), with its `scope`
   (`root`, `path-specific`, `mode-specific`, `local-private`, `legacy`,
   `capability`, `unknown`), `activation`, the `directory` it applies to and
-  its size. This is what each harness documents; which files a given harness
-  version loads is measured by the reach probe (§7).
+  its size (for a link, the size of the file it names). This is what each
+  harness documents; which files a given harness version loads is measured by
+  the reach probe (§7).
 - `checks`: ways to build, test, lint and type-check, per project root (the
   root and every directory below it with a `package.json`, makefile,
   `pyproject.toml`, `setup.py`, `go.mod` or `Cargo.toml`; Bazel, CMake,

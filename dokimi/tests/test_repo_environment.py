@@ -226,6 +226,20 @@ def test_inspect_does_not_run_the_repository_git_config(tmp_path):
     assert not marker.exists()
 
 
+@pytest.mark.parametrize("kind", ["work", "git"])
+def test_linked_instruction_file_is_sized_by_its_target(tmp_path, kind):
+    root = tmp_path / "repo"
+    root.mkdir()
+    try:
+        (root / "AGENTS.md").symlink_to("docs/agents.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    sha = _repo(root, {"docs/agents.md": "a" * 300_000})
+    rep = inspect_repo(WorkTree(root) if kind == "work" else GitTree(root, sha))
+    assert [i["size_bytes"] for i in rep["instructions"] if i["path"] == "AGENTS.md"] == [300_000]
+    assert "instructions.large:AGENTS.md" in {f["id"] for f in rep["findings"]}
+
+
 @pytest.mark.parametrize("kind", ["bom", "plain", "nested"])
 def test_package_json_bom_is_read_and_nesting_does_not_crash(tmp_path, kind):
     text = {"bom": "\ufeff", "plain": ""}.get(kind, "") + '{"scripts": {"test": "jest"}}'
