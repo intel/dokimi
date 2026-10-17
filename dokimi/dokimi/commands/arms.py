@@ -453,6 +453,10 @@ def _check_question_ids(questions: list[dict], path: str) -> None:
     missing id is filled from the question's position, which is unique.
     """
     ids = [question_id(q) for q in questions]
+    for i, qid in enumerate(ids):
+        # The reader refuses any other id, so a run with one would be paid for and lost.
+        if qid is not None and (isinstance(qid, bool) or not isinstance(qid, (str, int))):
+            raise ValueError(f"{path}: questions[{i}]: id must be a string or an integer, got {qid!r}")
     taken = _refuse_duplicate_ids(ids, path)
     missing = [i for i, qid in enumerate(ids) if qid is None]
     for i in missing:

@@ -400,6 +400,25 @@ def test_load_questions_assigns_unique_ids_where_missing(tmp_path: Path, capsys)
     assert "had no id" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("bad", [1.5, 1.0, True])
+def test_arms_run_refuses_a_non_string_non_integer_id_before_any_call(monkeypatch, tmp_path: Path,
+                                                                      capsys, bad):
+    """The answers would be paid for, then refused by the reader and lost."""
+    def no_calls(*a, **kw):
+        raise AssertionError("a call was made before the ids were checked")
+
+    monkeypatch.setattr(arm_runner_mod.ArmRunner, "run", no_calls)
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps([{"id": "a", "text": "x"}, {"id": bad, "text": "y"}]))
+    out = tmp_path / "o.json"
+    args = build_parser().parse_args(["arms", "run", "--product", "x", "--arms", "baseline",
+                                      "--questions", str(questions), "--out-json", str(out)])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    assert f"questions[1]: id must be a string or an integer, got {bad!r}" in capsys.readouterr().err
+    assert not out.exists()
+
+
 def test_load_questions_keeps_integer_id_zero(tmp_path: Path):
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": 0, "text": "x"}, {"id": 1, "text": "y"}]))
