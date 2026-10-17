@@ -26,19 +26,20 @@ Every container is started the same way, whatever the image's ``ENTRYPOINT``:
   or a process list. The CLI itself runs with the host environment: the
   container's ``HOME`` would hide ``~/.docker`` and break rootless runtimes.
 
-:class:`DockerRunner` drives the docker CLI. Tests use a fake runner with the
-same :class:`ContainerRunner` interface.
+:class:`DockerRunner` drives the docker CLI through :mod:`dokimi.process`.
+Tests use a fake runner with the same :class:`ContainerRunner` interface, or
+give :class:`DockerRunner` a :class:`dokimi.process.FakeRunner`.
 """
 
 from __future__ import annotations
 
 import os
-import signal
-import subprocess
-import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
+
+from dokimi import process
 
 RUN_DIR = "/eval/run"
 WORKSPACE = f"{RUN_DIR}/workspace"
@@ -52,6 +53,9 @@ NETWORKS = ("none", "bridge", "host")
 PROXY_BUILD_ARGS = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
 PIDS_LIMIT = 32768  # threads count too: a Bazel server and a -j build on a many-core host use thousands
 INFRA_EXIT = 125  # `docker run` itself failed (daemon, mount, image); the command never started
+BUILD_TIMEOUT_S = 3 * 3600  # a wedged daemon or a hung RUN step fails the build instead of hanging the batch
+DOCKER_CALL_TIMEOUT_S = 60  # `docker kill`, `docker image inspect`
+STOP_GRACE_S = 10  # a timed-out docker CLI gets SIGTERM (it stops the container) before SIGKILL
 
 
 class ContainerError(RuntimeError):
@@ -111,8 +115,9 @@ def host_user() -> str | None:
 class DockerRunner:
     """Run containers with the docker CLI."""
 
-    def __init__(self, docker: str = "docker"):
+    def __init__(self, docker: str = "docker", runner: process.Runner = process.run):
         self.docker = docker
+        self.runner = runner
 
     def argv(self, spec: ContainerSpec) -> list[str]:
         if spec.network not in NETWORKS:
@@ -138,17 +143,18 @@ class DockerRunner:
         for m in spec.mounts:
             if not m.host.exists():
                 raise ContainerError(f"mount source does not exist: {m.host}")
-        env = dict(os.environ)  # -e NAME reads the forwarded values from here
 
         def stop() -> None:
             if spec.name:
                 try:
-                    subprocess.run([self.docker, "kill", spec.name], capture_output=True, timeout=60, check=False)
-                except (subprocess.TimeoutExpired, OSError):
-                    pass  # still a timed-out run; kill_group ends the docker CLI, the container may outlive it
+                    self.runner([self.docker, "kill", spec.name], timeout=DOCKER_CALL_TIMEOUT_S,
+                                env=process.Env.inherit())
+                except OSError:
+                    pass  # still a timed-out run; the docker CLI is gone, the container may outlive it
 
-        result = run_process(self.argv(spec), env=env, stdout=stdout, stderr=stderr, timeout_s=timeout_s,
-                             on_timeout=stop)
+        # -e NAME reads the forwarded values from the CLI's own environment: the caller's.
+        result = run_process(self.argv(spec), env=process.Env.inherit(), stdout=stdout, stderr=stderr,
+                             timeout_s=timeout_s, on_timeout=stop, runner=self.runner)
         if result.returncode == INFRA_EXIT and not result.timed_out:
             tail = stderr.read_text(encoding="utf-8", errors="replace").strip()[-500:]
             raise ContainerError(f"docker run failed: {tail}")
@@ -161,61 +167,39 @@ class DockerRunner:
         for name in PROXY_BUILD_ARGS:
             if name in os.environ:
                 argv += ["--build-arg", name]
-        proc = subprocess.run([*argv, str(context)], capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", check=False)
+        try:
+            proc = self.runner([*argv, str(context)], timeout=BUILD_TIMEOUT_S, env=process.Env.inherit())
+        except OSError as exc:
+            raise ContainerError(f"docker build {tag}: cannot run {self.docker!r}: {exc}") from exc
+        if proc.timed_out:
+            raise ContainerError(f"docker build {tag} timed out after {BUILD_TIMEOUT_S}s:\n"
+                                 f"{(proc.stderr or proc.stdout)[-3000:]}")
         if proc.returncode:
             raise ContainerError(f"docker build {tag} failed:\n{(proc.stderr or proc.stdout)[-3000:]}")
 
     def image_exists(self, tag: str) -> bool:
-        proc = subprocess.run([self.docker, "image", "inspect", tag], capture_output=True, check=False)
+        proc = self.runner([self.docker, "image", "inspect", tag], timeout=DOCKER_CALL_TIMEOUT_S,
+                           env=process.Env.inherit(), capture_stdout=False)
+        if proc.timed_out:  # a daemon that does not answer would only hang the build next
+            raise ContainerError(f"docker image inspect {tag}: no answer in {DOCKER_CALL_TIMEOUT_S}s")
         return proc.returncode == 0
 
 
-def run_process(argv: list[str], *, env: dict[str, str], stdout: Path, stderr: Path, timeout_s: float,
-                cwd: Path | None = None, on_timeout=None) -> ContainerResult:
-    """Run ``argv`` in its own process group; on timeout call ``on_timeout`` and kill the group."""
-    t0 = time.monotonic()
-    with open(stdout, "wb") as out, open(stderr, "wb") as err:
-        proc = subprocess.Popen(argv, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
-                                start_new_session=True)
-        timed_out = False
-        try:
-            rc: int | None = proc.wait(timeout=timeout_s)
-        except subprocess.TimeoutExpired:
-            timed_out, rc = True, None
-            if on_timeout is not None:
-                on_timeout()
-        finally:
-            kill_group(proc)
-    return ContainerResult(returncode=rc, timed_out=timed_out, wall_s=round(time.monotonic() - t0, 1))
+def run_process(argv: list[str], *, env: process.Env | dict[str, str], stdout: Path, stderr: Path,
+                timeout_s: float, cwd: Path | None = None, on_timeout: Callable[[], None] | None = None,
+                runner: process.Runner = process.run) -> ContainerResult:
+    """Run ``argv`` with its output in the files ``stdout`` and ``stderr``. On a timeout or an
+    interrupt its process group gets SIGTERM, then SIGKILL after :data:`STOP_GRACE_S`; after a
+    timeout ``on_timeout`` runs. A ``dict`` ``env`` is exactly the child's environment.
 
-
-def kill_group(proc: subprocess.Popen, grace_s: float = 10) -> None:
-    """SIGTERM the process group of ``proc`` (children it left too), SIGKILL after ``grace_s``."""
-    if not hasattr(os, "killpg"):  # Windows: no process groups to signal
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait()
-        return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        proc.wait()
-        return
-    deadline = time.monotonic() + grace_s
-    while time.monotonic() < deadline:
-        proc.poll()  # reap the leader, or its zombie keeps the group alive
-        try:
-            os.killpg(proc.pid, 0)
-        except (ProcessLookupError, PermissionError):
-            break
-        time.sleep(0.2)
-    else:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
-    proc.wait()
+    When the command exits, whatever it left running in its group is killed."""
+    policy = env if isinstance(env, process.Env) else process.Env.only((), env)
+    done = runner(argv, env=policy, cwd=cwd, timeout=timeout_s, stdout_to=stdout, stderr_to=stderr,
+                  term_grace=STOP_GRACE_S)
+    if done.timed_out and on_timeout is not None:
+        on_timeout()
+    return ContainerResult(returncode=None if done.timed_out else done.returncode, timed_out=done.timed_out,
+                           wall_s=round(done.elapsed_sec, 1))
 
 
 def docker_network(network: str, egress: tuple[str, ...] = ()) -> str:
