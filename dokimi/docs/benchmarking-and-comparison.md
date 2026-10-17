@@ -102,7 +102,12 @@ longer follows `--provider`: with no judge flags it runs on `anthropic`, so a
 Bedrock-only run passes `--judge-provider amazon-bedrock` (and `atoms`/`shorten`
 `--provider amazon-bedrock`). `--judge-provider` alone takes the default judge that
 runs there; when none does (measuring `claude-sonnet-5-5` on Bedrock) the run exits
-and asks for `--judge-model`.
+and asks for `--judge-model`. The other commands with a judge (`benchmark`, `eval`,
+`evaluate`, `arms` and `subjects`) do the same with `--judge-provider` alone:
+`claude-sonnet-5-5` on `anthropic` and `amazon-bedrock`, `gpt-6.1-sol` on `openai`
+(the default answer model, so the judge-independence warning fires where it is
+checked), and on any other provider they exit before the first call and ask for
+`--judge-model`.
 
 **Defaults changed on 2026-10-13: results are not comparable with older baselines;
 re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and

@@ -16,8 +16,9 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
-    DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
+    JUDGE_MODEL_FOR_PROVIDER,
+    JUDGE_MODEL_HELP,
 )
 
 # Run-configuration fields the arms commands read off parsed args, shared with
@@ -245,7 +246,8 @@ def register(sub, positive_int) -> None:
                                  "discovery rate)")
     arms_run_p.add_argument("--judge", action="store_true",
                             help="Also score each arm with the LLM-as-judge")
-    arms_run_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    arms_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
+                            help=JUDGE_MODEL_HELP)
     arms_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                             choices=JUDGE_PROVIDERS)
     arms_run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
@@ -384,7 +386,8 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
                              "or 'bh' (Benjamini-Hochberg, controls false discovery rate)")
     parser.add_argument("--judge", action="store_true",
                         help="Also score each arm with the LLM-as-judge")
-    parser.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    parser.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
+                        help=JUDGE_MODEL_HELP)
     parser.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                         choices=JUDGE_PROVIDERS)
     parser.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
