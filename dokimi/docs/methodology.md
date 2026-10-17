@@ -24,7 +24,7 @@ The high-level pipeline is:
 
 ```text
 Library registry / CLI input
-    -> persona discovery or cached personas
+    -> persona discovery or cached personas (skipped with a golden set or --questions-from)
     -> topic extraction from docs
     -> question generation or fixed golden questions
     -> answer generation with_docs and without_docs
@@ -56,7 +56,8 @@ python cli.py evaluate \
 
 Outputs are written under `results/<library>/` or the requested `--output-dir`:
 
-- `personas/<product>.json`: discovered or cached personas.
+- `personas/<product>.json`: discovered or cached personas; not written when the
+  questions come from a golden set or `--questions-from`.
 - `questions/<product>.json`: generated, golden, manual, or reused questions.
 - `answers/<product>.json`: paired `with_docs` and `without_docs` answers plus model/token metadata.
 - `eval/<product>.json`: judge scores, deltas, diagnosis, and run metadata.
