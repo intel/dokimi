@@ -262,3 +262,64 @@ def test_eval_score_exits_cleanly_on_a_record_without_question_text(tmp_path, ca
         cmd_eval_score(args)
     assert exit_.value.code == 1
     assert "answers[2]: question 'q2' has no question_text" in capsys.readouterr().err
+
+
+def _id_less_eval(tmp_path):
+    path = tmp_path / "eval.json"
+    path.write_text(json.dumps({"evaluations": [
+        {"question_id": "q0", "question_text": "a", "with_docs": {"aggregate": 5},
+         "without_docs": {"aggregate": 1}, "delta": 4},
+        {"question_text": "b", "with_docs": {"aggregate": 5}, "without_docs": {"aggregate": 1}, "delta": 4}]}),
+        encoding="utf-8")
+    return path
+
+
+def test_report_eval_exits_cleanly_naming_the_file(tmp_path, capsys):
+    from dokimi.commands.report import cmd_report_eval
+
+    path, out = _id_less_eval(tmp_path), tmp_path / "r.md"
+    with pytest.raises(SystemExit) as exc:
+        cmd_report_eval(argparse.Namespace(eval=str(path), out=str(out), product="P", run_id=None))
+    assert exc.value.code == 1
+    assert f"Error: {path}[1]: missing question_id" in capsys.readouterr().err
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("fmt", ["markdown", "json"])
+def test_report_generate_exits_cleanly_naming_the_file(tmp_path, capsys, fmt):
+    from dokimi.commands.report import cmd_report_generate
+
+    path, out = _id_less_eval(tmp_path), tmp_path / "r.out"
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps({"questions": []}), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_report_generate(argparse.Namespace(eval=str(path), questions=str(questions), format=fmt,
+                                               output=str(out), product="P"))
+    assert exc.value.code == 1
+    assert f"Error: {path} evaluations[1]: missing question_id" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_model_compare_names_the_file_with_the_malformed_record(tmp_path):
+    from dokimi.report.model_compare import load_run
+
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps({"answers": [{"arms": {"baseline": {"answer": "a"}}}]}), encoding="utf-8")
+    with pytest.raises(SystemExit, match=r"run\.json answers\[0\]: missing question_id"):
+        load_run(str(path))
+
+
+def test_plugin_delta_names_the_file_with_the_malformed_record(tmp_path, monkeypatch, capsys):
+    import dokimi.artifacts
+    from dokimi.cli import build_parser
+
+    good = {"answers": [{"question_id": "q0", "arms": {"baseline": {"answer": "a"}}}]}
+    bad = {"answers": [{"arms": {"baseline": {"answer": "a"}}}]}
+    monkeypatch.setattr(dokimi.artifacts, "load_artifact", lambda kind, p: bad if p.name == "p.json" else good)
+    args = build_parser().parse_args(["arms", "plugin-delta", "--baseline-json", str(tmp_path / "b.json"),
+                                      "--plugin-json", str(tmp_path / "p.json"),
+                                      "--out-json", str(tmp_path / "d.json")])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    assert "p.json answers[0]: missing question_id" in capsys.readouterr().err
+    assert not (tmp_path / "d.json").exists()
