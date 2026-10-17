@@ -57,7 +57,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
-from dokimi.eval.question_text import require_question_text, require_question_texts
+from dokimi.eval.question_text import require_question_text
 
 PAIRWISE_PROMPT = """You are comparing two answers to the same technical question about __LIBRARY_NAME__.
 
@@ -268,6 +268,31 @@ class ArmPairwiseReport:
         return "\n".join(lines) + "\n"
 
 
+def pairwise_jobs(
+    records: Sequence[Dict[str, Any]],
+    *,
+    baseline_arm: str = "baseline",
+    arms: Optional[Sequence[str]] = None,
+) -> List[Tuple[str, str, str, str, str]]:
+    """The (arm, question_id, question, answer, baseline answer) comparisons to judge.
+
+    Pure: no judge call. Raises :class:`EmptyQuestionError` for a record that
+    would be compared and has no question text; a record that would be skipped
+    anyway (no baseline answer, no other arm) is not refused.
+    """
+    jobs: List[Tuple[str, str, str, str, str]] = []
+    for rec in records:
+        by_arm = rec.get("arms") or {}
+        base = (by_arm.get(baseline_arm) or {}).get("answer")
+        if not base:
+            continue
+        for arm, body in by_arm.items():
+            answer = (body or {}).get("answer") if isinstance(body, dict) else None
+            if arm != baseline_arm and answer and (arms is None or arm in arms):
+                jobs.append((arm, rec["question_id"], require_question_text(rec), answer, base))
+    return jobs
+
+
 def run_arm_pairwise(
     records: Sequence[Dict[str, Any]],
     judge: PairwiseJudge,
@@ -279,17 +304,7 @@ def run_arm_pairwise(
     concurrency: int = 1,
     progress: Optional[Callable[[int, int], None]] = None,
 ) -> ArmPairwiseReport:
-    require_question_texts(records)  # before any judge call: refuse, do not compare against ""
-    jobs: List[Tuple[str, str, str, str, str]] = []
-    for rec in records:
-        by_arm = rec.get("arms") or {}
-        base = (by_arm.get(baseline_arm) or {}).get("answer")
-        if not base:
-            continue
-        for arm, body in by_arm.items():
-            answer = (body or {}).get("answer") if isinstance(body, dict) else None
-            if arm != baseline_arm and answer and (arms is None or arm in arms):
-                jobs.append((arm, rec["question_id"], require_question_text(rec), answer, base))
+    jobs = pairwise_jobs(records, baseline_arm=baseline_arm, arms=arms)
 
     def one(job):
         arm, qid, question, answer, base = job

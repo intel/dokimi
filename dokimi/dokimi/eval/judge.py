@@ -20,7 +20,9 @@ from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose, retrieval_hit
-from dokimi.eval.question_text import require_question_text, require_question_texts
+from dokimi.eval.question_text import (
+    has_answer_to_judge, question_text_of, require_question_text, require_question_texts,
+)
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
@@ -310,7 +312,7 @@ class Judge:
                 logger.exception(f"Evaluation failed for {q_id}")
                 eval_result = {
                     "question_id": answer["question_id"],
-                    "question_text": require_question_text(answer),
+                    "question_text": question_text_of(answer),
                     "category": answer.get("category"),
                     "difficulty": answer.get("difficulty"),
                     "persona": answer.get("persona"),
@@ -360,7 +362,8 @@ class Judge:
         answer: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Evaluate a single context-arm/baseline answer pair."""
-        question_text = require_question_text(answer)
+        # Refused only when there is an answer to grade; an answer-error record keeps its row.
+        question_text = require_question_text(answer) if has_answer_to_judge(answer) else question_text_of(answer)
         ground_truth = answer.get("ground_truth_chunk")  # present for chunk-grounded questions
 
         # Evaluate context arm

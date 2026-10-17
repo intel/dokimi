@@ -53,7 +53,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
-from dokimi.eval.question_text import require_question_text, require_question_texts
+from dokimi.eval.question_text import require_question_text
 from dokimi.eval.stats import adjust_pvalues, mean_ci
 
 ALPHA = 0.05
@@ -216,6 +216,22 @@ def pairwise_measure(pairwise: Dict[str, Any], name: str, baseline_arm: str) -> 
     return m
 
 
+def scored_answers(
+    records: Sequence[Dict[str, Any]], arms: Optional[Sequence[str]] = None,
+) -> List[Tuple[Dict[str, Any], str, Dict[str, Any], str]]:
+    """The (record, arm, arm body, question) answers :func:`score_measure` sends to a judge.
+
+    Pure: no judge call. Raises :class:`EmptyQuestionError` for a record with an
+    answer to score and no question text; a record with only empty answers is
+    skipped, not refused.
+    """
+    return [
+        (r, arm, body, require_question_text(r))
+        for r in records for arm, body in (r.get("arms") or {}).items()
+        if isinstance(body, dict) and body.get("answer") and (arms is None or arm in arms)
+    ]
+
+
 def score_measure(
     records: Sequence[Dict[str, Any]], scorer: Scorer, *, name: str, library: str,
     arms: Optional[Sequence[str]] = None, concurrency: int = 1,
@@ -237,13 +253,11 @@ def score_measure(
     hold (or with no store) fall back to the arm's report snippets, which is
     what a run before ``judge_context`` showed its judge.
     """
-    require_question_texts(records)  # before any judge call: refuse, do not score against ""
     store = store if store is not None else JudgeContextStore()
     jobs = [
-        (r["question_id"], arm, require_question_text(r), body["answer"],
+        (r["question_id"], arm, question, body["answer"],
          store.resolve_with_source(r["question_id"], arm, body)[0])
-        for r in records for arm, body in (r.get("arms") or {}).items()
-        if isinstance(body, dict) and body.get("answer") and (arms is None or arm in arms)
+        for r, arm, body, question in scored_answers(records, arms)
     ]
 
     def one(job):

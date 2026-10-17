@@ -6,8 +6,10 @@
 A judge shown an empty question grades the answer against nothing, and the
 score still counts. So every path that sends a record to a judge (absolute,
 panel, arms, pairwise, checklist, cross-judge, degradation pairs) checks all
-of its records first and refuses the run, naming the record, before any judge
-call is paid for.
+of the records it would send to a judge first and refuses the run, naming the
+record, before any judge call (and any sampling probe) is paid for. A record
+the path would skip anyway (no answer to judge, an answer-error record, no
+expected points, no baseline to compare with) is not refused.
 """
 
 from __future__ import annotations
@@ -25,30 +27,45 @@ _KEYS = ("question_text", "question", "text")
 class EmptyQuestionError(ValueError):
     """A record handed to a judge has no question text.
 
-    A ``ValueError``, like ``dokimi.eval.records.RecordError``: both mean a bad
-    input record, which the CLI reports as ``Error: ...`` with exit 1.
+    A ``ValueError`` meaning a bad input record, which the CLI reports as
+    ``Error: ...`` with exit 2, the code the commands use for bad input (1 is
+    the verdict code of ``--strict`` gates and ``eval judge-validity``).
     """
 
 
-def _label(record: Any, index: Optional[int]) -> str:
-    if isinstance(record, Mapping):
-        qid = question_id(dict(record))
-    else:  # a parsed record object (``Record``) carries the id as an attribute
-        qid = getattr(record, "question_id", None)
+def _label(record: Mapping[str, Any], index: Optional[int]) -> str:
+    qid = question_id(dict(record))
     if qid is not None:
         return f"question {qid!r}"
     return f"record #{index}" if index is not None else "a record"
 
 
-def require_question_text(record: Any, index: Optional[int] = None) -> str:
-    """The record's question text; :class:`EmptyQuestionError` when it is missing or blank."""
-    if isinstance(record, Mapping):
-        texts = [record.get(key) for key in _KEYS]
-    else:  # a parsed record object: its reader already picked the key
-        texts = [getattr(record, "question_text", None)]
-    for text in texts:
+def question_text_of(record: Mapping[str, Any]) -> str:
+    """The record's question text by the same key order, or ``""``; never raises.
+
+    For rows about records that are not judged (an answer-error row, say).
+    """
+    for key in _KEYS:
+        text = record.get(key)
         if isinstance(text, str) and text.strip():
             return text
+    return ""
+
+
+def has_answer_to_judge(record: Mapping[str, Any]) -> bool:
+    """Whether the record carries an answer a judge would grade (arms or legacy shape)."""
+    slots = [record.get("with_docs"), record.get("without_docs")]
+    arms = record.get("arms")
+    if isinstance(arms, Mapping):
+        slots += list(arms.values())
+    return any(isinstance(s, Mapping) and s.get("answer") for s in slots)
+
+
+def require_question_text(record: Mapping[str, Any], index: Optional[int] = None) -> str:
+    """The record's question text; :class:`EmptyQuestionError` when it is missing or blank."""
+    text = question_text_of(record)
+    if text:
+        return text
     where = _label(record, index)
     raise EmptyQuestionError(
         f"{where} has no question text (question_text is missing or empty); "
@@ -56,7 +73,12 @@ def require_question_text(record: Any, index: Optional[int] = None) -> str:
     )
 
 
-def require_question_texts(records: Iterable[Any]) -> None:
-    """Check every record before any judge call; raise on the first without a question."""
+def require_question_texts(records: Iterable[Mapping[str, Any]]) -> None:
+    """Before any judge call, check every record that has an answer to judge.
+
+    Raises on the first one without a question; a record with no answer (an
+    answer-error record, say) is never judged and so is not refused.
+    """
     for i, record in enumerate(records):
-        require_question_text(record, i)
+        if has_answer_to_judge(record):
+            require_question_text(record, i)

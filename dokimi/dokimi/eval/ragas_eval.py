@@ -22,6 +22,7 @@ import logging
 import os
 from typing import List, Dict, Any, Optional
 
+from dokimi.eval.question_text import question_text_of, require_question_text
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 
 logger = logging.getLogger(__name__)
@@ -108,8 +109,8 @@ class RagasEvaluator:
         rows_with = []
         rows_without = []
 
-        for ans in answers:
-            q = ans.get("question_text", "")
+        for i, ans in enumerate(answers):
+            q = question_text_of(ans)
 
             # --- CONTEXT ARM ---
             wd = ans.get("with_docs") or {}
@@ -118,6 +119,8 @@ class RagasEvaluator:
             context = [d.get("snippet") or d.get("content", "") for d in docs if d]
 
             if answer_with and context:
+                # Rows are all built before the first RAGAS call: refuse, do not grade against "".
+                require_question_text(ans, i)
                 row: Dict[str, Any] = {
                     "question": q,
                     "answer": answer_with,
@@ -135,6 +138,7 @@ class RagasEvaluator:
                 wod = ans.get("without_docs") or {}
                 answer_without = wod.get("answer", "")
                 if answer_without:
+                    require_question_text(ans, i)
                     rows_without.append({
                         "question": q,
                         "answer": answer_without,

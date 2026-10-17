@@ -96,7 +96,9 @@ def main() -> None:
         args.func(args)
     except EmptyQuestionError as exc:  # a bad input record, not a bug: no traceback
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        # 2, as the commands' other input errors: 1 is the verdict of `eval judge-validity`
+        # and of the --strict gates, and a malformed file must not read as a failed gate.
+        sys.exit(2)
 
 
 if __name__ == "__main__":

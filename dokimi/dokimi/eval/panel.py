@@ -26,7 +26,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dokimi.eval.diagnoser import retrieval_hit
-from dokimi.eval.question_text import require_question_text, require_question_texts
+from dokimi.eval.question_text import (
+    has_answer_to_judge, question_text_of, require_question_text, require_question_texts,
+)
 from dokimi.llm import llm_call
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 
@@ -497,7 +499,8 @@ class JudgePanel:
             q_id = answer.get("question_id", answer.get("id", f"q{i}"))
             # answers.v1 writes ``question_text``; ``question``/``text`` are the
             # question-set spellings, accepted for hand-built inputs.
-            question = require_question_text(answer, i - 1)
+            question = (require_question_text(answer, i - 1) if has_answer_to_judge(answer)
+                        else question_text_of(answer))
             print(f"[{i}/{n}] Panel: {q_id}…", flush=True)
             with_v = self._score_answer_entry(answer.get("with_docs"), question, library_name)
             without_v = self._score_answer_entry(answer.get("without_docs"), question, library_name)
