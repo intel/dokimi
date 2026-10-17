@@ -298,40 +298,13 @@ class TestJudgeAnswer:
         (["x: misleading/wrong."], 95, 40),
         (["64 B: WRONG (expected 128)"], 95, 40),
         (["x — not wrong"], 95, 95),
-        # A path-like tail does not cap; a single-token qualifier does.
-        (["x: see docs/wrong"], 95, 95),
-        (["x: unverified (see docs/wrong)"], 95, 95),
-        (["64 B: unverified, see section 4.2/wrong"], 95, 95),
+        # A single-token qualifier caps.
         (["x: dubious, misleading/wrong"], 95, 40),
         # A claim with no real separator (`:`, `-`, `(`) is unread, even if `,` appears.
         (["64 bytes, wrong"], 95, 95),
         # Qualified verdicts work the same in dict claims and strings.
         ([{"figure": "x", "verdict": "misleading/wrong"}], 95, 40),
         ([{"figure": "x", "verdict": "reasonable, not wrong"}], 95, 95),
-        # False positives that must stay unread with the end-anchored pattern.
-        (["TILE (default, wrong on ARM): unverified"], 95, 95),
-        (["buffer 64 B - 128 B, wrong alignment assumed: unverified"], 95, 95),
-        (["2x: correctly identified, wrong claim by user"], 95, 95),
-        (["x: depends, wrong if cached"], 95, 95),
-        (["x: see /wrong/path"], 95, 95),
-        # Adverbs and slash/comma alternatives that must stay unread.
-        (["x: see /wrong"], 95, 95),
-        (["x: unverified, right/wrong"], 95, 95),
-        (["x: unverified, right, wrong"], 95, 95),
-        (["x: dubious, hardly wrong"], 95, 95),
-        (["x: unverified, wrong/right"], 95, 95),
-        (["x: unverified, wrong, right"], 95, 95),
-        (["x: unverified, correct/wrong"], 95, 95),
-        (["x: unverified, correct, wrong"], 95, 95),
-        (["x: dubious, barely wrong"], 95, 95),
-        (["x: dubious, scarcely wrong"], 95, 95),
-        (["x: dubious, seemingly right"], 95, 95),
-        (["x: unverified, possibly wrong"], 95, 95),
-        (["x: dubious, nearly wrong"], 95, 95),
-        (["x: unverified, formerly correct"], 95, 95),
-        (["x: non-wrong"], 95, 95),
-        (["x: semi-correct"], 95, 95),
-        (["x: misleading/wrong!"], 95, 95),
         # Intensifiers strengthen the verdict; the en dash, a figure-like qualifier and a
         # trailing space still read.
         (["x: dubious, entirely wrong"], 95, 40),
@@ -345,9 +318,6 @@ class TestJudgeAnswer:
         (["latency 4 cycles (L1, correct for Skylake): misleading/wrong"], 95, 40),
         (["f(x) = 4, correct rounding: misleading/wrong"], 95, 40),
         (["64 - 128 B, correct range: misleading/wrong"], 95, 40),
-        # Multi-line claims: the pattern requires the verdict to end the string, not at a line break.
-        (["TILE (default, wrong\non ARM): unverified"], 95, 95),
-        (["AVX2 (256-bit, correct\nwidth): dubious"], 95, 95),
     ])
     def test_a_wrong_figure_caps_correctness_at_forty(self, mock_llm, claims, correctness, expected):
         """The prompt promises "a single wrong figure caps it at 40". A reply that
@@ -405,6 +375,37 @@ class TestJudgeAnswer:
         # A non-intensifier adverb hedges the fallback verdict, as `hardly` does.
         "x: dubious, typically correct",
         "x: plausible, typically correct",
+        # A path-like tail is not a verdict.
+        "x: see docs/wrong",
+        "x: unverified (see docs/wrong)",
+        "64 B: unverified, see section 4.2/wrong",
+        # False positives that must stay unread with the end-anchored pattern.
+        "TILE (default, wrong on ARM): unverified",
+        "buffer 64 B - 128 B, wrong alignment assumed: unverified",
+        "2x: correctly identified, wrong claim by user",
+        "x: depends, wrong if cached",
+        "x: see /wrong/path",
+        # Adverbs and slash/comma alternatives that must stay unread.
+        "x: see /wrong",
+        "x: unverified, right/wrong",
+        "x: unverified, right, wrong",
+        "x: dubious, hardly wrong",
+        "x: unverified, wrong/right",
+        "x: unverified, wrong, right",
+        "x: unverified, correct/wrong",
+        "x: unverified, correct, wrong",
+        "x: dubious, barely wrong",
+        "x: dubious, scarcely wrong",
+        "x: dubious, seemingly right",
+        "x: unverified, possibly wrong",
+        "x: dubious, nearly wrong",
+        "x: unverified, formerly correct",
+        "x: non-wrong",
+        "x: semi-correct",
+        "x: misleading/wrong!",
+        # Multi-line claims: the pattern requires the verdict to end the string, not at a line break.
+        "TILE (default, wrong\non ARM): unverified",
+        "AVX2 (256-bit, correct\nwidth): dubious",
     ])
     def test_a_figure_with_a_slash_or_a_hedge_is_not_read_as_right(self, mock_llm, claim):
         assert self._judge(mock_llm, [claim], 95)["unread_claims"] == [0]
