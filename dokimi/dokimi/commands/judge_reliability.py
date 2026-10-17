@@ -248,13 +248,20 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             # score_measure only scores questions that have an answer record.
             answered = {question_id(r) for r in data.get("answers") or []
                         if isinstance(r, dict) and isinstance(question_id(r), (str, int))}
+            # The arm exempt from the check is the one whose recorded kind is baseline, as in
+            # unreproducible_arms: --baseline-arm only picks the comparison's reference arm.
+            kinds = {arm: (body.get("metadata") or {}).get("arm_kind")
+                     for r in data.get("answers") or []
+                     if isinstance(r, dict) and isinstance(r.get("arms"), dict)
+                     for arm, body in r["arms"].items() if isinstance(body, dict)}
             for ev in data.get("evaluations") or []:
                 if not isinstance(ev, dict):
                     continue
                 qid = ev.get("question_id")
                 for arm, s in (ev.get("scores") or {}).items():
+                    kind = kinds.get(arm) or ("baseline" if arm == baseline else None)
                     if not (isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
-                            and arm != baseline):
+                            and kind != "baseline"):
                         continue
                     if not isinstance(qid, (str, int)):
                         unserved.setdefault(arm, []).append(qid)  # no usable id: reader uses snippets

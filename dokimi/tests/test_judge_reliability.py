@@ -975,6 +975,33 @@ def test_cross_judge_judges_refuses_one_damaged_question_among_eight(
     assert "'Q4'" not in err and "'Q6'" not in err
 
 
+@pytest.mark.parametrize("damage", ["score_digest", "record_material"])
+def test_cross_judge_judges_gates_an_arm_that_read_material_when_it_is_the_baseline_arm(
+    tmp_path, monkeypatch, capsys, damage
+):
+    """--baseline-arm skill picks the reference, it does not make the skill arm read nothing."""
+    from dokimi.utils import digest_text
+
+    data = _material_run()
+    # As the arms run writes it: the baseline arm cites the empty text.
+    data["judge_materials"][digest_text("")] = ""
+    for ans, ev in zip(data["answers"], data["evaluations"], strict=True):
+        ans["arms"]["baseline"]["judge_context_sha256"] = digest_text("")
+        ev["scores"]["baseline"]["judge_context_sha256"] = digest_text("")
+    if damage == "score_digest":
+        data["judge_materials"][digest_text("OTHER SKILL BODY")] = "OTHER SKILL BODY"
+        data["evaluations"][5]["scores"]["skill"]["judge_context_sha256"] = digest_text("OTHER SKILL BODY")
+    else:
+        data["judge_materials"][digest_text("X")] = "not X"
+        data["answers"][5]["arms"]["skill"]["judge_context_sha256"] = digest_text("X")
+    assert _cross_judge(tmp_path, monkeypatch, data)[0] == 2
+    capsys.readouterr()
+    code, seen = _cross_judge(tmp_path, monkeypatch, data, "--baseline-arm", "skill")
+    err = capsys.readouterr().err
+    assert code == 2 and not seen
+    assert "for skill" in err and "'Q5'" in err and "for baseline" not in err
+
+
 def test_cross_judge_judges_skips_an_evaluation_with_no_answer_record(tmp_path, monkeypatch, capsys):
     """score_measure never scores it, so it is no reason to refuse."""
     data = _material_run()
