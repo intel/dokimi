@@ -198,15 +198,15 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     # classify compares within batches, so pairs_compared can sit below pairs_total
     # while harmful_conflicting stays 0. That is an unread pair space, not a pass.
     # Absent coverage keeps artifacts written before the field existed readable.
-    coverage = _pair_coverage(artifact.get("conflict_coverage"))
+    conflict_coverage = _pair_coverage(artifact.get("conflict_coverage"))
     if not categories:
         message = (
             "not measured: atoms were not classified, so harmful/conflicting content is "
             "unknown"
         )
         measured, value = False, None
-    elif coverage is not None and coverage[0] < coverage[1] and not harmful:
-        compared, total = coverage
+    elif conflict_coverage is not None and conflict_coverage[0] < conflict_coverage[1] and not harmful:
+        compared, total = conflict_coverage
         message = (
             f"not measured: conflicts were looked for within batches ({compared} of "
             f"{total} atom pairs shared a call), so a count of 0 is not a cleared check"
@@ -214,8 +214,8 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
         measured, value = False, None
     else:
         message = f"{harmful} atoms classified harmful/conflicting"
-        if coverage is not None and coverage[0] < coverage[1]:
-            compared, total = coverage
+        if conflict_coverage is not None and conflict_coverage[0] < conflict_coverage[1]:
+            compared, total = conflict_coverage
             message += f"; only {compared} of {total} pairs were compared"
         measured, value = True, harmful
     checks.append(NoveltyCheck(
