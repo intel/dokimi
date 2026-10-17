@@ -224,6 +224,20 @@ def test_mcp_servers_are_listed(tmp_path):
     assert budget(tree, NAMES)["mcp_servers"] == ["db", "docs"]
     bad = _tree(tmp_path / "bad", {".mcp.json": "[not json"})
     assert budget(bad, NAMES)["mcp_servers"] == []
+    for i, text in enumerate(("[]", "null", "1")):
+        assert budget(_tree(tmp_path / f"top{i}", {".mcp.json": text}), NAMES)["mcp_servers"] == []
+
+
+def test_identical_two_word_descriptions_are_duplicates(tmp_path):
+    tree = _tree(tmp_path, {".claude/skills/one/SKILL.md": _skill("one", "Deploy app"),
+                            ".claude/skills/two/SKILL.md": _skill("two", "Deploy app"),
+                            ".claude/skills/three/SKILL.md": _skill("three", "Deploy service")})
+    assert budget(tree, NAMES)["duplicate_skills"] == [{"a": "one", "b": "two", "overlap": 1.0}]
+
+
+def test_gate_passes_a_clean_tree(tmp_path, capsys):
+    _tree(tmp_path, {"CLAUDE.md": "c" * 20, ".claude/skills/a/SKILL.md": _skill("a", "Format Python code.")})
+    _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys)  # no SystemExit
 
 
 def _run(argv, capsys):
