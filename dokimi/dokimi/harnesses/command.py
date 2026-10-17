@@ -47,6 +47,9 @@ class CommandHarness:
     default_timeout_sec: float | None = None
     env: dict[str, str] = field(default_factory=dict)
     agent: str | None = None  # the Harbor agent id, for kind="harbor"
+    # On a timeout, SIGTERM the group and wait this long before SIGKILL (0: kill at once).
+    # Harbor needs it to stop and remove its trial container; a SIGKILL leaves it running.
+    term_grace: float = 0.0
     runner: process.Runner = field(default=process.run, compare=False, repr=False)
 
     def run(
@@ -113,10 +116,16 @@ class CommandHarness:
         if task_root.parent == task_root:
             raise ValueError(f"Task path must be inside a task root directory: {task.path}")
         # A timeout kills the command's whole process tree (an agent's tool calls too), and
-        # so does its exit: nothing it started outlives the cell. The output is captured
+        # so does its exit: no process it started outlives the cell. A docker container is
+        # the daemon's, not the tree's: only a command that stops its own within
+        # `term_grace` (Harbor) leaves none behind. The output is captured
         # whole: the reward and DOKIMI_OP markers are read from it.
-        proc = self.runner(command, cwd=task_root.parent, env=process.Env.inherit(env), timeout=timeout,
-                           capture_limit=None)
+        if timeout > 0:
+            proc = self.runner(command, cwd=task_root.parent, env=process.Env.inherit(env), timeout=timeout,
+                               capture_limit=None, term_grace=self.term_grace)
+        else:
+            # A task budget of 0 or less has no time to run: a timeout, as on main, not an error.
+            proc = process.Completed(tuple(command), process.TIMEOUT_RC, timed_out=True)
         timed_out, returncode = proc.timed_out, proc.returncode
         stdout, stderr = proc.stdout, proc.stderr
         if timed_out:

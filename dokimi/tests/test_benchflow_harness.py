@@ -1646,3 +1646,56 @@ def test_cleanup_and_bridge_lookup_without_a_docker_cli(tmp_path):
 
     assert _bf.remove_rollout_containers(tmp_path, runner=FakeRunner(missing)) == []
     assert _bf._bridge_gateway(FakeRunner(missing)) is None
+
+
+# ── review follow-ups: env, runner and error line pinned ──────────────────────
+
+
+def test_run_looks_up_the_bridge_through_the_harness_runner(tmp_path, monkeypatch):
+    """Behind a proxy the bridge lookup must go through the given runner, not a real docker."""
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:912/")
+    task = load_task(_task(tmp_path))
+    bench = _fake_bench(monkeypatch, _RESULT)
+    bench.docker = lambda argv: reply("10.9.0.1\n")
+    create_harness("benchflow:claude-agent-acp", runner=bench).run(task, model="m", output_dir=tmp_path / "o")
+    assert any(c[:3] == ["docker", "network", "inspect"] for c in bench.docker_calls())
+    assert "10.9.0.1" in bench["env"]["no_proxy"].split(",")
+
+
+def test_cleanup_docker_calls_inherit_the_environment_and_skip_a_timed_out_rm(tmp_path, monkeypatch):
+    """DOCKER_HOST/DOCKER_CONFIG/HOME must reach docker; a hung `rm` removed nothing."""
+    import dokimi.harnesses.benchflow as mod
+
+    monkeypatch.setenv("DOCKER_HOST", "unix:///x.sock")
+    for name in ("t__1", "t__2"):
+        (tmp_path / "job" / name).mkdir(parents=True)
+
+    def answer(call):
+        if call.argv[1] == "ps":
+            return reply("c1\n" if "t__1" in call.argv[-1] else "c2\n")
+        return reply(timed_out=True) if "c1" in call.argv else reply()
+
+    fake = FakeRunner(answer)
+    assert mod.remove_rollout_containers(tmp_path, runner=fake) == ["t__2"]
+    assert all(c.env.get("DOCKER_HOST") == "unix:///x.sock" for c in fake.calls)
+
+
+def test_preflight_docker_and_bench_checks_inherit_the_environment(monkeypatch):
+    monkeypatch.setenv("DOCKER_HOST", "unix:///x.sock")
+    fake = FakeRunner(lambda call: reply("ok\n"))
+    harness = create_harness("benchflow:claude-agent-acp", runner=fake)
+    try:
+        harness.preflight()
+    except PreflightError:
+        pass
+    assert fake.calls and all(c.env.get("DOCKER_HOST") == "unix:///x.sock" for c in fake.calls)
+
+
+def test_error_line_skips_the_capture_limit_marker():
+    """Over 1 MiB of stderr, the runner's marker is not the reason bench gave."""
+    from dokimi.harnesses.benchflow import _error_line
+    from dokimi.process import TRUNCATION_MARKER
+
+    marker = TRUNCATION_MARKER.format(dropped=123)
+    assert _error_line(f"progress{marker}[ERR] sandbox failed\n").startswith("[ERR] sandbox failed")
+    assert "bytes not kept" not in _error_line(f"{marker}")

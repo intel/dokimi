@@ -580,3 +580,23 @@ def test_command_explorer_spawns_through_its_runner(tmp_path, monkeypatch):
     assert call.capture_limit is None  # the final answer and the markers are parsed from all of it
     assert call.env["X"] == "1" and call.env["DOKIMI_TEST_ONLY_OPERATOR"] == "kept"
     assert call.env["DOKIMI_OUTPUT_DIR"] == str((tmp_path / "o").resolve())
+
+
+def test_command_explorer_reads_markers_from_stderr(tmp_path):
+    from dokimi.explore import CommandExplorer
+    from dokimi.process import FakeRunner, reply
+
+    fake = FakeRunner(lambda call: reply("answer", 'DOKIMI_OP {"type": "read", "name": "on-stderr"}\n'))
+    result = CommandExplorer("explore {query_quoted}", runner=fake).explore("q", repo_root=tmp_path)
+    assert "on-stderr" in [op.name for op in result.operations]
+
+
+def test_command_explorer_timeout_none_means_no_limit(tmp_path):
+    """`timeout_sec=None` meant no timeout; it must not raise TypeError in the runner."""
+    from dokimi.explore import CommandExplorer
+    from dokimi.process import FakeRunner, reply
+
+    fake = FakeRunner(lambda call: reply("answer"))
+    result = CommandExplorer("explore {query_quoted}", timeout_sec=None, runner=fake).explore(
+        "q", repo_root=tmp_path)
+    assert result.returncode == 0 and fake.calls[0].timeout >= 24 * 3600

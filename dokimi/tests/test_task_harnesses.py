@@ -862,3 +862,36 @@ def test_clear_run_dir_on_an_unreadable_dir_is_a_clean_cell_error(tmp_path):
             clear_run_dir(cell)
     finally:
         (cell / "job").chmod(0o755)
+
+
+def test_command_harness_reads_markers_from_stderr(tmp_path):
+    task = load_task(_fixture_task(tmp_path))
+    fake = FakeRunner(lambda call: reply("reward: 1.0", 'DOKIMI_OP {"type": "tool", "name": "on-stderr"}\n'))
+    result = CommandHarness("fake", "fake-agent --task {task_path}", runner=fake).run(
+        task, output_dir=tmp_path / "out"
+    )
+    assert "on-stderr" in [op.name for op in result.operations]
+
+
+def test_command_harness_non_positive_timeout_is_a_scored_timeout(tmp_path):
+    """A budget of -1 was an immediate timeout (rc 124, reward 0), not an errored cell."""
+    task = load_task(_fixture_task(tmp_path))
+    fake = FakeRunner(lambda call: reply("reward: 1.0"))
+    result = CommandHarness("fake", "fake-agent --task {task_path}", runner=fake).run(
+        task, output_dir=tmp_path / "out", timeout_sec=-1
+    )
+    assert fake.calls == []
+    assert result.returncode == 124 and result.reward == 0.0 and not result.passed
+
+
+def test_harbor_timeout_gives_the_trial_container_a_grace(tmp_path):
+    """Harbor removes its trial container on SIGTERM; a plain kill leaves it running."""
+    from dokimi.harnesses.registry import HARBOR_TERM_GRACE_SEC
+
+    assert HARBOR_TERM_GRACE_SEC == 60.0
+    for harness_id in ("terminal-bench:oracle", "codex", "claude-code"):
+        assert create_harness(harness_id).term_grace == 60.0
+    task = load_task(_fixture_task(tmp_path))
+    fake = FakeRunner(lambda call: reply("reward: 1.0"))
+    CommandHarness("fake", "fake-agent --task {task_path}", runner=fake).run(task, output_dir=tmp_path / "out")
+    assert fake.calls[0].term_grace == 0.0

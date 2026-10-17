@@ -32,6 +32,9 @@ from dokimi.harnesses.models import OperationRecord
 from dokimi.harnesses.operations import load_operations
 from dokimi.metrics.exploration import CitationSet, parse_final_answer
 
+# `timeout_sec=None` meant no timeout before the process runner, which needs one.
+_NO_TIMEOUT_SEC = 7 * 24 * 3600.0
+
 
 @dataclass(frozen=True)
 class ExplorerResult:
@@ -89,7 +92,7 @@ class CommandExplorer:
 
     command_template: str
     name: str = "command"
-    timeout_sec: float = 600.0
+    timeout_sec: float | None = 600.0  # None: no limit (bounded at a week)
     env: dict = field(default_factory=dict)
     output_root: Path | None = None
     runner: process.Runner = field(default=process.run, compare=False, repr=False)
@@ -133,7 +136,8 @@ class CommandExplorer:
         try:
             # Captured whole: stdout is the answer, and the markers are read from both streams.
             proc = self.runner(command, cwd=repo_root, env=process.Env.inherit(env),
-                               timeout=self.timeout_sec, capture_limit=None)
+                               timeout=self.timeout_sec if self.timeout_sec is not None else _NO_TIMEOUT_SEC,
+                               capture_limit=None)
         except (OSError, ValueError):
             # A missing explorer or a bad command (a NUL byte, a timeout <= 0): record a
             # failed row and let the suite continue.

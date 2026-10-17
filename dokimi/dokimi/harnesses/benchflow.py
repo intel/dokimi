@@ -835,9 +835,15 @@ _PROGRESS_PREFIXES = (
 )
 
 
+def _is_truncation_marker(line: str) -> bool:
+    return line.startswith("[... ") and "bytes not kept: output over the capture limit" in line
+
+
 def _error_line(text: str, limit: int = 300) -> str:
     """The line of bench's stderr that says why a cell left no ``result.json``."""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    # The runner's capture-limit marker is not bench's reason; skip it.
+    lines = [line.strip() for line in text.splitlines()
+             if line.strip() and not _is_truncation_marker(line.strip())]
     for prefix in _REASON_PREFIXES:
         for line in lines:
             if line.startswith(prefix):

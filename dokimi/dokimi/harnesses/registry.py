@@ -118,6 +118,9 @@ def _skill_arg(harness: str, prefix: str) -> str:
     return skill
 
 
+HARBOR_TERM_GRACE_SEC = 60.0
+
+
 def _harbor(harness_id: str, agent: str) -> CommandHarness:
     return CommandHarness(
         harness_id=harness_id,
@@ -127,6 +130,9 @@ def _harbor(harness_id: str, agent: str) -> CommandHarness:
             "--jobs-dir {output_dir}"
         ),
         agent=agent,
+        # Measured: Harbor stops and removes its trial container and image in ~35 s
+        # after SIGTERM; a SIGKILL leaves both behind.
+        term_grace=HARBOR_TERM_GRACE_SEC,
     )
 
 
