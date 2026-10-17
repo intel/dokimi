@@ -294,10 +294,12 @@ prints one or more traces as a comparison table; it calls no model. Guide:
 ## Shared building blocks
 
 - `dokimi/process.py` — the process runner that spawning code goes
-  through (git, `gh`, doc snippets, harness profiles; the task harnesses and
-  the repository-mode docker runner still spawn on their own). A timeout,
+  through (git, `gh`, doc snippets, harness profiles, the `command:`, Harbor
+  and BenchFlow harnesses, the explorer and the repository-mode docker runner;
+  the `docker-*` task harnesses still spawn on their own). A timeout,
   an interrupt or the command's exit kills its whole process group / job
-  object; so does a SIGTERM/SIGHUP to the `dokimi` CLI, which installs
+  object (with `term_grace`, as for `bench` and `docker run`, a timeout or an
+  interrupt sends the group SIGTERM first and kills it after the grace); so does a SIGTERM/SIGHUP to the `dokimi` CLI, which installs
   `install_signal_handlers()` at start-up (importing the module installs
   nothing; a library caller opts in). A timeout is a
   result (`returncode` 124, partial output kept) not an exception, output is
