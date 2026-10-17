@@ -11,7 +11,12 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from dokimi.defaults import DEFAULT_CONCURRENCY, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.defaults import (
+    DEFAULT_CONCURRENCY,
+    DEFAULT_JUDGE_PROVIDER,
+    JUDGE_MODEL_FOR_PROVIDER,
+    JUDGE_MODEL_HELP,
+)
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 
@@ -353,7 +358,7 @@ def register(eval_sub, positive_int) -> None:
     ck.add_argument("--baseline-arm", default=None, dest="baseline_arm",
                     help="Arm the others are compared to (default: the run's baseline_arm)")
     ck.add_argument("--arms", default=None, help="Comma-separated arms to check (default: all)")
-    ck.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    ck.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     ck.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     ck.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
@@ -377,7 +382,7 @@ def register(eval_sub, positive_int) -> None:
     jw.add_argument("--seed", type=int, default=0)
     jw.add_argument("--min-accuracy", type=float, default=DEFAULT_MIN_ACCURACY, dest="min_accuracy")
     jw.add_argument("--strict", action="store_true", help="Exit 1 when any variant is FRAGILE")
-    jw.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    jw.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     jw.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     jw.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
@@ -427,7 +432,7 @@ def register(eval_sub, positive_int) -> None:
     pw.add_argument("--product", default=None, help="Library name (default: read from answers file)")
     pw.add_argument("--baseline-arm", default=None, dest="baseline_arm")
     pw.add_argument("--arms", default=None, help="Comma-separated arms to compare (default: all)")
-    pw.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    pw.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     pw.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     pw.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
