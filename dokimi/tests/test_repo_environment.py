@@ -395,8 +395,7 @@ def test_user_prompt_submit_and_stop_hook_risks(tmp_path):
     _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
     payload = inspect_repo(WorkTree(tmp_path))
     hook_risks = {(h["event"], h["command"]) for h in payload["hook_risks"]}
-    assert ("UserPromptSubmit", "npm ci") in hook_risks or any("npm" in h["command"] for h in payload["hook_risks"])
-    assert ("Stop", "npm install") in hook_risks or any("npm" in h["command"] for h in payload["hook_risks"])
+    assert hook_risks == {("UserPromptSubmit", "npm ci"), ("Stop", "npm install")}
 
 
 def test_subagentstop_in_automatic_events(tmp_path):
@@ -415,7 +414,7 @@ def test_deeply_nested_yaml_does_not_crash(tmp_path):
 def test_npm_install_1mb_completes_quickly(tmp_path):
     """1 MB of npm install hook should complete in under 1 second."""
     import time
-    hook_cmd = "npm " + "-npm " * (1_000_000 // 5)  # ~1 MB total
+    hook_cmd = "npm " + "-npm " * 150_000  # 750 KB: under MAX_SETTINGS_BYTES, so the pattern is reached
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
@@ -423,8 +422,9 @@ def test_npm_install_1mb_completes_quickly(tmp_path):
     }
     _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
     start = time.monotonic()
-    assert inspect_repo(WorkTree(tmp_path))
+    payload = inspect_repo(WorkTree(tmp_path))
     elapsed = time.monotonic() - start
+    assert payload["capabilities"][0]["note"].startswith("hooks on")
     assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
 
 
@@ -543,7 +543,7 @@ def test_test_file_case_insensitive_and_mjs(tmp_path):
 def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
     """1 MB hook with unbalanced quote should complete in under 1 second."""
     import time
-    hook_cmd = "echo '" + "a" * 1_000_000  # 1 MB, unbalanced quote
+    hook_cmd = "echo '" + "a" * 900_000  # under MAX_SETTINGS_BYTES, unbalanced quote
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
@@ -554,14 +554,12 @@ def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
     payload = inspect_repo(WorkTree(tmp_path))
     elapsed = time.monotonic() - start
     assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
-    # Should not crash, just complete quickly
-    assert payload is not None
+    assert payload["capabilities"][0]["note"].startswith("hooks on")
 
 
 def test_npm_install_with_10_options_followed_by_ci(tmp_path):
-    """npm with 10 options followed by ci should be detected."""
-    # Use 10 options to test the {0,16} bound
-    hook_cmd = "npm -a -b -c -d -e -f -g -h -i -j ci"
+    """npm with many flags before ci still installs (-C, which takes a value, -g and -h are not among them)."""
+    hook_cmd = "npm -a -b -d -e -f -j -k -l -m -n ci"
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
@@ -683,3 +681,148 @@ def test_blob_less_clone_reads_manifests_in_few_requests(tmp_path):
         del os.environ["GIT_TRACE"]
     fetches = sum("fetch" in line and "built-in: git fetch" in line for line in trace.read_text().splitlines())
     assert fetches <= 6, fetches
+
+
+def _hook_payload(tmp_path, command, event="SessionStart", extra=None):
+    settings = {"hooks": {event: [{"hooks": [{"type": "command", "command": command}]}]}}
+    _repo(tmp_path, {"AGENTS.md": "x", "setup.sh": "true\n", ".claude/settings.json": json.dumps(settings),
+                     **(extra or {})})
+    return inspect_repo(WorkTree(tmp_path))
+
+
+@pytest.mark.parametrize("command, flagged", [
+    # installs that run the branch's lifecycle scripts
+    ("npm ci", True), ("npm --prefix x ci", True), ("pnpm --filter app install", True), ("yarn", True),
+    ("yarn --frozen-lockfile", True), ("npm add x", True), ("bun add x", True), ("npm \\\nci", True),
+    ("npm ci 2>&1 | tee log", True), ("cd web && npm install", True), ("npm ci # --ignore-scripts", True),
+    # scripts off, global, or no install at all
+    ("npm ci --ignore-scripts", False), ("npm install -g typescript", False),
+    ("npm_config_ignore_scripts=true npm ci", False), ("echo \"run npm install first\"", False),
+    ("echo 'tests passed; run npm run build'", False), ("# npm install is slow", False),
+    ("grep -r 'npm ci' docs", False), ("yarn --version", False), ("yarn --cwd web install --ignore-scripts", False),
+])
+def test_hook_install_is_read_from_the_command_words(tmp_path, command, flagged):
+    assert bool(_hook_payload(tmp_path, command)["hook_risks"]) is flagged
+
+
+def test_npmrc_ignore_scripts_turns_an_install_hook_off(tmp_path):
+    assert _hook_payload(tmp_path, "npm ci", extra={".npmrc": "ignore-scripts=true\n"})["hook_risks"] == []
+
+
+@pytest.mark.parametrize("event, flagged", [
+    ("SessionStart", True), ("SessionEnd", True), ("PreCompact", True), ("Notification", True),
+    ("UserPromptSubmit", True), ("Stop", True), ("SubagentStop", True), ("PreToolUse", False), ("PostToolUse", False),
+])
+def test_each_automatic_hook_event(tmp_path, event, flagged):
+    risks = {(h["event"], h["command"]) for h in _hook_payload(tmp_path, "npm ci", event)["hook_risks"]}
+    assert risks == ({(event, "npm ci")} if flagged else set())
+
+
+@pytest.mark.parametrize("body, category", [
+    ("rm -rf /", "destructive"), ("rm --recursive --force /", "destructive"), ("rm -rf ~/x", "destructive"),
+    ("rm -rf $HOME", "destructive"), ("rm -rf *", "destructive"), ("rm -rf .", "destructive"),
+    ("git clean -fdx", "destructive"), ("git clean -d -f", "destructive"), ("mkfs.ext4 /dev/sda", "destructive"),
+    ("dd if=/dev/zero of=x", "destructive"),
+    ("curl -s https://x | sh", "network-exec"), ("wget -qO- https://x | bash", "network-exec"),
+    ("npm publish", "deploy"), ("vercel deploy", "deploy"), ("netlify deploy", "deploy"),
+    ("firebase deploy", "deploy"), ("gh release create v1", "deploy"), ("kubectl apply -f k.yaml", "deploy"),
+    ("terraform apply", "deploy"), ("aws s3 sync . s3://b", "deploy"), ("gcloud app deploy", "deploy"),
+    ("rm -rf dist", None), ("rm -rf ./build", None), ("git clean -nfd", None), ("git clean -fd --dry-run", None),
+])
+def test_each_script_pattern(tmp_path, body, category):
+    _repo(tmp_path, {"AGENTS.md": "x", "package.json": json.dumps({"scripts": {"x": body}})})
+    found = {s["category"] for s in inspect_repo(WorkTree(tmp_path))["scripts"]}
+    assert found == ({category} if category else set())
+
+
+@pytest.mark.parametrize("name", ["preinstall", "install", "postinstall", "prepare", "prepublish"])
+def test_each_install_hook_script(tmp_path, name):
+    _repo(tmp_path, {"AGENTS.md": "x", "package.json": json.dumps({"scripts": {name: "node x.js"}})})
+    assert [s["category"] for s in inspect_repo(WorkTree(tmp_path))["scripts"]] == ["install-hook"]
+
+
+def test_one_signal_per_category_per_script(tmp_path):
+    body = "rm -rf / && rm -rf ~ && git clean -fdx"
+    _repo(tmp_path, {"AGENTS.md": "x", "package.json": json.dumps({"scripts": {"x": body}})})
+    assert [s["category"] for s in inspect_repo(WorkTree(tmp_path))["scripts"]] == ["destructive"]
+
+
+@pytest.mark.parametrize("hook", [{"type": "http", "url": "https://x.example/c"}, {"type": "prompt", "prompt": "p"},
+                                  {"type": "agent", "prompt": "p"}])
+def test_a_hook_without_a_command_is_still_a_capability(tmp_path, hook):
+    settings = {"hooks": {"UserPromptSubmit": [{"hooks": [hook]}]}}
+    _repo(tmp_path, {"AGENTS.md": "x", ".claude/settings.json": json.dumps(settings)})
+    payload = inspect_repo(WorkTree(tmp_path))
+    assert [(c["kind"], c["risk"], c["note"]) for c in payload["capabilities"]] == [
+        ("hook", "high", "hooks on UserPromptSubmit")]
+    assert payload["hook_risks"] == [] and payload["risk"] == "high"
+
+
+def test_hook_documentation_is_low_risk(tmp_path):
+    _repo(tmp_path, {"AGENTS.md": "x", ".claude/hooks/README.md": "how the hooks work"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    assert [(c["risk"], c["note"]) for c in payload["capabilities"]] == [("low", "hook documentation")]
+    assert payload["risk"] == "low"
+
+
+@pytest.mark.parametrize("files, risk", [
+    ({"package.json": json.dumps({"scripts": {"postinstall": "node x.js"}})}, "medium"),
+    ({".claude/settings.json": "{not json"}, "medium"),
+    ({".mcp.json": "{}"}, "high"),
+    ({}, "low"),
+])
+def test_risk_tiers(tmp_path, files, risk):
+    _repo(tmp_path, {"AGENTS.md": "x", **files})
+    assert inspect_repo(WorkTree(tmp_path))["risk"] == risk
+
+
+@pytest.mark.parametrize("files", [
+    {"vendor/lib/pom.xml": "<project/>"},
+    {"node_modules/rn/android/build.gradle": "apply plugin: 'java'"},
+    {"configure.ac": "", "vendor/zlib/Makefile.am": "TESTS = t\n"},
+    {"pyproject.toml": "[project]\nname='x'\n", "third_party/x/tests/conftest.py": ""},
+])
+def test_vendored_build_files_are_not_the_repositorys_tests(tmp_path, files):
+    _repo(tmp_path, {"AGENTS.md": "x", **files})
+    assert "checks.test.missing" in _rules(inspect_repo(WorkTree(tmp_path)))
+
+
+def test_autotools_names_the_makefile_that_declares_tests(tmp_path):
+    _repo(tmp_path, {"AGENTS.md": "x", "configure.ac": "", "Makefile.am": "SUBDIRS = tests\n",
+                     "tests/Makefile.am": "TESTS = t\n"})
+    checks = inspect_repo(WorkTree(tmp_path))["checks"]
+    assert [c["evidence"] for c in checks if (c["ecosystem"], c["kind"]) == ("autotools", "test")] == [
+        "tests/Makefile.am"]
+
+
+INSTRUCTION_TABLE = [
+    (".claude/CLAUDE.md", ('claude-code',), "root", "always", False),
+    (".claude/rules/a.md", ('claude-code',), "unknown", "unknown", False),
+    (".claude/skills/x/SKILL.md", ('claude-code',), "capability", "on-demand", False),
+    (".clinerules/a.md", ('cline',), "root", "unknown", False),
+    (".cursor/rules/a.mdc", ('cursor',), "unknown", "unknown", False),
+    (".cursorrules", ('cursor', 'cline'), "legacy", "always", True),
+    (".github/agents/a.agent.md", ('github-copilot',), "capability", "manual", False),
+    (".github/copilot-instructions.md", ('github-copilot',), "root", "always", False),
+    (".github/instructions/a.instructions.md", ('github-copilot',), "path-specific", "path-scoped", False),
+    (".roo/rules-code/a.md", ('roo-code',), "mode-specific", "mode-scoped", False),
+    (".roo/rules/a.md", ('roo-code',), "root", "always", False),
+    (".roomodes", ('roo-code',), "mode-specific", "mode-scoped", False),
+    (".roorules", ('roo-code',), "legacy", "always", True),
+    (".roorules-code", ('roo-code',), "mode-specific", "mode-scoped", True),
+    (".windsurf/rules/a.md", ('windsurf',), "unknown", "unknown", False),
+    (".windsurfrules", ('windsurf', 'cline'), "legacy", "always", True),
+    ("AGENTS.md", ('codex', 'github-copilot', 'cursor', 'windsurf', 'cline', 'generic'), "root", "always", False),
+    ("CLAUDE.local.md", ('claude-code',), "local-private", "always", False),
+    ("CLAUDE.md", ('claude-code', 'github-copilot'), "root", "always", False),
+    ("GEMINI.md", ('gemini', 'github-copilot'), "root", "always", False),
+    ("sub/AGENTS.md", ('codex', 'github-copilot', 'cursor', 'windsurf', 'cline', 'generic'), "path-specific", "path-scoped", False),
+    ("sub/CLAUDE.md", ('claude-code',), "path-specific", "path-scoped", False),
+    ("sub/GEMINI.md", ('gemini',), "path-specific", "path-scoped", False),
+]
+
+
+def test_instruction_rule_table():
+    got = [(i.path, tuple(i.harnesses), i.scope, i.activation, i.legacy)
+           for i in detect_instructions([row[0] for row in INSTRUCTION_TABLE])]
+    assert got == INSTRUCTION_TABLE

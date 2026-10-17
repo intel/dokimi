@@ -658,21 +658,30 @@ The report keeps observations apart from findings:
   the reach probe (§7).
 - `checks`: ways to build, test, lint and type-check, per project root (the
   root and every directory below it with a `package.json`, makefile,
-  `pyproject.toml`, `setup.py`, `go.mod` or `Cargo.toml`; Bazel, CMake,
+  `pyproject.toml`, `setup.py`, `setup.cfg`, `Pipfile`, `go.mod` or `Cargo.toml`; Bazel, CMake,
   Gradle, Maven, .NET and Autotools are read tree-wide). `basis: declared`
   means the repository names it: a script, a make target, a config section,
   a pre-commit hook. `basis: toolchain` means the tool offers the command
   whether or not there is anything for it to run (`go test` beside a
   `go.mod`): a place to start, not evidence of tests.
 - `capabilities`: what the harness gets from the repository: MCP configs,
-  Claude Code hooks and plugins, settings commands (`statusLine`,
-  `apiKeyHelper`), skills, editor settings, each with a risk tier. `scripts`: root `package.json` scripts that are install hooks, delete
-  broadly, pipe a download into a shell, or publish and deploy.
+  Claude Code hooks of any type (`command`, `http`, `prompt`, `agent`) and
+  plugins, settings commands (`statusLine`, `apiKeyHelper`),
+  `enableAllProjectMcpServers`, skills, editor settings, each with a risk tier
+  (documentation under `.claude/hooks/` is low). `scripts`: root
+  `package.json` scripts that are install hooks, delete the root, home, a glob
+  or the whole tree (`rm -rf dist` is not flagged; `git clean -n` is a dry
+  run), pipe a download into a shell, or publish and deploy.
   `hook_risks`: the concrete path, a hook the harness fires on its own
   (`SessionStart`, `SessionEnd`, `PreCompact`, `Notification`, `UserPromptSubmit`, `Stop`, `SubagentStop`) that installs
   packages with lifecycle scripts on, runs a `package.json` script (`npm run`, `npm test`, `yarn build`, …),
   `make`, or executes a path in the tree (also behind `VAR=value`, `sudo`, `timeout`, `env`, `source` or `sh -c`),
-  so starting a session or running tools executes code from the checked-out branch. `--ignore-scripts` (the last such flag wins) clears the install risk.
+  so starting a session or running tools executes code from the checked-out branch. Hook
+  commands are read word by word, with quotes and comments honoured, so a
+  command named inside `echo '…'` or after `#` does not count. `--ignore-scripts`
+  (the last such flag wins), `npm_config_ignore_scripts=true`, a root `.npmrc`
+  with `ignore-scripts=true` (npm, pnpm) and a global install (`-g`) clear the
+  install risk.
 - `files`: counts and bytes, generated files (lockfiles, `vendor/`,
   `third_party/`, test fixtures, `*_pb2.py`, …), minified bundles, test files,
   and files over `--large-bytes` (default 100 000, about 30k tokens: large

@@ -84,6 +84,13 @@ def _json(scan: Scan, path: str) -> Any:
         return None
 
 
+def _hook_events(doc: Any) -> list[str]:
+    """Events with at least one hook of any type (``command``, ``http``, ``prompt``, ``agent``)."""
+    hooks = doc.get("hooks") if isinstance(doc, dict) else None
+    return sorted(e for e, groups in (hooks.items() if isinstance(hooks, dict) else ())
+                  if isinstance(groups, list) and any(isinstance(g, dict) for g in groups))
+
+
 def _hook_entries(doc: Any) -> dict[str, list[str]]:
     """event -> hook commands of a Claude Code settings document."""
     hooks = doc.get("hooks") if isinstance(doc, dict) else None
@@ -106,28 +113,26 @@ def detect_capabilities(scan: Scan) -> list[Capability]:
         elif path.startswith(".claude/skills/") and path.endswith("/SKILL.md"):
             out.append(Capability(path, "skill", "claude-code", "low"))
         elif path.startswith(".claude/hooks/"):
-            out.append(Capability(path, "hook", "claude-code", "high", "hook script"))
+            if path.lower().endswith((".md", ".txt", ".rst")):
+                out.append(Capability(path, "hook", "claude-code", "low", "hook documentation"))
+            else:
+                out.append(Capability(path, "hook", "claude-code", "high", "hook script"))
         elif path in CLAUDE_SETTINGS:
             doc = _json(scan, path)
             if doc is None:
                 out.append(Capability(path, "hook", "claude-code", "medium", "not read: invalid, large or a link"))
             else:
-                hooks = _hook_entries(doc)
+                events = _hook_events(doc)
                 capabilities = []
-                # Check for hooks
-                if hooks:
-                    capabilities.append(("hook", "high", "hooks on " + ", ".join(sorted(hooks))))
-                # Check for statusLine commands
+                if events:
+                    capabilities.append(("hook", "high", "hooks on " + ", ".join(events)))
                 status_line = doc.get("statusLine") if isinstance(doc, dict) else None
                 if isinstance(status_line, dict) and status_line.get("type") == "command" and isinstance(status_line.get("command"), str):
                     capabilities.append(("command", "high", "statusLine command"))
-                # Check for apiKeyHelper
                 if isinstance(doc, dict) and isinstance(doc.get("apiKeyHelper"), str):
                     capabilities.append(("command", "high", "apiKeyHelper command"))
-                # Check for enableAllProjectMcpServers
                 if isinstance(doc, dict) and doc.get("enableAllProjectMcpServers") is True:
                     capabilities.append(("mcp", "high", "enables all MCP servers"))
-                # Add capability records for all detected capabilities
                 for kind, risk, note in capabilities:
                     out.append(Capability(path, kind, "claude-code", risk, note))
     return sorted(out, key=lambda c: c.path)
@@ -135,9 +140,12 @@ def detect_capabilities(scan: Scan) -> list[Capability]:
 
 _INSTALL_HOOKS = ("preinstall", "install", "postinstall", "prepare", "prepublish")
 _SCRIPT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("destructive", re.compile(r"\brm\s+-[a-z]*(?:\s+-[a-z]*){0,4}\s+(?:/|~|\$HOME|\*)", re.I)),
-    ("destructive", re.compile(r"\brm\s+-(rf|fr|r\s+-f|f\s+-r)\b", re.I)),
-    ("destructive", re.compile(r"\bgit\s+clean\s+-[a-z]*f", re.I)),
+    # rm of the root, home, a glob or the whole tree; ``rm -rf dist`` is ordinary cleanup.
+    ("destructive", re.compile(r"\brm(?:\s+-{1,2}[a-z-]*){1,6}\s+[\"']?(?:/|~|\$\{?HOME|\*|\./?\*?(?=[\s\"';&|]|$))",
+                               re.I)),
+    # git clean that forces, but not a dry run (``-n``/``--dry-run``)
+    ("destructive", re.compile(r"\bgit\s+clean(?![^\n;&|]{0,200}?\s-(?:[a-z]*n|-dry-run))(?:\s+-{1,2}[a-z-]*){0,6}?"
+                               r"\s+(?:-[a-z]*f|--force)", re.I)),
     ("destructive", re.compile(r"\b(?:mkfs|dd\s+if=|>\s*/dev/sd)", re.I)),
     ("network-exec", re.compile(r"\b(?:curl|wget|fetch)\b[^|]{0,200}\|\s*(?:sudo\s+)?(?:sh|bash|zsh|node|python3?)\b", re.I)),
     ("deploy", re.compile(r"\b(?:npm|yarn|pnpm)\s+publish\b", re.I)),
@@ -165,15 +173,12 @@ def detect_script_signals(scan: Scan) -> list[ScriptSignal]:
 
 # Events the harness fires without the agent choosing to run anything.
 AUTOMATIC_EVENTS = ("SessionStart", "SessionEnd", "PreCompact", "Notification", "UserPromptSubmit", "Stop", "SubagentStop")
-_OPT = r"(?:\s+-{1,2}[A-Za-z][\w-]*(?:=\S+)?){0,16}"
-_INSTALL = re.compile(rf"(?<![\w-])(?:npm|yarn|pnpm|bun){_OPT}\s+install\b|(?<![\w-])(?:npm|pnpm){_OPT}\s+ci\b"
-                      rf"|(?<![\w-])(?:npm|pnpm|bun){_OPT}\s+i\b", re.I)
 _PACKAGE_MANAGERS = ("npm", "yarn", "pnpm", "bun")
 # npm subcommands that run a script from the checked-out package.json.
 _NPM_SCRIPT_COMMANDS = frozenset({"run", "run-script", "rum", "urn", "test", "t", "tst", "start", "stop", "restart",
                                   "rebuild", "rb", "exec", "x"})
 # yarn/pnpm/bun run a package.json script by bare name, so anything that is not one of their own
-# commands counts. Install forms are matched by ``_INSTALL`` first.
+# commands counts. Install forms are read by ``_installs_with_scripts``.
 _PM_BUILTINS = frozenset({"install", "i", "ci", "add", "remove", "rm", "uninstall", "un", "ls", "list", "info", "view",
                           "config", "why", "outdated", "help", "audit", "init", "create", "link", "unlink", "upgrade",
                           "update", "up", "cache", "store", "dlx", "login", "logout", "whoami", "pack", "publish",
@@ -187,13 +192,24 @@ _INTERPRETERS = frozenset({"bash", "sh", "zsh", "dash", "python", "python3", "no
 _INTERPRETER_VALUE_OPTS = frozenset({"-W", "-X", "--require", "-r", "--import", "-O0"})
 _VAR_ASSIGN = re.compile(r"^[A-Za-z_]\w*=")
 _MAX_SHELL_DEPTH = 3
-_HOOK_SPLIT = re.compile(r"&&|\|\||;|\n")  # not a single `|`: `npm ci | tee log` still installs
+_SEPARATORS = frozenset({";", "&&", "||", "|", "&", ";;", "|&"})
+# Install subcommands per package manager; ``None`` is a bare ``yarn``.
+_INSTALL_COMMANDS = {
+    "npm": frozenset({"install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall",
+                      "ci", "clean-install", "ic", "install-clean", "isntall-clean", "add"}),
+    "yarn": frozenset({None, "install", "add"}),
+    "pnpm": frozenset({"install", "i", "add"}),
+    "bun": frozenset({"install", "i", "add"}),
+}
+# Package-manager options that take a separate value (``npm --prefix web ci``).
+_PM_VALUE_OPTS = frozenset({"--prefix", "-C", "--dir", "--cwd", "--filter", "-F", "--workspace", "--registry",
+                            "--cache", "--userconfig", "--loglevel"})
+_INFO_OPTS = frozenset({"-v", "--version", "-h", "--help"})
+_GLOBAL_OPTS = frozenset({"-g", "--global", "--location=global"})
 
 
 def _ignores_scripts(segment: str) -> bool:
-    # Strip comments only after whitespace or at the start of a segment
-    segment = re.sub(r"(?:^|\s)#.*$", "", segment).strip()
-    # Find all --ignore-scripts or --no-ignore-scripts flags (not just matches)
+    """Whether the last ``--ignore-scripts``-style flag in a comment-free command turns scripts off."""
     ignore_flags = list(re.finditer(r"--no-ignore-scripts|--ignore-scripts(?:[= ]+(true|false|1|0))?", segment, re.I))
     if not ignore_flags:
         return False
@@ -218,18 +234,53 @@ def _argv(segment: str) -> list[str]:
         return segment.split()
 
 
-def _in_tree(word: str, tracked: set[str]) -> bool:
-    word = word.lstrip("'\"")
-    return word.startswith(("./", "$CLAUDE_PROJECT_DIR", "${CLAUDE_PROJECT_DIR}")) or word in tracked
+def _segments(command: str) -> list[list[str]]:
+    """The simple commands of a hook command line, as argv lists.
+
+    Quotes and comments are honoured, so ``echo 'a; npm ci'`` and ``npm ci # --ignore-scripts`` are
+    one command each; ``;``, ``&&``, ``||``, ``|``, ``&`` and a newline separate commands.
+    """
+    out: list[list[str]] = []
+    for line in command.replace("\\\n", " ").split("\n"):
+        if len(line) > 4096:  # shlex is slow on a long unbalanced quote
+            tokens = re.sub(r"(&&|\|\||[;|&])", r" \1 ", line).split()
+        else:
+            lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|")
+            lexer.whitespace_split = True
+            lexer.commenters = ""  # shlex would start a comment inside a word (``https://r/#x``)
+            try:
+                tokens = list(lexer)
+                if any(t.startswith("#") for t in tokens):  # a word that starts with `#` starts a comment
+                    tokens = tokens[:next(k for k, t in enumerate(tokens) if t.startswith("#"))]
+            except ValueError:
+                tokens = re.sub(r"(&&|\|\||[;|&])", r" \1 ", line).split()
+        current: list[str] = []
+        for token in tokens:
+            if token == "&" and current and current[-1].endswith((">", "<")):  # 2>&1
+                current[-1] += token
+            elif token in _SEPARATORS:
+                if current:
+                    out.append(current)
+                current = []
+            else:
+                current.append(token)
+        if current:
+            out.append(current)
+    return out
 
 
-def _runs_repository_code(segment: str, tracked: set[str], depth: int = 0) -> bool:
-    """Whether a hook command runs a script, makefile or file from the checked-out tree."""
-    argv = _argv(segment)
+def _command_start(argv: list[str]) -> tuple[dict[str, str], int]:
+    """``VAR=value`` assignments before the command word, and the command word's index.
+
+    Wrappers such as ``sudo``, ``timeout N``, ``env`` and ``source`` are skipped too.
+    """
+    env: dict[str, str] = {}
     i = 0
-    while i < len(argv):  # skip VAR=value words and wrappers such as sudo, timeout N, env, source
+    while i < len(argv):
         word = argv[i]
         if _VAR_ASSIGN.match(word):
+            name, _, value = word.partition("=")
+            env[name.lower()] = value
             i += 1
         elif word in _WRAPPERS:
             i += 1 + _WRAPPERS[word]
@@ -237,6 +288,58 @@ def _runs_repository_code(segment: str, tracked: set[str], depth: int = 0) -> bo
                 i += 1
         else:
             break
+    return env, i
+
+
+def _subcommand(manager: str, rest: list[str]) -> str | None:
+    """A package manager's subcommand: the first word that is not an option or an option's value."""
+    j = 0
+    while j < len(rest):
+        word = rest[j]
+        if word in _PM_VALUE_OPTS or (word == "-w" and manager == "npm"):
+            j += 2
+        elif word.startswith("-"):
+            j += 1
+        else:
+            return word
+    return None
+
+
+def _installs_with_scripts(argv: list[str], npmrc_ignores: bool) -> bool:
+    """Whether a command installs the checked-out project with its lifecycle scripts on."""
+    env, i = _command_start(argv)
+    if i >= len(argv):
+        return False
+    name = argv[i].rsplit("/", 1)[-1]
+    if name not in _INSTALL_COMMANDS:
+        return False
+    rest = argv[i + 1:]
+    sub = _subcommand(name, rest)
+    if sub not in _INSTALL_COMMANDS[name] or any(w in _GLOBAL_OPTS or w in _INFO_OPTS for w in rest):
+        return False
+    if _ignores_scripts(" ".join(rest)):
+        return False
+    if env.get("npm_config_ignore_scripts", "").lower() in ("true", "1"):
+        return False
+    return not (npmrc_ignores and name in ("npm", "pnpm") and "--no-ignore-scripts" not in rest
+                and not any(w.startswith("--ignore-scripts=") for w in rest))
+
+
+def _npmrc_ignores_scripts(scan: Scan) -> bool:
+    if ".npmrc" not in scan.file_set:
+        return False
+    return any(re.fullmatch(r"\s*ignore-scripts\s*=\s*true\s*", line, re.I)
+               for line in scan.text(".npmrc").splitlines())
+
+
+def _in_tree(word: str, tracked: set[str]) -> bool:
+    word = word.lstrip("'\"")
+    return word.startswith(("./", "$CLAUDE_PROJECT_DIR", "${CLAUDE_PROJECT_DIR}")) or word in tracked
+
+
+def _runs_repository_code(argv: list[str], tracked: set[str], depth: int = 0) -> bool:
+    """Whether a hook command runs a script, makefile or file from the checked-out tree."""
+    _, i = _command_start(argv)
     if i >= len(argv):
         return False
     cmd, rest = argv[i], argv[i + 1:]
@@ -244,7 +347,7 @@ def _runs_repository_code(segment: str, tracked: set[str], depth: int = 0) -> bo
     if name in ("make", "gmake"):
         return True
     if name in _PACKAGE_MANAGERS:
-        sub = next((w for w in rest if not w.startswith("-")), None)
+        sub = _subcommand(name, rest)
         if sub is None:
             return False
         if name == "npm":
@@ -256,8 +359,7 @@ def _runs_repository_code(segment: str, tracked: set[str], depth: int = 0) -> bo
             word = rest[j]
             if word == "-c" and name in ("bash", "sh", "zsh", "dash"):
                 return j + 1 < len(rest) and depth < _MAX_SHELL_DEPTH and any(
-                    _runs_repository_code(part.strip(), tracked, depth + 1)
-                    for part in _HOOK_SPLIT.split(rest[j + 1]) if part.strip())
+                    _runs_repository_code(part, tracked, depth + 1) for part in _segments(rest[j + 1]))
             if word in _INTERPRETER_VALUE_OPTS:
                 j += 2
             elif word.startswith("-"):
@@ -272,6 +374,7 @@ def detect_hook_risks(scan: Scan) -> list[HookRisk]:
     """Automatic Claude Code hooks that execute repository code (install with lifecycle scripts, run, make, paths)."""
     out = set()
     tracked_files = set(scan.files)
+    npmrc_ignores = _npmrc_ignores_scripts(scan)
     for path in CLAUDE_SETTINGS:
         if path not in scan.file_set:
             continue
@@ -280,12 +383,8 @@ def detect_hook_risks(scan: Scan) -> list[HookRisk]:
             if event not in AUTOMATIC_EVENTS:
                 continue
             for command in commands:
-                for segment in (s.strip() for s in _HOOK_SPLIT.split(command)):
-                    if not segment:
-                        continue
-                    # Check for install with lifecycle scripts
-                    if _INSTALL.search(segment) and not _ignores_scripts(segment):
-                        out.add(HookRisk(path, event, segment))
-                    elif _runs_repository_code(segment, tracked_files):
-                        out.add(HookRisk(path, event, segment))
+                for argv in _segments(command):
+                    if (_installs_with_scripts(argv, npmrc_ignores)
+                            or _runs_repository_code(argv, tracked_files)):
+                        out.add(HookRisk(path, event, shlex.join(argv)))
     return sorted(out, key=lambda r: (r.path, r.event, r.command))

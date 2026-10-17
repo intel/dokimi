@@ -50,11 +50,13 @@ RULES: dict[str, RuleInfo] = {
     "checks.lint.missing": RuleInfo("warning", ("verify",), "no lint or format check found"),
     "checks.typecheck.missing": RuleInfo("info", ("verify",), "no type check found"),
     "safety.install-hook": RuleInfo("info", ("bootstrap",), "installing runs a lifecycle script"),
-    "safety.destructive": RuleInfo("warning", ("edit", "verify"), "a script deletes broadly or wipes the tree"),
+    "safety.destructive": RuleInfo("warning", ("edit", "verify"), "a script deletes the root, home, a glob or the whole tree"),
     "safety.network-exec": RuleInfo("warning", ("bootstrap", "edit"), "a script runs code it downloads"),
     "safety.deploy": RuleInfo("info", ("deploy",), "a script publishes or deploys"),
     "safety.agent-hook.executes-repository-code": RuleInfo(
-        "warning", ("bootstrap",), "a hook the harness runs on its own installs with lifecycle scripts on"),
+        "warning", ("bootstrap",),
+        "a hook the harness runs on its own runs repository code: an install with lifecycle scripts on, "
+        "a package script, make, or a file in the tree"),
     "safety.capability.high-risk": RuleInfo("info", ("edit", "merge"),
                                             "the harness gets tools or hooks from the repository"),
     "files.large": RuleInfo("info", ("navigate", "edit"), "a file large enough that reading it costs much context"),

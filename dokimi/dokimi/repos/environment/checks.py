@@ -141,14 +141,16 @@ def _dotnet(scan: Scan) -> list[Check]:
 
 def _autotools(scan: Scan) -> list[Check]:
     marker: str | None = next((m for m in ("configure.ac", "configure.in", "autogen.sh") if m in scan.file_set), None)
-    marker = marker or next((f for f in scan.files if posixpath.basename(f) == "Makefile.am"), None)
+    am_files = [f for f in scan.files if posixpath.basename(f) == "Makefile.am" and not is_generated(f)]
+    marker = marker or next(iter(am_files), None)
     if marker is None:
         return []
     out = [Check("autotools", "build", "toolchain", marker)]
-    am_files = [f for f in scan.files if posixpath.basename(f) == "Makefile.am"]
     scan.preload(am_files)
-    if any(re.search(r"\b(?:TESTS|check_PROGRAMS|check_SCRIPTS|check_LTLIBRARIES)\b", scan.text(f)) for f in am_files):
-        out.append(Check("autotools", "test", "declared", am_files[0], "make check"))
+    declared = next((f for f in am_files
+                     if re.search(r"\b(?:TESTS|check_PROGRAMS|check_SCRIPTS|check_LTLIBRARIES)\b", scan.text(f))), None)
+    if declared:
+        out.append(Check("autotools", "test", "declared", declared, "make check"))
     return out
 
 
@@ -174,7 +176,7 @@ def _python(scan: Scan, root: str) -> list[Check]:
             out.append(Check("python", "lint", "declared", file, section, root))
         elif section in ("tool.mypy", "tool.pyright") or section.startswith("mypy"):
             out.append(Check("python", "typecheck", "declared", file, section, root))
-    conftest = next((f for f in scan.files if posixpath.basename(f) == "conftest.py"
+    conftest = next((f for f in scan.files if posixpath.basename(f) == "conftest.py" and not is_generated(f)
                      and (root == "." or f.startswith(root + "/"))), None)
     if conftest and not any(c.kind == "test" for c in out):
         out.append(Check("python", "test", "declared", conftest, None, root))
@@ -182,7 +184,8 @@ def _python(scan: Scan, root: str) -> list[Check]:
 
 
 def _gradle(scan: Scan) -> list[Check]:
-    files = [f for f in scan.files if re.search(r"(^|/)(build|settings)\.gradle(\.kts)?$", f, re.I)]
+    files = [f for f in scan.files
+             if re.search(r"(^|/)(build|settings)\.gradle(\.kts)?$", f, re.I) and not is_generated(f)]
     if not files and "gradlew" not in scan.file_set:
         return []
     evidence = files[0] if files else "gradlew"
@@ -204,7 +207,7 @@ _MAVEN_LINT = re.compile(rf"\b(?:{_JVM_LINT})\b", re.I)
 
 
 def _maven(scan: Scan) -> list[Check]:
-    poms = [f for f in scan.files if posixpath.basename(f) == "pom.xml"]
+    poms = [f for f in scan.files if posixpath.basename(f) == "pom.xml" and not is_generated(f)]
     if not poms:
         return []
     out = [Check("maven", k, "toolchain", poms[0]) for k in ("build", "test")]

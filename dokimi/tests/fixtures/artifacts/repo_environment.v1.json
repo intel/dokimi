@@ -437,6 +437,5 @@
     "network access and credentials in the agent's environment",
     "which instruction files a given harness version loads (measure with `repo reach`)"
   ],
-  "schema_version": "repo_environment.v1",
-  "generated_at": "2026-10-14T00:00:00+00:00"
+  "schema_version": "repo_environment.v1"
 }
