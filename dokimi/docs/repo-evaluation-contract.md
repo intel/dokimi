@@ -33,6 +33,12 @@ SPDX-License-Identifier: Apache-2.0
 >     [--json] [--fail-on-fail]
 > ```
 >
+> `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
+>
+> ```bash
+> python cli.py repo inspect <source> [--out environment.json] [--json] [--large-bytes N] [--fail-on-error]
+> ```
+>
 > `--manifest-file <local.yaml>` on `validate`, `scan` and `reach` reads the manifest
 > from outside the tree, for a repository that has not added it yet. `scan` and `reach`
 > need only `guidance`; given neither a manifest in the tree nor `--manifest-file`, they
@@ -630,6 +636,69 @@ file-set parity check.
 
 Measured on oneDAL and scikit-learn-intelex, claim by claim against their own
 checkers: see the pull request that added the scan (#68).
+
+### 8.1 Inspection (`repo_environment.v1`)
+
+`repo inspect <source>` reads the tree and nothing else: no manifest, no LLM
+call, no command of the repository run. Where L0 asks whether what the
+guidance says is true, inspection asks what the guidance may have left out:
+which instruction files exist and where they apply, how a change can be built
+and checked, and what a session or a command it runs could do beyond editing
+files. Its findings are hypotheses for `repo reach` and `repo run` to test,
+not measured effects.
+
+The report keeps observations apart from findings:
+
+- `instructions`: one record per instruction file and per harness rule it
+  matches (a root `AGENTS.md`, a nested `CLAUDE.md`, `.cursor/rules/*.mdc`,
+  `.github/instructions/*.instructions.md`, …), with its `scope`
+  (`root`, `path-specific`, `mode-specific`, `local-private`, `legacy`,
+  `capability`, `unknown`), `activation`, the `directory` it applies to and
+  its size (for a link, the size of the file it names). This is what each
+  harness documents; which files a given harness version loads is measured by
+  the reach probe (§7).
+- `checks`: ways to build, test, lint and type-check, per project root (the
+  root and every directory below it with a `package.json`, makefile,
+  `pyproject.toml`, `setup.py`, `setup.cfg`, `Pipfile`, `go.mod` or `Cargo.toml`; Bazel, CMake,
+  Gradle, Maven, .NET and Autotools are read tree-wide). `basis: declared`
+  means the repository names it: a script, a make target, a config section,
+  a pre-commit hook. `basis: toolchain` means the tool offers the command
+  whether or not there is anything for it to run (`go test` beside a
+  `go.mod`): a place to start, not evidence of tests.
+- `capabilities`: what the harness gets from the repository: MCP configs,
+  Claude Code hooks of any type (`command`, `http`, `prompt`, `agent`) and
+  plugins, settings commands (`statusLine`, `apiKeyHelper`),
+  `enableAllProjectMcpServers`, skills, editor settings, each with a risk tier
+  (documentation under `.claude/hooks/` is low). `scripts`: root
+  `package.json` scripts that are install hooks, delete the root, home, a glob
+  or the whole tree (`rm -rf dist` is not flagged; `git clean -n` is a dry
+  run), pipe a download into a shell, or publish and deploy.
+  `hook_risks`: the concrete path, a hook the harness fires on its own
+  (`SessionStart`, `SessionEnd`, `PreCompact`, `Notification`, `UserPromptSubmit`, `Stop`, `SubagentStop`) that installs
+  packages with lifecycle scripts on, runs a `package.json` script (`npm run`, `npm test`, `yarn build`, …),
+  `make`, or executes a path in the tree (also behind `VAR=value`, `sudo`, `timeout`, `env`, `source` or `sh -c`),
+  so starting a session or running tools executes code from the checked-out branch. Hook
+  commands are read word by word, with quotes and comments honoured, so a
+  command named inside `echo '…'` or after `#` does not count. `--ignore-scripts`
+  (the last such flag wins), `npm_config_ignore_scripts=true`, a root `.npmrc`
+  with `ignore-scripts=true` (npm, pnpm) and a global install (`-g`) clear the
+  install risk.
+- `files`: counts and bytes, generated files (lockfiles, `vendor/`,
+  `third_party/`, test fixtures, `*_pb2.py`, …), minified bundles, test files,
+  and files over `--large-bytes` (default 100 000, about 30k tokens: large
+  for an agent to read, far below what a disk-size lint flags). From a
+  blob-less clone sizes are not read, since listing them would fetch every
+  blob; the report says so under `not_observed`.
+
+Each finding has a `rule`, a `severity` (`error`, `warning`, `info`) and,
+separately, a `confidence`, the `stages` it affects (`orient`, `bootstrap`,
+`navigate`, `edit`, `verify`, `review`, `merge`, `deploy`), a `path` (null for
+the whole repository) and `why`. A stage is `blocked` by an error,
+`attention` on a warning, and at best `no_known_blocker`, never ready:
+`not_observed` lists what the tree cannot show, such as whether the commands
+pass, CI secrets and the agent's network. `risk` is the worst of the launch
+observations. There is no overall score. `--fail-on-error` exits 1 when any
+finding is an error.
 
 ## 9. Running
 
