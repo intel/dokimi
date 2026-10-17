@@ -718,7 +718,9 @@ def _hook_payload(tmp_path, command, event="SessionStart", extra=None):
     ("npm ci", True), ("npm --prefix x ci", True), ("pnpm --filter app install", True), ("yarn", True),
     ("yarn --frozen-lockfile", True), ("npm add x", True), ("bun add x", True), ("npm \\\nci", True),
     ("npm ci 2>&1 | tee log", True), ("cd web && npm install", True), ("npm ci # --ignore-scripts", True),
+    ("sh -c 'npm ci'", True), ("bash -lc 'cd web && npm install'", True), ("bash -o pipefail -c 'yarn'", True),
     # scripts off, global, or no install at all
+    ("sh -c 'npm ci --ignore-scripts'", False), ("bash -lc 'npm --version'", False),
     ("npm ci --ignore-scripts", False), ("npm install -g typescript", False),
     ("npm_config_ignore_scripts=true npm ci", False), ("echo \"run npm install first\"", False),
     ("echo 'tests passed; run npm run build'", False), ("# npm install is slow", False),

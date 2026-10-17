@@ -190,6 +190,7 @@ _INTERPRETERS = frozenset({"bash", "sh", "zsh", "dash", "python", "python3", "no
                            "tsx", "ts-node"})
 # Interpreter options that take a separate value (``python3 -W ignore x.py``).
 _INTERPRETER_VALUE_OPTS = frozenset({"-W", "-X", "--require", "-r", "--import", "-O0"})
+_SHELL_VALUE_OPTS = frozenset({"-o", "+o", "-O", "+O"})  # ``bash -o pipefail -c ...``
 _VAR_ASSIGN = re.compile(r"^[A-Za-z_]\w*=")
 _MAX_SHELL_DEPTH = 3
 _SEPARATORS = frozenset({";", "&&", "||", "|", "&", ";;", "|&"})
@@ -337,7 +338,11 @@ def _in_tree(word: str, tracked: set[str]) -> bool:
     return word.startswith(("./", "$CLAUDE_PROJECT_DIR", "${CLAUDE_PROJECT_DIR}")) or word in tracked
 
 
-def _runs_repository_code(argv: list[str], tracked: set[str], depth: int = 0) -> bool:
+def _executes_repository_code(argv: list[str], tracked: set[str], npmrc_ignores: bool, depth: int = 0) -> bool:
+    return _installs_with_scripts(argv, npmrc_ignores) or _runs_repository_code(argv, tracked, npmrc_ignores, depth)
+
+
+def _runs_repository_code(argv: list[str], tracked: set[str], npmrc_ignores: bool, depth: int = 0) -> bool:
     """Whether a hook command runs a script, makefile or file from the checked-out tree."""
     _, i = _command_start(argv)
     if i >= len(argv):
@@ -357,10 +362,12 @@ def _runs_repository_code(argv: list[str], tracked: set[str], depth: int = 0) ->
         j = 0
         while j < len(rest):
             word = rest[j]
-            if word == "-c" and name in ("bash", "sh", "zsh", "dash"):
+            # ``-c`` alone or among short options (``bash -lc``, ``sh -ec``)
+            if name in ("bash", "sh", "zsh", "dash") and word[:1] == "-" and word[1:2] != "-" and "c" in word:
                 return j + 1 < len(rest) and depth < _MAX_SHELL_DEPTH and any(
-                    _runs_repository_code(part, tracked, depth + 1) for part in _segments(rest[j + 1]))
-            if word in _INTERPRETER_VALUE_OPTS:
+                    _executes_repository_code(part, tracked, npmrc_ignores, depth + 1)
+                    for part in _segments(rest[j + 1]))
+            if word in _INTERPRETER_VALUE_OPTS or (name in ("bash", "sh", "zsh", "dash") and word in _SHELL_VALUE_OPTS):
                 j += 2
             elif word.startswith("-"):
                 j += 1
@@ -384,7 +391,6 @@ def detect_hook_risks(scan: Scan) -> list[HookRisk]:
                 continue
             for command in commands:
                 for argv in _segments(command):
-                    if (_installs_with_scripts(argv, npmrc_ignores)
-                            or _runs_repository_code(argv, tracked_files)):
+                    if _executes_repository_code(argv, tracked_files, npmrc_ignores):
                         out.add(HookRisk(path, event, shlex.join(argv)))
     return sorted(out, key=lambda r: (r.path, r.event, r.command))
