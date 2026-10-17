@@ -43,8 +43,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-JUDGE_MODEL = "global.anthropic.claude-sonnet-4-6"
-JUDGE_PROVIDER = "amazon-bedrock"
+# Pinned by value, not read from dokimi.defaults: the gate catches a batch judged on a
+# model other than the one it claims, so it must not move when the default does. This
+# is the default judge since 2026-10-13; batches from before (judged on
+# amazon-bedrock/global.anthropic.claude-sonnet-4-6) pass --judge-model / --judge-provider.
+JUDGE_MODEL = "claude-sonnet-5-5"
+JUDGE_PROVIDER = "anthropic"
 # Question-set sizes keyed by the filename suffix the run_*.sh scripts use. These are one
 # product's sizes and nothing more — observed golden sets have run 20, 24 and 111 questions
 # depending on the product — so a batch over another product must pass --expect-n. The suffix

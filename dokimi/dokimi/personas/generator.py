@@ -10,6 +10,7 @@ import json
 
 from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
+from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 logger = logging.getLogger(__name__)
 
@@ -76,15 +77,15 @@ class PersonaGenerator:
     
     def __init__(
         self, 
-        model: str = "gpt-4o-mini",
-        provider: str = "openai",
+        model: str = DEFAULT_GENERATOR_MODEL,
+        provider: str = DEFAULT_GENERATOR_PROVIDER,
         api_key: Optional[str] = None
     ):
         """
         Initialize persona generator.
         
         Args:
-            model: Model name (e.g., "gpt-4o-mini", "claude-haiku")
+            model: Model name (e.g., "gpt-6.1-sol", "claude-sonnet-5-5")
             provider: LLM provider ("openai" or "anthropic")
             api_key: API key (optional, will use env var if not provided)
         """

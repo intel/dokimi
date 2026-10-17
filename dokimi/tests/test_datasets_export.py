@@ -55,7 +55,7 @@ def test_export_answers_artifact_jsonl(tmp_path):
     src = tmp_path / "a.json"
     src.write_text(json.dumps({
         "schema_version": "answers.v1",
-        "model": "gpt-4o-mini",
+        "model": "gpt-6.1-sol",
         "provider": "openai",
         "total_questions": 1,
         "answers": [
@@ -73,13 +73,14 @@ def test_export_answers_artifact_jsonl(tmp_path):
     rows = [json.loads(line) for line in primary.read_text().strip().splitlines()]
     assert len(rows) == 1
     assert rows[0]["question_id"] == "q1"
-    assert rows[0]["model"] == "gpt-4o-mini"
+    assert rows[0]["model"] == "gpt-6.1-sol"
     assert json.loads(rows[0]["with_docs"])["answer"] == "a"
 
 
 def test_dataset_card_contents():
-    card = dataset_card("questions", Path("my_questions.json"), 5, ["id", "text"])
-    assert "questions.v1" in card
+    card = dataset_card("questions", Path("my_questions.json"), 5, ["id", "question"])
+    assert "Schema version:** questions.v2" in card
+    assert "Source schema version" not in card
     assert "Rows:** 5" in card
 
 

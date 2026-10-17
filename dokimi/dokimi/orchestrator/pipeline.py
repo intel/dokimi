@@ -33,13 +33,28 @@ def compute_question_set_hash(questions: List[Dict[str, Any]]) -> str:
     return hashlib.sha256(raw).hexdigest()[:12]
 
 
+def _canonical(questions: List[Dict[str, Any]]) -> List[str]:
+    """The set's records as sorted ``(id, question)`` pairs, to compare two sets by content.
+
+    Labels the run adds on reading (``source_type``, ``persona_id``) are left out, so a set
+    is equal to what was read unless a record was added, dropped or reworded.
+    """
+    from dokimi.utils import question_id
+
+    return sorted(json.dumps([repr(question_id(q)), q.get("question", q.get("text"))],
+                             default=str) for q in questions)
+
+
 def load_questions_payload(path: Path) -> List[Dict[str, Any]]:
-    """Load questions from either a wrapped artifact or a raw list."""
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    questions = raw.get("questions", raw) if isinstance(raw, dict) else raw
-    if not isinstance(questions, list):
-        raise ValueError(f"Expected a list of questions in {path}")
-    return questions
+    """The records of the question set at ``path``, in the questions.v2 shape.
+
+    :func:`dokimi.questions.artifact.load_questions` reads it: v1, v2, a bare list, or a legacy
+    shape (logged once); a set still invalid after that raises ``ArtifactValidationError`` (a
+    ``ValueError``) naming the record. ``path`` is not written.
+    """
+    from dokimi.questions.artifact import load_questions
+
+    return load_questions(path).questions
 
 
 class EvaluationPipeline:
@@ -115,9 +130,10 @@ class EvaluationPipeline:
             questions_root: Directory holding golden question sets named
                 ``<product_key>_golden.json``, for example a checkout of the
                 evaluation-content repository. When given and the file is
-                present it is auto-included as the manual question set; when it
-                is absent a warning is logged. Without this argument (and
-                without ``custom_questions_path``) the run has no golden set.
+                present it is the run's whole question set and generation is
+                skipped; when it is absent a warning is logged and questions are
+                generated. Without this argument (and without
+                ``custom_questions_path``) the run has no golden set.
         """
         if not repo and not description:
             raise ValueError(
@@ -136,6 +152,10 @@ class EvaluationPipeline:
         # convention name <product_key>_golden.json under the caller-supplied
         # questions root (the question sets live outside this repository).
         self.questions_root = Path(questions_root) if questions_root else None
+        # A golden set found under the root *is* the question set: generation is
+        # skipped, so two runs on one root answer the same questions. An explicit
+        # custom_questions_path is still merged into generated questions.
+        self.golden_pinned = False
         if custom_questions_path:
             _custom_path = Path(custom_questions_path)
             if not _custom_path.exists():
@@ -143,11 +163,12 @@ class EvaluationPipeline:
                     f"--custom-questions path does not exist: {_custom_path}"
                 )
             self.custom_questions_path: Optional[Path] = _custom_path
-        elif self.questions_root is not None:
+        elif questions_from is None and self.questions_root is not None:
             _auto_golden = self.questions_root / f"{self.product_key.lower()}_golden.json"
             if _auto_golden.is_file():
                 self.custom_questions_path = _auto_golden
-                logger.info(f"Auto-including golden questions: {_auto_golden}")
+                self.golden_pinned = True
+                logger.info(f"Using golden questions: {_auto_golden}")
             else:
                 self.custom_questions_path = None
                 logger.warning(
@@ -156,12 +177,13 @@ class EvaluationPipeline:
                 )
         else:
             self.custom_questions_path = None
-            logger.warning(
-                "no questions root given; questions will be generated for "
-                f"{self.product_key.lower()} instead of read from a curated golden "
-                "set. Pass --questions-root <checkout>/questions (or "
-                "--custom-questions <file>) to measure against a fixed set"
-            )
+            if questions_from is None and self.questions_root is None:
+                logger.warning(
+                    "no questions root given; questions will be generated for "
+                    f"{self.product_key.lower()} instead of read from a curated golden "
+                    "set. Pass --questions-root <checkout>/questions, or reuse an "
+                    "earlier run's set, to measure against a fixed set"
+                )
 
         self.model = model
         self.provider = provider
@@ -218,24 +240,39 @@ class EvaluationPipeline:
             "steps": {}
         }
         
+        # Every question set this run reuses is read (and refused, if unusable) before any
+        # model call: --questions-from, the cached set, or --custom-questions.
+        reused = self._read_question_inputs()
+
         # Step 1: Discover personas (cached if already exists)
-        logger.info("Step 1/6: Discovering personas...")
-        if (not self.force_regen) and self.personas_path.exists():
-            personas = json.loads(self.personas_path.read_text(encoding="utf-8"))
-            print(f"✓ Loaded {len(personas.get('personas', []))} personas (cached)")
+        # Skip if using golden pinned or external questions (personas not needed)
+        if self.golden_pinned or self.external_questions_path is not None:
+            logger.info("Step 1/6: Skipping persona discovery (using pinned or external questions)")
+            personas: Dict[str, Any] = {"personas": []}
+            results["steps"]["personas"] = {
+                "count": 0,
+                "skipped": True
+            }
         else:
-            personas = self._discover_personas()
-            print(f"✓ Discovered {len(personas.get('personas', []))} personas")
-        results["steps"]["personas"] = {
-            "count": len(personas.get("personas", [])),
-            "path": str(self.personas_path)
-        }
+            logger.info("Step 1/6: Discovering personas...")
+            if (not self.force_regen) and self.personas_path.exists():
+                personas = json.loads(self.personas_path.read_text(encoding="utf-8"))
+                print(f"✓ Loaded {len(personas.get('personas', []))} personas (cached)")
+            else:
+                personas = self._discover_personas()
+                print(f"✓ Discovered {len(personas.get('personas', []))} personas")
+            results["steps"]["personas"] = {
+                "count": len(personas.get("personas", [])),
+                "path": str(self.personas_path)
+            }
 
         # Step 2+3: Generate & merge questions (external / cached / fresh)
+        write_over_input = False  # Default: never write over input files
+
         if self.external_questions_path is not None:
             # Reuse question set from another run — skip generation entirely
             logger.info(f"Step 2-3/6: Loading external questions from {self.external_questions_path}...")
-            merged_questions = load_questions_payload(self.external_questions_path)
+            merged_questions = reused or []
             print(f"✓ Loaded {len(merged_questions)} questions (from --questions-from, skipping generation)")
             results["steps"]["questions_generated"] = {
                 "count": len(merged_questions),
@@ -248,11 +285,47 @@ class EvaluationPipeline:
             }
         elif (not self.force_regen) and self.questions_path.exists():
             logger.info("Step 2-3/6: Loading cached questions (skipping generation)...")
-            merged_questions = load_questions_payload(self.questions_path)
+            merged_questions = reused or []
             print(f"✓ Loaded {len(merged_questions)} questions (cached — skipping generation)")
+            # Warn if cached questions differ from the golden set
+            if self.golden_pinned and self.custom_questions_path is not None:
+                try:
+                    golden_questions = load_questions_payload(self.custom_questions_path)
+                    cached_hash = compute_question_set_hash(merged_questions)
+                    golden_hash = compute_question_set_hash(golden_questions)
+                    if cached_hash != golden_hash:
+                        cached_count = len(merged_questions)
+                        golden_count = len(golden_questions)
+                        logger.warning(
+                            f"cached question set (n={cached_count}, hash={cached_hash}) differs from "
+                            f"golden set (n={golden_count}, hash={golden_hash}); "
+                            f"use a fresh output directory (or --force-regen with benchmark run) to use the golden set"
+                        )
+                except (json.JSONDecodeError, ValueError, TypeError, AttributeError, OSError) as e:
+                    logger.warning(
+                        f"Could not load golden set for comparison: {e}; "
+                        f"using cached questions"
+                    )
             results["steps"]["questions_generated"] = {"count": len(merged_questions), "cached": True}
             results["steps"]["questions_merged"] = {"total": len(merged_questions), "cached": True,
                                                      "path": str(self.questions_path)}
+        elif self.golden_pinned:
+            logger.info(f"Step 2-3/6: Loading golden questions from {self.custom_questions_path}...")
+            # Read (and refused, if unusable) before any model call by _read_question_inputs.
+            merged_questions = getattr(self, "_custom_questions", None) or self._load_custom_questions()
+            if not merged_questions:
+                raise ValueError(f"Golden set is empty: {self.custom_questions_path}")
+            print(f"✓ Loaded {len(merged_questions)} golden questions (skipping generation)")
+            results["steps"]["questions_generated"] = {
+                "count": len(merged_questions),
+                "golden_source": str(self.custom_questions_path),
+            }
+            results["steps"]["questions_merged"] = {
+                "total": len(merged_questions),
+                "manual": len(merged_questions),
+                "golden_source": str(self.custom_questions_path),
+                "path": str(self.questions_path),
+            }
         else:
             logger.info("Step 2/6: Generating questions...")
             generated_questions = self._generate_questions(personas)
@@ -264,7 +337,13 @@ class EvaluationPipeline:
 
             # Step 3: Merge with custom questions + deduplicate
             logger.info("Step 3/6: Merging and deduplicating questions...")
+            read_custom = getattr(self, "_custom_questions", None)
+            read_snapshot = None if read_custom is None else _canonical(read_custom)
             merged_questions = self._merge_questions(generated_questions)
+            # A --custom-questions file that is this run's own output is written only when the
+            # merged set differs from what was read from it; without a read set, never.
+            write_over_input = read_snapshot is not None and _canonical(merged_questions) != read_snapshot
+
             results["steps"]["questions_merged"] = {
                 "total": len(merged_questions),
                 "generated": sum(1 for q in merged_questions if q.get("source_type") == "generated"),
@@ -274,11 +353,11 @@ class EvaluationPipeline:
             print(f"✓ Merged to {len(merged_questions)} unique questions "
                   f"({results['steps']['questions_merged']['generated']} generated, "
                   f"{results['steps']['questions_merged']['manual']} manual)")
-        
+
         # Compute and record question_set_hash for reproducibility
         question_set_hash = compute_question_set_hash(merged_questions)
         results["question_set_hash"] = question_set_hash
-        self._save_questions_artifact(merged_questions, question_set_hash)
+        self._save_questions_artifact(merged_questions, question_set_hash, write_over_input=write_over_input)
         print(f"  question_set_hash: {question_set_hash}")
 
         # Step 4: Generate answers
@@ -413,46 +492,60 @@ class EvaluationPipeline:
         
         return questions
     
-    def _merge_questions(self, generated_questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Merge generated + custom questions, deduplicate, save."""
-        from dokimi.questions import QuestionValidator
-        
-        all_questions = generated_questions.copy()
-        
-        # Load custom questions if provided
-        if self.custom_questions_path and self.custom_questions_path.exists():
-            custom_data = json.loads(self.custom_questions_path.read_text(encoding="utf-8"))
-            
-            # Handle both dict format {"questions": [...]} and direct list format
-            if isinstance(custom_data, dict):
-                custom_questions = custom_data.get("questions")
-                if custom_questions is None:
-                    raise ValueError(
-                        f"Custom questions file must have 'questions' key or be a list. "
-                        f"Got dict with keys: {list(custom_data.keys())}"
-                    )
-            elif isinstance(custom_data, list):
-                custom_questions = custom_data
+    def _read_question_inputs(self) -> Optional[List[Dict[str, Any]]]:
+        """Read the question sets this run reuses; return the set that replaces generation.
+
+        ``--questions-from`` wins, then the cached ``questions/<product>.json`` (unless
+        ``force_regen``); either is returned. Otherwise the ``--custom-questions`` set, if
+        any, is read for :meth:`_merge_questions` and ``None`` is returned. Every read goes
+        through :func:`load_questions_payload`, so a legacy file is upgraded in memory and an
+        unusable one fails here, before any model call. No input file is written.
+        """
+        self._custom_questions: Optional[List[Dict[str, Any]]] = None
+        if self.external_questions_path is not None:
+            return load_questions_payload(self.external_questions_path)
+        if (not self.force_regen) and self.questions_path.exists():
+            return load_questions_payload(self.questions_path)
+        self._custom_questions = self._load_custom_questions()
+        return None
+
+    def _load_custom_questions(self) -> List[Dict[str, Any]]:
+        """The --custom-questions (or auto-included golden) set, tagged ``source_type: manual``.
+
+        A custom set that is this run's own ``questions/<product>.json`` (a ``--force-regen``
+        run through the Python API) keeps the ``source_type`` a previous run wrote, so its
+        generated records are not relabelled manual and protected from dedup on the next run.
+        """
+        path = self.custom_questions_path
+        if not (path and path.exists()):
+            return []
+        custom_questions = load_questions_payload(path)
+        output = getattr(self, "questions_path", None)
+        own_output = output is not None and Path(path).resolve() == Path(output).resolve()
+        for q in custom_questions:  # records read from the file, not the file
+            if own_output:
+                q.setdefault("source_type", "manual")
             else:
-                raise ValueError(
-                    f"Custom questions must be a dict with 'questions' key or a list. "
-                    f"Got: {type(custom_data).__name__}"
-                )
-            
-            # Validate it's a list
-            if not isinstance(custom_questions, list):
-                raise ValueError(
-                    f"Expected list of questions, got {type(custom_questions).__name__}"
-                )
-            
-            # Add source tracking
-            for q in custom_questions:
                 q["source_type"] = "manual"
-                if "persona_id" not in q:
-                    q["persona_id"] = "manual"
-            
-            all_questions.extend(custom_questions)
-            logger.info(f"Loaded {len(custom_questions)} custom questions")
+            # A generated record of the run's own file keeps its personas; it is not manual.
+            if q.get("source_type") == "manual" and "persona_id" not in q:
+                q["persona_id"] = "manual"
+        logger.info(f"Loaded {len(custom_questions)} custom questions")
+        return custom_questions
+
+    def _merge_questions(self, generated_questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Merge generated + custom questions, deduplicate."""
+        from dokimi.questions import QuestionValidator
+
+        all_questions = generated_questions.copy()
+
+        # Custom questions: read before the run's first model call by _read_question_inputs.
+        custom_questions = getattr(self, "_custom_questions", None)
+        self._custom_questions = None
+        if custom_questions is None:
+            custom_questions = self._load_custom_questions()
+
+        all_questions.extend(custom_questions)
 
         # Deduplicate. Curated questions are never the ones dropped: a merge
         # keeps the longest text, which would otherwise let a generated
@@ -469,17 +562,39 @@ class EvaluationPipeline:
             for group in groups:
                 logger.debug("duplicate group: %s", group)
 
-        # Save merged questions
-        self._save_questions_artifact(unique_questions)
-
         return unique_questions
 
     def _save_questions_artifact(
         self,
         questions: List[Dict[str, Any]],
         question_set_hash: Optional[str] = None,
+        write_over_input: bool = False,
     ) -> None:
-        """Persist normalized question artifacts with reproducibility metadata."""
+        """Persist the merged set as a questions.v2 artifact with reproducibility metadata.
+
+        This is the run's own copy: the cached file may be rewritten (it is this run's
+        output), but a ``--questions-from`` or ``--custom-questions`` file is never written
+        unless the merge added records (write_over_input=True from force-regen merge).
+        Raises ``ArtifactValidationError`` -- before any answer is generated -- when the set
+        is not a valid artifact; the set is kept at ``<name>.rejected``. Records written with
+        ``text`` are saved as ``question``.
+
+        Args:
+            questions: The question records to save
+            question_set_hash: Optional hash for reproducibility
+            write_over_input: If False, skip save when questions_path equals an input file path
+        """
+        from dokimi.questions.artifact import save_questions_artifact
+
+        inputs = [p for p in (getattr(self, "external_questions_path", None),
+                              getattr(self, "custom_questions_path", None)) if p is not None]
+        target = self.questions_path.resolve()
+
+        if not write_over_input and any(Path(p).resolve() == target for p in inputs):
+            logger.info("questions output %s is an input of this run; leaving it unchanged",
+                        self.questions_path)
+            return
+
         output = {
             "product": self.product,
             "total_questions": len(questions),
@@ -492,8 +607,8 @@ class EvaluationPipeline:
         if question_set_hash:
             output["question_set_hash"] = question_set_hash
             output["question_set_id"] = question_set_hash
-        
-        self.questions_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+
+        save_questions_artifact(output, self.questions_path)
     
     def _generate_answers(self, questions: List[Dict[str, Any]], concurrency: int = 5,
                           question_set_hash: Optional[str] = None) -> List[Dict[str, Any]]:

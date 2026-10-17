@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 # Product registry — known products for dokimi.
 #
 # This file answers "what products exist" (identity: name, description, repo,

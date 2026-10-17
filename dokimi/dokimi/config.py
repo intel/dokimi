@@ -9,7 +9,7 @@ product-identity registry, loaded by
 ``config/products.yaml`` (LLM/runtime config for the eval track). The
 committed runtime config declares no products, but a caller may add a
 ``products:`` block holding per-product eval-track overrides — and any
-identity restated there is a drift risk, so this module treats the top-level
+identity restated there is a drift risk, so this module treats
 ``products.yaml`` as canonical and detects when the two disagree on the GitHub
 repo for a shared product.
 """
@@ -21,7 +21,14 @@ from pathlib import Path
 
 import yaml
 
-DEFAULT_PRODUCTS_PATH = Path(__file__).resolve().parent.parent / "config" / "products.yaml"
+DEFAULT_PRODUCTS_PATH = Path(__file__).resolve().parent / "config" / "products.yaml"
+# A ``config/products.yaml`` in the working directory overrides the bundled one.
+LOCAL_PRODUCTS_PATH = Path("config") / "products.yaml"
+
+
+def runtime_config_path() -> Path:
+    """The eval-track config a command reads: the local override, else the bundled file."""
+    return LOCAL_PRODUCTS_PATH if LOCAL_PRODUCTS_PATH.exists() else DEFAULT_PRODUCTS_PATH
 
 
 @dataclass
@@ -77,6 +84,6 @@ def detect_registry_drift(
         if repo_p and repo_l and repo_p.lower() != repo_l.lower():
             issues.append(
                 f"{name}: github_repo drift — config/products.yaml={repo_p!r} vs "
-                f"products.yaml={repo_l!r} (top-level products.yaml is canonical)"
+                f"products.yaml={repo_l!r} (the products.yaml registry is canonical)"
             )
     return issues

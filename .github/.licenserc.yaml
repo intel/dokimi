@@ -1,0 +1,66 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# License header check (apache/skywalking-eyes), a step of the static job in
+# ci.yml. Every tracked file carries the two-line SPDX header, in the
+# file's comment syntax, at the top (after a shebang line or front matter;
+# the check does not enforce the position):
+#
+#   # Copyright (C) 2026 Intel Corporation
+#   # SPDX-License-Identifier: Apache-2.0
+#
+# Markdown takes it as an HTML comment (<!-- ... -->), after the front matter
+# when there is one. Locally, from the root of a clone (in a `git worktree` it
+# cannot read .gitignore and also scans .venv and other untracked files):
+#   docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
+#     apache/skywalking-eyes:0.9.0 -c .github/.licenserc.yaml header check
+header:
+  license:
+    # The pattern alone decides. With 0.9.0 a `content` passes any file that
+    # contains it, and an `spdx-id` with `copyright-owner` passes
+    # "Apache-2.0 OR MIT" too; without them license-eye warns that it has no
+    # license template, which `check` does not need.
+    # Any year, so a file added in a later year carries that year (a pattern
+    # with a line break or "(C)" never matches). The tail rejects "OR"
+    # expressions, -only and + (RE2 has no lookahead, so it spells out "not
+    # the word OR"); "AND" and "WITH" expressions still pass.
+    pattern: |-
+      Copyright \d{4}(-\d{4})? Intel Corporation SPDX-License-Identifier: Apache-2\.0(\s*$|\s+[^O ]|\s+O[^R]|\s+OR[^\s])
+
+  paths:
+    - '**'
+
+  paths-ignore:
+    # License texts and files with no comment syntax. .git is a file in a worktree.
+    - '.git'
+    - 'LICENSE'
+    - 'NOTICE'
+    - '.gitignore'
+    - '.github/CODEOWNERS'
+    - '**/*.json'
+    # GitHub templates: the text is what a contributor sees when opening an issue or PR.
+    - '.github/ISSUE_TEMPLATE/**'
+    - '.github/pull_request_template.md'
+    # Written by `uv pip compile`, which rewrites the header on every regeneration.
+    - 'dokimi/requirements.lock.txt'
+    - 'dokimi/requirements-docs.lock.txt'
+    # Read by agents verbatim: a header would become part of the instructions,
+    # persona prompt or skill being measured.
+    - 'AGENTS.md'
+    - 'dokimi/data/agent_profiles/**'
+    - 'dokimi/data/skills/**'
+    # Eval oracles: patches applied to the workspace and reference answers
+    # written verbatim as the agent's answer (.agent-eval/run.py).
+    - '.agent-eval/tasks/**/*.patch'
+    - '.agent-eval/tasks/**/oracle_answer.md'
+    # Changelog fragments (<timestamp>_<user>_<branch>.md) and the template
+    # `scriv create` copies into each: `scriv collect` moves their text into
+    # CHANGELOG.md, which carries the header itself.
+    - 'dokimi/changelog.d/[0-9]*.md'
+    - 'dokimi/changelog.d/fragment_template.md.j2'
+
+  comment: never
+
+  # Where `fix` would insert a header. `check` in 0.9.0 finds the header
+  # anywhere in the file, so front matter of any length can precede it.
+  license-location-threshold: 120

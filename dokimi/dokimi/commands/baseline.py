@@ -9,7 +9,9 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional, Tuple
+
+from dokimi.utils import normalize_model_ref
 
 BASELINES_DIR = Path("baselines/eval")
 
@@ -42,6 +44,52 @@ def _compute_summary(eval_data: Dict[str, Any]) -> Dict[str, Any]:
         "avg_without": round(avg_without, 2),
         "avg_delta": round(avg_delta, 2),
     }
+
+
+def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str, str]]]:
+    """The (provider, model) an eval artifact records for its answerer and its judge.
+
+    The judge is top-level (``judge_provider``/``judge_model``); the answerer is in
+    ``run_metadata``. A panel (``judge_model: "panel(N)"``) records its judges only in
+    ``panel_config.models``; it maps to ``("panel", <sorted, normalized models>)``. A role
+    the artifact does not record maps to ``None``.
+    """
+    meta = eval_data.get("run_metadata") or {}
+
+    def pair(provider: Any, model: Any) -> Optional[Tuple[str, str]]:
+        if not provider or not model or "unknown" in (provider, model):
+            return None
+        return str(provider), str(model)
+
+    judge_model = eval_data.get("judge_model") or meta.get("judge_model")
+    if str(judge_model or "").startswith("panel("):
+        models = (eval_data.get("panel_config") or {}).get("models") or []
+        judge = ("panel", ",".join(sorted(
+            normalize_model_ref(*m.split("/", 1)) if "/" in m else m for m in models))) if models else None
+    else:
+        judge = pair(eval_data.get("judge_provider") or meta.get("judge_provider"), judge_model)
+    return {
+        "answer": pair(meta.get("answer_provider"), meta.get("answer_model")),
+        "judge": judge,
+    }
+
+
+def _model_mismatches(baseline_data: Dict[str, Any],
+                      eval_data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    """Per role (answer, judge): lines for a recorded model that differs between the two
+    runs, and the roles that could not be compared because a side does not record them.
+
+    A Bedrock alias and its inference profile count as one model.
+    """
+    base, cur = _recorded_models(baseline_data), _recorded_models(eval_data)
+    lines, unverified = [], []
+    for role in ("answer", "judge"):
+        b, c = base[role], cur[role]
+        if not (b and c):
+            unverified.append(role)
+        elif normalize_model_ref(*b) != normalize_model_ref(*c):
+            lines.append(f"{role} model: baseline {b[0]}/{b[1]}, current {c[0]}/{c[1]}")
+    return lines, unverified
 
 
 def cmd_baseline_save(args: argparse.Namespace) -> None:
@@ -136,6 +184,26 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
         entry = candidates[-1]   # most recent
 
     baseline_data = json.loads(Path(entry["path"]).read_text(encoding="utf-8"))
+    mismatches, unverified = _model_mismatches(baseline_data, eval_data)
+    strict = getattr(args, "strict", False)
+    for role in unverified:
+        sides = [name for name, data in (("baseline", baseline_data), ("current eval", eval_data))
+                 if _recorded_models(data)[role] is None]
+        print(f"⚠ {role} model not recorded in {' and '.join(sides)}; not compared", file=sys.stderr)
+    if unverified and strict:
+        print(f"❌ --strict cannot verify the {' and '.join(unverified)} model against "
+              f"baseline '{entry['name']}'", file=sys.stderr)
+        raise SystemExit(1)
+    if mismatches:
+        detail = "".join(f"\n  {line}" for line in mismatches)
+        if strict:
+            print(f"❌ Baseline '{entry['name']}' was scored with different models (--strict):{detail}",
+                  file=sys.stderr)
+            raise SystemExit(1)
+        print(f"⚠ Baseline model warning: '{entry['name']}' was scored with different models;"
+              f" the changes below mix the model change with the content change.{detail}",
+              file=sys.stderr)
+
     baseline_evals = {e["question_id"]: e for e in baseline_data.get("evaluations", [])}
     current_evals = eval_data.get("evaluations", [])
 
@@ -202,4 +270,7 @@ def register(sub, positive_int) -> None:
     bl_cmp.add_argument("--eval", required=True, help="Path to current eval JSON file")
     bl_cmp.add_argument("--product", default=None, help="Product name for baseline lookup")
     bl_cmp.add_argument("--baseline", default=None, help="Baseline name (latest if omitted)")
+    bl_cmp.add_argument("--strict", action="store_true",
+                        help="Exit 1 instead of warning when the baseline's answer or judge model "
+                             "differs from the current eval's")
     bl_cmp.set_defaults(func=cmd_baseline_compare)

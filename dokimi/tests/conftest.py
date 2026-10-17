@@ -14,6 +14,8 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import pytest
 
+pytest_plugins = ["tests.outcomes.plugin"]
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -42,3 +44,18 @@ def demo_skill(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return d
+
+
+@pytest.fixture
+def fake_llm():
+    """Every :class:`dokimi.llm.LLM` without its own adapter answers from this script.
+
+    The seam for LLM calls in tests: push replies (text, a ``Reply``, or an exception
+    to raise) and read back ``fake_llm.requests`` / ``fake_llm.prompts``. An unscripted
+    call fails the test, so nothing reaches a provider.
+    """
+    from dokimi import llm
+
+    fake = llm.FakeAdapter()
+    with llm.use_adapter(fake):
+        yield fake

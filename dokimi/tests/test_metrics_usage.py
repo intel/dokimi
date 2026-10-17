@@ -89,6 +89,28 @@ def test_cost_none_when_no_pricing(monkeypatch):
     assert _safe_completion_cost(_Resp(_Usage()), "made-up-model") is None
 
 
+def test_zero_cost_for_a_model_missing_from_the_price_map_is_unknown(monkeypatch):
+    # litellm 1.104 priced claude-sonnet-5-5 at 0.0 with no entry in its map, so a
+    # run's total read as a valid $0. A 0.0 without a price entry is no price.
+    import litellm
+
+    monkeypatch.setattr(litellm, "completion_cost", lambda **kw: 0.0)
+    resp = _Resp(_Usage(prompt=10, completion=5, total=15))
+    rec = _extract_usage(resp, "claude-unpriced-0-0", "anthropic")
+    assert rec.cost_usd is None and rec.cost_known_calls == 0
+    rec = _extract_usage(resp, "claude-unpriced-0-0", "amazon-bedrock")
+    assert rec.cost_usd is None and rec.cost_known_calls == 0
+
+
+def test_zero_cost_for_a_model_in_the_price_map_stays_known(monkeypatch):
+    # A priced model can still cost $0 (an empty completion); that is a known cost.
+    import litellm
+
+    monkeypatch.setattr(litellm, "completion_cost", lambda **kw: 0.0)
+    rec = _extract_usage(_Resp(_Usage()), "gpt-4o", "openai")
+    assert rec.cost_usd == 0.0 and rec.cost_known_calls == 1
+
+
 # ── accumulation ─────────────────────────────────────────────────────────────
 def test_add_sums_tokens_and_keeps_first_ttft():
     a = UsageRecord(prompt_tokens=10, completion_tokens=5, total_tokens=15,
@@ -202,6 +224,8 @@ class _Chunk:
 
 
 def test_stream_call_measures_ttft(monkeypatch):
+    import litellm
+
     monkeypatch.setattr(llm_mod, "_safe_completion_cost", lambda r, m, **kw: None)
     chunks = [_Chunk("Hello "), _Chunk("world"),
               _Chunk(None, usage=_Usage(prompt=5, completion=2, total=7))]
@@ -210,8 +234,10 @@ def test_stream_call_measures_ttft(monkeypatch):
         assert kwargs.get("stream") is True
         return iter(chunks)
 
-    text, rec = llm_mod._stream_call(fake_completion, "m", [{"role": "user", "content": "hi"}],
-                                     None, "m", "openai")
+    monkeypatch.setattr(litellm, "completion", fake_completion)
+    request = llm_mod.Request("m", "openai", "m", [{"role": "user", "content": "hi"}], stream=True)
+    reply = llm_mod.LiteLLMAdapter()(request)
+    text, rec = reply.text, reply.usage
     assert text == "Hello world"
     assert rec.ttft_sec is not None and rec.ttft_sec >= 0.0
     assert rec.total_tokens == 7  # usage read from terminal chunk
@@ -269,7 +295,7 @@ def test_no_cache_prefix_keeps_the_plain_single_string_request(monkeypatch):
     calls: list = []
     _stub_completion(monkeypatch, calls)
 
-    llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai", api_key="k")
+    llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai", api_key="k")
 
     assert calls[0]["messages"] == [{"role": "user", "content": "ask"}]
 
@@ -281,8 +307,8 @@ def test_response_cache_replays_without_calling_the_provider(monkeypatch, tmp_pa
     calls: list = []
     _stub_completion(monkeypatch, calls)
 
-    first = llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai", api_key="k")
-    second = llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai", api_key="k")
+    first = llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai", api_key="k")
+    second = llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai", api_key="k")
 
     assert len(calls) == 1               # second call served from disk
     assert second[0] == first[0]
@@ -298,8 +324,8 @@ def test_response_cache_distinguishes_different_prompts(monkeypatch, tmp_path):
     calls: list = []
     _stub_completion(monkeypatch, calls)
 
-    llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai", api_key="k")
-    llm_mod.llm_call_with_usage("ask?", model="gpt-4o-mini", provider="openai", api_key="k")
+    llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai", api_key="k")
+    llm_mod.llm_call_with_usage("ask?", model="gpt-6.1-sol", provider="openai", api_key="k")
 
     assert len(calls) == 2
 
@@ -377,7 +403,7 @@ def test_streaming_call_forwards_sampling_params(monkeypatch):
         return iter([_Chunk("ok", usage=_Usage(prompt=1, completion=1, total=2))])
 
     monkeypatch.setattr(litellm, "completion", fake_stream)
-    text, _ = llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai",
+    text, _ = llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai",
                                           api_key="k", stream=True, temperature=0.0, seed=7)
     assert text == "ok" and (calls[0]["temperature"], calls[0]["seed"]) == (0.0, 7)
 
@@ -388,9 +414,9 @@ def test_response_cache_still_hits_entries_written_before_sampling_params(monkey
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
     calls: list = []
     _stub_completion(monkeypatch, calls)
-    old_key = caching.response_cache_key(litellm_model="gpt-4o-mini",
+    old_key = caching.response_cache_key(litellm_model="gpt-6.1-sol",
                                          messages=[{"role": "user", "content": "ask"}],
                                          extra={"stream": False, "max_tokens": None})
     caching.store_response(old_key, "cached", llm_mod.UsageRecord())
-    text, _ = llm_mod.llm_call_with_usage("ask", model="gpt-4o-mini", provider="openai", api_key="k")
+    text, _ = llm_mod.llm_call_with_usage("ask", model="gpt-6.1-sol", provider="openai", api_key="k")
     assert (text, calls) == ("cached", [])

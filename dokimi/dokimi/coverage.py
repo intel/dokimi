@@ -10,7 +10,7 @@ a checked matrix instead of being a silent default.
 
 Design decisions taken here:
 
-* **O4 — where the contract lives:** the canonical top-level ``products.yaml``.
+* **O4 — where the contract lives:** the canonical ``products.yaml`` registry.
   It already owns product identity and ``doc_sources`` and is the registry
   ``config_check`` treats as canonical, so the ``questions`` /
   ``coverage_status`` fields live alongside identity rather than in a third
@@ -48,7 +48,7 @@ from dokimi.harnesses.tasks import is_task_dir, read_task_config
 
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_PRODUCTS_PATH = _REPO_ROOT / "products.yaml"
+_PRODUCTS_PATH = Path(__file__).resolve().parent / "products.yaml"
 
 # Honest self-report states.
 STATUS_COVERED = "covered"            # has questions AND >=1 task
@@ -177,8 +177,8 @@ def resolve_coverage(
         declared_status = cfg.get("coverage_status")
 
         # Awareness: explicit `questions:` list, else the conventional golden file
-        # under questions_dir. Declared relative paths resolve against the repo
-        # root (that is where products.yaml lives); absolute paths pass through.
+        # under questions_dir. Declared relative paths resolve against the project
+        # root (the directory holding pyproject.toml); absolute paths pass through.
         declared_q = cfg.get("questions")
         if isinstance(declared_q, str):
             declared_q = [declared_q]

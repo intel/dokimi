@@ -8,7 +8,8 @@ The benchmark produces long-lived JSON artifact kinds: ``questions``,
 ``task_runs`` (executable task results), ``explore_runs`` (ExploreBench
 localization results), ``novelty`` (what an artifact's content adds to one
 model), ``guidance_reach`` (L1 reach probes) and ``repo_readiness`` (L0 claim
-checks). This module stamps each with a ``schema_version`` and
+checks) and ``tool_preference`` (which of two equal tools a model picks, and
+what moves it). This module stamps each with a ``schema_version`` and
 validates it against the JSON Schema in ``dokimi/schemas/`` on save
 and load, so fixtures and baselines stay forward-compatible and self-describing.
 
@@ -33,7 +34,7 @@ SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
 # kind -> current schema_version string (also the schema filename stem).
 SCHEMA_VERSIONS: dict[str, str] = {
-    "questions": "questions.v1",
+    "questions": "questions.v2",
     "answers": "answers.v1",
     "eval": "eval.v1",
     "arms": "arms.v1",
@@ -45,12 +46,15 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "explore_runs": "explore_runs.v1",
     "guidance_reach": "guidance_reach.v1",
     "repo_readiness": "repo_readiness.v1",
+    "tool_preference": "tool_preference.v1",
 }
 
-# kind -> superseded versions still accepted on *load*, newest first. A bump is additive by policy,
-# so an older artifact is still a valid artifact and reading one must not fail; `stamp` always
-# writes the current version, so nothing is written back at an old version.
+# kind -> superseded versions still accepted on *load*, newest first. An artifact written under an
+# older version is still a valid artifact and reading one must not fail; `stamp` always writes the
+# current version, so nothing is written back at an old version. A reader that needs the current
+# shape upgrades on read (questions.v1 `text` -> v2 `question`: dokimi.questions.artifact).
 SUPERSEDED_VERSIONS: dict[str, tuple[str, ...]] = {
+    "questions": ("questions.v1",),
     "subject_scorecard": ("subject_scorecard.v1",),
 }
 
@@ -72,7 +76,17 @@ def schema_version_for(kind: str, data: dict) -> str:
     written before a bump is still valid, so reading it must not fail. An unknown version string is
     *not* honoured: it falls through to the current schema, whose ``const`` then rejects it, which
     is how a typo or a future version stays an error instead of silently skipping validation.
+
+    An *unstamped* payload (no ``schema_version`` key: hand-written and older sets, e.g. curated
+    question files) is matched against the current version, then each superseded one, newest
+    first, and resolves to the first it satisfies; when it satisfies none, to the one it violates
+    least (the newest on a tie), so a set with one real fault reports that fault, not every
+    record as a wrong shape.
     """
+    if "schema_version" not in data and SUPERSEDED_VERSIONS.get(kind):
+        counts = {v: len(schema_errors(v, data))
+                  for v in (SCHEMA_VERSIONS[kind], *SUPERSEDED_VERSIONS[kind])}
+        return min(counts, key=counts.__getitem__)
     declared = data.get("schema_version")
     if declared in SUPERSEDED_VERSIONS.get(kind, ()):
         return str(declared)

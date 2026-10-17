@@ -11,6 +11,12 @@ import sys
 from pathlib import Path
 
 from dokimi.eval.judge import JUDGE_PROVIDERS
+from dokimi.defaults import (
+    DEFAULT_ANSWER_MODEL,
+    DEFAULT_ANSWER_PROVIDER,
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_PROVIDER,
+)
 
 
 def cmd_subjects_list(args: argparse.Namespace) -> None:
@@ -197,14 +203,14 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--out-dir", default=None, dest="out_dir")
     run_p.add_argument("--out-json", default=None, dest="out_json")
     run_p.add_argument("--out-md", default=None, dest="out_md")
-    run_p.add_argument("--model", default="gpt-4o-mini", help=argparse.SUPPRESS)
-    run_p.add_argument("--provider", default="openai",
+    run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help=argparse.SUPPRESS)
+    run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
                        choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
     run_p.add_argument("--harness", default="arms-runner", help=argparse.SUPPRESS)
     run_p.add_argument("--context7-id", default=None, dest="context7_id")
     run_p.add_argument("--judge", action="store_true")
-    run_p.add_argument("--judge-model", default="gpt-4o-mini", dest="judge_model")
-    run_p.add_argument("--judge-provider", default="openai", dest="judge_provider",
+    run_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                        choices=JUDGE_PROVIDERS)
     run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k")
     run_p.add_argument("--rerank-threshold", type=float, default=0.3, dest="rerank_threshold")
