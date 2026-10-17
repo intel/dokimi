@@ -137,6 +137,25 @@ class NoveltyVerdict:
         }
 
 
+def _pair_coverage(raw: Any) -> tuple[int, int] | None:
+    """``(compared, total)`` when both are counts and compared does not exceed total.
+
+    A bool is an int in Python and is not a count. A compared count above the total,
+    or a missing field, is not a coverage figure: the gate then keeps the historical
+    reading so an artifact written before this field existed still loads.
+    """
+    if not isinstance(raw, dict):
+        return None
+    compared, total = raw.get("pairs_compared"), raw.get("pairs_total")
+    if (
+        isinstance(compared, bool) or isinstance(total, bool)
+        or not isinstance(compared, int) or not isinstance(total, int)
+        or compared < 0 or total < 0 or compared > total
+    ):
+        return None
+    return compared, total
+
+
 def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -> NoveltyVerdict:
     """Run the soft checks over one ``novelty.v1`` artifact.
 
@@ -175,17 +194,37 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     categories = artifact.get("categories") or {}
     harmful = categories.get("harmful_conflicting", 0)
     degraded = (paired.get("strict") or {}).get("degraded")
+    # A count of 0 is a cleared check only when every pair shared a call. A batched
+    # classify compares within batches, so pairs_compared can sit below pairs_total
+    # while harmful_conflicting stays 0. That is an unread pair space, not a pass.
+    # Absent coverage keeps artifacts written before the field existed readable.
+    conflict_coverage = _pair_coverage(artifact.get("conflict_coverage"))
+    if not categories:
+        message = (
+            "not measured: atoms were not classified, so harmful/conflicting content is "
+            "unknown"
+        )
+        measured, value = False, None
+    elif conflict_coverage is not None and conflict_coverage[0] < conflict_coverage[1] and not harmful:
+        compared, total = conflict_coverage
+        message = (
+            f"not measured: conflicts were looked for within batches ({compared} of "
+            f"{total} atom pairs shared a call), so a count of 0 is not a cleared check"
+        )
+        measured, value = False, None
+    else:
+        message = f"{harmful} atoms classified harmful/conflicting"
+        if conflict_coverage is not None and conflict_coverage[0] < conflict_coverage[1]:
+            compared, total = conflict_coverage
+            message += f"; only {compared} of {total} pairs were compared"
+        measured, value = True, harmful
     checks.append(NoveltyCheck(
         name="harmful_atoms",
         passed=not harmful,
-        value=harmful if categories else None, threshold=0,
-        severity="warn", measured=bool(categories),
+        value=value, threshold=0,
+        severity="warn", measured=measured,
         message=(
-            (f"{harmful} atoms classified harmful/conflicting" if categories else
-             # No count to report: "0 classified" read as a clean result on runs that
-             # never classified anything (the `standard` tier, --no-classify).
-             "not measured: atoms were not classified, so harmful/conflicting content is "
-             "unknown")
+            message
             + (f"; strict `degraded` {degraded:.3f}" if degraded is not None else "")
             + ". Correctness gates before volume: one study skill carried 33 conflicts and still "
               "routed at 0.810, so it loads and misinforms"

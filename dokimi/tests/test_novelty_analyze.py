@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 
 from dokimi.artifacts import load_artifact, save_artifact, validate_artifact
+from dokimi.gate.novelty_gate import evaluate_novelty
 from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.report import render_novelty_markdown
@@ -175,6 +176,11 @@ def test_end_to_end_artifact_validates_and_reports_added_knowledge(tmp_path):
     assert artifact["model"] == "answerer-m"
     assert artifact["judge_model"] == "judge-m"
     assert artifact["categories"]["novel_useful"] == 2
+    assert artifact["conflict_coverage"]["pairs_total"] == 1
+    assert (
+        artifact["conflict_coverage"]["pairs_compared"]
+        == artifact["conflict_coverage"]["pairs_total"]
+    )
     # the kind/tag cut is present under both scorings, even when every slice is thin
     kinds = artifact["by_knowledge_kind"]
     assert set(kinds) == {"lenient", "strict"}
@@ -399,6 +405,10 @@ def test_a_failed_conflict_check_reaches_the_artifact(tmp_path):
     assert any(w.startswith(f"{n} of {n} atoms were not checked for conflicts")
                for w in artifact["warnings"])
     assert any("0 of 1 atom pairs shared a call" in w for w in artifact["warnings"])
+    assert artifact["conflict_coverage"] == {"pairs_compared": 0, "pairs_total": 1}
+    withheld = evaluate_novelty(artifact)
+    check = next(c for c in withheld.checks if c.name == "harmful_atoms")
+    assert check.measured is False
 
 
 def test_a_truncating_extractor_is_recovered_and_an_unreadable_span_is_a_warning(tmp_path):
@@ -468,6 +478,7 @@ def test_skipping_classification_is_recorded_as_a_warning(tmp_path):
     result = _analyze(tmp_path, classify_content=False)
     assert any("categories" in w for w in result.artifact["warnings"])
     assert result.artifact["categories"] == {}
+    assert "conflict_coverage" not in result.artifact
 
 
 def test_span_citations_are_confirmed_by_default(tmp_path):
