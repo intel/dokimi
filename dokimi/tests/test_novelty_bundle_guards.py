@@ -256,3 +256,15 @@ def test_a_stored_count_wins_over_the_rows():
                            {"path": "a", "kind": "policy", "words": 50}]}
     cov = Coverage.from_record(record)
     assert cov.unreadable_files == 0 and cov.policy_excluded_words == 0
+
+
+@pytest.mark.parametrize("stored", [True, False])
+def test_a_stored_bool_is_not_a_count_and_the_rows_are_recounted(stored):
+    record = {"include_resources": False, "entry_point_words": 100,
+              "resource_words_on_disk": 9000, "resource_words_measured": 0,
+              "policy_excluded_words": stored, "unreadable_files": not stored,
+              "excluded": [{"path": "a", "kind": "policy", "words": 4500},
+                           {"path": "b", "kind": "not_requested", "words": 4500}]}
+    cov = Coverage.from_record(record)
+    assert cov.policy_excluded_words == 4500 and cov.unreadable_files == 0
+    assert _coverage_check(record).value == 0.4945
