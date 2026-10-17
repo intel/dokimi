@@ -39,7 +39,8 @@ SKILL_GLOB = re.compile(r"^\.claude/skills/[^/]+/SKILL\.md$")
 MCP_FILE = ".mcp.json"
 # Claude Code truncates description + when_to_use at 1,536 characters in the listing (docs: Skills).
 LISTING_TEXT_CAP = 1536
-IMPORT = re.compile(r"(?<![\w`])@([\w./-]+\.md)\b")
+# Claude Code's import path runs from the @ to the next whitespace: `(@x.md)` or `@x.md.` imports nothing.
+IMPORT = re.compile(r"(?<!\S)@(\S+\.md)(?!\S)")
 # Claude Code does not follow an @path inside a code block or a code span.
 _CODE_BLOCK = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", re.S | re.M)
 # A code span may wrap onto the next line (CommonMark), but not across a blank line.

@@ -78,7 +78,7 @@ def test_a_root_claude_md_turns_agents_md_off(tmp_path):
 
 def test_imports_load_at_start_transitively(tmp_path):
     tree = _tree(tmp_path, {
-        "CLAUDE.md": "See @AGENTS.md and @docs/style.md, not `@ignored.md` or me@example.md\n",
+        "CLAUDE.md": "See @AGENTS.md and @docs/style.md but not `@ignored.md` or me@example.md\n",
         "AGENTS.md": "a" * 10,
         "docs/style.md": "@../docs/deep.md\n",
         "docs/deep.md": "d" * 7,
@@ -632,3 +632,12 @@ def test_code_span_stripping_is_linear_on_backtick_runs():
     assert _strip_code_spans("a `b` c ``d`e`` f") == "a  c  f"
     assert _strip_code_spans("`a\nb` @x.md") == " @x.md"
     assert _strip_code_spans("`a\n\nb` @x.md") == "`a\n\nb` @x.md"
+
+
+def test_an_import_path_runs_to_the_next_whitespace(tmp_path):
+    """Claude Code 2.1.300 loaded none of `@x.md.`, `@x.md,`, `(@x.md)`, `"@x.md"`; it loaded `- @x.md`."""
+    texts = {"dot": "See @dot.md.", "comma": "@comma.md, then", "paren": "(@paren.md)",
+             "quoted": '"@quoted.md"', "item": "- @item.md", "tail": "last @tail.md"}
+    tree = _tree(tmp_path, {"CLAUDE.md": "\n\n".join(texts.values()), **{f"{n}.md": "x" for n in texts}})
+    got = budget(tree, NAMES)
+    assert sorted(e["path"] for e in got["entries"] if e["kind"] == "import") == ["item.md", "tail.md"]
