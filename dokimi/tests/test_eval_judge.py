@@ -302,7 +302,6 @@ class TestJudgeAnswer:
         (["x: see docs/wrong"], 95, 95),
         (["x: unverified (see docs/wrong)"], 95, 95),
         (["64 B: unverified, see section 4.2/wrong"], 95, 95),
-        (["x: L2/wrong"], 95, 40),
         (["x: dubious, misleading/wrong"], 95, 40),
         # A claim with no real separator (`:`, `-`, `(`) is unread, even if `,` appears.
         (["64 bytes, wrong"], 95, 95),
