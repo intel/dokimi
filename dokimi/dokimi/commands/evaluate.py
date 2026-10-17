@@ -283,10 +283,14 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     # the length-only one, not a judge replacement.
     # Built once and passed to both modes, so a new scorer kind is a change to
     # this block, not to each run path.
+    if args.scorer not in ("judge", "typed") and not args.scorer.startswith("typed:"):
+        print(f"Error: unknown --scorer {args.scorer!r}; use 'judge' or 'typed:<backend>'", file=sys.stderr)
+        sys.exit(2)
     if args.context == "stored" and (args.scorer != "judge" or args.mode == "pairwise"):
         # Refused before any model is loaded: neither scorer has a context slot.
-        print("Error: --context stored needs a judge that takes context; the typed and "
-              "pairwise scorers do not", file=sys.stderr)
+        what = "the typed scorer" if args.scorer != "judge" else "--mode pairwise"
+        print(f"Error: --context stored needs a judge that takes context; {what} does not",
+              file=sys.stderr)
         sys.exit(2)
     typed = None
     if args.scorer == "judge":
@@ -505,7 +509,7 @@ def register(sub, positive_int) -> None:
                                  "the arm's treatment material from the artifact's judge_materials, the "
                                  "setting an arms run scores skill and docs arms in. Exits 2 with a typed "
                                  "scorer or --mode pairwise, with no verified material, when an arm "
-                                 "loses all its bases, or when no pair is usable")
+                                 "loses all its bases or gets none sampled, or when no pair is usable")
     validity_p.add_argument("--mode", choices=["absolute", "pairwise"], default="absolute",
                             help="absolute: score each member 0-100 (the shipped judge); pairwise: show "
                                  "the judge both members, in both orders, and ask which is better")

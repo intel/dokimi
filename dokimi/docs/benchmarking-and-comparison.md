@@ -447,7 +447,8 @@ named `provider/model (stored)` from the file's `judge_provider`/`judge_model`,
 and a validity report names `provider/model`. A PASS validates only measures of
 the same context: a `--context stored` report for measures scored with material,
 a `--context none` report (or one without `context`) for the rest. A stored file
-whose scores fell back to snippets counts as `none`. Re-scoring resolves each arm's
+whose scores all fell back to snippets counts as `none`; one that mixes stored and
+snippet scores counts as `mixed`, which no PASS validates (a FAIL still reaches it). Re-scoring resolves each arm's
 context the way the arms run does, from the file's `judge_materials`, so a `--judges`
 judge sees what the stored judge saw. A file written before `judge_materials` has
 only the report snippets; with stored scores on such material, `--judges` refuses
@@ -457,7 +458,8 @@ passes no context by default (`eval pairwise` and `eval checklist` never pass
 one), so it validates a judge in the no-context setting; `judge-validity --context
 stored` on an arms artifact gates it with each arm's stored material instead. That
 run exits 2 with a typed scorer or `--mode pairwise`, on a file with no non-empty
-verified material, when an arm loses all its bases, or when no pair is usable. A label whose
+verified material, when an arm loses all its bases or gets none sampled by
+`--bases`, or when no pair is usable. A label whose
 significant measures all rest on one judge says `(one judge)`; an escalated
 pairwise measure counts as its cheap judge's. Gate a judge on answers from the
 same answer model it will judge: `cross-judge` warns when the validity report was

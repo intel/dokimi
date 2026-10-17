@@ -76,7 +76,8 @@ arms artifact with `--context stored` to gate the judge the way it scored the
 arms — each answer with its arm's stored material (bases with no stored entry are
 dropped and counted, except baseline with the no-context marker). It exits 2
 with a typed scorer or `--mode pairwise`, on a file with no non-empty verified
-material, when an arm loses all its bases, or when no pair is usable.
+material, when an arm loses all its bases or gets none sampled by `--bases`, or
+when no pair is usable.
 
 Runtime plugins are a separate run dimension, not arms. They modify every arm
 inside the same `(model, harness, plugin_set)` cell, and the JSON/Markdown

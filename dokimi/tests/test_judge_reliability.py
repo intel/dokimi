@@ -1583,3 +1583,22 @@ def test_cross_judge_judges_with_pairwise_refuses_stored_scores(tmp_path, monkey
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+
+
+
+def test_a_stored_measure_mixing_stored_and_snippet_scores_is_mixed_and_no_pass_validates_it():
+    data = _stamped_run()
+    for ev in data["evaluations"][:4]:
+        for s in ev["scores"].values():
+            s["judge_context_source"] = "snippet_fallback"
+    assert cj.stored_measure(data).context == "mixed"
+    assert cj.stored_measure(_stamped_run()).context == "stored"
+    for context in ("stored", "none"):
+        m = cj.stored_measure(data)
+        report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[m])
+        report.apply_validity([{"judge": "amazon-bedrock/haiku", "passed": True, "context": context}])
+        assert m.gate is None
+    m = cj.stored_measure(data)
+    report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[m])
+    report.apply_validity([{"judge": "amazon-bedrock/haiku", "passed": False, "context": "stored"}])
+    assert m.gate == "FAIL"

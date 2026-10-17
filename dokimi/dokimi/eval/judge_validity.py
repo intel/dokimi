@@ -557,6 +557,14 @@ def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropp
                 f"Arm(s) {lost} have answers but no verified judge material, so the gate would "
                 "not cover them: repair the artifact's judge_materials or drop those arms"
             )
+        # --bases samples the pooled shuffle, so an arm with a few kept answers can
+        # get no base at all; the gate would then not cover it either.
+        starved = sorted(a for a, c in arms.items() if c["kept"] and not c.get("sampled"))
+        if starved:
+            raise NoUsablePairs(
+                f"Arm(s) {starved} have verified judge material but no base was sampled, so the "
+                "gate would not cover them: raise --bases / --max-bases or drop those arms"
+            )
         pairs, n_missing = attach_stored_context(pairs, store)
         if dropped is not None:
             dropped[0] = dropped_from_pairs.get("total", 0) + n_missing

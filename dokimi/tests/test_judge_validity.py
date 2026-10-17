@@ -1786,3 +1786,79 @@ def test_sequential_stored_context_reports_pool_and_dropped_answers():
     assert "16 answers without verified material" in report.format_summary()
     d = report.sequential["truncate_20"]
     assert d["decision"] == "continue" and d["stopped_by"] == "pool"
+
+
+
+def _starvable(n=30, with_material=3):
+    """n baseline answers and n skill answers, of which only ``with_material`` hold material."""
+    from dokimi.utils import digest_text
+
+    empty, body = digest_text(""), digest_text("FULL SKILL BODY")
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?", "arms": {
+        "baseline": {"answer": ANSWER + f" Base {i}. ", "judge_context_sha256": empty},
+        "skill": {"answer": ANSWER + f" Skill {i}. ",
+                  **({"judge_context_sha256": body} if i < with_material else {})}}}
+        for i in range(n)]
+    return {"answers": answers, "judge_materials": {empty: "", body: "FULL SKILL BODY"}}
+
+
+def test_an_arm_with_material_but_no_sampled_base_is_refused():
+    """A --context stored PASS must not rest on the other arm's bases alone."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_validity import NoUsablePairs
+
+    data = _starvable()
+    refused = covered = 0
+    for seed in range(20):
+        try:
+            report = run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=4,
+                                  seed=seed, variants=["truncate_20"],
+                                  store=JudgeContextStore.from_artifact(data))
+        except NoUsablePairs as exc:
+            message = str(exc)
+            refused += 1
+            assert "['skill']" in message and "no base was sampled" in message
+        else:
+            assert report.by_arm["skill"]["sampled"] > 0
+            covered += 1
+    assert refused and covered
+
+
+def test_sequential_stopped_by_counts_kept_answers_not_sampled_ones():
+    """kept > max_bases: a higher --max-bases would add bases, so an undecided variant is 'cap'."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.utils import digest_text
+
+    digest = digest_text("FULL SKILL BODY")
+    plain = "Plain prose answer without any code block, long enough to count. " * 30
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?",
+                "arms": {"skill": {"answer": (ANSWER if i < 3 else plain) + f" Detail {i}. ",
+                                   "judge_context_sha256": digest}}}
+               for i in range(60)]
+    data = {"answers": answers, "judge_materials": {digest: "FULL SKILL BODY"}}
+    report = run_sequential(data["answers"], lambda l, q, a, context=None: 50.0, max_bases=50,
+                            variants=["strip_code"], store=JudgeContextStore.from_artifact(data))
+    assert report.by_arm["skill"]["kept"] == 60 and report.by_arm["skill"]["sampled"] == 50
+    d = report.sequential["strip_code"]
+    assert d["decision"] == "continue" and d["stopped_by"] == "cap"
+
+
+@pytest.mark.parametrize("extra, message, wrong", [
+    (["--scorer", "bogus"], "unknown --scorer 'bogus'", "takes context"),
+    (["--scorer", "typed:laya"], "the typed scorer does not", "pairwise"),
+    (["--mode", "pairwise"], "--mode pairwise does not", "typed"),
+])
+def test_cli_stored_context_refusal_names_the_real_cause(tmp_path, capsys, extra, message, wrong):
+    import json
+
+    from dokimi.cli import build_parser
+
+    answers = tmp_path / "a.json"
+    answers.write_text(json.dumps(_with_materials()))
+    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+                                      "--context", "stored", *extra])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and message in err and wrong not in err

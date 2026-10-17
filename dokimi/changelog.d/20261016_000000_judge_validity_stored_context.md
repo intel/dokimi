@@ -6,9 +6,15 @@
   `--max-bases` sampling; the summary reports `n_without_context` and per-arm
   kept/dropped counts in `by_arm`. The run exits 2 with a typed scorer or
   `--mode pairwise`, on a file with no non-empty verified material, if an arm
-  loses all its bases, or if no pair is usable.
+  loses all its bases or gets none sampled, or if no pair is usable.
 
 ### Changed
+
+- **`eval judge-validity` exits 2 when no pair is usable, in every mode** — a
+  file with no answer longer than the minimum (or where every degradation is a
+  no-op) now prints an `Error:` line and exits 2 instead of a `ValueError`
+  traceback (exit 1), with or without `--context`. `--scorer` with an unknown
+  name exits 2 naming the scorer.
 
 - **`cross-judge --validity` matches a PASS by judge and context** — a passing
   report validates a measure only when both the judge label and the context
@@ -17,5 +23,6 @@
   judge in any context, and a PASS never lifts it, whatever the report
   order. Reports without a `context` key (written before this
   change) count as `none`, and a stored measure whose scores fell back to
-  snippets is `none` too. `cross-judge --judges` re-scores with the
+  snippets is `none` too; one mixing stored and snippet scores is `mixed`,
+  which no PASS validates. `cross-judge --judges` re-scores with the
   stored material.

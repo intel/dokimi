@@ -70,7 +70,8 @@ class Measure:
     scores: Dict[Tuple[str, str], Optional[float]] = field(default_factory=dict)
     #: "PASS" / "FAIL" from this judge's own judge-validity run; None = not validated.
     gate: Optional[str] = None
-    #: "stored" when scores have judge_context_source==SOURCE_STORED or store has material; "none" otherwise.
+    #: "stored" when every score saw the stored material, "none" when none did,
+    #: "mixed" when a stored measure's scores differ (no PASS validates it).
     context: str = "none"
 
     def versus(self, arm: str, baseline: str) -> Dict[str, Any]:
@@ -192,14 +193,17 @@ def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
 def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional[Measure]:
     """The aggregate the arms run itself recorded, if it was judged."""
     m = Measure(name=name or stored_label(data), kind="aggregate")
+    sources = set()
     for ev in data.get("evaluations") or []:
         for arm, s in (ev.get("scores") or {}).items():
             if isinstance(s, dict) and s.get("aggregate") is not None:
                 m.scores[(ev["question_id"], arm)] = float(s["aggregate"])
-                # Only scores judged on the stored material make the measure "stored";
-                # snippet_fallback and pre-judge_context files were judged on snippets.
-                if s.get("judge_context_source") == SOURCE_STORED:
-                    m.context = "stored"
+                sources.add(s.get("judge_context_source") == SOURCE_STORED)
+    # Per score: "stored" only when every score saw the stored material, "none"
+    # when none did (snippet_fallback, pre-judge_context files). A file mixing
+    # both is "mixed": no single-context PASS describes it, so none validates it
+    # (a FAIL of the judge still reaches it).
+    m.context = {frozenset({True}): "stored", frozenset({False}): "none"}.get(frozenset(sources), "mixed")
     return m if m.scores else None
 
 
