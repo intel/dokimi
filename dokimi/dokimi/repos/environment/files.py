@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from dokimi.repos.source import GitTree, RepoTree, SourceError, WorkTree, _git
+from dokimi.repos.source import GitTree, RepoTree, SourceError, WorkTree, _git, _git_entries
 
 LARGE_BYTES = 100_000
 
@@ -58,11 +58,11 @@ def sizes(tree: RepoTree) -> dict[str, int] | None:
         try:
             if _git(tree.git_dir, "config", "--get", "remote.origin.promisor", check=False).strip():
                 return None  # `ls-tree -l` would fetch every missing blob one by one
-            listing = _git(tree.git_dir, "ls-tree", "-r", "-z", "-l", tree.sha)
+            listing = _git_entries(tree.git_dir, "ls-tree", "-r", "-z", "-l", tree.sha)
         except SourceError:
             return None
         out = {}
-        for entry in listing.split("\0"):
+        for entry in listing:
             meta, _, path = entry.partition("\t")
             parts = meta.split()
             if len(parts) == 4 and parts[1] == "blob" and parts[3].isdigit():

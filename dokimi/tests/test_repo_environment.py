@@ -226,6 +226,29 @@ def test_inspect_does_not_run_the_repository_git_config(tmp_path):
     assert not marker.exists()
 
 
+@pytest.mark.parametrize("kind", ["work", "git", "blob-less"])
+def test_a_file_name_that_is_not_utf8_is_skipped_with_a_warning(tmp_path, capsys, kind):
+    root = tmp_path / "repo"
+    _repo(root, {"AGENTS.md": "x"})
+    git = ["git", "-C", str(root)]
+    oid = subprocess.run([*git, "hash-object", "-w", "AGENTS.md"], check=True, capture_output=True).stdout.strip()
+    # Through the index, so the name stays raw bytes on every platform. It shares AGENTS.md's
+    # blob and sorts first, so once that blob is fetched `rev-list --objects` prints this name.
+    subprocess.run([*git, "update-index", "--index-info"], check=True, input=b"100644 %s\t0\xff.md\n" % oid)
+    subprocess.run([*git, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "raw"], check=True)
+    sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    git_dir = root
+    if kind == "blob-less":
+        git_dir = tmp_path / "pc"
+        subprocess.run([*git, "config", "uploadpack.allowfilter", "true"], check=True)
+        subprocess.run(["git", "clone", "-q", "--bare", "--filter=blob:none", root.as_uri(), str(git_dir)], check=True)
+    tree = WorkTree(root) if kind == "work" else GitTree(git_dir, sha)
+    assert inspect_repo(tree)["files"]["files"] == 1
+    for _ in range(2):  # what `repo budget` reads; the second time, the blob is local
+        assert tree.read_many(tree.files()) == {"AGENTS.md": "x"}
+    assert "not UTF-8: 0\\xff.md" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("kind", ["work", "git"])
 def test_linked_instruction_file_is_sized_by_its_target(tmp_path, kind):
     root = tmp_path / "repo"
