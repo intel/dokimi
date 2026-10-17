@@ -600,3 +600,20 @@ def test_unreadable_skill_warnings_name_the_cause(tmp_path):
         f".claude/skills/bin/SKILL.md: not readable (non-UTF-8 or binary), {tail}",
         f".claude/skills/dang/SKILL.md: not readable (not found, broken link, or outside tree), {tail}",
     ]
+
+
+
+def test_a_plain_missing_import_is_not_counted(tmp_path):
+    """`@missing.md` that names no file adds no row; only the real import does."""
+    tree = _tree(tmp_path, {"CLAUDE.md": "see @missing.md and @real.md", "real.md": "r" * 7})
+    got = budget(tree, NAMES)
+    assert sorted(e["path"] for e in got["entries"]) == ["CLAUDE.md", "real.md"]
+    assert got["totals"]["start"] == len("see @missing.md and @real.md") + 7
+    assert got["warnings"] == []
+
+
+def test_a_code_span_wrapped_onto_the_next_line_hides_its_import(tmp_path):
+    """A span may wrap one line (CommonMark); a blank line ends it, so the import after counts."""
+    tree = _tree(tmp_path, {"CLAUDE.md": "see `code\n@a.md` and @b.md\n\n`open\n\n@c.md",
+                            "a.md": "a", "b.md": "b", "c.md": "c"})
+    assert sorted(e["path"] for e in budget(tree, NAMES)["entries"]) == ["CLAUDE.md", "b.md", "c.md"]

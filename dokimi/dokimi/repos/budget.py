@@ -42,7 +42,8 @@ LISTING_TEXT_CAP = 1536
 IMPORT = re.compile(r"(?<![\w`])@([\w./-]+\.md)\b")
 # Claude Code does not follow an @path inside a code block or a code span.
 _CODE_BLOCK = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", re.S | re.M)
-_CODE_SPAN = re.compile(r"`[^`\n]*`")
+# A code span may wrap onto the next line (CommonMark), but not across a blank line.
+_CODE_SPAN = re.compile(r"(`+)(?:(?!\1)[^`\n]|\n(?![ \t]*\n)|(?!\1)`+)*?\1")
 DUPLICATE_JACCARD = 0.5
 _WORD = re.compile(r"\w+")
 _STOP = frozenset("a an and the of to for in on with use when or is are be this that it its from by as at".split())
