@@ -206,7 +206,7 @@ Treat each item above as a hypothesis for your repository.
    use. Today an arm can remove or keep the guidance (`guidance:none`,
    `guidance:raw`), or inject a file (`guidance:bridge`, which writes a `CLAUDE.md`
    containing `@AGENTS.md` next to each `AGENTS.md` for profiles with a bridge key).
-   Testing one added line or tool needs planned arms. Today, test one added line
+   Testing an added tool needs planned arms. Today, test one added guidance line
    with two task directories that differ only in a `setup_patches` entry (same
    prompt, same graders, distinct ids), or in their `base` commit (see
    [workspace preparation](repo-evaluation-contract.md#workspace-preparation-done-by-the-framework)).
