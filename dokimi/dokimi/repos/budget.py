@@ -43,7 +43,8 @@ IMPORT = re.compile(r"(?<![\w`])@([\w./-]+\.md)\b")
 # Claude Code does not follow an @path inside a code block or a code span.
 _CODE_BLOCK = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", re.S | re.M)
 # A code span may wrap onto the next line (CommonMark), but not across a blank line.
-_CODE_SPAN = re.compile(r"(`+)(?:(?!\1)[^`\n]|\n(?![ \t]*\n)|(?!\1)`+)*?\1")
+_BACKTICKS = re.compile(r"`+")
+_BLANK_LINE = re.compile(r"\n[ \t]*\n")
 DUPLICATE_JACCARD = 0.5
 _WORD = re.compile(r"\w+")
 _STOP = frozenset("a an and the of to for in on with use when or is are be this that it its from by as at".split())
@@ -197,7 +198,7 @@ def _imports(tree: RepoTree, roots: list[str]) -> set[str]:
         except (OSError, UnicodeDecodeError, ValueError):
             continue
         here = f.rsplit("/", 1)[0] + "/" if "/" in f else ""
-        for target in IMPORT.findall(_CODE_SPAN.sub("", _CODE_BLOCK.sub("", text))):
+        for target in IMPORT.findall(_strip_code_spans(_CODE_BLOCK.sub("", text))):
             if target.startswith("/"):
                 continue  # an absolute path names the host filesystem, not a file of the tree
             path = _normalize(here + target)
@@ -275,3 +276,33 @@ def _mcp_servers(tree: RepoTree) -> list[str]:
     except (OSError, UnicodeDecodeError, ValueError, AttributeError):
         return []
     return sorted(servers) if isinstance(servers, dict) else []
+
+
+def _strip_code_spans(text: str) -> str:
+    """Remove code spans: a backtick run closed by the next run of equal length, not across a blank line.
+
+    A linear scan rather than a regex, which backtracks exponentially on long backtick runs.
+    """
+    runs = [(m.start(), m.end()) for m in _BACKTICKS.finditer(text)]
+    blanks = [m.start() for m in _BLANK_LINE.finditer(text)]
+    # closer[i]: index of the next run after i with the same length, or None.
+    closer: list[int | None] = [None] * len(runs)
+    seen: dict[int, int] = {}
+    for i in range(len(runs) - 1, -1, -1):
+        n = runs[i][1] - runs[i][0]
+        closer[i] = seen.get(n)
+        seen[n] = i
+    out, pos, b, i = [], 0, 0, 0
+    while i < len(runs):
+        start, end = runs[i]
+        j = closer[i]
+        while b < len(blanks) and blanks[b] < end:
+            b += 1
+        if j is not None and (b == len(blanks) or runs[j][0] < blanks[b]):
+            out.append(text[pos:start])
+            pos = runs[j][1]
+            i = j + 1
+        else:
+            i += 1
+    out.append(text[pos:])
+    return "".join(out)

@@ -617,3 +617,18 @@ def test_a_code_span_wrapped_onto_the_next_line_hides_its_import(tmp_path):
     tree = _tree(tmp_path, {"CLAUDE.md": "see `code\n@a.md` and @b.md\n\n`open\n\n@c.md",
                             "a.md": "a", "b.md": "b", "c.md": "c"})
     assert sorted(e["path"] for e in budget(tree, NAMES)["entries"]) == ["CLAUDE.md", "b.md", "c.md"]
+
+
+def test_code_span_stripping_is_linear_on_backtick_runs():
+    """Long backtick runs once made the code-span regex backtrack exponentially (CodeQL py/redos)."""
+    import time
+
+    from dokimi.repos.budget import _strip_code_spans
+
+    for text in ("`" * 50_000, "`" + "`a" * 50_000, "``" + "` " * 50_000 + "\n\n@x.md"):
+        started = time.monotonic()
+        _strip_code_spans(text)
+        assert time.monotonic() - started < 1
+    assert _strip_code_spans("a `b` c ``d`e`` f") == "a  c  f"
+    assert _strip_code_spans("`a\nb` @x.md") == " @x.md"
+    assert _strip_code_spans("`a\n\nb` @x.md") == "`a\n\nb` @x.md"
