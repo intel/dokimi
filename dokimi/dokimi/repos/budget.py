@@ -8,7 +8,8 @@ starts at the repository root:
 
 - **start**: guidance files at the root, the files a root CLAUDE.md ``@import``s (imports are
   followed from ``CLAUDE*`` files only), and the skill
-  listing (each project skill's ``name`` and ``description``; a skill with
+  listing (each project skill's ``name``, plus its ``description`` and ``when_to_use`` up to
+  1,536 characters together; a skill with
   ``disable-model-invocation: true`` is not listed). Every model call pays for these.
 - **lazy**: guidance files in subdirectories, and what a nested CLAUDE.md imports, loaded
   when the agent works in that subtree.
@@ -36,6 +37,8 @@ from dokimi.repos.source import RepoTree
 
 SKILL_GLOB = re.compile(r"^\.claude/skills/[^/]+/SKILL\.md$")
 MCP_FILE = ".mcp.json"
+# Claude Code truncates description + when_to_use at 1,536 characters in the listing (docs: Skills).
+LISTING_TEXT_CAP = 1536
 IMPORT = re.compile(r"(?<![\w`])@([\w./-]+\.md)\b")
 # Claude Code does not follow an @path inside a code block or a code span.
 _CODE_BLOCK = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", re.S | re.M)
@@ -233,8 +236,10 @@ def _skills(tree: RepoTree, paths: list[str]) -> list[dict[str, Any]]:
         # The CLI reads a boolean as 1/true/yes/on (as harnesses/skill_treatment.py does); such a
         # skill is left out of the listing, so the model never sees its name or description.
         hidden = str(meta.get("disable-model-invocation", "")).strip().lower() in ("1", "true", "yes", "on")
+        listed_text = len(description) + len(str(meta.get("when_to_use") or ""))
         out.append({"path": path, "name": name, "description": description,
-                    "listing_chars": len(name) + len(description), "body_chars": len(body),
+                    "listing_chars": len(name) + min(listed_text, LISTING_TEXT_CAP),
+                    "body_chars": len(body),
                     "unreadable": unreadable, "listed": not hidden})
     return out
 

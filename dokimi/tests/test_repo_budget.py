@@ -176,6 +176,17 @@ def test_skill_listing_starts_body_on_demand(tmp_path):
     assert got["skills"] == 1
 
 
+def test_the_listing_charges_when_to_use_and_caps_it_with_the_description(tmp_path):
+    tree = _tree(tmp_path, {
+        ".claude/skills/a/SKILL.md": "---\nname: a\ndescription: Format code.\nwhen_to_use: On save.\n---\nb",
+        ".claude/skills/b/SKILL.md": _skill("b", "x" * 3000),
+        ".claude/skills/c/SKILL.md": f"---\nname: c\ndescription: {'y' * 1000}\nwhen_to_use: {'z' * 1000}\n---\nb",
+    })
+    entries = _by_path(budget(tree, NAMES))
+    listing = {p.split("/")[2]: e["chars"] for (p, kind), e in entries.items() if kind == "skill listing"}
+    assert listing == {"a": 1 + len("Format code.") + len("On save."), "b": 1 + 1536, "c": 1 + 1536}
+
+
 def test_near_duplicate_and_missing_descriptions_warn(tmp_path):
     tree = _tree(tmp_path, {
         ".claude/skills/a/SKILL.md": _skill("release-a", "Run the release checklist for the relay service."),
