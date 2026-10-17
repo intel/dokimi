@@ -235,6 +235,27 @@ def _argv(segment: str) -> list[str]:
         return segment.split()
 
 
+def _uncommented(line: str) -> str:
+    """``line`` up to the ``#`` that starts a comment: unquoted, unescaped and at the start of a word."""
+    if "#" not in line:
+        return line
+    quote = ""
+    k = 0
+    while k < len(line):
+        ch = line[k]
+        if ch == "\\" and quote != "'":
+            k += 2
+            continue
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "#" and (k == 0 or line[k - 1] in " \t;&|()"):
+            return line[:k]
+        k += 1
+    return line
+
+
 def _segments(command: str) -> list[list[str]]:
     """The simple commands of a hook command line, as argv lists.
 
@@ -246,13 +267,11 @@ def _segments(command: str) -> list[list[str]]:
         if len(line) > 4096:  # shlex is slow on a long unbalanced quote
             tokens = re.sub(r"(&&|\|\||[;|&])", r" \1 ", line).split()
         else:
-            lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|")
+            lexer = shlex.shlex(_uncommented(line), posix=True, punctuation_chars=";&|")
             lexer.whitespace_split = True
             lexer.commenters = ""  # shlex would start a comment inside a word (``https://r/#x``)
             try:
                 tokens = list(lexer)
-                if any(t.startswith("#") for t in tokens):  # a word that starts with `#` starts a comment
-                    tokens = tokens[:next(k for k, t in enumerate(tokens) if t.startswith("#"))]
             except ValueError:
                 tokens = re.sub(r"(&&|\|\||[;|&])", r" \1 ", line).split()
         current: list[str] = []

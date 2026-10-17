@@ -719,6 +719,7 @@ def _hook_payload(tmp_path, command, event="SessionStart", extra=None):
     ("yarn --frozen-lockfile", True), ("npm add x", True), ("bun add x", True), ("npm \\\nci", True),
     ("npm ci 2>&1 | tee log", True), ("cd web && npm install", True), ("npm ci # --ignore-scripts", True),
     ("sh -c 'npm ci'", True), ("bash -lc 'cd web && npm install'", True), ("bash -o pipefail -c 'yarn'", True),
+    ("echo '#'; npm ci", True), ("git log --grep \"#12\" && npm ci", True), ("echo \\# && npm ci", True),
     # scripts off, global, or no install at all
     ("sh -c 'npm ci --ignore-scripts'", False), ("bash -lc 'npm --version'", False),
     ("npm ci --ignore-scripts", False), ("npm install -g typescript", False),
