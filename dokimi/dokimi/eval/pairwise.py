@@ -57,6 +57,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
+from dokimi.eval.question_text import require_question_text, require_question_texts
 
 PAIRWISE_PROMPT = """You are comparing two answers to the same technical question about __LIBRARY_NAME__.
 
@@ -278,6 +279,7 @@ def run_arm_pairwise(
     concurrency: int = 1,
     progress: Optional[Callable[[int, int], None]] = None,
 ) -> ArmPairwiseReport:
+    require_question_texts(records)  # before any judge call: refuse, do not compare against ""
     jobs: List[Tuple[str, str, str, str, str]] = []
     for rec in records:
         by_arm = rec.get("arms") or {}
@@ -287,7 +289,7 @@ def run_arm_pairwise(
         for arm, body in by_arm.items():
             answer = (body or {}).get("answer") if isinstance(body, dict) else None
             if arm != baseline_arm and answer and (arms is None or arm in arms):
-                jobs.append((arm, rec["question_id"], rec.get("question_text", ""), answer, base))
+                jobs.append((arm, rec["question_id"], require_question_text(rec), answer, base))
 
     def one(job):
         arm, qid, question, answer, base = job
