@@ -675,12 +675,14 @@ The report keeps observations apart from findings:
   `hook_risks`: the concrete path, a hook the harness fires on its own
   (`SessionStart`, `SessionEnd`, `PreCompact`, `Notification`, `UserPromptSubmit`, `Stop`, `SubagentStop`) that installs
   packages with lifecycle scripts on, runs a `package.json` script (`npm run`, `npm test`, `yarn build`, …),
-  `make`, or executes a path in the tree (also behind `VAR=value`, `sudo`, `timeout`, `env`, `source` or `sh -c`),
+  `make`, or executes a path in the tree (also behind `VAR=value`, `sudo -u x`, `nice -n 10`, `timeout -s KILL 30`,
+  `env -u X`, `/usr/bin/env`, `source`, `sh -c`, `eval`, `$(…)` in double quotes, or `echo '…' | sh`),
   so starting a session or running tools executes code from the checked-out branch. Hook
-  commands are read word by word, with quotes and comments honoured, so a
-  command named inside `echo '…'` or after `#` does not count. `--ignore-scripts`
+  commands are read word by word, with quotes (also across lines) and comments
+  honoured, so a command named inside `echo '…'`, after `#` or in a heredoc body
+  does not count. `npm update`, `dedupe` and the like count as installs. `--ignore-scripts`
   (the last such flag wins), `npm_config_ignore_scripts=true`, a root `.npmrc`
-  with `ignore-scripts=true` (npm, pnpm) and a global install (`-g`) clear the
+  with `ignore-scripts=true` (npm, pnpm) and a global install (`-g`, `yarn global`) clear the
   install risk.
 - `files`: counts and bytes, generated files (lockfiles, `vendor/`,
   `third_party/`, test fixtures, `*_pb2.py`, …), minified bundles, test files,
@@ -691,8 +693,10 @@ The report keeps observations apart from findings:
 
 Each finding has a `rule`, a `severity` (`error`, `warning`, `info`) and,
 separately, a `confidence`, the `stages` it affects (`orient`, `bootstrap`,
-`navigate`, `edit`, `verify`, `review`, `merge`, `deploy`), a `path` (null for
-the whole repository) and `why`. A stage is `blocked` by an error,
+`navigate`, `edit`, `verify`, `deploy`), a `path` (null for
+the whole repository) and `why`. Only stages that some warning or error can
+reach are reported; how a change is reviewed and merged is not visible in the
+tree and is listed under `not_observed`. A stage is `blocked` by an error,
 `attention` on a warning, and at best `no_known_blocker`, never ready:
 `not_observed` lists what the tree cannot show, such as whether the commands
 pass, CI secrets and the agent's network. `risk` is the worst of the launch

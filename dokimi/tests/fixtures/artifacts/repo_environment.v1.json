@@ -1,7 +1,8 @@
 {
+  "schema_version": "repo_environment.v1",
   "repo": {
-    "tree": "toy/.git@15b045fb1235",
-    "sha": "15b045fb12357f42ef35743aab1a3db20af5d23c"
+    "tree": "toy@545c1fc50c08",
+    "sha": "545c1fc50c080183de8f2ef9ba0771a8a68f23a0"
   },
   "instructions": [
     {
@@ -208,6 +209,11 @@
       "path": ".claude/settings.json",
       "event": "SessionStart",
       "command": "npm ci"
+    },
+    {
+      "path": ".claude/settings.json",
+      "event": "SessionStart",
+      "command": "npm run build"
     }
   ],
   "files": {
@@ -276,6 +282,28 @@
       "why": "SessionStart hook runs `npm ci`"
     },
     {
+      "id": "safety.agent-hook.executes-repository-code:.claude/settings.json:SessionStart:npm run build",
+      "rule": "safety.agent-hook.executes-repository-code",
+      "severity": "warning",
+      "confidence": "high",
+      "stages": [
+        "bootstrap"
+      ],
+      "path": ".claude/settings.json",
+      "why": "SessionStart hook runs `npm run build`"
+    },
+    {
+      "id": "safety.deploy:package.json#scripts.release",
+      "rule": "safety.deploy",
+      "severity": "warning",
+      "confidence": "high",
+      "stages": [
+        "deploy"
+      ],
+      "path": "package.json",
+      "why": "npm publish"
+    },
+    {
       "id": "safety.destructive:package.json#scripts.clean",
       "rule": "safety.destructive",
       "severity": "warning",
@@ -323,16 +351,15 @@
       "why": "activation depends on the rule's frontmatter"
     },
     {
-      "id": "safety.capability.high-risk:.claude/settings.json",
+      "id": "safety.capability.high-risk:.claude/settings.json:hooks on PostToolUse, SessionEnd, SessionStart",
       "rule": "safety.capability.high-risk",
       "severity": "info",
       "confidence": "medium",
       "stages": [
-        "edit",
-        "merge"
+        "edit"
       ],
       "path": ".claude/settings.json",
-      "why": "hook for claude-code"
+      "why": "hook for claude-code: hooks on PostToolUse, SessionEnd, SessionStart"
     },
     {
       "id": "safety.capability.high-risk:.mcp.json",
@@ -340,22 +367,10 @@
       "severity": "info",
       "confidence": "medium",
       "stages": [
-        "edit",
-        "merge"
+        "edit"
       ],
       "path": ".mcp.json",
       "why": "mcp for claude-code"
-    },
-    {
-      "id": "safety.deploy:package.json#scripts.release",
-      "rule": "safety.deploy",
-      "severity": "info",
-      "confidence": "high",
-      "stages": [
-        "deploy"
-      ],
-      "path": "package.json",
-      "why": "npm publish"
     },
     {
       "id": "safety.install-hook:package.json#scripts.postinstall",
@@ -371,8 +386,8 @@
   ],
   "counts": {
     "error": 0,
-    "warning": 6,
-    "info": 6
+    "warning": 8,
+    "info": 5
   },
   "stages": [
     {
@@ -388,6 +403,7 @@
       "findings": [
         "safety.agent-hook.executes-repository-code:.claude/settings.json:SessionEnd:yarn install",
         "safety.agent-hook.executes-repository-code:.claude/settings.json:SessionStart:npm ci",
+        "safety.agent-hook.executes-repository-code:.claude/settings.json:SessionStart:npm run build",
         "safety.network-exec:package.json#scripts.boot"
       ]
     },
@@ -415,19 +431,11 @@
       ]
     },
     {
-      "stage": "review",
-      "status": "no_known_blocker",
-      "findings": []
-    },
-    {
-      "stage": "merge",
-      "status": "no_known_blocker",
-      "findings": []
-    },
-    {
       "stage": "deploy",
-      "status": "no_known_blocker",
-      "findings": []
+      "status": "attention",
+      "findings": [
+        "safety.deploy:package.json#scripts.release"
+      ]
     }
   ],
   "risk": "high",
@@ -435,7 +443,7 @@
     "whether the commands found run and pass",
     "CI secrets, runners and required checks",
     "network access and credentials in the agent's environment",
-    "which instruction files a given harness version loads (measure with `repo reach`)"
-  ],
-  "schema_version": "repo_environment.v1"
+    "which instruction files a given harness version loads (measure with `repo reach`)",
+    "how a change is reviewed and merged (branch protection, required reviews)"
+  ]
 }

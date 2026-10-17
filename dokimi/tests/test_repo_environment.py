@@ -855,3 +855,123 @@ def test_instruction_rule_table():
     got = [(i.path, tuple(i.harnesses), i.scope, i.activation, i.legacy)
            for i in detect_instructions([row[0] for row in INSTRUCTION_TABLE])]
     assert got == INSTRUCTION_TABLE
+
+
+@pytest.mark.parametrize("command, flagged", [
+    # wrappers with options that take a value, and a wrapper named by path
+    ("sudo -u nobody npm ci", True), ("nice -n 10 npm ci", True), ("timeout -s KILL 30 npm ci", True),
+    ("timeout -k 5 10 ./setup.sh", True), ("env -u CI npm ci", True), ("/usr/bin/env npm ci", True),
+    # a quote that spans lines is one word; a heredoc body is data
+    ("bash -c 'cd web\nnpm ci'", True), ("echo 'run\nnpm ci\nfirst'", False),
+    ("git commit -m 'update\nnpm ci\n'", False), ("cat <<EOF\nnpm ci\nEOF", False),
+    ("cat <<'EOF'\nnpm ci\nEOF\nnpm ci", True),
+    # a long comment is still a comment
+    ("npm ci # " + "x" * 5000 + " --ignore-scripts", True), ("echo hi # " + "x" * 5000 + " ; npm ci", False),
+    # substitutions inside double quotes, an expression path, eval and a pipe into a shell
+    ("echo \"$(npm ci)\"", True), ("x=\"$(./setup.sh)\"", True), ("echo \"`npm ci`\"", True),
+    ("echo '$(npm ci)'", False), ("bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/x.sh\"", True),
+    ("eval 'npm ci'", True), ("echo 'npm ci' | sh", True), ("echo 'npm ci' | grep npm", False),
+    # package-manager tables
+    ("npm update", True), ("npm up", True), ("pnpm update", True), ("yarn upgrade", True), ("npm dedupe", True),
+    ("npm --fetch-retries 3 ci", True), ("npm --prefix web ci", True), ("pnpm --filter web install", True),
+    ("yarn --silent build", True), ("yarn global add x", False), ("npm --fetch-retries 3 view x", False),
+])
+def test_hook_command_words_behind_wrappers_quotes_and_tables(tmp_path, command, flagged):
+    assert bool(_hook_payload(tmp_path, command)["hook_risks"]) is flagged
+
+
+@pytest.mark.parametrize("word", [
+    "ci", "remove", "rm", "uninstall", "un", "ls", "list", "info", "view", "config", "why", "outdated", "help",
+    "audit", "init", "create", "link", "unlink", "cache", "store", "dlx", "login", "logout", "whoami", "pack",
+    "publish", "version", "set", "prune", "env", "bin", "root", "global", "-v", "--version", "-h", "--help",
+])
+def test_a_yarn_builtin_is_not_a_package_script(tmp_path, word):
+    assert _hook_payload(tmp_path, f"yarn {word}")["hook_risks"] == []
+
+
+@pytest.mark.parametrize("word", [
+    "run", "run-script", "rum", "urn", "test", "t", "tst", "start", "stop", "restart", "rebuild", "rb", "exec", "x",
+])
+def test_an_npm_script_command_runs_repository_code(tmp_path, word):
+    assert _hook_payload(tmp_path, f"npm {word} build")["hook_risks"] != []
+
+
+def test_makefile_rules_are_linear(tmp_path):
+    import time
+    _repo(tmp_path, {"AGENTS.md": "x", "Makefile": "a\n" * 40_000})
+    start = time.monotonic()
+    inspect_repo(WorkTree(tmp_path))
+    assert time.monotonic() - start < 2
+
+
+def test_a_file_matching_two_instruction_rules_has_one_finding_per_rule(tmp_path):
+    _repo(tmp_path, {"AGENTS.md": "x", ".claude/rules/AGENTS.md": "x" * 250_000})
+    payload = inspect_repo(WorkTree(tmp_path))
+    ids = [f["id"] for f in payload["findings"]]
+    assert len(ids) == len(set(ids))
+    assert ids.count("instructions.large:.claude/rules/AGENTS.md") == 1
+    for stage in payload["stages"]:
+        assert len(stage["findings"]) == len(set(stage["findings"]))
+
+
+@pytest.mark.parametrize("path, counts", [
+    ("ProductSpec.java", False), ("OpenApiSpec.kt", False), ("docs/spec/gen.py", False),
+    ("src/test/java/FooSpec.java", True), ("spec/models/user_spec.rb", True), ("FooTest.java", True),
+    ("spec/helper.rb", True), ("tests/foo.cc", True),
+])
+def test_spec_names_count_as_tests_only_where_specs_are_tests(path, counts):
+    from dokimi.repos.environment.files import is_test_file
+    assert is_test_file(path) is counts
+
+
+def test_every_reported_stage_can_leave_no_known_blocker():
+    from dokimi.repos.environment import RULES, STAGES
+    reachable = {s for r in RULES.values() if r.severity != "info" for s in r.stages}
+    assert set(STAGES) == reachable
+    assert all(set(r.stages) <= set(STAGES) for r in RULES.values())
+
+
+def test_a_deploy_script_puts_deploy_at_attention(tmp_path):
+    _repo(tmp_path, {"AGENTS.md": "x", "package.json": json.dumps({"scripts": {"release": "npm publish"}})})
+    stages = {s["stage"]: s for s in inspect_repo(WorkTree(tmp_path))["stages"]}
+    assert stages["deploy"]["status"] == "attention"
+    assert stages["deploy"]["findings"] == ["safety.deploy:package.json#scripts.release"]
+
+
+FIXTURE = Path(__file__).parent / "fixtures" / "artifacts" / "repo_environment.v1.json"
+
+
+def _fixture_artifact(tmp_path: Path) -> dict:
+    """The committed fixture, produced the way a user would: ``repo inspect`` on the toy repository.
+
+    The commit dates are fixed, so the sha in the artifact is the same on every run.
+    """
+    import os
+    root = tmp_path / "toy"
+    dates = {"GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z"}
+    old = {k: os.environ.get(k) for k in dates}
+    os.environ.update(dates)
+    try:
+        sha = _repo(root, FILES)
+    finally:
+        for k, v in old.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    out = tmp_path / "env.json"
+    args = build_parser().parse_args(["repo", "inspect", f"{root}@{sha}", "--large-bytes", "1000",
+                                      "--out", str(out), "--cache-dir", str(tmp_path / "cache")])
+    args.func(args)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    data["repo"]["tree"] = data["repo"]["tree"].replace(str(tmp_path) + "/", "")
+    return data
+
+
+def test_the_committed_fixture_is_what_repo_inspect_emits(tmp_path):
+    """Regenerate with ``DOKIMI_REGEN_FIXTURES=1 pytest tests/test_repo_environment.py -k committed_fixture``."""
+    import os
+    data = _fixture_artifact(tmp_path)
+    if os.environ.get("DOKIMI_REGEN_FIXTURES"):
+        FIXTURE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    assert json.loads(FIXTURE.read_text(encoding="utf-8")) == data

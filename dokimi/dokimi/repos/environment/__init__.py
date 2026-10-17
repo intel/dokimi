@@ -24,7 +24,9 @@ from .instructions import LARGE_INSTRUCTION_BYTES, detect_instructions
 from .instructions import RULES as INSTRUCTION_RULES
 from .risks import detect_capabilities, detect_hook_risks, detect_script_signals
 
-STAGES = ("orient", "bootstrap", "navigate", "edit", "verify", "review", "merge", "deploy")
+# Only stages a warning or an error can reach: a stage no rule can affect would always read
+# "no known blocker". Review and merge are not judged from the tree (see ``NOT_OBSERVED``).
+STAGES = ("orient", "bootstrap", "navigate", "edit", "verify", "deploy")
 SEVERITY_RANK = {"info": 1, "warning": 2, "error": 3}
 
 
@@ -52,12 +54,12 @@ RULES: dict[str, RuleInfo] = {
     "safety.install-hook": RuleInfo("info", ("bootstrap",), "installing runs a lifecycle script"),
     "safety.destructive": RuleInfo("warning", ("edit", "verify"), "a script deletes the root, home, a glob or the whole tree"),
     "safety.network-exec": RuleInfo("warning", ("bootstrap", "edit"), "a script runs code it downloads"),
-    "safety.deploy": RuleInfo("info", ("deploy",), "a script publishes or deploys"),
+    "safety.deploy": RuleInfo("warning", ("deploy",), "a script publishes or deploys"),
     "safety.agent-hook.executes-repository-code": RuleInfo(
         "warning", ("bootstrap",),
         "a hook the harness runs on its own runs repository code: an install with lifecycle scripts on, "
         "a package script, make, or a file in the tree"),
-    "safety.capability.high-risk": RuleInfo("info", ("edit", "merge"),
+    "safety.capability.high-risk": RuleInfo("info", ("edit",),
                                             "the harness gets tools or hooks from the repository"),
     "files.large": RuleInfo("info", ("navigate", "edit"), "a file large enough that reading it costs much context"),
     "files.minified": RuleInfo("warning", ("navigate", "edit"), "a minified file: unreadable and not to be edited"),
@@ -68,6 +70,7 @@ NOT_OBSERVED = (
     "CI secrets, runners and required checks",
     "network access and credentials in the agent's environment",
     "which instruction files a given harness version loads (measure with `repo reach`)",
+    "how a change is reviewed and merged (branch protection, required reviews)",
 )
 
 
@@ -110,13 +113,22 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
     if not any(i.scope == "root" for i in instructions):
         findings.append(_finding("instructions.missing", "no AGENTS.md, CLAUDE.md, GEMINI.md, "
                                  ".github/copilot-instructions.md or other root instruction file"))
+    seen: set[tuple[str, str]] = set()  # a file that matches two rules has two records
+
+    def once(rule: str, path: str) -> bool:
+        if (rule, path) in seen:
+            return False
+        seen.add((rule, path))
+        return True
+
     for i in instructions:
-        if i.local_private:
+        if i.local_private and once("instructions.local-private", i.path):
             findings.append(_finding("instructions.local-private", f"{i.path} is in the tree", i.path))
-        if i.activation == "unknown":
+        if i.activation == "unknown" and once("instructions.activation-unknown", i.path):
             findings.append(_finding("instructions.activation-unknown", "; ".join(i.notes) or
                                      f"{', '.join(i.harnesses)} decide when to load it", i.path, "medium"))
-        if i.size_bytes is not None and i.size_bytes > LARGE_INSTRUCTION_BYTES:
+        if (i.size_bytes is not None and i.size_bytes > LARGE_INSTRUCTION_BYTES
+                and once("instructions.large", i.path)):
             findings.append(_finding("instructions.large", f"{i.size_bytes} bytes", i.path))
 
     by_kind = {k: [c for c in checks if c.kind == k] for k in KINDS}

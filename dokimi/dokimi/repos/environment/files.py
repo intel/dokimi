@@ -25,14 +25,17 @@ _GENERATED = re.compile(r"(^|/)(deps|vendor|third[_-]?party|generated|__generate
                         r"|\.generated\.|\.pb\.(go|cc|h)$|_pb2\.py$", re.I)
 _MINIFIED = re.compile(r"\.(min|bundle)\.(js|css)$", re.I)
 # Name-based test files. The JVM/C#/Swift suffix is case-sensitive and needs a capital before it,
-# so ``Unit.java`` or ``Latest.swift`` do not count.
+# so ``Unit.java`` or ``Latest.swift`` do not count. ``Spec`` is a suffix only for Scala and Groovy
+# (ScalaTest, Spock): ``ProductSpec.java`` is as often a model as a test, and a spec under ``src/test/``
+# counts by directory.
 _TEST_FILE_STRICT = re.compile(
     r"\.(test|spec)\.[cm]?[jt]sx?$|_test\.go$|(^|/)(test_[^/]+|[^/]+_test)\.py$"
-    r"|(^|/)[A-Z][A-Za-z0-9]*(?:Test|Tests|IT|Spec)\.(java|kt|kts|scala|cs|swift)$|_(test|spec)\.(rb|exs?)$"
+    r"|(^|/)[A-Z][A-Za-z0-9]*(?:Test|Tests|IT)\.(java|kt|kts|scala|cs|swift)$|(^|/)[A-Z][A-Za-z0-9]*Spec\.(scala|groovy)$|_(test|spec)\.(rb|exs?)$"
     r"|_test\.(cc|cpp|cxx|c)$")
-# Any source file under a test directory, except a package marker such as ``__init__.py``.
+# Any source file under a test directory, except a package marker such as ``__init__.py``. A ``spec/``
+# directory counts only at the root (RSpec's layout); ``docs/spec/`` holds specifications.
 _TEST_FILE_DIR = re.compile(
-    r"(^|/)(?:__tests__|tests?|specs?)/(?:.*/)?(?!__init__\.py$)[^/]+\.(?:[cm]?[jt]sx?|java|kts?|scala|py|rb|exs?|go|rs"
+    r"(?:(^|/)(?:__tests__|tests?)/|^specs?/)(?:.*/)?(?!__init__\.py$)[^/]+\.(?:[cm]?[jt]sx?|java|kts?|scala|py|rb|exs?|go|rs"
     r"|c|cc|cpp|cxx|h|hh|hpp|hxx|cs|swift|php|lua|dart|hs|sh|bats)$", re.I)
 
 

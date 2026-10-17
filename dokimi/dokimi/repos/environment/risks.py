@@ -182,33 +182,56 @@ _NPM_SCRIPT_COMMANDS = frozenset({"run", "run-script", "rum", "urn", "test", "t"
 _PM_BUILTINS = frozenset({"install", "i", "ci", "add", "remove", "rm", "uninstall", "un", "ls", "list", "info", "view",
                           "config", "why", "outdated", "help", "audit", "init", "create", "link", "unlink", "upgrade",
                           "update", "up", "cache", "store", "dlx", "login", "logout", "whoami", "pack", "publish",
-                          "version", "set", "dedupe", "prune", "env", "bin", "root", "-v", "--version", "-h", "--help"})
-# Words that run the command after them: wrappers, with how many of their own arguments to skip.
+                          "version", "set", "dedupe", "prune", "env", "bin", "root", "global", "-v", "--version", "-h",
+                          "--help"})
+# Words that run the command after them: wrappers, with how many positional arguments of their own
+# to skip after their options (``timeout 5 cmd``).
 _WRAPPERS = {"sudo": 0, "exec": 0, "nohup": 0, "env": 0, "command": 0, "nice": 0, "time": 0, "timeout": 1,
-             "source": 0, ".": 0}
+             "source": 0, ".": 0, "doas": 0, "stdbuf": 0}
+# Wrapper options that take a separate value (``sudo -u nobody``, ``nice -n 10``, ``timeout -s KILL``).
+_WRAPPER_VALUE_OPTS = {
+    "sudo": frozenset({"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T", "--user", "--group",
+                       "--chdir", "--host", "--prompt", "--role", "--type", "--other-user", "--command-timeout"}),
+    "doas": frozenset({"-u", "-C"}),
+    "nice": frozenset({"-n", "--adjustment"}),
+    "timeout": frozenset({"-s", "-k", "--signal", "--kill-after"}),
+    "env": frozenset({"-u", "-C", "-S", "--unset", "--chdir", "--split-string"}),
+    "exec": frozenset({"-a"}),
+    "stdbuf": frozenset({"-i", "-o", "-e"}),
+}
 _INTERPRETERS = frozenset({"bash", "sh", "zsh", "dash", "python", "python3", "node", "ruby", "perl", "bun", "deno",
                            "tsx", "ts-node"})
 # Interpreter options that take a separate value (``python3 -W ignore x.py``).
 _INTERPRETER_VALUE_OPTS = frozenset({"-W", "-X", "--require", "-r", "--import", "-O0"})
 _SHELL_VALUE_OPTS = frozenset({"-o", "+o", "-O", "+O"})  # ``bash -o pipefail -c ...``
+_SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
 _VAR_ASSIGN = re.compile(r"^[A-Za-z_]\w*=")
 _MAX_SHELL_DEPTH = 3
 # A token made only of these separates commands: `;`, `&&`, `||`, `|`, `&`, a subshell, a substitution.
-_PUNCTUATION = ";&|()`"
+_PUNCTUATION = ";&|()`\n"
 # Shell words before a command (`if x; then npm ci; fi`, `{ npm ci; }`).
 _RESERVED = frozenset({"if", "then", "elif", "else", "while", "until", "do", "!", "{"})
 # Install subcommands per package manager; ``None`` is a bare ``yarn``.
 _INSTALL_COMMANDS = {
     "npm": frozenset({"install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall",
-                      "ci", "clean-install", "ic", "install-clean", "isntall-clean", "add"}),
-    "yarn": frozenset({None, "install", "add"}),
-    "pnpm": frozenset({"install", "i", "add"}),
-    "bun": frozenset({"install", "i", "add"}),
+                      "ci", "clean-install", "ic", "install-clean", "isntall-clean", "add", "update", "up", "upgrade",
+                      "udpate", "dedupe", "ddp"}),
+    "yarn": frozenset({None, "install", "add", "upgrade", "up", "upgrade-interactive", "dedupe"}),
+    "pnpm": frozenset({"install", "i", "add", "update", "up", "upgrade", "dedupe", "rebuild", "rb"}),
+    "bun": frozenset({"install", "i", "add", "update"}),
 }
 # Package-manager options that take a separate value (``npm --prefix web ci``).
 _PM_VALUE_OPTS = frozenset({"--prefix", "-C", "--dir", "--cwd", "--filter", "-F", "--workspace", "--registry",
                             "--cache", "--userconfig", "--loglevel"})
 _INFO_OPTS = frozenset({"-v", "--version", "-h", "--help"})
+# Package-manager options known to take no value. Any other ``--opt`` without ``=`` followed by a word
+# that is not a known subcommand is read as taking that word as its value (``npm --fetch-retries 3 ci``).
+_PM_FLAGS = frozenset({"--silent", "--verbose", "--quiet", "--offline", "--prefer-offline", "--frozen-lockfile",
+                       "--immutable", "--ignore-scripts", "--production", "--prod", "--dev", "--force",
+                       "--legacy-peer-deps", "--json", "--recursive", "--global", "--save", "--save-dev",
+                       "--save-exact", "--yes", "--pure-lockfile", "--strict-peer-deps", "--if-present", "--workspaces",
+                       "--include-workspace-root", "--non-interactive", "--color", "--progress"})
+_PM_SUBCOMMANDS = frozenset(w for c in _INSTALL_COMMANDS.values() for w in c if w) | _PM_BUILTINS | _NPM_SCRIPT_COMMANDS
 _GLOBAL_OPTS = frozenset({"-g", "--global", "--location=global"})
 
 
@@ -229,67 +252,159 @@ def _ignores_scripts(segment: str) -> bool:
     return True
 
 
-def _argv(segment: str) -> list[str]:
-    if len(segment) > 4096:  # shlex is slow on a long unbalanced quote
-        return segment.split()
-    try:
-        return shlex.split(segment, comments=True)
-    except ValueError:
-        return segment.split()
+def _uncommented(text: str) -> str:
+    """``text`` without comments, in linear time.
 
-
-def _uncommented(line: str) -> str:
-    """``line`` up to the ``#`` that starts a comment: unquoted, unescaped and at the start of a word."""
-    if "#" not in line:
-        return line
+    A ``#`` that is unquoted, unescaped and at the start of a word runs to the end of its line.
+    Quotes are tracked across lines, so a multi-line ``bash -c '…'`` keeps its body.
+    """
+    if "#" not in text:
+        return text
+    out = []
     quote = ""
     k = 0
-    while k < len(line):
-        ch = line[k]
+    n = len(text)
+    while k < n:
+        ch = text[k]
         if ch == "\\" and quote != "'":
+            out.append(text[k:k + 2])
             k += 2
             continue
         if quote:
             quote = "" if ch == quote else quote
         elif ch in "'\"":
             quote = ch
-        elif ch == "#" and (k == 0 or line[k - 1] in " \t;&|()"):
-            return line[:k]
+        elif ch == "#" and (k == 0 or text[k - 1] in " \t\n;&|()"):
+            end = text.find("\n", k)
+            k = n if end < 0 else end
+            continue
+        out.append(ch)
         k += 1
-    return line
+    return "".join(out)
 
 
-def _segments(command: str) -> list[list[str]]:
+def _double_quoted_substitutions(text: str) -> list[str]:
+    """Bodies of ``$(…)`` and backtick spans inside double quotes, which the tokenizer keeps in one word.
+
+    Unquoted ones are split by the tokenizer itself; single-quoted ones are literal text.
+    """
+    out = []
+    quote = ""
+    k = 0
+    n = len(text)
+    while k < n:
+        ch = text[k]
+        if ch == "\\" and quote != "'":
+            k += 2
+            continue
+        if quote == '"' and ch == "`":
+            end = text.find("`", k + 1)
+            if end < 0:
+                break
+            out.append(text[k + 1:end])
+            k = end + 1
+            continue
+        if quote == '"' and text.startswith("$(", k):
+            depth, j = 1, k + 2
+            while j < n and depth:
+                depth += {"(": 1, ")": -1}.get(text[j], 0)
+                j += 1
+            if depth:
+                break
+            out.append(text[k + 2:j - 1])
+            k = j
+            continue
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+        k += 1
+    return out
+
+
+# A heredoc start word (``<<EOF``, ``<<-'EOF'``); its body is data, not commands.
+_HEREDOC = re.compile(r"^<<-?['\"]?([A-Za-z_][\w.-]*)['\"]?$")
+_MAX_SHLEX_LINE = 4096  # shlex is slow on a long unbalanced quote
+
+
+def _tokens(text: str) -> list[str]:
+    """Words and separators of a comment-free command; a newline is a separator token."""
+    if all(len(line) <= _MAX_SHLEX_LINE for line in text.split("\n")):
+        lexer = shlex.shlex(text, posix=True, punctuation_chars=_PUNCTUATION)
+        lexer.whitespace = " \t\r"
+        lexer.whitespace_split = True
+        lexer.commenters = ""  # comments are already gone; shlex would cut ``https://r/#x``
+        try:
+            return list(lexer)
+        except ValueError:
+            pass
+    return re.sub(r"(&&|\|\||[;|&()`\n])", r" \1 ", text).replace("\t", " ").split(" ")
+
+
+def _segments(command: str, depth: int = 0) -> list[list[str]]:
     """The simple commands of a hook command line, as argv lists.
 
-    Quotes and comments are honoured, so ``echo 'a; npm ci'`` and ``npm ci # --ignore-scripts`` are
-    one command each; ``;``, ``&&``, ``||``, ``|``, ``&`` and a newline separate commands.
+    Quotes and comments are honoured across lines, so ``echo 'a; npm ci'``, ``npm ci # --ignore-scripts``
+    and a quoted string spanning lines are one command each; ``;``, ``&&``, ``||``, ``|``, ``&`` and a
+    newline separate commands. A heredoc body is skipped. ``$(…)`` inside double quotes, ``eval`` and
+    an ``echo``/``printf`` piped into a bare shell are read as the commands they run.
     """
+    text = _uncommented(command.replace("\\\n", " "))
     out: list[list[str]] = []
-    for line in command.replace("\\\n", " ").split("\n"):
-        if len(line) > 4096:  # shlex is slow on a long unbalanced quote
-            tokens = re.sub(r"(&&|\|\||[;|&()`])", r" \1 ", line).split()
-        else:
-            lexer = shlex.shlex(_uncommented(line), posix=True, punctuation_chars=_PUNCTUATION)
-            lexer.whitespace_split = True
-            lexer.commenters = ""  # shlex would start a comment inside a word (``https://r/#x``)
-            try:
-                tokens = list(lexer)
-            except ValueError:
-                tokens = re.sub(r"(&&|\|\||[;|&()`])", r" \1 ", line).split()
-        current: list[str] = []
-        for token in tokens:
-            if token == "&" and current and current[-1].endswith((">", "<")):  # 2>&1
-                current[-1] += token
-            elif token and not token.strip(_PUNCTUATION):
-                if current:
-                    out.append(current)
-                current = []
-            else:
-                current.append(token)
-        if current:
-            out.append(current)
-    return out
+    seps: list[str] = []  # the separator before each segment
+    current: list[str] = []
+    sep = ""
+    heredocs: list[str] = []
+    in_heredoc: str | None = None
+    line: list[str] = []
+    for token in _tokens(text):
+        if in_heredoc is not None:
+            if token == "\n":
+                if line == [in_heredoc]:
+                    in_heredoc = heredocs.pop(0) if heredocs else None
+                line = []
+            elif token:
+                line.append(token)
+            continue
+        if token == "&" and current and current[-1].endswith((">", "<")):  # 2>&1
+            current[-1] += token
+        elif token and not token.strip(_PUNCTUATION):
+            if current:
+                out.append(current)
+                seps.append(sep)
+            current = []
+            sep = token
+            if token == "\n" and heredocs:
+                in_heredoc = heredocs.pop(0)
+                line = []
+        elif token:
+            heredoc = _HEREDOC.match(token)
+            if heredoc:
+                heredocs.append(heredoc.group(1))
+            elif current and current[-1] in ("<<", "<<-") and token.isidentifier():
+                heredocs.append(token)
+            current.append(token)
+    if current:
+        out.append(current)
+        seps.append(sep)
+    if depth >= _MAX_SHELL_DEPTH:
+        return out
+    extra: list[list[str]] = []
+    for body in _double_quoted_substitutions(text):
+        extra += _segments(body, depth + 1)
+    for k, argv in enumerate(out):
+        _, i = _command_start(argv)
+        if i >= len(argv):
+            continue
+        if argv[i] == "eval":
+            extra += _segments(" ".join(argv[i + 1:]), depth + 1)
+        elif (k and seps[k] == "|" and argv[i].rsplit("/", 1)[-1] in _SHELLS
+              and all(w.startswith("-") and "c" not in w for w in argv[i + 1:])):
+            prev = out[k - 1]
+            _, p = _command_start(prev)
+            if p < len(prev) and prev[p] in ("echo", "printf"):
+                extra += _segments(" ".join(w for w in prev[p + 1:] if not w.startswith("-")), depth + 1)
+    return out + extra
 
 
 def _command_start(argv: list[str]) -> tuple[dict[str, str], int]:
@@ -307,10 +422,13 @@ def _command_start(argv: list[str]) -> tuple[dict[str, str], int]:
             name, _, value = word.partition("=")
             env[name.lower()] = value
             i += 1
-        elif word in _WRAPPERS:
-            i += 1 + _WRAPPERS[word]
-            while i < len(argv) and argv[i].startswith("-"):
-                i += 1
+        elif word.rsplit("/", 1)[-1] in _WRAPPERS:
+            name = word.rsplit("/", 1)[-1]
+            value_opts = _WRAPPER_VALUE_OPTS.get(name, frozenset())
+            i += 1
+            while i < len(argv) and argv[i].startswith("-") and argv[i] != "-":
+                i += 2 if argv[i] in value_opts else 1
+            i += _WRAPPERS[name]
         else:
             break
     return env, i
@@ -322,6 +440,9 @@ def _subcommand(manager: str, rest: list[str]) -> str | None:
     while j < len(rest):
         word = rest[j]
         if word in _PM_VALUE_OPTS or (word == "-w" and manager == "npm"):
+            j += 2
+        elif (word.startswith("--") and "=" not in word and word not in _PM_FLAGS and not word.startswith("--no-")
+              and j + 1 < len(rest) and not rest[j + 1].startswith("-") and rest[j + 1] not in _PM_SUBCOMMANDS):
             j += 2
         elif word.startswith("-"):
             j += 1
@@ -359,7 +480,7 @@ def _npmrc_ignores_scripts(scan: Scan) -> bool:
 
 def _in_tree(word: str, tracked: set[str]) -> bool:
     word = word.lstrip("'\"")
-    return word.startswith(("./", "$CLAUDE_PROJECT_DIR", "${CLAUDE_PROJECT_DIR}")) or word in tracked
+    return word.startswith(("./", "$CLAUDE_PROJECT_DIR", "${CLAUDE_PROJECT_DIR")) or word in tracked
 
 
 def _executes_repository_code(argv: list[str], tracked: set[str], npmrc_ignores: bool, depth: int = 0) -> bool:
@@ -387,11 +508,11 @@ def _runs_repository_code(argv: list[str], tracked: set[str], npmrc_ignores: boo
         while j < len(rest):
             word = rest[j]
             # ``-c`` alone or among short options (``bash -lc``, ``sh -ec``)
-            if name in ("bash", "sh", "zsh", "dash") and word[:1] == "-" and word[1:2] != "-" and "c" in word:
+            if name in _SHELLS and word[:1] == "-" and word[1:2] != "-" and "c" in word:
                 return j + 1 < len(rest) and depth < _MAX_SHELL_DEPTH and any(
                     _executes_repository_code(part, tracked, npmrc_ignores, depth + 1)
                     for part in _segments(rest[j + 1]))
-            if word in _INTERPRETER_VALUE_OPTS or (name in ("bash", "sh", "zsh", "dash") and word in _SHELL_VALUE_OPTS):
+            if word in _INTERPRETER_VALUE_OPTS or (name in _SHELLS and word in _SHELL_VALUE_OPTS):
                 j += 2
             elif word.startswith("-"):
                 j += 1
