@@ -100,10 +100,17 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
 
 def cmd_questions_refine(args: argparse.Namespace) -> None:
     """Refine a question set: normalise schema, deduplicate, filter trivial, report gaps."""
-    from dokimi.questions.refiner import QuestionRefiner, GapFiller
+    from dokimi.questions.refiner import QuestionRefiner, GapFiller, _count_difficulty
 
-    questions_data = json.loads(Path(args.questions).read_text(encoding="utf-8"))
-    raw = _extract_questions(questions_data, args.questions)
+    from dokimi.questions.artifact import load_questions
+
+    # Refining is how a set is repaired, so it reads tolerantly without refusing; the refined
+    # set is validated when it is written.
+    try:
+        raw = load_questions(args.questions, validate=False).questions
+    except ValueError as exc:  # ArtifactValidationError: malformed JSON structure
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     target = {
         "beginner":     args.target_beginner,
@@ -124,21 +131,40 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
         sim_threshold=args.sim_threshold,
         gap_filler=gap_filler,
     )
-    report = refiner.refine(raw)
+    def _validate_before_fill(cleaned: list) -> None:
+        # The set the gap filler extends must already be valid, so a set that would be refused
+        # at save time fails here, before any paid model call.
+        from dokimi.artifacts import validate_artifact
+        from dokimi.questions.artifact import upgrade_questions
+
+        validate_artifact("questions", upgrade_questions({
+            "library": args.product,
+            "total": len(cleaned),
+            "difficulty_distribution": _count_difficulty(cleaned),
+            "questions": cleaned,
+        }))
+
+    try:
+        report = refiner.refine(raw, before_fill=_validate_before_fill if gap_filler else None)
+    except ValueError as exc:  # ArtifactValidationError: the input set cannot be gap-filled
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
     print(report.summary())
 
     if not args.dry_run:
-        import json as _json
+        from dokimi.questions.artifact import save_questions_artifact
+
         out = Path(args.output) if args.output else Path(f"questions/{args.product}_refined.json")
-        out.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": "questions.v1",
-            "library": args.product,
-            "total": len(report.questions),
-            "difficulty_distribution": report.difficulty_after,
-            "questions": report.questions,
-        }
-        out.write_text(_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        try:
+            save_questions_artifact({
+                "library": args.product,
+                "total": len(report.questions),
+                "difficulty_distribution": report.difficulty_after,
+                "questions": report.questions,
+            }, out)
+        except ValueError as exc:  # ArtifactValidationError: the refined set is not valid v2
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
         print(f"\n✅ Refined questions saved to {out}")
     else:
         print("\n(dry-run: no file written)")

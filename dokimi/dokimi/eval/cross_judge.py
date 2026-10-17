@@ -166,14 +166,20 @@ def _unjoined(data: Union[Run, Dict[str, Any]]) -> Sequence[Record]:
 
 
 def unreproducible_arms(data: Union[Run, Dict[str, Any]]) -> List[str]:
-    """Arms whose stored scores saw treatment material the answers file does not hold.
+    """Arms whose stored scores saw treatment material the other measures will not.
 
-    Since ``judge_context`` the arms run shows its judge the arm's full material
-    (:mod:`dokimi.eval.judge_context`) and keeps it in memory only, so
-    a re-scored judge reading the file sees the 200-char report snippets. In
-    review that was 28 characters of context against 11,079, and the same judge
-    on the same answers read +24.2 (p 0.0006) one way and +1.4 (p 0.65) the
-    other. A baseline arm has no material, so both sides see the same thing.
+    This is the gate for pairwise and checklist judges, which are shown the answers
+    alone, so every arm the stored judge saw material for is unreproducible. A
+    re-scored judge (``cross-judge --judges``) is gated per question instead, on
+    what :meth:`JudgeContextStore.from_artifact` serves it.
+
+    The arms run stores its judge's view of treatment material in ``judge_materials``
+    (:mod:`dokimi.eval.judge_context`). ``cross-judge --judges`` gives its judge
+    that same material by using the artifact's ``judge_materials``. Pairwise and
+    checklist judges see the answers alone. In review, the same judge on the same
+    answers read +24.2 (p 0.0006) with the full material (11,079 chars) and +1.4
+    (p 0.65) with the 28-char snippet. A baseline arm has no material, so all judges
+    see the same thing.
     """
     run = _unjoined(data)
     kinds = {
@@ -221,6 +227,7 @@ def score_measure(
     arms: Optional[Sequence[str]] = None, concurrency: int = 1,
     progress: Optional[Callable[[int, int], None]] = None,
     ground_truth: Optional[Dict[str, str]] = None,
+    store: Optional[JudgeContextStore] = None,
 ) -> Measure:
     """Score every answer; with ``ground_truth`` (question_id -> text), grounded.
 
@@ -230,14 +237,13 @@ def score_measure(
     and +0.3..+2.3 grounded (none against it).
 
     Each answer's context comes from the arms run's own resolver
-    (:meth:`~dokimi.eval.judge_context.JudgeContextStore.resolve_with_source`).
-    Read from a file it has no stored treatment material, so it falls back to
-    the arm's report snippets, which is what a run before ``judge_context``
-    showed its judge; without them a stored-vs-re-scored gap mixes a change of
-    judge with a change of what the judge was shown. Material the stored judge
-    saw that the answers file does not persist is not reproduced.
+    (:meth:`~dokimi.eval.judge_context.JudgeContextStore.resolve_with_source`)
+    over *store* — pass ``JudgeContextStore.from_artifact(data)`` and the judge
+    sees what the arms run's judge saw. Answers whose material the file does not
+    hold (or with no store) fall back to the arm's report snippets, which is
+    what a run before ``judge_context`` showed its judge.
     """
-    store = JudgeContextStore()
+    store = store if store is not None else JudgeContextStore()
     jobs = [
         (r.question_id, arm, r.question_text, a.text,
          store.resolve_with_source(r.question_id, arm, dict(a.raw))[0])

@@ -1,0 +1,66 @@
+{
+  "schema_version": "questions.v2",
+  "product": "demo",
+  "total_questions": 3,
+  "sources": {
+    "generated": 2,
+    "manual": 1
+  },
+  "question_set_hash": "0f3a9c2b7d41",
+  "question_set_id": "0f3a9c2b7d41",
+  "questions": [
+    {
+      "id": "q_001",
+      "question": "How do I install the library?",
+      "persona": "",
+      "category": "",
+      "difficulty": "beginner",
+      "expected_topics": [],
+      "personas": [
+        "new_adopter"
+      ],
+      "topics": [
+        "installation"
+      ],
+      "metadata": {
+        "generated_for_persona": "New adopter",
+        "model": "gpt-4o-mini",
+        "provider": "openai"
+      },
+      "question_source": "persona",
+      "source_type": "generated"
+    },
+    {
+      "id": "q_002",
+      "question": "What does the grainsize parameter of a blocked range control?",
+      "persona": "",
+      "category": "",
+      "difficulty": "intermediate",
+      "expected_topics": [],
+      "question_source": "chunk",
+      "chunk_index": 3,
+      "source_url": "https://example.com/docs/ranges.html",
+      "ground_truth_chunk": "The grainsize sets the size below which a range is not split further.",
+      "source_type": "generated"
+    },
+    {
+      "id": "demo-Q001",
+      "question": "Why does a counter incremented inside the loop body end up wrong?",
+      "expected_skill": "demo-quickstart",
+      "category": "algorithms",
+      "difficulty": "easy",
+      "level": "triage",
+      "expected_topics": [
+        "the body object may be copied, so mutations land on a copy"
+      ],
+      "metadata": {
+        "persona": "new_adopter",
+        "must_cite": [
+          "https://example.com/docs/loops.html"
+        ]
+      },
+      "source_type": "manual",
+      "persona_id": "manual"
+    }
+  ]
+}

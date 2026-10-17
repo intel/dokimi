@@ -169,7 +169,7 @@ def test_load_questions_rejects_non_object_items(tmp_path: Path):
     questions = tmp_path / "questions.json"
     questions.write_text(json.dumps(["bad"]), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="question at index 0"):
+    with pytest.raises(ValueError, match="record 0: 'bad' is not of type 'object'"):
         _load_questions(str(questions))
 
 
@@ -391,13 +391,16 @@ def test_load_questions_refuses_duplicate_ids(tmp_path: Path):
         _load_questions(str(questions))
 
 
-def test_load_questions_assigns_unique_ids_where_missing(tmp_path: Path, capsys):
+def test_load_questions_assigns_unique_ids_where_missing(tmp_path: Path, caplog):
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"text": "x"}, {"id": "q0001", "text": "y"}, {"text": "z"}]))
-    loaded = _load_questions(str(questions))
-    ids = [q["id"] for q in loaded]
-    assert ids[1] == "q0001" and len(set(ids)) == 3
-    assert "had no id" in capsys.readouterr().err
+    with caplog.at_level("WARNING"):
+        loaded = _load_questions(str(questions))
+    assert [q["id"] for q in loaded] == ["q0000", "q0001", "q0002"]
+    assert "legacy questions format (a bare list, not an object; 2 records: no `id`" in caplog.text
+    # A positional id another record already has is prefixed until it is unique.
+    questions.write_text(json.dumps([{"id": "q0001", "text": "x"}, {"text": "y"}]))
+    assert [q["id"] for q in _load_questions(str(questions))] == ["q0001", "_q0001"]
 
 
 @pytest.mark.parametrize("bad", [1.5, 1.0, True])
@@ -415,7 +418,10 @@ def test_arms_run_refuses_a_non_string_non_integer_id_before_any_call(monkeypatc
                                       "--questions", str(questions), "--out-json", str(out)])
     with pytest.raises(SystemExit):
         args.func(args)
-    assert f"questions[1]: id must be a string or an integer, got {bad!r}" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    # The questions.v2 schema refuses 1.5 and true; 1.0 passes it and the arms loader refuses it.
+    assert (f"questions[1]: id must be a string or an integer, got {bad!r}" in err
+            or "is not a usable question" in err)
     assert not out.exists()
 
 

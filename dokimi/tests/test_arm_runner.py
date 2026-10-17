@@ -1007,3 +1007,142 @@ def test_stamp_for_mixed_and_empty_sources():
     assert stamp_for([None]) == PROTOCOL       # nothing judged: keep the protocol
     assert stamp_for([]) == PROTOCOL
     assert stamp_for(["snippet_fallback", None]) is None
+
+
+# ── Judge material persisted in the artifact ──────────────────────────────
+
+def _judged_output(monkeypatch, treatments, questions, judge=None):
+    _patch_llm(monkeypatch, [])
+    runner = ArmRunner(treatments)
+    records = runner.run("oneTBB", questions, concurrency=1)
+    judge = judge or _ContextCapturingJudge()
+    evaluations = runner.judge(judge, "oneTBB", records, baseline_arm=treatments[0].name)
+    return runner.build_output("oneTBB", records, evaluations, baseline_arm=treatments[0].name,
+                               judge=judge), judge
+
+
+def test_a_judge_reading_the_artifact_sees_what_the_arms_run_judge_saw(
+    monkeypatch, skill_with_files
+):
+    """The material used to live in memory only, so a judge reading the file got
+    the 200-char snippets. Round trip through JSON and a fresh runner."""
+    import json
+
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    skill = SkillTreatment(load_skill(skill_with_files))
+    out, first = _judged_output(monkeypatch, [BaselineTreatment(), skill], QUESTIONS)
+    data = json.loads(json.dumps(out))
+
+    later = ArmRunner([BaselineTreatment(), skill])
+    later.judge_context = JudgeContextStore.from_artifact(data)
+    second = _ContextCapturingJudge()
+    evaluations = later.judge(second, "oneTBB", data["answers"])
+
+    assert sorted(second.seen.values()) == sorted(first.seen.values())
+    assert all(s["judge_context_source"] == "stored"
+               for ev in evaluations for s in ev["scores"].values() if s)
+    rejudged = later.build_output("oneTBB", data["answers"], evaluations, judge=second)
+    assert rejudged["judge_context"] == "treatment_material.v1"
+
+
+def test_a_skill_body_shared_by_every_question_is_stored_once(monkeypatch, skill_with_files):
+    skill = SkillTreatment(load_skill(skill_with_files))
+    out, _ = _judged_output(monkeypatch, [BaselineTreatment(), skill], QUESTIONS)
+    digests = {r["arms"][skill.name]["judge_context_sha256"] for r in out["answers"]}
+    assert len(digests) == 1 and len(QUESTIONS) > 1
+    assert digests <= set(out["judge_materials"])
+    score_digests = {ev["scores"][skill.name]["judge_context_sha256"] for ev in out["evaluations"]}
+    assert score_digests == digests
+
+
+def test_question_id_zero_is_cited_and_served_after_a_round_trip(monkeypatch, skill_with_files):
+    """0 is falsy but a valid id; cite() must stamp it and from_artifact must serve it."""
+    import json
+
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    skill = SkillTreatment(load_skill(skill_with_files))
+    questions = [{"id": 0, "question": "How do I parallelize a loop?"},
+                 {"id": 1, "question": "How do I sum an array in parallel?"}]
+    out, _ = _judged_output(monkeypatch, [BaselineTreatment(), skill], questions)
+    assert all(r["arms"][skill.name].get("judge_context_sha256") for r in out["answers"])
+    store = JudgeContextStore.from_artifact(json.loads(json.dumps(out)))
+    assert store.get(0, skill.name) and store.get(1, skill.name)
+
+
+def test_an_unjudged_run_still_keeps_the_material(monkeypatch, skill_with_files):
+    """So an answers-only artifact can be judged later on the same evidence."""
+    _patch_llm(monkeypatch, [])
+    skill = SkillTreatment(load_skill(skill_with_files))
+    runner = ArmRunner([BaselineTreatment(), skill])
+    out = runner.build_output("oneTBB", runner.run("oneTBB", QUESTIONS, concurrency=1))
+    assert "evaluations" not in out and out["judge_materials"]
+
+
+def test_material_that_does_not_match_its_digest_is_not_used(monkeypatch, skill_with_files, caplog):
+    import json
+
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    skill = SkillTreatment(load_skill(skill_with_files))
+    out, _ = _judged_output(monkeypatch, [BaselineTreatment(), skill], QUESTIONS)
+    data = json.loads(json.dumps(out))
+    digest = data["answers"][0]["arms"][skill.name]["judge_context_sha256"]
+    data["judge_materials"][digest] += " tampered"
+    with caplog.at_level("WARNING"):
+        store = JudgeContextStore.from_artifact(data)
+    assert store.get(data["answers"][0]["question_id"], skill.name) is None
+    assert "does not match its digest" in caplog.text
+
+
+def test_an_artifact_without_materials_falls_back_as_before():
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.utils import digest_text
+
+    # No judge_materials key at all; record has digest but material is missing
+    store = JudgeContextStore.from_artifact({
+        "answers": [{"question_id": "q1", "arms": {"a": {"judge_context_sha256": digest_text("text")}}}]
+    })
+    # Store is empty; from_artifact found no materials key and returned early
+    assert store.materials() == {}
+
+
+def test_judge_materials_guard_requires_material_for_stored_scores(caplog):
+    """The guard against missing material does not skip records with no digest."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.utils import digest_text
+
+    # Record with no digest — should be skipped without error.
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {},
+        "answers": [{"question_id": "q1", "arms": {"a": {"answer": "text"}}}],
+    })
+    # Store is empty; the arm record had no judge_context_sha256, so nothing was added.
+    assert store.materials() == {}
+    # Reaching here proves `materials.get(digest)` never ran with a missing digest.
+
+    # Record with a digest whose text is not in materials (hand-trimmed file).
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {},
+        "answers": [{
+            "question_id": "q1",
+            "arms": {"a": {"answer": "text", "judge_context_sha256": "sha256:00"}},
+        }],
+    })
+    # The arm record is skipped, and the store stays empty.
+    assert store.materials() == {}
+    assert "1 arm records cite judge material" in caplog.text
+
+    caplog.clear()
+    # Record with digest and material text that is not a string
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {digest_text("text"): 123},  # material is int, not str
+        "answers": [{
+            "question_id": "q1",
+            "arms": {"a": {"judge_context_sha256": digest_text("text")}},
+        }],
+    })
+    # The record is skipped due to non-string material
+    assert store.materials() == {}
+    assert "1 arm records cite judge material" in caplog.text

@@ -9,6 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Optional
 
 from dokimi.defaults import DEFAULT_CONCURRENCY, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -226,25 +227,86 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     report = CrossJudgeReport(baseline_arm=baseline, require_validated=args.require_validated)
+    from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
+    from dokimi.utils import question_id
+
+    # What the arms run's judge saw, when the file keeps it (judge_materials). Built
+    # once and only for --judges: it is the store the gate checks and the judge reads.
+    materials: Optional[JudgeContextStore] = (
+        JudgeContextStore.from_artifact(data) if args.judges and isinstance(data, dict) else None
+    )
+
     from dokimi.eval.records import RecordError
 
     try:
         stored = None if args.no_stored or not isinstance(data, dict) else stored_measure(data)
-        unrepro = (unreproducible_arms(data)
-                   if stored and (args.judges or args.pairwise or args.checklist) else [])
+        pair_unrepro = unreproducible_arms(data) if stored and (args.pairwise or args.checklist) else []
     except RecordError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
     if (m := stored):
-        # Every other measure (re-scored, pairwise, checklist) sees at most the report snippets.
+        # Re-scored judges get the file's judge_materials; pairwise and checklist
+        # judges see the answers alone. Each path sees different input, so we refuse
+        # the comparison to prevent mixing a change of judge with a change of input.
+        unrepro: set[str] = set()
+        # Per arm, the questions where the re-scored judge would read a different
+        # text than the stored judge (differs), or none at all (unserved).
+        differs: dict[str, list] = {}
+        unserved: dict[str, list] = {}
+
+        # Pairwise and checklist judges see only answers, so stored material makes them incompatible
+        if args.pairwise or args.checklist:
+            unrepro.update(pair_unrepro)
+        elif materials is not None:
+            # The loop below is the whole --judges gate: it compares each stored score's
+            # digest with what the reader serves, for the questions score_measure scores.
+            # score_measure only scores questions that have an answer record.
+            answered = {question_id(r) for r in data.get("answers") or []
+                        if isinstance(r, dict) and isinstance(question_id(r), (str, int))}
+            # The arm exempt from the check is the one whose recorded kind is baseline, as in
+            # unreproducible_arms: --baseline-arm only picks the comparison's reference arm.
+            kinds = {arm: (body.get("metadata") or {}).get("arm_kind")
+                     for r in data.get("answers") or []
+                     if isinstance(r, dict) and isinstance(r.get("arms"), dict)
+                     for arm, body in r["arms"].items() if isinstance(body, dict)}
+            for ev in data.get("evaluations") or []:
+                if not isinstance(ev, dict):
+                    continue
+                qid = ev.get("question_id")
+                for arm, s in (ev.get("scores") or {}).items():
+                    kind = kinds.get(arm) or ("baseline" if arm == baseline else None)
+                    if not (isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
+                            and kind != "baseline"):
+                        continue
+                    if not isinstance(qid, (str, int)):
+                        unserved.setdefault(arm, []).append(qid)  # no usable id: reader uses snippets
+                    elif qid not in answered:
+                        continue
+                    elif (served := materials.digest_of(qid, arm)) is None:
+                        unserved.setdefault(arm, []).append(qid)
+                    elif s.get("judge_context_sha256") != served:
+                        differs.setdefault(arm, []).append(qid)
+
         if unrepro:
-            print(f"Error: the stored judge saw treatment material for {', '.join(unrepro)} that the "
-                  "answers file does not keep; the other measures (a re-scored judge sees only the report "
-                  "snippets, a pairwise or checklist judge only the answers), so the comparison would mix "
-                  "a change of judge with a change of input. Pass --no-stored to compare them with each "
-                  "other.", file=sys.stderr)
+            print(f"Error: the stored judge saw treatment material for {', '.join(sorted(unrepro))}, but a "
+                  "pairwise or checklist judge sees only the answers, not the arm's treatment material, "
+                  "so the comparison would mix a change of judge with a change of input. Pass "
+                  "--no-stored to compare them with each other.", file=sys.stderr)
+        for arm, qids in sorted(differs.items()):
+            print(f"Error: for {arm}, the stored score cites different material than the arm record "
+                  f"serves a re-scored judge, for question(s) {', '.join(map(repr, qids))}: the "
+                  "re-scored judge would read a different text. Pass --no-stored to compare "
+                  "them with each other.", file=sys.stderr)
+        for arm, qids in sorted(unserved.items()):
+            print(f"Error: for {arm}, no usable material can be read for question(s) "
+                  f"{', '.join(map(repr, qids))} (the record cites no digest, the text fails its "
+                  "digest, or the question has no usable id), so a re-scored judge would read "
+                  "snippets where the stored judge read the material. Pass --no-stored to "
+                  "compare them with each other.", file=sys.stderr)
+        if unrepro or differs or unserved:
             sys.exit(2)
         report.measures.append(m)
+
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     _check_judge_temperature([(m, p) for p, _, m in (s.partition("/") for s in specs) if m and p in JUDGE_PROVIDERS],
                              args.judge_temperature)
@@ -260,6 +322,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             report.measures.append(score_measure(
                 records, scorer_of(judge), name=f"{provider}/{model}", library=library,
                 concurrency=args.concurrency, progress=_progress(), ground_truth=grounding,
+                store=materials,
             ))
     for path in args.pairwise or []:
         pw = json.loads(Path(path).read_text(encoding="utf-8"))
