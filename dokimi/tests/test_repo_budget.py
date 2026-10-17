@@ -203,6 +203,22 @@ def test_skills_sharing_a_name_are_still_compared(tmp_path):
     assert any(".claude/skills/p/SKILL.md and .claude/skills/q/SKILL.md" in w for w in got["warnings"])
 
 
+def test_a_skill_the_model_cannot_invoke_is_not_listed(tmp_path):
+    hidden = "---\nname: rel\ndescription: Format Python code with ruff.\ndisable-model-invocation: true\n---\nbody"
+    tree = _tree(tmp_path, {
+        ".claude/skills/fmt/SKILL.md": _skill("fmt", "Format Python code with ruff."),
+        ".claude/skills/rel/SKILL.md": hidden,
+        ".claude/skills/bare/SKILL.md": "---\nname: bare\ndisable-model-invocation: yes\n---\nb",
+    })
+    got = budget(tree, NAMES)
+    kinds = {(e["path"], e["kind"]): e for e in got["entries"]}
+    assert (".claude/skills/rel/SKILL.md", "skill listing") not in kinds
+    assert (".claude/skills/bare/SKILL.md", "skill listing") not in kinds
+    assert kinds[(".claude/skills/rel/SKILL.md", "skill body")]["chars"] == 4
+    assert got["totals"]["start"] == len("fmt") + len("Format Python code with ruff.")
+    assert got["duplicate_skills"] == [] and got["warnings"] == []
+
+
 def test_mcp_servers_are_listed(tmp_path):
     tree = _tree(tmp_path, {".mcp.json": json.dumps({"mcpServers": {"docs": {}, "db": {}}})})
     assert budget(tree, NAMES)["mcp_servers"] == ["db", "docs"]

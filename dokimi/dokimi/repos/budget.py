@@ -8,7 +8,8 @@ starts at the repository root:
 
 - **start**: guidance files at the root, the files a root CLAUDE.md ``@import``s (imports are
   followed from ``CLAUDE*`` files only), and the skill
-  listing (each project skill's ``name`` and ``description``). Every model call pays for these.
+  listing (each project skill's ``name`` and ``description``; a skill with
+  ``disable-model-invocation: true`` is not listed). Every model call pays for these.
 - **lazy**: guidance files in subdirectories, and what a nested CLAUDE.md imports, loaded
   when the agent works in that subtree.
 - **on demand**: skill bodies, loaded when the agent invokes the skill.
@@ -101,7 +102,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
 
     skills = _skills(tree, [f for f in files if SKILL_GLOB.match(f)])
     for s in skills:
-        entries.append({"path": s["path"], "kind": "skill listing", "when": "start", "chars": s["listing_chars"]})
+        if s["listed"]:
+            entries.append({"path": s["path"], "kind": "skill listing", "when": "start", "chars": s["listing_chars"]})
         entries.append({"path": s["path"], "kind": "skill body", "when": "on demand", "chars": s["body_chars"]})
 
     totals = {w: sum(e["chars"] for e in entries if e["when"] == w) for w in ("start", "lazy", "on demand", "off")}
@@ -115,9 +117,9 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
         if s["unreadable"]:
             warnings.append(f"{s['path']}: not readable ({s['unreadable']}), body counted as 0; "
                             "the listing falls back to the directory name")
-        elif not s["description"]:
+        elif s["listed"] and not s["description"]:
             warnings.append(f"{s['path']}: no description; the listing gives the agent nothing to choose it by")
-    duplicates = _near_duplicates(skills)
+    duplicates = _near_duplicates([s for s in skills if s["listed"]])
     for d in duplicates:
         warnings.append(f"skills {d['a']} and {d['b']} have near-duplicate descriptions "
                         f"(Jaccard {d['overlap']:.2f} on words, stop words removed); the listing is all the agent picks from")
@@ -228,9 +230,12 @@ def _skills(tree: RepoTree, paths: list[str]) -> list[dict[str, Any]]:
         meta = meta if isinstance(meta, dict) else {}
         name = str(meta.get("name") or path.split("/")[-2])
         description = str(meta.get("description") or "")
+        # The CLI reads a boolean as 1/true/yes/on (as harnesses/skill_treatment.py does); such a
+        # skill is left out of the listing, so the model never sees its name or description.
+        hidden = str(meta.get("disable-model-invocation", "")).strip().lower() in ("1", "true", "yes", "on")
         out.append({"path": path, "name": name, "description": description,
                     "listing_chars": len(name) + len(description), "body_chars": len(body),
-                    "unreadable": unreadable})
+                    "unreadable": unreadable, "listed": not hidden})
     return out
 
 

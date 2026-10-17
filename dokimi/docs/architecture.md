@@ -235,8 +235,9 @@ next release.
   file and any other harness is another YAML.
 - `dokimi/repos/budget.py` — `repo budget`: what the tree puts into an
   agent's context when it starts at the root, in characters, with no LLM call.
-  Root CLAUDE.md files and their `@` imports and the skill listing load at
-  start; nested guidance and what nested CLAUDE.md files import load lazily;
+  Root CLAUDE.md files and their `@` imports and the skill listing (without
+  skills marked `disable-model-invocation: true`) load at start; nested
+  guidance and what nested CLAUDE.md files import load lazily;
   skill bodies on demand; with a CLAUDE.md at the root, an AGENTS.md no
   CLAUDE.md imports is reported off. It warns on skills with no description,
   skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
