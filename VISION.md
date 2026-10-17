@@ -17,9 +17,10 @@ their `AGENTS.md` does, and marketplaces rank by installs.
 - **Context is cheap to write and easy to over-claim.** A skill can read well
   and change nothing, or make answers worse.
 - **Value depends on the model.** What a small model needs, a frontier model
-  may already know. For `claude-opus-5`, 70% of what a skill says is something
-  the model already produces unprompted
-  ([evidence](dokimi/docs/skill-novelty.md)).
+  may already know. For `claude-opus-5` under lenient grading, 70% of what a
+  skill says the model already produces unprompted; under strict grading the
+  skill's real job shows up in exact values and qualifiers
+  ([evidence](dokimi/docs/skill-novelty-evidence.md)).
 - **Models believe their context, even when it is wrong.** A plausible wrong
   value planted in a skill is repeated 94% of the time
   ([evidence](dokimi/docs/skill-novelty-evidence.md)).
@@ -45,7 +46,7 @@ Every answer leads to an action:
 3. **What to do next?** Fix it: a concrete path to improve the skill, the
    repository or the MCP server, so that the next run measures better.
 
-## Where we are going (next 3–6 months)
+## Where we are going
 
 Point dokimi at any skill or repository and get the full picture: exact
 numbers, where the artifact helps and where it breaks, and a ranked list of
@@ -57,8 +58,10 @@ popularity signals are weakest and correctness matters most.
 - **The A/B comparison is the core.** Novelty, routing, repository scans,
   tool preference and whatever comes next are ways to get sharper or cheaper
   answers to the same question.
-- **Beat a placebo, not just nothing.** Off-topic text can make a model
-  worse, so a real gain has to beat a control of the same length.
+- **Beat a placebo, not just nothing.** Off-topic text of the same length
+  made two of five measured models worse, so a gain should beat a control of
+  comparable length. Today that control is opt-in
+  (`dokimi novelty analyze --arms no_artifact,full,placebo --placebo-text FILE`).
 - **"Not measured" is never shown as "pass".**
 - **Cheap first, costly only when needed.** Static and LLM-free checks run
   first. Expensive runs (agents, Docker, panels) are only for what the cheap
@@ -76,8 +79,3 @@ popularity signals are weakest and correctness matters most.
 - **Agents are first-class users.** Coding agents run dokimi, read its
   reports and act on them. Contributors and adopters come next. The CLI and
   the library are the interface.
-
-## Not settled yet
-
-We are still exploring, so nothing is ruled out. A shared scorecard format may
-come later, but only if it earns its place.

@@ -20,19 +20,21 @@ Skills, instructions, docs, MCP servers and repository guidance are cheap to
 write and easy to over-claim. Dokimi tests each one like an experiment: change
 one thing, keep everything else fixed, run the same question or task set, and
 report the delta together with its p-value. An artifact ships with the
-scorecard that earned it.
+scorecard that earned it, a deliberate contrast to popularity-ranked
+marketplaces, which structurally bury niche HPC and numerical-accuracy tooling.
 
 What measuring shows ([evidence](dokimi/docs/skill-novelty-evidence.md)):
 
-- **Most of a skill repeats what the model already knows.** For
-  `claude-opus-5`, 70% of what a skill says is something the model already
-  produces unprompted; 21% is new, and 2% breaks something it knew.
+- **Much of a skill repeats what the model already knows, and the rest is
+  exact detail.** For `claude-opus-5` under lenient grading, 70% of what a
+  skill says the model already produces unprompted. Under strict grading,
+  which also checks qualifiers and exact values, only 22% is already known
+  and 38% is still missing even with the skill in context. Read the two
+  gradings together.
 - **Models believe their context, even when it is wrong.** A plausible wrong
   value planted in a skill is repeated 94% of the time.
 - **Value depends on the model.** What a small model needs, a frontier model
   may already know, so every verdict is per model.
-- **Popularity is not evidence.** Popularity-ranked marketplaces structurally
-  bury niche HPC and numerical-accuracy tooling.
 
 The framework is vendor-neutral: any model reachable through LiteLLM, any
 docs, skills or tasks. Why it exists and where it is going:
