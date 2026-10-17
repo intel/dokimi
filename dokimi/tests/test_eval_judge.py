@@ -258,6 +258,96 @@ class TestJudgeAnswer:
         (["64 bytes: partially right"], 95, 95),
         (["64 bytes, non-wrong"], 95, 95),
         ("none", 95, 95),                      # not a list: nothing to enforce
+        # From real Haiku judgements, read as nothing before: a qualifier list
+        # ends in the verdict, so the cap was let through.
+        (["one execution port: misleading/wrong"], 95, 40),
+        (["reads <270% of operations: ambiguous/wrong"], 95, 40),
+        (["~160x AVX: speculative/wrong"], 95, 40),
+        # ... and the right-hand counterparts, now read (and not capped).
+        (["expected throughput 4-8x: conditional/right"], 95, 95),
+        (["4.5x speedup threshold: reasonable, not wrong"], 95, 95),
+        (["SIMD_SORT_MIN_N = 32: reasonable heuristic (not wrong)"], 95, 95),
+        (["p < 0.05 threshold: standard statistical convention, correct"], 95, 95),
+        # Must NOT cap: the judge says the answer flagged a bad claim correctly.
+        (["2x speedup: correctly marked as WRONG to claim"], 95, 95),
+        (["20x faster (example of wrong claim): right (correctly marked as WRONG)"], 95, 95),
+        (["TILE 64: right (reasonable choice, not factually wrong)"], 95, 95),
+        (["500 ns threshold: contextual (neither universally right nor wrong)"], 95, 95),
+        # The answer's figure is the wrong one; the right one is the correction.
+        (["8 ms: wrong -> corrected: right"], 95, 40),
+        # A "/" or "," in the figure is not a verdict: the verdict after the colon is read.
+        (["left/right shift by 3: wrong"], 95, 40),
+        (["4 KiB, correct alignment assumed: wrong"], 95, 40),
+        (["TILE 64 (not wrong): wrong"], 95, 40),
+        (["note, wrong figure: right"], 95, 95),
+        # "not entirely wrong" is a hedge: no cap, and not read as right either.
+        (["8 ms: not entirely wrong"], 95, 95),
+        (["8 ms: not right"], 95, 40),
+        # The fallback is case-insensitive and handles slash-separated qualifiers and multiple separators.
+        (["x (misleading/wrong)"], 95, 40),
+        (["x - misleading/wrong"], 95, 40),
+        (["x — misleading/wrong"], 95, 40),  # em-dash
+        (["x: misleading/WRONG"], 95, 40),
+        # The fallback handles trailing commas, adverbs, "incorrect", and negations.
+        (["x: dubious, partially wrong"], 95, 40),
+        (["x: misleading/incorrect"], 95, 40),
+        (["x: dubious, not correct"], 95, 40),
+        (["x - not wrong"], 95, 95),
+        # Case-insensitive, trailing punctuation and whitespace, negation, en and em dash.
+        (["x: Not Right"], 95, 40),
+        (["x: misleading/wrong."], 95, 40),
+        (["64 B: WRONG (expected 128)"], 95, 40),
+        (["x — not wrong"], 95, 95),
+        # A path-like tail does not cap; a single-token qualifier does.
+        (["x: see docs/wrong"], 95, 95),
+        (["x: unverified (see docs/wrong)"], 95, 95),
+        (["64 B: unverified, see section 4.2/wrong"], 95, 95),
+        (["x: dubious, misleading/wrong"], 95, 40),
+        # A claim with no real separator (`:`, `-`, `(`) is unread, even if `,` appears.
+        (["64 bytes, wrong"], 95, 95),
+        # Qualified verdicts work the same in dict claims and strings.
+        ([{"figure": "x", "verdict": "misleading/wrong"}], 95, 40),
+        ([{"figure": "x", "verdict": "reasonable, not wrong"}], 95, 95),
+        # False positives that must stay unread with the end-anchored pattern.
+        (["TILE (default, wrong on ARM): unverified"], 95, 95),
+        (["buffer 64 B - 128 B, wrong alignment assumed: unverified"], 95, 95),
+        (["2x: correctly identified, wrong claim by user"], 95, 95),
+        (["x: depends, wrong if cached"], 95, 95),
+        (["x: see /wrong/path"], 95, 95),
+        # Adverbs and slash/comma alternatives that must stay unread.
+        (["x: see /wrong"], 95, 95),
+        (["x: unverified, right/wrong"], 95, 95),
+        (["x: unverified, right, wrong"], 95, 95),
+        (["x: dubious, hardly wrong"], 95, 95),
+        (["x: unverified, wrong/right"], 95, 95),
+        (["x: unverified, wrong, right"], 95, 95),
+        (["x: unverified, correct/wrong"], 95, 95),
+        (["x: unverified, correct, wrong"], 95, 95),
+        (["x: dubious, barely wrong"], 95, 95),
+        (["x: dubious, scarcely wrong"], 95, 95),
+        (["x: dubious, seemingly right"], 95, 95),
+        (["x: unverified, possibly wrong"], 95, 95),
+        (["x: dubious, nearly wrong"], 95, 95),
+        (["x: unverified, formerly correct"], 95, 95),
+        (["x: non-wrong"], 95, 95),
+        (["x: semi-correct"], 95, 95),
+        (["x: misleading/wrong!"], 95, 95),
+        # Intensifiers strengthen the verdict; the en dash, a figure-like qualifier and a
+        # trailing space still read.
+        (["x: dubious, entirely wrong"], 95, 40),
+        (["x: dubious, completely wrong"], 95, 40),
+        (["x \u2013 misleading/wrong"], 95, 40),
+        (["x: L2/wrong"], 95, 40),
+        (["x: misleading/wrong "], 95, 40),
+        # Figures with separators: the end-anchored pattern finds the real verdict.
+        (["ratio 3:1, correct alignment assumed: misleading/wrong"], 95, 40),
+        (["ratio 3:1, correct alignment assumed: not right"], 95, 40),
+        (["latency 4 cycles (L1, correct for Skylake): misleading/wrong"], 95, 40),
+        (["f(x) = 4, correct rounding: misleading/wrong"], 95, 40),
+        (["64 - 128 B, correct range: misleading/wrong"], 95, 40),
+        # Multi-line claims: the pattern requires the verdict to end the string, not at a line break.
+        (["TILE (default, wrong\non ARM): unverified"], 95, 95),
+        (["AVX2 (256-bit, correct\nwidth): dubious"], 95, 95),
     ])
     def test_a_wrong_figure_caps_correctness_at_forty(self, mock_llm, claims, correctness, expected):
         """The prompt promises "a single wrong figure caps it at 40". A reply that
@@ -285,6 +375,39 @@ class TestJudgeAnswer:
     ])
     def test_a_claim_with_no_verdict_is_counted(self, mock_llm, claims, unread):
         assert self._judge(mock_llm, claims, 95)["unread_claims"] == unread
+
+    @pytest.mark.parametrize("claim", [
+        "expected throughput 4-8x: conditional/right",
+        "4.5x speedup threshold: reasonable, not wrong",
+        "SIMD_SORT_MIN_N = 32: reasonable heuristic (not wrong)",
+        "p < 0.05 threshold: standard statistical convention, correct",
+        "x: dubious, not incorrect",
+        "x - not wrong",
+        "x — not wrong",
+        "x \u2013 not wrong",
+    ])
+    def test_a_qualified_or_negated_verdict_is_read(self, mock_llm, claim):
+        """Qualified and negated verdicts: slash-separated qualifiers, trailing commas, and `not` all read correctly."""
+        assert "unread_claims" not in self._judge(mock_llm, [claim], 95)
+
+    @pytest.mark.parametrize("claim", [
+        "left/right shift by 3: dubious",
+        "8 ms: not entirely wrong",
+        "8 ms: not necessarily right",
+        "AVX2 (256-bit, correct width): dubious",
+        "x: see docs/correct-usage",
+        # A "/" inside prose or a path is not a qualifier list: only a single token right after
+        # the separator or comma qualifies the verdict.
+        "x: see docs/correct",
+        "x: unverified (see docs/right)",
+        "x: unverified, matches the spec/correct",
+        "x: cf. AVX/correct",
+        # A non-intensifier adverb hedges the fallback verdict, as `hardly` does.
+        "x: dubious, typically correct",
+        "x: plausible, typically correct",
+    ])
+    def test_a_figure_with_a_slash_or_a_hedge_is_not_read_as_right(self, mock_llm, claim):
+        assert self._judge(mock_llm, [claim], 95)["unread_claims"] == [0]
 
     def test_readable_claims_record_no_unread_marker(self, mock_llm):
         assert "unread_claims" not in self._judge(mock_llm, ["4 B: right", "8 ms: wrong"], 95)
