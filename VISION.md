@@ -5,30 +5,45 @@ SPDX-License-Identifier: Apache-2.0
 
 # Vision
 
+**A/B testing for agent context.**
+
 ## Why
 
 Agents now read skills, docs, MCP servers, persona prompts and repository
-guidance before they act. All of this is cheap to write and easy to
-over-claim. Today nobody can see whether a given skill or repository actually
-makes an agent better. Skill authors write blind, repo maintainers guess what
-their `AGENTS.md` does, and marketplaces rank by popularity.
+guidance before they act. Today nobody can see whether any of it actually
+makes an agent better: skill authors write blind, repo maintainers guess what
+their `AGENTS.md` does, and marketplaces rank by installs.
+
+- **Context is cheap to write and easy to over-claim.** A skill can read well
+  and change nothing, or make answers worse.
+- **Value depends on the model.** What a small model needs, a frontier model
+  may already know. For `claude-opus-5`, 70% of what a skill says is something
+  the model already produces unprompted
+  ([evidence](dokimi/docs/skill-novelty.md)).
+- **Models believe their context, even when it is wrong.** A plausible wrong
+  value planted in a skill is repeated 94% of the time
+  ([evidence](dokimi/docs/skill-novelty-evidence.md)).
+- **Popularity is not evidence.** Stars and installs bury niche expert
+  tooling, such as HPC and numerical libraries.
 
 Dokimi exists to replace belief with measured, tested data.
 
 ## The point
 
-**Trust what passed a test that could have failed.** For any skill, doc
-source, MCP server, profile or repository, dokimi should answer three
-questions with evidence:
+**An artifact is trusted because it passed a test that could have failed.**
 
-1. **Does it help?** The same tasks, the same model, with and without the
-   artifact, and the delta with its statistics. This A/B comparison is the
+Change one thing (a skill, instructions, docs, an MCP server, `AGENTS.md`).
+Keep everything else fixed. Get the difference, with its p-value.
+
+Every answer leads to an action:
+
+1. **Does it help?** Ship it, or don't, per model. This A/B comparison is the
    core; everything else builds on it.
-2. **What exactly helps, and what doesn't?** The parts that add something,
-   the parts the model already knew, the parts that hurt, and what is still
-   missing.
-3. **What to do next?** A concrete path to improve the skill, the repository
-   or the MCP server, so that the next run measures better.
+2. **What exactly helps, and what doesn't?** Edit it: the parts that add
+   something, the parts the model already knew, the parts that hurt, and what
+   is still missing.
+3. **What to do next?** Fix it: a concrete path to improve the skill, the
+   repository or the MCP server, so that the next run measures better.
 
 ## Where we are going (next 3–6 months)
 
@@ -42,6 +57,9 @@ popularity signals are weakest and correctness matters most.
 - **The A/B comparison is the core.** Novelty, routing, repository scans,
   tool preference and whatever comes next are ways to get sharper or cheaper
   answers to the same question.
+- **Beat a placebo, not just nothing.** Off-topic text can make a model
+  worse, so a real gain has to beat a control of the same length.
+- **"Not measured" is never shown as "pass".**
 - **Cheap first, costly only when needed.** Static and LLM-free checks run
   first. Expensive runs (agents, Docker, panels) are only for what the cheap
   checks cannot settle. How much rigor and how much spend is up to the use
