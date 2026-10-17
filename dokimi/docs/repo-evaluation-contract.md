@@ -37,7 +37,7 @@ SPDX-License-Identifier: Apache-2.0
 > no LLM call): root CLAUDE.md files and their `@` imports plus the skill listing at
 > start, nested guidance lazily, skill bodies on demand, and AGENTS.md files a
 > root CLAUDE.md turns off. `start` is not an upper bound: `.claude/rules/*.md` files are not
-> counted, and imports are followed past Claude Code's 5-hop limit:
+> counted, and imports are followed past Claude Code's four-hop limit:
 >
 > ```bash
 > python cli.py repo budget <source> [--harness claude-code] [--json] [--fail-on-warning]

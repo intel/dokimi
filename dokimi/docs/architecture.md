@@ -251,7 +251,7 @@ next release.
   `--fail-on-warning`. `start` is not an upper bound: `.claude/rules/*.md` files are not
   counted, only `@path.md` imports are followed (`@notes.txt` adds nothing), skills are read
   only from the root `.claude/skills/*/SKILL.md`, and imports are followed past Claude Code's
-  5-hop limit.
+  four-hop limit.
 - `dokimi/repos/static.py` — the `repo_static.v1` schema: what the
   repository's own `static` entry point writes, so its checks can be merged
   into L0.
