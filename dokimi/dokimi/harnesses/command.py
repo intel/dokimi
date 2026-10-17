@@ -35,6 +35,9 @@ _PLACEHOLDERS = (
 )
 
 MAX_TIMEOUT_SEC = 3600.0
+# How long a timed-out `harbor` gets after SIGTERM to remove its trial container and image,
+# which belong to the Docker daemon and would outlive a kill.
+HARBOR_TERM_GRACE_SEC = 60.0
 
 
 @dataclass(frozen=True)
@@ -47,9 +50,6 @@ class CommandHarness:
     default_timeout_sec: float | None = None
     env: dict[str, str] = field(default_factory=dict)
     agent: str | None = None  # the Harbor agent id, for kind="harbor"
-    # On a timeout, SIGTERM the group and wait this long before SIGKILL (0: kill at once).
-    # Harbor needs it to stop and remove its trial container; a SIGKILL leaves it running.
-    term_grace: float = 0.0
     runner: process.Runner = field(default=process.run, compare=False, repr=False)
 
     def run(
@@ -118,11 +118,12 @@ class CommandHarness:
         # A timeout kills the command's whole process tree (an agent's tool calls too), and
         # so does its exit: no process it started outlives the cell. A docker container is
         # the daemon's, not the tree's: only a command that stops its own within
-        # `term_grace` (Harbor) leaves none behind. The output is captured
+        # its SIGTERM grace (harbor) leaves none behind. The output is captured
         # whole: the reward and DOKIMI_OP markers are read from it.
         if timeout > 0:
+            grace = HARBOR_TERM_GRACE_SEC if self.kind == "harbor" else 0.0
             proc = self.runner(command, cwd=task_root.parent, env=process.Env.inherit(env), timeout=timeout,
-                               capture_limit=None, term_grace=self.term_grace)
+                               capture_limit=None, term_grace=grace)
         else:
             # A task budget of 0 or less has no time to run: a timeout, as on main, not an error.
             proc = process.Completed(tuple(command), process.TIMEOUT_RC, timed_out=True)

@@ -667,6 +667,40 @@ def test_command_harness_leaves_nothing_of_the_agent_running(tmp_path, ends):
         assert (result.returncode, result.reward, result.passed) == (0, 1.0, True)
 
 
+# A `harbor` that, on SIGTERM, takes a second to remove its trial container (here a
+# marker file), as the real one does before it exits.
+_HARBOR_THAT_CLEANS_UP = """import pathlib, signal, sys, time
+def stop(*_):
+    time.sleep(1)
+    pathlib.Path(sys.argv[-1], "removed").write_text("yes")  # argv[-1]: --jobs-dir
+    sys.exit(143)
+signal.signal(signal.SIGTERM, stop)
+print("trial running", flush=True)
+time.sleep(60)
+"""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows terminates the job at once")
+def test_a_timed_out_harbor_gets_the_grace_to_remove_its_container(tmp_path, monkeypatch):
+    """`harbor` killed at once left its trial container and image behind (they belong to
+    the Docker daemon); SIGTERM and a grace let it remove them. A plain command gets none."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    harbor = bin_dir / "harbor"
+    harbor.write_text(f"#!{sys.executable}\n{_HARBOR_THAT_CLEANS_UP}", encoding="utf-8")
+    harbor.chmod(harbor.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+    out = tmp_path / "out"
+    result = create_harness("terminal-bench:aider").run(task, model="m", output_dir=out, timeout_sec=1)
+    assert (result.returncode, result.metrics["timed_out"]) == (124, True)
+    assert "trial running" in result.stdout_tail
+    assert (out / "removed").is_file(), "harbor was killed before it removed its container"
+    fake = FakeRunner()
+    create_harness("command:agent", runner=fake).run(task, output_dir=out)
+    assert fake.calls[0].term_grace == 0.0
+
+
 def test_an_arm_that_hangs_is_not_scored_above_one_that_fails_fast(tmp_path):
     """Real sweep: two arms identical except that on the hard tasks one hangs
     past timeout_sec and the other exits 1. Both are failures, so the arms tie
@@ -883,15 +917,3 @@ def test_command_harness_non_positive_timeout_is_a_scored_timeout(tmp_path):
     assert fake.calls == []
     assert result.returncode == 124 and result.reward == 0.0 and not result.passed
 
-
-def test_harbor_timeout_gives_the_trial_container_a_grace(tmp_path):
-    """Harbor removes its trial container on SIGTERM; a plain kill leaves it running."""
-    from dokimi.harnesses.registry import HARBOR_TERM_GRACE_SEC
-
-    assert HARBOR_TERM_GRACE_SEC == 60.0
-    for harness_id in ("terminal-bench:oracle", "codex", "claude-code"):
-        assert create_harness(harness_id).term_grace == 60.0
-    task = load_task(_fixture_task(tmp_path))
-    fake = FakeRunner(lambda call: reply("reward: 1.0"))
-    CommandHarness("fake", "fake-agent --task {task_path}", runner=fake).run(task, output_dir=tmp_path / "out")
-    assert fake.calls[0].term_grace == 0.0

@@ -1271,8 +1271,20 @@ def test_error_line_names_the_reason_after_the_job_started(tmp_path, monkeypatch
 def test_error_line_skips_either_registry_banner(banner):
     from dokimi.harnesses.benchflow import _error_line
 
-    assert _error_line(f"{banner}\nUnknown agent 'zz' — not in registry\n") == (
+    assert _error_line(f"{banner}\nUnknown agent 'zz' — not in registry\n".splitlines()) == (
         "Unknown agent 'zz' — not in registry")
+
+
+def test_error_line_is_found_in_the_middle_of_a_long_stderr(tmp_path):
+    """The reason is read from the whole stream, not the capture's head and tail;
+    bench.log and the result still keep only those."""
+    filler = "Setting up sandbox user: agent\n" * 40_000  # ~1.2 MB on each side
+    stderr = filler + "[ERR] sb-task: unexpected exception: boom\n" + filler
+    res = create_harness("benchflow:oracle", runner=_Bench(lambda cmd, cwd: (1, "", stderr))).run(
+        load_task(_task(tmp_path)), output_dir=tmp_path / "o")
+    assert res.metrics["error"] == "no BenchFlow result.json (exit 1): [ERR] sb-task: unexpected exception: boom"
+    assert "bytes not kept" in (tmp_path / "o" / "bench.log").read_text(encoding="utf-8")
+    assert sorted(p.name for p in (tmp_path / "o").iterdir() if p.is_file()) == ["bench.log"]
 
 
 def test_synthetic_api_error_text_is_not_an_attempt(tmp_path, monkeypatch):
@@ -1690,12 +1702,3 @@ def test_preflight_docker_and_bench_checks_inherit_the_environment(monkeypatch):
         pass
     assert fake.calls and all(c.env.get("DOCKER_HOST") == "unix:///x.sock" for c in fake.calls)
 
-
-def test_error_line_skips_the_capture_limit_marker():
-    """Over 1 MiB of stderr, the runner's marker is not the reason bench gave."""
-    from dokimi.harnesses.benchflow import _error_line
-    from dokimi.process import TRUNCATION_MARKER
-
-    marker = TRUNCATION_MARKER.format(dropped=123)
-    assert _error_line(f"progress{marker}[ERR] sandbox failed\n").startswith("[ERR] sandbox failed")
-    assert "bytes not kept" not in _error_line(f"{marker}")

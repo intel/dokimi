@@ -391,7 +391,10 @@ unless that tool filters them. Its stdin is closed, and its output is read as
 UTF-8. A timeout kills the command's whole process group (job object on
 Windows), not only the command, and is a failed cell (reward 0, returncode 124)
 that keeps the output printed before the kill; anything the command left
-running when it exits is killed too.
+running when it exits is killed too. A timed-out `harbor` first gets SIGTERM
+and 60 s to remove its trial container and image, which a kill would leave
+behind (POSIX; Windows terminates the job at once). Harbor 0.20.0 exits on
+SIGTERM before it removes them for a task with `allow_internet = false`.
 
 The Harbor adapter command is:
 
