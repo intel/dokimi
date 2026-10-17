@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+from dataclasses import fields, replace
 from pathlib import Path
+
+from dokimi import process
 
 from .benchflow import (
     SKILL_MODE_NO_SKILL,
@@ -43,8 +46,9 @@ def known_harnesses() -> dict[str, str]:
     }
 
 
-def create_harness(harness: str, *, command_template: str | None = None):
-    """Create a coding harness adapter.
+def create_harness(harness: str, *, command_template: str | None = None,
+                   runner: process.Runner = process.run):
+    """Create a coding harness adapter; ``runner`` starts the processes it runs.
 
     Harbor-backed built-ins (``codex``, ``claude-code``) follow the
     Harbor/terminal-bench task format. The ``docker-*`` adapters need no Harbor:
@@ -52,9 +56,16 @@ def create_harness(harness: str, *, command_template: str | None = None):
     probe), and verify
     locally while capturing LLM telemetry. A custom ``command:`` template may use
     placeholders ``{task_path}``, ``{task}``, ``{model}``, ``{output_dir}``,
-    ``{prompt}``.
+    ``{prompt}``. The ``docker-*`` adapters start theirs themselves and ignore
+    ``runner``.
     """
+    adapter = _create(harness, command_template)
+    if runner is process.run or "runner" not in {f.name for f in fields(adapter)}:
+        return adapter
+    return replace(adapter, runner=runner)
 
+
+def _create(harness: str, command_template: str | None):
     if command_template:
         return CommandHarness(harness_id=harness, command_template=command_template, kind="command")
     if harness == "codex":
