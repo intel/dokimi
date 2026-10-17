@@ -219,6 +219,15 @@ def test_safe_int_reads_bools_and_non_finite_floats_as_zero_and_truncates_floats
     assert _safe_int(float("inf")) == 0
 
 
+def test_an_entry_point_record_without_a_stored_share_reports_it_from_the_counts():
+    """A record that predates ``outside_share`` prints the share its counts give (83%), not 0%."""
+    record = {"include_resources": False, "n_files": 1, "entry_point_words": 100,
+              "resource_words_on_disk": 500, "resource_words_measured": 0,
+              "policy_excluded_words": 0, "unreadable_files": 0, "excluded": []}
+    text = "\n".join(report._render_bundle({"bundle": record}))
+    assert "**83%** of this artifact's words (500 of 600) sit in bundled files" in text
+
+
 def test_absent_policy_words_are_summed_from_policy_rows_only():
     record = {"include_resources": False, "entry_point_words": 100,
               "resource_words_on_disk": 9000, "resource_words_measured": 0,
