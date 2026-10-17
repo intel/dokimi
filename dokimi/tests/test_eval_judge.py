@@ -298,6 +298,12 @@ class TestJudgeAnswer:
         (["x: misleading/wrong."], 95, 40),
         (["64 B: WRONG (expected 128)"], 95, 40),
         (["x — not wrong"], 95, 95),
+        # A path-like tail does not cap; a single-token qualifier does.
+        (["x: see docs/wrong"], 95, 95),
+        (["x: unverified (see docs/wrong)"], 95, 95),
+        (["64 B: unverified, see section 4.2/wrong"], 95, 95),
+        (["x: L2/wrong"], 95, 40),
+        (["x: dubious, misleading/wrong"], 95, 40),
         # A claim with no real separator (`:`, `-`, `(`) is unread, even if `,` appears.
         (["64 bytes, wrong"], 95, 95),
         # Qualified verdicts work the same in dict claims and strings.
@@ -391,6 +397,12 @@ class TestJudgeAnswer:
         "8 ms: not necessarily right",
         "AVX2 (256-bit, correct width): dubious",
         "x: see docs/correct-usage",
+        # A "/" inside prose or a path is not a qualifier list: only a single token right after
+        # the separator or comma qualifies the verdict.
+        "x: see docs/correct",
+        "x: unverified (see docs/right)",
+        "x: unverified, matches the spec/correct",
+        "x: cf. AVX/correct",
         # A non-intensifier adverb hedges the fallback verdict, as `hardly` does.
         "x: dubious, typically correct",
         "x: plausible, typically correct",
