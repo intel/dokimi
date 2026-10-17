@@ -305,6 +305,17 @@ def test_command_explorer_timeout_preserves_partial_telemetry(tmp_path):
     assert any(op.name == "pre-timeout" for op in result.operations)
 
 
+def test_command_explorer_nul_byte_in_query_fails_the_row(tmp_path):
+    from dokimi.explore import CommandExplorer
+
+    # A NUL byte cannot reach argv; it must fail this row, not the explore run.
+    result = CommandExplorer("echo {query_quoted}", output_root=tmp_path / "o").explore(
+        "where\x00is it?", repo_root=tmp_path
+    )
+    assert result.returncode == 124
+    assert result.final_answer == ""
+
+
 def test_command_explorer_empty_command_returns_error(tmp_path):
     from dokimi.explore import CommandExplorer
 

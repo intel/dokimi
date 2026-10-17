@@ -802,6 +802,16 @@ def test_cleanup_docker_calls_are_bounded(tmp_path, monkeypatch):
     assert [(c.argv[1], c.timeout) for c in fake.calls] == [("ps", 10.0), ("ps", 10.0), ("rm", 60.0)]
 
 
+def test_a_docker_ps_that_times_out_removes_nothing(tmp_path):
+    """A partial `docker ps -q` line is an id prefix, and `docker rm -f` matches prefixes."""
+    import dokimi.harnesses.benchflow as mod
+
+    (tmp_path / "job" / "t__1").mkdir(parents=True)
+    fake = FakeRunner(lambda call: reply("3f2", timed_out=True) if call.argv[1] == "ps" else reply())
+    assert mod.remove_rollout_containers(tmp_path, runner=fake) == []
+    assert [c.argv[1] for c in fake.calls] == ["ps"]
+
+
 @pytest.fixture
 def reap():
     """Kill, at teardown, the process groups whose pidfiles a test registers: the
