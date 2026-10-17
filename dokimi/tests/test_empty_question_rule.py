@@ -167,3 +167,25 @@ def test_cli_reports_the_record_and_exits_1(tmp_path, monkeypatch, capsys):
     assert exc.value.code == 1
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and "'q2'" in err and "Traceback" not in err
+
+
+def test_arms_run_refuses_a_blank_question_before_any_answer_is_paid_for(tmp_path, monkeypatch, capsys):
+    """The question-set reader accepts a whitespace-only question; the judge would refuse it
+    only after every arm had answered, and the run's output is never written."""
+    import dokimi.commands.arms as arms_mod
+    from dokimi import cli
+
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps({"questions": [{"id": "q1", "question": "How?"},
+                                                   {"id": "q2", "question": "   "}]}), encoding="utf-8")
+    answered = []
+    monkeypatch.setattr(ArmRunner, "run", lambda self, library_name, questions, **kw: answered.append(1) or [
+        _arms_record(q["id"], q["question"]) for q in questions])
+    monkeypatch.setattr(arms_mod, "_probe_sampling", lambda *a: None)
+    out = tmp_path / "arms.json"
+    monkeypatch.setattr(sys, "argv", ["dokimi", "arms", "run", "--product", "lib", "--questions", str(questions),
+                                      "--arms", "baseline", "--judge", "--out-json", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1 and "'q2'" in capsys.readouterr().err
+    assert answered == [] and not out.exists()

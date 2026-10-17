@@ -575,6 +575,10 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
 
     _check_sampling_support(args)
     if args.judge:
+        from dokimi.eval.question_text import require_question_texts
+
+        # The judge refuses a blank question; here, that is before any answer is paid for.
+        require_question_texts(questions)
         from dokimi.llm import unsupported_sampling_params
         from dokimi.utils import bedrock_litellm_model
 
