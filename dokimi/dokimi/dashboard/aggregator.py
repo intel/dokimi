@@ -10,14 +10,16 @@ import logging
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Union
+
+from dokimi.eval.records import BASELINE, CONTEXT, RecordError, records
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class QuestionResult:
-    question_id: str
+    question_id: Union[str, int]
     question: str
     with_docs_score: Optional[float]
     without_docs_score: Optional[float]
@@ -127,6 +129,11 @@ class ResultsAggregator:
             return None
         if not evaluations:
             return None
+        try:
+            recs = records(evaluations, source=str(path), kind="evaluations")
+        except RecordError as e:
+            logger.warning(f"Invalid evaluation record in {path}: {e}")
+            return None
 
         # Infer product name: prefer explicit field, fall back to filename stem
         product = data.get("library_name") or data.get("product") or path.stem
@@ -146,18 +153,17 @@ class ResultsAggregator:
         without_scores = []
         deltas = []
 
-        for ev in evaluations:
-            if not isinstance(ev, dict):
-                continue
-            q_id = ev.get("question_id", "")
-            q_text = ev.get("question_text") or ev.get("question", "")
+        for ev in recs:
+            q_id = ev.question_id
+            q_text = ev.question_text
 
-            with_eval = ev.get("with_docs") or {}
-            without_eval = ev.get("without_docs") or {}
+            with_s, without_s = ev.scores.get(CONTEXT), ev.scores.get(BASELINE)
+            with_eval: Mapping[str, Any] = with_s.raw if with_s is not None else {}
+            without_eval: Mapping[str, Any] = without_s.raw if without_s is not None else {}
 
-            with_score = _as_float(with_eval.get("aggregate") if isinstance(with_eval, dict) else None)
-            without_score = _as_float(without_eval.get("aggregate") if isinstance(without_eval, dict) else None)
-            delta = _as_float(ev.get("delta"))
+            with_score = _as_float(ev.score(CONTEXT))
+            without_score = _as_float(ev.score(BASELINE))
+            delta = _as_float(ev.delta)
 
             if with_score is not None:
                 with_scores.append(with_score)
@@ -166,7 +172,7 @@ class ResultsAggregator:
             if delta is not None:
                 deltas.append(delta)
 
-            q_source = ev.get("question_source", "persona")
+            q_source = ev.raw.get("question_source", "persona")
             grounded = bool((with_eval or {}).get("grounded") or (without_eval or {}).get("grounded"))
 
             questions.append(QuestionResult(

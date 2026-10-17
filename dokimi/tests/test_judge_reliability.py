@@ -970,8 +970,13 @@ def test_cross_judge_judges_refuses_one_damaged_question_among_eight(
         data["evaluations"][5]["question_id"] = None
     code, seen = _cross_judge(tmp_path, monkeypatch, data)
     err = capsys.readouterr().err
+    if damage == "null_qid":
+        # A record with no id is malformed (dokimi.eval.records): refused, naming it.
+        assert code == 1 and not seen
+        assert "evaluations[5]: missing question_id" in err
+        return
     assert code == 2 and not seen
-    assert "skill" in err and ("None" in err if damage == "null_qid" else "'Q5'" in err)
+    assert "skill" in err and "'Q5'" in err
     assert "'Q4'" not in err and "'Q6'" not in err
 
 
@@ -1039,14 +1044,14 @@ def test_cross_judge_judges_accepts_a_snippet_fallback_score(tmp_path, monkeypat
     assert seen.count(BODY) == 8
 
 
-def test_cross_judge_judges_exits_2_for_an_unhashable_question_id(tmp_path, monkeypatch, capsys):
-    """origin/main exits 2 here; the gate loop must not raise TypeError."""
+def test_cross_judge_judges_refuses_an_unhashable_question_id(tmp_path, monkeypatch, capsys):
+    """A malformed id is refused by the records reader, naming it, before any judge call."""
     data = _material_run()
     data["evaluations"][0] = {"question_id": ["a"],
                               "scores": {"skill": {"error": "x", "judge_context_source": "stored"}}}
     code, seen = _cross_judge(tmp_path, monkeypatch, data)
-    assert code == 2 and not seen
-    assert "['a']" in capsys.readouterr().err
+    assert code == 1 and not seen
+    assert "question_id must be a string or an integer, got ['a']" in capsys.readouterr().err
 
 
 def test_cross_judge_judges_on_an_answers_only_file_hands_the_judge_the_material(tmp_path, monkeypatch):

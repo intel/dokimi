@@ -23,6 +23,7 @@ import os
 from typing import List, Dict, Any, Optional
 
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.eval.records import BASELINE, CONTEXT, RecordLike, records
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ class RagasEvaluator:
 
     def evaluate(
         self,
-        answers: List[Dict[str, Any]],
+        answers: List[RecordLike],
         include_without_docs: bool = True,
     ) -> "RagasResult":
         """Run RAGAS evaluation on a list of answer pairs.
@@ -106,40 +107,34 @@ class RagasEvaluator:
                               "Install: pip install ragas datasets") from exc
 
         rows_with = []
-        rows_without = []
+        rows_without: List[Dict[str, Any]] = []
 
-        for ans in answers:
-            q = ans.get("question_text", "")
+        for rec in records(answers, source="answers", kind="answers"):
+            q = rec.question_text
 
             # --- CONTEXT ARM ---
-            wd = ans.get("with_docs") or {}
-            answer_with = wd.get("answer", "")
-            docs = wd.get("retrieved_docs", [])
-            context = [d.get("snippet") or d.get("content", "") for d in docs if d]
-
-            if answer_with and context:
+            wd = rec.answer(CONTEXT)
+            if wd is not None and wd.text and wd.context:
                 row: Dict[str, Any] = {
                     "question": q,
-                    "answer": answer_with,
-                    "contexts": context,
-                    "question_id": ans.get("question_id", ""),
+                    "answer": wd.text,
+                    "contexts": wd.context,
+                    "question_id": rec.question_id,
                 }
                 # Add ground truth if available (enables context_recall)
-                gt = ans.get("ground_truth_chunk")
-                if gt and "context_recall" in self._requested:
-                    row["ground_truth"] = gt
+                if rec.ground_truth and "context_recall" in self._requested:
+                    row["ground_truth"] = rec.ground_truth
                 rows_with.append(row)
 
             # --- BASELINE (answer_relevancy only) ---
             if include_without_docs and "answer_relevancy" in self._requested:
-                wod = ans.get("without_docs") or {}
-                answer_without = wod.get("answer", "")
-                if answer_without:
+                wod = rec.answer(BASELINE)
+                if wod is not None and wod.text:
                     rows_without.append({
                         "question": q,
-                        "answer": answer_without,
+                        "answer": wod.text,
                         "contexts": [""],   # RAGAS requires contexts field
-                        "question_id": ans.get("question_id", ""),
+                        "question_id": rec.question_id,
                     })
 
         # Evaluate with_docs

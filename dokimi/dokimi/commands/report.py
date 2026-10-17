@@ -92,6 +92,7 @@ def cmd_report(args: argparse.Namespace) -> None:
 
 def cmd_report_eval(args: argparse.Namespace) -> None:
     """Generate quality report from eval JSON (dynamic vs static breakdown)."""
+    from dokimi.eval.records import RecordError
     from dokimi.report.eval_report import generate_report
 
     if args.out:
@@ -100,11 +101,16 @@ def cmd_report_eval(args: argparse.Namespace) -> None:
         out = f"results/{args.product.lower()}_{args.run_id}/reports/{args.product}_full.md"
     else:
         out = f"results/{args.product}/reports/{args.product}_full.md"
-    generate_report(eval_path=args.eval, out_path=out)
+    try:
+        generate_report(eval_path=args.eval, out_path=out)
+    except RecordError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
 
 
 def cmd_report_generate(args: argparse.Namespace) -> None:
     """Generate comprehensive analysis report from eval results."""
+    from dokimi.eval.records import RecordError
     from dokimi.report import ReportGenerator
 
     # Load eval and questions
@@ -122,11 +128,15 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
 
     # Generate report
     generator = ReportGenerator()
-    report = generator.generate_report(
-        eval_data=eval_data,
-        questions_data=questions_data,
-        output_format=args.format
-    )
+    try:
+        report = generator.generate_report(
+            eval_data=eval_data,
+            questions_data=questions_data,
+            output_format=args.format
+        )
+    except RecordError as exc:
+        print(f"Error: {args.eval} {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
 
     # Save output
     output_path = Path(args.output) if args.output else Path(f"reports/{args.product}.{args.format}")

@@ -17,8 +17,15 @@ from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 
 
 def _load_answers(path: str):
+    """The parsed file and its answers records (eval/records.py), or a clean exit."""
+    from dokimi.eval.records import RecordError, read
+
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    answers = data.get("answers", data) if isinstance(data, dict) else data
+    try:
+        answers = list(read(data, source=path, section="answers").records)
+    except RecordError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
     return data, answers
 
 
@@ -229,7 +236,15 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         JudgeContextStore.from_artifact(data) if args.judges and isinstance(data, dict) else None
     )
 
-    if not args.no_stored and isinstance(data, dict) and (m := stored_measure(data)):
+    from dokimi.eval.records import RecordError
+
+    try:
+        stored = None if args.no_stored or not isinstance(data, dict) else stored_measure(data)
+        pair_unrepro = unreproducible_arms(data) if stored and (args.pairwise or args.checklist) else []
+    except RecordError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    if (m := stored):
         # Re-scored judges get the file's judge_materials; pairwise and checklist
         # judges see the answers alone. Each path sees different input, so we refuse
         # the comparison to prevent mixing a change of judge with a change of input.
@@ -241,7 +256,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
 
         # Pairwise and checklist judges see only answers, so stored material makes them incompatible
         if args.pairwise or args.checklist:
-            unrepro.update(unreproducible_arms(data))
+            unrepro.update(pair_unrepro)
         elif materials is not None:
             # The loop below is the whole --judges gate: it compares each stored score's
             # digest with what the reader serves, for the questions score_measure scores.

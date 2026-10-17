@@ -77,7 +77,8 @@ def test_tool_usage_records_first_loaded_skill(catalog):
 
 # ── scoring ──────────────────────────────────────────────────────────────
 def _rec(expected, selected, arm="cat", **extra):
-    rec = {"arms": {arm: {"agentic": True, "tool_usage": {"skill": {"offered": True, "selected": selected}}}}}
+    rec = {"question_id": "q1",
+           "arms": {arm: {"agentic": True, "tool_usage": {"skill": {"offered": True, "selected": selected}}}}}
     if expected != "UNLABELLED":
         rec["expected_skill"] = expected
     rec.update(extra)
@@ -105,7 +106,7 @@ def test_selection_summary_scores_hits_misroutes_and_false_triggers():
 
 
 def test_selection_summary_skips_arms_without_skills():
-    rec = {"expected_skill": "x", "arms": {"baseline": {"answer": "a"}}}
+    rec = {"question_id": "q1", "expected_skill": "x", "arms": {"baseline": {"answer": "a"}}}
     assert summarize_skill_selection([rec]) == {}
 
 
@@ -262,18 +263,23 @@ def test_skill_catalog_rejects_tool_name_collisions_and_long_names(tmp_path):
         SkillCatalogTreatment(discover_skills(long_root))
 
 
-def test_selection_summary_skips_non_dict_arms():
+def test_selection_summary_refuses_a_non_object_arm():
+    """No writer writes an arm payload that is not an object or null; it names the record."""
+    from dokimi.eval.records import RecordError
+
     rec = _rec("a", "a")
     rec["arms"]["broken"] = "error string"
-    assert list(summarize_skill_selection([rec])) == ["cat"]
+    with pytest.raises(RecordError, match=r"answers\[0\]\.arms\.broken: expected an object or null"):
+        summarize_skill_selection([rec])
 
 
 def test_failed_skill_arms_are_counted_not_dropped():
-    failed = {"arms": {"cat": {"error": "agent_failed: 429", "answer": None,
+    failed = {"question_id": "q2", "arms": {"cat": {"error": "agent_failed: 429", "answer": None,
                                "metadata": {"arm_kind": "skill_catalog"}}}, "expected_skill": "a"}
     s = summarize_skill_selection([_rec("a", "a")] + [failed] * 9)["cat"]
     assert (s["n"], s["n_failed"], s["recall"]) == (1, 9, 1.0)
-    baseline_err = {"arms": {"b": {"error": "x", "metadata": {"arm_kind": "baseline"}}}, "expected_skill": "a"}
+    baseline_err = {"question_id": "q3", "arms": {"b": {"error": "x", "metadata": {"arm_kind": "baseline"}}},
+                    "expected_skill": "a"}
     assert summarize_skill_selection([baseline_err]) == {}
 
 
@@ -490,7 +496,7 @@ def test_first_turn_with_several_loads_is_one_choice(catalog):
     ]
     skill = _summarize_tool_usage(tools, transcript)["skill"]
     assert skill["first_turn_loaded"] == ["dpnp-io", "linux-perf"]
-    rec = {"expected_skill": "linux-perf", "arms": {"cat": {"tool_usage": {"skill": skill}}}}
+    rec = {"question_id": "q1", "expected_skill": "linux-perf", "arms": {"cat": {"tool_usage": {"skill": skill}}}}
     s = summarize_skill_selection([rec])["cat"]
     # The right skill plus a rival is not a hit; the lenient figure keeps it visible.
     assert (s["recall"], s["recall_any"], s["multi_load_rate"]) == (0.0, 1.0, 1.0)
@@ -663,7 +669,7 @@ def test_catalog_judge_reference_is_the_loaded_skill_not_the_catalog_head(monkey
 def test_loading_the_whole_catalog_in_one_turn_is_not_a_hit(catalog):
     tools = create_treatment(f"skill-catalog:{catalog}").prepare("q", "lib").tools
     skill = _summarize_tool_usage(tools, [{"iteration": 1, "tool": t.name} for t in tools])["skill"]
-    rec = {"expected_skill": "linux-perf", "arms": {"cat": {"tool_usage": {"skill": skill}}}}
+    rec = {"question_id": "q1", "expected_skill": "linux-perf", "arms": {"cat": {"tool_usage": {"skill": skill}}}}
     s = summarize_skill_selection([rec])["cat"]
     assert (s["recall"], s["misroute_rate"], s["recall_any"]) == (0.0, 1.0, 1.0)
     assert s["mean_first_turn_loads"] == 3.0

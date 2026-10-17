@@ -33,29 +33,12 @@ insufficient_data
     Delta could not be computed (one or both answers missing).
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
+
+from dokimi.eval.records import Answer, RecordLike, records
 
 # Keyword-overlap score below which retrieved docs are considered off-topic
 LOW_RELEVANCE_CUTOFF = 0.3
-
-# ``doc_source`` values the answerer writes when no document reached the prompt
-NO_RETRIEVAL_SOURCES = ("fallback_none", "none")
-
-
-def retrieval_hit(answer: Dict[str, Any]) -> Optional[bool]:
-    """Whether retrieval put at least one document into the context-arm prompt.
-
-    Derived from what ``Answerer`` records on the answers.v1 record: the
-    ``retrieved_docs`` it passed to the model and the ``doc_source`` it stamps
-    (``fallback_none`` when retrieval or reranking returned nothing). ``None``
-    when the record has no context arm, so there was no retrieval to score.
-    """
-    with_docs = answer.get("with_docs")
-    if not isinstance(with_docs, dict):
-        return None
-    if with_docs.get("doc_source") in NO_RETRIEVAL_SOURCES:
-        return False
-    return bool(with_docs.get("retrieved_docs"))
 
 # Diagnosis labels (exported for reporting)
 DOCS_HELPED = "docs_helped"
@@ -87,8 +70,8 @@ DIAGNOSIS_DESCRIPTIONS: Dict[str, str] = {
 
 
 def diagnose(
-    answer: Dict[str, Any],
-    eval_result: Dict[str, Any],
+    context_answer: Optional[Answer],
+    delta: Optional[float],
     low_relevance_cutoff: float = LOW_RELEVANCE_CUTOFF,
 ) -> Dict[str, Any]:
     """
@@ -96,12 +79,11 @@ def diagnose(
 
     Parameters
     ----------
-    answer:
-        The answer dict produced by ``Answerer.generate_answers()`` for one
-        question (contains ``with_docs`` and ``without_docs`` sub-dicts).
-    eval_result:
-        The evaluation dict produced by ``Judge._evaluate_answer_pair()``
-        (contains ``delta``, ``with_docs``, ``without_docs``).
+    context_answer:
+        The question's context-arm answer (``Record.answer(CONTEXT)`` of the
+        answers record), ``None`` when the context arm produced none.
+    delta:
+        Context-arm score minus baseline score, ``None`` when either is missing.
     low_relevance_cutoff:
         Relevance score below which retrieved docs are treated as off-topic.
 
@@ -112,8 +94,6 @@ def diagnose(
         - ``detail`` : human-readable description
         - ``evidence``: dict of signals used to reach the diagnosis
     """
-    delta = eval_result.get("delta")
-
     if delta is None:
         return _result(INSUFFICIENT_DATA, {})
 
@@ -121,9 +101,8 @@ def diagnose(
         return _result(DOCS_HELPED, {"delta": delta})
 
     # delta < 0 — classify the failure
-    with_docs_answer = (answer.get("with_docs") or {})
-    doc_source = with_docs_answer.get("doc_source", "")
-    retrieved_docs = with_docs_answer.get("retrieved_docs") or []
+    doc_source = (context_answer.doc_source if context_answer else None) or ""
+    retrieved_docs = context_answer.docs if context_answer else ()
 
     evidence: Dict[str, Any] = {
         "delta": round(delta, 2),
@@ -139,11 +118,7 @@ def diagnose(
         return _result(EMPTY_RETRIEVAL, evidence)
 
     # 2. Docs retrieved — examine relevance scores
-    scores = [
-        d["relevance_score"]
-        for d in retrieved_docs
-        if d.get("relevance_score") is not None
-    ]
+    scores = [d.relevance for d in retrieved_docs if d.relevance is not None]
 
     if scores:
         top_score = max(scores)
@@ -160,14 +135,14 @@ def diagnose(
     return _result(KNOWLEDGE_SUFFICIENT, evidence)
 
 
-def summarise_diagnoses(evaluations: list) -> Dict[str, Any]:
+def summarise_diagnoses(evaluations: Iterable[RecordLike]) -> Dict[str, Any]:
     """
     Aggregate diagnosis statistics across all evaluations.
 
     Parameters
     ----------
     evaluations:
-        List of eval dicts (each may or may not have a ``diagnosis`` key).
+        Eval records (each may or may not carry a diagnosis).
 
     Returns
     -------
@@ -175,17 +150,18 @@ def summarise_diagnoses(evaluations: list) -> Dict[str, Any]:
         - ``counts``  : {label: int}
         - ``rates``   : {label: float}  (0-1)
         - ``total``   : int
-        - ``failures``: list of eval dicts where delta < 0
+        - ``failures``: the persisted eval records whose ``delta`` is below 0
     """
-    total = len(evaluations)
+    recs = records(evaluations, kind="evaluations")
+    total = len(recs)
     counts: Dict[str, int] = {k: 0 for k in DIAGNOSIS_LABELS}
 
-    failures = []
-    for e in evaluations:
-        diag = (e.get("diagnosis") or {}).get("label", INSUFFICIENT_DATA)
+    failures: List[Mapping[str, Any]] = []
+    for r in recs:
+        diag = (r.diagnosis or {}).get("label", INSUFFICIENT_DATA)
         counts[diag] = counts.get(diag, 0) + 1
-        if (e.get("delta") or 0) < 0:
-            failures.append(e)
+        if (r.delta or 0) < 0:
+            failures.append(r.raw)
 
     rates = {k: round(v / total, 3) if total else 0.0 for k, v in counts.items()}
     return {

@@ -170,11 +170,15 @@ def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
     """Compare paired no-plugin/plugin arms artifacts."""
     from dokimi.artifacts import load_artifact, save_artifact
     from dokimi.eval.plugin_delta import PluginDeltaError, compare_plugin_runs
+    from dokimi.eval.records import records
     from dokimi.report.plugin_delta_report import render_plugin_delta_report
 
     try:
         baseline = load_artifact("arms", Path(args.baseline_json))
         plugin = load_artifact("arms", Path(args.plugin_json))
+        for path, artifact in ((args.baseline_json, baseline), (args.plugin_json, plugin)):
+            for section in ("answers", "evaluations"):
+                records(artifact.get(section) or [], source=f"{path} {section}", kind=section)
         output = compare_plugin_runs(baseline, plugin)
     except (PluginDeltaError, ValueError, FileNotFoundError) as exc:
         print(f"Error computing plugin delta: {exc}", file=sys.stderr)
@@ -438,7 +442,12 @@ def _load_questions(path: str) -> list[dict]:
     from dokimi.questions.artifact import load_questions
 
     questions = load_questions(path).questions
-    _refuse_duplicate_ids([question_id(q) for q in questions], path)
+    ids = [question_id(q) for q in questions]
+    for i, qid in enumerate(ids):
+        # The records reader refuses any other id, so a run with one would be paid for and lost.
+        if qid is not None and (isinstance(qid, bool) or not isinstance(qid, (str, int))):
+            raise ValueError(f"{path}: questions[{i}]: id must be a string or an integer, got {qid!r}")
+    _refuse_duplicate_ids(ids, path)
     print(f"Loaded {len(questions)} questions from {path}")
     return questions
 
