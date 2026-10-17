@@ -41,8 +41,11 @@ MCP_FILE = ".mcp.json"
 LISTING_TEXT_CAP = 1536
 # Claude Code's import path runs from the @ to the next whitespace: `(@x.md)` or `@x.md.` imports nothing.
 IMPORT = re.compile(r"(?<!\S)@(\S+\.md)(?!\S)")
-# Claude Code does not follow an @path inside a code block or a code span.
-_CODE_BLOCK = re.compile(r"^ {0,3}(`{3,}|~{3,}).*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", re.S | re.M)
+# Claude Code does not follow an @path inside a code block or a code span. Only top-level fences
+# are handled (not one inside a blockquote or list item, nor an indented code block). A backtick
+# fence's info string has no backtick (CommonMark), so ```make``` at a line start is a code span.
+# An unclosed fence runs to the end of the file.
+_CODE_BLOCK = re.compile(r"^ {0,3}(`{3,}(?=[^`\n]*$)|~{3,}).*?(?:^ {0,3}\1[`~]*[ \t]*$|\Z)", re.S | re.M)
 # A code span may wrap onto the next line of its paragraph (CommonMark), but not across a blank
 # line, onto a heading, quote, list item or underline line, or past the end of a heading.
 _BACKTICKS = re.compile(r"`+")
@@ -171,8 +174,8 @@ def _unaliased(tree: RepoTree, guidance: list[str]) -> list[str]:
 def _is_resolvable(tree: RepoTree, path: str) -> bool:
     """True if the file path resolves (not a dangling link, loop, or out-of-tree)."""
     try:
-        tree.resolve(path)  # SourceError if it dangles, loops or escapes
-        return tree.is_file(path)
+        # SourceError if it dangles, loops or escapes; a linked directory in the path is followed
+        return tree.is_file(tree.resolve(path))
     except (OSError, ValueError):
         return False
 
@@ -187,7 +190,7 @@ def _chars(tree: RepoTree, path: str) -> tuple[int, str | None]:
     """Return (char_count, warning_message). Warn on all unreadable files: dangling/out-of-tree links, bad encoding."""
     try:
         return len(tree.read_text(path)), None
-    except (OSError, ValueError) as err:  # UnicodeDecodeError is a ValueError
+    except (OSError, ValueError, RuntimeError) as err:  # RuntimeError: a link loop before Python 3.13  # UnicodeDecodeError is a ValueError
         return 0, f"{path}: not readable ({_unreadable_reason(err)}), counted as 0"
 
 
@@ -199,7 +202,7 @@ def _imports(tree: RepoTree, roots: list[str]) -> set[str]:
         f = todo.pop()
         try:
             text = tree.read_text(f)
-        except (OSError, UnicodeDecodeError, ValueError):
+        except (OSError, ValueError, RuntimeError):  # RuntimeError: a link loop before Python 3.13
             continue
         here = f.rsplit("/", 1)[0] + "/" if "/" in f else ""
         for target in IMPORT.findall(_strip_code_spans(_CODE_BLOCK.sub("", text))):
@@ -234,7 +237,7 @@ def _skills(tree: RepoTree, paths: list[str]) -> list[dict[str, Any]]:
         unreadable: str | None = None
         try:
             meta, body = parse_frontmatter(tree.read_text(path))
-        except (OSError, ValueError) as err:  # UnicodeDecodeError is a ValueError
+        except (OSError, ValueError, RuntimeError) as err:  # UnicodeDecodeError is a ValueError; RuntimeError a loop
             meta, body, unreadable = {}, "", _unreadable_reason(err)
         meta = meta if isinstance(meta, dict) else {}
         name = str(meta.get("name") or path.split("/")[-2])

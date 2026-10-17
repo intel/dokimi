@@ -83,6 +83,7 @@ def test_imports_load_at_start_transitively(tmp_path):
         "docs/style.md": "@../docs/deep.md\n",
         "docs/deep.md": "d" * 7,
         "sub/AGENTS.md": "b" * 5,
+        "ignored.md": "i", "example.md": "e",  # exist, so only the span and the `me@` rule keep them out
     })
     got = budget(tree, NAMES)
     entries = _by_path(got)
@@ -91,6 +92,10 @@ def test_imports_load_at_start_transitively(tmp_path):
     assert entries[("docs/deep.md", "import")]["chars"] == 7
     assert entries[("sub/AGENTS.md", "guidance")]["when"] == "off"  # not imported
     assert ("ignored.md", "import") not in entries and ("example.md", "import") not in entries
+    # positive control: the same files are imports once named plainly
+    (tmp_path / "CLAUDE.md").write_text("@ignored.md @example.md @AGENTS.md\n", encoding="utf-8")
+    plain = _by_path(budget(WorkTree(tmp_path), NAMES))
+    assert ("ignored.md", "import") in plain and ("example.md", "import") in plain
 
 
 def test_imports_in_code_and_absolute_paths_are_not_followed(tmp_path):
@@ -130,8 +135,10 @@ def test_a_nested_claude_md_bridge_loads_its_agents_md_lazily(tmp_path):
 
 
 def test_an_import_outside_the_tree_is_ignored(tmp_path):
-    tree = _tree(tmp_path, {"CLAUDE.md": "@../../etc/passwd.md\n"})
-    assert [e["path"] for e in budget(tree, NAMES)["entries"]] == ["CLAUDE.md"]
+    (tmp_path / "etc").mkdir()
+    (tmp_path / "etc" / "passwd.md").write_text("secret", encoding="utf-8")  # it exists, outside the tree
+    tree = _tree(tmp_path / "repo", {"CLAUDE.md": "@../etc/passwd.md @ok.md\n", "ok.md": "o"})
+    assert [e["path"] for e in budget(tree, NAMES)["entries"]] == ["CLAUDE.md", "ok.md"]  # ok.md: control
 
 
 def test_an_import_through_a_link_out_of_the_tree_is_skipped(tmp_path):
@@ -657,3 +664,87 @@ def test_a_code_span_does_not_wrap_onto_a_new_block(tmp_path):
     got = budget(tree, NAMES)
     imported = {e["path"] for e in got["entries"] if e["kind"] == "import"}
     assert imported == {f"{n}.md" for n in texts} | {"list.md", "after.md"}
+
+
+def test_fence_edges(tmp_path):
+    """An unclosed fence hides the rest; ```x``` at a line start is a span, not a fence; a longer closer closes."""
+    f = "`" * 3
+    cases = {
+        "unclosed": (f"@a.md\n{f}\n@b.md\n", {"a.md"}),
+        "span": (f"{f}make test{f} runs the suite.\n\nSee @a.md\n", {"a.md"}),
+        "longer": (f"{f}\n@b.md\n{f}`\n@a.md\n", {"a.md"}),
+        "tilde_unclosed": ("~~~\n@b.md\n", set()),
+        "setext": ("x `y\nabc\n===\n@a.md `z\n", {"a.md"}),  # an `===` underline ends the span
+    }
+    for name, (text, want) in cases.items():
+        tree = _tree(tmp_path / name, {"CLAUDE.md": text, "a.md": "a", "b.md": "b"})
+        got = {e["path"] for e in budget(tree, NAMES)["entries"] if e["kind"] == "import"}
+        assert got == want, name
+
+
+def test_import_paths_with_dashes_and_dot_segments(tmp_path):
+    tree = _tree(tmp_path, {"CLAUDE.md": "@docs/my-style.md and @./local.md", "docs/my-style.md": "s" * 3,
+                            "local.md": "l" * 2})
+    got = _by_path(budget(tree, NAMES))
+    assert got[("docs/my-style.md", "import")]["chars"] == 3
+    assert got[("local.md", "import")]["chars"] == 2
+
+
+def test_disable_model_invocation_false_keeps_the_listing(tmp_path):
+    for i, value in enumerate(("false", "no", "0")):
+        text = f"---\nname: s\ndescription: Run it.\ndisable-model-invocation: {value}\n---\nb"
+        got = _by_path(budget(_tree(tmp_path / str(i), {".claude/skills/s/SKILL.md": text}), NAMES))
+        assert got[(".claude/skills/s/SKILL.md", "skill listing")]["chars"] == len("s") + len("Run it.")
+
+
+def test_two_word_partial_overlap_is_not_a_duplicate(tmp_path):
+    tree = _tree(tmp_path, {".claude/skills/one/SKILL.md": _skill("one", "Deploy app"),
+                            ".claude/skills/two/SKILL.md": _skill("two", "Deploy app now")})
+    assert budget(tree, NAMES)["duplicate_skills"] == []
+
+
+def test_cli_rows_inside_a_group_are_larger_first(tmp_path, capsys):
+    _tree(tmp_path, {"CLAUDE.md": "@small.md @big.md", "small.md": "s" * 3, "big.md": "b" * 300})
+    out = _run(["repo", "budget", str(tmp_path)], capsys).out
+    assert out.index("| big.md |") < out.index("| small.md |")
+
+
+def test_an_import_through_a_linked_directory_agrees_across_trees(tmp_path):
+    files = {"CLAUDE.md": "see @docs/a.md", "real/a.md": "aaaa"}
+    links = {"docs": "real"}
+    work = tmp_path / "w"
+    for rel, text in files.items():
+        (work / rel).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel).write_text(text, encoding="utf-8")
+    _link(work / "docs", "real")
+    git_root = tmp_path / "g"
+    git_root.mkdir()
+    for got in (budget(WorkTree(work), NAMES), budget(_linked_repo(git_root, files, links), NAMES)):
+        assert _by_path(got)[("docs/a.md", "import")]["chars"] == 4
+        assert got["warnings"] == []
+
+
+def test_link_loops_warn_instead_of_crashing(tmp_path, monkeypatch):
+    """Before Python 3.13 reading through a link loop raises RuntimeError; simulate it on any version."""
+    import errno
+
+    original = WorkTree.read_text
+
+    def read_text(self, path):
+        try:
+            return original(self, path)
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise RuntimeError(f"Symlink loop from {path}") from exc
+            raise
+
+    monkeypatch.setattr(WorkTree, "read_text", read_text)
+    tree = _tree(tmp_path, {"AGENTS.md": "see @loop.md"})
+    _link(tmp_path / "CLAUDE.md", "CLAUDE.md")
+    _link(tmp_path / "loop.md", "loop.md")
+    (tmp_path / ".claude" / "skills" / "s").mkdir(parents=True)
+    _link(tmp_path / ".claude" / "skills" / "s" / "SKILL.md", "SKILL.md")
+    got = budget(tree, NAMES)  # no RuntimeError
+    assert any(w.startswith("CLAUDE.md: not readable") for w in got["warnings"])
+    assert any(w.startswith(".claude/skills/s/SKILL.md: not readable") for w in got["warnings"])
+    assert {e["path"] for e in got["entries"]} >= {"CLAUDE.md", ".claude/skills/s/SKILL.md"}

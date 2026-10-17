@@ -215,6 +215,19 @@ class GitTree:
     def resolve(self, path: str, dirs: bool = False) -> str:
         start = path = _norm(path)
         for _ in range(40):
+            parts = path.split("/")
+            # The first component that is a link, a directory in the middle of the path included.
+            hop = next((i for i in range(1, len(parts) + 1) if "/".join(parts[:i]) in self._links()), None)
+            if hop is not None and hop < len(parts):
+                head = "/".join(parts[:hop])
+                text = _git(self.git_dir, "show", f"{self.sha}:{head}")
+                base = posixpath.normpath(posixpath.join(posixpath.dirname(head), text))
+                if posixpath.isabs(text) or base == ".." or base.startswith("../"):
+                    raise SourceError(f"path escapes the repository: {head} -> {text}")
+                path = posixpath.normpath(posixpath.join(base, *parts[hop:]))
+                if path == ".." or path.startswith("../"):
+                    raise SourceError(f"path escapes the repository: {start}")
+                continue
             if path not in self._links():
                 if path in self._dir_set() and dirs:
                     return path
