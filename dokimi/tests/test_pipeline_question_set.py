@@ -1137,6 +1137,29 @@ def test_a_regeneration_under_a_colliding_id_is_saved(tmp_path, monkeypatch):
         "Brand new generated one?", "Old generated one?"]
 
 
+def test_a_merge_that_rewords_a_record_under_its_id_is_saved(tmp_path, monkeypatch):
+    """Dedup may keep the longer text of a same-id pair: the saved set must be the answered one."""
+    custom_file = tmp_path / "questions" / "oneTBB.json"
+    _write_json(custom_file, [{"id": "c1", "question": "Custom?", "source_type": "manual"},
+                              {"id": "q_001", "question": "How tune sort?",
+                               "source_type": "generated"}])
+    _stub_regen_steps(monkeypatch, [{"id": "q_001", "question": "How do I tune sort?",
+                                     "source_type": "generated"}])
+    real_merge = EvaluationPipeline._merge_questions
+
+    def keep_longer(self, generated):
+        return [q for q in real_merge(self, generated) if q["question"] != "How tune sort?"]
+
+    monkeypatch.setattr(EvaluationPipeline, "_merge_questions", keep_longer)
+    _own_output_pipeline(tmp_path).run(concurrency=1)
+
+    saved = json.loads(custom_file.read_text())["questions"]
+    answered_hash = json.loads((tmp_path / "eval" / "oneTBB.json").read_text())[
+        "run_metadata"]["question_set_hash"]
+    assert sorted(q["question"] for q in saved) == ["Custom?", "How do I tune sort?"]
+    assert compute_question_set_hash(saved) == answered_hash
+
+
 def test_without_a_read_custom_set_the_own_file_is_not_written(tmp_path, monkeypatch):
     custom_file = tmp_path / "questions" / "oneTBB.json"
     _write_json(custom_file, [{"id": "c1", "question": "Custom?"}])
