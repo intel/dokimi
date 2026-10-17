@@ -193,7 +193,10 @@ _INTERPRETER_VALUE_OPTS = frozenset({"-W", "-X", "--require", "-r", "--import", 
 _SHELL_VALUE_OPTS = frozenset({"-o", "+o", "-O", "+O"})  # ``bash -o pipefail -c ...``
 _VAR_ASSIGN = re.compile(r"^[A-Za-z_]\w*=")
 _MAX_SHELL_DEPTH = 3
-_SEPARATORS = frozenset({";", "&&", "||", "|", "&", ";;", "|&"})
+# A token made only of these separates commands: `;`, `&&`, `||`, `|`, `&`, a subshell, a substitution.
+_PUNCTUATION = ";&|()`"
+# Shell words before a command (`if x; then npm ci; fi`, `{ npm ci; }`).
+_RESERVED = frozenset({"if", "then", "elif", "else", "while", "until", "do", "!", "{"})
 # Install subcommands per package manager; ``None`` is a bare ``yarn``.
 _INSTALL_COMMANDS = {
     "npm": frozenset({"install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall",
@@ -265,20 +268,20 @@ def _segments(command: str) -> list[list[str]]:
     out: list[list[str]] = []
     for line in command.replace("\\\n", " ").split("\n"):
         if len(line) > 4096:  # shlex is slow on a long unbalanced quote
-            tokens = re.sub(r"(&&|\|\||[;|&])", r" \1 ", line).split()
+            tokens = re.sub(r"(&&|\|\||[;|&()`])", r" \1 ", line).split()
         else:
-            lexer = shlex.shlex(_uncommented(line), posix=True, punctuation_chars=";&|")
+            lexer = shlex.shlex(_uncommented(line), posix=True, punctuation_chars=_PUNCTUATION)
             lexer.whitespace_split = True
             lexer.commenters = ""  # shlex would start a comment inside a word (``https://r/#x``)
             try:
                 tokens = list(lexer)
             except ValueError:
-                tokens = re.sub(r"(&&|\|\||[;|&])", r" \1 ", line).split()
+                tokens = re.sub(r"(&&|\|\||[;|&()`])", r" \1 ", line).split()
         current: list[str] = []
         for token in tokens:
             if token == "&" and current and current[-1].endswith((">", "<")):  # 2>&1
                 current[-1] += token
-            elif token in _SEPARATORS:
+            elif token and not token.strip(_PUNCTUATION):
                 if current:
                     out.append(current)
                 current = []
@@ -298,7 +301,9 @@ def _command_start(argv: list[str]) -> tuple[dict[str, str], int]:
     i = 0
     while i < len(argv):
         word = argv[i]
-        if _VAR_ASSIGN.match(word):
+        if word in _RESERVED:
+            i += 1
+        elif _VAR_ASSIGN.match(word):
             name, _, value = word.partition("=")
             env[name.lower()] = value
             i += 1
