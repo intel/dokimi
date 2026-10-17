@@ -529,6 +529,25 @@ def test_the_litellm_adapter_offers_tools_and_reads_tool_calls(monkeypatch):
     assert reply.tool_calls == (ToolCall("c1", "search", '{"q": "x"}'), ToolCall("c2", "read", "{}"))
 
 
+def test_a_billed_reply_without_choices_keeps_its_usage(monkeypatch, cache_dir, sleeps):
+    import litellm
+
+    from dokimi.commands.tools import _first_turn_caller
+
+    resp = SimpleNamespace(choices=[], usage=SimpleNamespace(
+        prompt_tokens=100, completion_tokens=20, total_tokens=120))
+    monkeypatch.setattr(litellm, "completion", lambda **kw: resp)
+    monkeypatch.setattr(llm_mod, "_safe_completion_cost", lambda r, m, **kw: 0.01)
+    # chat_completion hands the raw response on, so the tool probe still prices it
+    assert chat_completion([{"role": "user", "content": "q"}], "m") is resp
+    with pytest.raises(IndexError) as info:
+        _first_turn_caller("m", "openai", 64)({"messages": [], "tools": []})
+    assert info.value.usage["cost_usd"] == 0.01
+    with pytest.raises(IndexError):
+        llm_call("q", "m", max_retries=0)
+    assert not list(cache_dir.glob("*.json")) and sleeps == []
+
+
 def test_the_litellm_adapter_streams_and_measures_ttft(monkeypatch):
     import litellm
 

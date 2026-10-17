@@ -537,13 +537,17 @@ class LiteLLMAdapter:
             **kwargs,
         )
         latency = time.time() - t0
-        choice = resp.choices[0]
+        # No choices (a billed 200 some routes return) is not an error here:
+        # chat_completion hands the raw response on, and its callers price it.
+        choices = getattr(resp, "choices", None) or ()
+        choice = choices[0] if choices else None
+        message = getattr(choice, "message", None)
         return Reply(
-            text=choice.message.content,
+            text=getattr(message, "content", None),
             usage=_extract_usage(resp, request.model, request.provider, latency_sec=latency,
                                  litellm_model=request.litellm_model),
             finish_reason=getattr(choice, "finish_reason", None),
-            tool_calls=_tool_calls(choice.message),
+            tool_calls=_tool_calls(message),
             response=resp,
         )
 
@@ -706,6 +710,8 @@ class LLM:
         if hit is not None and caching.keeps(cache_if, hit[0]):
             return self._metered(Reply(text=hit[0], usage=hit[1]))
         reply = self._send(self._request(messages, api_key, max_tokens=max_tokens, stream=stream))
+        if reply.response is not None and not getattr(reply.response, "choices", None):
+            raise IndexError("reply has no choices")  # as llm_call always did; not cached
         _warn_if_truncated(reply, self.model, max_tokens)
         # A content-less reply is stored as null, as it always was.
         text = cast(str, reply.text)
