@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -53,11 +52,13 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
         args.top_k = _retrieval_cfg.get("top_k", DEFAULT_RETRIEVAL_TOP_K)
 
     # Load questions
-    questions_data = json.loads(Path(args.questions).read_text(encoding="utf-8"))
-    questions = questions_data.get("questions", questions_data) if isinstance(questions_data, dict) else questions_data
-    if not isinstance(questions, list) or not all(isinstance(q, dict) for q in questions):
-        print(f"Error: expected a list of question objects in {args.questions}", file=sys.stderr)
-        raise SystemExit(1)
+    from dokimi.questions.artifact import load_questions
+
+    try:
+        questions = load_questions(args.questions).questions
+    except ValueError as exc:  # ArtifactValidationError: names the record and the fix
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
     print(f"Loaded {len(questions)} questions from {args.questions}")
 
     # Setup documentation source client

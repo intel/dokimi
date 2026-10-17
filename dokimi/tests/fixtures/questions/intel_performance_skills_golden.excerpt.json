@@ -1,0 +1,52 @@
+{
+  "schema_version": "questions.v1",
+  "library": "Intel Performance Skills",
+  "library_id": "intel/intel-performance-skills",
+  "description": "Golden benchmark set for evaluating whether an agent can apply the intel-performance-skills workflows to practical Linux performance diagnosis and optimization scenarios.",
+  "version_or_doc_snapshot": "intel/intel-performance-skills main branch, inspected 2026-06-12. Skills covered: linux-perf, performance-patterns, phoronix-test-suite.",
+  "questions": [
+    {
+      "id": "intel-performance-skills-Q001",
+      "text": "Scenario: A CPU-bound command `./encode --threads=1` is slow. `perf stat` reports IPC 0.55, cache miss rate 0.3%, branch miss rate 0.7%, and kernel time 2%. What performance regime should the agent infer, which workflow should it run next, and which premature conclusions should it avoid?",
+      "expected_skill": "linux-perf",
+      "category": "triage",
+      "difficulty": "easy",
+      "level": "triage",
+      "expected_topics": [
+        "Low IPC with low cache, branch, and kernel signals points to a compute or dependency-chain stall rather than memory, branch, or syscall domination.",
+        "Run hotspot profiling with `perf record`/`perf report` and then inspect annotated hot functions before proposing a code change.",
+        "Do not recommend cache blocking, branch hints, or I/O changes without evidence; consider serial accumulators or narrow SIMD only after source/profile evidence."
+      ],
+      "metadata": {
+        "persona": "performance_triage_engineer",
+        "skill_under_test": "linux-perf",
+        "expected_workflow": "Flow A to Flow B escalation",
+        "why_it_matters": "Tests whether the agent interprets counters as diagnostic signals instead of matching keywords to generic optimization advice.",
+        "trigger": "counter"
+      }
+    },
+    {
+      "id": "intel-performance-skills-Q006",
+      "text": "Scenario: A service scales from 1 to 4 cores but plateaus after 8 cores. At 32 cores, `perf report` shows `pthread_mutex_lock` and futex paths. What workflow should the agent run, and what evidence should it collect before proposing a lock change?",
+      "expected_skill": [
+        "linux-perf",
+        "performance-patterns"
+      ],
+      "category": "scaling_analysis",
+      "difficulty": "medium",
+      "level": "diagnosis",
+      "expected_topics": [
+        "Use the core-count scaling analysis workflow with threading inspection, scaling sweep, and dual 1-core versus N-core profiles.",
+        "Identify jumping functions and connect them to lock, futex, or c2c evidence before classifying the bottleneck.",
+        "Do not jump directly to an rwlock or lock-free rewrite; first determine whether the critical section is read-heavy, true-sharing, false-sharing, or CAS contention."
+      ],
+      "metadata": {
+        "persona": "backend_performance_engineer",
+        "skill_under_test": "linux-perf",
+        "expected_workflow": "Flow D",
+        "why_it_matters": "Scaling problems need comparative evidence, not a single high-core profile.",
+        "trigger": "counter"
+      }
+    }
+  ]
+}

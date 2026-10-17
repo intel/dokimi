@@ -22,8 +22,8 @@ copy a description into the query; lint runs again on the rewritten text.
 
 Writers target the formats external selection tools read: google/skill-reach
 (``QuerySet`` JSON), anthropics/skills skill-creator (``[{query, should_trigger}]``
-for one target skill), and this repo's ``questions.v1`` (for the
-``skill-catalog:`` arm).
+for one target skill), and this repo's questions artifact (for the
+``skill-catalog:`` arm; saved with :func:`~dokimi.questions.artifact.save_questions_artifact`).
 """
 
 from __future__ import annotations
@@ -244,13 +244,16 @@ def to_skill_creator(queries: Sequence[TriggerQuery], target: str) -> List[Dict[
 
 
 def to_questions(queries: Sequence[TriggerQuery]) -> Dict[str, Any]:
-    """``questions.v1`` carrying ``expected_skill``, for the ``skill-catalog:`` arm."""
+    """A questions payload carrying ``expected_skill``, for the ``skill-catalog:`` arm.
+
+    Unstamped: :func:`~dokimi.questions.artifact.save_questions_artifact` stamps and validates it.
+    """
     rows = []
     for q in queries:
-        row: Dict[str, Any] = {"id": q.id, "text": q.text, "trigger_lint": q.lint}
+        row: Dict[str, Any] = {"id": q.id, "question": q.text, "trigger_lint": q.lint}
         if q.labelled:  # absent = unlabelled, which selection scoring skips
             row["expected_skill"] = q.expected_skill
         if q.source_text is not None:
             row["source_text"] = q.source_text
         rows.append(row)
-    return {"schema_version": "questions.v1", "questions": rows}
+    return {"questions": rows}
