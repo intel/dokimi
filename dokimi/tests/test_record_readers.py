@@ -323,3 +323,36 @@ def test_plugin_delta_names_the_file_with_the_malformed_record(tmp_path, monkeyp
         args.func(args)
     assert "p.json answers[0]: missing question_id" in capsys.readouterr().err
     assert not (tmp_path / "d.json").exists()
+
+
+def _ev(qid, w, wo, delta):
+    return {"question_id": qid, "question_text": f"q{qid}",
+            "with_docs": {"aggregate": w}, "without_docs": {"aggregate": wo}, "delta": delta}
+
+
+def test_baseline_summary_leaves_out_a_question_with_an_unscored_arm():
+    """A delta next to a null or non-numeric aggregate is not averaged as a 0."""
+    from dokimi.commands.baseline import _compute_summary
+
+    evals = [_ev(i, 80, 60, 20) for i in range(4)]
+    evals += [_ev(4, None, 60, 20), _ev(5, "80", 60, 20)]
+    summary = _compute_summary({"evaluations": evals})
+    assert summary == {"n": 4, "avg_with": 80.0, "avg_without": 60.0, "avg_delta": 20.0}
+
+
+def test_report_top_deltas_leave_out_a_bool_aggregate():
+    """A bool aggregate is unscored; its row would raise in the markdown table."""
+    from dokimi.eval.records import records
+    from dokimi.report.generator import ReportGenerator
+
+    evals = records([_ev(0, 80, 60, 20), _ev(1, True, 60, 30)], source="e", kind="evaluations")
+    gen = ReportGenerator.__new__(ReportGenerator)
+    assert [t["question_id"] for t in gen._top_deltas(evals, limit=10)] == [0]
+    assert [t["question_id"] for t in gen._bottom_deltas(evals, limit=10)] == [0]
+
+
+def test_a_binary_record_with_a_stray_null_scores_keeps_its_scores():
+    from dokimi.eval.records import BASELINE, CONTEXT, record
+
+    r = record({**_ev(0, 80, 60, 20), "scores": None}, kind="evaluations")
+    assert (r.score(CONTEXT), r.score(BASELINE)) == (80, 60)

@@ -276,7 +276,8 @@ def record(item: RecordLike, *, source: str = "<input>", index: int = 0, kind: O
     answers: dict[str, Answer] = {}
     scores: dict[str, Score] = {}
     conditions: list[str] = []
-    if "arms" in item or "scores" in item:
+    # A stray `scores: null` on a binary record does not make it an arms record.
+    if item.get("arms") is not None or item.get("scores") is not None:
         for name, payload in _mapping(item, "arms", where).items():
             _check_payload(payload, f"{where}.arms.{name}")
             conditions.append(name)

@@ -203,7 +203,9 @@ class ReportGenerator:
     
     def _top_deltas(self, evaluations: Sequence[Record], limit: int) -> List[Dict]:
         """Get top N improvements (WITH - WITHOUT)."""
-        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None]
+        # Both arms scored: a delta next to an unscored arm has no row to show.
+        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None
+                  and e.score(CONTEXT) is not None and e.score(BASELINE) is not None]
         deltas.sort(reverse=True, key=lambda x: x[0])
         return [
             {
@@ -218,7 +220,9 @@ class ReportGenerator:
     
     def _bottom_deltas(self, evaluations: Sequence[Record], limit: int) -> List[Dict]:
         """Get bottom N (worst degradations from docs)."""
-        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None]
+        # Both arms scored: a delta next to an unscored arm has no row to show.
+        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None
+                  and e.score(CONTEXT) is not None and e.score(BASELINE) is not None]
         deltas.sort(key=lambda x: x[0])
         return [
             {

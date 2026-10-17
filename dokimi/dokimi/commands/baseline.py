@@ -34,7 +34,9 @@ def _compute_summary(eval_data: Dict[str, Any]) -> Dict[str, Any]:
     from dokimi.eval.records import BASELINE, CONTEXT, records
 
     evals = records(eval_data.get("evaluations", []), source="evaluations", kind="evaluations")
-    valid = [e for e in evals if e.delta is not None]
+    # Unscored arms stay out of the means, as in the trust gate.
+    valid = [e for e in evals if e.delta is not None
+             and e.score(CONTEXT) is not None and e.score(BASELINE) is not None]
     if not valid:
         return {}
     avg_with = sum(e.score(CONTEXT) or 0 for e in valid) / len(valid)
