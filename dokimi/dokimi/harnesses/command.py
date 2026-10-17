@@ -35,6 +35,9 @@ _PLACEHOLDERS = (
 )
 
 MAX_TIMEOUT_SEC = 3600.0
+# How long a timed-out `harbor` gets after SIGTERM to remove its trial container and image,
+# which belong to the Docker daemon and would outlive a kill.
+HARBOR_TERM_GRACE_SEC = 60.0
 
 
 @dataclass(frozen=True)
@@ -115,8 +118,9 @@ class CommandHarness:
         # A timeout kills the command's whole process tree (an agent's tool calls too), and
         # so does its exit: nothing it started outlives the cell. The output is captured
         # whole: the reward and DOKIMI_OP markers are read from it.
+        grace = HARBOR_TERM_GRACE_SEC if self.kind == "harbor" else 0.0
         proc = self.runner(command, cwd=task_root.parent, env=process.Env.inherit(env), timeout=timeout,
-                           capture_limit=None)
+                           capture_limit=None, term_grace=grace)
         timed_out, returncode = proc.timed_out, proc.returncode
         stdout, stderr = proc.stdout, proc.stderr
         if timed_out:
