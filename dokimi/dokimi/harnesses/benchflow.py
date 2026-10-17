@@ -36,6 +36,7 @@ import os
 import re
 import shutil
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
@@ -171,8 +172,16 @@ class BenchflowHarness:
         # own (install failure, auth, full disk) — reported as a pass.
         clear_run_dir(jobs_dir)
         start = time.time()
-        returncode, stdout, stderr, timed_out = _run_bench(command, timeout, env, cwd=output_dir,
-                                                           runner=self.runner)
+        # The whole stderr goes to a file, read once for the error line: the
+        # capture keeps only its head and tail, and the reason can be between.
+        stderr_file = output_dir / _STDERR_FILE
+        try:
+            returncode, stdout, stderr, timed_out = _run_bench(command, timeout, env, cwd=output_dir,
+                                                               runner=self.runner, stderr_to=stderr_file)
+            with open(stderr_file, encoding="utf-8", errors="replace") as lines:
+                reason = _error_line(lines)
+        finally:
+            stderr_file.unlink(missing_ok=True)
         if timed_out:
             stderr += f"\nTIMEOUT after {timeout:.0f}s"
             removed = remove_rollout_containers(jobs_dir, runner=self.runner)
@@ -227,7 +236,6 @@ class BenchflowHarness:
             else:
                 # bench failed before writing a rollout (a rubric it rejects, a
                 # bad task, its own hard deadline): its stderr says why.
-                reason = _error_line(stderr)
                 metrics["error"] = (f"no BenchFlow result.json (exit {returncode})"
                                     + (f": {reason}" if reason else ""))
         if result:
@@ -579,6 +587,7 @@ def _float(value: Any, default: float) -> float:
 
 _TIMEOUT_RC = process.TIMEOUT_RC
 _PREFLIGHT_TIMEOUT = 30
+_STDERR_FILE = "bench.stderr"
 _DOCKER_PS_TIMEOUT = 10.0
 _DOCKER_RM_TIMEOUT = 60.0
 # How long bench gets to exit after SIGTERM, and after SIGKILL.
@@ -596,7 +605,8 @@ class BenchRun(NamedTuple):
 
 
 def _run_bench(command: list[str], timeout: float, env: dict[str, str],
-               cwd: Optional[Path] = None, runner: process.Runner = process.run) -> BenchRun:
+               cwd: Optional[Path] = None, runner: process.Runner = process.run,
+               stderr_to: Optional[Path] = None) -> BenchRun:
     """Run ``bench`` with exactly ``env``; on a timeout stop its whole process group.
 
     The group gets ``SIGTERM`` and :data:`_KILL_GRACE_SEC` to exit, then ``SIGKILL``:
@@ -606,7 +616,7 @@ def _run_bench(command: list[str], timeout: float, env: dict[str, str],
     not in the directory cli.py was started from.
     """
     done = runner(command, timeout=timeout, env=process.Env.only((), env), cwd=cwd,
-                  term_grace=_KILL_GRACE_SEC)
+                  term_grace=_KILL_GRACE_SEC, stderr_to=stderr_to)
     return BenchRun(done.returncode, done.stdout, done.stderr, done.timed_out)
 
 
@@ -835,17 +845,24 @@ _PROGRESS_PREFIXES = (
 )
 
 
-def _error_line(text: str, limit: int = 300) -> str:
-    """The line of bench's stderr that says why a cell left no ``result.json``."""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    for prefix in _REASON_PREFIXES:
-        for line in lines:
-            if line.startswith(prefix):
-                return line[:limit]
-    for line in lines:
-        if not line.startswith(_PROGRESS_PREFIXES):
-            return line[:limit]
-    return ""
+def _error_line(lines: Iterable[str], limit: int = 300) -> str:
+    """The line of bench's stderr that says why a cell left no ``result.json``.
+
+    One pass over ``lines`` (the stderr file, of any size): the first line of the
+    earliest prefix in :data:`_REASON_PREFIXES`, else the first non-progress line.
+    """
+    reasons: dict[str, str] = {}
+    other = ""
+    for raw in lines:
+        line = raw.strip()
+        prefix = next((p for p in _REASON_PREFIXES if line.startswith(p)), None)
+        if prefix:
+            reasons.setdefault(prefix, line)
+            if prefix == _REASON_PREFIXES[0]:
+                break
+        elif line and not other and not line.startswith(_PROGRESS_PREFIXES):
+            other = line
+    return next((reasons[p] for p in _REASON_PREFIXES if p in reasons), other)[:limit]
 
 
 def _tail(text: str, limit: int = 4000) -> str:
