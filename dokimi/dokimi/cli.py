@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import threading
 
 from dokimi.commands import (
     answers,
@@ -14,6 +15,7 @@ from dokimi.commands import (
     baseline,
     benchmark,
     catalog,
+    context,
     dashboard,
     dataset,
     evaluate,
@@ -29,7 +31,9 @@ from dokimi.commands import (
     run,
     subjects,
     tasks,
+    tools,
 )
+from dokimi import __version__, process
 from dokimi.console import tolerate_console_encoding
 
 
@@ -47,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
         return ivalue
 
     p = argparse.ArgumentParser(prog="dokimi")
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     # Order preserved to keep --help output stable.
@@ -71,12 +76,16 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.register(sub, positive_int)          # ingest
     novelty.register(sub, positive_int)         # novelty (content novelty)
     repo.register(sub, positive_int)            # repo (repositories as subjects)
+    tools.register(sub, positive_int)           # tools (tool-choice probes)
+    context.register(sub, positive_int)         # context (context window of a run)
 
     return p
 
 
 def main() -> None:
     """Entry point."""
+    if threading.current_thread() is threading.main_thread():  # signal.signal works only there
+        process.install_signal_handlers()  # SIGTERM/SIGHUP: kill the process groups we started, then exit
     tolerate_console_encoding()
     parser = build_parser()
     args = parser.parse_args()

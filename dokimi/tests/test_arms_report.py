@@ -3,6 +3,7 @@
 
 """Tests for the arms-comparison Markdown report."""
 
+from dokimi.eval.arm_summary import TOOL_COUNTS, TOOL_COUNTS_MIXED
 from dokimi.report.arms_report import render_arms_report, _md_cell
 
 
@@ -235,3 +236,23 @@ def test_report_renders_skill_load_rate_from_summary():
     md = render_arms_report(data)
     assert "Skill-load rate" in md
     assert "| `skill_agent:demo-skill` | 50% | 0.5 | 50% | 1.5 | 2 |" in md
+
+
+def _agentic_report(stats):
+    return render_arms_report({
+        "library_name": "oneTBB", "model": "m", "provider": "openai",
+        "arms": list(stats), "baseline_arm": "baseline", "total_questions": 1,
+        "answers": [], "agentic_usage_summary": stats,
+    })
+
+
+def test_report_flags_tool_counts_that_include_failed_calls():
+    row = {"n": 1, "avg_tool_calls": 1.0, "tool_use_rate": 1.0, "avg_iterations": 2.0}
+    md = _agentic_report({
+        "new": {**row, "tool_counts": TOOL_COUNTS},
+        "old": row,
+        "mixed": {**row, "tool_counts": TOOL_COUNTS_MIXED},
+    })
+    assert "Tool counts of `old`, `mixed` include failed calls" in md
+    assert "Tool counts of `new`" not in md
+    assert "include failed calls" not in _agentic_report({"new": {**row, "tool_counts": TOOL_COUNTS}})

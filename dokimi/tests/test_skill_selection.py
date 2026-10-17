@@ -501,9 +501,10 @@ def test_first_turn_with_several_loads_is_one_choice(catalog):
 
 
 @pytest.mark.parametrize("label, match", [
-    ({"name": "linux-perf"}, "must be a skill name"),
-    (["linux-perf", 3], "must be a skill name"),
-    ("linux-pref", "names no offered skill: linux-pref"),
+    # A label of the wrong type is not a valid question record, so reading the set refuses it.
+    ({"name": "linux-perf"}, "record 1 (id 'bad'), `expected_skill`: {'name': 'linux-perf'} is not"),
+    (["linux-perf", 3], "record 1 (id 'bad'), `expected_skill/1`: 3 is not of type 'string'"),
+    ("linux-pref", "question bad: expected_skill names no offered skill: linux-pref"),
 ])
 def test_arms_run_refuses_bad_expected_skill_before_any_call(monkeypatch, tmp_path, catalog,
                                                              capsys, label, match):
@@ -518,7 +519,7 @@ def test_arms_run_refuses_bad_expected_skill_before_any_call(monkeypatch, tmp_pa
     with pytest.raises(SystemExit):
         _run_cli(["arms", "run", "--product", "x", "--arms", f"skill-catalog:{catalog}",
                   "--questions", str(q), "--out-json", str(tmp_path / "o.json")])
-    assert f"question bad: expected_skill {match}" in capsys.readouterr().err
+    assert match in capsys.readouterr().err
 
 
 def test_arms_run_accepts_labels_from_any_skill_arm(catalog):

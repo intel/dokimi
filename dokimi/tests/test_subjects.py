@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 import dokimi.eval.arm_runner as arm_runner_mod
+from dokimi import __version__
 from dokimi.artifacts import validate_artifact
 from dokimi.cli import build_parser
 from dokimi.commands.subjects import (
@@ -276,6 +277,7 @@ questions = ["questions.json"]
     )
 
     validate_artifact("subject_scorecard", scorecard)
+    assert scorecard["run_manifest"]["dokimi_version"] == __version__
     md = render_subject_scorecard(scorecard)
     assert "# Subject scorecard: docs-subject" in md
     assert "`out/matrix-rollup.json`" in md

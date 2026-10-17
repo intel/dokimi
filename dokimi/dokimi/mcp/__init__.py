@@ -37,7 +37,6 @@ class MCPClient(ABC):
         Returns:
             Library ID (e.g., "uxlfoundation/oneTBB")
         """
-        pass
     
     @abstractmethod
     def get_library_docs(
@@ -65,7 +64,6 @@ class MCPClient(ABC):
                 }
             ]
         """
-        pass
     
     @abstractmethod
     def check_connection(self) -> bool:
@@ -80,19 +78,15 @@ class MCPClient(ABC):
         Returns:
             True if connection is successful
         """
-        pass
 
 
 class MCPError(Exception):
     """Base exception for MCP client errors."""
-    pass
 
 
 class MCPConnectionError(MCPError):
     """Raised when connection to MCP server fails."""
-    pass
 
 
 class MCPLibraryNotFoundError(MCPError):
     """Raised when requested library is not found."""
-    pass

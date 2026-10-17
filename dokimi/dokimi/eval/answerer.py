@@ -17,6 +17,7 @@ from dokimi.utils import question_id
 from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatModel
 from dokimi.llm import llm_call_with_usage, ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
+from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.metrics.usage import UsageRecord, to_record
 
 from .reranker import SimpleReranker, SentenceTransformerReranker, SENTENCE_TRANSFORMERS_AVAILABLE
@@ -57,8 +58,8 @@ class Answerer:
     def __init__(
         self,
         mcp_client=None,
-        model: str = "gpt-4o",
-        provider: str = "openai",
+        model: str = DEFAULT_ANSWER_MODEL,
+        provider: str = DEFAULT_ANSWER_PROVIDER,
         api_key: Optional[str] = None,
         top_k: int = 5,
         rerank_threshold: float = 0.3,

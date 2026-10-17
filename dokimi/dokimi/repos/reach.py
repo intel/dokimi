@@ -38,17 +38,17 @@ import hashlib
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from dokimi import process
 from dokimi.utils import retry_writable
 
 from .events import Transcript, convert
-from .harness_profile import HarnessProfile, run_harness
+from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, check_repo
 from .source import RepoTree, SourceError
 
@@ -153,7 +153,8 @@ def resolve_links(tree: RepoTree, files: list[str]) -> tuple[dict[str, list[str]
 
 
 def build_workspace(tree: RepoTree, files: list[str], workspace: Path, salt: str,
-                    aliases: dict[str, list[str]] | None = None) -> list[SeededFile]:
+                    aliases: dict[str, list[str]] | None = None,
+                    runner: process.Runner = process.run) -> list[SeededFile]:
     """Write the seeded guidance files, the links to them and the probe files, then commit them."""
     aliases = aliases or {}
     unsafe = [p for p in files + [a for f in files for a in aliases.get(f, [])] if not _safe_path(p)]
@@ -175,17 +176,18 @@ def build_workspace(tree: RepoTree, files: list[str], workspace: Path, salt: str
         seeded.append(SeededFile(path, head, tail, links, kind))
     for directory in {str(PurePosixPath(f).parent) for s in seeded for f in (s.path, *s.aliases)}:
         (workspace / directory / PROBE_FILE).write_text("probe\n", encoding="utf-8")
-    env = {"GIT_AUTHOR_NAME": "reach", "GIT_AUTHOR_EMAIL": "reach@invalid",
-           "GIT_COMMITTER_NAME": "reach", "GIT_COMMITTER_EMAIL": "reach@invalid",
-           "PATH": "/usr/bin:/bin:/usr/local/bin"}
+    env = process.Env.only((), {"GIT_AUTHOR_NAME": "reach", "GIT_AUTHOR_EMAIL": "reach@invalid",
+                                "GIT_COMMITTER_NAME": "reach", "GIT_COMMITTER_EMAIL": "reach@invalid",
+                                "PATH": "/usr/bin:/bin:/usr/local/bin"})
     git = shutil.which("git") or "git"  # looked up on the caller's PATH, not the minimal one above
     for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "--no-gpg-sign", "-m", "snapshot"]):
         try:
-            subprocess.run([git, "-C", str(workspace), *args], check=True, capture_output=True, env=env)
-        except (OSError, subprocess.CalledProcessError) as exc:
-            detail = getattr(exc, "stderr", b"") or b""
-            raise ReachError(f"git {args[0]} in the probe workspace failed: {exc} "
-                             f"{detail.decode('utf-8', 'replace').strip()}") from exc
+            proc = runner([git, "-C", str(workspace), *args], env=env, timeout=process.GIT_TIMEOUT_SEC)
+        except OSError as exc:
+            raise ReachError(f"git {args[0]} in the probe workspace failed: {exc}") from exc
+        if not proc.ok:
+            why = "timed out" if proc.timed_out else f"exit {proc.returncode}"
+            raise ReachError(f"git {args[0]} in the probe workspace failed: {why} {proc.stderr.strip()}")
     return seeded
 
 
@@ -368,10 +370,14 @@ def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace:
                            "read": scenario.read, "returncode": None, "error": None,
                            "cost_usd": None, "num_turns": None, "reported": [], "unknown": [], "prose": None}
     try:
-        proc = run_harness(argv, cwd=workspace / scenario.cwd, env=profile.env(config_dir),
-                           timeout=timeout_s, stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        proc = process.run(argv, cwd=workspace / scenario.cwd, env=profile.env(config_dir),
+                           timeout=timeout_s, capture_limit=None)  # the trace is parsed whole
+    except OSError as exc:
         row.update(error=f"{type(exc).__name__}: {exc}", _stdout="")
+        return None, row
+    if proc.timed_out:  # a killed run is no verdict; its partial trace is kept for reading
+        row.update(error=f"TimeoutExpired: {argv[0]} timed out after {timeout_s} seconds",
+                   _stdout=proc.stdout)
         return None, row
     transcript = convert(profile.trace, proc.stdout, str(workspace))
     row.update(returncode=proc.returncode, cost_usd=transcript.cost_usd,

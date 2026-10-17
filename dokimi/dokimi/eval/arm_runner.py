@@ -21,15 +21,18 @@ from typing import Any, Dict, List, Optional
 from dokimi.utils import question_id  # noqa: F401  (re-exported: callers import it from here)
 from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
+from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.arm_summary import (
     cost_summary, summarize_agentic_usage, summarize_skill_selection,
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
+from dokimi.eval.judge_context import SOURCE_STORED
 from dokimi.eval.judge_context import stamp_for as judge_context_stamp
 from dokimi.eval.judge_context import JudgeContextStore
 from dokimi.eval.judge_context import build as build_judge_context
+from dokimi.eval.judge_context import cite as cite_judge_materials
 from dokimi.eval.judge_context import join_injected
 from dokimi.metrics.usage import to_record
 from dokimi.treatments.base import Treatment
@@ -115,8 +118,8 @@ class ArmRunner:
     def __init__(
         self,
         treatments: List[Treatment],
-        model: str = "gpt-4o-mini",
-        provider: str = "openai",
+        model: str = DEFAULT_ANSWER_MODEL,
+        provider: str = DEFAULT_ANSWER_PROVIDER,
         api_key: Optional[str] = None,
         max_iterations: int = 6,
         harness: str = "arms-runner",
@@ -461,6 +464,11 @@ class ArmRunner:
                     score = {"error": str(exc)}
                 if isinstance(score, dict):
                     score = {**score, "judge_context_source": source}
+                    digest = (self.judge_context.digest_of(rec["question_id"], arm_name)
+                              if source == SOURCE_STORED else None)
+                    if digest:
+                        # Which of `judge_materials` this score saw.
+                        score["judge_context_sha256"] = digest
                 scores[arm_name] = score
 
             deltas = {}
@@ -522,6 +530,11 @@ class ArmRunner:
             "agentic_usage_summary": self._summarize_agentic_usage(records),
             "skill_selection_summary": summarize_skill_selection(records),
         }
+        # One copy of each judge context the arm records cite, written whether or
+        # not the run was judged, so an answers-only artifact can be judged later.
+        materials = cite_judge_materials(records, self.judge_context)
+        if materials:
+            out["judge_materials"] = materials
         if self.matrix_cell:
             out["matrix_cell"] = self.matrix_cell
         if evaluations is not None:

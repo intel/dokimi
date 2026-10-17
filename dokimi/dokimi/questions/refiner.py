@@ -26,9 +26,10 @@ from __future__ import annotations
 import difflib
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from dokimi.llm import llm_call, extract_json_array
+from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.questions.normalizer import normalize_questions
 
 logger = logging.getLogger(__name__)
@@ -122,8 +123,16 @@ class QuestionRefiner:
     # Public API
     # ------------------------------------------------------------------
 
-    def refine(self, questions: List[Dict[str, Any]]) -> RefinementReport:
-        """Run full refinement pipeline and return a report."""
+    def refine(
+        self,
+        questions: List[Dict[str, Any]],
+        before_fill: Optional[Callable[[List[Dict[str, Any]]], None]] = None,
+    ) -> RefinementReport:
+        """Run full refinement pipeline and return a report.
+
+        ``before_fill`` is called with the cleaned, deduplicated set just before the gap
+        filler's (paid) model calls; raising from it aborts the run with no model call.
+        """
         normalized = normalize_questions(questions)
         difficulty_before = _count_difficulty(normalized)
 
@@ -146,6 +155,8 @@ class QuestionRefiner:
             }
             gaps = {k: v for k, v in gaps.items() if v > 0}
             if gaps:
+                if before_fill is not None:
+                    before_fill(deduped)
                 filled_questions, _ = self.gap_filler.fill(deduped, gaps)
                 deduped = deduped + filled_questions
                 difficulty_after = _count_difficulty(deduped)
@@ -236,8 +247,8 @@ Respond with ONLY a JSON array of strings:
 class GapFiller:
     """Generate additional questions to fill difficulty distribution gaps."""
 
-    def __init__(self, library_name: str, model: str = "gpt-4o-mini",
-                 provider: str = "openai", api_key: Optional[str] = None):
+    def __init__(self, library_name: str, model: str = DEFAULT_GENERATOR_MODEL,
+                 provider: str = DEFAULT_GENERATOR_PROVIDER, api_key: Optional[str] = None):
         self.library_name = library_name
         self.model = model
         self.provider = provider

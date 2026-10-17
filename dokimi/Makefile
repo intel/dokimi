@@ -35,13 +35,13 @@ validate-benchmark-spec:
 	@command -v yq >/dev/null 2>&1 || { echo "ERROR: yq is not installed"; exit 1; }
 	@echo "Checking YAML parse for benchmarks/spec.v1.yaml"
 	@yq eval '.' benchmarks/spec.v1.yaml >/dev/null
-	@echo "Converting YAML -> JSON and validating against benchmarks/spec.schema.json"
+	@echo "Converting YAML -> JSON and validating against dokimi/runner/spec.schema.json"
 	@yq eval -o=json benchmarks/spec.v1.yaml > benchmarks/.spec.v1.tmp.json
 	@if command -v ajv >/dev/null 2>&1; then \
-		ajv validate -s benchmarks/spec.schema.json -d benchmarks/.spec.v1.tmp.json --spec=draft2020; \
+		ajv validate -s dokimi/runner/spec.schema.json -d benchmarks/.spec.v1.tmp.json --spec=draft2020; \
 	elif command -v npx >/dev/null 2>&1; then \
 		mkdir -p .npm-cache; \
-		npm_config_cache=$(PWD)/.npm-cache npx --yes ajv-cli validate -s benchmarks/spec.schema.json -d benchmarks/.spec.v1.tmp.json --spec=draft2020; \
+		npm_config_cache=$(PWD)/.npm-cache npx --yes ajv-cli validate -s dokimi/runner/spec.schema.json -d benchmarks/.spec.v1.tmp.json --spec=draft2020; \
 	else \
 		echo "ERROR: neither 'ajv' nor 'npx' is installed"; \
 		echo "Install one of:"; \
@@ -73,5 +73,5 @@ hooks:
 	@hook="$$(git rev-parse --git-path hooks)/pre-push"; \
 	if [ -e "$$hook" ] && ! grep -q '^# ci-local pre-push hook' "$$hook"; then \
 		echo "ERROR: $$hook exists and is not ours; remove it first"; exit 1; fi; \
-	printf '#!/bin/sh\n# ci-local pre-push hook\nexec make -C "$$(git rev-parse --show-toplevel)/dokimi" ci-local CI_LOCAL_ARGS="--offline --jobs lint,typecheck,schema,workflow-lint,security"\n' \
+	printf '#!/bin/sh\n# ci-local pre-push hook\nexec make -C "$$(git rev-parse --show-toplevel)/dokimi" ci-local CI_LOCAL_ARGS="--offline --jobs static,typecheck"\n' \
 		> "$$hook" && chmod +x "$$hook" && echo "installed $$hook"

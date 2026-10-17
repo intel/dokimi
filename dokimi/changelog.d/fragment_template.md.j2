@@ -1,0 +1,18 @@
+<!--
+A changelog fragment. See changelog.d/README.md.
+
+Uncomment exactly ONE '### <Category>' section below and replace the example
+bullet with your entry, written the way it should read in CHANGELOG.md.
+Delete the other sections.
+-->
+
+{% for cat in config.categories -%}
+<!--
+### {{ cat }}
+
+- **Short bold summary** — the rest of the sentence: what changed, for whom,
+  and why it matters. Backtick commands, flags and fields, like
+  `dokimi repo run` or `--tasks-root`.
+
+-->
+{% endfor -%}

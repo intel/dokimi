@@ -546,6 +546,28 @@ def test_generate_combined_report_writes_file(tmp_path):
     assert "## Overall Summary" in content
 
 
+def test_generated_stamp_without_zoneinfo_is_utc(tmp_path, monkeypatch):
+    """Without zoneinfo the header says UTC, so it must print UTC, not local time."""
+    from datetime import datetime, timedelta, timezone
+
+    from dokimi.report import model_compare
+
+    instant = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    class _Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            # A host at UTC-8: a naive now() reads 04:00.
+            local = instant.astimezone(timezone(timedelta(hours=-8)))
+            return instant.astimezone(tz) if tz else local.replace(tzinfo=None)
+
+    monkeypatch.setattr(model_compare, "_TZ", None)
+    monkeypatch.setattr(model_compare, "datetime", _Clock)
+    out = tmp_path / "report.md"
+    generate_combined_report([("m", _eval_run([_q("Q1")], model="m"))], [], ["m"], str(out))
+    assert "_Generated: 2026-01-01 12:00 UTC_" in out.read_text().splitlines()
+
+
 # --- shared statistics layer (eval/stats.py) ------------------------------
 
 WITH = [60, 62, 58, 61, 59, 63]
@@ -826,8 +848,8 @@ def _costed_run(cost, tokens=100, latency=2.0, calls=4):
 
 
 def _resource_row(text, label):
-    return next(line for line in text.splitlines() if line.startswith(f"| **{label}** | $")
-                or line.startswith(f"| **{label}** | {MISSING}"))
+    prefixes = (f"| **{label}** | $", f"| **{label}** | {MISSING}")
+    return next(line for line in text.splitlines() if line.startswith(prefixes))
 
 
 def test_pooled_resource_row_sums_cost_and_tokens_over_replicates():

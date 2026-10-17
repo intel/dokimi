@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
+from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
+
 
 def _extract_questions(questions_data, source: str) -> list:
     """Return the question list from object- or list-shaped JSON, or exit cleanly."""
@@ -90,10 +92,17 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
 
 def cmd_questions_refine(args: argparse.Namespace) -> None:
     """Refine a question set: normalise schema, deduplicate, filter trivial, report gaps."""
-    from dokimi.questions.refiner import QuestionRefiner, GapFiller
+    from dokimi.questions.refiner import QuestionRefiner, GapFiller, _count_difficulty
 
-    questions_data = json.loads(Path(args.questions).read_text(encoding="utf-8"))
-    raw = _extract_questions(questions_data, args.questions)
+    from dokimi.questions.artifact import load_questions
+
+    # Refining is how a set is repaired, so it reads tolerantly without refusing; the refined
+    # set is validated when it is written.
+    try:
+        raw = load_questions(args.questions, validate=False).questions
+    except ValueError as exc:  # ArtifactValidationError: malformed JSON structure
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     target = {
         "beginner":     args.target_beginner,
@@ -114,21 +123,40 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
         sim_threshold=args.sim_threshold,
         gap_filler=gap_filler,
     )
-    report = refiner.refine(raw)
+    def _validate_before_fill(cleaned: list) -> None:
+        # The set the gap filler extends must already be valid, so a set that would be refused
+        # at save time fails here, before any paid model call.
+        from dokimi.artifacts import validate_artifact
+        from dokimi.questions.artifact import upgrade_questions
+
+        validate_artifact("questions", upgrade_questions({
+            "library": args.product,
+            "total": len(cleaned),
+            "difficulty_distribution": _count_difficulty(cleaned),
+            "questions": cleaned,
+        }))
+
+    try:
+        report = refiner.refine(raw, before_fill=_validate_before_fill if gap_filler else None)
+    except ValueError as exc:  # ArtifactValidationError: the input set cannot be gap-filled
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
     print(report.summary())
 
     if not args.dry_run:
-        import json as _json
+        from dokimi.questions.artifact import save_questions_artifact
+
         out = Path(args.output) if args.output else Path(f"questions/{args.product}_refined.json")
-        out.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": "questions.v1",
-            "library": args.product,
-            "total": len(report.questions),
-            "difficulty_distribution": report.difficulty_after,
-            "questions": report.questions,
-        }
-        out.write_text(_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        try:
+            save_questions_artifact({
+                "library": args.product,
+                "total": len(report.questions),
+                "difficulty_distribution": report.difficulty_after,
+                "questions": report.questions,
+            }, out)
+        except ValueError as exc:  # ArtifactValidationError: the refined set is not valid v2
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
         print(f"\n✅ Refined questions saved to {out}")
     else:
         print("\n(dry-run: no file written)")
@@ -214,7 +242,9 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
     from dokimi.questions import RagasSeedExtractor, QuestionGenerator, QuestionValidator
 
     # Load config
-    config_path = Path("config/products.yaml")
+    from dokimi.config import runtime_config_path
+
+    config_path = runtime_config_path()
     if config_path.exists():
         config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     else:
@@ -314,8 +344,8 @@ def register(sub, positive_int) -> None:
                          help="Embedding backend for deduplication: openai, local "
                               "(sentence-transformers, no API key), or auto "
                               "(openai when a key is set, else local)")
-    gen_q_p.add_argument("--model", default="gpt-4o-mini", help="LLM model for generation")
-    gen_q_p.add_argument("--provider", default="openai", choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    gen_q_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL, help="LLM model for generation")
+    gen_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
     gen_q_p.add_argument("--doc-source", default="context7",
                          help="Documentation source for topic extraction: 'context7', 'local:<path>', 'url:<url>'")
     gen_q_p.add_argument("--context7-id", default=None, dest="context7_id",
@@ -327,8 +357,8 @@ def register(sub, positive_int) -> None:
     analyze_q_p.add_argument("--questions", required=True, help="Path to questions JSON file")
     analyze_q_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     analyze_q_p.add_argument("--output", default=None, help="Output report JSON (default: reports/{product}_question_quality.json)")
-    analyze_q_p.add_argument("--model", default="gpt-4o-mini", help="LLM model for classification")
-    analyze_q_p.add_argument("--provider", default="openai", choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    analyze_q_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL, help="LLM model for classification")
+    analyze_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
     analyze_q_p.add_argument("--concurrency", type=int, default=5, help="Parallel classification requests")
     analyze_q_p.set_defaults(func=cmd_questions_analyze)
 
@@ -346,8 +376,8 @@ def register(sub, positive_int) -> None:
                              help="Print report only, do not write output file")
     refine_q_p.add_argument("--fill-gaps", action="store_true", dest="fill_gaps",
                              help="Use LLM to generate questions for under-represented difficulty levels")
-    refine_q_p.add_argument("--fill-model", default="gpt-4o-mini", dest="fill_model")
-    refine_q_p.add_argument("--fill-provider", default="openai", dest="fill_provider",
+    refine_q_p.add_argument("--fill-model", default=DEFAULT_GENERATOR_MODEL, dest="fill_model")
+    refine_q_p.add_argument("--fill-provider", default=DEFAULT_GENERATOR_PROVIDER, dest="fill_provider",
                              choices=["openai", "anthropic", "google"])
     refine_q_p.set_defaults(func=cmd_questions_refine)
 
@@ -358,8 +388,8 @@ def register(sub, positive_int) -> None:
     panel_q_p.add_argument("--product", required=True, help="Product name (e.g., oneDAL)")
     panel_q_p.add_argument("--output", default=None,
                             help="Output report JSON (default: reports/{product}_question_panel.json)")
-    panel_q_p.add_argument("--model", default="gpt-4o-mini")
-    panel_q_p.add_argument("--provider", default="openai", choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    panel_q_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL)
+    panel_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
     panel_q_p.add_argument("--reviewers", default=None,
                             help="Comma-separated reviewers (default: domain_expert,user_advocate,qa_engineer)")
     panel_q_p.add_argument("--concurrency", type=positive_int, default=6)

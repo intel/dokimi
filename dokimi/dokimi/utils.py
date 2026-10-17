@@ -4,6 +4,8 @@
 import os
 from typing import Tuple, Dict, Any
 
+from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
+
 
 def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
     """Split a Markdown document into (frontmatter dict, body).
@@ -61,7 +63,7 @@ def digest_text(text: str) -> str:
     """
     import hashlib
 
-    return "sha256:" + hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+    return "sha256:" + hashlib.sha256((text or "").encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
 def retry_writable(func: Any, path: str, _exc: Any) -> None:
@@ -87,8 +89,14 @@ def retry_writable(func: Any, path: str, _exc: Any) -> None:
 
 
 def normalize_model_ref(provider: str, model: str) -> str:
-    """Normalize provider and model names for comparison."""
-    return f"{(provider or '').strip().lower()}/{(model or '').strip().lower()}"
+    """Normalize provider and model names for comparison.
+
+    On Bedrock a bare known name and its inference profile are the same model.
+    """
+    prov, name = (provider or "").strip().lower(), (model or "").strip()
+    if prov == "amazon-bedrock":
+        name = BEDROCK_MODEL_IDS.get(name, name)
+    return f"{prov}/{name.lower()}"
 
 
 def _read_key(value: str) -> str:
@@ -108,118 +116,53 @@ def _read_key(value: str) -> str:
 def bedrock_litellm_model(model: str) -> str:
     """The litellm model string ``get_llm`` sends to Bedrock for ``model``."""
     # A Bedrock id always has a dot ("anthropic.", "us.anthropic.", "amazon.").
-    # Only a bare name such as the default judge model gets mapped.
+    # Only a bare name gets mapped: a known one (such as the default judge) to its
+    # inference profile, any other to the box's default Sonnet.
     if not model.startswith("arn:") and "." not in model:
-        model = os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL", model)
+        model = bedrock_profile(model) or os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL", model)
     # Bedrock's openai.* namespace 404s on the plain invoke route; it only
-    # answers via Converse (mirrors the fix in llm.py's _build_litellm_model).
+    # answers via Converse (mirrors llm.resolve_model).
     prefix = "bedrock/converse/" if "openai." in model else "bedrock/"
     return f"{prefix}{model}"
 
 
 def get_llm(provider: str, model: str, api_key: str | None = None,
-            temperature: float | None = None, seed: int | None = None):
-    """Return a minimal chat wrapper with .invoke(prompt) -> object(content=...)."""
-    from litellm import completion
+            temperature: float | None = None, seed: int | None = None) -> Any:
+    """A chat wrapper, ``.invoke(prompt, draw=, cache_if=)`` -> ``.content``/``.usage``.
 
-    class _Resp:
-        def __init__(self, content: str, usage=None):
-            self.content = content
-            self.usage = usage   # UsageRecord | None — lets the judge track cost
-
-    class _LLM:
-        def __init__(self, litellm_model: str, key: str | None = None,
-                     default_max_tokens: int | None = None,
-                     temperature: float | None = None, seed: int | None = None):
-            self.litellm_model = litellm_model
-            self.key = key
-            self.default_max_tokens = default_max_tokens
-            self.temperature = temperature
-            self.seed = seed
-
-        def invoke(self, prompt: str, draw: int = 0, cache_if=None):
-            import time as _time
-            from dokimi import caching
-            from dokimi.llm import _extract_usage, _is_retryable, _sampling_kwargs
-            kwargs = _sampling_kwargs(
-                max_tokens=self.default_max_tokens or None,
-                temperature=self.temperature, seed=self.seed,
-            )
-            messages = [{"role": "user", "content": prompt}]
-            # The judge reaches Bedrock, Vertex and OpenRouter through here, not
-            # through llm_call, so this path needs the response cache too.
-            # temperature/seed enter the key only when set.
-            key = caching.response_cache_key(
-                litellm_model=self.litellm_model, messages=messages,
-                extra=caching.draw_extra(
-                    {"max_tokens": self.default_max_tokens,
-                     **_sampling_kwargs(temperature=self.temperature, seed=self.seed)},
-                    draw,
-                ),
-            )
-            hit = caching.load_response(key)
-            if hit is not None and caching.keeps(cache_if, hit[0]):
-                return _Resp(hit[0], usage=hit[1])
-            delay = 2.0
-            for attempt in range(4):
-                t0 = _time.time()
-                try:
-                    res = completion(
-                        model=self.litellm_model, messages=messages, api_key=self.key, **kwargs,
-                    )
-                    break
-                except Exception as exc:
-                    # Throttling is routine at judge concurrency; a lost pair is not.
-                    if attempt == 3 or not _is_retryable(exc):
-                        raise
-                    _time.sleep(delay)
-                    delay *= 2
-            latency = _time.time() - t0
-            # Pass the provider-prefixed litellm_model so cost resolves for
-            # Vertex/Bedrock (their response.model is bare → null cost otherwise).
-            usage = _extract_usage(res, self.litellm_model, "litellm",
-                                   latency_sec=latency, litellm_model=self.litellm_model)
-            text = res.choices[0].message.content
-            if caching.keeps(cache_if, text):
-                caching.store_response(key, text, usage)
-            return _Resp(text, usage=usage)
+    A delegate to :class:`dokimi.llm.LLM` that keeps this path's own provider
+    table (it differs from :func:`dokimi.llm.resolve_model`: a bare Bedrock name
+    falls back to ``$ANTHROPIC_DEFAULT_SONNET_MODEL``, OpenRouter gets
+    ``max_tokens=2000``, Bedrock reads only its bearer token) and its cache keys,
+    until the judge, generator and validator move to ``LLM``.
+    """
+    from dokimi.llm import _GetLLMCompat, _Invoker
 
     api_key = _read_key(api_key) if api_key else api_key
-
+    max_tokens: int | None = None
+    key: str | None
     if provider == "openrouter":
-        key: str | None = api_key or _read_key(os.environ.get("OPENROUTER_API_KEY", ""))
-        litellm_model = model if model.startswith("openrouter/") else f"openrouter/{model}"
-        return _LLM(litellm_model=litellm_model, key=key, default_max_tokens=2000,
-                    temperature=temperature, seed=seed)
-
-    if provider in ("google", "gemini", "google-vertex"):
+        key = api_key or _read_key(os.environ.get("OPENROUTER_API_KEY", ""))
+        route = model if model.startswith("openrouter/") else f"openrouter/{model}"
+        max_tokens = 2000
+    elif provider in ("google", "gemini", "google-vertex"):
         # Route Gemini via Vertex AI adapter
-        litellm_model = model if model.startswith("vertex_ai/") else f"vertex_ai/{model}"
+        route = model if model.startswith("vertex_ai/") else f"vertex_ai/{model}"
         key = api_key or _read_key(os.environ.get("GEMINI_API_KEY", ""))
-        return _LLM(litellm_model=litellm_model, key=key,
-                    temperature=temperature, seed=seed)
-
-    if provider == "amazon-bedrock":
-        bearer = _read_key(os.environ.get("AWS_BEARER_TOKEN_BEDROCK", ""))
-        return _LLM(litellm_model=bedrock_litellm_model(model), key=bearer,
-                    temperature=temperature, seed=seed)
-
-    if provider == "openai":
+    elif provider == "amazon-bedrock":
+        route = bedrock_litellm_model(model)
+        key = _read_key(os.environ.get("AWS_BEARER_TOKEN_BEDROCK", ""))
+    elif provider == "openai":
+        route = model
         key = api_key or _read_key(os.environ.get("OPENAI_API_KEY", ""))
-        litellm_model = model
-        return _LLM(litellm_model=litellm_model, key=key,
-                    temperature=temperature, seed=seed)
-
-    if provider == "anthropic":
+    elif provider == "anthropic":
+        route = model if model.startswith("anthropic/") else f"anthropic/{model}"
         key = api_key or _read_key(os.environ.get("ANTHROPIC_API_KEY", ""))
-        litellm_model = model if model.startswith("anthropic/") else f"anthropic/{model}"
-        return _LLM(litellm_model=litellm_model, key=key,
-                    temperature=temperature, seed=seed)
-
-    key = api_key
-    litellm_model = model if "/" in model else f"{provider}/{model}"
-    return _LLM(litellm_model=litellm_model, key=key,
-                temperature=temperature, seed=seed)
+    else:
+        route = model if "/" in model else f"{provider}/{model}"
+        key = api_key
+    return _Invoker(_GetLLMCompat(model, provider, max_tokens=max_tokens,
+                                  temperature=temperature, seed=seed, route=route, key=key))
 
 
 def question_id(q: Dict[str, Any]) -> Any:

@@ -4,7 +4,6 @@
 """Generate questions using LLM based on personas and seed topics."""
 
 import logging
-import json
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
@@ -12,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
+from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 
 QUESTION_GENERATION_PROMPT = """You are generating technical questions for documentation quality evaluation.
@@ -72,8 +72,8 @@ class QuestionGenerator:
     
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
-        provider: str = "openai",
+        model: str = DEFAULT_GENERATOR_MODEL,
+        provider: str = DEFAULT_GENERATOR_PROVIDER,
         api_key: Optional[str] = None
     ):
         """
@@ -324,21 +324,21 @@ class QuestionGenerator:
         return [str(q).strip() for q in questions if q]
     
     def save_questions(self, questions: List[Dict[str, Any]], output_path: Path):
-        """Save questions to JSON file."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        output = {
-            "schema_version": "questions.v1",
+        """Save questions as a questions.v2 artifact (``text`` is written as ``question``).
+
+        Raises ``ArtifactValidationError`` when the set is not a valid artifact; nothing is
+        written at ``output_path`` then, and the set is kept at ``<name>.rejected``.
+        """
+        from dokimi.questions.artifact import save_questions_artifact
+
+        save_questions_artifact({
             "generated_at": self._get_timestamp(),
             "model": self.model,
             "provider": self.provider,
             "total_questions": len(questions),
             "questions": questions
-        }
-        
-        with open(output_path, 'w', encoding="utf-8") as f:
-            json.dump(output, f, indent=2)
-        
+        }, output_path)
+
         logger.info(f"✓ Saved {len(questions)} questions to {output_path}")
     
     @staticmethod

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """docs-new-page: the page exists, is in the published site's nav, and is in the docs index.
 
 cwd is <workspace>/dokimi. Prints one JSON object of metrics as its last stdout line.

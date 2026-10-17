@@ -425,3 +425,70 @@ def test_a_docker_kill_that_times_out_still_ends_the_run(tmp_path, monkeypatch):
     spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x")
     res = DockerRunner(str(docker)).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=1)
     assert res.timed_out and res.returncode is None
+
+
+def test_workspace_git_never_prompts_and_a_timeout_is_a_prep_error(monkeypatch, tmp_path):
+    """A clone of a private remote must not wait on a credential prompt until the 30-min timeout;
+    the clone keeps the caller's env (credential helpers), a snapshot step gets exactly its own."""
+    import dokimi.repos.workspace as workspace
+    from dokimi import process
+
+    fake = process.FakeRunner(lambda call: process.reply(timed_out=True) if "fetch" in call.argv else None)
+    monkeypatch.setattr(workspace.process, "run", fake)
+    monkeypatch.setenv("DOKIMI_TEST_ONLY_HELPER", "x")
+    bare = str(tmp_path / "x")  # never created: the fake runner spawns nothing
+    workspace._run(["git", "clone", "--bare", "--", "https://example.invalid/r.git", bare])
+    workspace._run(["git", "-C", bare, "status"], env={"PATH": "/usr/bin"})
+    with pytest.raises(PrepError, match="timed out"):
+        workspace._run(["git", "-C", bare, "fetch", "origin"])
+    clone, status, _ = fake.calls
+    assert clone.env["GIT_TERMINAL_PROMPT"] == "0" and clone.env["DOKIMI_TEST_ONLY_HELPER"] == "x"
+    assert status.env == {"PATH": "/usr/bin", "GIT_TERMINAL_PROMPT": "0"}
+    assert {c.timeout for c in fake.calls} == {workspace._GIT_TIMEOUT_S}
+    assert {c.capture_limit for c in fake.calls} == {None}  # ls-files, rev-parse: data, never cut
+
+
+@pytest.mark.parametrize("which", range(4))
+def test_a_clone_that_needed_a_prompt_says_which_and_what_to_do(monkeypatch, which):
+    """ssh's "Host key verification failed" sits above three lines of boilerplate; it, not the
+    tail, is what a PrepError must show, with a hint (clone and fetch never prompt)."""
+    import dokimi.repos.workspace as workspace
+    from dokimi import process
+    from test_process import GIT_PROMPT_FAILURES
+
+    stderr, line, hint = GIT_PROMPT_FAILURES[which]
+    monkeypatch.setattr(workspace.process, "run", process.FakeRunner(lambda call: process.reply(
+        stderr=stderr, returncode=128)))
+    with pytest.raises(PrepError) as err:
+        workspace._run(["git", "clone", "--bare", "--", "git@github.com:o/r.git", "/x"])
+    assert str(err.value).startswith("git clone --bare -- git@github.com:o/r.git exited 128: " + line)
+    assert "hint: " in str(err.value) and hint in str(err.value)
+
+
+def test_a_patch_failing_on_two_files_names_both(tmp_path):
+    import dokimi.repos.workspace as workspace
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "a.txt").write_text("one\n")
+    (ws / "b.txt").write_text("one\n")
+    patch = tmp_path / "bad.patch"
+    patch.write_text("".join(f"--- a/{n}\n+++ b/{n}\n@@ -1 +1 @@\n-zero\n+two\n" for n in ("a.txt", "b.txt")))
+    env = {"PATH": os.environ["PATH"], "HOME": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    workspace._run(["git", "-C", str(ws), "init", "-q"], env=env)
+    with pytest.raises(PrepError) as err:
+        workspace._run(["git", "-C", str(ws), "apply", str(patch)], env=env)
+    assert "a.txt: patch does not apply" in str(err.value) and "b.txt: patch does not apply" in str(err.value)
+    assert " | " in str(err.value)
+
+
+def test_a_timed_out_cat_file_is_an_error_not_an_absent_object(tmp_path, monkeypatch):
+    from dokimi import process
+    from dokimi.repos import workspace
+
+    hung = process.Completed(("git",), process.TIMEOUT_RC, b"", b"", True, 1.0)
+    monkeypatch.setattr(process, "git", lambda *a, **k: hung)
+    with pytest.raises(PrepError, match="timed out"):
+        workspace._has_object(tmp_path, "HEAD:x")
+    with pytest.raises(PrepError, match="timed out"):
+        workspace._has_commit(tmp_path, "abc")
