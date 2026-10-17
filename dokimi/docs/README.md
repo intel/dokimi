@@ -1,6 +1,13 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Dokimi: measure what actually helps an agent
 
 *Dokimi* — Greek δοκιμή, "test, proof" ([why the name](../../README.md)).
+
+Source on GitHub: [intel/dokimi](https://github.com/intel/dokimi).
 
 The idea in three points:
 
@@ -204,7 +211,7 @@ Start with the top-level [README](../README.md) for the project overview and
 CLI surface. The files in this directory go deeper. They are also published at
 <https://intel.github.io/dokimi/>, grouped as below, together with a
 [CLI reference](https://intel.github.io/dokimi/reference/cli/) and an
-[API reference](https://intel.github.io/dokimi/reference/api/) generated from the
+[API reference](https://intel.github.io/dokimi/reference/api/dokimi/) generated from the
 code.
 
 ## Using Dokimi
@@ -228,9 +235,15 @@ code.
 - [evaluating-treatments.md](evaluating-treatments.md) — compare
   context-augmentation arms (docs, MCP, skills, agent persona prompts) with
   `cli.py arms run`.
+- [tool-preference.md](tool-preference.md) — two equal tools per request: how
+  much a name, wording or list position moves a model's choice
+  (`cli.py tools preference`).
 - [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
   through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
   verifier pass rate against a baseline.
+- [context-window.md](context-window.md) — read a run's context window from
+  its Claude Code trace with `cli.py context trace`: start-up load, growth,
+  compactions, tool-result weight. No LLM call.
 
 ## Content novelty
 
@@ -253,8 +266,8 @@ code.
   partly implemented)* what a repository provides to be evaluated as a whole:
   `repo-eval.yaml`, `task.json`, the `grade` entry point and `grade.json`,
   harness profiles, and the guidance reach probe; and how to run its task
-  self-check, agent runs and report (`repo tasks check`, `repo run`,
-  `repo report`). Tasks and graders stay in the scanned repository.
+  self-check, agent runs, report and arm comparison (`repo tasks check`,
+  `repo run`, `repo report`, `repo compare`). Tasks and graders stay in the scanned repository.
 - [repo-evaluation-mergeability.md](repo-evaluation-mergeability.md) —
   *(proposed)* grading whether a maintainer would merge a test-passing change:
   `rubric.json` (blockers, non-blockers, scope), deterministic scope and
@@ -273,6 +286,8 @@ code.
 - [contributing-terminal-bench-task.md](contributing-terminal-bench-task.md)
   — the executable task format (directory layout, `task.toml` fields, verifier
   and oracle contract) that tasks in the external content repository follow.
+- [releasing.md](releasing.md) — version numbers, changelog fragments, cutting
+  a release, and the PyPI and conda-forge path.
 
 ## Methodology
 

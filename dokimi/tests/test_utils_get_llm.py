@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Tests for dokimi.utils.get_llm's Bedrock model-string routing."""
 
 from dokimi.utils import get_llm

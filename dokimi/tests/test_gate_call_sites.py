@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Pin which gate kind each caller reads, end to end."""
 import argparse
 import json

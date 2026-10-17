@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Coding Harnesses And Task Runs
 
 Executable task runs measure whether an agent can do the work, not only answer
@@ -379,6 +384,18 @@ Custom:
 - `command:<template>` or `--command-template` — runs a custom command template
   for local wrappers and CI fakes.
 
+A `command:` or Harbor command runs in the task root's parent directory with
+the caller's whole environment: it is the operator's own CLI and needs its
+credentials, so whatever it starts (an agent, `harbor`'s containers) gets them
+unless that tool filters them. Its stdin is closed, and its output is read as
+UTF-8. A timeout kills the command's whole process group (job object on
+Windows), not only the command, and is a failed cell (reward 0, returncode 124)
+that keeps the output printed before the kill; anything the command left
+running when it exits is killed too. A timed-out `harbor` first gets SIGTERM
+and 60 s to remove its trial container and image, which a kill would leave
+behind (POSIX; Windows terminates the job at once). Harbor 0.20.0 exits on
+SIGTERM before it removes them for a task with `allow_internet = false`.
+
 The Harbor adapter command is:
 
 ```bash
@@ -465,7 +482,9 @@ Verdicts:
 Everything else is `metrics.error`, which is missing data and stays out of the
 McNemar pairing like a failed `docker build`:
 
-- our own outer kill (`returncode` 124, `metrics.timed_out`);
+- our own outer kill (`returncode` 124, `metrics.timed_out`): `bench`'s
+  process group gets `SIGTERM`, then `SIGKILL` 15 s later, and the cell's
+  rollout containers are removed;
 - more than one rollout directory in the cell;
 - a failure before the agent started (image build, agent install, sandbox
   start, a task BenchFlow rejects, BenchFlow's own hard deadline); with no
@@ -628,7 +647,7 @@ tasks = []
 
 [[matrix.cells]]
 id = "arms-runner"
-model = "gpt-4o-mini"
+model = "gpt-6.1-sol"
 provider = "openai"
 harness = "arms-runner"
 plugins = []

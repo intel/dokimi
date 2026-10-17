@@ -35,12 +35,13 @@ import json
 import os
 import re
 import shutil
-import signal
-import subprocess
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
+
+from dokimi import process
 
 from .command import clear_run_dir
 from .models import HarnessResult, OperationRecord, PreflightError
@@ -110,6 +111,7 @@ class BenchflowHarness:
     sandbox: str = "docker"
     kind: str = "benchflow"
     env: dict[str, str] = field(default_factory=dict)
+    runner: process.Runner = field(default=process.run, compare=False, repr=False)
 
     def run(
         self,
@@ -152,7 +154,7 @@ class BenchflowHarness:
         if output_dir is None or given_dir is None:
             raise ValueError("BenchflowHarness requires an output_dir")
 
-        env = _subprocess_env(self.env, self.agent)
+        env = _subprocess_env(self.env, self.agent, runner=self.runner)
         if timeout_sec:
             timeout = timeout_sec
         else:
@@ -170,12 +172,19 @@ class BenchflowHarness:
         # own (install failure, auth, full disk) — reported as a pass.
         clear_run_dir(jobs_dir)
         start = time.time()
-        returncode, stdout, stderr, timed_out = BenchRun(*_run_bench(
-            command, timeout, env, cwd=output_dir,
-        ))
+        # The whole stderr goes to a file, read once for the error line: the
+        # capture keeps only its head and tail, and the reason can be between.
+        stderr_file = output_dir / _STDERR_FILE
+        try:
+            returncode, stdout, stderr, timed_out = _run_bench(command, timeout, env, cwd=output_dir,
+                                                               runner=self.runner, stderr_to=stderr_file)
+            with open(stderr_file, encoding="utf-8", errors="replace") as lines:
+                reason = _error_line(lines)
+        finally:
+            stderr_file.unlink(missing_ok=True)
         if timed_out:
             stderr += f"\nTIMEOUT after {timeout:.0f}s"
-            removed = remove_rollout_containers(jobs_dir)
+            removed = remove_rollout_containers(jobs_dir, runner=self.runner)
             if removed:
                 stderr += f"\nremoved leftover BenchFlow containers: {', '.join(removed)}"
         elapsed = time.time() - start
@@ -227,7 +236,6 @@ class BenchflowHarness:
             else:
                 # bench failed before writing a rollout (a rubric it rejects, a
                 # bad task, its own hard deadline): its stderr says why.
-                reason = _error_line(stderr)
                 metrics["error"] = (f"no BenchFlow result.json (exit {returncode})"
                                     + (f": {reason}" if reason else ""))
         if result:
@@ -254,8 +262,7 @@ class BenchflowHarness:
             metrics=metrics,
         )
 
-    @staticmethod
-    def preflight() -> None:
+    def preflight(self) -> None:
         """Fail the sweep once, up front, when ``bench`` or Compose v2 is missing.
 
         Without this every cell errors with the same ``docker: unknown command:
@@ -269,11 +276,16 @@ class BenchflowHarness:
              "binary in $DOCKER_CONFIG/cli-plugins)"),
         ):
             try:
-                proc = subprocess.run(cmd, text=True, capture_output=True, timeout=30, check=False)
-            except (OSError, subprocess.TimeoutExpired) as exc:
+                proc = self.runner(cmd, timeout=_PREFLIGHT_TIMEOUT, env=process.Env.inherit())
+            except OSError as exc:
                 raise PreflightError(
                     f"benchflow preflight: `{' '.join(cmd)}` failed ({exc}); {fix}"
                 ) from exc
+            if proc.timed_out:
+                raise PreflightError(
+                    f"benchflow preflight: `{' '.join(cmd)}` failed (timed out after "
+                    f"{_PREFLIGHT_TIMEOUT}s); {fix}"
+                )
             if proc.returncode != 0:
                 detail = (proc.stderr or proc.stdout or "").strip().splitlines()[:1]
                 raise PreflightError(
@@ -573,7 +585,9 @@ def _float(value: Any, default: float) -> float:
         return default
 
 
-_TIMEOUT_RC = 124
+_TIMEOUT_RC = process.TIMEOUT_RC
+_PREFLIGHT_TIMEOUT = 30
+_STDERR_FILE = "bench.stderr"
 _DOCKER_PS_TIMEOUT = 10.0
 _DOCKER_RM_TIMEOUT = 60.0
 # How long bench gets to exit after SIGTERM, and after SIGKILL.
@@ -591,52 +605,22 @@ class BenchRun(NamedTuple):
 
 
 def _run_bench(command: list[str], timeout: float, env: dict[str, str],
-               cwd: Optional[Path] = None) -> BenchRun:
-    """Run ``bench`` in its own process group; on timeout kill the whole group.
+               cwd: Optional[Path] = None, runner: process.Runner = process.run,
+               stderr_to: Optional[Path] = None) -> BenchRun:
+    """Run ``bench`` with exactly ``env``; on a timeout stop its whole process group.
 
-    ``subprocess.run(timeout=)`` kills only ``bench`` itself, leaving its
-    ``docker compose`` children (and their output pipes) behind.
+    The group gets ``SIGTERM`` and :data:`_KILL_GRACE_SEC` to exit, then ``SIGKILL``:
+    a kill of ``bench`` alone would leave its ``docker compose`` children (and
+    their output pipes) behind. ``bench`` reads ``./.env`` ahead of the exported
+    env (agents/env.py), so it runs in ``cwd`` (the cell), where there is none,
+    not in the directory cli.py was started from.
     """
-    proc = subprocess.Popen(
-        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        # bench itself decodes its children's output with errors="replace".
-        text=True, encoding="utf-8", errors="replace",
-        env=env, start_new_session=True,
-        # bench reads ./.env ahead of the exported env (agents/env.py); run it
-        # where there is none, not in the directory cli.py was started from.
-        cwd=str(cwd) if cwd else None,
-    )
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-        return BenchRun(proc.returncode, stdout or "", stderr or "")
-    except subprocess.TimeoutExpired:
-        pass
-    stdout, stderr = "", ""
-    if not hasattr(os, "killpg"):  # Windows: no process groups to kill
-        proc.kill()
-        stdout, stderr = proc.communicate()
-        return BenchRun(_TIMEOUT_RC, stdout or "", stderr or "", True)
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(proc.pid, sig)
-        except ProcessLookupError:
-            break
-        try:
-            stdout, stderr = proc.communicate(timeout=_KILL_GRACE_SEC)
-            break
-        except subprocess.TimeoutExpired:
-            continue
-    else:
-        # A descendant outside the group can hold the pipes open; give up
-        # on its output rather than hang the sweep.
-        try:
-            stdout, stderr = proc.communicate(timeout=_KILL_GRACE_SEC)
-        except subprocess.TimeoutExpired:
-            pass
-    return BenchRun(_TIMEOUT_RC, stdout or "", stderr or "", True)
+    done = runner(command, timeout=timeout, env=process.Env.only((), env), cwd=cwd,
+                  term_grace=_KILL_GRACE_SEC, stderr_to=stderr_to)
+    return BenchRun(done.returncode, done.stdout, done.stderr, done.timed_out)
 
 
-def remove_rollout_containers(jobs_dir: Path) -> list[str]:
+def remove_rollout_containers(jobs_dir: Path, runner: process.Runner = process.run) -> list[str]:
     """Remove containers of the rollouts this cell started, after a timeout.
 
     Killing ``bench`` does not stop its sandboxes: they belong to the Docker
@@ -653,16 +637,15 @@ def remove_rollout_containers(jobs_dir: Path) -> list[str]:
         # Bounded like BenchFlow's own _force_kill_project: a wedged daemon
         # must not hang the sweep after we already gave up on bench.
         try:
-            found = subprocess.run(
-                ["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={project}"],
-                text=True, capture_output=True, check=False, timeout=_DOCKER_PS_TIMEOUT,
-            )
-            ids = (found.stdout or "").split()
+            found = runner(["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={project}"],
+                           timeout=_DOCKER_PS_TIMEOUT, env=process.Env.inherit())
+            ids = found.stdout.split() if not found.timed_out else []
             if ids:
-                subprocess.run(["docker", "rm", "-f", *ids], capture_output=True, check=False,
-                               timeout=_DOCKER_RM_TIMEOUT)
-                removed.append(project)
-        except (OSError, subprocess.TimeoutExpired):
+                gone = runner(["docker", "rm", "-f", *ids], timeout=_DOCKER_RM_TIMEOUT,
+                              env=process.Env.inherit())
+                if not gone.timed_out:
+                    removed.append(project)
+        except OSError:
             continue
     return removed
 
@@ -784,7 +767,8 @@ def rollout_results(jobs_dir: Path) -> list[Path]:
     return sorted(jobs_dir.glob("*/*/result.json"), key=lambda p: p.stat().st_mtime)
 
 
-def _subprocess_env(extra: dict[str, str], agent: Optional[str] = None) -> dict[str, str]:
+def _subprocess_env(extra: dict[str, str], agent: Optional[str] = None,
+                    runner: process.Runner = process.run) -> dict[str, str]:
     """The env for ``bench``: behind a proxy, both ``no_proxy`` spellings get one
     deduplicated union of the user's two lists plus the bridge hosts (urllib,
     requests and httpx read the lowercase one first, Go tools the uppercase)."""
@@ -812,7 +796,7 @@ def _subprocess_env(extra: dict[str, str], agent: Optional[str] = None) -> dict[
         own = {var: [h.strip() for h in (env.get(var) or "").split(",") if h.strip()]
                for var in ("no_proxy", "NO_PROXY")}
         hosts: list[str] = []
-        for h in [*own["no_proxy"], *own["NO_PROXY"], _bridge_gateway() or "", *_BRIDGE_NO_PROXY]:
+        for h in [*own["no_proxy"], *own["NO_PROXY"], _bridge_gateway(runner) or "", *_BRIDGE_NO_PROXY]:
             if h and h != "*" and h not in hosts:
                 hosts.append(h)
         for var, other in (("no_proxy", "NO_PROXY"), ("NO_PROXY", "no_proxy")):
@@ -824,19 +808,17 @@ def _subprocess_env(extra: dict[str, str], agent: Optional[str] = None) -> dict[
     return env
 
 
-def _bridge_gateway() -> Optional[str]:
+def _bridge_gateway(runner: process.Runner = process.run) -> Optional[str]:
     """The docker bridge gateway, as BenchFlow finds it (``docker network
     inspect bridge``); hosts with a custom ``bip`` do not use 172.17.0.1."""
     try:
-        proc = subprocess.run(
-            ["docker", "network", "inspect", "bridge", "-f",
-             "{{range .IPAM.Config}}{{.Gateway}}{{end}}"],
-            text=True, capture_output=True, timeout=10, check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+        proc = runner(["docker", "network", "inspect", "bridge", "-f",
+                       "{{range .IPAM.Config}}{{.Gateway}}{{end}}"],
+                      timeout=10, env=process.Env.inherit())
+    except OSError:
         return None
-    gateway = (proc.stdout or "").strip()
-    return gateway if proc.returncode == 0 and gateway else None
+    gateway = proc.stdout.strip()
+    return gateway if proc.ok and gateway else None
 
 
 def _load_json(path: Path) -> Optional[dict[str, Any]]:
@@ -863,17 +845,24 @@ _PROGRESS_PREFIXES = (
 )
 
 
-def _error_line(text: str, limit: int = 300) -> str:
-    """The line of bench's stderr that says why a cell left no ``result.json``."""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    for prefix in _REASON_PREFIXES:
-        for line in lines:
-            if line.startswith(prefix):
-                return line[:limit]
-    for line in lines:
-        if not line.startswith(_PROGRESS_PREFIXES):
-            return line[:limit]
-    return ""
+def _error_line(lines: Iterable[str], limit: int = 300) -> str:
+    """The line of bench's stderr that says why a cell left no ``result.json``.
+
+    One pass over ``lines`` (the stderr file, of any size): the first line of the
+    earliest prefix in :data:`_REASON_PREFIXES`, else the first non-progress line.
+    """
+    reasons: dict[str, str] = {}
+    other = ""
+    for raw in lines:
+        line = raw.strip()
+        prefix = next((p for p in _REASON_PREFIXES if line.startswith(p)), None)
+        if prefix:
+            reasons.setdefault(prefix, line)
+            if prefix == _REASON_PREFIXES[0]:
+                break
+        elif line and not other and not line.startswith(_PROGRESS_PREFIXES):
+            other = line
+    return next((reasons[p] for p in _REASON_PREFIXES if p in reasons), other)[:limit]
 
 
 def _tail(text: str, limit: int = 4000) -> str:

@@ -4,7 +4,7 @@
 """Benchmark spec loading, JSON Schema validation, and golden-manifest selection.
 
 The runtime contract for a benchmark spec is declared in
-``benchmarks/spec.schema.json``. This module enforces that contract at load
+``dokimi/runner/spec.schema.json``. This module enforces that contract at load
 time (not only in CI/Make) and resolves the document set from the spec's
 ``golden_manifest`` instead of a hardcoded ``docs/`` glob.
 """
@@ -16,9 +16,9 @@ from pathlib import Path
 
 import yaml
 
-# Repo-root-relative default schema, resolved relative to this file so it works
-# regardless of the current working directory or install location.
-DEFAULT_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "benchmarks" / "spec.schema.json"
+# Shipped next to this module (package data), so it resolves the same from a
+# checkout and from an installed wheel, whatever the working directory.
+DEFAULT_SCHEMA_PATH = Path(__file__).resolve().parent / "spec.schema.json"
 
 
 class SpecValidationError(ValueError):

@@ -1,8 +1,24 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Contributing
 
 ### License
 
 dokimi is licensed under the terms in [LICENSE](LICENSE). By contributing to the project, you agree to the license and copyright terms therein and release your contribution under these terms.
+
+Every new file starts with the SPDX header in its comment syntax (Markdown uses
+an HTML comment), with the year the file is added:
+
+```
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+```
+
+CI's license header step checks it; the exempt files and the command for a local
+check are in [dokimi/CONTRIBUTING.md](dokimi/CONTRIBUTING.md#license-of-contributions).
 
 ### Sign your work
 

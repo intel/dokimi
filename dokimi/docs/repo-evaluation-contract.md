@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Repository evaluation contract
 
 > **Status: PROPOSED.** This is the interface proposed for evaluating a whole
@@ -43,6 +48,7 @@
 > python cli.py repo run <source> --manifest <path> --arm guidance:raw --model <id> --reps N --batch NAME
 >     --agent-network host
 > python cli.py repo report <out>/<batch>
+> python cli.py repo compare <out>/<batch> --baseline guidance:none
 > ```
 >
 > Not implemented yet: the egress proxy (§2), so a task with `egress` is refused
@@ -117,7 +123,8 @@ outside every workspace and passes its absolute path to entry points as
   oneDAL) for the same toolchain. The Dockerfile may `COPY` tooling from
   anywhere in that context, for example a build wrapper under `<eval-dir>`,
   and must work for every task base: a version pinned in the task tree (such
-  as `.bazelversion`) is read at run time, not baked in.
+  as `.bazelversion`) is read at run time, not baked in. A build that runs
+  past 3 hours fails as a container error rather than hanging the batch.
 - `tasks check` (§4.3) fails a task whose agent container can read any file
   under `tasks` or `{source_dir}`.
 
@@ -491,11 +498,17 @@ Protocol:
     - `cwd=<dir>`: started in each guidance directory, tools off.
     - `read=<dir>`: started at the root, read tool on. The agent is told to
       read `<dir>/REACH_PROBE.txt`, then list tokens.
-    - A scenario that runs past `--timeout` is an `error`. Its harness is
-      killed with its process group (POSIX) or job object (Windows). A process
-      that leaves the group, such as one that calls `setsid()` or daemonizes,
-      is not contained. It can outlive the run with the harness's environment,
-      credentials included.
+    - A scenario that runs past `--timeout` is an `error`; its raw stdout up
+      to the kill is kept in the trace. Its harness is killed with its process
+      group (POSIX) or job object (Windows), and so is anything left in that
+      group when the harness exits on its own. The group is also killed when
+      the `dokimi` CLI gets SIGTERM or SIGHUP (from `timeout(1)`, a CI
+      cancel or a closed terminal); the CLI then exits with that signal. Not
+      contained: the group of a CLI killed with SIGKILL, of a library caller
+      that did not call `process.install_signal_handlers()`, and a process
+      that leaves the group, such as one that calls `setsid()` or daemonizes.
+      These can outlive the run with the harness's environment, credentials
+      included.
 4. Ask for every token in the instructions or context, including context
    attached to a tool result. Parse the reported tokens from the answer, and
    the reads from `events.jsonl`.
@@ -628,6 +641,21 @@ without its tasks directory (tag `dokimi/<id>:<sha>`) unless
 elsewhere. `{source_dir}` is the source's own git directory, or
 `--source-dir`.
 
+Cloning and fetching a remote source (`url@rev`, in every `repo` command) is
+non-interactive by design: git runs with `GIT_TERMINAL_PROMPT=0`, stdin
+closed and no terminal, so neither git nor ssh prompts on a terminal for a
+password, a token, a key passphrase or a new host key. An askpass program the
+environment names (`GIT_ASKPASS`, `SSH_ASKPASS`, or `core.askPass`) still runs:
+it is how some CI systems and editors hand git a token, and a graphical one
+(VS Code sets `GIT_ASKPASS`) can still show a dialog. Set up access before
+the run: a credential helper holding a token for an `https://` URL (for
+GitHub, `gh auth setup-git`), or for an SSH URL a key loaded into
+`ssh-agent` and the host in `~/.ssh/known_hosts`. When git would have prompted, the error names the line
+git or ssh printed (`Host key verification failed.`,
+`Permission denied (publickey)`, `could not read Username ...: terminal
+prompts disabled`) and the fix; any other git failure shows its last `fatal:`
+line, else its last `error:` line, else its last line.
+
 ```bash
 # self-check: no LLM; exits 1 if any task is broken or unsupported
 python cli.py repo tasks check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
@@ -639,6 +667,7 @@ python cli.py repo run ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml 
     --model us.anthropic.claude-haiku-4-5-20251001-v1:0 --reps 3 --batch pilot \
     --bin /opt/claude-2.1.286/claude --agent-network host --budget 1 --max-batch-usd 20
 python cli.py repo report repo-runs/pilot
+python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric root_cause_fixed
 ```
 
 - Each cell holds the §4 inputs plus `agent.stdout` (the raw trace) and
@@ -655,8 +684,10 @@ python cli.py repo report repo-runs/pilot
   with the same mounts must see neither `/eval/content` nor `/eval/source`, no
   entry named like a task, and no guidance file above the workspace.
 - `--timeout`, `--max-turns` and `--budget` apply unless `task.json` sets
-  `timeout_s`, `max_turns` or `budget_usd`. On a timeout the container is
-  killed and the cell is still graded. `--max-batch-usd` starts no new cell
+  `timeout_s`, `max_turns` or `budget_usd`. On a timeout the `docker run`
+  CLI gets SIGTERM, which it passes to the container, and 10 s to stop it;
+  then the CLI's process group is killed, the container is killed by name,
+  and the cell is still graded. `--max-batch-usd` starts no new cell
   once that much has been spent.
 - Every container runs with `--security-opt no-new-privileges`, `--cap-drop
   ALL` and a `--pids-limit`, as the caller's uid and gid.
@@ -666,3 +697,26 @@ python cli.py repo report repo-runs/pilot
 - The report gives, per (task, arm, model), passes over finished cells with a
   Wilson 95% interval (score-only tasks: the mean of `score.metric`), grader
   failures (counted as failures too), missing cells, and mean cost and turns.
+- `repo compare` reduces cells to one value per (task, arm, model) first:
+  repetitions share a task's difficulty and are not paired across arms, so the
+  task is the unit. Per treatment arm, model and measure (gate share, score,
+  cost, turns, each `--metric` from `grade.json`) it gives the mean per-task
+  delta against the baseline with a 95% interval over tasks (a bootstrap for
+  gate and score, a t interval for cost, turns and metrics, `-` for a single
+  task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
+  changed tasks; at one cell per task and arm it equals McNemar's exact test).
+  Holm's correction runs over the gate and score comparisons of one call; the
+  rest are descriptive. `BATCH/ARM` takes an arm from one batch only, so two
+  batches of the same arm (for example two revisions of the guidance) compare
+  too; two selectors of the same cells are refused. A `--metric` no finished
+  cell reports as a number or boolean is refused. Tasks left out are listed as
+  unpaired with the reason: no cells in one arm, a task that is gated in one
+  arm and score-only in the other, or a measure (such as a metric) one arm
+  lacks. A metric's `n_baseline`/`n_treatment` count the cells that report it.
+  The output names the batches behind each selector and each batch's pin
+  (`tree`, `eval_dir`, `image` from `_eval/batch.json`) with its cells'
+  harness versions, and warns when a bare `ARM` pools several batches, when a
+  batch of a comparison has no pin, or when the two arms ran from different
+  `eval_dir` or `image` pins or harness versions. An image `repo run` tagged
+  from the tree (`dokimi/<id>:<sha>`) follows the tree, so two revisions are
+  not warned about it; an `--image` of its own is compared.

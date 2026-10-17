@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -55,12 +56,23 @@ prompt = args[args.index("-p") + 1]
 tools = args[args.index("--tools") + 1] if "--tools" in args else "default"
 if mode == "crash":
     print("boom", file=sys.stderr); sys.exit(3)
+if mode == "line_then_hang":  # some trace, then nothing until it is killed
+    import time
+    print(json.dumps({"type": "system", "subtype": "init", "claude_code_version": "9.8.7"}), flush=True)
+    time.sleep(30)
 if mode in ("hang", "orphan"):  # a helper holding stdout, which killing the harness alone leaves running
     import subprocess, time
     marker = str(Path(__file__).with_name("grandchild-alive"))
     subprocess.Popen([sys.executable, "-c", "import sys, time; time.sleep(3); open(sys.argv[1], 'w')", marker])
     time.sleep(30 if mode == "hang" else 0)
     sys.exit(0)
+if mode == "linger":  # a harness and its helper, both running until someone kills them
+    import subprocess, time
+    helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    pids = Path(__file__).with_name("linger.pids")
+    pids.with_suffix(".tmp").write_text(f"{os.getpid()} {helper.pid}")
+    pids.with_suffix(".tmp").rename(pids)
+    time.sleep(120)
 
 cwd = Path.cwd().resolve()  # physical path, as getcwd() reports on POSIX
 root = next(p for p in [cwd, *cwd.parents] if (p / ".git").exists())
@@ -97,6 +109,8 @@ if mode == "error_result":
     events[-1]["is_error"] = True
 if mode == "utf8":
     events[0]["cwd"] = "/home/стас"
+if mode == "big":  # more stream-json than the default capture limit (1 MiB)
+    events.insert(1, {"type": "assistant", "message": {"content": [{"type": "text", "text": "x" * (3 << 19)}]}})
 for e in events:
     sys.stdout.buffer.write((json.dumps(e, ensure_ascii=False) + "\n").encode())
 if mode == "late_exit":
@@ -181,9 +195,9 @@ def test_builtin_claude_code_profile_builds_argv_without_a_shell(tmp_path):
 
 def test_profile_env_is_allow_listed_and_isolated(tmp_path):
     profile = load_profile("claude-code")
-    env = profile.env(tmp_path / "cfg", base={"PATH": "/bin", "AWS_REGION": "us-east-1",
-                                              "GITHUB_TOKEN": "x", "HOME": "/home/u",
-                                              "SYSTEMROOT": "C:/WINDOWS"})
+    env = profile.env(tmp_path / "cfg").resolve({"PATH": "/bin", "AWS_REGION": "us-east-1",
+                                                 "GITHUB_TOKEN": "x", "HOME": "/home/u",
+                                                 "SYSTEMROOT": "C:/WINDOWS"})
     assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "cfg")
     assert env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] == "1"
     assert "GITHUB_TOKEN" not in env and env["AWS_REGION"] == "us-east-1"
@@ -431,45 +445,67 @@ def test_an_answer_with_a_failed_exit_or_an_error_result_is_not_scored(tmp_path,
     assert "RC" in (tmp_path / "out/traces/00-cwd_..stdout").read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("mode", ["hang", "orphan"])
-def test_reach_timeout_kills_the_harness_process_tree(tmp_path, monkeypatch, mode):
+@pytest.mark.parametrize("mode, error", [("hang", "TimeoutExpired"),
+                                         # exited at once: its helper is killed then, not at the timeout
+                                         ("orphan", "exit 0 (no answer)")])
+def test_reach_timeout_kills_the_harness_process_tree(tmp_path, monkeypatch, mode, error):
     start = time.monotonic()
     payload = _reach(tmp_path, monkeypatch, mode=mode, kinds=("root",), timeout_s=1)
     assert time.monotonic() - start < 10
-    assert payload["scenarios"][0]["error"].startswith("TimeoutExpired")
+    assert payload["scenarios"][0]["error"].startswith(error)
     time.sleep(3)  # the helper would have written its marker by now
     assert not (tmp_path / "grandchild-alive").exists()
     assert not list((tmp_path / "work").iterdir())
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="setsid() and process groups are POSIX")
-def test_run_harness_timeout_returns_despite_a_setsid_child(tmp_path):
-    """A child that calls setsid() leaves the process group a timeout kills, and the contract (§7)
-    says the probe does not contain it. What is asserted: run_harness returns at the timeout
-    instead of waiting for that child to close the inherited pipes (it took timeout + 10 s)."""
-    import signal
-
-    from dokimi.repos.harness_profile import run_harness
-
-    pid_file = tmp_path / "child.pid"
-    harness = ("import os, sys, time\n"
-               "if os.fork() == 0:\n"
-               "    os.setsid()\n"
-               "    open(sys.argv[1] + '.tmp', 'w').write(str(os.getpid()))\n"
-               "    os.rename(sys.argv[1] + '.tmp', sys.argv[1])\n"
-               "    time.sleep(60)\n"
-               "    os._exit(0)\n"
-               "time.sleep(60)\n")
-    start = time.monotonic()
-    with pytest.raises(subprocess.TimeoutExpired):
-        run_harness([sys.executable, "-c", harness, str(pid_file)], timeout=2)
-    elapsed = time.monotonic() - start
-    child = int(pid_file.read_text())
+def _pid_alive(pid: int) -> bool:
     try:
-        os.kill(child, 0)  # the escaped child is alive and holds stdout and stderr
-        assert elapsed < 6
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    try:  # a killed child nobody reaped yet is a zombie: not running
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return True
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals and process groups")
+def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
+    """The harness leads its own process group, so a SIGTERM to the CLI (as `timeout(1)` sends)
+    does not reach it; the CLI's handler kills the group, then the CLI dies of the signal."""
+    root, profile, work = _repo(tmp_path), _profile(tmp_path), tmp_path / "work"
+    work.mkdir()
+    env = {**os.environ, "FAKE_MODE": "linger", "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+    cli = subprocess.Popen([sys.executable, "-m", "dokimi", "repo", "reach", str(root),
+                            "--manifest", "evals/repo-eval.yaml", "--harness", str(profile), "--model", "m",
+                            "--out", str(tmp_path / "out"), "--work-dir", str(work), "--scenarios", "root",
+                            "--timeout", "120"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    pid_file = tmp_path / "linger.pids"
+    pids: list[int] = []
+    try:
+        deadline = time.monotonic() + 60
+        while not pid_file.is_file():
+            assert cli.poll() is None, cli.stderr.read().decode() if cli.stderr else ""
+            assert time.monotonic() < deadline, "the harness never started"
+            time.sleep(0.05)
+        pids = [int(p) for p in pid_file.read_text().split()]
+        cli.send_signal(signal.SIGTERM)
+        assert cli.wait(timeout=30) == -signal.SIGTERM
+        deadline = time.monotonic() + 5
+        while any(map(_pid_alive, pids)) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not [p for p in pids if _pid_alive(p)], "the harness or its helper outlived the CLI"
     finally:
-        os.kill(child, signal.SIGKILL)
+        if cli.poll() is None:
+            cli.kill()
+        cli.wait()
+        if cli.stderr:
+            cli.stderr.close()  # an unclosed pipe is a ResourceWarning, now an error
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
 
 
 def test_repo_reach_cli_manifest_file_and_a_failed_scenario(tmp_path, monkeypatch, capsys):
@@ -585,20 +621,36 @@ def test_reach_relativizes_reads_under_a_linked_work_dir(tmp_path, monkeypatch):
 
 
 def test_build_workspace_finds_git_on_the_callers_path(tmp_path, monkeypatch):
+    from dokimi import process
     from dokimi.repos import reach
 
-    real_run = subprocess.run
+    def posix_lookup(call):  # POSIX execvpe searches the child's PATH, on any OS here
+        if not Path(call.argv[0]).is_absolute() and not shutil.which(call.argv[0], path=call.env["PATH"]):
+            raise FileNotFoundError(call.argv[0])
+        return process.run(call.argv, cwd=call.cwd, env=process.Env.only((), call.env),
+                           timeout=call.timeout)
 
-    def posix_lookup(argv, *args, env, **kwargs):  # POSIX execvpe searches the child's PATH
-        if not Path(argv[0]).is_absolute() and not shutil.which(argv[0], path=env["PATH"]):
-            raise FileNotFoundError(argv[0])
-        return real_run(argv, *args, env=env, **kwargs)
-
-    monkeypatch.setattr(reach.subprocess, "run", posix_lookup)
     tree = WorkTree(_repo(tmp_path))
     (tmp_path / "ws").mkdir()
-    reach.build_workspace(tree, ["CLAUDE.md"], tmp_path / "ws", "s")
+    reach.build_workspace(tree, ["CLAUDE.md"], tmp_path / "ws", "s", runner=process.FakeRunner(posix_lookup))
     assert (tmp_path / "ws/.git").is_dir()
+
+
+def test_build_workspace_runs_git_without_the_callers_environment(tmp_path, monkeypatch):
+    """The snapshot commit must not pick up the operator's git config or identity."""
+    from dokimi import process
+    from dokimi.repos import reach
+
+    monkeypatch.setenv("PARENT_ONLY_SECRET", "x")
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
+    tree = WorkTree(_repo(tmp_path))
+    (tmp_path / "ws").mkdir()
+    fake = process.FakeRunner()
+    reach.build_workspace(tree, ["CLAUDE.md"], tmp_path / "ws", "s", runner=fake)
+    assert len(fake.calls) == 3
+    for call in fake.calls:
+        assert "PARENT_ONLY_SECRET" not in call.env and "GIT_DIR" not in call.env
+        assert call.env["GIT_AUTHOR_NAME"] == "reach"
 
 
 def test_reach_records_the_full_commit_sha(tmp_path, monkeypatch):

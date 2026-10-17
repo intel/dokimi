@@ -403,20 +403,20 @@ def test_link_through_a_symlinked_directory(tmp_path):
 
 
 def test_gate_fails_when_globbed_guidance_deleted(tmp_path, monkeypatch, capsys):
-    """The self-scan manifest run on this repository without its root CLAUDE.md exits 1."""
+    """The self-scan manifest run on this repository without its root AGENTS.md exits 1."""
     import dokimi.repos as repos
 
     framework = Path(__file__).resolve().parents[1]
 
-    class WithoutClaudeMd(WorkTree):
+    class WithoutAgentsMd(WorkTree):
         def files(self) -> list[str]:
-            return [f for f in super().files() if f != "CLAUDE.md"]
+            return [f for f in super().files() if f != "AGENTS.md"]
 
-    monkeypatch.setattr(repos, "open_source", lambda source, cache=None: WithoutClaudeMd(source.location))
+    monkeypatch.setattr(repos, "open_source", lambda source, cache=None: WithoutAgentsMd(source.location))
     manifest = framework / "benchmarks" / "self-scan.repo-eval.yaml"
     args = build_parser().parse_args(["repo", "scan", str(framework.parent), "--manifest-file", str(manifest),
                                       "--fail-on-fail"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 1
-    assert "guidance/also_scan matches no file: CLAUDE.md" in capsys.readouterr().out
+    assert "guidance/also_scan matches no file: AGENTS.md" in capsys.readouterr().out

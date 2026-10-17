@@ -5,6 +5,8 @@
 
 from typing import Any, Dict, List
 
+from dokimi.eval.arm_summary import TOOL_COUNTS
+
 
 def _md_cell(text: str) -> str:
     """Make text safe for a single Markdown table cell."""
@@ -239,6 +241,14 @@ def render_arms_report(data: Dict[str, Any]) -> str:
                 f"{s.get('avg_iterations', 0):.1f} | {s.get('n', 0)} |"
             )
         lines.append("")
+        old = [arm for arm, s in agentic_stats.items() if s.get("tool_counts") != TOOL_COUNTS]
+        if old:
+            lines.append(
+                "Tool counts of " + ", ".join(f"`{a}`" for a in old) + " include failed "
+                "calls (all or some answers predate the `" + TOOL_COUNTS + "` stamp): "
+                "do not compare their rates with stamped runs."
+            )
+            lines.append("")
 
     selection = data.get("skill_selection_summary") or {}
     if selection:

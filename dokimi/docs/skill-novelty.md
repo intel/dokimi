@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Content novelty: what does this skill actually *add*?
 
 The arm comparison answers *does this artifact help?* This layer answers the two questions an author
@@ -236,9 +241,17 @@ for what each output means.
 ### 1. Whole-artifact triage
 
 ```bash
-python cli.py novelty analyze --artifact skill:path/to/skill --model claude-opus-5 \
-    --judge-model gpt-5.6-luna [--include-resources]
+python cli.py novelty analyze --artifact skill:path/to/skill \
+    --model claude-opus-5-5 --provider anthropic \
+    --judge-model gpt-6.1-sol --judge-provider openai [--include-resources]
 ```
+
+With no `--judge-model`/`--judge-provider`, the judge is `anthropic/claude-sonnet-5-5`
+whatever `--provider` is; a Bedrock-only run adds `--judge-provider amazon-bedrock`.
+`--judge-provider` alone takes the default judge that runs on that provider; when none
+does (measuring `claude-sonnet-5-5` with `--judge-provider amazon-bedrock`, or the
+default `gpt-6.1-sol` with `--judge-provider openai`) the run exits and asks for
+`--judge-model`.
 
 Without `--include-resources` this measures `SKILL.md` alone and prints, before spending
 anything, what share of the artifact that leaves out — see
@@ -459,7 +472,7 @@ python cli.py novelty analyze --artifact skill:path/to/skill --model M --judge-m
     # --max-file-words 4000 --max-resource-words 20000
 ```
 
-Three things to know before reading a bundle result:
+Things to know before reading a bundle result:
 
 - **It is an upper bound.** Injecting the whole bundle measures what the artifact *could*
   deliver if the agent read all of it. Whether the agent chooses to load `references/x.md`
@@ -483,6 +496,22 @@ Three things to know before reading a bundle result:
   A file that is mostly printable text but does not decode as UTF-8 (latin-1, cp1252, UTF-16)
   is reported `unreadable` whatever its suffix, and the coverage check then says `measured=False`;
   only a NUL-bearing non-UTF-16 file, or a blob that is not mostly printable, is silently "not text".
+- **One rule decides what an exclusion means.** Every row's `kind` has one class
+  (`novelty/bundle.py`, `EXCLUSION_CLASS`): `budget` and `not_requested` are a *gap* — the words
+  in `unmeasured_words`, the files a warning calls "excluded"; `policy` is a *decision*, never
+  charged as unread; `unreadable` is *unknown*; `symlink` and `not_text` are *not content*. An
+  exclusion is a *file* the run did not select; text it selected that no extraction call could
+  read is an *unread span* (`spans.n_unread`, below), which narrows the dead-token figure and
+  not coverage.
+- **Two surfaces quote coverage on different bases.** The CLI note, the analyzer's warnings,
+  the gate's `artifact_coverage` and the report all read the record through the same
+  `Coverage`, and each names the denominator it divides by (`COVERAGE_BASES`). The warnings
+  and the report use *readable* words (role decisions left out, so for an entry-point run the
+  figure is `measurable_outside_share`). The gate judges its 0.5 ceiling over *all bundled
+  words*, role decisions included, as it always has: for an entry-point run of a skill with
+  its own `evals/` its figure is lower than the warning's (26% against 56% for 400 entry
+  words, a 500-word reference and 1,000 words of evals). Moving the gate to the readable
+  basis changes its numbers, so it is a separate change, stamped in the record.
 
 The payoff is `bundle.by_source`: the paired 2×2 cut by the file that carried each atom. A
 reference whose atoms are all `redundant` is a file the model already knows; one full of
@@ -775,9 +804,13 @@ python cli.py novelty probe --artifact skill:path/to/skill --atoms atoms.json --
 file set rather than trusting flags: probing bundle-derived atoms against an
 entry-point-only context would score every atom from a reference file `still_missing` for
 the wrong reason. If the artifact's files changed since extraction — edited, removed, or a
-new text file added — `probe` refuses instead of mis-scoring. The entry point alone may
+new text file added — `probe` refuses instead of mis-scoring (a new image or symlink is not
+text any mode reads, so it does not). The entry point alone may
 change (that is the re-measure step); the result's `ref_digest` and `bundle` then describe
-the text that was probed, and `atoms_ref_digest` the text the atoms came from. `shorten`
+the text that was probed, and `atoms_ref_digest` the text the atoms came from. Every novelty
+`ref_digest` is the bundle's `measured_digest` (the measured files' paths and text digests);
+the subject scorecard's `subject.ref_digest` is a different hash, of every file under the
+subject path, and the two are not meant to match. `shorten`
 rewrites one file, so with a bundle-derived atom set it scores only the entry point's spans
 and says so.
 

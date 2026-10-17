@@ -21,6 +21,7 @@ import html
 from datetime import datetime, timezone
 
 from .attribute import COLOURS, LEGEND, SpanAttribution
+from .bundle import Coverage, named_exclusions
 
 _CAVEATS = (
     "Rates are paired per probe; trust signs and rankings, not second decimals. "
@@ -141,6 +142,41 @@ def build_novelty_artifact(
     }
 
 
+def build_probe_record(
+    *,
+    artifact_ref: str,
+    model: str,
+    judge_model: str,
+    probed_bundle,
+    atoms_bundle: dict | None,
+    probe_set,
+    measure_result,
+) -> dict:
+    """The ``novelty probe`` output: the paired runs of one model over a saved answer key.
+
+    Both ``bundle`` and ``ref_digest`` describe the text this run *injected*, not the text
+    the atoms were extracted from (that is ``atoms_ref_digest``): the re-measure step probes
+    an edited ``SKILL.md`` with the original atoms, and a digest copied from extraction
+    would make the two runs look like the same text. ``probed_bundle`` is ``None`` for an
+    answer key that predates bundle provenance, which leaves both empty.
+    """
+    return {
+        "artifact": artifact_ref,
+        "model": model,
+        "judge_model": judge_model,
+        "bundle": {} if probed_bundle is None else probed_bundle.summary(),
+        "ref_digest": None if probed_bundle is None else probed_bundle.measured_digest(),
+        "atoms_ref_digest": (atoms_bundle or {}).get("measured_digest"),
+        "probes": probe_set.as_dict(),
+        "paired": {s: measure_result.paired(s) for s in ("lenient", "strict")},
+        "arms": {s: measure_result.arm_means(s) for s in ("lenient", "strict")},
+        "abstentions": measure_result.abstentions(),
+        "reversal_resisted": measure_result.reversal_resisted(),
+        "confidence_correlation": measure_result.confidence_correlation(),
+        "runs": [row.as_dict() for row in measure_result.runs],
+    }
+
+
 def _order_independent(measure_result) -> bool | None:
     """True when the shuffled control scored at least as high as the artifact as written.
 
@@ -201,19 +237,24 @@ def _render_bundle(artifact: dict) -> list[str]:
     bundle = artifact.get("bundle") or {}
     if not bundle:
         return []
+    coverage = Coverage.from_record(bundle)
+    if coverage is None:
+        return ["## Which file carries it", "",
+                "This run's bundle record lacks its word counts, so how much of the artifact "
+                "was read is unknown.", ""]
     lines = ["## Which file carries it", ""]
     # Measurable words: on disk minus the role decisions (the skill's own evals by default).
     # `outside_share` in the JSON stays the on-disk figure; the prose must not tell the
     # user to rerun for words no mode would read.
-    share = bundle.get("measurable_outside_share", bundle.get("outside_share", 0.0))
-    policy = bundle.get("policy_excluded_words", 0)
-    measurable = bundle.get("resource_words_on_disk", 0) - policy
+    share = coverage.outside_share_on("readable")
+    policy = coverage.policy_excluded_words
+    measurable = coverage.measurable_resource_words
     decided = f" A further {policy} words are in files not measured by default." if policy else ""
-    if not bundle.get("include_resources"):
+    if not coverage.include_resources:
         if measurable:
             lines += [
                 f"Entry point only. **{share:.0%}** of this artifact's words ({measurable} of "
-                f"{bundle.get('entry_point_words', 0) + measurable}) sit in bundled files "
+                f"{coverage.entry_point_words + measurable}) sit in bundled files "
                 "that were not measured — rerun with `--include-resources` before quoting "
                 f"any rate as a property of the artifact.{decided}",
                 "",
@@ -222,8 +263,8 @@ def _render_bundle(artifact: dict) -> list[str]:
             lines += [f"Entry point only; nothing measurable sits outside it.{decided}", ""]
         return lines
     lines += [
-        f"{max(bundle.get('n_files', 1) - 1, 0)} resource files measured, "
-        f"{bundle.get('resource_words_measured', 0)} of {measurable} measurable bundled "
+        f"{max(coverage.n_files - 1, 0)} resource files measured, "
+        f"{coverage.resource_words_measured} of {measurable} measurable bundled "
         f"words read ({share:.0%} of the artifact is outside its entry point).{decided}",
         "",
         "| file | role | words | atoms | added | already knew |",
@@ -249,10 +290,8 @@ def _render_bundle(artifact: dict) -> list[str]:
             "also not what makes the skill work.",
             "",
         ]
-    # Non-text files are not content and carry no words, so they are counted, not listed:
-    # 39 OOXML schemas in one skill would otherwise bury the two references that matter.
-    excluded = [row for row in bundle.get("excluded") or [] if row.get("kind") != "not_text"]
-    not_text = len(bundle.get("excluded") or []) - len(excluded)
+    # Non-text files carry no words, so they are counted, not listed (`named_exclusions`).
+    excluded, not_text = named_exclusions(bundle.get("excluded"))
     if excluded:
         lines += [f"{len(excluded)} files excluded: " + ", ".join(
             f"`{row['path']}` ({row['reason']})" for row in excluded[:8]

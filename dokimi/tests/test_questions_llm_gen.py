@@ -59,8 +59,8 @@ class TestQuestionGeneratorInit:
         mock_cls = Mock()
         with patch('dokimi.questions.llm_gen.ChatOpenAI', mock_cls, create=True), \
              patch('dokimi.questions.llm_gen.LANGCHAIN_AVAILABLE', True):
-            gen = QuestionGenerator(model="gpt-4o-mini", provider="openai")
-            assert gen.model == "gpt-4o-mini"
+            gen = QuestionGenerator(model="gpt-6.1-sol", provider="openai")
+            assert gen.model == "gpt-6.1-sol"
             assert gen.provider == "openai"
             mock_cls.assert_called_once()
     
@@ -105,7 +105,7 @@ class TestGenerateQuestions:
             questions = gen.generate_questions("oneTBB", sample_personas, sample_topics)
             ids = [q["id"] for q in questions]
             assert len(ids) == len(set(ids))  # All unique
-            assert all(id.startswith("q_") for id in ids)
+            assert all(qid.startswith("q_") for qid in ids)
     
     def test_includes_required_fields(self, sample_personas, sample_topics, mock_llm):
         mock_cls = Mock(return_value=mock_llm)

@@ -194,6 +194,31 @@ def test_explore_list_passes_repo_root_from_cli(tmp_path, capsys):
     assert "t\tp\t1 ref(s)" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("argv", [
+    ["explore", "list"],
+    ["explore", "run", "--all"],
+    ["explore", "run", "--tasks", "t"],
+])
+def test_explore_without_bundled_tasks_says_so(tmp_path, monkeypatch, argv):
+    # An installed wheel has no data/explore_tasks: say so, do not find nothing.
+    import dokimi.explore.tasks as tasks_mod
+    from dokimi.cli import build_parser
+
+    monkeypatch.setattr(tasks_mod, "EXPLORE_TASKS_ROOT", tmp_path / "absent")
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit, match="ship with a source checkout.*--tasks-root.*--repo-root"):
+        args.func(args)
+
+
+def test_a_task_file_path_needs_no_bundled_tasks(tmp_path, monkeypatch):
+    import dokimi.explore.tasks as tasks_mod
+
+    monkeypatch.setattr(tasks_mod, "EXPLORE_TASKS_ROOT", tmp_path / "absent")
+    path = tmp_path / "t.yaml"
+    path.write_text("id: t\nquery: q\nreferences:\n  - path: a.py\n", encoding="utf-8")
+    assert load_explore_task(str(path)).id == "t"
+
+
 def test_seed_tasks_load_and_reference_real_files():
     # The shipped seed set must parse and its references must exist in the repo.
     tasks = discover_explore_tasks()
@@ -278,6 +303,17 @@ def test_command_explorer_timeout_preserves_partial_telemetry(tmp_path):
     assert result.returncode == 124
     # Telemetry written before the hang is preserved, not discarded.
     assert any(op.name == "pre-timeout" for op in result.operations)
+
+
+def test_command_explorer_nul_byte_in_query_fails_the_row(tmp_path):
+    from dokimi.explore import CommandExplorer
+
+    # A NUL byte cannot reach argv; it must fail this row, not the explore run.
+    result = CommandExplorer("echo {query_quoted}", output_root=tmp_path / "o").explore(
+        "where\x00is it?", repo_root=tmp_path
+    )
+    assert result.returncode == 124
+    assert result.final_answer == ""
 
 
 def test_command_explorer_empty_command_returns_error(tmp_path):
@@ -526,3 +562,41 @@ def test_command_explorer_passes_real_paths_to_the_command(tmp_path):
         f"python {probe.as_posix()} {{repo_root}} {{output_dir}}", output_root=tmp_path / "out"
     )
     assert explorer.explore("q", repo_root=tmp_path).final_answer.strip() == "True"
+
+
+def test_command_explorer_spawns_through_its_runner(tmp_path, monkeypatch):
+    """A hung explorer is killed with its tree; what it printed before is the answer."""
+    from dokimi.explore import CommandExplorer
+    from dokimi.process import FakeRunner, reply
+
+    monkeypatch.setenv("DOKIMI_TEST_ONLY_OPERATOR", "kept")
+    fake = FakeRunner(lambda call: reply("<final_answer>\na.py\n", timed_out=True))
+    explorer = CommandExplorer("fc --q {query_quoted}", timeout_sec=7, env={"X": "1"},
+                               output_root=tmp_path / "o", runner=fake)
+    result = explorer.explore("where?", repo_root=tmp_path)
+    assert result.returncode == 124 and result.final_answer.startswith("<final_answer>")
+    (call,) = fake.calls
+    assert call.argv == ("fc", "--q", "where?") and call.cwd == tmp_path and call.timeout == 7
+    assert call.capture_limit is None  # the final answer and the markers are parsed from all of it
+    assert call.env["X"] == "1" and call.env["DOKIMI_TEST_ONLY_OPERATOR"] == "kept"
+    assert call.env["DOKIMI_OUTPUT_DIR"] == str((tmp_path / "o").resolve())
+
+
+def test_command_explorer_reads_markers_from_stderr(tmp_path):
+    from dokimi.explore import CommandExplorer
+    from dokimi.process import FakeRunner, reply
+
+    fake = FakeRunner(lambda call: reply("answer", 'DOKIMI_OP {"type": "read", "name": "on-stderr"}\n'))
+    result = CommandExplorer("explore {query_quoted}", runner=fake).explore("q", repo_root=tmp_path)
+    assert "on-stderr" in [op.name for op in result.operations]
+
+
+def test_command_explorer_timeout_none_means_no_limit(tmp_path):
+    """`timeout_sec=None` meant no timeout; it must not raise TypeError in the runner."""
+    from dokimi.explore import CommandExplorer
+    from dokimi.process import FakeRunner, reply
+
+    fake = FakeRunner(lambda call: reply("answer"))
+    result = CommandExplorer("explore {query_quoted}", timeout_sec=None, runner=fake).explore(
+        "q", repo_root=tmp_path)
+    assert result.returncode == 0 and fake.calls[0].timeout >= 24 * 3600

@@ -248,26 +248,25 @@ def test_workspace_has_no_reflog_or_unreachable_objects(toy):
 
 
 def test_docker_cli_env_keeps_host_HOME_and_USER(tmp_path, monkeypatch):
-    import dokimi.repos.container as container
+    from dokimi import process
 
-    seen = {}
-
-    def fake_run_process(argv, *, env, **kw):
-        seen.update(argv=argv, env=env)
-        return ContainerResult(returncode=0, timed_out=False, wall_s=0.0)
-
-    monkeypatch.setattr(container, "run_process", fake_run_process)
+    fake = process.FakeRunner()
     monkeypatch.setenv("HOME", "/home/host-user")
     monkeypatch.setenv("USER", "host-user")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "s3cret")
     spec = ContainerSpec(image="img", argv=["true"], env={"HOME": "/eval/run/home", "USER": "eval", "X": "1"},
                          pass_env=("ANTHROPIC_API_KEY",))
-    DockerRunner().run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=5)
+    DockerRunner(runner=fake).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=5)
+    (call,) = fake.calls
+    seen = {"argv": list(call.argv), "env": call.env}
+    assert call.stdout_to == tmp_path / "o" and call.stderr_to == tmp_path / "e" and call.timeout == 5
     assert seen["env"]["HOME"] == "/home/host-user" and seen["env"]["USER"] == "host-user"
     assert "X" not in seen["env"] or seen["env"]["X"] == os.environ.get("X")
     argv = seen["argv"]
     assert "HOME=/eval/run/home" in argv and "USER=eval" in argv and "X=1" in argv
     assert "ANTHROPIC_API_KEY" in argv and "s3cret" not in " ".join(argv)
+    # `-e NAME` reads the value from the CLI's own environment: it must be there.
+    assert seen["env"]["ANTHROPIC_API_KEY"] == "s3cret"
 
 
 @pytest.mark.parametrize("metrics", [{}, {"recall": True}, {"recall": None}], ids=["missing", "bool", "null"])
@@ -409,19 +408,138 @@ def test_trees_are_checked_out_without_host_config_or_export_attributes(tmp_path
 
 
 def test_a_docker_kill_that_times_out_still_ends_the_run(tmp_path, monkeypatch):
-    import dokimi.repos.container as container
+    """The CLI gets SIGTERM (it stops the container) before SIGKILL; then the container is
+    killed by name, and a `docker kill` that hangs too still ends the run."""
+    from dokimi import process
 
-    real_run = subprocess.run
-
-    def run(argv, **kw):
-        if argv[1:2] == ["kill"]:
-            raise subprocess.TimeoutExpired(argv, 60)
-        return real_run(argv, **kw)
-
-    monkeypatch.setattr(container.subprocess, "run", run)
-    docker = tmp_path / "docker"
-    docker.write_text("#!/bin/sh\nsleep 60\n")
-    docker.chmod(0o755)
+    monkeypatch.setenv("DOKIMI_TEST_ONLY_DOCKER", "kept")
+    fake = process.FakeRunner(lambda call: process.reply("partial", timed_out=True))
     spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x")
-    res = DockerRunner(str(docker)).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=1)
+    res = DockerRunner("docker", runner=fake).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e",
+                                                  timeout_s=1)
     assert res.timed_out and res.returncode is None
+    run, kill = fake.calls
+    assert run.argv[:2] == ("docker", "run") and run.term_grace == 10 and run.timeout == 1
+    assert kill.argv == ("docker", "kill", "dokimi-x") and kill.timeout == 60
+    assert kill.env.get("DOKIMI_TEST_ONLY_DOCKER") == "kept"
+    assert (tmp_path / "o").read_text() == "partial"
+
+
+def test_a_docker_cli_that_cannot_start_is_a_container_error(tmp_path):
+    """No docker binary: the build is a ContainerError, and a timed-out run whose `docker kill`
+    cannot start either still returns as timed out."""
+    from dokimi import process
+
+    def missing(call):
+        raise FileNotFoundError(2, "No such file or directory", call.argv[0])
+
+    def missing_kill(call):
+        return missing(call) if call.argv[1] == "kill" else process.reply(timed_out=True)
+
+    with pytest.raises(ContainerError, match="cannot run 'nodocker'"):
+        DockerRunner("nodocker", runner=process.FakeRunner(missing)).build(tmp_path, tmp_path / "D", "t")
+    res = DockerRunner(runner=process.FakeRunner(missing_kill)).run(
+        ContainerSpec(image="img", argv=["true"], name="dokimi-y"), stdout=tmp_path / "o", stderr=tmp_path / "e",
+        timeout_s=1)
+    assert res.timed_out and res.returncode is None
+
+
+def test_docker_build_and_inspect_are_bounded(tmp_path, monkeypatch):
+    """A wedged daemon fails the build or the image lookup (a ContainerError) instead of hanging
+    the batch; an image that is not there is still just absent."""
+    import dokimi.repos.container as container
+    from dokimi import process
+
+    fake = process.FakeRunner(lambda call: process.reply(stderr="step 3/9", timed_out=True))
+    runner = DockerRunner(runner=fake)
+    with pytest.raises(ContainerError, match="timed out after"):
+        runner.build(tmp_path, tmp_path / "Dockerfile", "img:t")
+    with pytest.raises(ContainerError, match="no answer in 60s"):
+        runner.image_exists("img:t")
+    build, inspect = fake.calls
+    assert container.BUILD_TIMEOUT_S == 3 * 3600 and container.DOCKER_CALL_TIMEOUT_S == 60
+    assert build.timeout == 3 * 3600 and inspect.timeout == 60
+    # Both inherit the caller's environment (registry credentials, DOCKER_HOST, proxies).
+    monkeypatch.setenv("DOKIMI_TEST_ONLY_DOCKER", "kept")
+    fake = process.FakeRunner()
+    DockerRunner(runner=fake).build(tmp_path, tmp_path / "Dockerfile", "img:t")
+    DockerRunner(runner=fake).image_exists("img:t")
+    assert [c.env.get("DOKIMI_TEST_ONLY_DOCKER") for c in fake.calls] == ["kept", "kept"]
+    missing = DockerRunner(runner=process.FakeRunner(lambda call: process.reply(returncode=1)))
+    assert missing.image_exists("img:t") is False and DockerRunner(runner=process.FakeRunner()).image_exists("x")
+
+
+def test_workspace_git_never_prompts_and_a_timeout_is_a_prep_error(monkeypatch, tmp_path):
+    """A clone of a private remote must not wait on a credential prompt until the 30-min timeout;
+    the clone keeps the caller's env (credential helpers), a snapshot step gets exactly its own."""
+    import dokimi.repos.workspace as workspace
+    from dokimi import process
+
+    fake = process.FakeRunner(lambda call: process.reply(timed_out=True) if "fetch" in call.argv else None)
+    monkeypatch.setattr(workspace.process, "run", fake)
+    monkeypatch.setenv("DOKIMI_TEST_ONLY_HELPER", "x")
+    bare = str(tmp_path / "x")  # never created: the fake runner spawns nothing
+    workspace._run(["git", "clone", "--bare", "--", "https://example.invalid/r.git", bare])
+    workspace._run(["git", "-C", bare, "status"], env={"PATH": "/usr/bin"})
+    with pytest.raises(PrepError, match="timed out"):
+        workspace._run(["git", "-C", bare, "fetch", "origin"])
+    clone, status, _ = fake.calls
+    assert clone.env["GIT_TERMINAL_PROMPT"] == "0" and clone.env["DOKIMI_TEST_ONLY_HELPER"] == "x"
+    assert status.env == {"PATH": "/usr/bin", "GIT_TERMINAL_PROMPT": "0"}
+    assert {c.timeout for c in fake.calls} == {workspace._GIT_TIMEOUT_S}
+    assert {c.capture_limit for c in fake.calls} == {None}  # ls-files, rev-parse: data, never cut
+
+
+@pytest.mark.parametrize("which", range(4))
+def test_a_clone_that_needed_a_prompt_says_which_and_what_to_do(monkeypatch, which):
+    """ssh's "Host key verification failed" sits above three lines of boilerplate; it, not the
+    tail, is what a PrepError must show, with a hint (clone and fetch never prompt)."""
+    import dokimi.repos.workspace as workspace
+    from dokimi import process
+    from test_process import GIT_PROMPT_FAILURES
+
+    stderr, line, hint = GIT_PROMPT_FAILURES[which]
+    monkeypatch.setattr(workspace.process, "run", process.FakeRunner(lambda call: process.reply(
+        stderr=stderr, returncode=128)))
+    with pytest.raises(PrepError) as err:
+        workspace._run(["git", "clone", "--bare", "--", "git@github.com:o/r.git", "/x"])
+    assert str(err.value).startswith("git clone --bare -- git@github.com:o/r.git exited 128: " + line)
+    assert "hint: " in str(err.value) and hint in str(err.value)
+
+
+def test_a_patch_failing_on_two_files_names_both(tmp_path):
+    import dokimi.repos.workspace as workspace
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "a.txt").write_text("one\n")
+    (ws / "b.txt").write_text("one\n")
+    patch = tmp_path / "bad.patch"
+    patch.write_text("".join(f"--- a/{n}\n+++ b/{n}\n@@ -1 +1 @@\n-zero\n+two\n" for n in ("a.txt", "b.txt")))
+    env = {"PATH": os.environ["PATH"], "HOME": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    workspace._run(["git", "-C", str(ws), "init", "-q"], env=env)
+    with pytest.raises(PrepError) as err:
+        workspace._run(["git", "-C", str(ws), "apply", str(patch)], env=env)
+    assert "a.txt: patch does not apply" in str(err.value) and "b.txt: patch does not apply" in str(err.value)
+    assert " | " in str(err.value)
+
+
+def test_a_timed_out_cat_file_is_an_error_not_an_absent_object(tmp_path, monkeypatch):
+    from dokimi import process
+    from dokimi.repos import workspace
+
+    hung = process.Completed(("git",), process.TIMEOUT_RC, b"", b"", True, 1.0)
+    monkeypatch.setattr(process, "git", lambda *a, **k: hung)
+    with pytest.raises(PrepError, match="timed out"):
+        workspace._has_object(tmp_path, "HEAD:x")
+    with pytest.raises(PrepError, match="timed out"):
+        workspace._has_commit(tmp_path, "abc")
+
+
+def test_a_run_that_does_not_time_out_kills_no_container(tmp_path):
+    from dokimi import process
+
+    fake = process.FakeRunner()
+    spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x")
+    res = DockerRunner("docker", runner=fake).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=5)
+    assert not res.timed_out and [c.argv[:2] for c in fake.calls] == [("docker", "run")]

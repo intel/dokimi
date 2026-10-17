@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 # Hidden test for the fix-degrade-pre task: an HTML <pre> element is a code block too.
 import pytest
 

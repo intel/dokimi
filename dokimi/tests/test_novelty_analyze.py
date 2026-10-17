@@ -253,6 +253,9 @@ def test_a_bundle_run_reports_which_file_carried_each_atom(tmp_path):
                                                                 "references/tuning.md"}
     assert sum(row["n_atoms"] for row in reported["by_source"]) == artifact["atoms"]["n"]
     assert artifact["run_config"]["include_resources"] is True
+    # One meaning for `ref_digest`: the files this cell measured, as the record says.
+    assert artifact["artifact"]["ref_digest"] == bundle.measured_digest()
+    assert reported["measured_digest"] == bundle.measured_digest()
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
 
 
@@ -358,7 +361,7 @@ def test_an_extractor_that_fails_every_batch_fails_the_run(tmp_path):
                            description=description, frontmatter=frontmatter, concurrency=1)
 
     def no_model(prompt, system):
-        raise RuntimeError("model gpt-4o-mini is not available on this provider")
+        raise RuntimeError("model gpt-6.1-sol is not available on this provider")
 
     _, answerer, judge = _clients()
     extractor = LLMClient(model="extractor-m", role="extractor", transport=no_model)

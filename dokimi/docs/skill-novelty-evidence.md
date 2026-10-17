@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Evidence: a 33-skill content-novelty study
 
 The numbers quoted in [skill-novelty.md](skill-novelty.md) come from one study, recorded here so

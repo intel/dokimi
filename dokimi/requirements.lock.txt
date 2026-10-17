@@ -90,6 +90,8 @@ docstring-parser==0.18.0
     # via
     #   anthropic
     #   instructor
+execnet==2.1.2
+    # via pytest-xdist
 fastuuid==0.14.0
     # via litellm
 filelock==3.32.7
@@ -232,7 +234,7 @@ langsmith==0.14.4
     #   langchain-classic
     #   langchain-community
     #   langchain-core
-litellm==1.104.1
+litellm==1.105.0
     # via
     #   -r requirements-test.txt
     #   -r requirements.txt
@@ -358,6 +360,7 @@ pytest==9.1.1
     #   pytest-randomly
     #   pytest-socket
     #   pytest-timeout
+    #   pytest-xdist
 pytest-cov==7.1.0
     # via -r requirements-test.txt
 pytest-mock==3.16.0
@@ -367,6 +370,8 @@ pytest-randomly==5.0.0
 pytest-socket==0.8.1
     # via -r requirements-test.txt
 pytest-timeout==2.4.0
+    # via -r requirements-test.txt
+pytest-xdist==3.8.0
     # via -r requirements-test.txt
 python-dateutil==2.9.0.post0
     # via

@@ -1,0 +1,29 @@
+{
+  "id": "OUTCOME-PINNED-QUESTIONS",
+  "actor": "benchmark user comparing models or arms",
+  "entry_point": "python cli.py benchmark run --target <t> [--questions-root | --questions-from]",
+  "result": "two runs answer the same questions, or the user is told they will not",
+  "acceptance": [
+    "a multi-run benchmark reuses the first run's questions for every later run",
+    "--questions-from hands the earlier run's questions to the answer step and generates none",
+    "two runs on one --questions-root answer exactly its golden set and generate none",
+    "preflight rejects a missing key, a missing or malformed --questions-from, and a --questions-root without a readable golden set, before any API call"
+  ],
+  "negative_behavior": [
+    "a run with no question source warns that questions are generated and names --questions-root; a --questions-from run does not"
+  ],
+  "intent_refs": [
+    "docs/user-flow.md#4-reuse-same-question-set-for-fair-comparison"
+  ],
+  "implementation_refs": [
+    "dokimi/commands/benchmark.py",
+    "dokimi/orchestrator/pipeline.py"
+  ],
+  "evidence_ids": [
+    "pinned-questions-reuse",
+    "pinned-questions-from",
+    "pinned-questions-root",
+    "pinned-questions-preflight",
+    "pinned-questions-warn"
+  ]
+}

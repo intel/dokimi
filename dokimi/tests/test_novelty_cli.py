@@ -12,6 +12,13 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.commands import novelty as novelty_cmd
+from dokimi.defaults import (
+    DEFAULT_ANSWER_MODEL,
+    DEFAULT_GENERATOR_MODEL,
+    DEFAULT_GENERATOR_PROVIDER,
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_PROVIDER,
+)
 
 
 def _parse(*argv):
@@ -28,10 +35,56 @@ def test_every_subcommand_is_registered():
 
 
 def test_the_judge_defaults_to_a_different_model_than_the_answerer():
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", "gpt-4o-mini")
+    args = _parse("novelty", "analyze", "--artifact", "skill:x")
     extractor, answerer, judge = novelty_cmd._clients(args)
-    assert judge.model != answerer.model
+    assert answerer.model == DEFAULT_ANSWER_MODEL
+    assert (judge.model, judge.provider) == (DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER)
     assert extractor.role == "extractor" and judge.role == "judge"
+
+
+@pytest.mark.parametrize("model", [DEFAULT_JUDGE_MODEL, f"us.anthropic.{DEFAULT_JUDGE_MODEL}"])
+def test_measuring_the_default_judge_moves_the_judge_to_the_other_family(model):
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", model,
+                  "--provider", "amazon-bedrock")
+    _extractor, answerer, judge = novelty_cmd._clients(args)
+    assert answerer.model == model
+    assert (judge.model, judge.provider) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
+
+
+def test_a_judge_provider_alone_picks_the_default_judge_that_runs_there():
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--judge-provider", "amazon-bedrock")
+    extractor, _answerer, judge = novelty_cmd._clients(args)
+    assert (judge.model, judge.provider) == (DEFAULT_JUDGE_MODEL, "amazon-bedrock")
+    assert (extractor.model, extractor.provider) == (DEFAULT_JUDGE_MODEL, "amazon-bedrock")
+
+
+def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured():
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", DEFAULT_JUDGE_MODEL,
+                  "--provider", "anthropic", "--judge-provider", DEFAULT_GENERATOR_PROVIDER)
+    _extractor, _answerer, judge = novelty_cmd._clients(args)
+    assert (judge.model, judge.provider) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
+
+
+@pytest.mark.parametrize("argv", [
+    # Measuring the default judge leaves only the generator, which Bedrock and anthropic
+    # do not serve: the swap must not build bedrock/gpt-6.1-sol or anthropic/gpt-6.1-sol.
+    ("--model", f"us.anthropic.{DEFAULT_JUDGE_MODEL}", "--provider", "amazon-bedrock",
+     "--judge-provider", "amazon-bedrock"),
+    ("--model", DEFAULT_JUDGE_MODEL, "--provider", "anthropic", "--judge-provider", "anthropic"),
+    # The default answerer is the generator, so openai has no default judge left either.
+    ("--judge-provider", "openai"),
+])
+def test_a_judge_provider_with_no_default_judge_there_exits(argv):
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", *argv)
+    with pytest.raises(SystemExit, match="--judge-model"):
+        novelty_cmd._clients(args)
+
+
+def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--provider", "openrouter",
+                  "--judge-model", "j")
+    _extractor, _answerer, judge = novelty_cmd._clients(args)
+    assert (judge.model, judge.provider) == ("j", "openrouter")
 
 
 def test_the_extractor_follows_the_judge_not_the_answerer():
@@ -56,6 +109,90 @@ def test_a_missing_artifact_exits_with_a_message(capsys):
     with pytest.raises(SystemExit, match="cannot load"):
         args.func(args)
     capsys.readouterr()
+
+
+
+def test_coverage_note_printed_to_stderr_for_atoms(tmp_path, monkeypatch, capsys):
+    """The coverage note is printed to stderr on entry-point run."""
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    ref_file = skill.parent / "references" / "ref.md"
+    ref_file.parent.mkdir()
+    skill.write_text(
+        "---\nname: s\ndescription: d\n---\n\n# H\n\nSome text.\n",
+        encoding="utf-8",
+    )
+    # Create a reference file so there is bundled text
+    ref_file.write_text("Reference text here.", encoding="utf-8")
+    rows = [{"statement": "Some.", "question": "What?", "answer": "Text.", 
+             "kind": "contract", "span_ids": ["s0002"]}]
+
+    def transport(prompt, system=None):
+        if "Extract the checkable knowledge" in prompt:
+            return json.dumps(rows), None
+        return json.dumps({"verdict": "supported"}), None
+
+    real_client = novelty_cmd._client
+    monkeypatch.setattr(
+        novelty_cmd, "_client",
+        lambda model, provider, role, args: _with_transport(
+            real_client(model, provider, role, args), transport
+        ),
+    )
+    out = tmp_path / "atoms.json"
+    # Entry-point-only run will note that references exist and won't be measured
+    args = _parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out))
+    args.func(args)
+    payload = json.loads(out.read_text())
+    assert len(payload["atoms"]) >= 1
+    # Check stderr for coverage note about bundled files not being measured
+    captured = capsys.readouterr()
+    assert "NOTE:" in captured.err
+    assert "will not be measured" in captured.err
+
+
+def test_answer_key_notes_printed_to_stderr_for_probe(tmp_path, monkeypatch, capsys):
+    """Answer-key notes are printed to stderr."""
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: s\ndescription: d\n---\n\n# H\n\nSome text.\n",
+        encoding="utf-8",
+    )
+    
+    # Create atoms file
+    rows = [{"statement": "Some.", "question": "What?", "answer": "Text.", 
+             "kind": "contract", "span_ids": ["s0002"]}]
+
+    def transport(prompt, system=None):
+        if "Extract the checkable knowledge" in prompt:
+            return json.dumps(rows), None
+        return json.dumps({"verdict": "supported"}), None
+
+    real_client = novelty_cmd._client
+    monkeypatch.setattr(
+        novelty_cmd, "_client",
+        lambda model, provider, role, args: _with_transport(
+            real_client(model, provider, role, args), transport
+        ),
+    )
+    out = tmp_path / "atoms.json"
+    args = _parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out))
+    args.func(args)
+    
+    # Now probe and edit the artifact - this should trigger answer-key notes
+    skill.write_text(
+        "---\nname: s\ndescription: d\n---\n\n# H\n\nEdited text.\n",
+        encoding="utf-8",
+    )
+    
+    args = _parse("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(out),
+                  "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json"))
+    args.func(args)
+    
+    # The probe command should have stderr output about changed files
+    captured = capsys.readouterr()
+    assert "has changed since" in captured.err
 
 
 def test_max_atoms_rejects_zero():
@@ -97,11 +234,17 @@ def test_atoms_subcommand_writes_atoms_and_span_stats(tmp_path, monkeypatch, cap
     assert payload["atoms"][0]["faithfulness"] == "supported"
     assert any("negation" in span["protection"] for span in payload["spans"])
     assert "Saved 1 atoms" in capsys.readouterr().out
-    assert (payload["extractor"], payload["cap"]) == ("gpt-4o-mini", 120)
+    # `atoms` extracts with the default judge, as `analyze` does, not with the answerer.
+    assert (payload["extractor"], payload["cap"]) == (DEFAULT_JUDGE_MODEL, 120)
 
-    # With defaults the model under measurement wrote this answer key; probe says so.
-    args = _parse("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(out),
-                  "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json"))
+    probe = ["novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(out),
+             "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json")]
+    args = _parse(*probe)
+    args.func(args)
+    assert "own answer key" not in capsys.readouterr().err
+
+    # Measuring the model that extracted the atoms means it wrote its own answer key.
+    args = _parse(*probe, "--model", DEFAULT_JUDGE_MODEL, "--provider", DEFAULT_JUDGE_PROVIDER)
     args.func(args)
     assert "own answer key" in capsys.readouterr().err
 
@@ -194,17 +337,6 @@ def _minimal_artifact() -> dict:
     }
 
 
-def test_novelty_ref_digest_is_the_subject_scorecard_digest(tmp_path):
-    # Both artifacts write `ref_digest`; a directory hashed two ways could never be matched.
-    from dokimi.commands.novelty import _digest
-    from dokimi.subjects.scorecard import _digest_ref
-
-    (tmp_path / "references").mkdir()
-    (tmp_path / "SKILL.md").write_text("---\nname: s\n---\nbody\n")
-    (tmp_path / "references" / "a.md").write_text("ref\n")
-    assert _digest(f"skill:{tmp_path}") == _digest_ref(str(tmp_path), base=tmp_path)
-
-
 # ── Which files of the artifact a command measures ───────────────────────────
 
 _BUNDLE_SKILL = """\
@@ -237,289 +369,37 @@ def test_the_bundle_flags_are_on_extraction_too_not_only_on_analyze():
         assert args.max_file_words == 100
 
 
-def test_an_entry_point_only_run_says_what_it_will_not_measure(tmp_path, capsys):
+def test_probe_refuses_a_stale_answer_key_before_building_a_client(tmp_path):
+    """The wiring: a refused verdict exits with its message; the verdicts themselves are
+    tested at `check_answer_key` (tests/test_novelty_bundle.py)."""
+    from dokimi.novelty.atoms import save_atoms
+    from dokimi.novelty.bundle import load_bundle
+
     root = _bundle_skill(tmp_path)
-    args = _parse("novelty", "atoms", "--artifact", f"skill:{root}")
-    bundle = novelty_cmd._bundle_from_args(args)
-    assert bundle.summary()["n_files"] == 1
-    assert "will not be measured" in capsys.readouterr().err
-
-
-def test_probing_takes_its_file_set_from_the_atoms_not_from_flags(tmp_path, capsys):
-    root = _bundle_skill(tmp_path)
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", "a.json")
-    saved = {"bundle": {"include_resources": True, "n_files": 2,
-                        "resource_words_measured": 6,
-                        "files": [{"path": "SKILL.md", "role": "entry_point"},
-                                  {"path": "references/tuning.md", "role": "reference"}]}}
-    text = novelty_cmd._artifact_text_for_saved_atoms(args, saved)
-    # The reference is injected even though no flag asked for it, because the answer key
-    # was extracted from it.
-    assert "Never exceed 64 threads" in text
-    assert "2 files" in capsys.readouterr().err
-
-
-def test_an_artifact_whose_files_changed_refuses_to_probe_a_stale_answer_key(tmp_path):
-    root = _bundle_skill(tmp_path)
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", "a.json")
-    saved = {"bundle": {"include_resources": True, "n_files": 3,
-                        "files": [{"path": "SKILL.md", "role": "entry_point"},
-                                  {"path": "references/tuning.md", "role": "reference"},
-                                  {"path": "references/gone.md", "role": "reference"}]}}
+    recorded = load_bundle(f"skill:{root}", include_resources=True)
+    atoms = tmp_path / "atoms.json"
+    save_atoms([], [], atoms, extractor="e", cap=None, bundle=recorded.summary())
+    (root / "references" / "tuning.md").write_text("Never exceed 128 threads.\n",
+                                                   encoding="utf-8")
+    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", str(atoms))
     with pytest.raises(SystemExit, match="files changed"):
-        novelty_cmd._artifact_text_for_saved_atoms(args, saved)
+        args.func(args)
 
 
-def test_atoms_without_recorded_provenance_fall_back_and_warn(tmp_path, capsys):
-    root = _bundle_skill(tmp_path)
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", "a.json")
-    text = novelty_cmd._artifact_text_for_saved_atoms(args, {})
-    assert "Never exceed 64 threads" not in text
-    assert "predates bundle provenance" in capsys.readouterr().err
-
-
-def test_probing_reuses_a_bundle_extracted_with_larger_word_budgets(tmp_path):
-    from dokimi.novelty.bundle import load_bundle
-
-    root = _bundle_skill(tmp_path)
-    (root / "references" / "big.md").write_text("word " * 5000, encoding="utf-8")
-    bundle = load_bundle(f"skill:{root}", include_resources=True, max_file_words=6000)
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", "a.json")
-    text = novelty_cmd._artifact_text_for_saved_atoms(args, {"bundle": bundle.summary()})
-    assert text == bundle.text
-
-
-def test_an_edited_bundled_file_refuses_to_probe_a_stale_answer_key(tmp_path):
-    from dokimi.novelty.bundle import load_bundle
-
-    root = _bundle_skill(tmp_path)
-    bundle = load_bundle(f"skill:{root}", include_resources=True)
-    (root / "references" / "tuning.md").write_text(
-        "# Tuning\n\nNever exceed 128 threads on driver 1.0.\n", encoding="utf-8")
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", "a.json")
-    with pytest.raises(SystemExit, match="files changed"):
-        novelty_cmd._artifact_text_for_saved_atoms(args, {"bundle": bundle.summary()})
-
-
-def test_a_shortened_entry_point_can_still_be_probed_with_the_original_atoms(tmp_path):
-    from dokimi.novelty.bundle import load_bundle
-
-    root = _bundle_skill(tmp_path)
-    bundle = load_bundle(f"skill:{root}", include_resources=True)
-    (root / "SKILL.md").write_text(
-        "---\nname: accel-tuning\ndescription: Configure the accelerator\n---\n\n"
-        "Use `--accel`.\n", encoding="utf-8")
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", "a.json")
-    text = novelty_cmd._artifact_text_for_saved_atoms(args, {"bundle": bundle.summary()})
-    assert "Use `--accel`." in text and "Never exceed 64 threads" in text
-
-
-def test_shortening_a_bundle_is_restricted_to_the_file_it_rewrites(tmp_path, capsys):
-    from dokimi.novelty.atoms import Atom, save_atoms
-    from dokimi.novelty.bundle import load_bundle
-    from dokimi.novelty.spans import segment
-
-    root = _bundle_skill(tmp_path)
-    bundle = load_bundle(f"skill:{root}", include_resources=True)
-    spans = segment(bundle.text)
-    entry_end = bundle.files[0].end
-    in_entry = next(s for s in spans if s.start < entry_end and "`--accel`" in s.text)
-    in_reference = next(s for s in spans if s.start >= entry_end and "64" in s.text)
-    atoms = [
-        Atom(statement="s1", question="q1", answer="a1", span_ids=(in_entry.id,)),
-        Atom(statement="s2", question="q2", answer="a2", span_ids=(in_reference.id,)),
-    ]
-    path = tmp_path / "atoms.json"
-    save_atoms(atoms, spans, path, extractor="e", cap=None, bundle=bundle.summary())
-
-    kept_spans, kept_atoms = novelty_cmd._entry_point_only(str(path), spans, atoms)
-    assert all(span.start < entry_end for span in kept_spans)
-    assert [atom.statement for atom in kept_atoms] == ["s1"]
-    note = capsys.readouterr().err
-    assert "bundle spans" in note and "SKILL.md" in note
-
-
-def test_an_edit_that_keeps_the_word_count_still_refuses_to_probe(tmp_path):
+def test_shorten_restricts_a_bundle_answer_key_to_the_entry_point(tmp_path, capsys):
     from dokimi.novelty.atoms import save_atoms
     from dokimi.novelty.bundle import load_bundle
     from dokimi.novelty.spans import segment
 
     root = _bundle_skill(tmp_path)
-    reference = root / "references" / "tuning.md"
-    reference.write_text("# Tuning\n\nNever exceed 64 threads.\n", encoding="utf-8")
     bundle = load_bundle(f"skill:{root}", include_resources=True)
-    atoms_path = tmp_path / "atoms.json"
-    save_atoms([], segment(bundle.text), atoms_path, extractor="e", cap=None,
+    atoms = tmp_path / "atoms.json"
+    save_atoms([], segment(bundle.text), atoms, extractor="e", cap=None,
                bundle=bundle.summary())
-
-    # Same path, same word count, different fact: the digest is what catches this.
-    reference.write_text("# Tuning\n\nNever exceed 128 threads.\n", encoding="utf-8")
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}",
-                  "--atoms", str(atoms_path))
-    with pytest.raises(SystemExit, match="files changed"):
-        novelty_cmd._artifact_text_for_saved_atoms(args, json.loads(
-            atoms_path.read_text(encoding="utf-8")))
-
-
-def test_the_digest_covers_what_was_measured_and_nothing_else(tmp_path):
-    from dokimi.novelty.bundle import load_bundle
-
-    root = _bundle_skill(tmp_path)
-    entry = f"skill:{root}"
-    entry_only = novelty_cmd._digest(entry, bundle=load_bundle(entry))
-    whole = novelty_cmd._digest(entry, bundle=load_bundle(entry, include_resources=True))
-    # Hashing the directory gave both modes the same hash, so a stored result could not
-    # say which one produced it.
-    assert entry_only and whole and entry_only != whole
-
-    # A sibling the run never read must not move the digest...
-    (root / "unread.md").write_text("word " * 6000, encoding="utf-8")
-    assert novelty_cmd._digest(entry, bundle=load_bundle(entry)) == entry_only
-    # ...and a measured file's bytes must.
-    (root / "references" / "tuning.md").write_text("Something else.\n", encoding="utf-8")
-    assert novelty_cmd._digest(
-        entry, bundle=load_bundle(entry, include_resources=True)) != whole
-
-
-@pytest.mark.parametrize("added", ["notes.md", "scripts/run.sh"])
-def test_probe_refuses_a_new_file_in_a_role_not_seen_at_extraction(tmp_path, added):
-    from dokimi.novelty.bundle import load_bundle
-
-    root = _bundle_skill(tmp_path)
-    recorded = load_bundle(f"skill:{root}", include_resources=True)
-    saved = {"bundle": dict(recorded.summary(), artifact_name=recorded.name)}
-    # The extraction had only a reference, so the rebuild is filtered to that role and a
-    # new file in any other role never reached the file-set comparison.
-    (root / added).parent.mkdir(parents=True, exist_ok=True)
-    (root / added).write_text("Always pass --force.\n", encoding="utf-8")
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", "a.json")
-    with pytest.raises(SystemExit, match=f"added: \\['{added}'\\]"):
-        novelty_cmd._artifact_text_for_saved_atoms(args, saved)
-
-
-def test_a_text_artifact_still_gets_a_path_digest(tmp_path):
-    path = tmp_path / "notes.md"
-    path.write_text("# Notes\n", encoding="utf-8")
-    assert novelty_cmd._digest(f"text:{path}")
-
-
-def test_an_answer_key_from_another_skill_is_refused(tmp_path):
-    from dokimi.novelty.bundle import load_bundle
-
-    other = tmp_path / "other"
-    other.mkdir()
-    (other / "SKILL.md").write_text(
-        "---\nname: other-skill\ndescription: Tune a database\n---\n\n# Other\n",
-        encoding="utf-8")
-    root = _bundle_skill(tmp_path)
-    recorded = load_bundle(f"skill:{other}")
-    saved = {"bundle": dict(recorded.summary(), artifact_name=recorded.name,
-                            artifact_ref=f"skill:{other}",
-                            measured_digest=recorded.measured_digest())}
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", "a.json")
-    # Both sides are just ["SKILL.md"], so the file-set check could never catch this.
-    with pytest.raises(SystemExit, match="belongs to one artifact"):
-        novelty_cmd._artifact_text_for_saved_atoms(args, saved)
-
-
-def test_a_changed_entry_point_proceeds_but_says_so(tmp_path, capsys):
-    from dokimi.novelty.bundle import load_bundle
-
-    root = _bundle_skill(tmp_path)
-    recorded = load_bundle(f"skill:{root}", include_resources=True)
-    saved = {"bundle": dict(recorded.summary(), artifact_name=recorded.name)}
-    (root / "SKILL.md").write_text(
-        "---\nname: accel-tuning\ndescription: Configure the accelerator\n---\n\n"
-        "# Accelerator tuning\n\nShortened: the flag is `--accel`.\n", encoding="utf-8")
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", "a.json")
-    text = novelty_cmd._artifact_text_for_saved_atoms(args, saved)
-    assert "Shortened: the flag is" in text
-    note = capsys.readouterr().err
-    assert "has changed since these atoms were extracted" in note
-
-
-def test_a_bundle_record_without_file_rows_is_refused(tmp_path):
-    root = _bundle_skill(tmp_path)
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", "a.json")
-    for broken in ({"bundle": {"include_resources": True, "files": []}},
-                   {"bundle": {"include_resources": True,
-                               "files": [{"path": "SKILL.md"}]}}):
-        with pytest.raises(SystemExit, match="provenance"):
-            novelty_cmd._artifact_text_for_saved_atoms(args, broken)
-
-
-def test_an_atom_whose_evidence_spans_two_files_is_not_scored_for_shortening(tmp_path):
-    from dokimi.novelty.atoms import Atom, save_atoms
-    from dokimi.novelty.bundle import load_bundle
-    from dokimi.novelty.spans import segment
-
-    root = _bundle_skill(tmp_path)
-    bundle = load_bundle(f"skill:{root}", include_resources=True)
-    spans = segment(bundle.text)
-    entry_end = bundle.files[0].end
-    inside = next(s for s in spans if s.start < entry_end and "`--accel`" in s.text)
-    outside = next(s for s in spans if s.start >= entry_end)
-    atoms = [
-        Atom(statement="entry only", question="q", answer="a", span_ids=(inside.id,)),
-        Atom(statement="both files", question="q", answer="a",
-             span_ids=(inside.id, outside.id)),
-    ]
-    path = tmp_path / "atoms.json"
-    save_atoms(atoms, spans, path, extractor="e", cap=None, bundle=bundle.summary())
-    _kept_spans, kept_atoms = novelty_cmd._entry_point_only(str(path), spans, atoms)
-    # Half the evidence cannot be scored against a candidate that holds one file.
-    assert [atom.statement for atom in kept_atoms] == ["entry only"]
-
-
-def _saved(root, **kwargs):
-    from dokimi.novelty.bundle import load_bundle
-
-    recorded = load_bundle(f"skill:{root}", include_resources=True, **kwargs)
-    return recorded, {"bundle": dict(recorded.summary(), artifact_name=recorded.name)}
-
-
-def _reprobe(root, saved):
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", "a.json")
-    return novelty_cmd._saved_atoms_bundle(args, saved)
-
-
-def test_probe_keeps_a_budget_gap_a_gap(tmp_path):
-    """Rebuilding with the selected files' roles relabelled an over-budget script `policy`."""
-    root = _bundle_skill(tmp_path)
-    (root / "scripts").mkdir()
-    (root / "scripts" / "big.py").write_text("x = 1  # w\n" * 6000, encoding="utf-8")
-    recorded, saved = _saved(root)
-    assert recorded.summary()["unmeasured_words"] > 0
-    _, probed = _reprobe(root, saved)
-    assert probed.summary()["unmeasured_words"] == recorded.summary()["unmeasured_words"]
-    assert probed.summary()["policy_excluded_words"] == 0
-
-
-def test_probe_replays_requested_roles_when_none_was_selected(tmp_path):
-    root = _bundle_skill(tmp_path)
-    (root / "scripts").mkdir()
-    (root / "scripts" / "big.py").write_text("x = 1  # w\n" * 6000, encoding="utf-8")
-    recorded, saved = _saved(root, roles=("script",))
-    assert [f.path for f in recorded.files] == ["SKILL.md"]
-    _reprobe(root, saved)       # the unchanged tree is not "changed"
-
-
-def test_probe_accepts_a_new_eval_case(tmp_path):
-    root = _bundle_skill(tmp_path)
-    _, saved = _saved(root)
-    (root / "evals").mkdir()
-    (root / "evals" / "q.md").write_text("Q: how many threads?\n", encoding="utf-8")
-    _reprobe(root, saved)       # evals are not measured by default; the text is unchanged
-
-
-def test_probe_refuses_a_new_eval_case_when_evals_were_requested(tmp_path):
-    root = _bundle_skill(tmp_path)
-    (root / "evals").mkdir()
-    (root / "evals" / "a.md").write_text("Q: one?\n", encoding="utf-8")
-    _, saved = _saved(root, roles=("reference", "eval"))
-    (root / "evals" / "q.md").write_text("Q: two?\n", encoding="utf-8")
-    with pytest.raises(SystemExit, match="evals/q.md"):
-        _reprobe(root, saved)
+    args = _parse("novelty", "shorten", "--artifact", f"skill:{root}", "--atoms", str(atoms),
+                  "--lexical-only")
+    args.func(args)
+    assert "bundle spans" in capsys.readouterr().err
 
 
 def test_item_analysis_refuses_a_file_that_carries_no_probe_runs(tmp_path):

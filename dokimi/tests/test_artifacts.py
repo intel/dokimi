@@ -40,7 +40,7 @@ PIPELINE_PAYLOADS: dict[str, dict] = {
         "questions": [
             {
                 "id": "q1",
-                "text": "How do I install the library?",
+                "question": "How do I install the library?",
                 "category": "installation",
                 "difficulty": "easy",
                 "level": "triage",
@@ -110,21 +110,21 @@ def test_the_two_axis_rubric_round_trips(tmp_path):
     """Lock the difficulty/level two-axis rubric of docs/difficulty-rubric.md.
 
     A question set may carry a ``level`` from the schema enum on every question, and the
-    ``negative_case`` flag is the boolean ``True`` convention (``metadata`` is not a declared
-    property, so it rides along as an extra key). No question set is committed any more, so
+    ``negative_case`` flag is the boolean ``True`` convention inside the free-form ``metadata``
+    object. No question set is committed any more, so
     the rubric is asserted on a payload written here rather than on a captured product set —
     which also lets the negative case be covered, and the enum be shown to be enforced.
     """
     payload = {
         "library": "demo",
         "questions": [
-            {"id": f"q{i}", "text": f"Question {i}?", "difficulty": "intermediate", "level": level}
+            {"id": f"q{i}", "question": f"Question {i}?", "difficulty": "intermediate", "level": level}
             for i, level in enumerate(RUBRIC_LEVELS, start=1)
         ]
         + [
             {
                 "id": "q4",
-                "text": "Should I use the GPU path for a 10-element array?",
+                "question": "Should I use the GPU path for a 10-element array?",
                 "difficulty": "intermediate",
                 "level": "triage",
                 "metadata": {"negative_case": True},
@@ -147,24 +147,24 @@ def test_the_two_axis_rubric_round_trips(tmp_path):
 
 def test_a_level_outside_the_rubric_is_rejected(tmp_path):
     """The enum is what makes the rubric a contract rather than a convention."""
-    with pytest.raises(ArtifactValidationError):
+    with pytest.raises(ArtifactValidationError, match="level: 'deep_dive' is not one of"):
         save_artifact(
             "questions",
-            {"questions": [{"id": "q1", "text": "Q?", "level": "deep_dive"}]},
+            {"questions": [{"id": "q1", "question": "Q?", "level": "deep_dive"}]},
             tmp_path / "bad.json",
         )
 
 
 def test_stamp_sets_version():
     data = stamp("questions", {"questions": []})
-    assert data["schema_version"] == "questions.v1"
+    assert data["schema_version"] == "questions.v2"
 
 
 def test_save_roundtrip_stamps_and_validates(tmp_path):
     out = tmp_path / "q.json"
-    save_artifact("questions", {"questions": [{"id": "q1", "text": "What is X?"}]}, out)
+    save_artifact("questions", {"questions": [{"id": "q1", "question": "What is X?"}]}, out)
     loaded = load_artifact("questions", out)
-    assert loaded["schema_version"] == "questions.v1"
+    assert loaded["schema_version"] == "questions.v2"
     assert loaded["questions"][0]["id"] == "q1"
 
 
@@ -178,9 +178,12 @@ def test_validate_missing_required_field():
         validate_artifact("eval", {"evaluated_at": "now"})
 
 
-def test_question_item_requires_text():
-    with pytest.raises(ArtifactValidationError):
+def test_question_item_requires_its_versions_text_key():
+    with pytest.raises(ArtifactValidationError, match="'question' is a required property"):
         validate_artifact("questions", {"questions": [{"id": "q1"}]})
+    with pytest.raises(ArtifactValidationError, match="'text' is a required property"):
+        validate_artifact("questions", {"schema_version": "questions.v1",
+                                        "questions": [{"id": "q1", "question": "Q?"}]})
 
 
 def test_unknown_kind_raises():
@@ -198,7 +201,7 @@ def test_arms_schema_accepts_built_output():
 
 
 def test_save_does_not_mutate_caller():
-    data = {"questions": [{"id": "q1", "text": "x"}]}
+    data = {"questions": [{"id": "q1", "question": "x"}]}
     import tempfile, os
     with tempfile.TemporaryDirectory() as d:
         save_artifact("questions", data, os.path.join(d, "q.json"))
@@ -246,7 +249,7 @@ def test_schema_errors_by_name_and_by_path(tmp_path):
 
 def test_schema_version_const_rejects_wrong_value():
     with pytest.raises(ArtifactValidationError):
-        validate_artifact("questions", {"schema_version": "questions.v2", "questions": []})
+        validate_artifact("questions", {"schema_version": "questions.v3", "questions": []})
 
 
 def _scorecard_v1():
@@ -501,3 +504,53 @@ def test_a_symlink_loop_is_an_error_and_both_links_survive(tmp_path):
     with pytest.raises(OSError, match="link loop"):
         save_artifact("answers", {"answers": []}, a)
     assert a.is_symlink() and b.is_symlink()
+
+
+def test_an_unstamped_payload_resolves_to_the_newest_version_it_matches():
+    # Curated question sets are mostly unstamped; one written for v1 must not be judged as v2.
+    from dokimi.artifacts import schema_version_for
+
+    v1 = {"questions": [{"id": "q1", "text": "Q?"}]}
+    v2 = {"questions": [{"id": "q1", "question": "Q?"}]}
+    assert schema_version_for("questions", v1) == "questions.v1"
+    assert schema_version_for("questions", v2) == "questions.v2"
+    assert schema_version_for("questions", {"questions": []}) == "questions.v2"  # both: newest
+    validate_artifact("questions", v1)
+    validate_artifact("questions", v2)
+    # Scorecards require their stamp, so an unstamped one matches no version: the closest one.
+    scorecard = {k: v for k, v in _scorecard_v1().items() if k != "schema_version"}
+    assert schema_version_for("subject_scorecard", scorecard) == "subject_scorecard.v1"
+    with pytest.raises(ArtifactValidationError, match="schema_version"):
+        validate_artifact("subject_scorecard", scorecard)
+
+
+def test_an_unstamped_v1_set_with_one_fault_reports_only_that_fault():
+    bad = {"questions": [{"id": "a", "text": "A?"}, {"text": "B?"}, {"id": "c", "text": "C?"}]}
+    with pytest.raises(ArtifactValidationError) as exc:
+        validate_artifact("questions", bad)
+    assert "questions/1: 'id' is a required property" in str(exc.value)
+    assert "should not be valid" not in str(exc.value) and "'question'" not in str(exc.value)
+
+
+def test_an_unstamped_payload_matching_no_version_reports_the_current_schemas_errors():
+    from dokimi.artifacts import schema_version_for
+
+    bad = {"questions": [{"id": "q1"}]}
+    assert schema_version_for("questions", bad) == SCHEMA_VERSIONS["questions"]
+    with pytest.raises(ArtifactValidationError, match="'question' is a required property"):
+        validate_artifact("questions", bad)
+
+
+def test_a_declared_version_is_honoured_even_when_another_would_match():
+    # A file stamped v1 whose records use `question` (what `questions refine` wrote before v2)
+    # is invalid as what it says it is; it is not silently re-read as v2.
+    with pytest.raises(ArtifactValidationError, match="'text' is a required property"):
+        validate_artifact("questions", {"schema_version": "questions.v1",
+                                        "questions": [{"id": "q1", "question": "Q?"}]})
+
+
+def test_an_unstamped_payload_of_a_kind_with_one_version_uses_it():
+    from dokimi.artifacts import schema_version_for
+
+    assert schema_version_for("answers", {"answers": []}) == SCHEMA_VERSIONS["answers"]
+    validate_artifact("answers", {"answers": [{"question_id": "q1"}]})

@@ -145,7 +145,8 @@ def analyze(
         answerer: The model under measurement.
         judge: Grades responses; must differ from ``answerer`` unless allowed.
         ref_digest: Content digest of the artifact, so a stored result can be tied to the
-            exact bytes it was measured on.
+            exact bytes it was measured on. Defaults to the bundle's ``measured_digest``
+            when ``artifact_bundle`` is given.
         tier: The resolved cost tier and the claims it forfeits, recorded in
             ``run_config`` and appended to the artifact's warnings so a cheap run cannot be
             quoted as a sweep.
@@ -346,23 +347,9 @@ def analyze(
         bundle_summary["by_source"] = _outcomes_by_source(
             span_list, atom_list, outcomes, artifact_bundle
         )
-        # The measurable share, not the on-disk one: a skill whose resources are all its
-        # own evals has nothing a bundle run would add, so pointing at the flag would be
-        # advice that cannot be followed.
-        measurable = artifact_bundle.measurable_outside_share()
-        if not artifact_bundle.include_resources and measurable >= 0.5:
-            warnings.append(
-                f"{measurable:.0%} of this artifact's words are in bundled files that were "
-                "not measured (--include-resources); every rate here describes the entry "
-                "point only"
-            )
-        content_excluded = artifact_bundle.excluded_content()
-        if artifact_bundle.include_resources and content_excluded:
-            warnings.append(
-                f"{len(content_excluded)} bundled files were excluded from the "
-                "measured text (see bundle.excluded for each reason); they are counted in "
-                "resource_words_on_disk but carry no atoms"
-            )
+        warnings.extend(artifact_bundle.coverage_warnings())
+        if ref_digest is None:
+            ref_digest = artifact_bundle.measured_digest()
 
     oracle_warning = retention.error_warning(oracle)
     if oracle_warning:

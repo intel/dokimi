@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Repository evaluation: agent modes, effort, performance and team rules
 
 > **Status: PROPOSED.** This document extends the

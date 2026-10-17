@@ -109,7 +109,13 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
 
     # Load eval and questions
     eval_data = json.loads(Path(args.eval).read_text(encoding="utf-8"))
-    questions_data = json.loads(Path(args.questions).read_text(encoding="utf-8"))
+    from dokimi.questions.artifact import load_questions
+
+    try:
+        questions_data = load_questions(args.questions).artifact
+    except ValueError as exc:  # ArtifactValidationError: names the record and the fix
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
     print(f"Loaded {len(eval_data.get('evaluations', []))} evaluations from {args.eval}")
     print(f"Loaded {len(questions_data.get('questions', []))} questions from {args.questions}")

@@ -162,7 +162,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     bin_in = f"{HARNESS_DIR}/{opts.harness_bin.name}"
     mounts += [Mount(opts.harness_bin.resolve(), bin_in, read_only=True),
                Mount(SUPPORT_HOST, SUPPORT_DIR, read_only=True)]
-    harness_env = opts.profile.env(Path(CONFIG_DIR), base=dict(os.environ))
+    harness_env = opts.profile.env(Path(CONFIG_DIR)).resolve()
     # Allow-listed host values (credentials among them) go by name only; the rest are the framework's.
     passed = tuple(k for k in opts.profile.env_allow
                    if k in harness_env and k not in _HOST_ONLY_ENV and harness_env[k] == os.environ.get(k))

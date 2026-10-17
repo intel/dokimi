@@ -34,7 +34,7 @@ import json
 import math
 import statistics
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -679,6 +679,13 @@ def significance_test(
 # ---------------------------------------------------------------------------
 
 
+def _generated_stamp() -> str:
+    """The report's creation time: Pacific time, or UTC without zoneinfo."""
+    if _TZ is not None:
+        return datetime.now(tz=_TZ).strftime('%Y-%m-%d %H:%M %Z')
+    return datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
+
+
 def generate_combined_report(
     regular_runs: list[tuple[str, dict]],
     golden_runs: list[tuple[str, dict]],
@@ -698,7 +705,7 @@ def generate_combined_report(
 
     lines += [
         "#  Model Comparison Report",
-        f"_Generated: {datetime.now(tz=_TZ).strftime('%Y-%m-%d %H:%M %Z') if _TZ else datetime.now().strftime('%Y-%m-%d %H:%M UTC')}_",
+        f"_Generated: {_generated_stamp()}_",
         "",
     ]
 
@@ -909,7 +916,7 @@ def generate_section_report(
             "> python cli.py arms run \\",
             ">   --arms \"baseline,docs\" \\",
             ">   --judge \\",
-            ">   --judge-model claude-sonnet-4-6 \\",
+            ">   --judge-model claude-sonnet-5-5 \\",
             ">   [other parameters]",
             "> ```",
             "> ",
