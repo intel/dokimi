@@ -76,6 +76,15 @@ def test_new_text_since_extraction_invalidates_the_answer_key(tmp_path, newfile,
     assert verdict.problem == "files_changed" and newfile in verdict.added
 
 
+def test_a_bundle_key_without_excluded_rows_is_not_refused_for_files_it_could_not_see(tmp_path):
+    root = _skill(tmp_path, {"SKILL.md": HEAD + WORDS, "references/a.md": WORDS,
+                             "references/huge.md": " ".join(["w"] * 200)})
+    record = load_bundle(f"skill:{root}", include_resources=True, max_file_words=100).summary()
+    del record["excluded"]
+    verdict = check_answer_key(f"skill:{root}", record)
+    assert verdict.ok and verdict.added == ()
+
+
 def test_mixed_good_and_bad_files_in_no_file_rows_check():
     """Mixed good/bad rows return no_file_rows."""
     # Mixed good and bad file rows should trigger no_file_rows
