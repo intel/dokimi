@@ -226,6 +226,29 @@ def test_inspect_does_not_run_the_repository_git_config(tmp_path):
     assert not marker.exists()
 
 
+@pytest.mark.parametrize("kind", ["work", "git", "blob-less"])
+def test_a_file_name_that_is_not_utf8_is_skipped_with_a_warning(tmp_path, capsys, kind):
+    root = tmp_path / "repo"
+    _repo(root, {"AGENTS.md": "x"})
+    git = ["git", "-C", str(root)]
+    oid = subprocess.run([*git, "hash-object", "-w", "AGENTS.md"], check=True, capture_output=True).stdout.strip()
+    # Through the index, so the name stays raw bytes on every platform. It shares AGENTS.md's
+    # blob and sorts first, so once that blob is fetched `rev-list --objects` prints this name.
+    subprocess.run([*git, "update-index", "--index-info"], check=True, input=b"100644 %s\t0\xff.md\n" % oid)
+    subprocess.run([*git, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "raw"], check=True)
+    sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    git_dir = root
+    if kind == "blob-less":
+        git_dir = tmp_path / "pc"
+        subprocess.run([*git, "config", "uploadpack.allowfilter", "true"], check=True)
+        subprocess.run(["git", "clone", "-q", "--bare", "--filter=blob:none", root.as_uri(), str(git_dir)], check=True)
+    tree = WorkTree(root) if kind == "work" else GitTree(git_dir, sha)
+    assert inspect_repo(tree)["files"]["files"] == 1
+    for _ in range(2):  # what `repo budget` reads; the second time, the blob is local
+        assert tree.read_many(tree.files()) == {"AGENTS.md": "x"}
+    assert "not UTF-8: 0\\xff.md" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("kind", ["work", "git"])
 def test_linked_instruction_file_is_sized_by_its_target(tmp_path, kind):
     root = tmp_path / "repo"
@@ -412,9 +435,9 @@ def test_deeply_nested_yaml_does_not_crash(tmp_path):
 
 
 def test_npm_install_1mb_completes_quickly(tmp_path):
-    """1 MB of npm install hook should complete in under 1 second."""
+    """A hook command just under the settings cap should complete in under 1 second."""
     import time
-    hook_cmd = "npm " + "-npm " * 150_000  # 750 KB: under MAX_SETTINGS_BYTES, so the pattern is reached
+    hook_cmd = "npm " + "-npm " * 150_000  # 750 KB: under MAX_SETTINGS_BYTES, so the hook is parsed
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
@@ -424,8 +447,8 @@ def test_npm_install_1mb_completes_quickly(tmp_path):
     start = time.monotonic()
     payload = inspect_repo(WorkTree(tmp_path))
     elapsed = time.monotonic() - start
-    assert payload["capabilities"][0]["note"].startswith("hooks on")
     assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
+    assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
 
 def test_hook_npm_run_detected(tmp_path):
@@ -541,9 +564,9 @@ def test_test_file_case_insensitive_and_mjs(tmp_path):
 
 
 def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
-    """1 MB hook with unbalanced quote should complete in under 1 second."""
+    """A hook with an unbalanced quote just under the settings cap should complete in under 1 second."""
     import time
-    hook_cmd = "echo '" + "a" * 900_000  # under MAX_SETTINGS_BYTES, unbalanced quote
+    hook_cmd = "echo '" + "a" * 999_000  # under MAX_SETTINGS_BYTES, so the hook is parsed
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
@@ -554,7 +577,7 @@ def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
     payload = inspect_repo(WorkTree(tmp_path))
     elapsed = time.monotonic() - start
     assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
-    assert payload["capabilities"][0]["note"].startswith("hooks on")
+    assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
 
 def test_npm_install_with_10_options_followed_by_ci(tmp_path):
