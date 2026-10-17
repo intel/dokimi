@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Evaluating treatments (docs, MCP, skills, agent profiles)
 
 The original LLM benchmark answers one question — *do retrieved docs improve
@@ -39,16 +44,23 @@ score saw the stored material, and `judge_context_sources` counts the scores by
 source. The artifact keeps the material: each arm record names its text by digest
 (`judge_context_sha256`) and `judge_materials` holds one copy of each distinct
 text — a skill arm's, identical for every question, is stored once (about 4,500
-characters for the perf skill, +0.3% on an 81-question run). A judge reading the
-file is given the same text through `JudgeContextStore.from_artifact`, which
-skips any text that does not match its digest. Question ids must be unique for
-this (a question with no id is given a positional one; duplicated ids are refused). Scores that fell back to the 200-character report snippets
-leave the run unstamped if all of them did — the protocol runs used before the
-stamp existed — and stamp it `treatment_material.v1+snippet_fallback` if only some
-did, which pools with nothing. A `baseline` arm's empty material always counts as
-stored, so with a baseline arm a fallback gives the mixed stamp. To compare with
-an older run, written before `judge_materials`, run answering and judging again:
-re-judging that file sees only the snippets.
+characters for the perf skill, +0.3% for the text itself on an 81-question run;
+each arm record and stored score also carries a 108-byte digest line, about 2% more
+for a baseline plus skill run). The material is kept whether or not `arms run` was
+given `--judge`. For docs arms, the material is the retrieved chunks, rarely
+identical across questions, so each question adds its own copy (up to the
+15,000-char cut); on a synthetic 20-question docs run the artifact grew from
+93,209 to 392,852 bytes (4.2x). Sharing an arms artifact shares the skill or doc
+text it contains. With `cross-judge --judges`, the judge is given the same text through `JudgeContextStore.from_artifact`, which
+skips any text that does not match its digest. Question ids must be unique for this
+(a question with no id is given a positional one; duplicated ids are refused).
+Scores that fell back to the 200-character report snippets leave the run unstamped
+if all of them did — the protocol runs used before the stamp existed — and stamp it
+`treatment_material.v1+snippet_fallback` if only some did, which pools with nothing.
+A `baseline` arm's empty material always counts as stored, so with a baseline arm a
+fallback gives the mixed stamp. To compare with an older run, written before
+`judge_materials`, run answering and judging again: re-judging that file sees only
+the snippets.
 
 What this changes is the evidence the judge has, not how well it separates good
 answers from bad ones. On 81 skill-arm answers to the perf golden set (Haiku 4.5
@@ -132,14 +144,14 @@ cat > results/arms/matrix.json <<'JSON'
     "cells": [
       {
         "id": "openclaw-no-plugin",
-        "model": "gpt-4o-mini",
+        "model": "gpt-6.1-sol",
         "provider": "openai",
         "harness": "arms-runner",
         "plugins": []
       },
       {
         "id": "openclaw-caveman",
-        "model": "gpt-4o-mini",
+        "model": "gpt-6.1-sol",
         "provider": "openai",
         "harness": "arms-runner",
         "plugins": ["plugin:caveman"]
@@ -476,7 +488,7 @@ Both are upper bounds on harness behaviour (see *Real harness* below). The posit
 a trigger set are routing queries for their skill:
 
 ```bash
-jq '[.questions[] | select(.expected_skill == "linux-perf") | .text]' trigger_questions.json > linux-perf.queries.json
+jq '[.questions[] | select(.expected_skill == "linux-perf") | .question]' trigger_questions.json > linux-perf.queries.json
 ```
 
 *Trigger set* here means a selection query set: messages labelled with the skill that
@@ -515,7 +527,7 @@ python cli.py catalog trigger-set --catalog <skills-checkout>/skills \
   rest as `acceptable_skills`, which skill-reach treats as neutral helpers rather than
   hits, so on those queries it is stricter than the `skill-catalog:` arm; `skill-creator --target <skill>` (a catalog skill) writes an
   [anthropics/skills skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator)
-  eval set; `questions` writes `questions.v1` with `expected_skill` for the arm below.
+  eval set; `questions` writes `questions.v2` with `expected_skill` for the arm below.
 
 **Proxy: the `skill-catalog:` arm.** Runs in the normal arms loop on any model, and the
 report gains a *Skill selection* table (accuracy, recall, recall (any), multi-load,
@@ -598,6 +610,15 @@ python scripts/check_treatment_batch.py results/arms/persona-batch \
   --profile data/agent_profiles/concise_expert.md
 python scripts/check_treatment_batch.py results/arms/skills \
   --treatment-arm 'skill:*' --expect-n regular=40,golden=20 --expect-files 12
+```
+
+A batch judged before the 2026-10-13 default change names its judge, since the pin is
+`anthropic/claude-sonnet-5-5`:
+
+```bash
+python scripts/check_treatment_batch.py results/arms/persona-batch \
+  --profile data/agent_profiles/concise_expert.md \
+  --judge-provider amazon-bedrock --judge-model global.anthropic.claude-sonnet-4-6
 ```
 
 It checks schema, exactly two arms, the baseline arm, the treatment-arm pattern, a pinned

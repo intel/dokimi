@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dokimi.llm import llm_call, extract_json_object
+from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +164,8 @@ class QuestionPanelReviewer:
     def __init__(
         self,
         reviewers: Optional[List[str]] = None,
-        model: str = "gpt-4o-mini",
-        provider: str = "openai",
+        model: str = DEFAULT_GENERATOR_MODEL,
+        provider: str = DEFAULT_GENERATOR_PROVIDER,
         concurrency: int = 6,
     ):
         self.reviewers = reviewers or DEFAULT_REVIEWERS

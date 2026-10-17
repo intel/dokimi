@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 from urllib.request import urlopen, Request
 
 from dokimi.llm import llm_call, extract_json_array
+from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.mcp.utils import html_to_text
 
 logger = logging.getLogger(__name__)
@@ -160,8 +161,8 @@ class ChunkBasedQuestionGenerator:
 
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
-        provider: str = "openai",
+        model: str = DEFAULT_GENERATOR_MODEL,
+        provider: str = DEFAULT_GENERATOR_PROVIDER,
         questions_per_chunk: int = 2,
         max_chunks: int = 25,
         min_chunk_chars: int = 300,

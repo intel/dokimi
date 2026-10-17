@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Contributing
 
 Thanks for your interest in improving dokimi. This guide covers the
@@ -8,6 +13,26 @@ mechanics; for architecture and design context start with
 
 By submitting a contribution you agree that it is licensed under the
 [Apache License 2.0](../LICENSE), the same license as the project.
+
+Every new file starts with the SPDX header, in its comment syntax (Markdown
+uses an HTML comment, after any front matter):
+
+```python
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+```
+
+The year is the year the file is added. CI's license header step checks the
+header; the files exempt (JSON, generated locks, text agents read verbatim,
+changelog fragments) are listed in
+[`.github/.licenserc.yaml`](../.github/.licenserc.yaml). `make ci-local` does
+not run this job; check locally with Docker, from the root of a clone (in a
+`git worktree` it also scans untracked files such as `.venv`):
+
+```bash
+docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
+  apache/skywalking-eyes:0.9.0 -c .github/.licenserc.yaml header check
+```
 
 ## Development setup
 
@@ -47,7 +72,8 @@ CI additionally holds a PR to:
 
 - **Coverage of changed lines ≥ 80%** (when 20+ lines are measurable) —
   `diff-cover coverage.xml --compare-branch=<remote>/main` after
-  `pytest --cov=dokimi --cov-branch --cov-report=xml`, where `<remote>` is the
+  `pytest --cov=dokimi --cov-branch --cov-report=xml` (CI measures it on the
+  Python 3.14 leg), where `<remote>` is the
   remote pointing at `intel/dokimi` (`origin` in CI). `make ci-local` finds
   that remote by URL and prints the ref it compares against; pick another with
   `CI_LOCAL_ARGS='--remote <name>'`.
@@ -60,6 +86,14 @@ CI additionally holds a PR to:
   order. A third-party warning gets a narrow `filterwarnings` ignore in
   `pyproject.toml` with the reason. The plugins come from `requirements-test.txt`:
   a venv without them stops with `Unknown config option: timeout`, so reinstall.
+- **User outcomes hold.** `pytest --outcomes` checks each promise in
+  `tests/outcomes/*.json` (what a doc tells the user, the code that keeps it,
+  and evidence ids) against the tests that ran. A test claims an id with
+  `@pytest.mark.outcome("<id>")`. An id no test claims, or a claimed test that
+  fails, fails the job; if every claimed test is skipped, the job is inconclusive.
+  `outcomes-result.json` says which. Changing a promised behaviour means changing
+  the doc, the test and the contract together. `pytest --outcomes -m outcome` runs
+  only the evidence.
 - **Docs build** — `mkdocs build --strict`, from `dokimi/`. `make dev` already
   installs its packages and `make ci-local` runs it; by hand, install them with
   `pip install -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
@@ -72,6 +106,10 @@ CI additionally holds a PR to:
   build fails on a page missing from it). `mkdocs serve` previews the site.
 - **Workflow lint** — `zizmor --offline --min-severity medium .github/workflows` when you
   edit a workflow.
+- **Changelog fragment** — a PR that changes the package (`dokimi/`) adds one to
+  `changelog.d/` (`scriv create`) instead of editing `CHANGELOG.md`; see
+  [changelog.d/README.md](changelog.d/README.md). A change with no user-visible
+  effect gets the `skip-changelog` label instead.
 
 **pre-commit.** `.pre-commit-config.yaml` at the repo root runs the fast
 offline checks on the files a commit stages: `ruff check` (the version and
@@ -80,7 +118,7 @@ markers and files over 500 KB. From the repo root:
 
 ```bash
 pip install pre-commit && pre-commit install   # `make dev` already installs pre-commit
-pre-commit run --all-files                     # the whole tree, as CI's pre-commit job does
+pre-commit run --all-files                     # the whole tree, as CI's pre-commit step does
 ```
 
 mypy and pytest are not hooks: they need the full environment and pytest takes
@@ -100,7 +138,8 @@ Renovate (`.github/renovate.json5`) proposes updates on Mondays for releases at
 least 7 days old: one grouped PR for all minor and patch updates, one PR per
 major, a monthly lock refresh, and security fixes as soon as an advisory
 appears. A pre-commit hook rev and the pin `ci.yml` installs for the same tool
-(ruff, zizmor) come in one PR of their own. Renovate does not update
+(ruff, zizmor) come in one PR of their own, with ruff's pins in the dev extra
+and `.agent-eval/Dockerfile`. Renovate does not update
 `requirements-docs.lock.txt` yet; pip-audit in CI still audits it.
 
 Guidelines:
@@ -125,7 +164,8 @@ Guidelines:
 - **Keep changes focused.** One logical change per PR; it makes review and
   bisecting easier.
 - **Add tests** for behavioral changes. The suite lives in `tests/` and runs
-  fully offline (LLM/network calls are mocked).
+  fully offline (LLM/network calls are mocked; the `fake_llm` fixture scripts
+  every `dokimi.llm.LLM` reply).
 - **Update docs** in the same PR when you change behavior. Stale docs are
   treated as bugs — see the docs-drift checklist below.
 - **Don't commit ad-hoc run output.** Generated artifacts belong under
@@ -137,6 +177,8 @@ Guidelines:
 - A new static metric: [docs/contributing-metric.md](docs/contributing-metric.md)
 - A new doc source: [docs/adding-doc-source.md](docs/adding-doc-source.md)
 - A terminal-bench task: [docs/contributing-terminal-bench-task.md](docs/contributing-terminal-bench-task.md)
+
+Versioning, the changelog and releases: [docs/releasing.md](docs/releasing.md).
 
 ## Docs-drift checklist
 

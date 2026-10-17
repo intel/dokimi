@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Pointing Dokimi At An External Content Repository
 
 This repository is the measuring instrument. The things it measures —
@@ -119,7 +124,12 @@ $ echo $?
 
 ## 2. The awareness half: question sets
 
-A question set is `<questions-root>/<product_key>_golden.json`. Point
+A question set is `<questions-root>/<product_key>_golden.json`, in the format
+described in [methodology.md](methodology.md#question-record-format): new sets
+put each question's text under `question` (`questions.v2`); existing sets that
+use `text` (`questions.v1`) are still read, as are older hand-written shapes
+(no `id`, `question_id`/`question_text`, a list `metadata`), with a one-line
+notice. The golden set is only ever read; the run writes its own v2 copy. Point
 `--questions-root` at the checkout's `questions/` directory and the pipeline
 picks up the golden set for the product it is running:
 
@@ -140,13 +150,13 @@ covers is shown.) `onetbb` is `covered` because the checkout has both
 Resolution is logged, including the miss:
 
 ```text
-INFO Auto-including golden questions: C:\Users\Public\content-repo\questions\onetbb_golden.json
+INFO Using golden questions: C:\Users\Public\content-repo\questions\onetbb_golden.json
 WARNING questions root C:\Users\Public\content-repo\questions has no golden set for onemkl; running without a golden question set
 ```
 
-A missing golden set is a warning, not an error — the run continues with
-generated questions only. If you are comparing arms, that is usually not what
-you want; check the coverage matrix first.
+`benchmark run` logs a warning and continues with generated questions only.
+`benchmark preflight` treats a missing golden set as an error and exits 1.
+If you are comparing arms, that is usually not what you want; check the coverage matrix first.
 
 `benchmark preflight` resolves the whole plan without calling a model, and
 echoes the root it will read:
@@ -161,14 +171,15 @@ Resolved benchmark plan
   description: Worked example product for the external-content walkthrough.
   doc_source: context7
   output_dir: results/demo_final
-  answer: openai/gpt-5.5
-  judge: anthropic/claude-sonnet-4-5-20250929
+  answer: openai/gpt-6.1-sol
+  judge: anthropic/claude-sonnet-5-5
   questions_root: C:/Users/Public/content-repo/questions
   retrieval: semantic-only, top_k=3
   arms: without_docs vs with_docs
   max_tokens_per_question: 4000
   concurrency: 5
   context7_id: demo-org/demo
+  golden questions: C:\Users\Public\content-repo\questions\demo_golden.json (2 items)
 ```
 
 (It exited 1 here because no API keys were set: `✗ missing OPENAI_API_KEY for
@@ -310,7 +321,7 @@ directory works without it.
 
 ## 6. Products this repository has never heard of
 
-The committed registry is the top-level `products.yaml`. A product outside it
+The committed registry is the bundled `dokimi/products.yaml`. A product outside it
 is unknown, and `benchmark` says so rather than inventing one:
 
 ```console

@@ -34,11 +34,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from dokimi import process
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
@@ -221,10 +222,29 @@ def _compare(old: Any, new: Any, path: str, diff: Diff, seen: list[Any],
                                  "(not modelled here, so it cannot be shown to widen)")
 
 
+class GitError(RuntimeError):
+    """A git command that failed or timed out."""
+
+
+class GitPathMissing(GitError):
+    """``git show <rev>:<path>`` for a path the revision does not have. Only this failure
+    means "not there": a timeout or any other error says nothing about the revision."""
+
+
+# git's messages for a <rev>:<path> it does not have (outside the repository, it cannot);
+# LC_ALL=C keeps them untranslated.
+_PATH_MISSING = ("' does not exist in '", "' exists on disk, but not in '", "' is outside repository at '")
+_GIT_ENV = process.Env.inherit({"GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})
+
+
 def _git(*args: str) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=SCHEMA_DIR, check=True, capture_output=True, encoding="utf-8"
-    ).stdout
+    proc = process.git(*args, cwd=SCHEMA_DIR, timeout=60, env=_GIT_ENV)
+    if proc.timed_out:
+        raise GitError(f"git {' '.join(args)}: timed out")
+    if not proc.ok:
+        error = GitPathMissing if any(m in proc.stderr for m in _PATH_MISSING) else GitError
+        raise error(f"git {' '.join(args)}: {proc.stderr.strip()}")
+    return proc.stdout
 
 
 FIXTURE_DIR = "../../tests/fixtures/artifacts"
@@ -266,7 +286,7 @@ def _base_fixture(base: str, name: str, fixture_dir: str = f"./{FIXTURE_DIR}/") 
     """The artifact fixture for schema ``name`` as of ``base``, if it had one."""
     try:
         return json.loads(_git("show", f"{base}:{fixture_dir}{name}"))
-    except (subprocess.CalledProcessError, json.JSONDecodeError):
+    except (GitPathMissing, json.JSONDecodeError):
         return _NO_FIXTURE
 
 

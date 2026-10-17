@@ -1,0 +1,115 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: release
+
+# Publishing a GitHub Release (tag vX.Y.Z) checks that the tree is that version
+# (scripts/check_release.py), builds the sdist and wheel, smoke-tests the
+# installed wheel, attaches both to the release and, once PyPI is enabled,
+# uploads them with Trusted Publishing. docs/releasing.md has the whole
+# procedure. A manual run builds and checks without uploading anything; given a
+# tag, it checks out and checks that tag, not the branch it was dispatched from.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Check out this tag (e.g. v0.1.0) and check its release readiness; empty: build the dispatched ref only"
+        required: false
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || github.run_id }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: dokimi
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # A release event checks out its tag already; a manual run with a tag
+          # checks out that tag, so the check is of the tree it names (and fails
+          # if the tag does not exist).
+          ref: ${{ inputs.tag && format('refs/tags/{0}', inputs.tag) || '' }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Release readiness
+        if: github.event_name == 'release' || inputs.tag != ''
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: python scripts/check_release.py "$TAG"
+      # sdist first, then the wheel from the unpacked sdist (`python -m build`
+      # with no target), so the sdist conda-forge builds from is proven too.
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build --outdir dist
+          twine check --strict dist/*
+          ls -l dist
+      - name: Install the wheel
+        run: pip install dist/*.whl
+      - name: Smoke-test the installed wheel
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          smoke="$PWD/scripts/smoke_installed.py"
+          expect=()
+          if [ -n "$TAG" ]; then expect=(--expect-version "${TAG#v}"); fi
+          cd "$RUNNER_TEMP" && python "$smoke" "${expect[@]}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: dist
+          path: dokimi/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  attach:
+    name: Attach to the GitHub Release
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: Upload sdist and wheel
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+
+  # Off until a maintainer configures the PyPI Trusted Publisher and sets the
+  # repository variable PYPI_PUBLISH to true (docs/releasing.md, "Enabling PyPI").
+  pypi:
+    name: Publish to PyPI
+    needs: build
+    if: github.event_name == 'release' && vars.PYPI_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/dokimi/
+    permissions:
+      id-token: write  # Trusted Publishing (OIDC): no API token is stored anywhere
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2

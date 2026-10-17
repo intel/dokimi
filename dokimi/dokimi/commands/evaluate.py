@@ -72,7 +72,7 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
     from dokimi.eval.panel import JudgePanel, JudgeConfig, DEFAULT_PANEL, JUDGE_ROLES
 
     # --judge-configs takes priority over --model/--provider/--roles
-    # Format: "technical_expert:gpt-4o:openai,developer_advocate:claude-sonnet-4:anthropic,doc_reviewer:gemini-2.0-flash:google"
+    # Format: "technical_expert:claude-sonnet-5-5:anthropic,developer_advocate:claude-opus-5-5:anthropic,doc_reviewer:gemini-2.0-flash:google"
     if getattr(args, "judge_configs", None):
         judges = []
         for entry in args.judge_configs.split(","):
@@ -130,7 +130,9 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
     output_path = Path(args.output) if args.output else Path(f"eval/{args.product}_panel.json")
     results = panel.evaluate_answers(answers, library_name=args.product,
                                      output_path=output_path,
-                                     limit=getattr(args, "limit", None))
+                                     limit=getattr(args, "limit", None),
+                                     run_metadata={"answer_model": answer_model,
+                                                   "answer_provider": answer_provider})
 
     # Summary
     valid = [r for r in results if r.get("with_docs") and r["with_docs"].get("aggregate") is not None]
@@ -548,8 +550,8 @@ def register(sub, positive_int) -> None:
         help=(
             "Per-role model config (overrides --model/--provider/--roles). "
             "Format: 'role:model:provider,...' "
-            "e.g. 'technical_expert:gpt-4o:openai,"
-            "developer_advocate:claude-sonnet-4:anthropic,"
+            "e.g. 'technical_expert:claude-sonnet-5-5:anthropic,"
+            "developer_advocate:claude-opus-5-5:anthropic,"
             "doc_reviewer:gemini-2.0-flash:google'"
         ),
     )

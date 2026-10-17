@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dokimi.llm import llm_call
+from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +65,8 @@ class QuestionQualityAnalyzer:
 
     def __init__(
         self,
-        model: str = "gpt-4o-mini",
-        provider: str = "openai",
+        model: str = DEFAULT_GENERATOR_MODEL,
+        provider: str = DEFAULT_GENERATOR_PROVIDER,
         concurrency: int = 5,
     ):
         self.model = model

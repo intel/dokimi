@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Example execution (`example_pass_rate`)
 
 The static benchmark can execute fenced code blocks found in documentation to

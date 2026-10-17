@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 # Hidden test for the fix-docker-reward task: a verifier's reward.json is the verdict,
 # and a reward of 1e-1 is 0.1, not 1.0.
 from __future__ import annotations

@@ -54,7 +54,6 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
 from dokimi.eval.stats import adjust_pvalues, mean_ci
-from dokimi.utils import digest_text
 
 ALPHA = 0.05
 
@@ -149,39 +148,45 @@ def stored_label(data: Dict[str, Any]) -> str:
     return f"{provider}/{model}{STORED}" if provider and model else "stored judge"
 
 
-def unreproducible_arms(data: Dict[str, Any], *, with_material: bool = False) -> List[str]:
+def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
     """Arms whose stored scores saw treatment material the other measures will not.
 
-    ``with_material=True`` is for re-scored judges only: they are given what the
-    artifact's ``judge_materials`` holds (:meth:`JudgeContextStore.from_artifact`),
-    so an arm is reproducible when every stored score's material is in the file.
-    Pairwise and checklist judges are shown the answers alone, so for them every
-    arm the stored judge saw material for stays unreproducible.
+    This is the gate for pairwise and checklist judges, which are shown the answers
+    alone, so every arm the stored judge saw material for is unreproducible. A
+    re-scored judge (``cross-judge --judges``) is gated per question instead, on
+    what :meth:`JudgeContextStore.from_artifact` serves it.
 
-    With ``judge_context``, the arms run stores its judge's context material
-    in the artifact (:mod:`dokimi.eval.judge_context`), so a re-scored judge
-    reading the file sees the same material. In review that was 28 characters
-    of context against 11,079, and the same judge on the same answers read
-    +24.2 (p 0.0006) one way and +1.4 (p 0.65) the other. A baseline arm has
-    no material, so both sides see the same thing.
+    The arms run stores its judge's view of treatment material in ``judge_materials``
+    (:mod:`dokimi.eval.judge_context`). ``cross-judge --judges`` gives its judge
+    that same material by using the artifact's ``judge_materials``. Pairwise and
+    checklist judges see the answers alone. In review, the same judge on the same
+    answers read +24.2 (p 0.0006) with the full material (11,079 chars) and +1.4
+    (p 0.65) with the 28-char snippet. A baseline arm has no material, so all judges
+    see the same thing.
     """
-    kinds = {
-        arm: (body.get("metadata") or {}).get("arm_kind")
-        for r in data.get("answers") or [] for arm, body in (r.get("arms") or {}).items()
-        if isinstance(body, dict)
-    }
-    materials = data.get("judge_materials") if with_material else None
-    # Only material that hashes to its digest: JudgeContextStore.from_artifact skips the rest.
-    held = (
-        {d for d, t in materials.items() if isinstance(t, str) and digest_text(t) == d}
-        if isinstance(materials, dict) else set()
-    )
-    return sorted({
-        arm for ev in data.get("evaluations") or [] for arm, s in (ev.get("scores") or {}).items()
-        if isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
-        and kinds.get(arm) != "baseline"
-        and s.get("judge_context_sha256") not in held
-    })
+    kinds = {}
+    for r in data.get("answers") or []:
+        if not isinstance(r, dict):
+            continue
+        arms = r.get("arms")
+        if not isinstance(arms, dict):
+            continue
+        for arm, body in arms.items():
+            if isinstance(body, dict):
+                kinds[arm] = (body.get("metadata") or {}).get("arm_kind")
+    unreproducible = set()
+    for ev in data.get("evaluations") or []:
+        if not isinstance(ev, dict):
+            continue
+        scores = ev.get("scores")
+        if not isinstance(scores, dict):
+            continue
+        for arm, s in scores.items():
+            if not (isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
+                    and kinds.get(arm) != "baseline"):
+                continue
+            unreproducible.add(arm)
+    return sorted(unreproducible)
 
 
 def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional[Measure]:

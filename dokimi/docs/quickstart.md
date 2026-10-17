@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # LLM evaluation pipeline — quickstart
 
 End-to-end recipe for the canonical benchmark flow: target → preflight → fixed question/task set → `without_docs` vs `with_docs` answer generation → judge scoring → report.
@@ -15,13 +20,13 @@ python cli.py benchmark preflight --target onetbb
 python cli.py benchmark run --target onetbb
 ```
 
-Defaults: `results/<target>_final/`, `openai/gpt-5.5` answer model, `anthropic/claude-sonnet-4-5-20250929` judge, semantic-only retrieval with `top_k=3`, and `without_docs` vs `with_docs` arms.
+Defaults: `results/<target>_final/`, `openai/gpt-6.1-sol` answer model, `anthropic/claude-sonnet-5-5` judge, semantic-only retrieval with `top_k=3`, and `without_docs` vs `with_docs` arms.
 
 For fair model/context comparisons, seed once and reuse questions:
 
 ```bash
 python cli.py benchmark run --target onetbb --output-dir results/onetbb_seed
-python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-5.1
+python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-6-astra
 ```
 
 See [user-flow.md](user-flow.md) for target/generalization rules.
@@ -90,7 +95,7 @@ python cli.py questions generate \
   --personas personas/oneTBB.json \
   --count 2 \
   --validate \
-  --model gpt-5.5
+  --model gpt-6.1-sol
 ```
 
 Extracts seed topics from the docs, generates questions per persona × topic,
@@ -105,7 +110,7 @@ python cli.py answers generate \
   --product oneTBB \
   --questions questions/oneTBB.json \
   --output answers/oneTBB.json \
-  --model gpt-5.5 \
+  --model gpt-6.1-sol \
   --provider openai \
   --top-k 3 \
   --rerank-threshold 0.3 \
@@ -124,7 +129,7 @@ python cli.py eval score \
   --product oneTBB \
   --answers answers/oneTBB.json \
   --output eval/oneTBB.json \
-  --judge-model claude-sonnet-4-5-20250929 \
+  --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic
 ```
 
@@ -175,8 +180,8 @@ REPO=uxlfoundation/oneTBB
 python cli.py personas discover --product $PRODUCT --repo $REPO --count 5 && \
 python cli.py personas approve --file personas/$PRODUCT.json && \
 python cli.py questions generate --product $PRODUCT --personas personas/$PRODUCT.json --validate && \
-python cli.py answers generate --product $PRODUCT --questions questions/$PRODUCT.json --model gpt-4o-mini && \
-python cli.py eval score --product $PRODUCT --answers answers/$PRODUCT.json --judge-model claude-sonnet-4 --judge-provider anthropic && \
+python cli.py answers generate --product $PRODUCT --questions questions/$PRODUCT.json --model gpt-6.1-sol && \
+python cli.py eval score --product $PRODUCT --answers answers/$PRODUCT.json --judge-model claude-sonnet-5-5 --judge-provider anthropic && \
 python cli.py report generate --product $PRODUCT --eval eval/$PRODUCT.json --questions questions/$PRODUCT.json --output reports/$PRODUCT.md
 ```
 
@@ -211,15 +216,21 @@ eval scores, benchmark snapshots, reports — stays under the git-ignored
 
 ## Cost estimate
 
-For 35 questions on `gpt-5.5` + `claude-sonnet-4-5-20250929`:
+For 35 questions on the defaults, `gpt-6.1-sol` ($2/$10 per MTok input/output)
+answering and generating and `claude-sonnet-5-5` ($2/$10) judging:
 
 | Step | Calls | Approx. cost |
 | --- | --- | --- |
-| Persona discovery | a few | $0.50 |
-| Question generation | ~35 | $0.50 |
-| Answer generation | ~70 (context arm + baseline) | $5 |
-| Judge scoring | ~70 | $7 |
-| **Total** | | **~$13** |
+| Persona discovery | a few | $0.20 |
+| Question generation | ~35 | $0.20 |
+| Answer generation | ~70 (context arm + baseline) | $2 |
+| Judge scoring | ~70 | $5 |
+| **Total** | | **~$7** |
+
+These are the earlier measured figures (on `gpt-5.5` + `claude-sonnet-4-5`, ~$13)
+scaled by list price, not a new measurement. The defaults changed on 2026-10-13,
+so results from before are not comparable with older baselines; re-baseline — see
+[Default models](benchmarking-and-comparison.md#default-models).
 
 Costs scale roughly linearly with question count. Token counts are recorded
 per answer in `answers/<product>.json`.
@@ -231,7 +242,7 @@ per answer in `answers/<product>.json`.
 | LLM calls fail / wrong provider | All providers go through LiteLLM (`dokimi/llm.py`); set the matching `*_API_KEY` and pass `--provider`/`--model`. LangChain is used only by `eval ragas`, which wraps its judge in `ChatOpenAI`/`ChatAnthropic` (`langchain-openai` comes with ragas; `langchain-anthropic` is a direct dependency). |
 | `No module named numpy` | Pipeline falls back to exact-text dedup; install numpy for embedding-based dedup |
 | `GitHub client not available` | Pipeline uses `gh` CLI fallback; `pip install PyGithub` to silence |
-| Context7 timeout | Raise `context7.timeout` in `config/products.yaml` |
+| Context7 timeout | Raise `context7.timeout` in `dokimi/config/products.yaml` (or in a config/products.yaml of your own in the working directory) |
 | Rate limiting | OpenAI 10K TPM default, Anthropic 10K TPM default; lower `--concurrency` |
 
 ## Where to look next

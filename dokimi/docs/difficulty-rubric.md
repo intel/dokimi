@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Difficulty & Level Rubric (Performance Skills)
 
 This rubric makes difficulty a **measured, reproducible axis** rather than an

@@ -34,7 +34,7 @@ loaded names are enough to rebuild what was read.
 
 import logging
 import threading
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 from dokimi.utils import digest_text, question_id
 
@@ -161,16 +161,16 @@ class JudgeContextStore:
     """
 
     def __init__(self) -> None:
-        self._ctx: Dict[Tuple[str, str], str] = {}
+        self._ctx: Dict[Tuple[Union[str, int], str], str] = {}
         #: Keys stored twice with different contexts. A question set without
         #: ids makes every question ``unknown_q``, and duplicated ids do the
         #: same; either way one key would otherwise hold whichever question was
         #: answered last, and every other question would be judged against it.
-        self._ambiguous: Set[Tuple[str, str]] = set()
+        self._ambiguous: Set[Tuple[Union[str, int], str]] = set()
         self._lock = threading.Lock()
         self._warned = False
 
-    def put(self, question_id: str, arm_name: str, context: str) -> None:
+    def put(self, question_id: Union[str, int], arm_name: str, context: str) -> None:
         key = (question_id, arm_name)
         with self._lock:
             if key in self._ambiguous:
@@ -190,7 +190,7 @@ class JudgeContextStore:
                 return
             self._ctx[key] = context
 
-    def digest_of(self, question_id: str, arm_name: str) -> Optional[str]:
+    def digest_of(self, question_id: Union[str, int], arm_name: str) -> Optional[str]:
         """``sha256:…`` of the stored context, or ``None`` when there is none to cite."""
         with self._lock:
             text = self._ctx.get((question_id, arm_name))
@@ -215,11 +215,30 @@ class JudgeContextStore:
         if not isinstance(materials, dict):
             return store
         bad = 0
-        for record in data.get("answers") or []:
+        answers = data.get("answers") if isinstance(data, dict) else None
+        if not isinstance(answers, list):
+            return store
+        for record in answers:
+            if not isinstance(record, dict):
+                bad += 1
+                continue
             qid = question_id(record)
-            for arm_name, arm in (record.get("arms") or {}).items():
-                digest = arm.get("judge_context_sha256") if isinstance(arm, dict) else None
-                if qid is None or not digest:
+            arms = record.get("arms")
+            if not isinstance(arms, dict):
+                bad += 1
+                continue
+            for arm_name, arm in arms.items():
+                if not isinstance(arm, dict):
+                    bad += 1
+                    continue
+                digest = arm.get("judge_context_sha256")
+                if qid is None or digest is None:
+                    continue
+                if not isinstance(digest, str) or not digest:
+                    bad += 1
+                    continue
+                if not isinstance(qid, (str, int)):
+                    bad += 1
                     continue
                 text = materials.get(digest)
                 if not isinstance(text, str) or digest_text(text) != digest:
@@ -235,7 +254,7 @@ class JudgeContextStore:
             )
         return store
 
-    def get(self, question_id: str, arm_name: str) -> Optional[str]:
+    def get(self, question_id: Union[str, int], arm_name: str) -> Optional[str]:
         """Return the stored context, or ``None`` when this run did not store it
         or stored it ambiguously."""
         with self._lock:
@@ -244,20 +263,20 @@ class JudgeContextStore:
             if hit is None and key not in self._ambiguous and not self._warned:
                 self._warned = True
                 logger.warning(
-                    "No stored judge context for %s/%s (not stored, or its digest did not "
-                    "match judge_materials). Callers that fall back judge the 200-char report "
+                    "No stored judge context for %s/%s (the run did not keep it, or the text "
+                    "failed its digest). Callers that fall back judge the 200-char report "
                     "snippets, which under-scores arms that cite their own material; "
                     "judge-validity --context stored drops such bases instead.",
                     question_id, arm_name,
                 )
         return hit
 
-    def resolve(self, question_id: str, arm_name: str, arm: Dict[str, Any]) -> str:
+    def resolve(self, question_id: Union[str, int], arm_name: str, arm: Dict[str, Any]) -> str:
         """The context string to hand the judge for one arm's answer."""
         return self.resolve_with_source(question_id, arm_name, arm)[0]
 
     def resolve_with_source(
-        self, question_id: str, arm_name: str, arm: Dict[str, Any]
+        self, question_id: Union[str, int], arm_name: str, arm: Dict[str, Any]
     ) -> Tuple[str, str]:
         """The judge's context for one arm's answer, and where it came from.
 

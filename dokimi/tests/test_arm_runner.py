@@ -1055,6 +1055,21 @@ def test_a_skill_body_shared_by_every_question_is_stored_once(monkeypatch, skill
     assert score_digests == digests
 
 
+def test_question_id_zero_is_cited_and_served_after_a_round_trip(monkeypatch, skill_with_files):
+    """0 is falsy but a valid id; cite() must stamp it and from_artifact must serve it."""
+    import json
+
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    skill = SkillTreatment(load_skill(skill_with_files))
+    questions = [{"id": 0, "question": "How do I parallelize a loop?"},
+                 {"id": 1, "question": "How do I sum an array in parallel?"}]
+    out, _ = _judged_output(monkeypatch, [BaselineTreatment(), skill], questions)
+    assert all(r["arms"][skill.name].get("judge_context_sha256") for r in out["answers"])
+    store = JudgeContextStore.from_artifact(json.loads(json.dumps(out)))
+    assert store.get(0, skill.name) and store.get(1, skill.name)
+
+
 def test_an_unjudged_run_still_keeps_the_material(monkeypatch, skill_with_files):
     """So an answers-only artifact can be judged later on the same evidence."""
     _patch_llm(monkeypatch, [])
@@ -1082,6 +1097,51 @@ def test_material_that_does_not_match_its_digest_is_not_used(monkeypatch, skill_
 
 def test_an_artifact_without_materials_falls_back_as_before():
     from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.utils import digest_text
 
-    store = JudgeContextStore.from_artifact({"answers": [{"question_id": "q1", "arms": {"a": {}}}]})
+    # No judge_materials key at all; record has digest but material is missing
+    store = JudgeContextStore.from_artifact({
+        "answers": [{"question_id": "q1", "arms": {"a": {"judge_context_sha256": digest_text("text")}}}]
+    })
+    # Store is empty; from_artifact found no materials key and returned early
     assert store.materials() == {}
+
+
+def test_judge_materials_guard_requires_material_for_stored_scores(caplog):
+    """The guard against missing material does not skip records with no digest."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.utils import digest_text
+
+    # Record with no digest — should be skipped without error.
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {},
+        "answers": [{"question_id": "q1", "arms": {"a": {"answer": "text"}}}],
+    })
+    # Store is empty; the arm record had no judge_context_sha256, so nothing was added.
+    assert store.materials() == {}
+    # Reaching here proves `materials.get(digest)` never ran with a missing digest.
+
+    # Record with a digest whose text is not in materials (hand-trimmed file).
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {},
+        "answers": [{
+            "question_id": "q1",
+            "arms": {"a": {"answer": "text", "judge_context_sha256": "sha256:00"}},
+        }],
+    })
+    # The arm record is skipped, and the store stays empty.
+    assert store.materials() == {}
+    assert "1 arm records cite judge material" in caplog.text
+
+    caplog.clear()
+    # Record with digest and material text that is not a string
+    store = JudgeContextStore.from_artifact({
+        "judge_materials": {digest_text("text"): 123},  # material is int, not str
+        "answers": [{
+            "question_id": "q1",
+            "arms": {"a": {"judge_context_sha256": digest_text("text")}},
+        }],
+    })
+    # The record is skipped due to non-string material
+    assert store.materials() == {}
+    assert "1 arm records cite judge material" in caplog.text

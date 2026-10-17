@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Benchmark user flow
 
 Canonical flow: one benchmark set, one target, two arms.
@@ -29,29 +34,39 @@ It checks:
 - writable output directory
 - judge/answer independence warning
 - optional `--questions-from` path and JSON shape
+- optional `--questions-root`: the directory exists and holds a readable, non-empty `<target>_golden.json`
 
 It also reports the resolved fixed retrieval policy: semantic-only, `top_k=3`.
 
 ## 3. Run canonical benchmark
 
 Question sets live in a separate evaluation-content checkout, so name its
-`questions/` directory. The run picks up `<target>_golden.json` from there:
+`questions/` directory. The run reads `<target>_golden.json` from there and
+answers exactly that set; no questions are generated:
 
 ```bash
 python cli.py benchmark run --target onetbb \
   --questions-root <content-checkout>/questions
 ```
 
-Without `--questions-root` (or `--custom-questions <file>`) the run **generates**
+Without `--questions-root` or `--questions-from` the run **generates**
 questions instead of reading a curated set, and logs a warning saying so. That is
 fine for a first look, but two runs then answer different questions and cannot be
 compared. See [external-content.md](external-content.md).
 
+A `questions/<target>.json` already in the output directory is reused instead of
+the root, even after the golden file changed. Use a fresh `--output-dir`, or
+`--force-regen` to answer the golden set. With a golden set under
+`--questions-root`, or with `--questions-from`, persona discovery is skipped,
+even with `--force-regen`.
+
 Defaults:
 
 - output: `results/<target>_final/`
-- answer model: `openai/gpt-5.5`
-- judge model: `anthropic/claude-sonnet-4-5-20250929`
+- answer model: `openai/gpt-6.1-sol`
+- judge model: `anthropic/claude-sonnet-5-5`
+  (changed 2026-10-13: not comparable with older baselines; re-baseline, see
+  [Default models](benchmarking-and-comparison.md#default-models))
 - retrieval: semantic-only, `top_k=3`
 - comparison: `without_docs` vs `with_docs`
 
@@ -59,7 +74,7 @@ Artifacts:
 
 ```text
 results/<target>_final/
-  personas/<target>.json
+  personas/<target>.json   # only when questions are generated
   questions/<target>.json
   answers/<target>.json
   eval/<target>.json
@@ -70,8 +85,8 @@ results/<target>_final/
 
 ```bash
 python cli.py benchmark run --target onetbb --questions-root <content-checkout>/questions --output-dir results/onetbb_seed
-python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-5.1
-python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model claude-sonnet-4-5-20250929 --provider anthropic
+python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-6-astra
+python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model claude-opus-5-5 --provider anthropic
 ```
 
 Never compare models on different generated questions. `--questions-from` reuses

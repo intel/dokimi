@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 schema: harness_profile.v1
 name: claude-code
 bin: claude
