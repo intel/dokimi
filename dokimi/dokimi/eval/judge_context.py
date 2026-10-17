@@ -34,7 +34,9 @@ loaded names are enough to rebuild what was read.
 
 import logging
 import threading
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+
+from dokimi.utils import digest_text, question_id
 
 logger = logging.getLogger(__name__)
 
@@ -148,26 +150,27 @@ def build(
 class JudgeContextStore:
     """Per-run map from ``(question_id, arm_name)`` to the judge's context.
 
-    Kept in memory rather than in the arm record because the record is persisted
-    and schema-locked: writing 12,000 characters of skill body into every arm of
-    every question would multiply the artifact's size by the question count for
-    text that is identical in all of them. Answering and judging happen in the
-    same process (``commands/arms.py``), so an in-memory handoff is enough;
-    :meth:`get` reports a miss so that judging records loaded from disk degrades
-    visibly instead of silently scoring against a 200-char preview.
+    The arms artifact persists it without repeating it: each arm record carries
+    the digest of its context (``judge_context_sha256``) and the artifact keeps
+    one copy of each distinct text under ``judge_materials`` — a skill arm's
+    body is identical for every question, so it is stored once.
+    :meth:`from_artifact` rebuilds the store from a file, so a judge reading it
+    later sees what the arms run's judge saw rather than the 200-char report
+    snippets. :meth:`get` still reports a miss, so judging records that carry no
+    material (written before this) degrades visibly instead of silently.
     """
 
     def __init__(self) -> None:
-        self._ctx: Dict[Tuple[str, str], str] = {}
+        self._ctx: Dict[Tuple[Union[str, int], str], str] = {}
         #: Keys stored twice with different contexts. A question set without
         #: ids makes every question ``unknown_q``, and duplicated ids do the
         #: same; either way one key would otherwise hold whichever question was
         #: answered last, and every other question would be judged against it.
-        self._ambiguous: Set[Tuple[str, str]] = set()
+        self._ambiguous: Set[Tuple[Union[str, int], str]] = set()
         self._lock = threading.Lock()
         self._warned = False
 
-    def put(self, question_id: str, arm_name: str, context: str) -> None:
+    def put(self, question_id: Union[str, int], arm_name: str, context: str) -> None:
         key = (question_id, arm_name)
         with self._lock:
             if key in self._ambiguous:
@@ -187,7 +190,69 @@ class JudgeContextStore:
                 return
             self._ctx[key] = context
 
-    def get(self, question_id: str, arm_name: str) -> Optional[str]:
+    def digest_of(self, question_id: Union[str, int], arm_name: str) -> Optional[str]:
+        """``sha256:…`` of the stored context, or ``None`` when there is none to cite."""
+        with self._lock:
+            text = self._ctx.get((question_id, arm_name))
+        return None if text is None else digest_text(text)
+
+    def materials(self) -> Dict[str, str]:
+        """``{digest: text}`` for every unambiguously stored context, one copy each."""
+        with self._lock:
+            return {digest_text(text): text for text in self._ctx.values()}
+
+    @classmethod
+    def from_artifact(cls, data: Dict[str, Any]) -> "JudgeContextStore":
+        """Rebuild the store from an arms artifact's digests and materials.
+
+        A digest whose text is missing, or whose text does not hash to it, is
+        skipped with a warning: that answer falls back to its snippets, which is
+        visible in its ``judge_context_source``, rather than being judged on text
+        that is not what the arms run's judge saw.
+        """
+        store = cls()
+        materials = data.get("judge_materials") if isinstance(data, dict) else None
+        if not isinstance(materials, dict):
+            return store
+        bad = 0
+        answers = data.get("answers") if isinstance(data, dict) else None
+        if not isinstance(answers, list):
+            return store
+        for record in answers:
+            if not isinstance(record, dict):
+                bad += 1
+                continue
+            qid = question_id(record)
+            arms = record.get("arms")
+            if not isinstance(arms, dict):
+                bad += 1
+                continue
+            for arm_name, arm in arms.items():
+                if not isinstance(arm, dict):
+                    bad += 1
+                    continue
+                digest = arm.get("judge_context_sha256")
+                if qid is None or digest is None:
+                    continue
+                if not isinstance(digest, str) or not digest:
+                    bad += 1
+                    continue
+                if not isinstance(qid, (str, int)):
+                    bad += 1
+                    continue
+                text = materials.get(digest)
+                if not isinstance(text, str) or digest_text(text) != digest:
+                    bad += 1
+                    continue
+                store.put(qid, arm_name, text)
+        if bad:
+            logger.warning(
+                "%d arm records cite judge material that is missing from the artifact "
+                "or does not match its digest; those answers fall back to snippets.", bad,
+            )
+        return store
+
+    def get(self, question_id: Union[str, int], arm_name: str) -> Optional[str]:
         """Return the stored context, or ``None`` when this run did not store it
         or stored it ambiguously."""
         with self._lock:
@@ -196,19 +261,19 @@ class JudgeContextStore:
             if hit is None and key not in self._ambiguous and not self._warned:
                 self._warned = True
                 logger.warning(
-                    "No stored judge context for %s/%s — judging records that were not "
-                    "answered in this process falls back to the 200-char report "
-                    "snippets, which under-scores arms that cite their own material.",
+                    "No stored judge context for %s/%s (the run did not keep it, or the text "
+                    "failed its digest), so judging falls back to 200-char report snippets, which under-scores "
+                    "arms that cite their own material.",
                     question_id, arm_name,
                 )
         return hit
 
-    def resolve(self, question_id: str, arm_name: str, arm: Dict[str, Any]) -> str:
+    def resolve(self, question_id: Union[str, int], arm_name: str, arm: Dict[str, Any]) -> str:
         """The context string to hand the judge for one arm's answer."""
         return self.resolve_with_source(question_id, arm_name, arm)[0]
 
     def resolve_with_source(
-        self, question_id: str, arm_name: str, arm: Dict[str, Any]
+        self, question_id: Union[str, int], arm_name: str, arm: Dict[str, Any]
     ) -> Tuple[str, str]:
         """The judge's context for one arm's answer, and where it came from.
 
@@ -223,3 +288,25 @@ class JudgeContextStore:
             return stored or NO_CONTEXT, SOURCE_STORED
         snippets = "\n".join(c.get("snippet", "") for c in arm.get("context_chunks", []))
         return snippets or NO_CONTEXT, SOURCE_SNIPPET_FALLBACK
+
+
+def cite(records: List[Dict[str, Any]], store: JudgeContextStore) -> Dict[str, str]:
+    """Stamp each arm record with its judge context's digest; return the texts cited.
+
+    The returned ``{digest: text}`` holds one copy per distinct context and goes
+    into the artifact as ``judge_materials``; ``judge_context_sha256`` on each arm
+    record says which one. Records without a stored context (an arm that never
+    answered, an ambiguous id) are left unstamped.
+    """
+    materials = store.materials()
+    cited: Dict[str, str] = {}
+    for rec in records:
+        qid = question_id(rec)
+        for arm_name, arm in (rec.get("arms") or {}).items():
+            if not isinstance(arm, dict) or qid is None:
+                continue
+            digest = store.digest_of(qid, arm_name)
+            if digest and digest in materials:
+                arm["judge_context_sha256"] = digest
+                cited[digest] = materials[digest]
+    return dict(sorted(cited.items()))
