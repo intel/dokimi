@@ -975,3 +975,17 @@ def test_the_committed_fixture_is_what_repo_inspect_emits(tmp_path):
     if os.environ.get("DOKIMI_REGEN_FIXTURES"):
         FIXTURE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     assert json.loads(FIXTURE.read_text(encoding="utf-8")) == data
+
+
+@pytest.mark.parametrize("files", [
+    {"package.json": json.dumps({"scripts": {"clean": "rm" + " --a" * 22}})},
+    {"package.json": json.dumps({"scripts": {"clean": "git clean" + " --a" * 22}})},
+    {"package.json": json.dumps({"scripts": {"typecheck": "tsc " * 100_000}})},
+    {"pom.xml": "<artifactId>" * 20_000},
+])
+def test_script_and_manifest_patterns_are_linear_on_hostile_strings(tmp_path, files):
+    import time
+    _repo(tmp_path, {"AGENTS.md": "x", **files})
+    start = time.monotonic()
+    inspect_repo(WorkTree(tmp_path))
+    assert time.monotonic() - start < 2
