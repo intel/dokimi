@@ -306,9 +306,9 @@ def _root_with_mixed_dict_string_golden(tmp_path):
         (_empty_root, ("OPENAI_API_KEY",), "questions root has no golden set"),
         (_root_with_invalid_golden, ("OPENAI_API_KEY",), "golden set invalid"),
         (_root_with_empty_golden, ("OPENAI_API_KEY",), "golden set is empty"),
-        (_root_with_bare_strings_golden, ("OPENAI_API_KEY",), "is not a dict"),
-        (_root_with_null_items_golden, ("OPENAI_API_KEY",), "is not a dict"),
-        (_root_with_mixed_dict_string_golden, ("OPENAI_API_KEY",), "is not a dict"),
+        (_root_with_bare_strings_golden, ("OPENAI_API_KEY",), "golden set invalid"),
+        (_root_with_null_items_golden, ("OPENAI_API_KEY",), "golden set invalid"),
+        (_root_with_mixed_dict_string_golden, ("OPENAI_API_KEY",), "golden set invalid"),
     ],
     ids=[
         "no-key", "questions-from-missing", "questions-from-invalid",

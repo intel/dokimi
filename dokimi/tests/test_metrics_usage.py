@@ -224,6 +224,8 @@ class _Chunk:
 
 
 def test_stream_call_measures_ttft(monkeypatch):
+    import litellm
+
     monkeypatch.setattr(llm_mod, "_safe_completion_cost", lambda r, m, **kw: None)
     chunks = [_Chunk("Hello "), _Chunk("world"),
               _Chunk(None, usage=_Usage(prompt=5, completion=2, total=7))]
@@ -232,8 +234,10 @@ def test_stream_call_measures_ttft(monkeypatch):
         assert kwargs.get("stream") is True
         return iter(chunks)
 
-    text, rec = llm_mod._stream_call(fake_completion, "m", [{"role": "user", "content": "hi"}],
-                                     None, "m", "openai")
+    monkeypatch.setattr(litellm, "completion", fake_completion)
+    request = llm_mod.Request("m", "openai", "m", [{"role": "user", "content": "hi"}], stream=True)
+    reply = llm_mod.LiteLLMAdapter()(request)
+    text, rec = reply.text, reply.usage
     assert text == "Hello world"
     assert rec.ttft_sec is not None and rec.ttft_sec >= 0.0
     assert rec.total_tokens == 7  # usage read from terminal chunk

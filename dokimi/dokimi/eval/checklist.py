@@ -29,7 +29,6 @@ aggregate, not a replacement, and it is only as good as the points it is given.
 from __future__ import annotations
 
 import ast
-import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -311,7 +310,8 @@ def run_checklist(
 
 def load_points(path: str) -> Dict[str, List[str]]:
     """question_id -> required points, from a questions file."""
-    with open(path, encoding="utf-8") as fh:
-        data = json.load(fh)
-    questions = data.get("questions", data) if isinstance(data, dict) else data
+    from dokimi.questions.artifact import load_questions
+
+    # Only ids and points are read here, so a record without question text is no fault.
+    questions = load_questions(path, validate=False).questions
     return {question_id(q): points_of(q) for q in questions if question_id(q) is not None}

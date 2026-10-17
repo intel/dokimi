@@ -59,6 +59,16 @@
         "minimum": 0
       }
     },
+    "judge_materials": {
+      "description": "One copy of each distinct text the judge was shown as an arm's treatment material, keyed by its sha256:<hex> digest. Each answers[].arms.<arm>.judge_context_sha256 (and each stored score's judge_context_sha256) names the one it saw, so a later judge can be shown the same evidence.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
     "arms": {
       "type": "array",
       "items": {

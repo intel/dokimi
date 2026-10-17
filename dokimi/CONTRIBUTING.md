@@ -164,7 +164,8 @@ Guidelines:
 - **Keep changes focused.** One logical change per PR; it makes review and
   bisecting easier.
 - **Add tests** for behavioral changes. The suite lives in `tests/` and runs
-  fully offline (LLM/network calls are mocked).
+  fully offline (LLM/network calls are mocked; the `fake_llm` fixture scripts
+  every `dokimi.llm.LLM` reply).
 - **Update docs** in the same PR when you change behavior. Stale docs are
   treated as bugs — see the docs-drift checklist below.
 - **Don't commit ad-hoc run output.** Generated artifacts belong under

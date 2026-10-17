@@ -514,8 +514,6 @@ class TestDedupeRobustness:
         custom.write_text(json.dumps([{"id": "gold", "text": "How do I use parallel_for?"}]))
         pipe = EvaluationPipeline.__new__(EvaluationPipeline)
         pipe.custom_questions_path = custom
-        saved = {}
-        pipe._save_questions_artifact = lambda qs, *a, **k: saved.update(qs=qs)
 
         encoder = Mock()
         encoder.encode.return_value = [[0.99, 0.01], [1.0, 0.0]]
@@ -525,8 +523,10 @@ class TestDedupeRobustness:
              patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', False), \
              self._local(encoder), patch.dict('os.environ', {}, clear=True):
             merged = pipe._merge_questions(generated)
+        # Deduplication keeps the manual (longer) question over the shorter generated one
         assert [q["id"] for q in merged] == ["gold"]
-        assert saved["qs"] == merged
+        # Verify the manual question's text was kept
+        assert merged[0]["question"] == "How do I use parallel_for?"
 
 
 class TestBackendSelectionEdges:

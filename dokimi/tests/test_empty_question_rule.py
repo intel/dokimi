@@ -64,6 +64,15 @@ def test_helper_accepts_the_question_set_spellings():
     assert require_question_text({"question_text": "", "question": "d"}) == "d"
 
 
+def test_helper_reads_a_parsed_record_object():
+    """eval/records.py (#80) hands the judge paths Record objects, not dicts."""
+    from types import SimpleNamespace
+
+    assert require_question_text(SimpleNamespace(question_id="q1", question_text="How?")) == "How?"
+    with pytest.raises(EmptyQuestionError, match="question 'q1'"):
+        require_question_text(SimpleNamespace(question_id="q1", question_text="  "))
+
+
 def test_error_is_a_value_error():
     assert issubclass(EmptyQuestionError, ValueError)
 
