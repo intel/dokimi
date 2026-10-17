@@ -5,16 +5,15 @@
 
 from __future__ import annotations
 
-import os
 import re
 import shlex
 import shutil
-import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from dokimi import process
 from dokimi.utils import retry_writable
 
 from .models import HarnessResult, OperationRecord
@@ -36,6 +35,9 @@ _PLACEHOLDERS = (
 )
 
 MAX_TIMEOUT_SEC = 3600.0
+# How long a timed-out `harbor` gets after SIGTERM to remove its trial container and image,
+# which belong to the Docker daemon and would outlive a kill.
+HARBOR_TERM_GRACE_SEC = 60.0
 
 
 @dataclass(frozen=True)
@@ -48,6 +50,7 @@ class CommandHarness:
     default_timeout_sec: float | None = None
     env: dict[str, str] = field(default_factory=dict)
     agent: str | None = None  # the Harbor agent id, for kind="harbor"
+    runner: process.Runner = field(default=process.run, compare=False, repr=False)
 
     def run(
         self,
@@ -78,8 +81,9 @@ class CommandHarness:
             output_dir.mkdir(parents=True, exist_ok=True)
 
         command = self.build_command(task, model=model, output_dir=output_dir)
-        env = os.environ.copy()
-        env.update(self.env)
+        # The command is the operator's own CLI (Harbor, a wrapper script): it runs with the
+        # caller's whole environment, whose credentials are what it runs with.
+        env = dict(self.env)
         if output_dir:
             env["DOKIMI_OUTPUT_DIR"] = str(output_dir)
             env["DOKIMI_OPERATIONS_FILE"] = str(output_dir / "operations.jsonl")
@@ -111,30 +115,27 @@ class CommandHarness:
         task_root = task.path.parent
         if task_root.parent == task_root:
             raise ValueError(f"Task path must be inside a task root directory: {task.path}")
-        timed_out = False
-        try:
-            proc = subprocess.run(
-                command,
-                cwd=str(task_root.parent),
-                env=env,
-                text=True,
-                capture_output=True,
-                timeout=timeout,
-                check=False,
-            )
-            returncode = proc.returncode
-            stdout = proc.stdout or ""
-            stderr = proc.stderr or ""
-        except subprocess.TimeoutExpired as exc:
+        # A timeout kills the command's whole process tree (an agent's tool calls too), and
+        # so does its exit: no process it started outlives the cell. A docker container is
+        # the daemon's, not the tree's: only a command that stops its own within
+        # its SIGTERM grace (harbor) leaves none behind. The output is captured
+        # whole: the reward and DOKIMI_OP markers are read from it.
+        if timeout > 0:
+            grace = HARBOR_TERM_GRACE_SEC if self.kind == "harbor" else 0.0
+            proc = self.runner(command, cwd=task_root.parent, env=process.Env.inherit(env), timeout=timeout,
+                               capture_limit=None, term_grace=grace)
+        else:
+            # A task budget of 0 or less has no time to run: a timeout, as on main, not an error.
+            proc = process.Completed(tuple(command), process.TIMEOUT_RC, timed_out=True)
+        timed_out, returncode = proc.timed_out, proc.returncode
+        stdout, stderr = proc.stdout, proc.stderr
+        if timed_out:
             # The agent ran out of time: a verified failure (reward 0, rc 124 as
             # the docker harness records it), not an errored cell. Raising
             # would reach the runner's catch-all and take the cell out of the
             # pass-rate denominator, scoring an arm that hangs above one that
             # fails fast.
-            timed_out = True
-            returncode = 124
-            stdout = _text(exc.stdout)
-            stderr = _text(exc.stderr) + f"\nTIMEOUT: {exc}\n"
+            stderr += f"\nTIMEOUT: {command[0]} killed after {timeout:g}s\n"
         elapsed = time.time() - start
         operations.extend(load_operations(output_dir, stdout, stderr))
         if timed_out:
@@ -272,16 +273,6 @@ def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
     if match:
         return float(match.group(1))
     return None
-
-
-def _text(data: str | bytes | None) -> str:
-    """Captured output of a timed-out run; ``TimeoutExpired`` may carry bytes
-    even when the process ran with ``text=True``."""
-    if data is None:
-        return ""
-    if isinstance(data, bytes):
-        return data.decode("utf-8", errors="replace")
-    return data
 
 
 def _tail(text: str, limit: int = 4000) -> str:

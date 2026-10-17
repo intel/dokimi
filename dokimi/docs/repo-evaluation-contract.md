@@ -133,7 +133,8 @@ outside every workspace and passes its absolute path to entry points as
   oneDAL) for the same toolchain. The Dockerfile may `COPY` tooling from
   anywhere in that context, for example a build wrapper under `<eval-dir>`,
   and must work for every task base: a version pinned in the task tree (such
-  as `.bazelversion`) is read at run time, not baked in.
+  as `.bazelversion`) is read at run time, not baked in. A build that runs
+  past 3 hours fails as a container error rather than hanging the batch.
 - `tasks check` (§4.3) fails a task whose agent container can read any file
   under `tasks` or `{source_dir}`.
 
@@ -693,8 +694,10 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   with the same mounts must see neither `/eval/content` nor `/eval/source`, no
   entry named like a task, and no guidance file above the workspace.
 - `--timeout`, `--max-turns` and `--budget` apply unless `task.json` sets
-  `timeout_s`, `max_turns` or `budget_usd`. On a timeout the container is
-  killed and the cell is still graded. `--max-batch-usd` starts no new cell
+  `timeout_s`, `max_turns` or `budget_usd`. On a timeout the `docker run`
+  CLI gets SIGTERM, which it passes to the container, and 10 s to stop it;
+  then the CLI's process group is killed, the container is killed by name,
+  and the cell is still graded. `--max-batch-usd` starts no new cell
   once that much has been spent.
 - Every container runs with `--security-opt no-new-privileges`, `--cap-drop
   ALL` and a `--pids-limit`, as the caller's uid and gid.
