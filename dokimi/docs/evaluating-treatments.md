@@ -71,8 +71,12 @@ judge, 24 bases, one run), the full material raised the mean intact score from
 0.674, not significant at this size), unchanged on wrong numbers. A skill arm's
 delta measured with the material is therefore on a higher level than one
 measured without it, and the difference between the two is not evidence that
-the skill helps. `eval judge-validity` passes no context, so it does not
-measure this setting.
+the skill helps. `eval judge-validity` passes no context by default; run it on an
+arms artifact with `--context stored` to gate the judge the way it scored the
+arms — each answer with its arm's stored material (bases with no stored entry are
+dropped and counted, except baseline with the no-context marker). It exits 2
+with a typed scorer or `--mode pairwise`, on a file with no non-empty verified
+material, when an arm loses all its bases, or when no pair is usable.
 
 Runtime plugins are a separate run dimension, not arms. They modify every arm
 inside the same `(model, harness, plugin_set)` cell, and the JSON/Markdown

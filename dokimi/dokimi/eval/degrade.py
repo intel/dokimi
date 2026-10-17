@@ -45,9 +45,12 @@ from __future__ import annotations
 import random
 import re
 from decimal import Context, Decimal
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from dokimi.utils import question_id
+
+if TYPE_CHECKING:
+    from dokimi.eval.judge_context import JudgeContextStore
 
 #: Minimum answer length (characters) worth degrading. Short answers have too
 #: little content for truncation or code-stripping to mean anything.
@@ -623,12 +626,17 @@ def build_pairs(
     variants: Optional[Sequence[str]] = None,
     library: str = "the library",
     noop: Optional[Dict[str, int]] = None,
+    store: Optional["JudgeContextStore"] = None,
+    dropped: Optional[Dict[str, int]] = None,
+    by_arm: Optional[Dict[str, Dict[str, int]]] = None,
 ) -> List[Dict[str, Any]]:
     """Build (intact, degraded) pairs with a known correct ordering.
 
     One pair per (base answer x variant); ``intact`` must score higher. A
     degradation that left the text unchanged is dropped and counted in ``noop``.
     On a neutral variant (``padding``) the target is the same score instead.
+
+    If ``store`` is provided, only answers with material in the store are used as bases.
     """
     for name in variants or ():
         if name not in DEGRADATIONS:
@@ -636,7 +644,26 @@ def build_pairs(
     pool = _answer_pool(answers)
     rng = random.Random(seed)
     rng.shuffle(pool)
-    bases = [row for row in pool if len(row["answer"]) > min_chars][:n_bases]
+    long_answers = [row for row in pool if len(row["answer"]) > min_chars]
+    long_answers_before_store = len(long_answers)
+    # Filter by material before sampling if store is provided
+    if store is not None:
+        # One pass: decide kept or dropped per row and count it there.
+        has_material = []
+        for row in long_answers:
+            ok = store.get(row["question_id"], row["arm"]) is not None
+            if ok:
+                has_material.append(row)
+            if by_arm is not None:
+                counts = by_arm.setdefault(row["arm"], {"kept": 0, "dropped": 0, "sampled": 0})
+                counts["kept" if ok else "dropped"] += 1
+        long_answers = has_material
+        if dropped is not None:
+            dropped["total"] = long_answers_before_store - len(long_answers)
+    bases = long_answers[:n_bases]
+    if store is not None and by_arm is not None:
+        for row in bases:
+            by_arm[row["arm"]]["sampled"] += 1
 
     pairs: List[Dict[str, Any]] = []
     for base in bases:

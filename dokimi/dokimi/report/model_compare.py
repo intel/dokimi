@@ -306,8 +306,9 @@ def _check_judge_context(runs: list[tuple[str, dict]], group_name: str) -> None:
             f"Error [{group_name}]: runs were judged under different judge_context "
             f"protocols ({detail}). The judge saw different evidence for the same "
             "answers, so the scores cannot be pooled. Re-run answering and judging "
-            "together for the older runs: re-judging an answers file only sees the "
-            "200-char report snippets, which is the unstamped protocol again."
+            "together for the older runs: re-judging an answers file written before "
+            "judge_materials only sees the 200-char report snippets, which is the "
+            "unstamped protocol again."
         )
 
 

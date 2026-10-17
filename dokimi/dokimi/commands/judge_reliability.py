@@ -324,7 +324,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             print(f"⚠️  --validity for `{v.get('judge')}` was measured on {v['answers_model']} answers, "
                   f"these are {answers_model}'s — the gate may not transfer", file=sys.stderr)
     for missed in report.apply_validity(validity):
-        print(f"⚠️  --validity for `{missed}` matches no measure (compare the judge labels)", file=sys.stderr)
+        print(f"⚠️  --validity for `{missed}` matches no measure (compare the judge labels and contexts)", file=sys.stderr)
     if not report.measures:
         print("Error: nothing to compare — give --judges, --checklist, or an answers file with evaluations",
               file=sys.stderr)

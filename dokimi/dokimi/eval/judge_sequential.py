@@ -119,6 +119,7 @@ def run_sequential(
     progress: Optional[Callable[[int, int], None]] = None,
     concurrency: int = 1,
     pair_scorer: Optional[PairScorer] = None,
+    store: Optional[Any] = None,
 ) -> ValidityReport:
     """Like :func:`run_validity`, but add bases until every variant is decided.
 
@@ -130,13 +131,19 @@ def run_sequential(
     """
     sprt_bounds(min_accuracy)  # refuse an undecidable gate before any pair is built or scored
     noop: Dict[str, int] = {}
-    pairs = _build(answers, noop, n_bases=max_bases, seed=seed, variants=variants, library=library)
+    dropped: List[int] = [0]
+    by_arm: Dict[str, Dict[str, int]] = {}
+    pairs = _build(answers, noop, n_bases=max_bases, seed=seed, variants=variants, library=library,
+                   store=store, dropped=dropped, by_arm=by_arm)
     order: List[tuple] = list(dict.fromkeys((p["base_id"], p.get("arm", "")) for p in pairs))
     graded = sorted({p["variant"] for p in pairs if p["variant"] not in NEUTRAL_VARIANTS})
     decisions: Dict[str, Dict[str, Any]] = {v: {"decision": "continue", "llr": 0.0, "n": 0} for v in graded}
     report = ValidityReport(judge=judge, min_accuracy=min_accuracy, seed=seed, sequential=decisions)
     report.n_noop = noop
     report.variants = list(variants or DEGRADATIONS)
+    report.context = "stored" if store is not None else "none"
+    report.n_without_context = dropped[0]
+    report.by_arm = by_arm
     intact_cache: Dict[tuple, Any] = {}
     started = time.time()
     for start in range(0, len(order), batch):
@@ -167,7 +174,11 @@ def run_sequential(
     # them ran out of pool even when another variant reached the cap. With
     # more usable answers than the cap, a higher --max-bases adds bases to
     # every variant, so that is the cap even for a variant with few pairs.
-    usable = sum(1 for r in _answer_pool(answers) if len(r["answer"]) > DEFAULT_MIN_CHARS)
+    # With a store, only answers with verified material can ever be scored.
+    if store is not None:
+        usable = sum(c["kept"] for c in by_arm.values())
+    else:
+        usable = sum(1 for r in _answer_pool(answers) if len(r["answer"]) > DEFAULT_MIN_CHARS)
     for variant, d in decisions.items():
         if d["decision"] == "continue":
             bases = len({(p["base_id"], p.get("arm", "")) for p in pairs if p["variant"] == variant})
