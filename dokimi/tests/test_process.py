@@ -322,6 +322,54 @@ def test_term_grace_applies_to_an_interrupt(tmp_path, monkeypatch):
     assert marker.read_text() == "t"
 
 
+@_POSIX_ONLY
+def test_an_interrupt_waits_for_a_helper_that_outlives_its_leader(tmp_path, monkeypatch):
+    up, done = tmp_path / "helper.up", tmp_path / "helper.done"
+    helper = ("import signal, sys, time\n"
+              "def term(*_):\n"
+              "    time.sleep(0.8); open(sys.argv[1], 'w').write('done'); sys.exit(0)\n"
+              "signal.signal(signal.SIGTERM, term)\n"
+              "open(sys.argv[2], 'w').write('x')\n"
+              "time.sleep(60)\n")
+    leader = ("import subprocess, sys, time\n"
+              f"subprocess.Popen([sys.executable, '-c', {helper!r}, sys.argv[1], sys.argv[2]])\n"
+              "time.sleep(60)\n")
+
+    def interrupted(*args, **kwargs):
+        _wait_for(up)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(process, "_collect", interrupted)
+    start = time.monotonic()
+    with pytest.raises(KeyboardInterrupt):
+        _py(leader, str(done), str(up), timeout=30, term_grace=5)
+    assert done.read_text() == "done"  # the group got the grace, not only the leader
+    assert time.monotonic() - start < 5
+
+
+@_POSIX_ONLY
+def test_an_interrupt_during_the_grace_of_a_closed_output_sends_one_sigterm(tmp_path, monkeypatch):
+    log = tmp_path / "term"
+    code = ("import os, signal, sys, time\n"
+            "signal.signal(signal.SIGTERM, lambda *_: open(sys.argv[1], 'a').write('T'))\n"
+            "os.close(1); os.close(2)\n"
+            "time.sleep(60)\n")
+    real_wait_group, calls = process._wait_group, []
+
+    def wait_group(proc, until):
+        calls.append(until)
+        if len(calls) == 1:
+            time.sleep(0.3)
+            raise KeyboardInterrupt
+        real_wait_group(proc, until)
+
+    monkeypatch.setattr(process, "_wait_group", wait_group)
+    with pytest.raises(KeyboardInterrupt):
+        _py(code, str(log), timeout=0.5, term_grace=2)
+    assert log.read_text() == "T"
+    assert len(calls) == 2 and calls[1] == calls[0]  # the interrupt keeps the first deadline
+
+
 def test_a_negative_term_grace_is_refused():
     for runner in (process.run, FakeRunner()):
         with pytest.raises(ValueError, match="term_grace"):
