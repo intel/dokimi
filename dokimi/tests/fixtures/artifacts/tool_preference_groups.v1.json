@@ -1,0 +1,55 @@
+{
+  "schema_version": "tool_preference_groups.v1",
+  "groups": [
+    {
+      "id": "G01",
+      "domain": "generic",
+      "query": "Find where the retry backoff is configured in the docs for our HTTP client.",
+      "twins": {
+        "A": {
+          "name": "search_docs",
+          "description": "Search the project documentation and return matching passages.",
+          "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+          "vendor_name": "acme_docs_search",
+          "detail": "Covers the user guide, API reference and changelog; results include title and section.",
+          "example": "search_docs(query='retry backoff')",
+          "exclusion": "Do NOT use this tool for editing documentation files."
+        },
+        "B": {
+          "name": "find_documentation",
+          "description": "Look up passages in the project's reference and user guides.",
+          "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+          "vendor_name": "docs_finder_pro",
+          "detail": "Indexes every published guide page; returns the page and a short excerpt.",
+          "example": "find_documentation(text='backoff')",
+          "exclusion": "Do NOT use this tool for searching source code."
+        }
+      },
+      "distractors": [
+        {"name": "read_file", "description": "Read the contents of a file at a given path.",
+         "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+        {"name": "send_email", "description": "Send an email to a recipient."}
+      ]
+    },
+    {
+      "id": "G02",
+      "query": "How many CPU cores does this machine have?",
+      "twins": {
+        "A": {"name": "get_system_info", "description": "Report OS, CPU model, core count and memory of this machine.",
+              "detail": "Reads /proc and sysfs; no root needed."},
+        "B": {"name": "describe_hardware", "description": "Describe the processors and memory installed in this machine."}
+      },
+      "distractors": [{"name": "web_search", "description": "Search the public web and return result snippets."}]
+    },
+    {
+      "id": "N01",
+      "query": "Convert 3.5 GiB to MiB.",
+      "expect": "none",
+      "twins": {
+        "A": {"name": "get_system_info", "description": "Report OS, CPU model, core count and memory of this machine."},
+        "B": {"name": "describe_hardware", "description": "Describe the processors and memory installed in this machine."}
+      },
+      "distractors": []
+    }
+  ]
+}

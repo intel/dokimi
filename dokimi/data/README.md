@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # `data/` — curated framework fixtures
 
 This directory holds the **curated, version-controlled inputs** the framework's own

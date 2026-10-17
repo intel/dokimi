@@ -15,7 +15,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # Default registry bundled with the package
-_DEFAULT_REGISTRY = Path(__file__).parent.parent / "products.yaml"
+_DEFAULT_REGISTRY = Path(__file__).parent / "products.yaml"
 
 
 @dataclass

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Checks for use-repo-scan: the agent ran dokimi's L0 scan on examples/toy-repo for a user.
 
     check.py <run_dir> <task_dir>      (cwd = <workspace>/dokimi)
@@ -10,7 +13,8 @@ required: it also wants eval_dir and the tasks directory to exist, which a scan-
 (like the framework's own benchmarks/self-scan.repo-eval.yaml) does not have.
 answer_names_claim_1/2: the final answer calls each broken claim (the missing path, the dead
 link) wrong: a paragraph or list item names the file and says it is missing or broken, or gives
-the right path, so "parser.py and releasing.md look fine" passes neither. The fix suggestions
+the right path, so "parser.py and releasing.md look fine" passes neither. A broken-word counts
+only when its clause does not negate it, so "nothing wrong there" or "the scan didn't fail" do not. The fix suggestions
 and whether the agent ran `repo scan` are reported, not gated.
 """
 import json
@@ -30,14 +34,30 @@ FIXES = {
     "answer_fix_1": r"tokens\.py",
     "answer_fix_2": r"(?<![\w-])release\.md",
 }
-BROKEN = re.compile(r"n[o']t\s+exist|non-?existent|\bis\s+no\b|missing|absent|not\s+found|no\s+such|broken|"
-                    r"dead|stale|wrong|incorrect|outdated|invalid|fail", re.I)
+# Words that say a claim is broken. The first group carries its own negation ("does not exist"),
+# so it counts as it stands; any other word counts only when its clause does not negate it first
+# ("nothing wrong", "the scan didn't fail", "it is not missing").
+NEGATED_BROKEN = re.compile(r"n[o']t\s+exist|no\s+longer\s+exist|non-?existent|\b(?:is|are)\s+no\s+(?:file|module|page|doc)|"
+                            r"not\s+found|no\s+such", re.I)
+BROKEN = re.compile(r"missing|absent|broken|dead|stale|wrong|incorrect|outdated|invalid|fail", re.I)
+NEGATION = re.compile(r"\b(?:no|not|nothing|never|none|neither|nor|without)\b|n't\b", re.I)
+CLAUSE_END = re.compile(r"[.;:!?](?=\s|$)|\n|\bbut\b|\bwhile\b|\bhowever\b", re.I)  # not the dot in "parser.py"
+
+
+def says_broken(block: str) -> bool:
+    if NEGATED_BROKEN.search(block):
+        return True
+    for m in BROKEN.finditer(block):
+        ends = [e.end() for e in CLAUSE_END.finditer(block, 0, m.start())]
+        if not NEGATION.search(block, ends[-1] if ends else 0, m.start()):
+            return True
+    return False
 
 
 def calls_broken(answer: str, claim: str, fix: str) -> bool:
     """A paragraph or top-level list item names *claim* and says it is broken or gives *fix*."""
     blocks = re.split(r"\n\s*\n|\n(?=[-*]\s|\d+\.\s)", answer)
-    return any(re.search(claim, b, re.I) and (BROKEN.search(b) or re.search(fix, b, re.I)) for b in blocks)
+    return any(re.search(claim, b, re.I) and (says_broken(b) or re.search(fix, b, re.I)) for b in blocks)
 
 
 def manifest_metrics() -> dict:

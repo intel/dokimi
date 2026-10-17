@@ -122,13 +122,15 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         # cannot pick up a set with a mistyped label.
         print(json.dumps(summary, indent=2))
         raise SystemExit(1)
-    if args.format == "reach":
-        payload = ts.to_reach(queries, catalog_id=str(catalog_root))
-    elif args.format == "skill-creator":
-        payload = ts.to_skill_creator(queries, args.target)
+    if args.format == "questions":
+        from dokimi.questions.artifact import save_questions_artifact
+
+        save_questions_artifact(ts.to_questions(queries), args.out)
     else:
-        payload = ts.to_questions(queries)
-    Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        # External tools' formats: no schema of ours to hold them to.
+        payload = (ts.to_reach(queries, catalog_id=str(catalog_root)) if args.format == "reach"
+                   else ts.to_skill_creator(queries, args.target))
+        Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     print(json.dumps(summary, indent=2))
     multi = sum(len(q.acceptable) > 1 for q in ts.labelled(queries))
@@ -176,7 +178,7 @@ def register(sub, positive_int) -> None:
     )
     ts_p.add_argument("--format", choices=["reach", "skill-creator", "questions"], default="reach",
                       help="reach: google/skill-reach QuerySet; skill-creator: one target's "
-                           "eval set; questions: questions.v1 for the skill-catalog: arm")
+                           "eval set; questions: a questions artifact for the skill-catalog: arm")
     ts_p.add_argument("--target", help="Target skill for --format skill-creator")
     ts_p.add_argument("--rewrite", action="store_true",
                       help="Rewrite each question into first-person user voice (model sees only the question)")

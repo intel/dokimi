@@ -1,10 +1,15 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Architecture overview
 
 `dokimi` ships two parallel evaluation tracks, an optional
 executable-task suite, and two tracks that change the *question* rather than the
 pipeline: content novelty (what does an artifact add to a model?) and
 repositories as evaluation subjects (can a repo supply its own tasks?). They
-share configuration (`config/products.yaml`, `products.yaml`, `intents.yaml`)
+share configuration (`dokimi/config/products.yaml`, `products.yaml`, `intents.yaml`)
 and a single CLI entry point (`cli.py`) but otherwise operate independently.
 
 ```text
@@ -150,7 +155,7 @@ time.
 Novelty is a property of the (artifact, model) pair, not of the file — the same
 skill is worth very different amounts to a frontier and to a small model, so the
 model under measurement is always recorded with the result. `--model` defaults to
-`gpt-4o-mini`; pass it explicitly, or the run measures that model instead of the
+`gpt-6.1-sol` (the default answer model); pass it explicitly, or the run measures that model instead of the
 one you meant.
 [skill-novelty.md](skill-novelty.md) is the authoring guide;
 [skill-novelty-evidence.md](skill-novelty-evidence.md) is the study the default
@@ -271,6 +276,11 @@ next release.
   `repo run` (one agent per task × arm × model × rep cell, then `grade`, one
   `result.json` per cell) and `repo report` (gated success with a Wilson
   interval, grader failures, missing cells, cost).
+- `dokimi/repos/compare.py` — `repo compare`: treatment arms against a
+  baseline arm over one or more batches, one value per task and arm (gate
+  share, score, cost, turns, chosen `grade.json` metrics), with an interval
+  over tasks (bootstrap for gate and score, t for the rest), a sign-flip
+  permutation p and Holm's correction.
 - `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
@@ -282,10 +292,35 @@ codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
 `repo run` needs `--agent-network` for an agent that must reach its model.
 
+## Context window
+
+`dokimi/context/trace.py` reads a Claude Code `stream-json` trace into the
+prompt size of every model call (`input + cache_creation + cache_read`
+tokens, one call per message id), the compaction events, tool-result sizes and
+failures per tool, and repeated tool calls. `python cli.py context trace`
+prints one or more traces as a comparison table; it calls no model. Guide:
+[context-window.md](context-window.md).
+
 ## Shared building blocks
 
-- `dokimi/llm.py` — provider-neutral LLM call wrapper (LiteLLM-based)
-  with retry, token accounting, and concurrency.
+- `dokimi/process.py` — the process runner that spawning code goes
+  through (git, `gh`, doc snippets, harness profiles; the task harnesses and
+  the repository-mode docker runner still spawn on their own). A timeout,
+  an interrupt or the command's exit kills its whole process group / job
+  object; so does a SIGTERM/SIGHUP to the `dokimi` CLI, which installs
+  `install_signal_handlers()` at start-up (importing the module installs
+  nothing; a library caller opts in). A timeout is a
+  result (`returncode` 124, partial output kept) not an exception, output is
+  read as UTF-8, a captured stream keeps at most 1 MiB in memory (its first and
+  last half, `truncated` set; `stdout_to`/`stderr_to` write a whole stream to a
+  file; git output is kept whole), and every call states its environment policy (`Env.inherit` or
+  an `Env.only` allow-list). `FakeRunner` is its test adapter: code that spawns
+  takes a `runner` argument.
+- `dokimi/llm.py` — the entry point for LLM calls. `LLM` (one model at one provider:
+  `complete`/`ask`/`chat`, retry, the response cache, usage) sits on one
+  adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
+  `fake_llm` fixture). `ask_parsed` is the redraw-until-it-parses loop.
+  `llm_call`, `chat_completion` and `utils.get_llm` delegate to `LLM`.
 - `dokimi/registry.py` — product registry loaded from
   `products.yaml`; powers `cli.py library` (alias `product`) and
   `cli.py benchmark`.
@@ -293,9 +328,9 @@ still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
   the problem/intent space mapping domains (data science, debugging,
   optimization, …) to the products that serve them. Consistency with
   `products.yaml` is enforced by `python -m dokimi.config_check`.
-- `config/products.yaml` — per-product config: GitHub repo, Context7 ID,
+- `dokimi/config/products.yaml` — per-product config: GitHub repo, Context7 ID,
   retrieval defaults, judge model, persona count.
-- `benchmarks/spec.v1.yaml` + `benchmarks/spec.schema.json` — declarative
+- `benchmarks/spec.v1.yaml` + `dokimi/runner/spec.schema.json` — declarative
   static-benchmark configuration.
 
 ## CI
@@ -309,21 +344,24 @@ label.
 
 **`ci.yml`** — fast code checks:
 
-1. **lint** — `ruff check .`.
+1. **static** — the checks that need no lock install, as steps of one job:
+   `ruff check .`, zizmor on the workflows, the license headers, the pre-commit
+   hooks, bandit and pip-audit. Schema checks: `schema_check` validates
+   `benchmarks/spec.v1.yaml`; `config_check` checks `products.yaml`/`intents.yaml`/
+   `dokimi/config/products.yaml` drift. The `guidance self-scan (L0)` step runs
+   `repo scan` as a gate (`--fail-on-fail`).
 2. **mypy** — type check of the whole package (modules listed in the
    `pyproject.toml` override are exempt until fixed).
-3. **schema** — `schema_check` validates `benchmarks/spec.v1.yaml`;
-   `config_check` checks `products.yaml`/`intents.yaml`/`config/products.yaml`
-   drift.
-4. **test** — pytest from `requirements.lock.txt`, offline, with coverage
-   (Python 3.11–3.14); on a PR, 80% of the changed lines must be covered.
-5. **package-smoke** — builds/installs the package with a fresh resolve of its
+3. **test** — pytest from `requirements.lock.txt`, offline, in parallel
+   (pytest-xdist), on Python 3.11–3.14; coverage is measured on the 3.14 leg,
+   and on a PR 80% of the changed lines must be covered.
+4. **package-smoke** — builds/installs the package with a fresh resolve of its
    dependency ranges (Python 3.11 and 3.13) and exercises the console and
    module entry points.
 
 **`agent-quality.yml`** — task and benchmark checks:
 
-6. **external-catalog-smoke** — clones a pinned external content catalog, runs
+5. **external-catalog-smoke** — clones a pinned external content catalog, runs
    `catalog scan` over it, then drives one of its real tasks through the
    `docker-oracle` harness (build + solve + verify, with the task's own
    `network_mode`, bridge for this public task) and the `docker-probe`
@@ -332,13 +370,13 @@ label.
    the skills or the network fails CI. Task definitions are not in this
    repository, so this job proves the harness and the task format rather than any
    particular task.
-7. **benchmark** — runs the static agent-quality benchmark with `--strict`, so
+6. **benchmark** — runs the static agent-quality benchmark with `--strict`, so
    a gate or band failure fails the job, and uploads `current.json` /
    `current.md` artifacts.
 
 **`docs.yml`** — the documentation site:
 
-8. **build** — `mkdocs build --strict` of `mkdocs.yml`: `docs/` plus the CLI
+7. **build** — `mkdocs build --strict` of `mkdocs.yml`: `docs/` plus the CLI
    and API reference generated from the code. A link or anchor between pages
    that does not resolve, a link to a source file that does not exist, or a
    list that nests differently on the site than on GitHub fails it. On a push

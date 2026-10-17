@@ -1,9 +1,17 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Dokimi
 
 > **This is the whole project.** It evaluates whether a given skill / MCP doc
 > source / agent profile actually improves agent answers, and produces the
 > evidence (a scorecard) that decides whether the artifact is worth shipping.
 > See the [repository overview](../README.md) for the short version.
+>
+> **Documentation: <https://intel.github.io/dokimi/>** (the [`docs/`](docs/README.md)
+> pages plus a generated CLI and API reference).
 
 `dokimi` measures whether a skill, MCP doc source, documentation set or
 agent profile actually improves a model's or coding agent's answers and task
@@ -25,6 +33,7 @@ Evidence tracks:
 | Exploration (ExploreBench) | Can the agent locate the right files and line ranges? | [external-content.md](docs/external-content.md) |
 | Content novelty | What does a skill *add* to a given model, and what can be cut? | [skill-novelty.md](docs/skill-novelty.md) |
 | Repository subjects | How well does an agent work inside a given repository? | [repo-evaluation-contract.md](docs/repo-evaluation-contract.md) |
+| Context window | What did the agent's context hold: start-up load, growth, compactions, tool-output weight? | [context-window.md](docs/context-window.md) |
 | Static docs checks | Are the docs well-structured, fresh, readable, with runnable examples? | [Static benchmark metrics](#static-benchmark-metrics) |
 
 ### Three questions you can ask
@@ -119,6 +128,7 @@ Executable and agentic tracks
   explore             Run file/line localization tasks (ExploreBench)
   repo                Validate a repository's repo-eval.yaml, fetch pinned sources, size its context, probe guidance reach
   catalog             Check which skills/tasks in an external checkout load cleanly
+  context             Read a run's context window from its trace (no LLM call)
 
 Content analysis
   novelty             Measure what an artifact's content adds to a model
@@ -151,7 +161,8 @@ dashboards, and baselines, see
 
 ## Product and intent registries
 
-Two top-level YAML registries describe what the benchmark can evaluate:
+Two YAML registries, bundled in the package (`dokimi/products.yaml`,
+`dokimi/intents.yaml`), describe what the benchmark can evaluate:
 
 - **`products.yaml`** — *what products exist*: identity, description, repo, and
   doc sources for each product (oneTBB, oneMKL, VTune, dpnp, …). Used by
@@ -164,7 +175,7 @@ Two top-level YAML registries describe what the benchmark can evaluate:
 
 The domain→product mapping lives only in `intents.yaml`;
 `python -m dokimi.config_check` (run in CI) fails if it references an
-unregistered product, or if `config/products.yaml` drifts from `products.yaml`.
+unregistered product, or if `dokimi/config/products.yaml` drifts from `products.yaml`.
 Explore the mapping with:
 
 ```bash
@@ -203,8 +214,8 @@ For fair multi-model comparisons, generate one question set and reuse it:
 
 ```bash
 python cli.py benchmark run --target onedal --output-dir results/onedal_seed
-python cli.py benchmark run --target onedal --questions-from results/onedal_seed --model gpt-5.1
-python cli.py benchmark run --target onedal --questions-from results/onedal_seed --model claude-sonnet-4-5-20250929 --provider anthropic
+python cli.py benchmark run --target onedal --questions-from results/onedal_seed --model gpt-6-astra
+python cli.py benchmark run --target onedal --questions-from results/onedal_seed --model claude-opus-5-5 --provider anthropic
 ```
 
 Generated artifacts — answer runs, judge scores and benchmark snapshots — go under `results/`, `reports/`, `answers/`, `eval/` or `baselines/`; those paths are git-ignored and no captured run is committed. Curated, version-controlled *inputs* live under `data/` (`data/skills/fastcontext/`, `data/agent_profiles/`, `data/explore_tasks/`) — see [`data/README.md`](data/README.md). Product skills, question sets and personas are evaluation content: they come from a separate content repository and are passed in by path (`skill:<path>`, `--questions <path>`, `--questions-root <dir>`).
@@ -228,13 +239,15 @@ The directory layout and `task.toml` fields a task must provide are specified in
 
 ```text
 cli.py                   Single entry point for all CLI commands
-benchmarks/              Static benchmark spec and schema
-config/                  LLM/runtime configuration for the eval track
-products.yaml            Product registry: identity + doc sources per product
-intents.yaml             Intent registry: problem/task domains mapped to products
+benchmarks/              Static benchmark spec (its schema is dokimi/runner/spec.schema.json)
+changelog.d/             Changelog fragments, one per PR (see changelog.d/README.md)
 dokimi/                  Main Python package
+  products.yaml          Product registry: identity + doc sources per product
+  intents.yaml           Intent registry: problem/task domains mapped to products
+  config/                LLM/runtime configuration for the eval track
   agent_profiles/        Agent persona prompt loader
   commands/              CLI subcommand definitions
+  context/               Context window of a run, read from its harness trace
   dashboard/             Dashboard aggregation/rendering
   eval/                  Answer generation, judges, panels, RAGAS, arm runner
   explore/               ExploreBench localization track
@@ -250,7 +263,7 @@ dokimi/                  Main Python package
   questions/             Question generation, validation, refinement
   repos/                 Repository subjects: manifest, sources, validation, harness profiles, reach probe
   report/                JSON/Markdown report generation
-  runner/                Benchmark orchestration
+  runner/                Benchmark orchestration and the spec schema
   schemas/               JSON Schemas for every persisted artifact
   skills/                SKILL.md loader
   subjects/              Subject descriptors and scorecards
@@ -266,6 +279,7 @@ docs/                    Documentation (full index: docs/README.md)
   evaluating-treatments.md
                          Comparing docs / MCP / skill / profile arms
   coding-harnesses.md    Executable tasks through coding-agent harnesses
+  context-window.md      What a run's context window held, from its trace
   skill-novelty.md       What a skill adds to a model
   repo-evaluation-contract.md
                          Evaluating a whole repository as a subject
@@ -288,7 +302,7 @@ tests/                   Pytest suite
 Among the checks GitHub Actions runs on pull requests (more in
 [docs/architecture.md](docs/architecture.md#ci)):
 
-1. `test` — installs `requirements.lock.txt` and runs pytest offline with coverage; on a PR, 80% of the changed lines must be covered.
+1. `test` — installs `requirements.lock.txt` and runs pytest offline; on a PR, 80% of the changed lines must be covered (coverage measured on Python 3.14 only).
 2. `benchmark` — runs the static agent-quality benchmark in strict mode (a gate or band failure fails the job) and uploads artifacts.
 3. `External catalog smoke test` — clones a pinned public content catalog, scans it, and drives one of its real tasks through the `docker-oracle` harness and the `docker-probe` isolation probe, asserting both pass rates.
 4. `Build docs (strict)` — builds the documentation site with `mkdocs build --strict`, so a broken link or a list that renders differently than on GitHub fails it; a push to `main` publishes the site to GitHub Pages.

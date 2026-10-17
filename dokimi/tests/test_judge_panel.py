@@ -107,7 +107,7 @@ def test_compute_aggregate_all_same_gives_same_score():
 # ── _call_judge ───────────────────────────────────────────────────────────────
 
 def test_call_judge_python_computes_aggregate():
-    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    cfg = JudgeConfig(role="technical_expert", model="gpt-6.1-sol", provider="openai")
     panel = JudgePanel(judges=[cfg])
     # LLM returns no aggregate field — Python must compute it
     llm_resp = json.dumps({"reasoning": "ok", "correctness": 80, "completeness": 80,
@@ -127,7 +127,7 @@ def test_call_judge_python_computes_aggregate():
 
 def test_call_judge_ignores_llm_aggregate():
     """Even if LLM returns aggregate, Python recomputes it."""
-    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    cfg = JudgeConfig(role="technical_expert", model="gpt-6.1-sol", provider="openai")
     panel = JudgePanel(judges=[cfg])
     # LLM returns aggregate=999 (garbage) — must be ignored
     llm_resp = json.dumps({"reasoning": "ok", "correctness": 80, "completeness": 80,
@@ -140,7 +140,7 @@ def test_call_judge_ignores_llm_aggregate():
 
 
 def test_call_judge_clamps_scores():
-    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    cfg = JudgeConfig(role="technical_expert", model="gpt-6.1-sol", provider="openai")
     panel = JudgePanel(judges=[cfg])
     llm_resp = json.dumps({"reasoning": "ok", "correctness": 150, "completeness": -10,
                            "specificity": 80, "code_quality": 80, "actionability": 80})
@@ -151,7 +151,7 @@ def test_call_judge_clamps_scores():
 
 
 def test_call_judge_handles_leading_text_in_response():
-    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    cfg = JudgeConfig(role="technical_expert", model="gpt-6.1-sol", provider="openai")
     panel = JudgePanel(judges=[cfg])
     llm_resp = 'Sure, here is my evaluation:\n{"reasoning":"ok","correctness":70,"completeness":70,"specificity":70,"code_quality":70,"actionability":70}'
     with _patch_llm([llm_resp]):
@@ -161,7 +161,7 @@ def test_call_judge_handles_leading_text_in_response():
 
 
 def test_call_judge_llm_error():
-    cfg = JudgeConfig(role="technical_expert", model="gpt-4o-mini", provider="openai")
+    cfg = JudgeConfig(role="technical_expert", model="gpt-6.1-sol", provider="openai")
     panel = JudgePanel(judges=[cfg])
     with patch("dokimi.eval.panel.llm_call", side_effect=RuntimeError("boom")):
         vote = panel._call_judge(cfg, "Q?", "A.", "oneTBB", "")
@@ -214,7 +214,7 @@ def test_aggregate_dimensions():
 # ── evaluate (full) ───────────────────────────────────────────────────────────
 
 def test_evaluate_full_panel():
-    judges = [JudgeConfig(r, "gpt-4o-mini", "openai") for r in DEFAULT_PANEL]
+    judges = [JudgeConfig(r, "gpt-6.1-sol", "openai") for r in DEFAULT_PANEL]
     panel = JudgePanel(judges=judges, concurrency=3)
     responses = [_llm_response(correctness=80) for _ in judges]
     with _patch_llm(responses):

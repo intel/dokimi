@@ -1,0 +1,59 @@
+{
+  "library": "DPNP",
+  "library_id": "IntelPython/dpnp",
+  "description": "Golden regression set for DPNP - Data Parallel Extension for NumPy",
+  "version_or_doc_snapshot": "dpnp 0.17.0 documentation (intelpython.github.io/dpnp, accessed 2026-06-10) and IntelPython/dpnp GitHub repository issues",
+  "questions": [
+    {
+      "id": "dpnp-Q001",
+      "text": "Scenario: You replace numpy.unique(arr, sorted=False) with dpnp.unique(arr, sorted=False) in production code and get TypeError: unexpected keyword argument 'sorted'. This breaks your data pipeline. According to dpnp documentation, how should you check API compatibility before migration, and what's the recommended fallback pattern for unsupported parameters?",
+      "expected_skill": "dpnp-migration",
+      "persona": "ml_engineer_migrating",
+      "category": "compatibility_pitfalls",
+      "difficulty": "medium",
+      "expected_topics": [
+        "dpnp implements a subset of NumPy - not all parameters supported even when function exists",
+        "the API reference lists supported functions but parameter-level coverage requires checking documentation for each function",
+        "recommended pattern: try dpnp operation, catch NotImplementedError or TypeError, fall back to numpy using asnumpy() conversion",
+        "proactive checking: test critical code paths with dpnp before production deployment",
+        "no automated compatibility checker currently available - must test manually"
+      ],
+      "metadata": {
+        "must_cite": [
+          "https://intelpython.github.io/dpnp/reference/"
+        ],
+        "why_it_matters": "This is a top-3 migration blocker. Users assume 'drop-in replacement' means full API parity, leading to production failures.",
+        "is_static_golden": true,
+        "original_id": "Q001",
+        "github_issue": "#2476"
+      }
+    },
+    {
+      "id": "dpnp-Q008",
+      "text": "Scenario: You've migrated a large matrix multiplication workload from NumPy (which uses OpenBLAS) to dpnp expecting GPU speedup. For 5000×5000 matrices, NumPy takes 0.5s but dpnp takes 2.0s (slower!). According to dpnp documentation, what factors affect matrix multiplication performance, and what's the recommended approach to diagnose and fix slow linear algebra operations?",
+      "expected_skill": [
+        "dpnp-linalg-fft",
+        "dpnp-troubleshooting"
+      ],
+      "persona": "performance_engineer",
+      "category": "performance_linalg",
+      "difficulty": "medium",
+      "expected_topics": [
+        "dpnp uses oneMKL as BLAS backend (CPU) or oneMKL for GPU",
+        "Small matrices may have kernel launch overhead on GPU",
+        "Data transfer overhead (host↔device) if not accounted for",
+        "Array must be on device before operation; check with array.sycl_device",
+        "Profiling recommendations: time data transfer separately, warmup runs for JIT compilation",
+        "Size threshold where GPU becomes faster (typically >1000×1000 for matmul)",
+        "Recommend: benchmark with data already on device, compare device-to-device computation only"
+      ],
+      "metadata": {
+        "must_cite": [
+          "https://intelpython.github.io/dpnp/reference/linalg.html"
+        ],
+        "why_it_matters": "Matrix ops are core ML workload; unexpectedly slow performance blocks adoption",
+        "is_static_golden": false
+      }
+    }
+  ]
+}

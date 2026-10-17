@@ -1,5 +1,8 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 version: 1
-schema: ./spec.schema.json
+schema: ../dokimi/runner/spec.schema.json
 name: dokimi-spec-v1
 mode: non_blocking
 

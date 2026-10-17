@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """schema-required-field: explore_runs task entries carry a required ``digest``.
 
 Run as ``python check.py <run_dir> <task_dir>`` with cwd = <workspace>/dokimi. Prints one

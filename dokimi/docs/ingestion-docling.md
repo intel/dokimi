@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Ingesting non-Markdown documents (Docling)
 
 The static benchmark loader reads Markdown only. To benchmark PDF, Office

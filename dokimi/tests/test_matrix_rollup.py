@@ -169,7 +169,7 @@ def test_load_questions_rejects_non_object_items(tmp_path: Path):
     questions = tmp_path / "questions.json"
     questions.write_text(json.dumps(["bad"]), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="question at index 0"):
+    with pytest.raises(ValueError, match="record 0: 'bad' is not of type 'object'"):
         _load_questions(str(questions))
 
 
@@ -203,12 +203,9 @@ def test_arms_matrix_run_rejects_sanitized_cell_name_collisions(tmp_path: Path):
         str(tmp_path / "out"),
     ])
 
-    try:
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
-    except SystemExit as exc:
-        assert exc.code == 1
-    else:  # pragma: no cover - defensive
-        raise AssertionError("expected matrix-run to reject colliding cell filenames")
+    assert exc.value.code == 1
 
 
 def test_arms_matrix_run_rejects_unwired_harnesses(tmp_path: Path):
@@ -243,12 +240,9 @@ def test_arms_matrix_run_rejects_unwired_harnesses(tmp_path: Path):
         str(matrix),
     ])
 
-    try:
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
-    except SystemExit as exc:
-        assert exc.code == 1
-    else:  # pragma: no cover - defensive
-        raise AssertionError("expected matrix-run to reject unwired harness adapters")
+    assert exc.value.code == 1
 
 
 def test_arms_run_selected_matrix_cell_rejects_unwired_harness(tmp_path: Path):
@@ -285,12 +279,9 @@ def test_arms_run_selected_matrix_cell_rejects_unwired_harness(tmp_path: Path):
         "agent-cell",
     ])
 
-    try:
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
-    except SystemExit as exc:
-        assert exc.code == 1
-    else:  # pragma: no cover - defensive
-        raise AssertionError("expected selected matrix cell to reject unwired harness adapters")
+    assert exc.value.code == 1
 
 
 def test_arms_matrix_run_keeps_cell_artifacts_away_from_generated_names(tmp_path: Path, monkeypatch):
@@ -400,13 +391,16 @@ def test_load_questions_refuses_duplicate_ids(tmp_path: Path):
         _load_questions(str(questions))
 
 
-def test_load_questions_assigns_unique_ids_where_missing(tmp_path: Path, capsys):
+def test_load_questions_assigns_unique_ids_where_missing(tmp_path: Path, caplog):
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"text": "x"}, {"id": "q0001", "text": "y"}, {"text": "z"}]))
-    loaded = _load_questions(str(questions))
-    ids = [q["id"] for q in loaded]
-    assert ids[1] == "q0001" and len(set(ids)) == 3
-    assert "had no id" in capsys.readouterr().err
+    with caplog.at_level("WARNING"):
+        loaded = _load_questions(str(questions))
+    assert [q["id"] for q in loaded] == ["q0000", "q0001", "q0002"]
+    assert "legacy questions format (a bare list, not an object; 2 records: no `id`" in caplog.text
+    # A positional id another record already has is prefixed until it is unique.
+    questions.write_text(json.dumps([{"id": "q0001", "text": "x"}, {"text": "y"}]))
+    assert [q["id"] for q in _load_questions(str(questions))] == ["q0001", "_q0001"]
 
 
 def test_load_questions_keeps_integer_id_zero(tmp_path: Path):
