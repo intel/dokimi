@@ -1,6 +1,6 @@
 # Agent guide
 
-This repo is a measurement framework: it measures whether documentation, a
+This repo is dokimi, A/B testing for agent context: it measures whether documentation, a
 skill, an MCP doc source, or an agent persona prompt improves a coding agent's
 answers and task outcomes. The content it measures (skills, executable tasks,
 golden question sets) lives in content repositories and is passed in by path:
