@@ -944,12 +944,20 @@ FIXTURE = Path(__file__).parent / "fixtures" / "artifacts" / "repo_environment.v
 def _fixture_artifact(tmp_path: Path) -> dict:
     """The committed fixture, produced the way a user would: ``repo inspect`` on the toy repository.
 
-    The commit dates are fixed, so the sha in the artifact is the same on every run.
+    The commit is made hermetically: fixed dates and identity, no global or system git config (a
+    CI runner's ``~/.gitconfig`` may set e.g. ``core.autocrlf`` or ``commit.gpgsign``), and no
+    inherited ``GIT_*`` variables. So the sha in the artifact is the same on every machine.
     """
     import os
     root = tmp_path / "toy"
-    dates = {"GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z"}
-    old = {k: os.environ.get(k) for k in dates}
+    dates = {"GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z",
+             "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    inherited = [k for k in os.environ if k.startswith("GIT_") and k not in dates]
+    old = {k: os.environ.get(k) for k in [*dates, *inherited]}
+    for k in inherited:
+        del os.environ[k]
     os.environ.update(dates)
     try:
         sha = _repo(root, FILES)
