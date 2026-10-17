@@ -1,0 +1,3 @@
+### Fixed
+
+- **`tools preference --max-cost-usd` stops at a reply it cannot price** — a call whose `usage` is missing or not a dict, or whose `cost_usd` is not a finite number, now leaves the cap blind (no new call starts after it) instead of being left out of the spend. A library caller of `run_probe` could run every call under a cap that way, and a string `cost_usd` crashed the run before the artifact was written. The calls that run under the cap are now a prefix of the jobs in item order at any `--concurrency`, so only the last group reached can be partial; before, a worker slow to start could leave a hole in an earlier group. The docs and `--help` no longer say an unpriced call always exits 2: it does when calls were left unstarted, and otherwise warns.

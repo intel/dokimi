@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 import threading
 import time
@@ -276,12 +277,16 @@ def run_probe(items: Sequence[dict], call: Caller, reps: int = 1, concurrency: i
     recorded ``skipped`` and left out of the summary. Calls already in flight finish, so the
     spend can pass the cap by up to ``concurrency - 1`` calls. A call that failed but was billed
     carries its ``usage`` on the exception and counts. A call that comes back with no price
-    leaves the cap blind, so no new call starts after it: a cap that cannot see the spend
-    does not allow an unlimited one. Jobs run in item order; at any concurrency the last group
-    reached may be partial. Partial groups are summarized from the cells that ran, so their
-    A/B counterbalancing is incomplete.
+    (no ``usage`` dict, or a ``cost_usd`` that is not a finite number) leaves the cap blind, so
+    no new call starts after it: a cap that cannot see the spend does not allow an unlimited
+    one. Each job is taken and checked against the cap under one lock, so the calls that ran
+    are a prefix of the jobs in item order and only the last group reached may be partial.
+    Partial groups are summarized from the cells that ran, so their A/B counterbalancing is
+    incomplete.
     """
     jobs = [(i, r) for i in items for r in range(reps)]
+    results: List[dict] = [{} for _ in jobs]
+    taken = [0]
     done = [0]
     spent = [0.0]
     blind = [False]
@@ -290,39 +295,52 @@ def run_probe(items: Sequence[dict], call: Caller, reps: int = 1, concurrency: i
     def capped() -> bool:
         return max_cost_usd is not None and (blind[0] or spent[0] >= max_cost_usd)
 
-    def one(job):
-        item, rep = job
-        t0 = time.time()
+    def one(_: int) -> None:
+        # The next job and its skip decision come under one lock: a worker held between
+        # taking a job and checking the cap cannot be overtaken by a later job that runs.
         with lock:
+            index = taken[0]
+            taken[0] += 1
             skip = capped()
+        item, rep = jobs[index]
+        t0 = time.time()
         res = {"item_id": item["id"], "rep": rep, "choice": None, "text_preview": "", "usage": None,
                "truncated": False, "skipped": skip, "error": None}
-        out_usage = None
+        billed, usage = False, None
         if not skip:
             try:
                 out = call(item)
-                out_usage = out.get("usage")
+                billed, usage = True, out.get("usage")
                 res.update(choice=classify(item, out.get("called") or []),
-                           text_preview=(out.get("text") or "")[:200], usage=out_usage if isinstance(out_usage, dict) else None,
+                           text_preview=(out.get("text") or "")[:200],
                            truncated=bool(out.get("truncated")))
             except Exception as exc:  # recorded, not raised
                 res["error"] = f"{type(exc).__name__}: {exc}"[:300]
-                usage = getattr(exc, "usage", out_usage)
-                res["usage"] = usage if isinstance(usage, dict) else None
+                if hasattr(exc, "usage"):
+                    billed, usage = True, exc.usage
+            res["usage"] = usage if isinstance(usage, dict) else None
         res["elapsed_sec"] = round(time.time() - t0, 3)
         with lock:
-            usage = res.get("usage")
-            if usage and isinstance(usage, dict):
-                cost = usage.get("cost_usd")
+            if billed:
+                cost = _cost(res["usage"])
                 blind[0] = blind[0] or cost is None
                 spent[0] += cost or 0.0
             done[0] += 1
             if on_progress:
                 on_progress(done[0], len(jobs))
-        return res
+        results[index] = res
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as ex:
-        return list(ex.map(one, jobs))
+        list(ex.map(one, range(len(jobs))))
+    return results
+
+
+def _cost(usage: Optional[dict]) -> Optional[float]:
+    """A call's ``cost_usd`` when it is a finite number of at least 0; None when unknown."""
+    cost = usage.get("cost_usd") if isinstance(usage, dict) else None
+    if isinstance(cost, bool) or not isinstance(cost, (int, float)) or not math.isfinite(cost) or cost < 0:
+        return None
+    return float(cost)
 
 
 def groups_sha256(doc: dict) -> str:
@@ -335,7 +353,7 @@ def payload(doc: dict, items: Sequence[dict], results: Sequence[dict], *, model:
     """The tool_preference.v1 document (unsaved)."""
     system, cues = settings(doc)
     usage = [r["usage"] for r in results if isinstance(r.get("usage"), dict)]
-    cost = [u.get("cost_usd") for u in usage]
+    cost = [_cost(u) for u in usage]
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "model": model,
