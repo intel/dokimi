@@ -1,0 +1,308 @@
+{
+ "boundary/entry": {
+  "analyzer_warnings": [
+   "50% of this artifact's words are in bundled files that were not measured (--include-resources); every rate here describes the entry point only"
+  ],
+  "gate": {
+   "measured": true,
+   "message": "only the entry point was measured: 50% of this artifact's words were not read (ceiling 50%); re-run with --include-resources before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+   "passed": false,
+   "severity": "warn",
+   "value": 0.5
+  },
+  "record": {
+   "entry_point_words": 12499,
+   "include_resources": false,
+   "measurable_outside_share": 0.5,
+   "n_files": 1,
+   "outside_share": 0.5,
+   "policy_excluded_words": 0,
+   "resource_words_measured": 0,
+   "resource_words_on_disk": 12501,
+   "unmeasured_words": 12501,
+   "unreadable_files": 0
+  },
+  "report": "## Which file carries it\n\nEntry point only. **50%** of this artifact's words (12501 of 25000) sit in bundled files that were not measured — rerun with `--include-resources` before quoting any rate as a property of the artifact.\n"
+ },
+ "demo/bundle": {
+  "analyzer_warnings": [
+   "1 bundled files were excluded from the measured text (see bundle.excluded for each reason); they are counted in resource_words_on_disk but carry no atoms"
+  ],
+  "gate": {
+   "measured": true,
+   "message": "the bundle was measured (2 files, 500 of 6500 bundled words, 2 files excluded): 72% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+   "passed": false,
+   "severity": "warn",
+   "value": 0.7246
+  },
+  "record": {
+   "entry_point_words": 400,
+   "include_resources": true,
+   "measurable_outside_share": 0.9322,
+   "n_files": 2,
+   "outside_share": 0.942,
+   "policy_excluded_words": 1000,
+   "resource_words_measured": 500,
+   "resource_words_on_disk": 6500,
+   "unmeasured_words": 5000,
+   "unreadable_files": 0
+  },
+  "report": "## Which file carries it\n\n1 resource files measured, 500 of 5500 measurable bundled words read (93% of the artifact is outside its entry point). A further 1000 words are in files not measured by default.\n\n| file | role | words | atoms | added | already knew |\n|---|---|---|---|---|---|\n| `references/ref.md` | reference | 500 | 2 | 2 | 0 |\n| `SKILL.md` | entry_point | 400 | 0 | 0 | 0 |\n\n1 spans (8 tokens) only name a bundled file. They carry no knowledge by design, so they are not waste — but they are also not what makes the skill work.\n\n2 files excluded: `evals/evals.md` (role not measured by default (pass --resource-roles eval to include it)), `references/big.md` (over max_file_words=4000).\n"
+ },
+ "demo/entry": {
+  "analyzer_warnings": [
+   "56% of this artifact's words are in bundled files that were not measured (--include-resources); every rate here describes the entry point only"
+  ],
+  "gate": {
+   "measured": true,
+   "message": "only the entry point was measured: 26% of this artifact's words were not read (ceiling 50%); re-run with --include-resources before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+   "passed": true,
+   "severity": "warn",
+   "value": 0.2632
+  },
+  "record": {
+   "entry_point_words": 400,
+   "include_resources": false,
+   "measurable_outside_share": 0.5556,
+   "n_files": 1,
+   "outside_share": 0.7895,
+   "policy_excluded_words": 1000,
+   "resource_words_measured": 0,
+   "resource_words_on_disk": 1500,
+   "unmeasured_words": 500,
+   "unreadable_files": 0
+  },
+  "report": "## Which file carries it\n\nEntry point only. **56%** of this artifact's words (500 of 900) sit in bundled files that were not measured — rerun with `--include-resources` before quoting any rate as a property of the artifact. A further 1000 words are in files not measured by default.\n"
+ },
+ "demo/entry+big": {
+  "analyzer_warnings": [
+   "93% of this artifact's words are in bundled files that were not measured (--include-resources); every rate here describes the entry point only"
+  ],
+  "gate": {
+   "measured": true,
+   "message": "only the entry point was measured: 80% of this artifact's words were not read (ceiling 50%); re-run with --include-resources before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+   "passed": false,
+   "severity": "warn",
+   "value": 0.7971
+  },
+  "record": {
+   "entry_point_words": 400,
+   "include_resources": false,
+   "measurable_outside_share": 0.9322,
+   "n_files": 1,
+   "outside_share": 0.942,
+   "policy_excluded_words": 1000,
+   "resource_words_measured": 0,
+   "resource_words_on_disk": 6500,
+   "unmeasured_words": 5500,
+   "unreadable_files": 0
+  },
+  "report": "## Which file carries it\n\nEntry point only. **93%** of this artifact's words (5500 of 5900) sit in bundled files that were not measured — rerun with `--include-resources` before quoting any rate as a property of the artifact. A further 1000 words are in files not measured by default.\n"
+ },
+ "evals-only/bundle": {
+  "analyzer_warnings": [],
+  "gate": {
+   "measured": true,
+   "message": "the bundle was measured (1 files, 0 of 500 bundled words, 1 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+   "passed": true,
+   "severity": "warn",
+   "value": 0.0
+  },
+  "record": {
+   "entry_point_words": 87,
+   "include_resources": true,
+   "measurable_outside_share": 0.0,
+   "n_files": 1,
+   "outside_share": 0.8518,
+   "policy_excluded_words": 500,
+   "resource_words_measured": 0,
+   "resource_words_on_disk": 500,
+   "unmeasured_words": 0,
+   "unreadable_files": 0
+  },
+  "report": "## Which file carries it\n\n0 resource files measured, 0 of 0 measurable bundled words read (0% of the artifact is outside its entry point). A further 500 words are in files not measured by default.\n\n| file | role | words | atoms | added | already knew |\n|---|---|---|---|---|---|\n| `SKILL.md` | entry_point | 87 | 2 | 2 | 0 |\n\n1 files excluded: `evals/cases.md` (role not measured by default (pass --resource-roles eval to include it)).\n"
+ },
+ "evals-only/entry": {
+  "analyzer_warnings": [],
+  "gate": {
+   "measured": true,
+   "message": "only the entry point was measured: 0% of this artifact's words were not read (ceiling 50%); re-run with --include-resources before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+   "passed": true,
+   "severity": "warn",
+   "value": 0.0
+  },
+  "record": {
+   "entry_point_words": 87,
+   "include_resources": false,
+   "measurable_outside_share": 0.0,
+   "n_files": 1,
+   "outside_share": 0.8518,
+   "policy_excluded_words": 500,
+   "resource_words_measured": 0,
+   "resource_words_on_disk": 500,
+   "unmeasured_words": 0,
+   "unreadable_files": 0
+  },
+  "report": "## Which file carries it\n\nEntry point only; nothing measurable sits outside it. A further 500 words are in files not measured by default.\n"
+ },
+ "mixed/bundle": {
+  "analyzer_warnings": [
+   "1 bundled files were excluded from the measured text (see bundle.excluded for each reason); they are counted in resource_words_on_disk but carry no atoms"
+  ],
+  "gate": {
+   "measured": true,
+   "message": "the bundle was measured (2 files, 30 of 160 bundled words, 3 files excluded): 20% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+   "passed": true,
+   "severity": "warn",
+   "value": 0.2024
+  },
+  "record": {
+   "entry_point_words": 87,
+   "include_resources": true,
+   "measurable_outside_share": 0.479,
+   "n_files": 2,
+   "outside_share": 0.6478,
+   "policy_excluded_words": 80,
+   "resource_words_measured": 30,
+   "resource_words_on_disk": 160,
+   "unmeasured_words": 50,
+   "unreadable_files": 0
+  },
+  "report": "## Which file carries it\n\n1 resource files measured, 30 of 80 measurable bundled words read (48% of the artifact is outside its entry point). A further 80 words are in files not measured by default.\n\n| file | role | words | atoms | added | already knew |\n|---|---|---|---|---|---|\n| `SKILL.md` | entry_point | 87 | 2 | 2 | 0 |\n| `references/big.md` | reference | 30 | 0 | 0 | 0 |\n\n1 spans (8 tokens) only name a bundled file. They carry no knowledge by design, so they are not waste — but they are also not what makes the skill work.\n\n3 files excluded: `evals/cases.md` (role not measured by default (pass --resource-roles eval to include it)), `references/linked.md` (symlink), `references/r.md` (over max_file_words=40).\n\n1 non-text files not read.\n"
+ },
+ "mixed/bundle-roles": {
+  "analyzer_warnings": [],
+  "gate": {
+   "measured": true,
+   "message": "the bundle was measured (1 files, 0 of 160 bundled words, 4 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+   "passed": true,
+   "severity": "warn",
+   "value": 0.0
+  },
+  "record": {
+   "entry_point_words": 87,
+   "include_resources": true,
+   "measurable_outside_share": 0.0,
+   "n_files": 1,
+   "outside_share": 0.6478,
+   "policy_excluded_words": 160,
+   "resource_words_measured": 0,
+   "resource_words_on_disk": 160,
+   "unmeasured_words": 0,
+   "unreadable_files": 0
+  },
+  "report": "## Which file carries it\n\n0 resource files measured, 0 of 0 measurable bundled words read (0% of the artifact is outside its entry point). A further 160 words are in files not measured by default.\n\n| file | role | words | atoms | added | already knew |\n|---|---|---|---|---|---|\n| `SKILL.md` | entry_point | 87 | 2 | 2 | 0 |\n\n4 files excluded: `evals/cases.md` (role filtered), `references/big.md` (role filtered), `references/linked.md` (symlink), `references/r.md` (role filtered).\n\n1 non-text files not read.\n"
+ },
+ "mixed/entry": {
+  "analyzer_warnings": [],
+  "gate": {
+   "measured": true,
+   "message": "only the entry point was measured: 32% of this artifact's words were not read (ceiling 50%); re-run with --include-resources before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+   "passed": true,
+   "severity": "warn",
+   "value": 0.3239
+  },
+  "record": {
+   "entry_point_words": 87,
+   "include_resources": false,
+   "measurable_outside_share": 0.479,
+   "n_files": 1,
+   "outside_share": 0.6478,
+   "policy_excluded_words": 80,
+   "resource_words_measured": 0,
+   "resource_words_on_disk": 160,
+   "unmeasured_words": 80,
+   "unreadable_files": 0
+  },
+  "report": "## Which file carries it\n\nEntry point only. **48%** of this artifact's words (80 of 167) sit in bundled files that were not measured — rerun with `--include-resources` before quoting any rate as a property of the artifact. A further 80 words are in files not measured by default.\n"
+ },
+ "plain/entry": {
+  "analyzer_warnings": [],
+  "gate": {
+   "measured": true,
+   "message": "only the entry point was measured: 0% of this artifact's words were not read (ceiling 50%); re-run with --include-resources before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+   "passed": true,
+   "severity": "warn",
+   "value": 0.0
+  },
+  "record": {
+   "entry_point_words": 87,
+   "include_resources": false,
+   "measurable_outside_share": 0.0,
+   "n_files": 1,
+   "outside_share": 0.0,
+   "policy_excluded_words": 0,
+   "resource_words_measured": 0,
+   "resource_words_on_disk": 0,
+   "unmeasured_words": 0,
+   "unreadable_files": 0
+  },
+  "report": "## Which file carries it\n\nEntry point only; nothing measurable sits outside it.\n"
+ },
+ "stored/no-bundle": {
+  "gate": {
+   "measured": false,
+   "message": "this run does not record which files of the artifact it read, so whether it measured the whole artifact is unknown",
+   "passed": true,
+   "severity": "info",
+   "value": null
+  },
+  "report": ""
+ },
+ "stored/with-kinds": {
+  "gate": {
+   "measured": true,
+   "message": "the bundle was measured (2 files, 200 of 900 bundled words, 3 files excluded): 40% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+   "passed": true,
+   "severity": "warn",
+   "value": 0.4
+  },
+  "report": "## Which file carries it\n\n1 resource files measured, 200 of 600 measurable bundled words read (86% of the artifact is outside its entry point). A further 300 words are in files not measured by default.\n\n| file | role | words | atoms | added | already knew |\n|---|---|---|---|---|---|\n\n3 files excluded: `references/a.md` (over the 4000-word per-file budget), `evals/e.md` (role evals not measured by default), `link.md` (symlink).\n\n1 non-text files not read.\n"
+ },
+ "unreadable/bundle": {
+  "analyzer_warnings": [],
+  "gate": {
+   "measured": false,
+   "message": "1 bundled files could not be decoded, so their word counts are unknown and the share of this artifact that was read cannot be computed; fix the encoding, or exclude them explicitly, before reading any coverage figure",
+   "passed": true,
+   "severity": "info",
+   "value": null
+  },
+  "record": {
+   "entry_point_words": 87,
+   "include_resources": true,
+   "measurable_outside_share": 0.315,
+   "n_files": 2,
+   "outside_share": 0.315,
+   "policy_excluded_words": 0,
+   "resource_words_measured": 40,
+   "resource_words_on_disk": 40,
+   "unmeasured_words": 0,
+   "unreadable_files": 1
+  },
+  "report": "## Which file carries it\n\n1 resource files measured, 40 of 40 measurable bundled words read (32% of the artifact is outside its entry point).\n\n| file | role | words | atoms | added | already knew |\n|---|---|---|---|---|---|\n| `SKILL.md` | entry_point | 87 | 2 | 2 | 0 |\n| `references/ok.md` | reference | 40 | 0 | 0 | 0 |\n\n1 spans (8 tokens) only name a bundled file. They carry no knowledge by design, so they are not waste — but they are also not what makes the skill work.\n\n1 files excluded: `references/bad.md` (unreadable).\n"
+ },
+ "unreadable/entry": {
+  "analyzer_warnings": [],
+  "gate": {
+   "measured": false,
+   "message": "1 bundled files could not be decoded, so their word counts are unknown and the share of this artifact that was read cannot be computed; fix the encoding, or exclude them explicitly, before reading any coverage figure",
+   "passed": true,
+   "severity": "info",
+   "value": null
+  },
+  "record": {
+   "entry_point_words": 87,
+   "include_resources": false,
+   "measurable_outside_share": 0.315,
+   "n_files": 1,
+   "outside_share": 0.315,
+   "policy_excluded_words": 0,
+   "resource_words_measured": 0,
+   "resource_words_on_disk": 40,
+   "unmeasured_words": 40,
+   "unreadable_files": 1
+  },
+  "report": "## Which file carries it\n\nEntry point only. **32%** of this artifact's words (40 of 127) sit in bundled files that were not measured — rerun with `--include-resources` before quoting any rate as a property of the artifact.\n"
+ }
+}
