@@ -3,7 +3,7 @@ Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Dokimi — agent measurement framework
+# Dokimi — A/B testing for agent context
 
 [![docs](https://github.com/intel/dokimi/actions/workflows/docs.yml/badge.svg?branch=main)](https://intel.github.io/dokimi/)
 [![codecov](https://codecov.io/gh/intel/dokimi/graph/badge.svg?branch=main)](https://codecov.io/gh/intel/dokimi)
@@ -16,18 +16,29 @@ SPDX-License-Identifier: Apache-2.0
 > artifact does not get trusted because it was written or because it is popular,
 > it gets trusted because it passed a test that could have failed.
 
-Documentation, skills, MCP doc sources and agent persona prompts are cheap to
-write and easy to over-claim. This repository is the framework that measures
-whether any of them actually helps a coding agent: change one thing, hold
-everything else fixed, run the same question or task set, and report the delta
-together with its p-value.
+Skills, instructions, docs, MCP servers and repository guidance are cheap to
+write and easy to over-claim. Dokimi tests each one like an experiment: change
+one thing, keep everything else fixed, run the same question or task set, and
+report the delta together with its p-value. An artifact ships with the
+scorecard that earned it, a deliberate contrast to popularity-ranked
+marketplaces, which structurally bury niche HPC and numerical-accuracy tooling.
 
-The measurement is the deliverable. An artifact ships with the scorecard that
-earned it — a deliberate contrast to popularity-ranked marketplaces, which
-structurally bury niche HPC and numerical-accuracy tooling.
+What measuring shows ([evidence](dokimi/docs/skill-novelty-evidence.md)):
+
+- **Much of a skill repeats what the model already knows, and the rest is
+  exact detail.** For `claude-opus-5` under lenient grading, 70% of what a
+  skill says the model already produces unprompted. Under strict grading,
+  which also checks qualifiers and exact values, only 22% is already known
+  and 38% is still missing even with the skill in context. Read the two
+  gradings together.
+- **Models believe their context, even when it is wrong.** A plausible wrong
+  value planted in a skill is repeated 94% of the time.
+- **Value depends on the model.** What a small model needs, a frontier model
+  may already know, so every verdict is per model.
 
 The framework is vendor-neutral: any model reachable through LiteLLM, any
-docs, skills or tasks.
+docs, skills or tasks. Why it exists and where it is going:
+[`VISION.md`](VISION.md).
 
 ## What it measures
 
@@ -93,6 +104,7 @@ LLM-free static checks on the documentation itself (`dokimi run`) round this out
 
 ```text
 README.md                          This overview
+VISION.md                          Why the project exists and where it is going
 Makefile                           Delegates targets into dokimi/
 dokimi/                            The framework (self-contained Python project)
 LICENSE  NOTICE                    Apache-2.0 + attribution (repo-wide)
@@ -235,6 +247,7 @@ reference. The hand-written pages can also be read on GitHub under
 
 | You want to understand… | Read |
 |---|---|
+| Why the project exists and where it is going | [`VISION.md`](VISION.md) |
 | Why measure context at all, and what an arm is | [`dokimi/docs/README.md`](dokimi/docs/README.md) |
 | How to point the framework at your own questions, tasks and skills | [`dokimi/docs/external-content.md`](dokimi/docs/external-content.md) |
 | How the measurement engine works | [`dokimi/docs/architecture.md`](dokimi/docs/architecture.md) |
