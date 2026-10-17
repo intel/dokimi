@@ -503,7 +503,9 @@ def register(sub, positive_int) -> None:
     validity_p.add_argument("--context", choices=["none", "stored"], default="none",
                             help="What the judge sees with each answer: none (default), or 'stored' — "
                                  "the arm's treatment material from the artifact's judge_materials, the "
-                                 "setting an arms run scores skill and docs arms in")
+                                 "setting an arms run scores skill and docs arms in. Exits 2 with a typed "
+                                 "scorer or --mode pairwise, with no verified material, when an arm "
+                                 "loses all its bases, or when no pair is usable")
     validity_p.add_argument("--mode", choices=["absolute", "pairwise"], default="absolute",
                             help="absolute: score each member 0-100 (the shipped judge); pairwise: show "
                                  "the judge both members, in both orders, and ask which is better")

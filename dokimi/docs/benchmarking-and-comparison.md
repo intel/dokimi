@@ -453,9 +453,11 @@ judge sees what the stored judge saw. A file written before `judge_materials` ha
 only the report snippets; with stored scores on such material, `--judges` refuses
 (exit 2), and `--pairwise` or `--checklist` always do, since those judges see only
 the answers. `--no-stored` compares those judges with each other. The gate itself
-(and `eval pairwise` / `eval checklist`) passes no context by default, so it
-validates a judge in the no-context setting; `judge-validity --context stored` on
-an arms artifact gates it with each arm's stored material instead. A label whose
+passes no context by default (`eval pairwise` and `eval checklist` never pass
+one), so it validates a judge in the no-context setting; `judge-validity --context
+stored` on an arms artifact gates it with each arm's stored material instead. That
+run exits 2 with a typed scorer or `--mode pairwise`, on a file with no non-empty
+verified material, when an arm loses all its bases, or when no pair is usable. A label whose
 significant measures all rest on one judge says `(one judge)`; an escalated
 pairwise measure counts as its cheap judge's. Gate a judge on answers from the
 same answer model it will judge: `cross-judge` warns when the validity report was
