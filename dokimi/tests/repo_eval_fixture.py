@@ -219,13 +219,16 @@ class FakeRunner:
         self.specs: list[ContainerSpec] = []
         self.images = set(images)
         self.builds: list[tuple[Path, list[str]]] = []
+        self.build_timeouts: list[float] = []
         self.leak = False
 
     def image_exists(self, tag: str) -> bool:
         return tag in self.images
 
-    def build(self, context: Path, dockerfile: Path, tag: str, network: str | None = None) -> None:
+    def build(self, context: Path, dockerfile: Path, tag: str, network: str | None = None,
+              timeout_s: float = 0) -> None:
         assert dockerfile.is_file()
+        self.build_timeouts.append(timeout_s)
         self.builds.append((context, sorted(p.relative_to(context).as_posix() for p in context.rglob("*"))))
         self.images.add(tag)
 

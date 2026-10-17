@@ -273,6 +273,27 @@ def test_worktree_image_tag_follows_the_build_context(setup, capsys):
     assert len(runner.builds) == 2 and len({t for t in runner.images if ":worktree-" in t}) == 2
 
 
+def test_the_image_build_gets_the_build_timeout(setup):
+    """--build-timeout bounds the image build; without it the build gets BUILD_TIMEOUT_S."""
+    from dokimi.repos.container import BUILD_TIMEOUT_S
+
+    root, runner = setup["root"], setup["runner"]
+
+    def check(*extra):
+        argv = ["repo", "tasks", "check", str(root), "--manifest", ".agent-eval/repo-eval.yaml",
+                "--out", str(setup["out"] / "chk"), "--cache-root", str(setup["out"] / "caches"),
+                "--task", "fix_add", "--rebuild-image", *extra]
+        args = build_parser().parse_args(argv)
+        args.func(args)
+
+    check()
+    check("--build-timeout", "36000")
+    assert runner.build_timeouts == [BUILD_TIMEOUT_S, 36000]
+    for parser_argv in (["repo", "run", str(root), "--arm", "guidance:none", "--model", "m", "--batch", "b"],
+                        ["repo", "tasks", "check", str(root)]):
+        assert build_parser().parse_args(parser_argv).build_timeout == BUILD_TIMEOUT_S
+
+
 # ------------------------------------------------------------------ review of #82, round 4
 
 
