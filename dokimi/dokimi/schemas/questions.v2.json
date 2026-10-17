@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/questions.v2.json",
+  "title": "Questions artifact v2",
+  "description": "A question set: generated, curated (golden), refined or merged. v2 renames the question text field from v1's `text` to `question`, the key the normalizer and every generator use; questions.v1 files are still read (see dokimi.questions.artifact). Objects stay open like v1, because the pipeline passes curated question files through verbatim and their authors attach their own keys; every key a producer in this repo writes is declared here.",
+  "type": "object",
+  "required": [
+    "questions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "questions.v2"
+    },
+    "library": {
+      "description": "Product the set is for (curated sets, `questions refine`).",
+      "type": "string"
+    },
+    "library_id": {
+      "description": "Doc-source identifier of the product, e.g. a GitHub `org/repo` (curated sets).",
+      "type": "string"
+    },
+    "description": {
+      "description": "Free-text description of the set (curated sets).",
+      "type": "string"
+    },
+    "version_or_doc_snapshot": {
+      "description": "Which product version or documentation snapshot the set was written against (curated sets).",
+      "type": "string"
+    },
+    "product": {
+      "description": "Product the set is for (pipeline `questions/<product>.json`).",
+      "type": "string"
+    },
+    "generated_at": {
+      "description": "UTC timestamp the generator wrote the set (`questions generate`).",
+      "type": "string"
+    },
+    "model": {
+      "description": "Generator model (`questions generate`).",
+      "type": "string"
+    },
+    "provider": {
+      "description": "Generator provider (`questions generate`).",
+      "type": "string"
+    },
+    "total_questions": {
+      "description": "Number of questions in the set (`questions generate`, pipeline).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "total": {
+      "description": "Number of questions in the set (`questions refine`).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "difficulty_distribution": {
+      "description": "Question count per normalized difficulty label after refinement (`questions refine`).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "sources": {
+      "description": "Question count per `source_type` (pipeline).",
+      "type": "object",
+      "properties": {
+        "generated": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manual": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "question_set_hash": {
+      "description": "12-hex-digit SHA-256 prefix over the set's ids and question texts; answers and eval artifacts carry the same value (pipeline).",
+      "type": "string"
+    },
+    "question_set_id": {
+      "description": "Alias of `question_set_hash` (pipeline).",
+      "type": "string"
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/question"
+      }
+    }
+  },
+  "$defs": {
+    "question": {
+      "type": "object",
+      "required": [
+        "id",
+        "question"
+      ],
+      "properties": {
+        "id": {
+          "description": "Identifier, unique within the set.",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "question": {
+          "description": "The question text. Was `text` in questions.v1.",
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "description": "Not allowed: questions.v1's name for `question`. A record carries its text under one key only, so readers cannot disagree on it; writers rename it (dokimi.questions.artifact).",
+          "not": {}
+        },
+        "persona": {
+          "description": "Who asks: a persona id or label, or a persona object.",
+          "type": [
+            "string",
+            "object",
+            "null"
+          ]
+        },
+        "personas": {
+          "description": "Ids of every persona the question was generated for; deduplication merges the lists of the questions it folds together.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "persona_id": {
+          "description": "Persona id; the pipeline sets `manual` on curated questions that carry none.",
+          "type": "string"
+        },
+        "category": {
+          "description": "Topic category, e.g. `installation`, `compatibility_pitfalls`, `gap_fill`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "difficulty": {
+          "description": "Difficulty label or number. The normalizer maps it to beginner / intermediate / advanced; curated sets use easy / medium / hard.",
+          "type": [
+            "string",
+            "integer",
+            "number",
+            "null"
+          ]
+        },
+        "level": {
+          "description": "Workflow depth, independent of difficulty. See docs/difficulty-rubric.md.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "triage",
+            "diagnosis",
+            "end_to_end",
+            null
+          ]
+        },
+        "expected_topics": {
+          "description": "What a good answer covers: short keyword labels in generated sets, verified answer statements in curated sets (see docs/methodology.md, Grounded Judging).",
+          "type": "array"
+        },
+        "topics": {
+          "description": "Seed topics the question was generated from.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "expected_skill": {
+          "description": "Skill (or list of skills) the question is meant to exercise; null when none should apply (curated sets, `catalog trigger-set`).",
+          "type": [
+            "string",
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "metadata": {
+          "description": "Free-form provenance: generator model/persona for generated questions; citations (`must_cite`, `github_issue`, `verified_by`), `why_it_matters`, `negative_case: true` and similar for curated ones.",
+          "type": "object"
+        },
+        "source_type": {
+          "description": "Where the pipeline got the question: `generated` or `manual` (a curated or --custom-questions file).",
+          "type": "string"
+        },
+        "question_source": {
+          "description": "How a generated question was made: `persona` or `chunk` (grounded in a documentation chunk).",
+          "type": "string"
+        },
+        "ground_truth_chunk": {
+          "description": "Documentation text a chunk-grounded question was written from; the judge grades against it.",
+          "type": "string"
+        },
+        "chunk_index": {
+          "description": "Index of that chunk in the fetched documentation.",
+          "type": "integer"
+        },
+        "source_url": {
+          "description": "URL the chunk was fetched from.",
+          "type": "string"
+        },
+        "validation_score": {
+          "description": "Aggregate quality score from question validation (`questions generate --validate`), 0-100.",
+          "type": "number"
+        },
+        "validation_details": {
+          "description": "Per-dimension validation scores behind `validation_score`.",
+          "type": "object"
+        },
+        "trigger_lint": {
+          "description": "`catalog trigger-set` lint of the query against the catalog (`names_skill`, `echo_terms`, `exam_framing`, `lexical_rank`, `unknown_expected`, `label_unresolved`, ...).",
+          "type": "object"
+        },
+        "source_text": {
+          "description": "The question text before `catalog trigger-set --rewrite` turned it into the user-voice `question`; absent when it was not rewritten.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

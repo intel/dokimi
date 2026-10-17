@@ -78,8 +78,9 @@ def test_export_answers_artifact_jsonl(tmp_path):
 
 
 def test_dataset_card_contents():
-    card = dataset_card("questions", Path("my_questions.json"), 5, ["id", "text"])
-    assert "questions.v1" in card
+    card = dataset_card("questions", Path("my_questions.json"), 5, ["id", "question"])
+    assert "Schema version:** questions.v2" in card
+    assert "Source schema version" not in card
     assert "Rows:** 5" in card
 
 

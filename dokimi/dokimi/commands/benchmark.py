@@ -9,6 +9,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Any, List, cast
 
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -156,6 +157,27 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
                 print(f"  questions: {qf} ({len(questions)} items)")
             except Exception as exc:
                 errors.append(f"questions source invalid: {qf} ({exc})")
+
+    # Check golden set only if no external questions source (--questions-from takes precedence)
+    if plan["questions_root"] and not plan["questions_from"]:
+        root = Path(plan["questions_root"])
+        golden = root / f"{entry.key.lower()}_golden.json"
+        if not root.is_dir():
+            errors.append(f"questions root not found: {root}")
+        elif not golden.is_file():
+            errors.append(f"questions root has no golden set: {golden}")
+        else:
+            try:
+                golden_questions = load_questions_payload(golden)
+                print(f"  golden questions: {golden} ({len(golden_questions)} items)")
+                if not golden_questions:
+                    errors.append(f"golden set is empty: {golden}")
+                else:
+                    bad = next((i for i, q in enumerate(cast(List[Any], golden_questions)) if not isinstance(q, dict)), None)
+                    if bad is not None:
+                        errors.append(f"golden set item {bad} is not a dict: {golden}")
+            except Exception as exc:
+                errors.append(f"golden set invalid: {golden} ({exc})")
 
     same = _warn_judge_independence(
         answer_provider=args.provider,

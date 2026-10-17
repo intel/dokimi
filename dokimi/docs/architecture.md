@@ -302,8 +302,11 @@ prints one or more traces as a comparison table; it calls no model. Guide:
   file; git output is kept whole), and every call states its environment policy (`Env.inherit` or
   an `Env.only` allow-list). `FakeRunner` is its test adapter: code that spawns
   takes a `runner` argument.
-- `dokimi/llm.py` — provider-neutral LLM call wrapper (LiteLLM-based)
-  with retry, token accounting, and concurrency.
+- `dokimi/llm.py` — the entry point for LLM calls. `LLM` (one model at one provider:
+  `complete`/`ask`/`chat`, retry, the response cache, usage) sits on one
+  adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
+  `fake_llm` fixture). `ask_parsed` is the redraw-until-it-parses loop.
+  `llm_call`, `chat_completion` and `utils.get_llm` delegate to `LLM`.
 - `dokimi/registry.py` — product registry loaded from
   `products.yaml`; powers `cli.py library` (alias `product`) and
   `cli.py benchmark`.
@@ -329,22 +332,22 @@ label.
 
 1. **static** — the checks that need no lock install, as steps of one job:
    `ruff check .`, zizmor on the workflows, the license headers, the pre-commit
-   hooks, bandit and pip-audit, and the schema checks of item 3.
+   hooks, bandit and pip-audit. Schema checks: `schema_check` validates
+   `benchmarks/spec.v1.yaml`; `config_check` checks `products.yaml`/`intents.yaml`/
+   `dokimi/config/products.yaml` drift. The `guidance self-scan (L0)` step runs
+   `repo scan` as a gate (`--fail-on-fail`).
 2. **mypy** — type check of the whole package (modules listed in the
    `pyproject.toml` override are exempt until fixed).
-3. **schema** (steps of the static job) — `schema_check` validates `benchmarks/spec.v1.yaml`;
-   `config_check` checks `products.yaml`/`intents.yaml`/`dokimi/config/products.yaml`
-   drift.
-4. **test** — pytest from `requirements.lock.txt`, offline, in parallel
+3. **test** — pytest from `requirements.lock.txt`, offline, in parallel
    (pytest-xdist), on Python 3.11–3.14; coverage is measured on the 3.14 leg,
    and on a PR 80% of the changed lines must be covered.
-5. **package-smoke** — builds/installs the package with a fresh resolve of its
+4. **package-smoke** — builds/installs the package with a fresh resolve of its
    dependency ranges (Python 3.11 and 3.13) and exercises the console and
    module entry points.
 
 **`agent-quality.yml`** — task and benchmark checks:
 
-6. **external-catalog-smoke** — clones a pinned external content catalog, runs
+5. **external-catalog-smoke** — clones a pinned external content catalog, runs
    `catalog scan` over it, then drives one of its real tasks through the
    `docker-oracle` harness (build + solve + verify, with the task's own
    `network_mode`, bridge for this public task) and the `docker-probe`
@@ -353,13 +356,13 @@ label.
    the skills or the network fails CI. Task definitions are not in this
    repository, so this job proves the harness and the task format rather than any
    particular task.
-7. **benchmark** — runs the static agent-quality benchmark with `--strict`, so
+6. **benchmark** — runs the static agent-quality benchmark with `--strict`, so
    a gate or band failure fails the job, and uploads `current.json` /
    `current.md` artifacts.
 
 **`docs.yml`** — the documentation site:
 
-8. **build** — `mkdocs build --strict` of `mkdocs.yml`: `docs/` plus the CLI
+7. **build** — `mkdocs build --strict` of `mkdocs.yml`: `docs/` plus the CLI
    and API reference generated from the code. A link or anchor between pages
    that does not resolve, a link to a source file that does not exist, or a
    list that nests differently on the site than on GitHub fails it. On a push
