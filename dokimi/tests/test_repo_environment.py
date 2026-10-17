@@ -436,9 +436,9 @@ def test_deeply_nested_yaml_does_not_crash(tmp_path):
 
 
 def test_npm_install_1mb_completes_quickly(tmp_path):
-    """1 MB of npm install hook should complete in under 1 second."""
+    """A hook command just under the settings cap should complete in under 1 second."""
     import time
-    hook_cmd = "npm " + "-npm " * (1_000_000 // 5)  # ~1 MB total
+    hook_cmd = "npm " + "-npm " * 150_000  # 750 KB: under MAX_SETTINGS_BYTES, so the hook is parsed
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
@@ -446,9 +446,10 @@ def test_npm_install_1mb_completes_quickly(tmp_path):
     }
     _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
     start = time.monotonic()
-    assert inspect_repo(WorkTree(tmp_path))
+    payload = inspect_repo(WorkTree(tmp_path))
     elapsed = time.monotonic() - start
     assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
+    assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
 
 def test_hook_npm_run_detected(tmp_path):
@@ -564,9 +565,9 @@ def test_test_file_case_insensitive_and_mjs(tmp_path):
 
 
 def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
-    """1 MB hook with unbalanced quote should complete in under 1 second."""
+    """A hook with an unbalanced quote just under the settings cap should complete in under 1 second."""
     import time
-    hook_cmd = "echo '" + "a" * 1_000_000  # 1 MB, unbalanced quote
+    hook_cmd = "echo '" + "a" * 999_000  # under MAX_SETTINGS_BYTES, so the hook is parsed
     settings = {
         "hooks": {
             "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
@@ -577,8 +578,7 @@ def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
     payload = inspect_repo(WorkTree(tmp_path))
     elapsed = time.monotonic() - start
     assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
-    # Should not crash, just complete quickly
-    assert payload is not None
+    assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
 
 def test_npm_install_with_10_options_followed_by_ci(tmp_path):
