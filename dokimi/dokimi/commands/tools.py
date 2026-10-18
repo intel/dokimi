@@ -163,8 +163,9 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
                         help="Per call; reasoning models spend part of it before the tool call (default: 2048)")
     pref_p.add_argument("--concurrency", type=positive_int, default=8)
     pref_p.add_argument("--max-cost-usd", type=_positive_usd, default=None, dest="max_cost_usd",
-                        help="Start no new call once the priced calls have spent this much; the rest are "
-                             "recorded as skipped and the command exits 2 (default: no cap)")
+                        help="Start no new call once the priced calls have spent this much; the calls "
+                             "not started are recorded as skipped and, if there are any, the command "
+                             "exits 2 (default: no cap)")
     pref_p.add_argument("--out-json", default="tool_preference.json", dest="out_json")
     pref_p.add_argument("--items-out", default=None, dest="items_out",
                         help="Also write the expanded items (messages + tools per item) here")

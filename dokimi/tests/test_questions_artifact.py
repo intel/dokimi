@@ -716,6 +716,25 @@ def test_a_null_in_a_key_v1_declares_is_still_refused(tmp_path):
         load_questions(path)
 
 
+def test_questions_refine_repairs_a_set_that_strict_reading_refuses(tmp_path, monkeypatch):
+    """Refine reads without validating: a duplicate that strict reading refuses is dropped, not fatal."""
+    monkeypatch.chdir(tmp_path)
+    src = tmp_path / "q.json"
+    text = "Why does my task_arena deadlock under nested parallelism?"
+    src.write_text(json.dumps({"questions": [
+        {"id": "q1", "text": text, "topics": ["arena"]},
+        {"id": "q2", "text": text, "topics": "perf"},  # not a list: strict reading refuses the file
+    ]}), encoding="utf-8")
+    with pytest.raises(ArtifactValidationError, match="topics"):
+        load_questions(src)
+    out = tmp_path / "refined.json"
+    args = build_parser().parse_args(["questions", "refine", "--product", "oneTBB",
+                                      "--questions", str(src), "--output", str(out)])
+    args.func(args)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert [q["id"] for q in data["questions"]] == ["q1"]
+
+
 def test_questions_refine_prints_an_error_when_the_refined_set_is_invalid(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     src = tmp_path / "q.json"

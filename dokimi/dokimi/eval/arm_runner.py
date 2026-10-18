@@ -27,6 +27,7 @@ from dokimi.eval.arm_summary import (
     cost_summary, summarize_agentic_usage, summarize_skill_selection,
 )
 from dokimi.eval.cells import Cell
+from dokimi.eval.question_text import question_text_of, require_question_texts
 from dokimi.eval.records import Record, RecordLike, records as as_records
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import SOURCE_STORED
@@ -221,7 +222,9 @@ class ArmRunner:
     def _answer_question(
         self, library_name: str, library_id: Optional[str], q: Dict[str, Any]
     ) -> Dict[str, Any]:
-        question_text = q.get("question") or q.get("text") or q.get("question_text", "")
+        # Same key order and blank handling as the judge's check, so a record that passes
+        # the up-front check is answered with the text the judge will see.
+        question_text = question_text_of(q)
         qid = question_id(q)
         if qid is None:
             qid = "unknown_q"
@@ -491,6 +494,8 @@ class ArmRunner:
             }
 
         recs = as_records(records, source="answers", kind="answers")
+        # Before any judge call: refuse, do not grade against "".
+        require_question_texts(r.raw for r in recs)
         n = len(recs)
         out: Dict[int, Dict[str, Any]] = {}
         with ThreadPoolExecutor(max_workers=concurrency) as pool:

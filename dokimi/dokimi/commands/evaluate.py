@@ -48,6 +48,8 @@ def _load_answers(path: str):
 
 def _run_ragas_eval(answers, output_path, args) -> None:
     """Run RAGAS meta-evaluation and save results alongside answers."""
+    from dokimi.eval.question_text import EmptyQuestionError
+
     try:
         from dokimi.eval.ragas_eval import RagasEvaluator
     except ImportError as e:
@@ -74,6 +76,8 @@ def _run_ragas_eval(answers, output_path, args) -> None:
         print(result.format_summary())
         print(f"✅ Saved RAGAS results to {ragas_path}")
 
+    except EmptyQuestionError:
+        raise  # a bad input record is a refusal, not a RAGAS failure: cli.main reports it (exit 2)
     except Exception as exc:
         print(f"\n⚠️  RAGAS evaluation failed: {exc}")
 

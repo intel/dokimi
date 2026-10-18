@@ -915,6 +915,22 @@ def test_golden_pinned_run_skips_persona_discovery(tmp_path, monkeypatch):
     assert "path" not in result["steps"]["personas"], "path should not be set when skipped"
 
 
+def test_a_pinned_run_records_its_golden_source_and_question_path(tmp_path, monkeypatch):
+    """``evaluate`` reads ``questions_merged.path``; the pinned branch must still write it."""
+    _stub_expensive_steps(monkeypatch)
+    questions_root = tmp_path / "questions"
+    golden = questions_root / "demo_golden.json"
+    _write_json(golden, [{"id": "g1", "question": "Q1?"}, {"id": "g2", "question": "Q2?"}])
+
+    pipeline = EvaluationPipeline(product="DemoProduct", product_key="demo", output_dir=tmp_path / "out",
+                                  description="A demo product", questions_root=questions_root)
+    steps = pipeline.run(concurrency=1)["steps"]
+
+    assert steps["questions_generated"] == {"count": 2, "golden_source": str(golden)}
+    assert steps["questions_merged"] == {"total": 2, "manual": 2, "golden_source": str(golden),
+                                         "path": str(pipeline.questions_path)}
+
+
 @pytest.mark.outcome("pinned-questions-reuse")
 def test_questions_from_run_skips_persona_discovery(tmp_path, monkeypatch):
     """With --questions-from, persona discovery should not run."""

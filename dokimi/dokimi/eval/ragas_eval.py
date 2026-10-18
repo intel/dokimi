@@ -22,6 +22,7 @@ import logging
 import os
 from typing import List, Dict, Any, Optional
 
+from dokimi.eval.question_text import require_question_text
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.records import BASELINE, CONTEXT, RecordLike, records
 
@@ -109,12 +110,14 @@ class RagasEvaluator:
         rows_with = []
         rows_without: List[Dict[str, Any]] = []
 
-        for rec in records(answers, source="answers", kind="answers"):
+        for i, rec in enumerate(records(answers, source="answers", kind="answers")):
             q = rec.question_text
 
             # --- CONTEXT ARM ---
             wd = rec.answer(CONTEXT)
             if wd is not None and wd.text and wd.context:
+                # Rows are all built before the first RAGAS call: refuse, do not grade against "".
+                require_question_text(rec.raw, i)
                 row: Dict[str, Any] = {
                     "question": q,
                     "answer": wd.text,
@@ -130,6 +133,7 @@ class RagasEvaluator:
             if include_without_docs and "answer_relevancy" in self._requested:
                 wod = rec.answer(BASELINE)
                 if wod is not None and wod.text:
+                    require_question_text(rec.raw, i)
                     rows_without.append({
                         "question": q,
                         "answer": wod.text,

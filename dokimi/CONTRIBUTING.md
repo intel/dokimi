@@ -73,10 +73,9 @@ CI additionally holds a PR to:
 - **Coverage of changed lines ≥ 80%** (when 20+ lines are measurable) —
   `diff-cover coverage.xml --compare-branch=<remote>/main` after
   `pytest --cov=dokimi --cov-branch --cov-report=xml` (CI measures it on the
-  Python 3.14 leg), where `<remote>` is the
-  remote pointing at `intel/dokimi` (`origin` in CI). `make ci-local` finds
-  that remote by URL and prints the ref it compares against; pick another with
-  `CI_LOCAL_ARGS='--remote <name>'`.
+  Python 3.14 leg), where `<remote>` is the remote pointing at `intel/dokimi`
+  (`origin` in CI). `make ci-local` finds that remote by URL and prints the ref
+  it compares against; pick another with `CI_LOCAL_ARGS='--remote <name>'`.
 - **mypy on the whole package.** Modules listed under `[[tool.mypy.overrides]]` in
   `pyproject.toml` are exempt until fixed; do not add to that list.
 - **Tests that fail loudly.** `pytest` fails a test that runs over 60 s

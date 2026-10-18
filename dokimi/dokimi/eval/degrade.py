@@ -47,6 +47,7 @@ import re
 from decimal import Context, Decimal
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+from dokimi.eval.question_text import require_question_text
 from dokimi.eval.records import RecordLike, records
 
 #: Minimum answer length (characters) worth degrading. Short answers have too
@@ -590,16 +591,15 @@ def _answer_pool(answers: Iterable[RecordLike]) -> List[Dict[str, Any]]:
 
     Any answers shape :mod:`dokimi.eval.records` reads: arms
     (``arms: {name: {answer: ...}}``) or binary (``with_docs``/``without_docs``).
-    A question with no text is skipped: there is nothing to judge it against.
+    A question with no text is kept here; :func:`build_pairs` refuses it when
+    the row could become a pair (the others are never judged).
     """
     pool: List[Dict[str, Any]] = []
-    for rec in records(answers, source="answers", kind="answers"):
-        if not rec.question_text:
-            continue
+    for i, rec in enumerate(records(answers, source="answers", kind="answers")):
         for arm, a in rec.answers.items():
             if a.text and a.text.strip():
                 pool.append({"question_id": rec.question_id, "question_text": rec.question_text,
-                             "arm": arm, "answer": a.text})
+                             "arm": arm, "answer": a.text, "_record": (rec.raw, i)})
     return pool
 
 
@@ -625,7 +625,13 @@ def build_pairs(
     pool = _answer_pool(answers)
     rng = random.Random(seed)
     rng.shuffle(pool)
-    bases = [row for row in pool if len(row["answer"]) > min_chars][:n_bases]
+    usable = [row for row in pool if len(row["answer"]) > min_chars]
+    # Refused, not skipped: a pair built without its question is graded against nothing. Every
+    # usable row is checked (not only the drawn bases), so the outcome does not depend on the seed.
+    for row in usable:
+        if not row["question_text"].strip():
+            require_question_text(*row["_record"])
+    bases = usable[:n_bases]
 
     pairs: List[Dict[str, Any]] = []
     for base in bases:

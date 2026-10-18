@@ -139,10 +139,11 @@ def test_the_judge_refuses_a_record_without_question_id_before_any_call():
 
 def test_the_judge_refuses_a_record_without_question_text_before_any_call():
     from dokimi.eval.judge import Judge
+    from dokimi.eval.question_text import EmptyQuestionError
 
     judge = Judge.__new__(Judge)
     with patch.object(Judge, "_judge_answer") as call, \
-         pytest.raises(RecordError, match=r"answers\[0\]: question 'q1' has no question_text"):
+         pytest.raises(EmptyQuestionError, match=r"question 'q1' has no question text"):
         judge.evaluate_answers("lib", [{"question_id": "q1", "with_docs": {"answer": "a"}}])
     call.assert_not_called()
 

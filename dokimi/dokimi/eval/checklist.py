@@ -32,10 +32,11 @@ import ast
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.pairwise import ask_parsed, standalone_verdict
+from dokimi.eval.question_text import require_question_text
 from dokimi.eval.records import RecordLike, records as as_records
 from dokimi.eval.stats import mean_ci
 from dokimi.utils import question_id
@@ -262,6 +263,39 @@ def _fmt(x: Optional[float], spec: str) -> str:
     return "-" if x is None else format(x, spec)
 
 
+def checklist_jobs(
+    records: Sequence[RecordLike],
+    points_by_qid: Dict[Any, List[str]],
+    *,
+    arms: Optional[Sequence[str]] = None,
+    report: Optional["ChecklistReport"] = None,
+) -> List[Tuple[Any, str, str, str, List[str]]]:
+    """The (question_id, arm, question, answer, points) checks to judge.
+
+    Pure apart from filling *report*'s questions and ``n_without_points``: no
+    judge call. Raises :class:`EmptyQuestionError` for a record that would be
+    checked and has no question text; a record without expected points is
+    skipped, not refused.
+    """
+    jobs: List[Tuple[Any, str, str, str, List[str]]] = []
+    for i, rec in enumerate(as_records(records, source="answers", kind="answers")):
+        qid: Any = rec.question_id
+        points = points_by_qid.get(qid) or []
+        if not points:
+            if report is not None:
+                report.n_without_points += 1
+            continue
+        pending = [(arm, a.text) for arm, a in rec.answers.items()
+                   if a.text and (arms is None or arm in arms)]
+        # Only a record that would be judged must carry a question; the others keep what they have.
+        question = require_question_text(rec.raw, i) if pending else rec.question_text
+        if report is not None:
+            report.questions[qid] = question
+        for arm, answer in pending:
+            jobs.append((qid, arm, question, answer, points))
+    return jobs
+
+
 def run_checklist(
     records: Sequence[RecordLike],
     points_by_qid: Dict[Any, List[str]],
@@ -281,17 +315,7 @@ def run_checklist(
     tied) and the skill effect vanished (p 0.06 -> 0.36).
     """
     report = ChecklistReport(judge=judge, baseline_arm=baseline_arm)
-    jobs = []
-    for rec in as_records(records, source="answers", kind="answers"):
-        qid: Any = rec.question_id
-        points = points_by_qid.get(qid) or []
-        if not points:
-            report.n_without_points += 1
-            continue
-        report.questions[qid] = rec.question_text
-        for arm, a in rec.answers.items():
-            if a.text and (arms is None or arm in arms):
-                jobs.append((qid, arm, rec.question_text, a.text, points))
+    jobs = checklist_jobs(records, points_by_qid, arms=arms, report=report)
 
     def one(job):
         qid, arm, question, answer, points = job

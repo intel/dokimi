@@ -20,7 +20,8 @@ from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
-from dokimi.eval.records import BASELINE, CONTEXT, Record, RecordError, RecordLike, records
+from dokimi.eval.question_text import require_question_texts
+from dokimi.eval.records import BASELINE, CONTEXT, Record, RecordLike, records
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
@@ -288,13 +289,13 @@ class Judge:
             List of evaluation dicts ordered by input order.
 
         Raises:
-            RecordError: before any judge call, for a malformed answers record or
-                one with no question text (there is nothing to judge it against).
+            RecordError: before any judge call, for a malformed answers record.
+            EmptyQuestionError: before any judge call, for a record with an answer
+                to judge and no question text (there is nothing to judge it against).
         """
         recs = records(answers, source="answers", kind="answers")
-        for i, rec in enumerate(recs):
-            if not rec.question_text:
-                raise RecordError(f"answers[{i}]: question {rec.question_id!r} has no question_text")
+        # Before any judge call: refuse, do not grade against "".
+        require_question_texts(r.raw for r in recs)
         n = len(recs)
         results: Dict[int, Dict] = {}
         lock = threading.Lock()
@@ -368,6 +369,8 @@ class Judge:
     ) -> Dict[str, Any]:
         """Evaluate a single context-arm/baseline answer pair."""
         answer = records([item], source="answers", kind="answers")[0]
+        # Refused only when there is an answer to grade; an answer-error record keeps its row.
+        require_question_texts([answer.raw])
         question_text = answer.question_text
         ground_truth = answer.ground_truth  # present for chunk-grounded questions
         context_answer = answer.answer(CONTEXT)

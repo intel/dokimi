@@ -53,7 +53,7 @@ NETWORKS = ("none", "bridge", "host")
 PROXY_BUILD_ARGS = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
 PIDS_LIMIT = 32768  # threads count too: a Bazel server and a -j build on a many-core host use thousands
 INFRA_EXIT = 125  # `docker run` itself failed (daemon, mount, image); the command never started
-BUILD_TIMEOUT_S = 3 * 3600  # a wedged daemon or a hung RUN step fails the build instead of hanging the batch
+BUILD_TIMEOUT_S = 3 * 3600  # default: a wedged daemon or a hung RUN step fails the build instead of hanging the batch
 DOCKER_CALL_TIMEOUT_S = 60  # `docker kill`, `docker image inspect`
 STOP_GRACE_S = 10  # a timed-out docker CLI gets SIGTERM (it stops the container) before SIGKILL
 
@@ -100,7 +100,8 @@ class ContainerResult:
 class ContainerRunner(Protocol):
     def run(self, spec: ContainerSpec, *, stdout: Path, stderr: Path, timeout_s: float) -> ContainerResult: ...
 
-    def build(self, context: Path, dockerfile: Path, tag: str, network: str | None = None) -> None: ...
+    def build(self, context: Path, dockerfile: Path, tag: str, network: str | None = None,
+              timeout_s: float = BUILD_TIMEOUT_S) -> None: ...
 
     def image_exists(self, tag: str) -> bool: ...
 
@@ -160,7 +161,8 @@ class DockerRunner:
             raise ContainerError(f"docker run failed: {tail}")
         return result
 
-    def build(self, context: Path, dockerfile: Path, tag: str, network: str | None = None) -> None:
+    def build(self, context: Path, dockerfile: Path, tag: str, network: str | None = None,
+              timeout_s: float = BUILD_TIMEOUT_S) -> None:
         argv = [self.docker, "build", "-f", str(dockerfile), "-t", tag]
         if network:
             argv += ["--network", network]
@@ -168,11 +170,11 @@ class DockerRunner:
             if name in os.environ:
                 argv += ["--build-arg", name]
         try:
-            proc = self.runner([*argv, str(context)], timeout=BUILD_TIMEOUT_S, env=process.Env.inherit())
+            proc = self.runner([*argv, str(context)], timeout=timeout_s, env=process.Env.inherit())
         except OSError as exc:
             raise ContainerError(f"docker build {tag}: cannot run {self.docker!r}: {exc}") from exc
         if proc.timed_out:
-            raise ContainerError(f"docker build {tag} timed out after {BUILD_TIMEOUT_S}s:\n"
+            raise ContainerError(f"docker build {tag} timed out after {timeout_s:g}s (--build-timeout):\n"
                                  f"{(proc.stderr or proc.stdout)[-3000:]}")
         if proc.returncode:
             raise ContainerError(f"docker build {tag} failed:\n{(proc.stderr or proc.stdout)[-3000:]}")

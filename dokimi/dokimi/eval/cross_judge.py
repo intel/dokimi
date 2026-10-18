@@ -53,7 +53,9 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
-from dokimi.eval.records import Record, RecordLike, Run
+from dokimi.eval.question_text import require_question_text
+from dokimi.eval.records import Answer, Record, RecordError, RecordLike, Run
+from dokimi.eval.records import record as as_record
 from dokimi.eval.records import records as as_records
 from dokimi.eval.stats import adjust_pvalues, mean_ci
 
@@ -149,19 +151,29 @@ def stored_label(data: Union[Run, Dict[str, Any]]) -> str:
     return f"{provider}/{model}{STORED}" if provider and model else "stored judge"
 
 
-def _unjoined(data: Union[Run, Dict[str, Any]]) -> Sequence[Record]:
+def _unjoined(data: Union[Run, Dict[str, Any]], *, skip_malformed: bool = False) -> Sequence[Record]:
     """The answers and evaluation records of an arms run, read without joining them.
 
     Neither caller needs a join, and a join refuses repeated question ids, which
-    older arms files hold (the runner's ``unknown_q`` fallback id).
+    older arms files hold (the runner's ``unknown_q`` fallback id). With
+    *skip_malformed*, a record that does not parse is skipped instead of raised
+    on (the reproducibility gate only looks for stored-material stamps).
     """
     if isinstance(data, Run):
         return data.records
     out: List[Record] = []
     for key in ("answers", "evaluations"):
         items = data.get(key)
-        if isinstance(items, list):
+        if not isinstance(items, list):
+            continue
+        if not skip_malformed:
             out.extend(as_records(items, source=f"arms run {key}", kind=key))
+            continue
+        for i, item in enumerate(items):
+            try:
+                out.append(as_record(item, source=f"arms run {key}", index=i, kind=key))
+            except RecordError:
+                continue
     return out
 
 
@@ -181,7 +193,7 @@ def unreproducible_arms(data: Union[Run, Dict[str, Any]]) -> List[str]:
     (p 0.65) with the 28-char snippet. A baseline arm has no material, so all judges
     see the same thing.
     """
-    run = _unjoined(data)
+    run = _unjoined(data, skip_malformed=True)
     kinds = {
         arm: (a.raw.get("metadata") or {}).get("arm_kind")
         for r in run for arm, a in r.answers.items()
@@ -222,6 +234,23 @@ def pairwise_measure(pairwise: Dict[str, Any], name: str, baseline_arm: str) -> 
     return m
 
 
+def scored_answers(
+    records: Sequence[RecordLike], arms: Optional[Sequence[str]] = None,
+) -> List[Tuple[Record, str, Answer, str]]:
+    """The (record, arm, answer, question) answers :func:`score_measure` sends to a judge.
+
+    Pure: no judge call. Raises :class:`EmptyQuestionError` for a record with an
+    answer to score and no question text; a record with only empty answers is
+    skipped, not refused.
+    """
+    return [
+        (r, arm, a, require_question_text(r.raw, i))
+        for i, r in enumerate(as_records(records, source="answers", kind="answers"))
+        for arm, a in r.answers.items()
+        if a.text and (arms is None or arm in arms)
+    ]
+
+
 def score_measure(
     records: Sequence[RecordLike], scorer: Scorer, *, name: str, library: str,
     arms: Optional[Sequence[str]] = None, concurrency: int = 1,
@@ -245,10 +274,9 @@ def score_measure(
     """
     store = store if store is not None else JudgeContextStore()
     jobs = [
-        (r.question_id, arm, r.question_text, a.text,
+        (r.question_id, arm, question, a.text,
          store.resolve_with_source(r.question_id, arm, dict(a.raw))[0])
-        for r in as_records(records, source="answers", kind="answers") for arm, a in r.answers.items()
-        if a.text and (arms is None or arm in arms)
+        for r, arm, a, question in scored_answers(records, arms)
     ]
 
     def one(job):

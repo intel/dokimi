@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from dokimi.llm import llm_call
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.eval.question_text import require_question_texts
 from dokimi.eval.records import BASELINE, CONTEXT, Answer, RecordLike, records
 
 logger = logging.getLogger(__name__)
@@ -487,7 +488,9 @@ class JudgePanel:
             answers = answers[:limit]
         results = []
         n = len(answers)
-        for i, rec in enumerate(records(answers, source="answers", kind="answers"), 1):
+        recs = records(answers, source="answers", kind="answers")
+        require_question_texts(r.raw for r in recs)  # before any judge call: refuse, do not grade against ""
+        for i, rec in enumerate(recs, 1):
             q_id = rec.question_id
             question = rec.question_text
             print(f"[{i}/{n}] Panel: {q_id}…", flush=True)
