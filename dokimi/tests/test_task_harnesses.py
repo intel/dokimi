@@ -385,6 +385,35 @@ def test_harness_errors_are_excluded_rather_than_counted_as_failures():
     assert mc["n_excluded"] == 1
 
 
+def test_one_shared_cell_keeps_exclusions_when_the_test_cannot_run():
+    """One shared cell is not a McNemar test, and must not hide the rest.
+
+    Two further cells that each harness attempted alone used to make the
+    comparison null: ``mcnemar_test`` returns None below two pairs, and the
+    exclusion count lived only on that result. The artifact then looked like
+    no comparison, not a withheld one with two cells dropped.
+    """
+    rows = [
+        _row("t0", "noskill", False), _row("t0", "skill", True),
+        _row("t1", "noskill", False),
+        _row("t1", "skill", False, error="RuntimeError: docker build failed"),
+        _row("t2", "noskill", False, error="RuntimeError: docker build failed"),
+        _row("t2", "skill", True),
+    ]
+    mc = summarize_task_results(rows, baseline_harness="noskill")["comparisons"]["skill"]["mcnemar"]
+    assert mc is not None
+    assert mc["n"] == 1
+    assert mc["n_excluded"] == 2
+    assert mc["p_exact"] is None
+    assert mc["significant"] is None
+    assert mc["significant_adjusted"] is None
+    assert mc["n_gained"] == 1 and mc["n_lost"] == 0
+    from dokimi.report.task_runs_report import _mcnemar_lines
+    rendered = "\n".join(_mcnemar_lines({"skill": {"mcnemar": mc}}, "noskill"))
+    assert "2 cell-exclusion" in rendered
+    assert "—" in rendered
+
+
 def test_cells_that_errored_on_both_sides_are_counted_as_excluded():
     """The loss is largest exactly where the old count reported zero.
 
