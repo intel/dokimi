@@ -26,12 +26,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 # The attributes of an option or argument compared between base and head.
 FIELDS = ("required", "is_flag", "nargs", "default", "type", "choices", "hidden", "action",
-          "position")
+          "position", "const")
 
 
 def _value(value: Any) -> Any:
@@ -42,6 +42,8 @@ def _value(value: Any) -> Any:
         return [_value(v) for v in value]
     if isinstance(value, dict):
         return {str(k): _value(v) for k, v in value.items()}
+    if isinstance(value, PurePath):
+        return str(value)
     name = getattr(value, "__name__", None)
     return name if isinstance(name, str) else type(value).__name__
 
@@ -56,6 +58,7 @@ def _param(action: argparse.Action, position: int | None) -> dict[str, Any]:
         "is_flag": is_option and action.nargs == 0,
         "nargs": _value(action.nargs),
         "default": _value(action.default),
+        "const": _value(action.const),
         "type": _value(action.type),
         "choices": sorted(str(c) for c in action.choices) if action.choices else None,
         "hidden": action.help == argparse.SUPPRESS,

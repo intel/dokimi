@@ -123,3 +123,15 @@ def test_added_command_lists_its_params():
     lines = cs.diff_surfaces(_surface(drop_cmd=True), _surface())
     assert "+ added command `dokimi run`" in lines
     assert "    + option `--n`" in lines and "    + argument `questions`" in lines
+
+
+@pytest.mark.parametrize("old, new, expected", [
+    ({"default": Path("a")}, {"default": Path("b")}, "default: 'a' -> 'b'"),
+    ({"nargs": "?", "const": "x"}, {"nargs": "?", "const": "y"}, "const: 'x' -> 'y'"),
+])
+def test_path_defaults_and_const_are_compared(old, new, expected):
+    def surface(kw):
+        p = argparse.ArgumentParser(prog="dokimi")
+        p.add_argument("--opt", **kw)
+        return cs._command(p, "dokimi")
+    assert any(expected in line for line in cs.diff_surfaces(surface(old), surface(new)))
