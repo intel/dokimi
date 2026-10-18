@@ -30,7 +30,8 @@ from pathlib import Path
 from typing import Any
 
 # The attributes of an option or argument compared between base and head.
-FIELDS = ("required", "is_flag", "nargs", "default", "type", "choices", "hidden", "action")
+FIELDS = ("required", "is_flag", "nargs", "default", "type", "choices", "hidden", "action",
+          "position")
 
 
 def _value(value: Any) -> Any:
@@ -45,9 +46,10 @@ def _value(value: Any) -> Any:
     return name if isinstance(name, str) else type(value).__name__
 
 
-def _param(action: argparse.Action) -> dict[str, Any]:
+def _param(action: argparse.Action, position: int | None) -> dict[str, Any]:
     is_option = bool(action.option_strings)
     return {
+        "position": position,  # a positional's index: swapping two is a change
         "key": "/".join(sorted(action.option_strings)) if is_option else action.dest,
         "kind": "option" if is_option else "argument",
         "required": bool(action.required),
@@ -62,13 +64,18 @@ def _param(action: argparse.Action) -> dict[str, Any]:
 
 
 def _command(parser: argparse.ArgumentParser, path: str) -> dict[str, Any]:
-    node: dict[str, Any] = {"path": path, "params": [], "subcommands": {}}
+    node: dict[str, Any] = {"path": path, "params": [], "subcommands": {},
+                            "subcommand_required": None}
+    position = 0
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
+            node["subcommand_required"] = bool(action.required)
             for name, sub in sorted(action.choices.items()):
                 node["subcommands"][name] = _command(sub, f"{path} {name}")
-        elif not isinstance(action, (argparse._HelpAction, argparse._VersionAction)):
-            node["params"].append(_param(action))
+        elif not isinstance(action, argparse._HelpAction):
+            # --version is kept (its version string is not dumped, so a release is no change)
+            node["params"].append(_param(action, None if action.option_strings else position))
+            position += 0 if action.option_strings else 1
     node["params"].sort(key=lambda p: (p["kind"], p["key"]))
     return node
 
@@ -103,9 +110,18 @@ def _diff_params(old: list[dict[str, Any]], new: list[dict[str, Any]]) -> list[s
 def diff_surfaces(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
     """Human-readable diff lines; empty when the surfaces match."""
     old, new = _flatten(base, {}), _flatten(head, {})
-    lines = [f"- removed command `{p}`" for p in sorted(old.keys() - new.keys())]
-    lines += [f"+ added command `{p}`" for p in sorted(new.keys() - old.keys())]
+    lines: list[str] = []
+    for path in sorted(old.keys() - new.keys()):
+        lines.append(f"- removed command `{path}`")
+        lines += [f"    - {p['kind']} `{p['key']}`" for p in old[path]["params"]]
+    for path in sorted(new.keys() - old.keys()):
+        lines.append(f"+ added command `{path}`")
+        lines += [f"    + {p['kind']} `{p['key']}`" for p in new[path]["params"]]
     for path in sorted(old.keys() & new.keys()):
+        if old[path].get("subcommand_required") != new[path].get("subcommand_required"):
+            lines.append(f"~ `{path}` subcommand required: "
+                         f"{old[path].get('subcommand_required')!r} -> "
+                         f"{new[path].get('subcommand_required')!r}")
         param_lines = _diff_params(old[path]["params"], new[path]["params"])
         if param_lines:
             lines.append(f"~ `{path}` options changed:")

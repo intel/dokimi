@@ -31,8 +31,7 @@ jobs:
     runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     permissions:
       contents: read
-      pull-requests: write  # label and comment
-      issues: write         # create the label on first use
+      pull-requests: write  # create/apply the label, write the comment
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -82,7 +81,8 @@ jobs:
             try {
               const comments = await github.paginate(github.rest.issues.listComments,
                 { owner, repo, issue_number });
-              const existing = comments.find((c) => c.body && c.body.includes(marker));
+              const existing = comments.find((c) => c.user?.login === 'github-actions[bot]' &&
+                c.body && c.body.includes(marker));
               if (changed) {
                 const diff = fs.readFileSync(process.env.DIFF_FILE, 'utf8');
                 const body = `${marker}\n${diff}\n_Updated on every push; the \`${label}\` ` +

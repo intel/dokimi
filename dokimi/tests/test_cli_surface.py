@@ -85,3 +85,41 @@ def test_main_dump_writes_file(tmp_path):
     out = tmp_path / "s.json"
     assert cs.main(["dump", str(out)]) == 0
     assert json.loads(out.read_text(encoding="utf-8"))["path"] == "dokimi"
+
+
+def _positional_parser(order: tuple[str, str], required: bool = True,
+                       version: str | None = "1") -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="dokimi")
+    if version:
+        p.add_argument("--version", action="version", version=version)
+    sub = p.add_subparsers(dest="cmd", required=required)
+    c = sub.add_parser("cmp")
+    for name in order:
+        c.add_argument(name)
+    return p
+
+
+def test_swapping_positionals_is_a_change():
+    a = cs._command(_positional_parser(("base", "head")), "dokimi")
+    b = cs._command(_positional_parser(("head", "base")), "dokimi")
+    assert any("position: 0 -> 1" in line for line in cs.diff_surfaces(a, b))
+
+
+def test_subcommand_required_change_is_reported():
+    a = cs._command(_positional_parser(("x", "y")), "dokimi")
+    b = cs._command(_positional_parser(("x", "y"), required=False), "dokimi")
+    assert any("subcommand required: True -> False" in line for line in cs.diff_surfaces(a, b))
+
+
+def test_version_option_tracked_but_not_its_value():
+    a = cs._command(_positional_parser(("x", "y"), version="1"), "dokimi")
+    b = cs._command(_positional_parser(("x", "y"), version="2"), "dokimi")
+    c = cs._command(_positional_parser(("x", "y"), version=None), "dokimi")
+    assert cs.diff_surfaces(a, b) == []  # a release bump is no CLI change
+    assert "    - removed option `--version`" in cs.diff_surfaces(a, c)
+
+
+def test_added_command_lists_its_params():
+    lines = cs.diff_surfaces(_surface(drop_cmd=True), _surface())
+    assert "+ added command `dokimi run`" in lines
+    assert "    + option `--n`" in lines and "    + argument `questions`" in lines
