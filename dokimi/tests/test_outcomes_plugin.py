@@ -231,3 +231,49 @@ def test_contract_with_missing_implementation_ref(pytester, monkeypatch):
     result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes", "--outcomes-report=r.json")
     assert result.ret == 2
     assert json.loads((pytester.path / "r.json").read_text())["verdict"] == "error"
+
+
+def _inner_session(pytester, monkeypatch, contracts, test_source):
+    """Run ``test_source`` under ``--outcomes`` against ``contracts`` (a list of contract dicts)."""
+    contract_dir = pytester.path / "contracts"
+    contract_dir.mkdir()
+    (pytester.path / "doc.md").write_text("## Test\n", encoding="utf-8")
+    for n, contract in enumerate(contracts):
+        (contract_dir / f"c{n}.json").write_text(json.dumps(contract), encoding="utf-8")
+    monkeypatch.setattr(plugin, "CONTRACT_DIR", contract_dir)
+    monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
+    monkeypatch.setattr(plugin, "_results", {})
+    pytester.makepyfile(test_source)
+    result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes", "--outcomes-report=r.json")
+    return result.ret, json.loads((pytester.path / "r.json").read_text())
+
+
+def test_a_claimed_test_whose_setup_fails_fails_its_contract(pytester, monkeypatch):
+    ret, report = _inner_session(
+        pytester, monkeypatch, [{"id": "C", "intent_refs": ["doc.md#test"], "evidence_ids": ["ev"]}],
+        "import pytest\n\n"
+        "@pytest.fixture\n"
+        "def broken():\n"
+        "    raise RuntimeError('setup')\n\n"
+        "@pytest.mark.outcome('ev')\n"
+        "def test_a(broken):\n"
+        "    assert True\n",
+    )
+    assert ret == 1
+    assert report["verdict"] == "fail"
+    assert report["outcomes"][0]["evidence"][0]["verdict"] == "fail"
+
+
+def test_a_contract_with_no_evidence_ids_is_an_error(pytester, monkeypatch):
+    ret, report = _inner_session(
+        pytester, monkeypatch, [{"id": "C", "intent_refs": ["doc.md#test"], "evidence_ids": []}],
+        "def test_a():\n    assert True\n",
+    )
+    assert ret == 2
+    assert report["verdict"] == "error"
+
+
+def test_an_empty_contract_directory_is_an_error(pytester, monkeypatch):
+    ret, report = _inner_session(pytester, monkeypatch, [], "def test_a():\n    assert True\n")
+    assert ret == 2
+    assert report == {"verdict": "error", "outcomes": []}

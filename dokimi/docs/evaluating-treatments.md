@@ -51,9 +51,10 @@ given `--judge`. For docs arms, the material is the retrieved chunks, rarely
 identical across questions, so each question adds its own copy (up to the
 15,000-char cut); on a synthetic 20-question docs run the artifact grew from
 93,209 to 392,852 bytes (4.2x). Sharing an arms artifact shares the skill or doc
-text it contains. With `cross-judge --judges`, the judge is given the same text through `JudgeContextStore.from_artifact`, which
-skips any text that does not match its digest. Question ids must be unique for this
-(a question with no id is given a positional one; duplicated ids are refused).
+text it contains. With `cross-judge --judges`, the judge is given the same text
+through `JudgeContextStore.from_artifact`, which skips any text that does not
+match its digest. Question ids must be unique for this (a question with no id is
+given a positional one; duplicated ids are refused).
 Scores that fell back to the 200-character report snippets leave the run unstamped
 if all of them did — the protocol runs used before the stamp existed — and stamp it
 `treatment_material.v1+snippet_fallback` if only some did, which pools with nothing.

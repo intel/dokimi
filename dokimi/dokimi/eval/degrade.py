@@ -47,6 +47,7 @@ import re
 from decimal import Context, Decimal
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+from dokimi.eval.question_text import question_text_of, require_question_text
 from dokimi.utils import question_id
 
 if TYPE_CHECKING:
@@ -595,13 +596,14 @@ def _answer_pool(answers: Iterable[object]) -> List[Dict[str, Any]]:
     legacy two-condition shape (``with_docs``/``without_docs``).
     """
     pool: List[Dict[str, Any]] = []
-    for item in answers:
+    for i, item in enumerate(answers):
         if not isinstance(item, dict):
             continue
         qid = question_id(item)
-        qtext = item.get("question_text") or item.get("question")
-        if qid is None or not qtext:
-            continue
+        if qid is None:
+            continue  # no id: never paired, so skipped (not refused)
+        # Checked by build_pairs for the rows that can become a pair; the others are never judged.
+        qtext = question_text_of(item)
         arms = item.get("arms")
         candidates: List[tuple[str, Any]] = []
         if isinstance(arms, dict):
@@ -613,7 +615,8 @@ def _answer_pool(answers: Iterable[object]) -> List[Dict[str, Any]]:
         for arm, payload in candidates:
             text = (payload or {}).get("answer") if isinstance(payload, dict) else payload
             if isinstance(text, str) and text.strip():
-                pool.append({"question_id": qid, "question_text": qtext, "arm": arm, "answer": text})
+                pool.append({"question_id": qid, "question_text": qtext, "arm": arm, "answer": text,
+                             "_record": (item, i)})
     return pool
 
 
@@ -660,6 +663,12 @@ def build_pairs(
         long_answers = has_material
         if dropped is not None:
             dropped["total"] = long_answers_before_store - len(long_answers)
+    # Refused, not skipped: a pair built without its question is graded against nothing. Every
+    # row that can become a base is checked (not only the drawn bases), so the outcome does not
+    # depend on the seed; a row dropped for missing judge material is never judged.
+    for row in long_answers:
+        if not row["question_text"].strip():
+            require_question_text(*row["_record"])
     bases = long_answers[:n_bases]
     if store is not None and by_arm is not None:
         for row in bases:

@@ -420,7 +420,8 @@ degradation, the pairs scored, the gate accuracy with its 95% CI and PASS or
 FAIL; `--sequential` adds a `mode` line and marks a degradation still undecided
 at the stop `continue`, with the reason under INCONCLUSIVE (cap reached, or the
 answer pool exhausted). Exit 1 on FAIL, and on an inconclusive pass with
-`--strict`.
+`--strict`. A malformed input, such as a record that would be judged with no
+question text, exits 2, so it never reads as a failed gate.
 
 `--mode pairwise` shows the judge both answers, in both orders, and asks which
 is better. On the perf gate gpt-oss-120b pairwise passed every degradation

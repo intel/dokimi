@@ -62,7 +62,8 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     if not args.image and (args.rebuild_image or not runner.image_exists(image)):
         print(f"building {image} from {tree.label} (tasks removed)", file=sys.stderr)
         ctx_dir = ctx_dir or export_build_context(tree, manifest, out / "_eval" / "build-context")
-        runner.build(ctx_dir, ctx_dir / manifest.image.dockerfile, image, args.build_network)
+        runner.build(ctx_dir, ctx_dir / manifest.image.dockerfile, image, args.build_network,
+                     timeout_s=args.build_timeout)
     if ctx_dir is not None:
         shutil.rmtree(ctx_dir)
     overrides = dict(_pair(c) for c in args.cache or ())
@@ -260,6 +261,9 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
                    help="Build the image even if the tag exists")
     p.add_argument("--build-network", default=None, dest="build_network",
                    help="docker build --network (for example host, behind a local proxy)")
+    # repos.container.BUILD_TIMEOUT_S, written out to keep dokimi.repos unimported at startup
+    p.add_argument("--build-timeout", type=positive_int, default=3 * 3600, dest="build_timeout",
+                   help="Seconds the image build may run before it fails (default 10800, 3 hours)")
     p.add_argument("--cache", action="append", default=None, metavar="NAME=PATH",
                    help="Host directory for the manifest cache NAME; repeatable")
     p.add_argument("--cache-root", default=None, dest="cache_root",

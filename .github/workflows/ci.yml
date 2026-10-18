@@ -18,14 +18,15 @@ permissions:
 # Runners: every PR check runs on intel-ubuntu-latest, Intel's ephemeral runner
 # pool, the seconds-long `static` job too. ubuntu-latest is shared by every
 # intel/ repository: a job there waited 28 min or more for a runner one time in
-# ten (October 2026), and a PR's CI finishes when its last job does. The pool boots a runner per job, a wait of
-# about 4 min (median), p90 8 min. Both ends of a `needs:` chain are on the pool
-# (`changes` -> external-catalog-smoke in agent-quality.yml, `build` -> `deploy`
-# in docs.yml), so no chain waits on both queues. Fork PRs against intel/dokimi
-# run on the pool as well (repository_owner is the base repository's); an
-# outside contributor's runs need a maintainer's approval first. A fork's own
-# pushes fall back to ubuntu-latest. release.yml and stack-health.yml, not PR
-# checks, stay on ubuntu-latest.
+# ten (October 2026), and a PR's CI finishes when its last job does. The pool
+# boots a runner per job, a wait of about 4 min (median), p90 8 min. Both ends
+# of a `needs:` chain are on the pool (`changes` -> external-catalog-smoke in
+# agent-quality.yml, `build` -> `deploy` in docs.yml), so no chain waits on both
+# queues. Fork PRs against intel/dokimi run on the pool as well
+# (repository_owner is the base repository's); an outside contributor's runs
+# need a maintainer's approval first. A fork's own pushes fall back to
+# ubuntu-latest. release.yml and stack-health.yml, not PR checks, stay on
+# ubuntu-latest.
 
 # A new push to a PR supersedes the run in flight. Every other run gets a group of its
 # own (run_id): in a shared group a third queued run cancels the pending second one
