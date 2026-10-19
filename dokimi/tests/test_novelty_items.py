@@ -224,7 +224,7 @@ def _row(arm, n, n_agree):
 
 def test_a_thin_row_does_not_hide_a_wide_row_that_fails_the_gate():
     from dokimi.gate.novelty_gate import evaluate_novelty
-    from tests.test_novelty_gate import _artifact, _named
+    from test_novelty_gate import _artifact, _named
 
     wide_fails = {"a.json": _row("full", 40, 20), "b.json": _row("full", 2, 0)}
     check = _named(evaluate_novelty(_artifact(items={"kind_agreement": wide_fails})),
