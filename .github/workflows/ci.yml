@@ -155,6 +155,16 @@ jobs:
       - run: pip install mypy==2.4.0 types-PyYAML types-jsonschema
       - name: mypy
         run: mypy
+      # Dependency hygiene, config in [tool.deptry] of pyproject.toml: an import
+      # not declared (DEP001), a runtime dependency never imported (DEP002), an
+      # import that only resolves through another package's dependencies (DEP003),
+      # a dev-extra tool imported by the package (DEP004). Here, not in `static`:
+      # deptry maps import names to packages through the installed lock.
+      - run: pip install deptry==0.25.1
+        if: ${{ !cancelled() }}
+      - name: deptry
+        if: ${{ !cancelled() }}
+        run: deptry .
 
   test:
     name: Tests (py${{ matrix.python-version }})

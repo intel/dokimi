@@ -1,6 +1,6 @@
 # Agent guide
 
-This repo is a measurement framework: it measures whether documentation, a
+This repo is dokimi, A/B testing for agent context: it measures whether documentation, a
 skill, an MCP doc source, or an agent persona prompt improves a coding agent's
 answers and task outcomes. The content it measures (skills, executable tasks,
 golden question sets) lives in content repositories and is passed in by path:
@@ -26,8 +26,11 @@ timeout, and run the test files you touched first. Beyond lint and tests, CI
 also holds a PR to:
 
 - 80% coverage of changed lines (when 20+ are measurable): add tests with the change.
-- mypy on the whole package; the `[[tool.mypy.overrides]]` list in
-  `pyproject.toml` only shrinks.
+- mypy on the whole package, no module exempt: fix a type error rather than
+  adding an `ignore_errors` override to `pyproject.toml`.
+- Imports follow the layers in `dokimi/tests/test_import_architecture.py`: no
+  upward import, no new cycle, LLM SDKs only in `dokimi.llm`, spawns only in
+  `dokimi.process`. Its baselines only shrink.
 - No growth: a file over 800 lines (tests 1000) or a function over complexity 10
   fails unless `scripts/growth_baseline.json` holds it, and then it may only
   shrink. Split instead; after shrinking, `python scripts/check_growth.py --update`.
