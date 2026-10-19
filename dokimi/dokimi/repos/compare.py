@@ -53,7 +53,7 @@ from typing import Any
 
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
-from .report import load_cells, mismatch_warnings, model_mismatch, resolved_models
+from .report import load_cells, mismatch_warnings, model_mismatch, model_matches, resolved_models
 
 #: Largest number of non-zero deltas whose sign-flip distribution is enumerated (2**16 patterns).
 EXACT_MAX = 16
@@ -162,6 +162,30 @@ def _provenance(batch_dirs: list[Path], cells: list[dict[str, Any]], baseline: s
             "warnings": _provenance_warnings(cells, baseline, treatments, sources, stamps)}
 
 
+def _models_equivalent(base_models: set[str], treat_models: set[str]) -> bool:
+    """Whether base and treatment model sets are equivalent under model_matches() logic.
+
+    Two resolved model sets are equivalent if they differ only by provider prefixes or
+    version suffixes that model_matches() considers equivalent. For each base model,
+    there must be a matching treatment model (where one matches the other under model_matches).
+    """
+    if base_models == treat_models:
+        return True
+    if len(base_models) != len(treat_models):
+        return False
+    # Check if each base model has an equivalent in treatment models
+    for base_model in base_models:
+        if not any(model_matches(base_model, treat_model) or model_matches(treat_model, base_model)
+                   for treat_model in treat_models):
+            return False
+    # Check the reverse to ensure bijection
+    for treat_model in treat_models:
+        if not any(model_matches(treat_model, base_model) or model_matches(base_model, treat_model)
+                   for base_model in base_models):
+            return False
+    return True
+
+
 def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments: list[str],
                          sources: dict[str, list[str]], stamps: dict[str, dict[str, Any]]) -> list[str]:
     """Pooled batches and stamp mismatches between the arms of each comparison."""
@@ -188,7 +212,7 @@ def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments:
         arms = [[c for c in cells if selector_matches(parse_selector(sel), c)] for sel in (baseline, text)]
         for model in sorted({c["model"] for c in arms[0]} & {c["model"] for c in arms[1]}):
             base, treat = ({m for c in arm if c["model"] == model for m in resolved_models(c)} for arm in arms)
-            if base and treat and base != treat:
+            if base and treat and not _models_equivalent(base, treat):
                 out.append(f"{text} vs {baseline}: model {model} was answered by {', '.join(sorted(base))} in "
                            f"baseline, {', '.join(sorted(treat))} in treatment")
     compared = [c for c in cells if any(selector_matches(parse_selector(sel), c) for sel in (baseline, *treatments))]

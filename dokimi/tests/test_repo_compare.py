@@ -599,6 +599,22 @@ def test_arms_answered_by_different_models_warn(tmp_path):
     assert "warning: cells run with model m-1 were answered by m-0" in format_compare(s)
 
 
+def test_model_matches_equivalence_does_not_warn(tmp_path):
+    """Equivalent model IDs (Bedrock provider-prefix variants) do not trigger a warning."""
+    b = tmp_path / "b1"
+    # Request: Bedrock-prefixed, baseline resolve: shorter form, treatment resolve: base form without version
+    _cell(b, "fix_a", "guidance:none", 1, model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+          model_resolved="anthropic.claude-haiku-4-5-20251001-v1:0")
+    _cell(b, "fix_a", "guidance:raw", 1, model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+          model_resolved="claude-haiku-4-5-20251001")
+    s = compare([b], "guidance:none")
+    # No warning about different resolved models—they are equivalent under model_matches()
+    assert [w for w in s["warnings"]
+            if "was answered by" in w and "baseline" in w and "treatment" in w] == []
+    # But cells mismatch still warns (the actual mismatch, not the compare mismatch)
+    assert s["stamps"]["b1"]["model_resolved"] == ["anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5-20251001"]
+
+
 def test_an_unreadable_batch_stamp_is_no_stamp(tmp_path):
     b = tmp_path / "b1"
     (b / "_eval").mkdir(parents=True)
