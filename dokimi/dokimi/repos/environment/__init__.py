@@ -22,7 +22,7 @@ from .checks import KINDS, detect_checks, package_json_unreadable
 from .files import LARGE_BYTES, inventory, sizes
 from .instructions import LARGE_INSTRUCTION_BYTES, detect_instructions
 from .instructions import RULES as INSTRUCTION_RULES
-from .risks import detect_capabilities, detect_hook_risks, detect_script_signals
+from .risks import detect_capabilities, unreadable_plugin_manifests, detect_hook_risks, detect_script_signals
 
 # Only stages a warning or an error can reach: a stage no rule can affect would always read
 # "no known blocker". Review and merge are not judged from the tree (see ``NOT_OBSERVED``).
@@ -179,6 +179,8 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
     not_observed = list(NOT_OBSERVED)
     if size_of is None:
         not_observed.append("file sizes (a partial clone: listing them would fetch every blob)")
+    for manifest in unreadable_plugin_manifests(scan):
+        not_observed.append(f"{manifest} hooks and MCP servers (the file is unreadable or not a JSON object)")
     if package_json_unreadable(scan):
         not_observed.append("package.json scripts (the file is unreadable or not a JSON object)")
     return {

@@ -1027,3 +1027,30 @@ def test_a_readable_package_json_adds_no_not_observed_line(tmp_path):
 def test_agents_md_is_read_by_claude_code_only_without_a_claude_md(files, listed):
     got = next(i for i in detect_instructions(files) if i.path == "AGENTS.md")
     assert ("claude-code" in got.harnesses) is listed
+
+
+def _plugin_risk(tmp_path, body):
+    _repo(tmp_path, {".claude-plugin/plugin.json": body})
+    rep = inspect_repo(WorkTree(tmp_path))
+    (cap,) = [c for c in rep["capabilities"] if c["path"] == ".claude-plugin/plugin.json"]
+    return cap["risk"], rep["not_observed"]
+
+
+@pytest.mark.parametrize("body,risk", [
+    ('{"name": "p", "skills": "./skills/"}', "medium"),
+    ('{"name": "p", "hooks": "./hooks/hooks.json"}', "high"),
+    ('{"name": "p", "hooks": {"Stop": []}}', "high"),
+    ('{"name": "p", "mcpServers": {"s": {"command": "x"}}}', "high"),
+    ('{"name": "p", "mcpServers": "./mcp/servers.json"}', "high"),
+])
+def test_a_plugin_manifest_is_high_only_when_it_brings_hooks_or_mcp(tmp_path, body, risk):
+    got, not_observed = _plugin_risk(tmp_path, body)
+    assert got == risk
+    assert not any(".claude-plugin" in n for n in not_observed)
+
+
+@pytest.mark.parametrize("body", ["{not json", "[1, 2]"])
+def test_a_malformed_plugin_manifest_stays_high_and_is_not_observed(tmp_path, body):
+    got, not_observed = _plugin_risk(tmp_path, body)
+    assert got == "high"
+    assert any(".claude-plugin/plugin.json" in n for n in not_observed)

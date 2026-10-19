@@ -669,7 +669,8 @@ The report keeps observations apart from findings:
   Claude Code hooks of any type (`command`, `http`, `prompt`, `agent`) and
   plugins, settings commands (`statusLine`, `apiKeyHelper`),
   `enableAllProjectMcpServers`, skills, editor settings, each with a risk tier
-  (documentation under `.claude/hooks/` is low). `scripts`: root
+  (documentation under `.claude/hooks/` is low; a `.claude-plugin/` manifest is
+  medium, and high when it declares `hooks` or `mcpServers` or cannot be read). `scripts`: root
   `package.json` scripts that are install hooks, delete the root, home, a glob
   or the whole tree (`rm -rf dist` is not flagged; `git clean -n` is a dry
   run), pipe a download into a shell, or publish and deploy.

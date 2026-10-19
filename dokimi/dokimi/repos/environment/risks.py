@@ -61,11 +61,10 @@ _EXACT = {
     ".mcp.json": ("mcp", "claude-code", "high"),
     ".cursor/mcp.json": ("mcp", "cursor", "high"),
     ".vscode/mcp.json": ("mcp", "vscode", "high"),
-    ".claude-plugin/plugin.json": ("plugin", "claude-code", "high"),
-    ".claude-plugin/marketplace.json": ("plugin", "claude-code", "high"),
     ".vscode/settings.json": ("editor", "vscode", "low"),
     ".vscode/extensions.json": ("editor", "vscode", "low"),
 }
+PLUGIN_MANIFESTS = (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json")
 CLAUDE_SETTINGS = (".claude/settings.json", ".claude/settings.local.json")
 
 
@@ -104,12 +103,30 @@ def _hook_entries(doc: Any) -> dict[str, list[str]]:
     return out
 
 
+def _declares_code(doc: dict[str, Any]) -> list[str]:
+    """Manifest keys that bring hooks or MCP servers (inline, or a path such as ``./hooks/hooks.json``)."""
+    entries = [doc] + [p for p in doc.get("plugins", []) if isinstance(p, dict)] if isinstance(doc.get("plugins"), list) else [doc]
+    return [k for k in ("hooks", "mcpServers") if any(e.get(k) for e in entries)]
+
+
+def unreadable_plugin_manifests(scan: Scan) -> list[str]:
+    return [p for p in PLUGIN_MANIFESTS if p in scan.file_set and not isinstance(_json(scan, p), dict)]
+
+
 def detect_capabilities(scan: Scan) -> list[Capability]:
     out = []
     for path in scan.files:
         if path in _EXACT:
             kind, harness, risk = _EXACT[path]
             out.append(Capability(path, kind, harness, risk))
+        elif path in PLUGIN_MANIFESTS:
+            doc = _json(scan, path)
+            if not isinstance(doc, dict):
+                out.append(Capability(path, "plugin", "claude-code", "high", "not read: invalid, large, a link or not an object"))
+            elif keys := _declares_code(doc):
+                out.append(Capability(path, "plugin", "claude-code", "high", "declares " + ", ".join(keys)))
+            else:
+                out.append(Capability(path, "plugin", "claude-code", "medium"))
         elif path.startswith(".claude/skills/") and path.endswith("/SKILL.md"):
             out.append(Capability(path, "skill", "claude-code", "low"))
         elif path.startswith(".claude/hooks/"):
