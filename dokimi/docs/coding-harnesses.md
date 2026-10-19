@@ -790,7 +790,8 @@ python cli.py tasks run --tasks-root <content-checkout>/evaluation/harbor/tasks 
   (`true` for the skill arm, `false` for the discovery arm), next to the
   `metrics.treatment`, `metrics.offered_plugins` and `metrics.n_skill_invocations`
   described above. A discovery cell with `n_skill_invocations: 0` is an agent
-  that never loaded the skill.
+  that never loaded the skill through the `Skill` tool; it may still have `Read`
+  the `SKILL.md` under the plugin directory, which this does not count.
 - **Discovery gap.** When a discovery arm runs next to the skill arm with the
   same path and launch, `summary.discovery_gaps` holds both pass rates, the
   gap (with-skill − discovery) and both skill-invocation rates. The report
