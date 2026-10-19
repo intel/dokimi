@@ -12,7 +12,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.repos.budget import budget
-from dokimi.repos.source import GitTree, WorkTree
+from dokimi.repos.source import GitTree, SourceError, WorkTree
 
 NAMES = ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md")
 
@@ -722,7 +722,7 @@ def test_an_import_through_a_linked_directory_agrees_across_trees(tmp_path):
         assert got["warnings"] == []
 
 
-def test_link_loops_warn_instead_of_crashing(tmp_path, monkeypatch):
+def _loops_raise_runtimeerror(monkeypatch):
     """Before Python 3.13 reading through a link loop raises RuntimeError; simulate it on any version."""
     import errno
 
@@ -737,6 +737,18 @@ def test_link_loops_warn_instead_of_crashing(tmp_path, monkeypatch):
             raise
 
     monkeypatch.setattr(WorkTree, "read_text", read_text)
+
+
+def test_an_import_of_a_link_loop_does_not_crash(tmp_path, monkeypatch):
+    _loops_raise_runtimeerror(monkeypatch)
+    tree = _tree(tmp_path, {"CLAUDE.md": "see @loop.md"})  # a real CLAUDE.md, so _imports reads loop.md
+    _link(tmp_path / "loop.md", "loop.md")
+    got = budget(tree, NAMES)  # no RuntimeError
+    assert any(e["path"] == "CLAUDE.md" for e in got["entries"])
+
+
+def test_link_loops_warn_instead_of_crashing(tmp_path, monkeypatch):
+    _loops_raise_runtimeerror(monkeypatch)
     tree = _tree(tmp_path, {"AGENTS.md": "see @loop.md"})
     _link(tmp_path / "CLAUDE.md", "CLAUDE.md")
     _link(tmp_path / "loop.md", "loop.md")
@@ -777,3 +789,33 @@ def test_imports_are_unlimited_without_a_depth_limit(tmp_path):
 def test_the_claude_code_profile_limits_imports_to_four_hops():
     from dokimi.repos.harness_profile import load_profile
     assert load_profile("claude-code").import_max_depth == 4
+
+
+def test_a_nested_claude_md_chain_is_limited_and_warns(tmp_path):
+    files = {"sub/CLAUDE.md": "@c1.md\n"}
+    for i in range(1, 6):
+        files[f"sub/c{i}.md"] = f"@c{i + 1}.md\n" if i < 5 else "end\n"
+    got = budget(_tree(tmp_path, files), NAMES, import_max_depth=4)
+    entries = _by_path(got)
+    assert ("sub/c4.md", "import") in entries and ("sub/c5.md", "import") not in entries
+    assert any("sub/c4.md" in w and "sub/c5.md" in w and "4-hop" in w for w in got["warnings"])
+
+
+def test_a_cut_import_that_another_chain_loaded_is_not_warned(tmp_path):
+    files = {"CLAUDE.md": "@a.md\n", "a.md": "end\n", "sub/CLAUDE.md": "@c1.md\n",
+             "sub/c1.md": "@c2.md\n", "sub/c2.md": "@c3.md\n", "sub/c3.md": "@c4.md\n",
+             "sub/c4.md": "@../a.md\n"}
+    got = budget(_tree(tmp_path, files), NAMES, import_max_depth=4)
+    entries = _by_path(got)
+    assert entries[("a.md", "import")]["when"] == "start"
+    assert entries[("sub/c4.md", "import")]["when"] == "lazy"
+    assert not any("hop" in w for w in got["warnings"]), got["warnings"]
+    assert budget(_tree(tmp_path, files), NAMES, import_max_depth=4)["warnings"] == []
+
+
+@pytest.mark.parametrize("link_text", ["../outside", "/etc"])
+def test_a_git_import_through_an_escaping_directory_link_is_refused(tmp_path, link_text):
+    tree = _linked_repo(tmp_path, {"CLAUDE.md": "@docs/a.md"}, {"docs": link_text})
+    with pytest.raises(SourceError, match="escapes"):
+        tree.read_text("docs/a.md")
+    assert not any(e["kind"] == "import" for e in budget(tree, NAMES)["entries"])

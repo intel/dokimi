@@ -246,8 +246,9 @@ next release.
   skill bodies on demand; with a CLAUDE.md at the root, an AGENTS.md no
   CLAUDE.md imports is reported off. It warns on skills with no description,
   skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
-  after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, and on
-  unreadable files (non-UTF-8, dangling or out-of-tree link), each of which also trips
+  after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
+  unreadable files (non-UTF-8, dangling or out-of-tree link), and on imports past the harness's
+  hop limit, each of which also trips
   `--fail-on-warning`. `start` is not an upper bound: `.claude/rules/*.md` files are not
   counted, only `@path.md` imports are followed (`@notes.txt` adds nothing), skills are read
   only from real `.claude/skills/*/SKILL.md` directories at the root (a skill behind a linked

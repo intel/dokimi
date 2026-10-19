@@ -21,9 +21,10 @@ Characters, not tokens: how many tokens a character costs depends on the model's
 and differs between model families. The exact cost is the first-call prompt difference
 between a run with the file and one without.
 
-Five checks ride along (the fifth: imports past the harness's hop limit): skills with no description, skills whose descriptions are near-duplicates
+Five checks ride along: skills with no description, skills whose descriptions are near-duplicates
 (the agent has to choose between them from the listing alone), AGENTS.md files turned off by a
-CLAUDE.md at the root, and unreadable files (non-UTF-8, dangling link).
+CLAUDE.md at the root, unreadable files (non-UTF-8, dangling link), and imports past the
+harness's hop limit.
 """
 
 from __future__ import annotations
@@ -122,6 +123,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     totals = {w: sum(e["chars"] for e in entries if e["when"] == w) for w in ("start", "lazy", "on demand", "off")}
     warnings = unreadable_warnings[:]
     for f, target in sorted(set(cut_start + cut_lazy)):
+        if target in at_start or target in lazy_all:
+            continue  # another chain did load it
         warnings.append(f"{f}: import of {target} is past the harness's {import_max_depth}-hop import limit, "
                         "not followed")
     off = [e["path"] for e in entries if e["when"] == "off"]
