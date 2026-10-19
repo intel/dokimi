@@ -452,8 +452,8 @@ class Judge:
     #: is an alternative, not a verdict, so the claim stays
     #: unread; ``(?<!correct)`` also covers ``incorrect``. Only the intensifiers in
     #: ``_INTENSIFIERS`` may qualify the word here; any other ``-ly`` adverb (``hardly``,
-    #: ``possibly``, ``formerly``) hedges or dates the verdict and leaves the claim unread, as
-    #: does a negated adverb (``not entirely wrong``). A verdict word with no separator in front
+    #: ``possibly``, ``formerly``, ``entirely``) hedges or dates the verdict and leaves the
+    #: claim unread, as does a negated adverb (``not entirely wrong``). A verdict word with no separator in front
     #: stays unread on purpose: ``correctly marked as WRONG to claim`` says the answer flagged a
     #: bad claim, not that its figure is wrong.
     _QUALIFIED_VERDICT = re.compile(
@@ -463,7 +463,7 @@ class Judge:
         re.I,
     )
     #: Adverbs that strengthen a fallback verdict instead of hedging it.
-    _INTENSIFIERS = frozenset({"partially", "mostly", "largely", "completely", "totally", "entirely"})
+    _INTENSIFIERS = frozenset({"partially", "mostly", "largely", "completely", "totally"})
 
     @classmethod
     def _is_wrong_figure(cls, claim: Any) -> Optional[bool]:
