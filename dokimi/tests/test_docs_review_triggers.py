@@ -91,6 +91,8 @@ def test_every_depends_on_glob_matches_a_tracked_file():
 @pytest.mark.parametrize("text", [
     "---\r\ndepends_on:\r\n  - a/**\r\n---\r\nx\r\n",
     "\ufeff---\ndepends_on:\n  - a/**\n---\nx\n",
+    "---\ndepends_on:\n  - a/**\n---\n",  # no content after closing ---, no final newline
+    "---\ndepends_on:\n  - a/**\n---",    # no content and no final newline after closing ---
 ])
 def test_crlf_and_bom_pages_keep_their_depends_on(text):
     assert cdrt.depends_on(text) == ["a/**"]

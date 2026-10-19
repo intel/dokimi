@@ -42,7 +42,8 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 DOCS = "dokimi/docs"
 # Match front matter with optional UTF-8 BOM and flexible line endings (LF or CRLF)
-_FRONT_MATTER = re.compile(r"\A\ufeff?---[ \t]*\r?\n(.*?\n)---[ \t]*\r?\n", re.DOTALL)
+# The final line ending after closing --- is optional (handles files ending without a newline)
+_FRONT_MATTER = re.compile(r"\A\ufeff?---[ \t]*\r?\n(.*?\n)---[ \t]*(?:\r?\n|$)", re.DOTALL)
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
