@@ -514,3 +514,16 @@ def test_imported_callable_aliases_are_counted(tmp_path):
     # exceeding the baseline of 1
     assert "dokimi.a" in problems[0]
     assert "3" in problems[0]  # Should have 3 sites: import line + 2 calls
+
+
+def test_stronger_edge_kind_wins_for_duplicate_imports(tmp_path):
+    """When a module imports the same target twice with different edge kinds,
+    the stronger kind (lowest rank: MODULE > LAZY > TYPING) is recorded."""
+    imports = _package(tmp_path, {
+        "dokimi/x.py": "pass\n",
+        "dokimi/a.py": "import dokimi.x\ndef f():\n    import dokimi.x\n",  # Module-level and lazy
+    })
+    # Both edges exist, but the module-level import (MODULE kind, rank 0) should win
+    # over the lazy import (LAZY kind, rank 1), so the recorded edge is MODULE
+    edge_kind, _ = imports.edges["dokimi.a"]["dokimi.x"]
+    assert edge_kind == MODULE
