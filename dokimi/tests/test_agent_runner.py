@@ -428,10 +428,18 @@ def test_a_null_function_on_a_dict_call_does_not_crash_the_loop(monkeypatch):
         _FakeMessage(content="ok"),
     ]
     fake, _ = _scripted_completion(steps)
-    monkeypatch.setattr(ar_mod, "chat_completion", fake)
+    seen = []
+
+    def spy(messages, *a, **kw):
+        seen.append([dict(m) for m in messages])
+        return fake(messages, *a, **kw)
+
+    monkeypatch.setattr(ar_mod, "chat_completion", spy)
     result = run_agent_loop("q", [tool], model="m")
     assert tool.calls == []
     assert result["transcript"][0]["error"] == "unknown_tool"
+    replayed = seen[-1][-2]["tool_calls"][0]["function"]["name"]
+    assert replayed == "unknown"
 
 
 def test_tool_exception_is_recorded_as_tool_error(monkeypatch):

@@ -283,7 +283,7 @@ def run_agent_loop(
             serialized_calls.append({
                 "id": tc_id,
                 "type": "function",
-                "function": {"name": name, "arguments": _arguments_text(args)},
+                "function": {"name": name or "unknown", "arguments": _arguments_text(args)},
             })
         messages.append({
             "role": "assistant",
