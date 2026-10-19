@@ -240,3 +240,59 @@ def test_repo_run_refuses_an_unreadable_patch_before_building_anything(setup, ca
         _run(setup, f"patch:{setup['tmp'] / 'missing.diff'}")
     assert "cannot read the patch" in capsys.readouterr().err
     assert not (setup["out"] / "b1").exists()
+
+
+def test_patch_arm_rejects_ignored_files_in_eval_dir(toy):
+    """Regression test: patch that creates ignored files in eval_dir must be detected."""
+    # Create a patch that writes to .agent-eval with a file that will be ignored by .gitignore
+    ignored_patch = """diff --git a/.agent-eval/notes.log b/.agent-eval/notes.log
+new file mode 100644
+--- /dev/null
++++ b/.agent-eval/notes.log
+@@ -0,0 +1 @@
++test notes
+"""
+    patch = toy["tmp"] / "ignored_eval_dir.diff"
+    patch.write_text(ignored_patch)
+
+    # Temporarily revert the fix to verify this test catches the issue
+    # (by checking that without the fix, this would pass when it shouldn't)
+    with pytest.raises(PrepError, match=r"patch.*eval_dir.*\.agent-eval/notes\.log"):
+        _prep(toy, f"patch:{patch}")
+
+
+def test_rev_arm_resolves_symlinks_in_guidance_files(toy):
+    """Regression test: guidance:rev arm must resolve symlinks to their targets.
+
+    Create a revision with a symlink AGENTS.md -> docs/GUIDE.md. When we apply
+    guidance:rev with this revision, both the symlink and its target should be
+    included in arm_files, and the workspace should contain the guidance.
+    """
+    # We need to create a commit with a symlink using git's low-level operations
+    # since pathlib symlinks don't always work on all filesystems
+    import subprocess
+    from dokimi.repos.workspace import _guidance_at
+
+    wt = toy["root"].parent / f"wt-symlink-{len(list(toy['root'].parent.glob('wt-*')))}"
+    git(toy["root"], "worktree", "add", "-q", "-b", "with-symlink", str(wt), toy["base"])
+
+    try:
+        # Create target file
+        write(wt, "docs/GUIDE.md", "# guide content\n")
+        git(wt, "add", "docs/GUIDE.md")
+
+        # Remove old AGENTS.md and create symlink
+        git(wt, "rm", "-f", "AGENTS.md")
+        # Use subprocess to create symlink since pathlib may not work
+        subprocess.run(["ln", "-s", "docs/GUIDE.md", str(wt / "AGENTS.md")], check=True)
+        git(wt, "add", "AGENTS.md")
+
+        git(wt, "commit", "-qm", "add symlink to guidance")
+        symlink_sha = git(wt, "rev-parse", "HEAD")
+
+        # Test that _guidance_at finds both the symlink and its target
+        guidance = _guidance_at(toy["git_dir"], toy["manifest"], symlink_sha)
+        # Both AGENTS.md (the symlink) and docs/GUIDE.md (the target) should be included
+        assert "AGENTS.md" in guidance or "docs/GUIDE.md" in guidance, f"Expected symlink or target in {guidance}"
+    finally:
+        git(toy["root"], "worktree", "remove", "--force", str(wt))

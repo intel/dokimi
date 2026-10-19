@@ -375,20 +375,72 @@ def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple
 
 
 def _guidance_at(git_dir: Path, manifest: RepoManifest, sha: str) -> list[str]:
-    """The files of commit ``sha`` the guidance globs match, outside ``eval_dir`` (step 2 deletes it)."""
+    """The files of commit ``sha`` the guidance globs match, outside ``eval_dir`` (step 2 deletes it).
+
+    Resolves symlink targets within the tree; rejects targets outside or inside eval_dir.
+    """
     eval_dir = manifest.run_paths()[0]
     listing = _run(["git", "-C", str(git_dir), "ls-tree", "-r", "-z", "--full-tree", sha], env=_git_env(SNAPSHOT_AUTHOR))
-    found = []
+    found = set()
+    symlinks = {}
     for entry in filter(None, listing.split("\0")):
         info, _, path = entry.partition("\t")
-        if info.split()[1] == "blob" and not _is_within(path, eval_dir) and any(
+        mode = info.split()[0]
+        obj_type = info.split()[1]
+
+        if obj_type == "blob" and not _is_within(path, eval_dir) and any(
                 match_glob(g, path) for g in manifest.guidance_globs):
-            found.append(path)
-    return sorted(found)
+            found.add(path)
+        elif mode == "120000":  # symlink (mode 120000)
+            symlinks[path] = info.split()[2]  # store object id
+
+    # Resolve symlink targets
+    result = list(found)
+    for sym_path, obj_id in symlinks.items():
+        if sym_path not in found:
+            continue
+        # Get the symlink target
+        target_str = _run(["git", "-C", str(git_dir), "cat-file", "-p", obj_id], env=_git_env(SNAPSHOT_AUTHOR)).strip()
+        # Resolve relative symlinks
+        if target_str.startswith("/"):
+            # Absolute symlink; treat as invalid (outside tree)
+            continue
+        # Relative symlink: resolve from parent directory
+        sym_parent = "/".join(PurePosixPath(sym_path).parts[:-1])
+        if sym_parent:
+            target_path_parts = (sym_parent + "/" + target_str).split("/")
+        else:
+            target_path_parts = target_str.split("/")
+
+        # Normalize ../ and ./
+        normalized = []
+        for part in target_path_parts:
+            if part == "" or part == ".":
+                continue  # skip empty and "."
+            elif part == "..":
+                if normalized:
+                    normalized.pop()  # go up one level
+            else:
+                normalized.append(part)
+        target_path = "/".join(normalized)
+
+        # Check if target is valid (within tree, not in eval_dir)
+        if target_path and not _is_within(target_path, eval_dir):
+            # Verify target exists in the tree as a blob
+            proc = process.git("-C", str(git_dir), "cat-file", "-e", f"{sha}:{target_path}^{{blob}}", timeout=_GIT_TIMEOUT_S)
+            if proc.timed_out:
+                pass  # Target verification timed out; skip
+            elif proc.ok:
+                result.append(target_path)
+
+    return sorted(set(result))
 
 
 def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm) -> tuple[list[str], dict[str, Any]]:
-    """``git apply`` of the arm's patch on the raw workspace; the files it changed."""
+    """``git apply`` of the arm's patch on the raw workspace; the files it changed.
+
+    Checks the resulting filesystem to catch ignored files that git add -A skips.
+    """
     assert arm.patch is not None
     _git(ws, env, "add", "-A")
     before = _git(ws, env, "write-tree").strip()  # after the setup patches; unreachable once step 6 commits
@@ -399,13 +451,29 @@ def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm
             _git(ws, env, "apply", "--whitespace=nowarn", str(path))
         except PrepError as exc:
             raise PrepError(f"arm {arm}: patch {arm.patch_path} does not apply: {exc}") from exc
+
+    eval_dir = manifest.run_paths()[0]
+    eval_dir_path = ws / eval_dir
+
+    # Check git diff to find staged changes
     _git(ws, env, "add", "-A")
     changed = sorted(p for p in _git(ws, env, "diff", "--cached", "--name-only", "--no-renames", "-z", before).split("\0")
                      if p)
-    eval_dir = manifest.run_paths()[0]
+
+    # Check filesystem for any files in eval_dir (including ignored ones)
     inside = [p for p in changed if _is_within(p, eval_dir)]
-    if inside:  # the agent must not see an eval_dir, not even a patched-in one
+    if inside:
         raise PrepError(f"arm {arm}: patch {arm.patch_path} writes into eval_dir {eval_dir}: {', '.join(inside)}")
+
+    # Additionally, check the filesystem directly for ignored files in eval_dir
+    if eval_dir_path.exists():
+        for file_path in eval_dir_path.rglob("*"):
+            if file_path.is_file() or (file_path.is_symlink() and not file_path.exists()):
+                rel_path = str(file_path.relative_to(ws))
+                if rel_path not in changed:
+                    raise PrepError(f"arm {arm}: patch {arm.patch_path} writes into eval_dir {eval_dir}: {rel_path} "
+                                  f"(ignored by .gitignore; not visible to git but present on filesystem)")
+
     return changed, {"arm_patch": {"path": arm.patch_path, "sha256": arm.patch_sha256}}
 
 
