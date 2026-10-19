@@ -346,7 +346,7 @@ def test_gitleaks_job_in_needs_network() -> None:
     assert "gitleaks" in cl.NEEDS_NETWORK
 
 
-def test_gitleaks_workflow_includes_merge_diffs() -> None:
+def test_gitleaks_workflow_includes_merge_diffs(tmp_path: Path) -> None:
     """Regression: gitleaks uses -m flag to include merge diffs in both PR and push-to-main scans."""
     workflows = cl.load_workflows()
     gitleaks_wf = None
@@ -369,17 +369,24 @@ def test_gitleaks_workflow_includes_merge_diffs() -> None:
 
     assert scan_step is not None, "Scan commits step not found"
 
-    # Verify both PR scan (with range) and push-to-main scan (without range) include -m flag
+    # Run the step with a stub gitleaks that records its argv, once per event.
     run_script = str(scan_step.get("run", ""))
-    import re
-    # Check that script contains -m flag for merge diffs in the --log-opts context
-    assert "-m" in run_script and "--log-opts" in run_script, \
-        "Merge diff flag (-m) not found with --log-opts in gitleaks scan step"
-    # Verify PR branch has -m with origin/$BASE_REF..HEAD pattern
-    pr_pattern = re.compile(r'--log-opts=.*-m.*origin/\$BASE_REF\.\.HEAD')
-    assert pr_pattern.search(run_script) or '"' in run_script, \
-        "PR scan should include merge diff (-m) with origin/$BASE_REF..HEAD range"
-    # Verify push-to-main branch has just -m flag (without range)
-    push_pattern = re.compile(r'--log-opts=.*-m.*(?!origin)')
-    assert push_pattern.search(run_script), \
-        "Push-to-main scan should include merge diff (-m) without range"
+
+    def scan_argv(event: str, tmp: Path, base: str = "main") -> list[str]:
+        stub_dir = tmp / "gitleaks"
+        stub_dir.mkdir(parents=True)
+        stub = stub_dir / "gitleaks"
+        argv_file = tmp / "argv"
+        stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$ARGV_FILE"\n', encoding="utf-8")
+        stub.chmod(0o755)
+        env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(tmp), "ARGV_FILE": str(argv_file),
+               "EVENT": event, "BASE_REF": base}
+        subprocess.run(["bash", "-c", run_script], env=env, cwd=tmp, check=True)
+        return argv_file.read_text(encoding="utf-8").splitlines()
+
+    pr = scan_argv("pull_request", tmp_path / "pr")
+    assert "--log-opts=-m origin/main..HEAD" in pr, pr
+    push = scan_argv("push", tmp_path / "push")
+    assert "--log-opts=-m --full-history --all" in push, push
+    for argv in (pr, push):
+        assert "--redact" in argv, argv

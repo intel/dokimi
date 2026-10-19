@@ -66,5 +66,7 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           range=()
-          if [ "$EVENT" = pull_request ]; then range=(--log-opts="-m origin/$BASE_REF..HEAD"); else range=(--log-opts="-m"); fi
+          # --log-opts replaces gitleaks' own git-log arguments, so the push scan repeats
+          # --full-history --all to cover every ref, not only HEAD's history.
+          if [ "$EVENT" = pull_request ]; then range=(--log-opts="-m origin/$BASE_REF..HEAD"); else range=(--log-opts="-m --full-history --all"); fi
           "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --verbose --no-banner "${range[@]}" .

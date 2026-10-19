@@ -13,8 +13,8 @@ name: scorecard
 # keeps its rules (https://github.com/ossf/scorecard-action#workflow-restrictions):
 # no workflow-level env, defaults or write permissions; id-token: write in this
 # job only; a GitHub-hosted Ubuntu runner (so ubuntu-latest, not the Intel
-# pool ci.yml uses); and only checkout, upload-artifact, upload-sarif,
-# scorecard-action and harden-runner as steps.
+# pool ci.yml uses); and only checkout, upload-artifact, upload-sarif and
+# scorecard-action as steps (harden-runner is also allowed, not used here).
 on:
   push:
     branches: [main]

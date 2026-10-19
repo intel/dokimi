@@ -180,6 +180,7 @@ class Context:
         self.tmp = tmp
         self.values = {
             "github.event.pull_request.base.ref": base,
+            "github.base_ref": base,
             "github.event_name": "pull_request",
             "matrix.python-version": py,
             "matrix.coverage": "true",

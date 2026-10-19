@@ -87,7 +87,7 @@
       // datasource: the bump PR fails that workflow until GITLEAKS_SHA256 is
       // updated by hand from the release's checksums file.
       customType: "regex",
-      managerFilePatterns: ["^\\.github/workflows/gitleaks\\.yml$"],
+      managerFilePatterns: ["/^\\.github/workflows/gitleaks\\.yml$/"],
       matchStrings: ["GITLEAKS_VERSION: '?(?<currentValue>\\d+\\.\\d+\\.\\d+)'?"],
       depNameTemplate: "gitleaks/gitleaks",
       datasourceTemplate: "github-releases",
