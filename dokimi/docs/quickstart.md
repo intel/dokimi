@@ -49,7 +49,9 @@ export GITHUB_TOKEN="ghp_..."
 ### 2. Dependencies
 
 ```bash
-pip install -e ".[dev]"          # package + dev tooling (recommended)
+pip install dokimi               # released package
+# or, from a source checkout:
+pip install -e ".[dev]"          # package + dev tooling
 # or, dependencies only:
 pip install -r requirements.txt
 ```

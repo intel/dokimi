@@ -70,12 +70,18 @@ The project is pre-1.0; interfaces and artifact schemas may still change.
 - Optional extras: `ocr` (Docling ingestion) and `mcp` (real MCP servers).
 
 ```bash
+pip install dokimi          # the released package and the `dokimi` command
+```
+
+From a source checkout (to contribute, or to run the bundled tasks):
+
+```bash
 pip install -e ".[dev]"     # installs the `dokimi` command plus test tooling
 # or, without installing the package:
 pip install -r requirements.txt -r requirements-test.txt
 ```
 
-The examples below use `python cli.py …`; after `pip install -e .` the
+The examples below use `python cli.py …` from a checkout; the installed
 `dokimi …` command is equivalent. For what a run costs in API calls,
 see the [cost estimate](https://github.com/intel/dokimi/blob/main/dokimi/docs/quickstart.md#cost-estimate).
 
