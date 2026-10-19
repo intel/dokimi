@@ -172,10 +172,23 @@ def _module_name(path: Path, root: Path) -> str:
     return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
 
 
-def _guarded_by_type_checking(test: ast.expr) -> bool:
-    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
-        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
-        and isinstance(test.value, ast.Name) and test.value.id == "typing")
+def _typing_guard_names(tree: ast.Module) -> tuple[set[str], set[str]]:
+    """Names bound to ``TYPE_CHECKING`` and to the ``typing`` module in this file."""
+    flags: set[str] = set()
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "typing" and not node.level:
+            flags |= {a.asname or a.name for a in node.names if a.name == "TYPE_CHECKING"}
+        elif isinstance(node, ast.Import):
+            modules |= {a.asname or a.name for a in node.names if a.name == "typing"}
+    return flags, modules
+
+
+def _guarded_by_type_checking(test: ast.expr, flags: set[str], modules: set[str]) -> bool:
+    if isinstance(test, ast.Name):
+        return test.id in flags
+    return (isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+            and isinstance(test.value, ast.Name) and test.value.id in modules)
 
 
 def _kinds(tree: ast.Module) -> dict[int, str]:
@@ -185,8 +198,9 @@ def _kinds(tree: ast.Module) -> dict[int, str]:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for inner in ast.walk(node):
                 kinds.setdefault(id(inner), LAZY)
+    flags, modules = _typing_guard_names(tree)
     for node in ast.walk(tree):
-        if isinstance(node, ast.If) and _guarded_by_type_checking(node.test):
+        if isinstance(node, ast.If) and _guarded_by_type_checking(node.test, flags, modules):
             for stmt in node.body:
                 for inner in ast.walk(stmt):
                     kinds[id(inner)] = TYPING
@@ -313,8 +327,8 @@ def cycle_problems(found: Iterable[frozenset[str]],
     problems = []
     for cycle in sorted(found - set(baseline), key=sorted):
         grown = [b for b in baseline if b < cycle]
-        # Pick the smallest proper subset for consistent error reporting
-        what = (f"grew from {sorted(min(grown, key=len))}" if grown else "is new")
+        what = (f"grew from {sorted(min(grown, key=lambda s: (len(s), sorted(s))))}"
+                if grown else "is new")
         if any(cycle < b for b in baseline):
             what = "shrank: replace its CYCLE_BASELINE entry with this set"
         problems.append(f"import cycle {sorted(cycle)} {what}")
@@ -595,9 +609,26 @@ def test_grown_cycle_reports_smallest_proper_subset():
     # Include ab and ac in the found list so they are not reported as gone
     problems = cycle_problems([ab, ac, abc], {ab: "known1", ac: "known2"})
     assert len(problems) == 1
-    # Should report the smaller set (size 2), not based on iteration order
-    reported = problems[0]
-    assert "grew from" in reported
-    # Should report the smallest proper subset (both ab and ac are same size,
-    # so either is acceptable as long as it's deterministic)
-    assert "['a', 'b']" in reported or "['a', 'c']" in reported
+    assert problems == [
+        "import cycle ['a', 'b', 'c'] grew from ['a', 'b']"]
+
+
+def test_aliased_typing_guards_are_typing_only(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "from typing import TYPE_CHECKING as TC\nif TC:\n    from dokimi import b\n",
+        "dokimi/b.py": "from dokimi import a\n",
+        "dokimi/c.py": "import typing as t\nif t.TYPE_CHECKING:\n    from dokimi import d\n",
+        "dokimi/d.py": "from dokimi import c\n",
+    })
+    assert imports.edges["dokimi.a"]["dokimi.b"][0] == TYPING
+    assert imports.edges["dokimi.c"]["dokimi.d"][0] == TYPING
+    assert strongly_connected(imports) == []
+
+
+def test_tie_between_equal_size_subsets_is_stable():
+    abc = frozenset({"a", "b", "c"})
+    ab = frozenset({"a", "b"})
+    ac = frozenset({"a", "c"})
+    forward = cycle_problems([ab, ac, abc], {ab: "known1", ac: "known2"})
+    backward = cycle_problems([ab, ac, abc], {ac: "known2", ab: "known1"})
+    assert forward == backward
