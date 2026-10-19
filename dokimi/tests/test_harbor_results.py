@@ -25,7 +25,6 @@ from tests.test_task_harnesses import _fixture_task
 
 FIXTURES = Path(__file__).parent / "fixtures" / "harbor"
 JOB = "2026-10-06__14-39-30"
-PASS_TRIAL = FIXTURES / "pass" / JOB / "onetbb-transpose__4LraMVa" / "result.json"
 
 # Harbor 0.24's end-of-run tables on stdout (a 6-trial job's); the stdout
 # scrape `command:` keeps reads "Reward ... 1.0" off the second one.
@@ -76,6 +75,18 @@ def test_a_passing_trial_is_a_pass_with_its_tokens_and_cost(tmp_path):
     assert m["result_json"] == str(tmp_path / "cell" / JOB / "onetbb-transpose__4LraMVa" / "result.json")
 
 
+def test_a_relative_output_dir_is_recorded_as_the_caller_gave_it(tmp_path, monkeypatch):
+    """`tasks run` passes a relative dir. The harness runs the command on an absolute
+    copy of it, so result_json must be mapped back to the caller's relative path."""
+    monkeypatch.chdir(tmp_path)
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+    result = create_harness("claude-code", runner=_harbor_writes("pass")).run(
+        task, model="m", output_dir=Path("cell"))
+
+    assert (result.passed, result.reward) == (True, 1.0)
+    assert result.metrics["result_json"] == str(Path("cell") / JOB / "onetbb-transpose__4LraMVa" / "result.json")
+
+
 def test_a_failing_trial_is_a_scored_fail(tmp_path):
     result = _run(tmp_path, _harbor_writes("fail"))
 
@@ -110,6 +121,21 @@ def test_a_reward_beside_an_exception_is_kept_aside_not_scored(tmp_path):
     assert (result.passed, result.reward) == (False, None)
     assert result.metrics["error"] == "harbor: AgentTimeoutError"
     assert result.metrics["reward_after_exception"] == 1.0
+
+
+@pytest.mark.parametrize("exception_info, error", [
+    ("boom", "harbor: unknown"),  # not a dict: no type to report
+    ({"exception_type": None, "exception_message": "x" * 300 + "\nsecond line"},
+     "harbor: unknown: " + "x" * 200),  # message is cut to its first line and 200 characters
+])
+def test_an_exception_with_a_missing_type_or_message_is_still_errored(tmp_path, exception_info, error):
+    def add_exception(trial):
+        trial["exception_info"] = exception_info
+
+    result = _run(tmp_path, _harbor_writes("pass", edit=add_exception))
+
+    assert (result.passed, result.reward) == (False, None)
+    assert result.metrics["error"] == error
 
 
 @pytest.mark.parametrize("verifier_result", [None, {}, {"rewards": {}}, {"rewards": {"reward": True}},
@@ -166,8 +192,12 @@ def test_more_than_one_trial_in_a_cell_is_errored(tmp_path):
     assert result.metrics["n_trials"] == 2
 
 
-@pytest.mark.parametrize("content", ["{not json", "[1, 2]"])
-def test_an_unreadable_trial_file_is_errored(tmp_path, content):
+@pytest.mark.parametrize("content, error", [
+    ("{not json", "harbor: trial result.json is unreadable or not valid JSON"),
+    ('{"n": ' + "9" * 5000 + "}", "harbor: trial result.json is unreadable or not valid JSON"),
+    ("[1, 2]", "harbor: trial result.json is not a JSON object"),
+])
+def test_an_unreadable_trial_file_is_errored(tmp_path, content, error):
     trial = tmp_path / "jobs" / JOB / "t" / "result.json"
     trial.parent.mkdir(parents=True)
     trial.write_text(content, encoding="utf-8")
@@ -175,7 +205,7 @@ def test_an_unreadable_trial_file_is_errored(tmp_path, content):
     reward, metrics = read_harbor_job(tmp_path / "jobs", 0)
 
     assert reward is None
-    assert metrics["error"] == "harbor: trial result.json is not a JSON object"
+    assert metrics["error"] == error
 
 
 def test_without_an_output_dir_there_is_nothing_to_grade(tmp_path):
@@ -194,6 +224,16 @@ def test_harbor_usage_maps_to_the_shared_metric_keys():
                          "cost_usd": None}) == {}
     assert harbor_usage({"n_input_tokens": 10, "n_output_tokens": True}) == {"prompt_tokens": 10}
     assert harbor_usage(None) == {}
+
+
+def test_harbor_usage_never_truncates_a_fraction_or_overflows():
+    # A fractional token count is dropped, not truncated to 0 and summed.
+    assert harbor_usage({"n_input_tokens": 0.5, "n_output_tokens": 3.0}) == {"completion_tokens": 3}
+    # A huge integer count is kept exactly; a cost beyond float range is unknown, not an OverflowError.
+    usage = harbor_usage({"n_input_tokens": 10**400, "n_output_tokens": 3, "cost_usd": 10**309})
+    assert usage["prompt_tokens"] == 10**400
+    assert usage["completion_tokens"] == 3
+    assert "cost_usd" not in usage
 
 
 def test_an_errored_harbor_cell_is_out_of_the_pass_rate_and_cost_counts(tmp_path):
@@ -233,19 +273,20 @@ def test_a_command_template_keeps_its_exit_code_fallback(tmp_path):
 @pytest.mark.parametrize("reward_val, expect_pass, expect_reward", [
     (float("inf"), False, None),  # Non-finite: error
     (float("nan"), False, None),  # Non-finite: error
-    (2.0, False, None),            # Out of [0,1]: error
-    (-1.0, False, None),           # Negative: error
-    (0.5, False, 0.5),             # Valid fractional reward
-    (0.0, False, 0.0),             # Valid: reward 0 is allowed
-    (1.0, True, 1.0),              # Valid: reward 1 is a pass
+    (10**400, False, None),       # Integer beyond float range: error, not an OverflowError
+    (2.0, False, None),           # Out of [0,1]: error
+    (-1.0, False, None),          # Negative: error
+    (0.5, False, 0.5),            # Valid fractional reward: kept, not a pass
+    (0.0, False, 0.0),            # Valid: reward 0 is allowed
+    (1.0, True, 1.0),             # Valid: reward 1 is a pass
 ])
 def test_harbor_reward_validation(tmp_path, reward_val, expect_pass, expect_reward):
-    """Non-finite and out-of-range rewards are errors; valid [0,1] and at/above 1 pass."""
+    """Non-finite and out-of-range rewards are errors; a reward in [0, 1] is kept, and 1 passes."""
     result = _run(tmp_path, _harbor_writes("pass", edit=lambda d: d["verifier_result"]["rewards"].update(reward=reward_val)))
     assert result.passed == expect_pass
     assert result.reward == expect_reward
     if expect_reward is None:
-        assert "error" in result.metrics or result.reward is None
+        assert result.reward is None and "error" in result.metrics
 
 
 def test_harbor_token_count_validation():
@@ -269,6 +310,7 @@ def test_harbor_token_count_validation():
     # Valid values should pass through
     assert _number(0) == 0
     assert _number(100) == 100
+    assert _number(10**400) == 10**400  # an int is always finite, however large
     assert _number(0.5) == 0.5
     assert _number(1e6) == 1e6
 

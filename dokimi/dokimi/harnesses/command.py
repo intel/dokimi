@@ -258,8 +258,12 @@ def read_harbor_job(jobs_dir: Path | None, returncode: int) -> tuple[float | Non
         metrics["error"] = f"harbor: {len(trials)} trials in one cell (expected 1)"
         return None, metrics
     metrics["result_json"] = str(trials[0])
-    trial = _load_json(trials[0])
-    if trial is None:
+    try:
+        trial = json.loads(trials[0].read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # ValueError covers bad JSON, bad UTF-8 and the int-string limit
+        metrics["error"] = "harbor: trial result.json is unreadable or not valid JSON"
+        return None, metrics
+    if not isinstance(trial, dict):
         metrics["error"] = "harbor: trial result.json is not a JSON object"
         return None, metrics
     metrics.update(harbor_usage(trial.get("agent_result")))
@@ -289,18 +293,21 @@ def harbor_usage(agent_result: Any) -> dict[str, Any]:
     """
     if not isinstance(agent_result, dict):
         return {}
-    prompt = _number(agent_result.get("n_input_tokens"))
-    completion = _number(agent_result.get("n_output_tokens"))
+    prompt = _count(agent_result.get("n_input_tokens"))
+    completion = _count(agent_result.get("n_output_tokens"))
     metrics: dict[str, Any] = {
         "prompt_tokens": prompt,
         "completion_tokens": completion,
-        "cache_read_tokens": _number(agent_result.get("n_cache_tokens")),
+        "cache_read_tokens": _count(agent_result.get("n_cache_tokens")),
         "total_tokens": prompt + completion if prompt is not None and completion is not None else None,
     }
-    metrics = {k: int(v) for k, v in metrics.items() if v is not None}
+    metrics = {k: v for k, v in metrics.items() if v is not None}
     cost = _number(agent_result.get("cost_usd"))
     if cost is not None:
-        metrics["cost_usd"] = float(cost)
+        try:
+            metrics["cost_usd"] = float(cost)
+        except OverflowError:  # beyond float range: unknown, not a value to add up
+            pass
     return metrics
 
 
@@ -309,9 +316,9 @@ def _harbor_reward(trial: dict[str, Any]) -> float | None:
     verifier = trial.get("verifier_result")
     rewards = verifier.get("rewards") if isinstance(verifier, dict) else None
     value = rewards.get("reward") if isinstance(rewards, dict) else None
-    number = _number(value)
-    # Reward must be finite (not inf/nan) and in [0, 1]
-    if number is not None and math.isfinite(number) and 0.0 <= number <= 1.0:
+    number = _number(value)  # already finite, so inf/nan are None here
+    # Reward must be in [0, 1]
+    if number is not None and 0.0 <= number <= 1.0:
         return float(number)
     return None
 
@@ -321,16 +328,28 @@ def _number(value: Any) -> int | float | None:
     # bool is an int subclass: True is not a token count or a reward.
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return None
+    # An int is always finite, and math.isfinite() would raise OverflowError on a huge one.
+    if isinstance(value, int):
+        return value if value >= 0 else None
     # Reject non-finite and negative values (negative token counts or costs corrupt sums)
     if not math.isfinite(value) or value < 0:
         return None
     return value
 
 
+def _count(value: Any) -> int | None:
+    """A token count: a whole, non-negative number, else None. A fractional count is
+    dropped rather than truncated (0.5 would silently become 0)."""
+    number = _number(value)
+    if number is None or (isinstance(number, float) and not number.is_integer()):
+        return None
+    return int(number)
+
+
 def _load_json(path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, ValueError):  # ValueError covers JSONDecodeError, UnicodeDecodeError and the int-string limit
         return None
     return data if isinstance(data, dict) else None
 
