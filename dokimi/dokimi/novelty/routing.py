@@ -376,8 +376,11 @@ def check_field(gold: Candidate, competitors: list[Candidate]) -> None:
             f"`{gold.name}` appears in --competitors as well as --artifact; selection "
             "against itself is not a measurement. Drop it from the competitor list."
         )
+    from collections import Counter
+
     names = [c.name for c in competitors]
-    repeated = sorted({n for n in names if names.count(n) > 1})
+    name_counts = Counter(names)
+    repeated = sorted({n for n, count in name_counts.items() if count > 1})
     if repeated:
         raise RoutingInputError(f"--competitors names {', '.join(f'`{n}`' for n in repeated)} "
                                 "more than once; pass each competitor once")

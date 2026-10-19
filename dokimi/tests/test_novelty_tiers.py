@@ -290,13 +290,18 @@ def test_the_settings_travel_through_the_config_unchanged():
 
 def test_every_tier_controlled_flag_is_read_through_the_resolver():
     """The CLI never maps a tier-controlled flag to a setting by hand (#4)."""
-    import re
+    import ast
 
     from dokimi.commands import novelty as novelty_cmd
 
     source = Path(novelty_cmd.__file__).read_text(encoding="utf-8")
-    direct = sorted({m for m in re.findall(r"args\.(\w+)", source) if m in FLAG_DEFAULTS})
-    assert direct == []
+    tree = ast.parse(source)
+    direct = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
+           and node.value.id == "args" and node.attr in FLAG_DEFAULTS:
+            direct.add(node.attr)
+    assert sorted(direct) == []
 
 
 def test_the_estimate_caps_the_expected_atoms_and_records_the_tier():

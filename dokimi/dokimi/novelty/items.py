@@ -248,19 +248,29 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
     cells = []
     for raw in paths:
         data = json.loads(Path(raw).read_text(encoding="utf-8"))
-        try:
-            runs = [
-                ProbeRun(
+        runs_value = data.get("runs", [])
+        if not isinstance(runs_value, list):
+            raise ProbeFileError(
+                f"{raw} has `runs` as {type(runs_value).__name__}, not a list; "
+                "it is not `novelty probe` output"
+            )
+        runs = []
+        for row in runs_value:
+            if not isinstance(row, dict):
+                raise ProbeFileError(
+                    f"{raw} has a run entry as {type(row).__name__}, not an object; "
+                    "it is not `novelty probe` output"
+                )
+            try:
+                runs.append(ProbeRun(
                     atom_id=row["atom_id"], probe_kind=row["probe_kind"], arm=row["arm"],
                     question=row.get("question", ""), response=row.get("response", ""),
                     verdict=row["verdict"], confidence=row.get("confidence"),
-                )
-                for row in data.get("runs", [])
-            ]
-        except (KeyError, TypeError) as exc:
-            raise ProbeFileError(
-                f"{raw} has a probe run missing {exc}; it is not `novelty probe` output"
-            ) from None
+                ))
+            except KeyError as exc:
+                raise ProbeFileError(
+                    f"{raw} has a probe run missing {exc}; it is not `novelty probe` output"
+                ) from None
         if not runs:
             raise ProbeFileError(f"{raw} carries no probe runs; item analysis needs `novelty "
                                  "probe` output, not a novelty.json")
