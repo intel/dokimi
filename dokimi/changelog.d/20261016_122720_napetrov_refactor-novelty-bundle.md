@@ -15,7 +15,7 @@
   `bundle` block lacks `policy_excluded_words` or `unreadable_files` now gets them from its
   `excluded` rows, and a word count that is not a number (`"n/a"`, `[1]`, `Infinity`) reads as
   0 (an unusable stored file count is recounted from the `excluded` rows), so the `artifact_coverage` gate value of such a record can differ from before (no
-  writer produces them). Records the tool writes gate and report exactly as before.
+  writer produces them). Until the coverage-basis change (see below), records the tool writes gate and report exactly as before.
 - **The pre-run note of a bundle run** says "words over the budgets"; it no longer says
   "or filtered by role", since role-filtered words were never in that count.
 
