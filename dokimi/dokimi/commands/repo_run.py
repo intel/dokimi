@@ -12,6 +12,10 @@ import math
 import shutil
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dokimi.repos.workspace import Arm
 
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
@@ -165,16 +169,15 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos.runner import (
         AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps)
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
-    from dokimi.repos.workspace import ARMS, load_tasks
+    from dokimi.repos.workspace import load_tasks, parse_arm
 
     try:
-        bad_arms = [a for a in arms if a not in ARMS]
-        if bad_arms:
-            raise ValueError(f"unknown arm(s) {', '.join(bad_arms)} (known: {', '.join(ARMS)})")
+        parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
         harness_bin = _harness_bin(args.bin or profile.bin)
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, pin=True)
+        arms = _pin_arms(parsed, ctx.git_dir, args.source)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, timeout_s=args.timeout, max_turns=args.max_turns,
@@ -201,6 +204,23 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
           f"{summary['budget_stopped']} not started (batch budget); ${summary['spent_usd']:.4f}")
     if summary["errors"] or summary["budget_stopped"]:
         sys.exit(1)
+
+
+def _pin_arms(arms: list[Arm], git_dir: Path, source: str) -> list[str]:
+    """Each arm under the name its cells get, resolved once for the whole batch (a revision to its
+    full SHA, so a branch that moves later names another arm); two spellings of one arm run once."""
+    from dokimi.repos import RepoSource
+    from dokimi.repos.workspace import pin_arm
+
+    remote = RepoSource.parse(source).remote
+    pinned: list[str] = []  # Arm objects: run_batch hands each to prepare_workspace
+    for arm in arms:
+        named = pin_arm(arm, git_dir, fetch=remote)
+        if named != named.spec:
+            detail = f"{named.patch_path}, sha256 {named.patch_sha256}" if named.patch is not None else named.spec
+            print(f"arm {named} = {detail}", file=sys.stderr)
+        pinned.append(named)
+    return list(dict.fromkeys(pinned))
 
 
 def _harness_bin(name: str) -> Path:
@@ -295,7 +315,11 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
         "result.json per cell, already finished cells skipped")
     _common(run_p, source_help, cache_help, positive_int)
     run_p.add_argument("--arm", action="append", default=None, required=True,
-                       help="guidance:none | guidance:raw | guidance:bridge; repeatable or comma-separated")
+                       help="guidance:none | guidance:raw | guidance:bridge | guidance:rev:REV (the base with "
+                       "the guidance files of revision REV of the source; the arm is named by REV's full SHA, "
+                       "resolved once per batch) | patch:FILE (a unified diff on this host, applied with git "
+                       "apply on top of guidance:raw; named patch:<file name>@<sha256 prefix>, path and "
+                       "sha256 in meta.json); repeatable or comma-separated")
     run_p.add_argument("--model", action="append", required=True,
                        help="Model string passed to the harness as it is; repeatable")
     run_p.add_argument("--reps", type=positive_int, default=1)

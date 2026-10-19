@@ -241,7 +241,8 @@ belongs to the repository's grader and is passed through unread.
 2. delete `eval_dir`
 3. `git init` and commit (no history, so fixes cannot leak)
 4. apply `setup_patches`
-5. apply the arm
+5. apply the arm: `guidance:none`, `guidance:raw`, `guidance:bridge`,
+   `guidance:rev:<rev>` or `patch:<file>`
 6. amend the commit
 7. apply `review_patch` with `git am` under a neutral author
 8. expire the reflog and prune unreachable objects: the
@@ -250,8 +251,9 @@ belongs to the repository's grader and is passed through unread.
    Prep's git never runs `gc --auto`, which would pack them where `prune`
    cannot reach
 
-Every `guidance:*` arm is made by the framework from `guidance.globs` and the
-harness profile; a repository supplies no arm content:
+Every `guidance:*` arm is made by the framework from `guidance.globs`, the
+harness profile and the source's own history; a repository supplies no arm
+content:
 
 - `none` deletes every file the globs match at the base; `raw` keeps them.
 - `bridge` exists only for a profile with a `bridge` key. It writes that file
@@ -260,12 +262,41 @@ harness profile; a repository supplies no arm content:
   depends on its version: Claude Code 2.1.286 loads `AGENTS.md` itself, but
   only when no `CLAUDE.md` is in its start-up chain, so a repository-side
   bridge arm would mean different things on different versions.
+- `rev:<rev>` keeps the base's code and replaces its guidance with that of
+  another revision of the source: the base's matched files are deleted and the
+  files the globs match at `<rev>` (outside `eval_dir`) are written. It answers
+  "does this PR's `AGENTS.md` help?" by running the same tasks with
+  `guidance:rev:main` and with the PR's head. `<rev>` is a SHA, tag or branch
+  (`/` allowed) of the source's git dir; for a remote source a branch or tag is
+  fetched first. `repo run` resolves it once per batch and names the arm by the
+  full SHA, `guidance:rev:<sha>`: a branch that moves later gives another arm
+  with its own cells, never more cells of the old one, and `repo compare`
+  selects the arm by that name.
+
+`patch:<file>` is the one arm whose content comes from the evaluator rather
+than from the globs: a unified diff on the host running `repo run`, applied
+with `git apply` on top of `guidance:raw` (after `setup_patches`). It is for
+tooling or layout treatments, such as a new script or a Makefile target, that
+no task carries. The file is read once per batch, so every cell applies the
+same bytes, and the arm is named `patch:<file name>@<first 12 hex of its
+sha256>`, without the directory, so the name holds no `/` for `BATCH/ARM`
+selectors. A patch that does not apply to a task's base, or that writes into
+`eval_dir`, fails that cell's preparation. A cell has one arm: `guidance:rev:`
+and `patch:` do not combine.
+
+Both write files, as step 1 does: no object of the source's git dir is copied
+into the workspace, so its object store gains only the blobs of the files the
+arm wrote, and step 8 drops the guidance the arm replaced.
 
 `meta.json` records the base (`base_rev`, `base_sha`, `base_date`), the arm,
 the SHA of every applied patch, and `start_sha`: the workspace `HEAD` after
 step 7, the commit the agent starts from (§4). `base_sha` names the upstream
 commit and is not in the workspace, because step 3 starts a new history; a
-grader diffs the agent's changes from `start_sha`.
+grader diffs the agent's changes from `start_sha`. With the arm come
+`arm_files`, the files it deleted, wrote or changed; for `guidance:rev:` an
+`arm_rev` object (`rev` as given, its `sha`, and `removed`: the base's guidance
+files with no counterpart at `<rev>`); for `patch:` an `arm_patch` object (the
+file's absolute `path` and full `sha256`).
 
 Step 3 removes history only. A fix that landed upstream before a model's
 training cutoff may still be known to the model, so reports split results by

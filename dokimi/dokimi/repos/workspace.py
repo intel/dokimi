@@ -11,7 +11,8 @@ Every task runs in ``<run_dir>/workspace``, made from the task's ``base``:
 2. delete ``eval_dir``
 3. ``git init`` and commit (no history, so an upstream fix cannot leak)
 4. apply ``setup_patches``
-5. apply the arm (``guidance:none`` | ``guidance:raw`` | ``guidance:bridge``)
+5. apply the arm (``guidance:none`` | ``guidance:raw`` | ``guidance:bridge`` |
+   ``guidance:rev:<sha>`` | ``patch:<name>@<digest>``, see :class:`Arm`)
 6. amend the commit
 7. apply ``review_patch`` with ``git am`` under a neutral author
 8. expire the reflog and prune unreachable objects, so the commits steps 6
@@ -25,6 +26,11 @@ configuration ignored, so repetitions of one task start from the same
 ``start_sha``. The eval tree's ``eval_dir`` is exported once per batch to a
 directory outside every workspace (``{eval_dir}``), and the image build context
 is the eval tree minus the tasks directory.
+
+An arm that brings content (another revision's guidance, a patch) writes files
+into the workspace, as a checkout would: no object of the source's git dir is
+copied, so the workspace's object store gains only the blobs of the files it
+holds, and step 8 drops the ones the arm replaced.
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -45,14 +52,97 @@ from .manifest import RepoManifest, _is_within, match_glob
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
 
 ARMS = ("guidance:none", "guidance:raw", "guidance:bridge")
+REV_ARM, PATCH_ARM = "guidance:rev:", "patch:"
+#: Every form ``repo run --arm`` takes
+ARM_FORMS = (*ARMS, f"{REV_ARM}<rev>", f"{PATCH_ARM}<file>")
 SNAPSHOT_AUTHOR = ("dokimi", "dokimi@example.invalid")
 REVIEW_AUTHOR = ("Contributor", "contributor@example.invalid")
 FIXED_DATE = "2000-01-01T00:00:00+00:00"
 _GIT_TIMEOUT_S = 1800
+# No leading "-" (never read as a git option) and no "," (the --arm separator); "/" is allowed
+# (origin/main), as the arm is renamed to the SHA it resolves to.
+_ARM_REV_RE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/^~-]*$")
+_FULL_SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 
 
 class PrepError(RuntimeError):
     """A workspace could not be prepared (a patch does not apply, a base is missing, ...)."""
+
+
+class Arm(str):
+    """An arm under the name cells, ``meta.json`` and ``repo compare`` use, with what prep needs to apply it.
+
+    The name names the content and holds no ``/`` (``repo compare`` reads ``BATCH/ARM``) and no ``,``
+    (the ``--arm`` separator). ``guidance:rev:<rev>`` is renamed ``guidance:rev:<full sha>`` by
+    :func:`pin_arm`, so a branch that moved gives a new arm rather than more cells of the old one.
+    ``patch:<file>`` is named ``patch:<file name>@<first 12 hex of its sha256>``; the file is read
+    once, so every cell applies the same bytes, and its path and full digest go to ``meta.json``.
+    """
+
+    spec: str
+    rev: str | None
+    rev_sha: str | None
+    patch: bytes | None
+    patch_path: str | None
+    patch_sha256: str | None
+
+    def __new__(cls, name: str, *, spec: str | None = None, rev: str | None = None, rev_sha: str | None = None,
+                patch: bytes | None = None, patch_path: str | None = None) -> Arm:
+        self = super().__new__(cls, name)
+        self.spec = spec or name
+        self.rev, self.rev_sha = rev, rev_sha
+        self.patch, self.patch_path = patch, patch_path
+        self.patch_sha256 = hashlib.sha256(patch).hexdigest() if patch is not None else None
+        return self
+
+
+def parse_arm(spec: str) -> Arm:
+    """``spec`` as ``repo run --arm`` takes it. A patch file is read here; a revision is resolved by
+    :func:`pin_arm`, which needs the source's git dir."""
+    if isinstance(spec, Arm):
+        return spec
+    if spec in ARMS:
+        return Arm(spec)
+    if spec.startswith(REV_ARM):
+        rev = spec[len(REV_ARM):]
+        if not _ARM_REV_RE.match(rev) or ".." in rev:
+            raise PrepError(f"arm {spec!r}: {rev!r} is not a revision (a SHA, tag or branch of the source)")
+        return Arm(spec, rev=rev)
+    if spec.startswith(PATCH_ARM):
+        path = Path(spec[len(PATCH_ARM):]).expanduser()
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            raise PrepError(f"arm {spec!r}: cannot read the patch: {exc}") from exc
+        if not data.strip():
+            raise PrepError(f"arm {spec!r}: the patch is empty")
+        # one "_" at most in a row: cell names join their parts with "__"
+        name = re.sub(r"[^A-Za-z0-9.-]+", "_", path.name).strip("_") or "patch"
+        digest = hashlib.sha256(data).hexdigest()
+        return Arm(f"{PATCH_ARM}{name}@{digest[:12]}", spec=spec, patch=data, patch_path=str(path.resolve()))
+    raise PrepError(f"unknown arm {spec!r} (known: {', '.join(ARM_FORMS)})")
+
+
+def pin_arm(arm: Arm, git_dir: Path, fetch: bool = False) -> Arm:
+    """``guidance:rev:<rev>`` renamed ``guidance:rev:<full sha>``; any other arm as it is.
+
+    ``fetch`` is for a remote source's cached clone: a branch or tag is fetched first, so it
+    names the remote's commit of now and not the one of the clone's last fetch, and a SHA the
+    clone lacks is fetched. A local repository is only read.
+    """
+    if arm.rev is None or arm.rev_sha is not None:
+        return arm
+    if fetch and not (_FULL_SHA_RE.match(arm.rev) and _has_commit(git_dir, arm.rev)):
+        refs = [arm.rev] if _FULL_SHA_RE.match(arm.rev) else ["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"]
+        _run(["git", "-C", str(git_dir), "fetch", "origin", "--", *refs])
+    proc = process.git("-C", str(git_dir), "rev-parse", "--verify", "--quiet", f"{arm.rev}^{{commit}}",
+                       timeout=_GIT_TIMEOUT_S)
+    if proc.timed_out:
+        raise PrepError(f"git rev-parse: timed out after {_GIT_TIMEOUT_S} seconds")
+    sha = proc.stdout.strip() if proc.ok else ""
+    if not _FULL_SHA_RE.match(sha):
+        raise PrepError(f"arm {arm.spec}: no commit {arm.rev!r} in {git_dir}")
+    return Arm(REV_ARM + sha, spec=arm.spec, rev=arm.rev, rev_sha=sha)
 
 
 @dataclass(frozen=True)
@@ -170,9 +260,12 @@ def _export(tree: RepoTree, dest: Path, only: str | None, exclude: str | None) -
 
 def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: str, run_dir: Path,
                       profile: HarnessProfile | None = None) -> dict[str, Any]:
-    """Steps 1-7 into ``run_dir/workspace``; returns the ``meta.json`` fields prep owns."""
-    if arm not in ARMS:
-        raise PrepError(f"unknown arm {arm!r} (known: {', '.join(ARMS)})")
+    """Steps 1-7 into ``run_dir/workspace``; returns the ``meta.json`` fields prep owns.
+
+    ``arm`` is an :class:`Arm` (``repo run`` parses and pins each once per batch) or an arm
+    string, parsed and pinned here.
+    """
+    arm = pin_arm(parse_arm(arm), git_dir)
     bridge = profile.bridge if profile is not None else None
     if arm == "guidance:bridge" and not bridge:
         name = profile.name if profile is not None else "no harness"
@@ -201,7 +294,10 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
         except PrepError as exc:
             raise PrepError(f"task {task.id}: setup patch {rel} does not apply: {exc}") from exc
         patches.append({"path": rel, "sha256": _sha256(path)})
-    arm_files, bridge_skipped = _apply_arm(ws, env, manifest, arm, bridge)                   # 5
+    try:
+        arm_files, arm_meta = _apply_arm(ws, env, git_dir, manifest, arm, bridge)            # 5
+    except PrepError as exc:
+        raise PrepError(f"task {task.id}: {exc}") from exc
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
     if task.review_patch:                                                                     # 7
@@ -218,11 +314,9 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     _forget(ws, env)                                                                          # 8
     start_sha = _git(ws, env, "rev-parse", "HEAD").strip()
     meta: dict[str, Any] = {
-        "task": task.id, "arm": arm, "base_rev": task.base, "base_sha": base_sha, "base_date": base_date,
-        "patches": patches, "start_sha": start_sha, "arm_files": arm_files,
+        "task": task.id, "arm": str(arm), "base_rev": task.base, "base_sha": base_sha, "base_date": base_date,
+        "patches": patches, "start_sha": start_sha, "arm_files": arm_files, **arm_meta,
     }
-    if bridge_skipped:
-        meta["bridge_skipped"] = bridge_skipped
     return meta
 
 
@@ -236,18 +330,37 @@ def _forget(ws: Path, env: dict[str, str]) -> None:
     _git(ws, env, "prune", "--expire=now")
 
 
-def _apply_arm(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: str,
-               bridge: dict[str, str] | None) -> tuple[list[str], list[str]]:
-    """The files the arm removed (none) or wrote (bridge), and bridge targets left alone."""
+def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManifest, arm: Arm,
+               bridge: dict[str, str] | None) -> tuple[list[str], dict[str, Any]]:
+    """The files the arm removed (none), wrote (bridge, rev) or changed (patch), and its other
+    ``meta.json`` fields: bridge targets left alone, the revision, the patch file."""
     if arm == "guidance:raw":
-        return [], []
+        return [], {}
+    if arm.patch is not None:
+        return _apply_patch(ws, env, manifest, arm)
     tracked = [p for p in _git(ws, env, "ls-files", "-z").split("\0") if p]
     matched = sorted(p for p in tracked if any(match_glob(g, p) for g in manifest.guidance_globs))
-    if arm == "guidance:none":
+    if arm == "guidance:none" or arm.rev_sha is not None:
         for rel in matched:
             (ws / rel).unlink()
-        return matched, []
+        if arm.rev_sha is None:
+            return matched, {}
+        return _apply_rev(ws, git_dir, manifest, arm, matched)
     assert bridge is not None
+    return _apply_bridge(ws, matched, bridge)
+
+
+def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
+               removed: list[str]) -> tuple[list[str], dict[str, Any]]:
+    """The guidance files of ``arm.rev_sha`` into ``ws``, whose own were ``removed``."""
+    assert arm.rev_sha is not None
+    written = _guidance_at(git_dir, manifest, arm.rev_sha)
+    if written:  # checked out as files, as in step 1: no object of the source is copied
+        _checkout_tree(git_dir, arm.rev_sha, ws, paths=written)
+    return written, {"arm_rev": {"rev": arm.rev, "sha": arm.rev_sha, "removed": sorted(set(removed) - set(written))}}
+
+
+def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple[list[str], dict[str, Any]]:
     written, skipped = [], []
     for rel in matched:
         if PurePosixPath(rel).name != bridge["for"]:
@@ -258,7 +371,42 @@ def _apply_arm(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: str,
             continue
         (ws / target).write_text(bridge["content"] + "\n", encoding="utf-8")
         written.append(target.as_posix())
-    return written, skipped
+    return written, ({"bridge_skipped": skipped} if skipped else {})
+
+
+def _guidance_at(git_dir: Path, manifest: RepoManifest, sha: str) -> list[str]:
+    """The files of commit ``sha`` the guidance globs match, outside ``eval_dir`` (step 2 deletes it)."""
+    eval_dir = manifest.run_paths()[0]
+    listing = _run(["git", "-C", str(git_dir), "ls-tree", "-r", "-z", "--full-tree", sha], env=_git_env(SNAPSHOT_AUTHOR))
+    found = []
+    for entry in filter(None, listing.split("\0")):
+        info, _, path = entry.partition("\t")
+        if info.split()[1] == "blob" and not _is_within(path, eval_dir) and any(
+                match_glob(g, path) for g in manifest.guidance_globs):
+            found.append(path)
+    return sorted(found)
+
+
+def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm) -> tuple[list[str], dict[str, Any]]:
+    """``git apply`` of the arm's patch on the raw workspace; the files it changed."""
+    assert arm.patch is not None
+    _git(ws, env, "add", "-A")
+    before = _git(ws, env, "write-tree").strip()  # after the setup patches; unreachable once step 6 commits
+    with tempfile.TemporaryDirectory() as tmp:  # the bytes read once per batch, not the file as it is now
+        path = Path(tmp) / "arm.patch"
+        path.write_bytes(arm.patch)
+        try:
+            _git(ws, env, "apply", "--whitespace=nowarn", str(path))
+        except PrepError as exc:
+            raise PrepError(f"arm {arm}: patch {arm.patch_path} does not apply: {exc}") from exc
+    _git(ws, env, "add", "-A")
+    changed = sorted(p for p in _git(ws, env, "diff", "--cached", "--name-only", "--no-renames", "-z", before).split("\0")
+                     if p)
+    eval_dir = manifest.run_paths()[0]
+    inside = [p for p in changed if _is_within(p, eval_dir)]
+    if inside:  # the agent must not see an eval_dir, not even a patched-in one
+        raise PrepError(f"arm {arm}: patch {arm.patch_path} writes into eval_dir {eval_dir}: {', '.join(inside)}")
+    return changed, {"arm_patch": {"path": arm.patch_path, "sha256": arm.patch_sha256}}
 
 
 def _task_file(task: Task, rel: str) -> Path:
@@ -318,12 +466,14 @@ def _run(argv: list[str], env: dict[str, str] | None = None, check: bool = True)
     return proc.stdout
 
 
-def _checkout_tree(git_dir: Path, treeish: str, dest: Path, prefix: str | None = None) -> None:
-    """``treeish`` written into ``dest`` (under ``prefix``) through a throwaway index, with no user or
-    system git configuration and no line-ending conversion: the same bytes on every host. Unlike
-    ``git archive``, ``export-ignore`` drops no tracked file and ``export-subst`` rewrites none."""
+def _checkout_tree(git_dir: Path, treeish: str, dest: Path, prefix: str | None = None,
+                   paths: list[str] | None = None) -> None:
+    """``treeish`` (only ``paths`` of it, if given) written into ``dest`` (under ``prefix``) through a
+    throwaway index, with no user or system git configuration and no line-ending conversion: the
+    same bytes on every host. Unlike ``git archive``, ``export-ignore`` drops no tracked file and
+    ``export-subst`` rewrites none."""
     with tempfile.TemporaryDirectory() as tmp:
         env = {**_git_env(SNAPSHOT_AUTHOR), "GIT_INDEX_FILE": str(Path(tmp) / "index")}
         git = ["git", "-C", str(git_dir), f"--work-tree={dest.resolve()}", "-c", "core.autocrlf=false", "-c", "core.eol=lf"]
         _run([*git, "read-tree", *([f"--prefix={prefix}/"] if prefix else []), treeish], env=env)
-        _run([*git, "checkout-index", "-a", "-f"], env=env)
+        _run([*git, "checkout-index", "-f", *(["--", *paths] if paths is not None else ["-a"])], env=env)

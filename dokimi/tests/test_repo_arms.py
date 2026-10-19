@@ -1,0 +1,242 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The `guidance:rev:<rev>` and `patch:<file>` arms (contract §3, workspace preparation). No docker, no LLM."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from dokimi.cli import build_parser
+from dokimi.repos import RepoSource, load_manifest, open_source
+from dokimi.repos.compare import compare, parse_selector
+from dokimi.repos.workspace import PrepError, load_tasks, parse_arm, pin_arm, prepare_workspace, source_git_dir
+from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo, write
+
+TOOLING_PATCH = """diff --git a/Makefile b/Makefile
+new file mode 100644
+--- /dev/null
++++ b/Makefile
+@@ -0,0 +1,2 @@
++check:
++\tpython3 -m pytest
+diff --git a/AGENTS.md b/AGENTS.md
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1 +1,2 @@
+ # guidance
++Run `make check`.
+"""
+
+STALE_PATCH = """--- a/src/calc.py
++++ b/src/calc.py
+@@ -1,2 +1,2 @@
+ def add(a, b):
+-    return a * b
++    return a + b
+"""
+
+INTO_EVAL_DIR_PATCH = """diff --git a/.agent-eval/notes.md b/.agent-eval/notes.md
+new file mode 100644
+--- /dev/null
++++ b/.agent-eval/notes.md
+@@ -0,0 +1 @@
++the hidden test checks add(2, 3)
+"""
+
+# The other revision: new guidance, a guidance file gone and one added, and code and eval
+# content that must not reach a workspace.
+PR_FILES: dict[str, str | None] = {
+    "AGENTS.md": "# pr guidance\n",
+    "sub/AGENTS.md": None,
+    "src/AGENTS.md": "# src guidance\n",
+    "src/calc.py": "def add(a, b):\n    return b + a  # pr fix\n",
+    "secret.py": "LEAKED = 1\n",
+    ".agent-eval/AGENTS.md": "# eval guidance\n",
+}
+
+
+def commit_on(root: Path, branch: str, files: dict[str, str | None], start: str | None = None) -> str:
+    """A commit on ``branch`` (created at ``start``) made in a linked worktree, so ``HEAD`` stays."""
+    wt = root.parent / f"wt-{branch}-{len(list(root.parent.glob('wt-*')))}"
+    git(root, "worktree", "add", "-q", *(["-b", branch, str(wt), start] if start else [str(wt), branch]))
+    for rel, text in files.items():
+        if text is None:
+            (wt / rel).unlink()
+        else:
+            write(wt, rel, text)
+    git(wt, "add", "-A")
+    git(wt, "commit", "-qm", f"on {branch}")
+    sha = git(wt, "rev-parse", "HEAD")
+    git(root, "worktree", "remove", "--force", str(wt))
+    return sha
+
+
+@pytest.fixture
+def toy(tmp_path):
+    root, base = make_repo(tmp_path)
+    pr = commit_on(root, "pr", PR_FILES, start=base)
+    source = RepoSource.parse(f"{root}@HEAD")
+    tree = open_source(source)
+    manifest = load_manifest(tree, ".agent-eval/repo-eval.yaml")
+    from dokimi.repos.workspace import export_eval_dir
+
+    content = export_eval_dir(tree, manifest, tmp_path / "content")
+    tasks = {t.id: t for t in load_tasks(content, manifest)}
+    return {"root": root, "base": base, "pr": pr, "manifest": manifest, "tasks": tasks,
+            "git_dir": source_git_dir(source, tree), "tmp": tmp_path}
+
+
+def _prep(toy, arm, task="fix_add", name="rd"):
+    meta = prepare_workspace(toy["git_dir"], toy["manifest"], toy["tasks"][task], arm, toy["tmp"] / name)
+    return meta, toy["tmp"] / name / "workspace"
+
+
+def _objects(git_dir: Path) -> set[str]:
+    out = subprocess.run(["git", "-C", str(git_dir), "cat-file", "--batch-all-objects", "--batch-check=%(objectname)"],
+                         capture_output=True, text=True, check=True).stdout
+    return set(out.split())
+
+
+def _commit_objects(root: Path, sha: str) -> set[str]:
+    """The commit, its root tree and every tree and blob under it."""
+    listed = [line.split()[2] for line in git(root, "ls-tree", "-r", "-t", sha).splitlines()]
+    return {sha, git(root, "rev-parse", f"{sha}^{{tree}}"), *listed}
+
+
+def test_rev_arm_puts_another_revisions_guidance_on_the_base(toy):
+    meta, ws = _prep(toy, "guidance:rev:pr")
+    assert meta["arm"] == f"guidance:rev:{toy['pr']}"
+    assert meta["arm_rev"] == {"rev": "pr", "sha": toy["pr"], "removed": ["sub/AGENTS.md"]}
+    assert meta["arm_files"] == ["AGENTS.md", "src/AGENTS.md"]  # not the eval dir's: step 2 deleted it
+    assert (ws / "AGENTS.md").read_text() == "# pr guidance\n"
+    assert (ws / "src/AGENTS.md").read_text() == "# src guidance\n"
+    assert (ws / "src/calc.py").read_text() == "def add(a, b):\n    return a - b\n"  # base + setup patch
+    assert not (ws / "sub/AGENTS.md").exists() and not (ws / "secret.py").exists()
+    assert not (ws / ".agent-eval").exists()
+    assert git(ws, "ls-files").split() == ["AGENTS.md", "src/AGENTS.md", "src/calc.py"]
+    assert git(ws, "status", "--porcelain") == "" and git(ws, "rev-list", "--count", "HEAD") == "1"
+
+
+def test_rev_arm_copies_no_object_of_the_revision_but_the_guidance_blobs_it_uses(toy):
+    for task in ("fix_add", "review_add"):
+        _, ws = _prep(toy, f"guidance:rev:{toy['pr']}", task=task, name=task)
+        root = toy["root"]
+        only_at_pr = _commit_objects(root, toy["pr"]) - _commit_objects(root, toy["base"])
+        guidance = {git(root, "rev-parse", f"{toy['pr']}:{p}") for p in ("AGENTS.md", "src/AGENTS.md")}
+        held = _objects(ws / ".git")
+        assert held & only_at_pr == guidance
+        assert git(ws, "fsck", "--unreachable", "--no-reflogs") == ""
+        blobs = subprocess.run(["git", "-C", str(ws), "cat-file", "--batch-all-objects", "--batch"],
+                               capture_output=True, check=True).stdout
+        assert b"LEAKED" not in blobs and b"pr fix" not in blobs and b"eval guidance" not in blobs
+        assert b"# sub guidance" not in blobs and b"# guidance\n" not in blobs  # the base's replaced guidance
+
+
+def test_rev_arm_is_named_by_the_sha_it_resolved_to_once(toy):
+    by_ref = pin_arm(parse_arm("guidance:rev:pr"), toy["git_dir"])
+    assert by_ref == pin_arm(parse_arm(f"guidance:rev:{toy['pr']}"), toy["git_dir"]) == f"guidance:rev:{toy['pr']}"
+    assert by_ref.spec == "guidance:rev:pr" and by_ref.rev_sha == toy["pr"]
+    moved = commit_on(toy["root"], "pr", {"AGENTS.md": "# moved guidance\n"})
+    meta, ws = _prep(toy, by_ref)  # the pinned arm keeps the commit it named
+    assert meta["arm_rev"]["sha"] == toy["pr"] and (ws / "AGENTS.md").read_text() == "# pr guidance\n"
+    assert pin_arm(parse_arm("guidance:rev:pr"), toy["git_dir"]) == f"guidance:rev:{moved}"
+    git(toy["root"], "branch", "-q", "feature/x", moved)
+    assert pin_arm(parse_arm("guidance:rev:feature/x"), toy["git_dir"]) == f"guidance:rev:{moved}"
+
+
+@pytest.mark.parametrize("spec", ["guidance:rev:", "guidance:rev:-p", "guidance:rev:main..pr", "guidance:rev:nope",
+                                  "guidance:other", "patch:"])
+def test_a_bad_arm_is_a_prep_error(toy, spec):
+    with pytest.raises(PrepError):
+        pin_arm(parse_arm(spec), toy["git_dir"])
+
+
+def test_patch_arm_applies_on_raw_guidance_and_records_the_file(toy):
+    patch = toy["tmp"] / "patches" / "tooling.diff"
+    write(patch.parent, patch.name, TOOLING_PATCH)
+    digest = hashlib.sha256(TOOLING_PATCH.encode()).hexdigest()
+    arm = parse_arm(f"patch:{patch}")
+    assert arm == f"patch:tooling.diff@{digest[:12]}"
+    patch.write_text("changed after the batch read it\n")  # every cell applies the bytes read once
+    meta, ws = _prep(toy, arm)
+    assert meta["arm"] == str(arm) and meta["arm_files"] == ["AGENTS.md", "Makefile"]
+    assert meta["arm_patch"] == {"path": str(patch.resolve()), "sha256": digest}
+    assert (ws / "AGENTS.md").read_text() == "# guidance\nRun `make check`.\n"
+    assert (ws / "Makefile").is_file() and (ws / "sub/AGENTS.md").is_file()  # the rest of guidance:raw
+    assert git(ws, "status", "--porcelain") == "" and git(ws, "rev-list", "--count", "HEAD") == "1"
+    assert git(ws, "fsck", "--unreachable", "--no-reflogs") == ""
+
+
+@pytest.mark.parametrize("text, message", [(STALE_PATCH, "does not apply"), (INTO_EVAL_DIR_PATCH, "eval_dir")])
+def test_a_patch_arm_that_cannot_be_applied_is_a_prep_error_for_the_cell(toy, text, message):
+    patch = toy["tmp"] / "bad.diff"
+    patch.write_text(text)
+    with pytest.raises(PrepError, match=f"task fix_add: arm patch:bad.diff@[0-9a-f]{{12}}: patch .*bad.diff.*{message}"):
+        _prep(toy, f"patch:{patch}")
+
+
+def test_arm_names_are_compare_selectors_and_cell_name_parts(toy):
+    patch = toy["tmp"] / "a dir" / "v2,with:odd__name.diff"
+    write(patch.parent, patch.name, TOOLING_PATCH)
+    for arm in (pin_arm(parse_arm("guidance:rev:pr"), toy["git_dir"]), parse_arm(f"patch:{patch}")):
+        assert "/" not in arm and "," not in arm and "__" not in arm
+        assert parse_selector(f"b1/{arm}") == ("b1", str(arm)) and parse_selector(str(arm)) == (None, str(arm))
+    assert parse_arm(f"patch:{patch}").startswith("patch:v2_with_odd_name.diff@")
+
+
+@pytest.fixture
+def setup(toy, monkeypatch):
+    exe, profile = fake_harness(toy["tmp"])
+    runner = FakeRunner()
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    monkeypatch.setenv("FAKE_ACTION", "fix")
+    return {**toy, "exe": exe, "profile": profile, "out": toy["tmp"] / "runs"}
+
+
+def _run(s, *arms):
+    argv = ["repo", "run", f"{s['root']}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
+            str(s["profile"]), "--bin", str(s["exe"]), "--model", "m-1", "--batch", "b1", "--out", str(s["out"]),
+            "--cache-root", str(s["out"] / "caches"), "--agent-network", "host", "--task", "fix_add",
+            *[x for a in arms for x in ("--arm", a)]]
+    args = build_parser().parse_args(argv)
+    args.func(args)
+
+
+def test_repo_run_names_cells_by_the_resolved_arm_and_compare_reads_them(setup, capsys):
+    patch = setup["tmp"] / "tooling.diff"
+    patch.write_text(TOOLING_PATCH)
+    digest = hashlib.sha256(TOOLING_PATCH.encode()).hexdigest()
+    pr = setup["pr"]
+    _run(setup, f"guidance:raw,guidance:rev:pr,guidance:rev:{pr}", f"patch:{patch}")
+    err = capsys.readouterr().err
+    assert f"arm guidance:rev:{pr} = guidance:rev:pr" in err and f"sha256 {digest}" in err
+    batch = setup["out"] / "b1"
+    cells = sorted(p.parent.name for p in batch.glob("*/result.json"))  # two spellings of one revision run once
+    assert cells == ["fix_add__guidance-raw__m-1__r1", f"fix_add__guidance-rev-{pr}__m-1__r1",
+                     f"fix_add__patch-tooling.diff_{digest[:12]}__m-1__r1"]
+    meta = json.loads((batch / cells[1] / "meta.json").read_text())
+    assert meta["arm"] == f"guidance:rev:{pr}" and meta["arm_rev"]["rev"] == "pr"
+    result = json.loads((batch / cells[2] / "result.json").read_text())
+    assert result["arm"] == f"patch:tooling.diff@{digest[:12]}" and result["grade"]["success"] is True
+
+    moved = commit_on(setup["root"], "pr", {"AGENTS.md": "# moved guidance\n"})
+    _run(setup, "guidance:rev:pr")  # the branch moved: a new arm, the old cells stay as they were
+    assert (batch / f"fix_add__guidance-rev-{moved}__m-1__r1" / "result.json").is_file()
+    assert (batch / cells[1] / "result.json").is_file()
+
+    summary = compare([batch], "b1/guidance:raw", [f"b1/guidance:rev:{pr}", f"b1/patch:tooling.diff@{digest[:12]}"])
+    assert {row["treatment"] for row in summary["comparisons"]} == {f"b1/guidance:rev:{pr}",
+                                                              f"b1/patch:tooling.diff@{digest[:12]}"}
+
+
+def test_repo_run_refuses_an_unreadable_patch_before_building_anything(setup, capsys):
+    with pytest.raises(SystemExit):
+        _run(setup, f"patch:{setup['tmp'] / 'missing.diff'}")
+    assert "cannot read the patch" in capsys.readouterr().err
+    assert not (setup["out"] / "b1").exists()
