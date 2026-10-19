@@ -130,7 +130,9 @@ def resolved_models(rec: dict[str, Any]) -> list[str]:
 def model_matches(requested: str, resolved: str) -> bool:
     """Whether ``resolved`` is the ``requested`` model: the same id, or that id behind a provider prefix
     (Bedrock's ``us.anthropic.claude-x`` answers as ``claude-x``, with its ``-v1:0`` too)."""
-    return re.fullmatch(rf"(?:.*[./])?{re.escape(resolved)}(?:-v\d+(?::\d+)?)?", requested) is not None
+    # Check both directions: resolved could be missing prefix/version, or requested could
+    return (re.fullmatch(rf"(?:.*[./])?{re.escape(resolved)}(?:-v\d+(?::\d+)?)?", requested) is not None or
+            re.fullmatch(rf"(?:.*[./])?{re.escape(requested)}(?:-v\d+(?::\d+)?)?", resolved) is not None)
 
 
 def model_mismatch(cells: list[dict[str, Any]]) -> dict[str, list[str]]:

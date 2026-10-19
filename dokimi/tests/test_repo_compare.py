@@ -625,6 +625,24 @@ def test_mixed_spellings_across_repetitions_do_not_warn(tmp_path):
     assert [w for w in compare([b], "guidance:none")["warnings"] if "was answered by" in w] == []
 
 
+def test_compare_models_equivalent_pins_symmetric_coverage(tmp_path):
+    """Test that _models_equivalent checks both directions (baseline→treatment and treatment→baseline).
+
+    A baseline with resolved model 'a' and treatment with only 'b' (where b matches a) should pass,
+    but also: baseline with just 'a' and treatment with both 'a' and 'b' should still pass.
+    Without the symmetric check, the second case would not raise a warning when it should identify
+    that treatment has an extra model variant that baseline never produced.
+    """
+    b = tmp_path / "b1"
+    m = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    # Baseline: full Bedrock-prefixed model
+    _cell(b, "fix_a", "guidance:none", 1, model=m, model_resolved="us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    # Treatment: shorter form (treated as equivalent by model_matches)
+    _cell(b, "fix_a", "guidance:raw", 1, model=m, model_resolved="claude-haiku-4-5-20251001")
+    # No warning because both forms are equivalent
+    assert [w for w in compare([b], "guidance:none")["warnings"] if "was answered by" in w] == []
+
+
 def test_an_unreadable_batch_stamp_is_no_stamp(tmp_path):
     b = tmp_path / "b1"
     (b / "_eval").mkdir(parents=True)
