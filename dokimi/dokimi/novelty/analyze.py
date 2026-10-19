@@ -271,7 +271,13 @@ def analyze(
         verdicts = classify.judge_value(
             atom_list, client=extractor, task=graph.task_statement(), report=judged
         )
-        conflicts = classify.detect_conflicts(atom_list, client=extractor, report=judged)
+        # One call over the whole (capped) atom set compares every pair; the default batch of
+        # 40 under a cap of 120 compared about a third of them. The prompt sends the same
+        # statements once and the answer lists only conflicts, so the token cost is similar.
+        conflicts = classify.detect_conflicts(
+            atom_list, client=extractor, report=judged,
+            batch=max(config.max_atoms or len(atom_list), 2),
+        )
         classify.apply_conflicts(verdicts, conflicts)
         categories = classify.categorize(atom_list, verdicts, outcomes)
         warnings.extend(judged.warnings(len(atom_list)))

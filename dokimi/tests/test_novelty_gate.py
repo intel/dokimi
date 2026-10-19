@@ -409,3 +409,68 @@ def test_dead_tokens_is_not_judged_on_a_remnant_of_the_text():
     assert not _named(evaluate_novelty(_artifact(spans=just_under)), "dead_tokens").measured
     looser = evaluate_novelty(_artifact(spans=spans), {"min_frac_read": 0.0})
     assert _named(looser, "dead_tokens").measured
+
+
+@pytest.mark.parametrize("coverage", [
+    {"pairs_compared": 50, "pairs_total": 45},
+    {"pairs_compared": True, "pairs_total": 45},
+    {"pairs_compared": 0, "pairs_total": True},
+    {"pairs_compared": -1, "pairs_total": 45},
+    {"pairs_compared": 45, "pairs_total": -1},
+    {"pairs_compared": "45", "pairs_total": 45},
+    {"pairs_compared": 45.0, "pairs_total": 45},
+    {"pairs_total": 45},
+    "45 of 45",
+    None,
+])
+def test_a_malformed_conflict_coverage_is_not_a_cleared_check(coverage):
+    check = _named(evaluate_novelty(_artifact(conflict_coverage=coverage)), "harmful_atoms")
+    assert check.measured is False and check.value is None
+    assert "conflict_coverage record is malformed" in check.message
+
+
+def test_a_missing_conflict_coverage_keeps_the_legacy_reading():
+    artifact = _artifact()
+    artifact.pop("conflict_coverage", None)
+    check = _named(evaluate_novelty(artifact), "harmful_atoms")
+    assert check.measured is True and check.passed is True
+    assert check.message.startswith("0 atoms classified")
+
+
+def test_partial_coverage_messages_state_the_count_and_skip_the_tail():
+    withheld = _named(evaluate_novelty(_artifact(
+        conflict_coverage={"pairs_compared": 0, "pairs_total": 3})), "harmful_atoms")
+    assert "the conflict check compared 0 of 3 atom pairs" in withheld.message
+    assert "batch" not in withheld.message
+    assert "Correctness gates before volume" not in withheld.message
+
+    found = _named(evaluate_novelty(_artifact(
+        categories={"harmful_conflicting": 1},
+        conflict_coverage={"pairs_compared": 20, "pairs_total": 45})), "harmful_atoms")
+    assert found.message.startswith(
+        "1 atoms classified harmful/conflicting; 20 of 45 atom pairs were compared")
+    assert "Correctness gates before volume" in found.message
+
+
+def test_the_coverage_floor_is_a_threshold():
+    artifact = _artifact(conflict_coverage={"pairs_compared": 7139, "pairs_total": 7140})
+    strict = _named(evaluate_novelty(artifact), "harmful_atoms")
+    assert strict.measured is False
+    assert "compared 7139 of 7140 atom pairs (floor 100% of pairs)" in strict.message
+    loose = _named(evaluate_novelty(artifact, {"min_conflict_coverage": 0.9}), "harmful_atoms")
+    assert loose.measured is True and loose.passed is True
+    assert "7139 of 7140 atom pairs were compared" in loose.message
+
+
+def test_a_capped_atom_set_does_not_clear_harmful_atoms():
+    spans = {**_artifact()["spans"], "capped_atom_set": True, "n_atoms_indexed": 30}
+    full = {"pairs_compared": 435, "pairs_total": 435}
+    capped = _named(evaluate_novelty(_artifact(spans=spans, conflict_coverage=full)),
+                    "harmful_atoms")
+    assert capped.measured is False and "the atom set was capped (30 indexed)" in capped.message
+
+    found = _named(evaluate_novelty(_artifact(
+        spans=spans, conflict_coverage=full, categories={"harmful_conflicting": 2})),
+        "harmful_atoms")
+    assert found.measured is True and found.passed is False
+    assert "lower bound" in found.message

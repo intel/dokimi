@@ -42,6 +42,10 @@ DEFAULTS: dict[str, Any] = {
     # heading path prepended, and 0.19 of atoms were not recoverable from their cited file at all,
     # so this is set below the measured best rather than at it.
     "min_frac_located": 0.80,
+    # Share of atom pairs the conflict check must have compared for a count of 0 to clear
+    # `harmful_atoms`. 1.0: analyze sends the capped atom set in one call, so a lower share
+    # means a call failed or split, and any unread pair can hide a contradiction.
+    "min_conflict_coverage": 1.0,
     # Below this, a candidate's `value` is atom coverage per token wearing a value label.
     "min_value_coverage": 0.50,
     # Share of an artifact's words that may sit in unmeasured bundled files before the run
@@ -138,11 +142,11 @@ class NoveltyVerdict:
 
 
 def _pair_coverage(raw: Any) -> tuple[int, int] | None:
-    """``(compared, total)`` when both are counts and compared does not exceed total.
+    """``(compared, total)`` from ``conflict_coverage``, or ``None`` when it is not readable.
 
-    A bool is an int in Python and is not a count. A compared count above the total,
-    or a missing field, is not a coverage figure: the gate then keeps the historical
-    reading so an artifact written before this field existed still loads.
+    Validated artifacts already carry non-negative integers; the bool, type and
+    ``compared > total`` guards are for dicts that never went through the schema, which
+    cannot express the cross-field bound.
     """
     if not isinstance(raw, dict):
         return None
@@ -194,41 +198,64 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     categories = artifact.get("categories") or {}
     harmful = categories.get("harmful_conflicting", 0)
     degraded = (paired.get("strict") or {}).get("degraded")
-    # A count of 0 is a cleared check only when every pair shared a call. A batched
-    # classify compares within batches, so pairs_compared can sit below pairs_total
-    # while harmful_conflicting stays 0. That is an unread pair space, not a pass.
-    # Absent coverage keeps artifacts written before the field existed readable.
+    # A count of 0 clears the check only when the conflict check read the pair space: enough
+    # of the pairs compared, over an atom set that was not capped. A conflict that was found is
+    # reported whatever the coverage. A missing `conflict_coverage` is an artifact written
+    # before the field existed and keeps the historical reading; one that is present but
+    # unreadable is not measured.
+    has_coverage = "conflict_coverage" in artifact
     conflict_coverage = _pair_coverage(artifact.get("conflict_coverage"))
+    compared, total = conflict_coverage or (0, 0)
+    share = compared / total if total else 1.0
+    capped = bool(spans.get("capped_atom_set"))
     if not categories:
         message = (
             "not measured: atoms were not classified, so harmful/conflicting content is "
             "unknown"
         )
-        measured, value = False, None
-    elif conflict_coverage is not None and conflict_coverage[0] < conflict_coverage[1] and not harmful:
-        compared, total = conflict_coverage
-        message = (
-            f"not measured: conflicts were looked for within batches ({compared} of "
-            f"{total} atom pairs shared a call), so a count of 0 is not a cleared check"
-        )
-        measured, value = False, None
-    else:
+        measured = False
+    elif harmful:
         message = f"{harmful} atoms classified harmful/conflicting"
-        if conflict_coverage is not None and conflict_coverage[0] < conflict_coverage[1]:
-            compared, total = conflict_coverage
-            message += f"; only {compared} of {total} pairs were compared"
-        measured, value = True, harmful
+        measured = True
+    elif has_coverage and conflict_coverage is None:
+        message = (
+            "not measured: the conflict_coverage record is malformed, so a count of 0 is not "
+            "a cleared check"
+        )
+        measured = False
+    elif conflict_coverage is not None and share < cfg["min_conflict_coverage"]:
+        message = (
+            f"not measured: the conflict check compared {compared} of {total} atom "
+            f"pairs (floor {cfg['min_conflict_coverage']:.0%} of pairs), so a count of 0 "
+            "is not a cleared check"
+        )
+        measured = False
+    elif capped:
+        message = (
+            f"not measured: the atom set was capped ({spans.get('n_atoms_indexed')} indexed), "
+            "so 0 conflicts among the sampled atoms is not a cleared check of the artifact"
+        )
+        measured = False
+    else:
+        message = "0 atoms classified harmful/conflicting"
+        measured = True
+    if measured and compared < total:
+        message += f"; {compared} of {total} atom pairs were compared"
+    if measured and capped:
+        message += "; the atom set was capped, so this is a lower bound"
+    if degraded is not None:
+        message += f"; strict `degraded` {degraded:.3f}"
+    if measured:
+        message += (
+            ". Correctness gates before volume: one study skill carried 33 conflicts and still "
+            "routed at 0.810, so it loads and misinforms"
+        )
     checks.append(NoveltyCheck(
         name="harmful_atoms",
         passed=not harmful,
-        value=value, threshold=0,
+        value=harmful if measured else None, threshold=0,
         severity="warn", measured=measured,
-        message=(
-            message
-            + (f"; strict `degraded` {degraded:.3f}" if degraded is not None else "")
-            + ". Correctness gates before volume: one study skill carried 33 conflicts and still "
-              "routed at 0.810, so it loads and misinforms"
-        ),
+        message=message,
     ))
 
     # ── 3. Dead weight, only when the atom set behind it was not capped ──────
