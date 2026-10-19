@@ -127,6 +127,7 @@ def test_score_only_task_and_missing_cells(setup, monkeypatch, capsys):
     batch = setup["out"] / "b1"
     review = json.loads((batch / "review_add__guidance-raw__m-1__r1/result.json").read_text())
     assert review["grade"]["score_only"] and review["grade"]["score"] == 1.0 and review["grade"]["success"] is None
+    assert review["score_max"] == 1.0  # the task's score.max, for `repo compare`'s headroom
     (batch / "fix_add__guidance-raw__m-1__r3/result.json").unlink()   # crashed before it finished
     shutil.rmtree(batch / "fix_add__guidance-raw__m-1__r2")            # never started (only in the plan)
     summary = _report(setup)

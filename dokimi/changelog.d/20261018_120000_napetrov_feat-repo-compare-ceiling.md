@@ -1,0 +1,3 @@
+### Added
+
+- **`repo compare` flags gate and score comparisons with no headroom** — each comparison gains `headroom`: `"ceiling"` when both arms are at the top (gate 1.0, the task's `score.max`) on every paired task, `"floor"` when both are at 0 on every one, `"near_ceiling"` when the baseline is at the top on all but at most one of 2+ paired tasks, else `null`; the text report prints a note under the comparison. A zero delta on such a task set is no headroom, not no effect. p values and Holm's correction are unchanged. `result.json` now records the task's `score_max`; score rows of batches run before this have no known top and are never flagged `ceiling`.

@@ -21,7 +21,8 @@ from dokimi.repos.compare import CompareError, compare, format_compare, parse_se
 
 def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = True, score: float | None = None,
           failure: bool = False, cost: float | None = 0.1, turns: int = 10, metrics: dict | None = None,
-          model: str = "m-1", harness_version: str = "1.0", model_resolved: str | list[str] | None = None) -> None:
+          model: str = "m-1", harness_version: str = "1.0", model_resolved: str | list[str] | None = None,
+          score_max: float | None = 1.0) -> None:
     rd = batch / f"{task}__{arm.replace(':', '-')}__{model}__r{rep}"
     rd.mkdir(parents=True)
     score_task = score is not None
@@ -30,6 +31,7 @@ def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = 
              "score": None if failure else score, "score_only": score_task and not failure, "reasons": []}
     rec = {"task": task, "arm": arm, "model": model, "rep": rep, "score_task": score_task, "grade": grade,
            "harness_version": harness_version, "model_resolved": model_resolved,
+           "score_max": score_max if score_task else None,
            "agent": {"cost_usd": cost, "num_turns": turns, "timed_out": False, "is_error": False,
                      "over_budget": False, "network": "none"}}
     (rd / "meta.json").write_text("{}")
@@ -169,6 +171,55 @@ def test_score_tasks_are_their_own_measure_and_a_grader_failure_scores_zero(tmp_
     score = _row(s, "score")
     assert score["n_tasks"] == 1 and score["tasks"][0]["treatment"] == 0.5 and score["delta"]["mean"] == 0.0
     assert _row(s, "gate")["n_tasks"] == 1  # the gated task, not the score task
+
+
+@pytest.mark.parametrize("base,treat,expected", [
+    ((True, True, True), (True, True, True), "ceiling"),
+    ((False, False, False), (False, False, False), "floor"),
+    ((True, True, False), (True, True, True), "near_ceiling"),  # one task can move up
+    ((True, True, True), (True, False, True), "near_ceiling"),  # none can move up; a loss still shows
+    ((True, False, False), (True, True, True), None),
+    ((False, True, False), (False, True, False), None),  # all tied, but not all at one end
+])
+def test_gate_headroom_flags_a_task_set_that_cannot_move(tmp_path, base, treat, expected):
+    b = tmp_path / "b1"
+    for i, (was, now) in enumerate(zip(base, treat, strict=True)):
+        _cell(b, f"fix_{i}", "guidance:none", 1, success=was)
+        _cell(b, f"fix_{i}", "guidance:raw", 1, success=now)
+    s = compare([b], "guidance:none")
+    gate = _row(s, "gate")
+    assert gate["headroom"] == expected and _row(s, "cost_usd")["headroom"] is None
+    text = format_compare(s)
+    if expected == "ceiling":
+        assert gate["p"] is None and gate["p_holm"] is None  # the flag is a note: p and Holm are unchanged
+        assert "gate ceiling: both arms pass all 3 paired tasks; no headroom to show an effect" in text
+    elif expected == "floor":
+        assert "gate floor: both arms fail all 3 paired tasks" in text
+    elif expected == "near_ceiling":
+        assert "gate near ceiling: the baseline passes all but at most one of 3 paired tasks" in text
+    else:
+        assert "ceiling" not in text and "floor" not in text
+
+
+def test_score_headroom_is_measured_against_score_max(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(2):
+        _cell(b, f"review_{i}", "guidance:none", 1, score=4.0, score_max=4.0)
+        _cell(b, f"review_{i}", "guidance:raw", 1, score=4.0, score_max=4.0)
+        _cell(b, f"old_{i}", "guidance:none", 1, score=1.0, score_max=None)  # a batch from before score_max
+        _cell(b, f"old_{i}", "guidance:raw", 1, score=1.0, score_max=None)
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] is None  # old_* has no known top
+    for i in range(2):
+        for arm in ("guidance:none", "guidance:raw"):
+            (b / f"old_{i}__{arm.replace(':', '-')}__m-1__r1/result.json").unlink()
+    s = compare([b], "guidance:none")
+    assert _row(s, "score")["headroom"] == "ceiling"
+    assert "score ceiling: both arms reach score.max on all 2 paired tasks" in format_compare(s)
+    c = tmp_path / "b2"
+    for i in range(2):
+        _cell(c, f"review_{i}", "guidance:none", 1, score=0.0)
+        _cell(c, f"review_{i}", "guidance:raw", 1, score=0.0, failure=True)  # a grader failure scores 0
+    assert _row(compare([c], "guidance:none"), "score")["headroom"] == "floor"
 
 
 def test_unpaired_tasks_are_listed_not_compared(tmp_path):
