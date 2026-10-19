@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -13,6 +14,7 @@ import pytest
 
 from dokimi.artifacts import load_artifact, validate_artifact
 from dokimi.cli import build_parser
+from dokimi.repos.environment import files as F
 from dokimi.repos.environment import inspect_repo
 from dokimi.repos.environment.instructions import detect_instructions
 from dokimi.repos.source import GitTree, WorkTree
@@ -313,7 +315,7 @@ def test_test_file_excludes_false_positives(path):
                                   "tests/foo.c", "tests/foo.cc", "tests/foo.cpp", "tests/foo.cxx", "tests/foo.h",
                                   "tests/foo.hh", "tests/foo.hpp", "test/a.lua", "test/a.dart", "tests/a.hs",
                                   "tests/a.sh", "test/a.bats", "t/basic.t", "test/runtests.jl",
-                                  "tests/testthat/test-a.R"])
+                                  "tests/testthat/test-a.R", "pkg/foo_test.py", "tests/foo.rs"])
 def test_test_file_includes_true_positives(path):
     """Legitimate test files should still match."""
     from dokimi.repos.environment import files as F
@@ -753,9 +755,12 @@ def test_each_automatic_hook_event(tmp_path, event, flagged):
     ("git clean -fdx", "destructive"), ("git clean -d -f", "destructive"), ("mkfs.ext4 /dev/sda", "destructive"),
     ("dd if=/dev/zero of=x", "destructive"),
     ("curl -s https://x | sh", "network-exec"), ("wget -qO- https://x | bash", "network-exec"),
-    ("npm publish", "deploy"), ("vercel deploy", "deploy"), ("netlify deploy", "deploy"),
-    ("firebase deploy", "deploy"), ("gh release create v1", "deploy"), ("kubectl apply -f k.yaml", "deploy"),
-    ("terraform apply", "deploy"), ("aws s3 sync . s3://b", "deploy"), ("gcloud app deploy", "deploy"),
+    ("curl -s https://x | node", "network-exec"),
+    ("npm publish", "deploy"), ("yarn publish", "deploy"), ("pnpm publish", "deploy"), ("vercel deploy", "deploy"), ("netlify deploy", "deploy"),
+    ("wrangler deploy", "deploy"), ("firebase deploy", "deploy"), ("gh release create v1", "deploy"),
+    ("gh release upload v1 x.zip", "deploy"), ("kubectl apply -f k.yaml", "deploy"),
+    ("terraform apply", "deploy"), ("aws s3 sync . s3://b", "deploy"), ("aws s3 rm s3://b --recursive", "deploy"),
+    ("gcloud app deploy", "deploy"),
     ("rm -rf dist", None), ("rm -rf ./build", None), ("git clean -nfd", None), ("git clean -fd --dry-run", None),
 ])
 def test_each_script_pattern(tmp_path, body, category):
@@ -797,7 +802,10 @@ def test_hook_documentation_is_low_risk(tmp_path):
 @pytest.mark.parametrize("files, risk", [
     ({"package.json": json.dumps({"scripts": {"postinstall": "node x.js"}})}, "medium"),
     ({".claude/settings.json": "{not json"}, "medium"),
+    ({".claude-plugin/plugin.json": "{}"}, "medium"),
     ({".mcp.json": "{}"}, "high"),
+    ({".claude/hooks/check.sh": "true\n"}, "high"),
+    ({".claude/hooks/README.md": "how the hooks work"}, "low"),
     ({}, "low"),
 ])
 def test_risk_tiers(tmp_path, files, risk):
@@ -828,6 +836,7 @@ INSTRUCTION_TABLE = [
     (".claude/CLAUDE.md", ('claude-code',), "root", "always", False),
     (".claude/rules/a.md", ('claude-code',), "unknown", "unknown", False),
     (".claude/skills/x/SKILL.md", ('claude-code',), "capability", "on-demand", False),
+    (".clinerules", ('cline',), "legacy", "always", True),
     (".clinerules/a.md", ('cline',), "root", "unknown", False),
     (".cursor/rules/a.mdc", ('cursor',), "unknown", "unknown", False),
     (".cursorrules", ('cursor', 'cline'), "legacy", "always", True),
@@ -842,10 +851,12 @@ INSTRUCTION_TABLE = [
     (".windsurf/rules/a.md", ('windsurf',), "unknown", "unknown", False),
     (".windsurfrules", ('windsurf', 'cline'), "legacy", "always", True),
     ("AGENTS.md", ('codex', 'github-copilot', 'cursor', 'windsurf', 'cline', 'generic'), "root", "always", False),
+    ("AGENTS.override.md", ('codex',), "root", "always", False),
     ("CLAUDE.local.md", ('claude-code',), "local-private", "always", False),
     ("CLAUDE.md", ('claude-code', 'github-copilot'), "root", "always", False),
     ("GEMINI.md", ('gemini', 'github-copilot'), "root", "always", False),
     ("sub/AGENTS.md", ('codex', 'github-copilot', 'cursor', 'windsurf', 'cline', 'generic'), "path-specific", "path-scoped", False),
+    ("sub/AGENTS.override.md", ('codex',), "path-specific", "path-scoped", False),
     ("sub/CLAUDE.md", ('claude-code',), "path-specific", "path-scoped", False),
     ("sub/GEMINI.md", ('gemini',), "path-specific", "path-scoped", False),
 ]
@@ -1162,3 +1173,133 @@ def test_readable_claude_settings_adds_no_not_observed_line(tmp_path):
     _repo(tmp_path, {".claude/settings.json": '{"hooks": {}}'})
     not_observed = inspect_repo(WorkTree(tmp_path))["not_observed"]
     assert not any(".claude/settings.json" in n for n in not_observed)
+
+
+# --- one table row per detection pattern, instruction rule and risk tier (each row fails if it is mutated) ---
+
+@pytest.mark.parametrize("command, flagged", [
+    # every install form of each package manager, and every way it runs a package script
+    ("npm i", True), ("npm update", True), ("npm rebuild", True), ("npm run-script build", True),
+    ("npm test", True), ("npm start", True), ("npm exec -- tsc", True),
+    ("pnpm add x", True), ("pnpm rebuild", True), ("pnpm run build", True), ("pnpm build", True),
+    ("yarn", True), ("yarn upgrade", True), ("yarn build", True), ("yarn run build", True),
+    ("bun install", True), ("bun i", True), ("bun add x", True), ("bun run build", True),
+    ("make", True), ("gmake test", True), ("make -C web", True),
+    # the package manager's own commands, not a script of the tree
+    ("npm config get registry", False), ("pnpm --version", False), ("yarn info react", False),
+    ("bun pm ls", False), ("bun publish", False),
+])
+def test_each_install_and_run_form(tmp_path, command, flagged):
+    assert bool(_hook_payload(tmp_path, command)["hook_risks"]) is flagged
+
+
+@pytest.mark.parametrize("command, flagged", [
+    # the last --ignore-scripts style flag wins
+    ("npm ci --ignore-scripts --no-ignore-scripts", True), ("npm ci --no-ignore-scripts --ignore-scripts", False),
+    ("npm ci --ignore-scripts=false --ignore-scripts", False), ("npm ci --ignore-scripts=0", True),
+    # the npm_config environment variable: only true or 1 turns scripts off
+    ("npm_config_ignore_scripts=1 npm ci", False), ("npm_config_ignore_scripts=TRUE npm ci", False),
+    ("npm_config_ignore_scripts=0 npm ci", True),
+])
+def test_each_ignore_scripts_form(tmp_path, command, flagged):
+    assert bool(_hook_payload(tmp_path, command)["hook_risks"]) is flagged
+
+
+@pytest.mark.parametrize("command, flagged", [
+    ("npm ci", False), ("pnpm install", False), ("npm ci --no-ignore-scripts", True),
+    ("pnpm install --no-ignore-scripts", True), ("yarn install", True), ("bun install", True),
+])
+def test_npmrc_ignore_scripts_applies_to_npm_and_pnpm_only(tmp_path, command, flagged):
+    payload = _hook_payload(tmp_path, command, extra={".npmrc": "ignore-scripts=true\n"})
+    assert bool(payload["hook_risks"]) is flagged
+
+
+@pytest.mark.parametrize("path, kind, harness, risk", [
+    (".mcp.json", "mcp", "claude-code", "high"), (".cursor/mcp.json", "mcp", "cursor", "high"),
+    (".vscode/mcp.json", "mcp", "vscode", "high"), (".vscode/settings.json", "editor", "vscode", "low"),
+    (".vscode/extensions.json", "editor", "vscode", "low"), (".claude/hooks/check.sh", "hook", "claude-code", "high"),
+    (".claude/hooks/README.rst", "hook", "claude-code", "low"), (".claude/skills/x/SKILL.md", "skill", "claude-code", "low"),
+])
+def test_each_capability_path(tmp_path, path, kind, harness, risk):
+    _repo(tmp_path, {"AGENTS.md": "x", path: "{}"})
+    caps = inspect_repo(WorkTree(tmp_path))["capabilities"]
+    assert [(c["path"], c["kind"], c["harness"], c["risk"]) for c in caps] == [(path, kind, harness, risk)]
+
+
+@pytest.mark.parametrize("path", [".claude/settings.json", ".claude/settings.local.json"])
+def test_each_claude_settings_file_is_read_for_hooks(tmp_path, path):
+    # written without git: a user's global ignore rule may list settings.local.json, and git would drop it
+    settings = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "npm ci"}]}]}}
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / path).write_text(json.dumps(settings), encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text("x", encoding="utf-8")
+    hooks = inspect_repo(WorkTree(tmp_path))["hook_risks"]
+    assert [(h["path"], h["event"]) for h in hooks] == [(path, "SessionStart")]
+
+
+@pytest.mark.parametrize("path", [".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"])
+def test_each_plugin_manifest_is_read_for_code(tmp_path, path):
+    _repo(tmp_path, {"AGENTS.md": "x", path: '{"name": "p", "hooks": "./hooks/hooks.json"}'})
+    (cap,) = inspect_repo(WorkTree(tmp_path))["capabilities"]
+    assert (cap["path"], cap["risk"]) == (path, "high")
+
+
+def test_a_linked_settings_file_is_not_followed(tmp_path):
+    settings = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "npm ci"}]}]}}
+    _repo(tmp_path, {"AGENTS.md": "x", "elsewhere.json": json.dumps(settings)})
+    (tmp_path / ".claude").mkdir()
+    os.symlink("../elsewhere.json", tmp_path / ".claude" / "settings.json")
+    payload = inspect_repo(WorkTree(tmp_path))
+    assert payload["hook_risks"] == []
+    assert [(c["path"], c["risk"]) for c in payload["capabilities"]] == [(".claude/settings.json", "medium")]
+
+
+@pytest.mark.parametrize("extra, read", [(0, True), (1, False)])
+def test_settings_size_limit_is_inclusive(tmp_path, extra, read):
+    """A settings file of exactly 1 MB is read; one byte more is not."""
+    head = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "npm ci"}]}]}}
+    base = json.dumps({**head, "pad": ""})
+    text = json.dumps({**head, "pad": "x" * (1_000_000 + extra - len(base))})
+    assert len(text) == 1_000_000 + extra
+    _repo(tmp_path, {"AGENTS.md": "x", ".claude/settings.json": text})
+    payload = inspect_repo(WorkTree(tmp_path))
+    assert bool(payload["hook_risks"]) is read
+    assert [c["risk"] for c in payload["capabilities"]] == (["high"] if read else ["medium"])
+
+
+@pytest.mark.parametrize("size, flagged", [(200_000, False), (200_001, True)])
+def test_instruction_large_threshold_is_exclusive(tmp_path, size, flagged):
+    """The threshold is pinned by value, not read from the constant, so a changed constant fails here."""
+    _repo(tmp_path, {"AGENTS.md": "x" * size})
+    payload = inspect_repo(WorkTree(tmp_path))
+    large = [f["path"] for f in payload["findings"] if f["rule"] == "instructions.large"]
+    notes = [n for i in payload["instructions"] if i["path"] == "AGENTS.md" for n in i["notes"]]
+    assert (large == ["AGENTS.md"]) is flagged
+    assert bool(notes) is flagged
+
+
+def test_large_file_threshold_skips_generated_and_minified(tmp_path):
+    sizes = {"a.js": 1000, "b.js": 1001, "dist/x.min.js": 5000, "vendor/v.js": 5000}
+    inventory = F.inventory(list(sizes), sizes, large=1000)
+    assert inventory["large"] == [{"path": "b.js", "bytes": 1001}]
+
+
+LOCKFILES = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb", "npm-shrinkwrap.json",
+             "uv.lock", "poetry.lock", "Pipfile.lock", "pdm.lock", "Cargo.lock", "go.sum", "composer.lock",
+             "Gemfile.lock", "gradle.lockfile"]
+GENERATED = ["deps/x.c", "vendor/x.go", "third_party/x.c", "third-party/x.c", "generated/x.ts", "__generated__/x.ts",
+             "node_modules/x/index.js", "tests/fixtures/x.json", "test/baselines/x.txt", "src/x.generated.ts",
+             "api/x.pb.go", "api/x.pb.cc", "api/x.pb.h", "api/x_pb2.py"]
+MINIFIED = ["dist/app.min.js", "dist/app.min.css", "dist/app.bundle.js", "dist/app.bundle.css"]
+
+
+@pytest.mark.parametrize("path", LOCKFILES + GENERATED)
+def test_each_generated_file_pattern(path):
+    inventory = F.inventory([path], None)
+    assert (inventory["generated"]["files"], inventory["minified"]) == (1, [])
+
+
+@pytest.mark.parametrize("path", MINIFIED)
+def test_each_minified_pattern(path):
+    inventory = F.inventory([path], None)
+    assert (inventory["generated"]["files"], inventory["minified"]) == (0, [path])
