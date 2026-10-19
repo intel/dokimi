@@ -347,7 +347,7 @@ def test_gitleaks_job_in_needs_network() -> None:
 
 
 def test_gitleaks_workflow_includes_merge_diffs() -> None:
-    """Regression: gitleaks uses -m flag to include merge diffs in PR scans."""
+    """Regression: gitleaks uses -m flag to include merge diffs in both PR and push-to-main scans."""
     workflows = cl.load_workflows()
     gitleaks_wf = None
     for name, wf in workflows:
@@ -369,9 +369,11 @@ def test_gitleaks_workflow_includes_merge_diffs() -> None:
 
     assert scan_step is not None, "Scan commits step not found"
 
-    # Verify the step includes -m flag for merge diffs
+    # Verify both PR scan (with range) and push-to-main scan (without range) include -m flag
     run_script = str(scan_step.get("run", ""))
     assert "-m" in run_script, "Merge diff flag (-m) not found in gitleaks scan step"
-    assert 'range=(--log-opts="-m origin/$BASE_REF..HEAD")' in run_script or \
-           'range=(--log-opts="-m origin/$' in run_script, \
-           "Merge diff flag not correctly placed in log-opts"
+    # Check for both branches: PR has 'range=(--log-opts="-m ...' and push-to-main has 'range=(--log-opts="-m")'
+    assert 'range=(--log-opts="-m origin/$BASE_REF..HEAD")' in run_script, \
+        "Merge diff flag not correctly placed in PR scan log-opts"
+    assert 'range=(--log-opts="-m")' in run_script, \
+        "Merge diff flag not in push-to-main scan log-opts"
