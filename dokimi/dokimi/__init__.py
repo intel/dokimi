@@ -6,9 +6,9 @@
 The context under test is documentation, a skill, an MCP doc source or an agent
 persona prompt.
 
-The command line (`python cli.py`, documented in the CLI reference) is the
-supported entry point; this reference covers the modules behind it. They group
-by evaluation track, as `docs/architecture.md` lays out:
+The command line, `dokimi` (`python cli.py` in a source checkout), has its own
+CLI reference; this reference covers the modules behind it. They group by
+evaluation track, as `docs/architecture.md` lays out:
 
 - Static documentation track: [`ingest`][dokimi.ingest] loads Markdown,
   [`metrics`][dokimi.metrics] scores it, [`runner`][dokimi.runner] runs a
