@@ -122,11 +122,15 @@ marked. Read it as a review queue:
 
 - **Internal only.** It says the two statements disagree, not which is wrong. That needs a
   primary source, which this layer does not consult.
-- **Lower bound.** Only atoms in the same call are compared, in fixed chunks of 40. Above 40
-  atoms some pairs are never compared, and the share falls as the set grows: 41 atoms compare
-  780 of 820 pairs (95%), 77 atoms 1,446 of 2,926 (49%), 120 atoms 2,340 of 7,140 (33%). Fewer than
-  half are compared from 72 atoms (1,276 of 2,556). The artifact states the share (`X of Y atom
-  pairs shared a call`).
+- **Lower bound.** Only atoms in the same call are compared. `analyze` sends the whole
+  extracted atom set (at most `max_atoms`, 120 by default) in one call, so every pair is compared
+  unless a call fails or its reply has to be split. The artifact records the share as
+  `conflict_coverage` (`pairs_compared`, `pairs_total`) and warns `the conflict check compared X of
+  Y atom pairs` when it is short. `pairs_total` is over the extracted atoms, which is a sample when
+  `spans.capped_atom_set` is true. The `harmful_atoms` gate check reads a count of 0 as cleared only
+  when the share reaches `min_conflict_coverage` (1.0 by default) and the atom set was not capped;
+  otherwise it is `measured: false`, as it is when `conflict_coverage` is present but malformed. A
+  conflict that was found is always reported.
 - **Unchecked atoms.** A call whose reply does not parse is split and re-asked only while both
   halves keep two atoms, since one statement has no pair to look at; a chunk of two or three whose
   reply does not parse fails with its error. Atoms in a call that failed, and an atom left alone in

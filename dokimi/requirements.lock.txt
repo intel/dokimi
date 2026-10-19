@@ -14,10 +14,8 @@ annotated-doc==0.0.5
     # via typer
 annotated-types==0.8.0
     # via pydantic
-anthropic==1.12.0
-    # via
-    #   -r requirements.txt
-    #   langchain-anthropic
+anthropic==1.13.0
+    # via langchain-anthropic
 anyio==4.15.1
     # via
     #   anthropic
@@ -32,8 +30,6 @@ attrs==26.1.0
     #   aiohttp
     #   jsonschema
     #   referencing
-beautifulsoup4==4.15.0
-    # via -r requirements.txt
 boto3==1.43.109
     # via litellm
 botocore==1.43.109
@@ -200,6 +196,7 @@ langchain-community==0.4.1
     #   ragas
 langchain-core==1.6.7
     # via
+    #   -r requirements.txt
     #   langchain
     #   langchain-anthropic
     #   langchain-classic
@@ -212,7 +209,9 @@ langchain-core==1.6.7
     #   langgraph-sdk
     #   ragas
 langchain-openai==1.6.7
-    # via ragas
+    # via
+    #   -r requirements.txt
+    #   ragas
 langchain-protocol==0.0.19
     # via
     #   langchain-core
@@ -446,8 +445,6 @@ sniffio==1.3.1
     #   anthropic
     #   langsmith
     #   openai
-soupsieve==2.10
-    # via beautifulsoup4
 sqlalchemy==2.1.4
     # via
     #   langchain-classic
@@ -486,7 +483,6 @@ typing-extensions==4.16.0
     #   aiosignal
     #   anthropic
     #   anyio
-    #   beautifulsoup4
     #   httpx2
     #   huggingface-hub
     #   langchain-core
