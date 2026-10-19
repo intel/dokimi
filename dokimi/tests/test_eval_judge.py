@@ -319,6 +319,15 @@ class TestJudgeAnswer:
         (["x: v1.2/wrong"], 95, 40),
         (["x (wrong, expected 128)"], 95, 40),
         (["x: partially wrong (expected 128)"], 95, 40),
+        # Negated incorrect: flips to right, does not cap.
+        (["x: dubious, not incorrect"], 95, 95),
+        # Case insensitivity on intensifiers and multi-char-class qualifiers.
+        (["x: dubious, Entirely wrong"], 95, 40),
+        (["x: C++/wrong"], 95, 40),
+        (["x: AVX-512/wrong"], 95, 40),
+        (["x (misleading/wrong)."], 95, 40),
+        # Hedged verdicts: a question mark leaves wrong unread.
+        (["x: dubious, wrong?"], 95, 95),
         # Figures with separators: the end-anchored pattern finds the real verdict.
         (["ratio 3:1, correct alignment assumed: misleading/wrong"], 95, 40),
         (["ratio 3:1, correct alignment assumed: not right"], 95, 40),

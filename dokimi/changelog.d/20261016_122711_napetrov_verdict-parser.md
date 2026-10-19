@@ -7,7 +7,7 @@
   judge called wrong did not cap `correctness` at 40. `not right` and
   `not correct` now cap too. A `/` or `,` is not a separator on its own
   (`x: see /wrong`, `x: see docs/wrong` and `64 bytes, wrong` stay unread;
-  only a single token right after the separator may qualify, as in
+  only slash-separated tokens right after the separator may qualify, as in
   `misleading/wrong`). After a qualifier list or comma, alternatives such as
   `right/wrong` stay unread, and adverbs other than intensifiers
   (`hardly wrong`, `possibly wrong`) leave the claim unread. Without a qualifier
