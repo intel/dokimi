@@ -67,7 +67,8 @@ The project is pre-1.0; interfaces and artifact schemas may still change.
   `AWS_REGION` + `AWS_BEARER_TOKEN_BEDROCK` for Bedrock). `GITHUB_TOKEN` is
   optional and raises the persona-discovery rate limit.
 - Docker, only for the executable-task, harness and repository tracks.
-- Optional extras: `ocr` (Docling ingestion) and `mcp` (real MCP servers).
+- Optional extras: `ragas` (`eval ragas`, `answers generate --ragas`), `ocr`
+  (Docling ingestion) and `mcp` (real MCP servers).
 
 ```bash
 pip install dokimi          # the released package and the `dokimi` command
