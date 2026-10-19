@@ -17,7 +17,9 @@ matter, as globs relative to the repository root:
 A PR that changes a file one of those globs matches, and does not touch the
 page itself, gets the page listed: in the job summary and as a warning on the
 page. It is a prompt to reread the page, not a gate: the script exits 0
-whatever it finds. A glob that matches no tracked file is a stale mapping, and
+whatever it finds. It exits 1 only for broken input, after naming the cause: a
+page whose ``depends_on`` is malformed (``::error file=<page>::``), or 2 for a
+``--base``/``--head`` git cannot diff. A glob that matches no tracked file is a stale mapping, and
 ``tests/test_docs_review_triggers.py`` fails on it.
 
 Glob syntax: ``**`` matches any run of characters including ``/``, ``*`` and
@@ -40,7 +42,7 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 DOCS = "dokimi/docs"
 # Match front matter with optional UTF-8 BOM and flexible line endings (LF or CRLF)
-_FRONT_MATTER = re.compile(r"\A﻿?---[ \t]*\r?\n(.*?\n)---[ \t]*\r?\n", re.DOTALL)
+_FRONT_MATTER = re.compile(r"\A\ufeff?---[ \t]*\r?\n(.*?\n)---[ \t]*\r?\n", re.DOTALL)
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -95,8 +97,7 @@ def load_pages(root: Path = REPO) -> dict[str, list[str]]:
             if globs:
                 pages[path.relative_to(root).as_posix()] = globs
         except ValueError as e:
-            print(f"ERROR: {path.relative_to(root)}: {e}", file=sys.stderr)
-            sys.exit(1)
+            raise ValueError(f"{path.relative_to(root).as_posix()}: {e}") from e
     return pages
 
 
@@ -146,7 +147,13 @@ def main(argv: list[str] | None = None) -> int:
     except subprocess.CalledProcessError as exc:
         print(f"cannot diff {args.base}...{args.head}: {exc.stderr.strip()}", file=sys.stderr)
         return 2
-    flagged = triggers(load_pages(), changed)
+    try:
+        pages = load_pages()
+    except ValueError as exc:
+        page, _, why = str(exc).partition(": ")
+        print(f"::error file={page},title=Docs review::{why}")
+        return 1
+    flagged = triggers(pages, changed)
     text = summary(flagged)
     print(text)
     for page, hits in flagged.items():

@@ -6,8 +6,8 @@ name: docs-review-triggers
 # Lists the docs pages whose `depends_on` front matter matches a file this PR
 # changes while the PR leaves the page alone, in the job summary and as a
 # warning on each page (scripts/check_docs_review_triggers.py). A prompt to
-# reread the page, not a gate: findings never fail the job. It posts no PR
-# comment, so a fork PR's read-only token is enough. That every glob still
+# reread the page, not a gate: findings never fail the job (only a malformed
+# depends_on or an undiffable base does). It posts no PR comment, so a fork PR's read-only token is enough. That every glob still
 # matches a file is checked by tests/test_docs_review_triggers.py in ci.yml.
 on:
   pull_request:

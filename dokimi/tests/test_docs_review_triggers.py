@@ -86,3 +86,63 @@ def test_every_depends_on_glob_matches_a_tracked_file():
     pages = cdrt.load_pages()
     assert pages, "no docs page declares depends_on"
     assert cdrt.stale_globs(pages, _tracked_files()) == []
+
+
+@pytest.mark.parametrize("text", [
+    "---\r\ndepends_on:\r\n  - a/**\r\n---\r\nx\r\n",
+    "\ufeff---\ndepends_on:\n  - a/**\n---\nx\n",
+])
+def test_crlf_and_bom_pages_keep_their_depends_on(text):
+    assert cdrt.depends_on(text) == ["a/**"]
+
+
+def _git_repo(path: Path) -> None:
+    for cmd in (["init", "-q"], ["config", "user.email", "t@example.com"],
+                ["config", "user.name", "t"], ["config", "commit.gpgsign", "false"]):
+        subprocess.run(["git", *cmd], cwd=path, check=True)
+
+
+def _commit(path: Path, msg: str) -> None:
+    subprocess.run(["git", "add", "-A"], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", msg], cwd=path, check=True)
+
+
+def test_changed_files_reports_both_sides_of_a_rename(tmp_path, monkeypatch):
+    _git_repo(tmp_path)
+    (tmp_path / "old.py").write_text("print('x' * 100)\n" * 20, encoding="utf-8")
+    _commit(tmp_path, "base")
+    subprocess.run(["git", "tag", "base"], cwd=tmp_path, check=True)
+    (tmp_path / "old.py").rename(tmp_path / "new.py")
+    _commit(tmp_path, "move")
+    monkeypatch.setattr(cdrt, "REPO", tmp_path)
+    assert sorted(cdrt.changed_files("base", "HEAD")) == ["new.py", "old.py"]
+
+
+def test_main_exits_2_for_a_base_git_cannot_diff(tmp_path, monkeypatch, capsys):
+    _git_repo(tmp_path)
+    (tmp_path / "f").write_text("x", encoding="utf-8")
+    _commit(tmp_path, "base")
+    monkeypatch.setattr(cdrt, "REPO", tmp_path)
+    assert cdrt.main(["--base", "no-such-ref", "--head", "HEAD"]) == 2
+    assert "no-such-ref" in capsys.readouterr().err
+
+
+def test_load_pages_keys_are_repo_relative(tmp_path):
+    docs = tmp_path / "dokimi" / "docs"
+    docs.mkdir(parents=True)
+    (docs / "a.md").write_text("---\ndepends_on: [x/**]\n---\n", encoding="utf-8")
+    (docs / "b.md").write_text("# no front matter\n", encoding="utf-8")
+    assert cdrt.load_pages(tmp_path) == {"dokimi/docs/a.md": ["x/**"]}
+
+
+@pytest.mark.parametrize("front", ["depends_on: a/**", "depends_on: [a"])
+def test_a_malformed_page_is_named_and_exits_1_not_a_traceback(tmp_path, monkeypatch, capsys, front):
+    docs = tmp_path / "dokimi" / "docs"
+    docs.mkdir(parents=True)
+    (docs / "bad.md").write_text(f"---\n{front}\n---\n", encoding="utf-8")
+    monkeypatch.setattr(cdrt, "changed_files", lambda base, head: [])
+    monkeypatch.setattr(cdrt, "REPO", tmp_path)
+    real = cdrt.load_pages
+    monkeypatch.setattr(cdrt, "load_pages", lambda: real(tmp_path))
+    assert cdrt.main([]) == 1
+    assert "::error file=dokimi/docs/bad.md" in capsys.readouterr().out
