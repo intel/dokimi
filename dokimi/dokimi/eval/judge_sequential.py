@@ -134,10 +134,10 @@ def run_sequential(
     if store is not None:
         require_context_scorer(scorer)
     noop: Dict[str, int] = {}
-    dropped: List[int] = [0]
     by_arm: Dict[str, Dict[str, int]] = {}
-    pairs = _build(answers, noop, n_bases=max_bases, seed=seed, variants=variants, library=library,
-                   store=store, dropped=dropped, by_arm=by_arm)
+    built = _build(answers, noop, n_bases=max_bases, seed=seed, variants=variants, library=library,
+                   store=store, by_arm=by_arm)
+    pairs = built.pairs
     order: List[tuple] = list(dict.fromkeys((p["base_id"], p.get("arm", "")) for p in pairs))
     graded = sorted({p["variant"] for p in pairs if p["variant"] not in NEUTRAL_VARIANTS})
     decisions: Dict[str, Dict[str, Any]] = {v: {"decision": "continue", "llr": 0.0, "n": 0} for v in graded}
@@ -145,7 +145,7 @@ def run_sequential(
     report.n_noop = noop
     report.variants = list(variants or DEGRADATIONS)
     report.context = "stored" if store is not None else "none"
-    report.n_without_context = dropped[0]
+    report.n_without_context = built.n_dropped
     report.by_arm = by_arm
     scored_bases: set = set()
     intact_cache: Dict[tuple, Any] = {}

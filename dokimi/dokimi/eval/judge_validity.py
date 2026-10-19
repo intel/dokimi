@@ -510,10 +510,10 @@ def run_validity(
         require_context_scorer(scorer)
     noop: Dict[str, int] = {}
     variants = list(variants or DEGRADATIONS)
-    dropped: List[int] = [0]
     by_arm: Dict[str, Dict[str, int]] = {}
-    pairs = _build(answers, noop, n_bases=n_bases, seed=seed, variants=variants, library=library,
-                   store=store, dropped=dropped, by_arm=by_arm)
+    built = _build(answers, noop, n_bases=n_bases, seed=seed, variants=variants, library=library,
+                   store=store, by_arm=by_arm)
+    pairs = built.pairs
     # In fixed mode, refuse before scoring if an arm with kept material has no pair left
     # (--bases can leave it out, or every one of its variants can be a no-op).
     if store is not None:
@@ -531,7 +531,7 @@ def run_validity(
     report.n_noop = noop
     report.variants = variants
     report.context = "stored" if store is not None else "none"
-    report.n_without_context = dropped[0]
+    report.n_without_context = built.n_dropped
     report.by_arm = by_arm
     return report
 
@@ -553,8 +553,16 @@ def attach_stored_context(pairs: List[Dict[str, Any]], store: Any) -> List[Dict[
     return kept
 
 
-def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropped=None,
-           by_arm=None) -> List[Dict[str, Any]]:
+@dataclass(frozen=True)
+class Built:
+    """Output of :func:`_build`: the pairs, and how many answers had no stored material."""
+
+    pairs: List[Dict[str, Any]]
+    n_dropped: int = 0
+
+
+def _build(answers, noop, *, n_bases, seed, variants, library, store=None,
+           by_arm=None) -> Built:
     dropped_from_pairs: Dict[str, int] = {}
     arms: Dict[str, Dict[str, int]] = by_arm if by_arm is not None else {}
     pairs = build_pairs(
@@ -588,6 +596,5 @@ def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropp
                 "not cover them: repair the artifact's judge_materials or drop those arms"
             )
         pairs = attach_stored_context(pairs, store)
-        if dropped is not None:
-            dropped[0] = dropped_from_pairs.get("total", 0)
-    return pairs
+        return Built(pairs, dropped_from_pairs.get("total", 0))
+    return Built(pairs)

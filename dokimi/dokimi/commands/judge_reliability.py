@@ -160,7 +160,7 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     if unknown:
         print(f"Error: unknown wording(s): {unknown}; known: {sorted(WORDINGS)}", file=sys.stderr)
         sys.exit(2)
-    pairs = _build(answers, {}, n_bases=args.bases, seed=args.seed, variants=variants, library=library)
+    pairs = _build(answers, {}, n_bases=args.bases, seed=args.seed, variants=variants, library=library).pairs
     label = f"{args.judge_provider}/{args.judge_model}"
     n_cond = 1 + args.redraws + len(wordings)
     print(f"Judge wording sensitivity: {label}, {len(pairs)} pairs x {n_cond} conditions "

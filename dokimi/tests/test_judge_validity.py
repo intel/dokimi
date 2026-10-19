@@ -1479,6 +1479,30 @@ def test_bases_with_no_stored_material_are_dropped_and_counted():
     assert "skill: 1 kept, 1 dropped, 1 bases sampled" in text
 
 
+def test_build_returns_pairs_and_dropped_count_without_an_out_param():
+    import dataclasses
+    import copy
+
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_validity import Built, _build
+
+    data = _with_materials()
+    third = copy.deepcopy(data["answers"][0])
+    third["question_id"] = "Q003"
+    data["answers"].append(third)
+    del data["answers"][0]["arms"]["skill"]["judge_context_sha256"]
+    built = _build(data["answers"], {}, n_bases=9, seed=0, variants=["truncate_20"], library="lib",
+                   store=JudgeContextStore.from_artifact(data), by_arm={})
+    assert isinstance(built, Built)
+    assert built.n_dropped == 1
+    assert built.pairs and all("context" in p for p in built.pairs)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        built.n_dropped = 5
+
+    no_store = _build(_answers(), {}, n_bases=3, seed=0, variants=["truncate_20"], library="lib")
+    assert no_store.n_dropped == 0 and no_store.pairs
+
+
 def test_no_stored_material_at_all_is_an_error_not_a_no_context_run():
     from dokimi.eval.judge_context import JudgeContextStore
 
