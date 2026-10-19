@@ -33,7 +33,8 @@ def tree(tmp_path: Path) -> Path:
     proj = tmp_path / "repo" / "proj"
     (proj / "docs" / "sub").mkdir(parents=True)
     (proj / "pkg").mkdir()
-    for f in ("mkdocs.yml", "docs/a.md", "docs/sub/b.md", "pkg/m.py", "pkg/x.png"):
+    for f in ("mkdocs.yml", "docs/a.md", "docs/sub/b.md", "pkg/m.py", "pkg/x.png",
+              "pkg/my file.py"):
         (proj / f).write_text("")
     (tmp_path / "repo" / "README.md").write_text("")
     (tmp_path / "other.md").write_text("")
@@ -88,6 +89,10 @@ def site_html(tree: Path, source: str, page: str = "a.md") -> str:
     ("a", "href", "https://e.com/a", "https://e.com/a"),
     ("a", "href", "#h", "#h"),
     ("a", "href", "../pkg/gone.py", "../pkg/gone.py"),
+    ("a", "href", "../pkg/m.py?plain=1#L3", f"{BASE}/blob/main/proj/pkg/m.py?plain=1#L3"),
+    ("a", "href", "../pkg/m.py?plain=1", f"{BASE}/blob/main/proj/pkg/m.py?plain=1"),
+    ("a", "href", "../pkg/my%20file.py", f"{BASE}/blob/main/proj/pkg/my%20file.py"),
+    ("a", "href", "../pkg/my file.py", f"{BASE}/blob/main/proj/pkg/my%20file.py"),
 ])
 def test_links_out_of_docs_point_at_github(
         tree: Path, tag: str, attr: str, target: str, out: str) -> None:
@@ -230,3 +235,22 @@ def test_raw_html_inside_a_fence_does_not_warn(
     with caplog.at_level(logging.WARNING):
         _convert(tree, src)
     assert "raw HTML" not in caplog.text
+
+
+def test_a_relative_img_src_in_raw_html_warns(
+        tree: Path, caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING):
+        _convert(tree, '<img src="../pkg/x.png">\n')
+    assert "relative src in raw HTML" in caplog.text and "'a.md'" in caplog.text
+
+
+def test_markdown_rendered_after_the_page_does_not_use_the_stale_page(tree: Path) -> None:
+    md_lib = pytest.importorskip("markdown")
+    config = _config(tree)
+    hooks.on_config(config)
+    page = SimpleNamespace(file=SimpleNamespace(src_uri="a.md", generated_by="gen"))
+    hooks.on_page_markdown("", page, config, None)
+    hooks.on_page_content("", page, config, None)
+    html = md_lib.Markdown(extensions=list(config["markdown_extensions"])).convert(
+        "[x](../pkg/m.py)")
+    assert "github.com" not in html and 'href="../pkg/m.py"' in html

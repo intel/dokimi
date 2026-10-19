@@ -30,14 +30,16 @@ import posixpath
 import re
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 from markdown_it import MarkdownIt
 
 log = logging.getLogger("mkdocs.hooks.dokimi")
 
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
-# Set in on_page_markdown, read by the treeprocessor during the following convert.
-# MkDocs renders one page at a time, after that hook returns.
+# Set in on_page_markdown, read by the treeprocessor during the following convert,
+# cleared in on_page_content. MkDocs renders one page at a time, after that hook
+# returns; Markdown rendered outside a page body is not rewritten.
 _page = None
 _config = None
 
@@ -46,8 +48,9 @@ def _rewrite(target: str, *, image: bool, docs_dir: Path, repo_root: Path, base:
              page_dir: str, page_uri: str) -> str:
     if target.startswith(("#", "/")) or _SCHEME.match(target):
         return target
-    path, sep, frag = target.partition("#")
-    resolved = (docs_dir / page_dir / path).resolve()
+    rest, hsep, frag = target.partition("#")
+    path, qsep, query = rest.partition("?")
+    resolved = (docs_dir / page_dir / unquote(path)).resolve()
     if resolved.is_relative_to(docs_dir) or not resolved.exists():
         return target
     if not resolved.is_relative_to(repo_root):
@@ -56,7 +59,7 @@ def _rewrite(target: str, *, image: bool, docs_dir: Path, repo_root: Path, base:
         return target
     rel = resolved.relative_to(repo_root).as_posix()
     kind = "tree" if resolved.is_dir() else "raw" if image else "blob"
-    return f"{base}/{kind}/main/{rel}{sep}{frag}"
+    return f"{base}/{kind}/main/{quote(rel)}{qsep}{query}{hsep}{frag}"
 
 
 def rewrite_tree(root, page, config) -> None:
@@ -196,6 +199,8 @@ def on_nav(nav, config, files):
 
 
 def on_page_content(html, page, config, files):
+    global _page, _config
+    _page, _config = None, None
     if page.file.generated_by is None:  # the generated reference pages are not read on GitHub
         problem = list_mismatch(page.file.content_string, html)
         if problem:
