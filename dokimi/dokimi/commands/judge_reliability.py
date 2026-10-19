@@ -29,6 +29,21 @@ def _load_answers(path: str):
     return data, answers
 
 
+def _require_arms(path: str, records, command: str) -> None:
+    """Exit 2, before any judge call, when no answers record holds ``arms``.
+
+    The arm judges read an arms run; a binary answers file's ``with_docs`` and
+    ``without_docs`` are not arms to them, so such a file would judge nothing.
+    """
+    from dokimi.eval.records import has_arms
+
+    if not has_arms(records):
+        print(f"Error: {path} has no arms answers (no record has an `arms` field); "
+              f"eval {command} reads an arms run (arms run --out-json), not a binary "
+              "with_docs/without_docs answers file", file=sys.stderr)
+        sys.exit(2)
+
+
 def _progress(label: str = ""):
     def cb(done: int, total: int) -> None:
         if done % 25 == 0 or done == total:
@@ -91,6 +106,7 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
+    _require_arms(args.answers, records, "pairwise")
     pairwise_jobs(records, baseline_arm=baseline, arms=arms)  # refuse a blank question before the probe call
     judge, label = pairwise_judge(args)
     print(f"Pairwise comparison: {label}, {len(records)} questions, baseline `{baseline}`")
@@ -125,6 +141,7 @@ def cmd_eval_checklist(args: argparse.Namespace) -> None:
     points = load_points(args.questions)
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
+    _require_arms(args.answers, records, "checklist")
     checklist_jobs(records, points, arms=arms)  # refuse a blank question before the probe call
     _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
     llm = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature).llm
@@ -311,6 +328,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
 
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     if specs:
+        _require_arms(args.answers, records, "cross-judge --judges")
         scored_answers(records)  # refuse a blank question before the probe call
     _check_judge_temperature([(m, p) for p, _, m in (s.partition("/") for s in specs) if m and p in JUDGE_PROVIDERS],
                              args.judge_temperature)
@@ -367,7 +385,7 @@ def register(eval_sub, positive_int) -> None:
         "checklist",
         help="Required-point coverage per arm: is each expected_topic in the answer? (both polarities)",
     )
-    ck.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json); a binary answers file is read as arms with_docs/without_docs (paid judge calls)")
+    ck.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json)")
     ck.add_argument("--questions", required=True, help="Questions JSON whose expected_topics are the points")
     ck.add_argument("--baseline-arm", default=None, dest="baseline_arm",
                     help="Arm the others are compared to (default: the run's baseline_arm)")
@@ -408,7 +426,7 @@ def register(eval_sub, positive_int) -> None:
         "cross-judge",
         help="Each arm's delta under several judges and axes, labelled CONSISTENT / JUDGE-DEPENDENT / ...",
     )
-    cj.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json); a binary answers file is read as arms with_docs/without_docs (paid judge calls)")
+    cj.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json)")
     cj.add_argument("--judges", default=None,
                     help="Comma-separated provider/model judges to re-score with, e.g. "
                          "amazon-bedrock/us.anthropic.claude-haiku-5-5,amazon-bedrock/openai.gpt-oss-120b-1:0")
@@ -442,7 +460,7 @@ def register(eval_sub, positive_int) -> None:
         "pairwise",
         help="Every arm vs the baseline, both answers shown together in both orders; optional escalation",
     )
-    pw.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json); a binary answers file is read as arms with_docs/without_docs (paid judge calls)")
+    pw.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json)")
     pw.add_argument("--product", default=None, help="Library name (default: read from answers file)")
     pw.add_argument("--baseline-arm", default=None, dest="baseline_arm")
     pw.add_argument("--arms", default=None, help="Comma-separated arms to compare (default: all)")

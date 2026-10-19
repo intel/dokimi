@@ -311,3 +311,23 @@ def test_a_join_keeps_an_answers_record_with_no_evaluation_and_appends_eval_only
 def test_a_join_refuses_a_duplicate_answers_record():
     with pytest.raises(RecordError, match="duplicate question_id 'q1' in answers"):
         records.join([_answer("q1"), _answer("q1")], [], source="run")
+
+
+def test_arm_answers_and_arm_scores_read_only_the_arms_fields():
+    binary = records.record(_answer("q1"), kind="answers")
+    arms = records.record({"question_id": "q2", "arms": {
+        "baseline": {"answer": "b", "evaluation": {"aggregate_score": 40}},
+        "skill": {"answer": "s", "evaluation": {"aggregate_score": 50}}},
+        "scores": {"skill": {"aggregate": 90}, "baseline": None}})
+    assert records.arm_answers(binary) == {} and records.arm_scores(binary) == {}
+    assert list(records.arm_answers(arms)) == ["baseline", "skill"]
+    # `scores` only: its null baseline is unscored, whatever the legacy inline score says.
+    assert {k: s.aggregate for k, s in records.arm_scores(arms).items()} == {"skill": 90}
+    assert records.has_arms([binary, arms]) and not records.has_arms([binary])
+
+
+def test_question_id_wins_over_id_and_id_is_the_fallback():
+    """The changelog's rule for a hand-merged record carrying both."""
+    assert records.record({"question_id": "QID", "id": "ID"}).question_id == "QID"
+    assert records.record({"question_id": "", "id": "ID"}).question_id == "ID"
+    assert records.record({"id": 0}).question_id == 0

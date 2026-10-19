@@ -387,25 +387,99 @@ def test_baseline_summary_leaves_out_a_question_with_an_unscored_baseline():
     assert summary == {"n": 4, "avg_with": 80.0, "avg_without": 60.0, "avg_delta": 20.0}
 
 
-def test_eval_pairwise_reads_a_binary_answers_file_as_two_arms(tmp_path, monkeypatch):
-    """Accepted on purpose (changelog): with_docs/without_docs are judged as arms, and paid for."""
-    import sys
-    from unittest.mock import MagicMock
+# ── the arm judges read arms runs only, as before records.py ───────────
 
-    from dokimi import cli
 
-    answers = tmp_path / "answers.json"
-    answers.write_text(json.dumps({"answers": [
+def _binary_answers_file(tmp_path):
+    path = tmp_path / "answers.json"
+    path.write_text(json.dumps({"answers": [
         {"question_id": f"q{i}", "question_text": f"Q{i}?",
          "with_docs": {"answer": f"with {i}"}, "without_docs": {"answer": f"without {i}"}}
         for i in range(2)]}), encoding="utf-8")
+    return path
+
+
+def _legacy_arms_run():
+    """An arms run from before the `evaluations` list: scores inline at arms[name].evaluation."""
+    def arm(answer, score):
+        return {"answer": answer, "evaluation": {"aggregate_score": score}}
+    return {"library_name": "L", "baseline_arm": "baseline", "answers": [
+        {"question_id": f"q{i}", "question_text": f"Q{i}?",
+         "arms": {"baseline": arm(f"b{i}", 50), "skill": arm(f"s{i}", 70)}} for i in range(3)]}
+
+
+def test_the_arm_judges_send_no_binary_answer_to_a_judge():
+    """Before records.py these read `arms` only; with_docs/without_docs are not two arms."""
+    from dokimi.eval.checklist import checklist_jobs
+    from dokimi.eval.cross_judge import scored_answers
+    from dokimi.eval.pairwise import pairwise_jobs
+
+    binary = [{"question_id": "q0", "question_text": "Q0?",
+               "with_docs": {"answer": "with"}, "without_docs": {"answer": "without"}}]
+    arms = [{"question_id": "q1", "question_text": "Q1?",
+             "arms": {"baseline": {"answer": "b"}, "skill": {"answer": "s"}}}]
+    assert scored_answers(binary) == []
+    assert pairwise_jobs(binary, baseline_arm="without_docs") == []
+    assert checklist_jobs(binary, {"q0": ["p"]}) == []
+    # A mixed list keeps its arms records, as before.
+    assert [(r.question_id, arm) for r, arm, _, _ in scored_answers(binary + arms)] == [
+        ("q1", "baseline"), ("q1", "skill")]
+    assert [j[:2] for j in pairwise_jobs(binary + arms)] == [("skill", "q1")]
+
+
+@pytest.mark.parametrize("command", [
+    ["pairwise", "--baseline-arm", "without_docs"],
+    ["checklist", "--baseline-arm", "without_docs"],
+    ["cross-judge", "--judges", "amazon-bedrock/m", "--baseline-arm", "without_docs"],
+])
+def test_the_arm_judges_refuse_a_binary_answers_file_before_any_call(tmp_path, monkeypatch, capsys, command):
+    """Base: no judge call and exit 2 (pairwise, checklist) or an empty table; never paid calls."""
+    from unittest.mock import MagicMock
+
+    from dokimi.cli import build_parser
+
+    answers = _binary_answers_file(tmp_path)
+    questions = tmp_path / "questions.json"
+    questions.write_text(json.dumps({"questions": [
+        {"id": f"q{i}", "text": f"Q{i}?", "expected_topics": ["a point"]} for i in range(2)]}),
+        encoding="utf-8")
     judge = MagicMock()
-    judge.compare.return_value = MagicMock(winner="a", escalated=False)
+    monkeypatch.setattr("dokimi.eval.judge.Judge", judge)
     monkeypatch.setattr("dokimi.commands.judge_reliability.pairwise_judge", lambda args: (judge, "stub/judge"))
-    monkeypatch.setattr("dokimi.eval.pairwise.ArmPairwiseReport.format_markdown", lambda self: "md\n")
-    monkeypatch.setattr("dokimi.eval.pairwise.ArmPairwiseReport.to_dict", lambda self: {})
-    monkeypatch.setattr(sys, "argv", ["dokimi", "eval", "pairwise", "--answers", str(answers),
-                                      "--baseline-arm", "without_docs", "--output", str(tmp_path / "pw.json")])
-    cli.main()
-    calls = {(c.args[2], c.args[3]) for c in judge.compare.call_args_list}
-    assert calls == {("with 0", "without 0"), ("with 1", "without 1")}
+    extra = ["--questions", str(questions)] if command[0] == "checklist" else []
+    args = build_parser().parse_args(["eval", *command, "--answers", str(answers), *extra,
+                                      "--output", str(tmp_path / "out.json")])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert "has no arms answers" in capsys.readouterr().err
+    assert judge.mock_calls == []
+    assert not (tmp_path / "out.json").exists()
+
+
+def test_cross_judge_takes_no_stored_measure_from_legacy_inline_scores():
+    """Base read stored scores from `evaluations` only; inline legacy scores are not the stored judge."""
+    from dokimi.eval.cross_judge import stored_measure, unreproducible_arms
+
+    assert stored_measure(_legacy_arms_run()) is None
+    assert unreproducible_arms(_legacy_arms_run()) == []
+
+
+def test_cross_judge_takes_no_stored_measure_from_binary_evaluations():
+    from dokimi.eval.cross_judge import stored_measure
+
+    assert stored_measure({"evaluations": [_ev(0, 80, 60, 20)]}) is None
+
+
+def test_cross_judge_on_a_legacy_inline_score_run_has_nothing_to_compare(tmp_path, capsys):
+    """Base exit 2: no `evaluations`, so no stored measure and nothing to compare."""
+    from dokimi.cli import build_parser
+
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(_legacy_arms_run()), encoding="utf-8")
+    args = build_parser().parse_args(["eval", "cross-judge", "--answers", str(path),
+                                      "--output", str(tmp_path / "cj.json")])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert "nothing to compare" in capsys.readouterr().err

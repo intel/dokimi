@@ -54,7 +54,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
 from dokimi.eval.question_text import require_question_text
-from dokimi.eval.records import Answer, Record, RecordError, RecordLike, Run
+from dokimi.eval.records import Answer, Record, RecordError, RecordLike, Run, arm_answers, arm_scores
 from dokimi.eval.records import record as as_record
 from dokimi.eval.records import records as as_records
 from dokimi.eval.stats import adjust_pvalues, mean_ci
@@ -151,8 +151,8 @@ def stored_label(data: Union[Run, Dict[str, Any]]) -> str:
     return f"{provider}/{model}{STORED}" if provider and model else "stored judge"
 
 
-def _unjoined(data: Union[Run, Dict[str, Any]], *, skip_malformed: bool = False) -> Sequence[Record]:
-    """The answers and evaluation records of an arms run, read without joining them.
+def _unjoined(data: Union[Run, Dict[str, Any]], key: str, *, skip_malformed: bool = False) -> Sequence[Record]:
+    """The *key* (``answers`` or ``evaluations``) records of an arms run, not joined.
 
     Neither caller needs a join, and a join refuses repeated question ids, which
     older arms files hold (the runner's ``unknown_q`` fallback id). With
@@ -161,19 +161,17 @@ def _unjoined(data: Union[Run, Dict[str, Any]], *, skip_malformed: bool = False)
     """
     if isinstance(data, Run):
         return data.records
+    items = data.get(key)
+    if not isinstance(items, list):
+        return []
+    if not skip_malformed:
+        return as_records(items, source=f"arms run {key}", kind=key)
     out: List[Record] = []
-    for key in ("answers", "evaluations"):
-        items = data.get(key)
-        if not isinstance(items, list):
+    for i, item in enumerate(items):
+        try:
+            out.append(as_record(item, source=f"arms run {key}", index=i, kind=key))
+        except RecordError:
             continue
-        if not skip_malformed:
-            out.extend(as_records(items, source=f"arms run {key}", kind=key))
-            continue
-        for i, item in enumerate(items):
-            try:
-                out.append(as_record(item, source=f"arms run {key}", index=i, kind=key))
-            except RecordError:
-                continue
     return out
 
 
@@ -193,26 +191,28 @@ def unreproducible_arms(data: Union[Run, Dict[str, Any]]) -> List[str]:
     (p 0.65) with the 28-char snippet. A baseline arm has no material, so all judges
     see the same thing.
     """
-    run = _unjoined(data, skip_malformed=True)
     kinds = {
         arm: (a.raw.get("metadata") or {}).get("arm_kind")
-        for r in run for arm, a in r.answers.items()
+        for r in _unjoined(data, "answers", skip_malformed=True) for arm, a in arm_answers(r).items()
     }
     return sorted({
-        arm for r in run for arm, s in r.scores.items()
+        arm for r in _unjoined(data, "evaluations", skip_malformed=True) for arm, s in arm_scores(r).items()
         if s.raw.get("judge_context_source") == SOURCE_STORED
         and kinds.get(arm) != "baseline"
     })
 
 
 def stored_measure(data: Union[Run, Dict[str, Any]], name: Optional[str] = None) -> Optional[Measure]:
-    """The aggregate the arms run itself recorded, if it was judged."""
-    run = _unjoined(data)
+    """The aggregate the arms run itself recorded in its ``evaluations``, if it was judged.
+
+    Only ``evaluations[].scores``: a legacy inline ``arms[name].evaluation`` and a
+    binary file's condition scores are not this measure.
+    """
     m = Measure(name=name or stored_label(data), kind="aggregate")
-    for r in run:
-        for arm in r.scores:
-            if (v := r.score(arm)) is not None:
-                m.scores[(r.question_id, arm)] = float(v)
+    for r in _unjoined(data, "evaluations"):
+        for arm, s in arm_scores(r).items():
+            if s.aggregate is not None:
+                m.scores[(r.question_id, arm)] = float(s.aggregate)
     return m if m.scores else None
 
 
@@ -246,7 +246,7 @@ def scored_answers(
     return [
         (r, arm, a, require_question_text(r.raw, i))
         for i, r in enumerate(as_records(records, source="answers", kind="answers"))
-        for arm, a in r.answers.items()
+        for arm, a in arm_answers(r).items()
         if a.text and (arms is None or arm in arms)
     ]
 

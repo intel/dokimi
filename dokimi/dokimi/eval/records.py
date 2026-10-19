@@ -34,6 +34,9 @@ records(items) / record(item)
     function documented as taking records accepts either.
 join(answers, evaluations)
     Attach scores to the answers they score, by question id.
+arm_answers(record) / arm_scores(record) / has_arms(records)
+    Only what an arms run holds under ``arms`` and ``scores``, for the readers
+    that judge arms and refuse a binary file.
 
 Values are read, not normalised: a question id stays the ``str`` or ``int`` it was
 written as and an aggregate stays the ``int`` or ``float`` it was written as, so a
@@ -370,6 +373,33 @@ def join(
         ))
     out.extend(e for e in evs if e.key not in seen)
     return out
+
+
+def arm_answers(rec: Record) -> Mapping[str, Answer]:
+    """The answers a record holds under ``arms``; empty for a binary record.
+
+    The arm judges (pairwise, checklist, cross-judge) read only these: a binary
+    record's ``with_docs``/``without_docs`` answers are not arms to them.
+    """
+    return rec.answers if isinstance(rec.raw.get("arms"), Mapping) else {}
+
+
+def arm_scores(rec: Record) -> Mapping[str, Score]:
+    """The scores a record holds under ``scores``, the ``evaluations`` field of an arms run.
+
+    Not a binary record's condition scores, and not a legacy inline
+    ``arms[name].evaluation``: an arms run's stored judge is its ``evaluations``.
+    """
+    block = rec.raw.get("scores")
+    if not isinstance(block, Mapping):
+        return {}
+    return {name: rec.scores[name] for name, payload in block.items()
+            if isinstance(payload, Mapping) and name in rec.scores}
+
+
+def has_arms(recs: Iterable[Record]) -> bool:
+    """Whether any record holds answers under ``arms`` (an arms run, not a binary file)."""
+    return any(isinstance(r.raw.get("arms"), Mapping) for r in recs)
 
 
 # ---------------------------------------------------------------------------

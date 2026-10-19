@@ -58,7 +58,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.question_text import require_question_text
-from dokimi.eval.records import RecordLike, records as as_records
+from dokimi.eval.records import RecordLike, arm_answers, records as as_records
 
 PAIRWISE_PROMPT = """You are comparing two answers to the same technical question about __LIBRARY_NAME__.
 
@@ -283,11 +283,12 @@ def pairwise_jobs(
     """
     jobs: List[Tuple[str, Union[str, int], str, str, str]] = []
     for i, rec in enumerate(as_records(records, source="answers", kind="answers")):
-        base_answer = rec.answer(baseline_arm)
+        by_arm = arm_answers(rec)
+        base_answer = by_arm.get(baseline_arm)
         base = base_answer.text if base_answer is not None else None
         if not base:
             continue
-        for arm, a in rec.answers.items():
+        for arm, a in by_arm.items():
             if arm != baseline_arm and a.text and (arms is None or arm in arms):
                 jobs.append((arm, rec.question_id, require_question_text(rec.raw, i), a.text, base))
     return jobs

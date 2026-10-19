@@ -37,7 +37,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.pairwise import ask_parsed, standalone_verdict
 from dokimi.eval.question_text import require_question_text
-from dokimi.eval.records import RecordLike, records as as_records
+from dokimi.eval.records import RecordLike, arm_answers, records as as_records
 from dokimi.eval.stats import mean_ci
 from dokimi.utils import question_id
 
@@ -285,7 +285,7 @@ def checklist_jobs(
             if report is not None:
                 report.n_without_points += 1
             continue
-        pending = [(arm, a.text) for arm, a in rec.answers.items()
+        pending = [(arm, a.text) for arm, a in arm_answers(rec).items()
                    if a.text and (arms is None or arm in arms)]
         # Only a record that would be judged must carry a question; the others keep what they have.
         question = require_question_text(rec.raw, i) if pending else rec.question_text
