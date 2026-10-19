@@ -71,7 +71,7 @@ from .agent_sandbox import (
 )
 from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
 from .command import _parse_reward_text
-from .container_agent import AGENT_BIN, FILES_DIR, ContainerSandbox, Docker
+from .container_agent import AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, ContainerSandbox, Docker
 from .models import HarnessResult, OperationRecord
 from .skill_treatment import Treatment, build_plugin, check_skill, treatment_notice
 from .solver_stream import record_solver, run_solver
@@ -90,7 +90,7 @@ from .tasks import (  # noqa: F401  (timeouts re-exported)
 _RECOMPILE_RE = re.compile(r"(g\+\+|gcc) [^`\n]*-o /app/[^ `\n]*")
 _PROXY_VARS = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
 _DEFAULT_SOLVE_TIMEOUT = 600.0
-_DOCKER_STEP_TIMEOUT = 600.0  # a docker step without a budget of its own (cp, exec, inspect, ...)
+_DOCKER_STEP_TIMEOUT = DOCKER_STEP_TIMEOUT
 _CONTAINER_PLUGIN = "/opt/abskill"
 # The only tree a docker-* agent edits: the host agent's snapshot and copy-back,
 # the in-container agent's chown and `-w`. Anything else (an exported
@@ -446,21 +446,45 @@ class DockerSolverHarness:
         try:
             proc = run_solver(argv, output_dir, extra_metrics, treatment, secrets, timeout=timeout,
                               env=client_env, runner=self.runner)
+            # Before the cleanup: a stuck cleanup step must not lose the solve's stream and cost.
+            usage = record_solver(proc, task.name, model, time.time() - t0, output_dir,
+                                  operations, log, extra_metrics, treatment, secrets)
         finally:  # also on a timeout: stop the agent, keep its tree for debugging
-            sandbox.reap(container, self._docker, log)  # nothing the agent backgrounded sees /tests
-            # Not on the verifier's side of the run.
-            self._docker(["exec", "-u", "root", container, "rm", "-rf", _CONTAINER_PLUGIN], log, check=False)
-            _rmtree(output_dir / "work")
-            (output_dir / "work").mkdir(parents=True)
-            self._docker(["cp", f"{container}:/app/.", str(output_dir / "work")], log, check=False)
-            # The verifier runs the agent's /app code as root, on bridge for a public task.
-            self._docker(["exec", "-u", "root", container, "rm", "-rf", FILES_DIR], log, check=False)
-        usage = record_solver(proc, task.name, model, time.time() - t0, output_dir,
-                              operations, log, extra_metrics, treatment, secrets)
+            stuck = self._stop_container_agent(container, output_dir, sandbox, log)
+        if stuck is not None:  # the agent may still run, or its credentials remain: no verdict
+            raise stuck
         failed = self._recompile(task, container, log)
         if failed:
             extra_metrics["recompile_failed"] = failed
         return usage
+
+    def _stop_container_agent(self, container: str, output_dir: Path, sandbox: ContainerSandbox,
+                              log) -> Optional[subprocess.TimeoutExpired]:
+        """End the in-container agent's side of the run; every step runs, whatever the others do.
+
+        Returns the first step that timed out (the caller must not verify then): a
+        survivor could read ``/tests``, and the verifier runs the agent's ``/app``
+        code as root, so leftover credential files are reachable by it.
+        """
+        stuck: Optional[subprocess.TimeoutExpired] = None
+
+        def note(proc: process.Completed) -> None:
+            nonlocal stuck
+            if proc.timed_out and stuck is None:
+                stuck = subprocess.TimeoutExpired(proc.argv, _DOCKER_STEP_TIMEOUT)
+
+        try:
+            sandbox.reap(container, self._docker, log)  # nothing the agent backgrounded sees /tests
+        except subprocess.TimeoutExpired as exc:
+            stuck = exc
+        # Not on the verifier's side of the run.
+        note(self._docker(["exec", "-u", "root", container, "rm", "-rf", _CONTAINER_PLUGIN], log, check=False))
+        _rmtree(output_dir / "work")
+        (output_dir / "work").mkdir(parents=True)
+        self._docker(["cp", f"{container}:/app/.", str(output_dir / "work")], log, check=False)
+        # The verifier runs the agent's /app code as root, on bridge for a public task.
+        note(self._docker(["exec", "-u", "root", container, "rm", "-rf", FILES_DIR], log, check=False))
+        return stuck
 
     def _prepare_workspace(self, task: TaskSpec, container: str, log,
                            extra_metrics: Optional[dict[str, Any]] = None,
@@ -575,6 +599,8 @@ class DockerSolverHarness:
             cc = match.group(0).strip()
             log.write(f"\n[recompile] {cc}\n")
             proc = self._docker(["exec", "-u", "root", container, "bash", "-lc", cc], log, check=False)
+            if proc.timed_out:  # no verdict on a binary that may be stale or half-built
+                raise subprocess.TimeoutExpired(proc.argv, _DOCKER_STEP_TIMEOUT)
             if proc.returncode != 0:
                 log.write(f"[recompile] FAILED (exit {proc.returncode}): {cc}\n")
                 failed.append(cc)
@@ -602,6 +628,8 @@ class DockerSolverHarness:
             ["cp", f"{container}:/logs/verifier/reward.txt", str(reward_file)],
             log, check=False,
         )
+        if pulled.timed_out:  # not "no reward file": the exit code would pass a failing verifier
+            raise subprocess.TimeoutExpired(pulled.argv, _DOCKER_STEP_TIMEOUT)
         if pulled.returncode == 0 and reward_file.is_file():
             return _parse_reward_text(
                 reward_file.read_text(encoding="utf-8", errors="replace"), reward_file=True

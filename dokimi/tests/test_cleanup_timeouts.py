@@ -28,7 +28,7 @@ def _no_host_claude(tmp_path, monkeypatch):
 
 
 def test_stop_proxy_timeout_aborts_before_verification(tmp_path):
-    """Thread #235: If sidecar removal times out, abort before verification runs.
+    """If sidecar removal times out, abort before verification runs.
 
     This prevents the credential-bearing sidecar from continuing to run while
     verification is in progress.
@@ -50,7 +50,7 @@ def test_stop_proxy_timeout_aborts_before_verification(tmp_path):
 
 
 def test_stop_proxy_timeout_retried_in_close(tmp_path):
-    """Thread #235: If sidecar removal timed out during stop_proxy, close() retries as best-effort.
+    """If sidecar removal timed out during stop_proxy, close() retries as best-effort.
 
     The close() method should catch the TimeoutExpired from stop_proxy and
     continue with network cleanup rather than propagating the timeout.
@@ -78,7 +78,7 @@ def test_stop_proxy_timeout_retried_in_close(tmp_path):
 
 
 def test_reap_timeout_aborts_cell(tmp_path):
-    """Thread #450: If pre-verifier reap times out, abort the cell before verification.
+    """If pre-verifier reap times out, abort the cell before verification.
 
     This prevents running agents' processes from accessing the verifier's test files
     or modifying /app while verification is in progress.
@@ -102,9 +102,16 @@ def test_reap_timeout_aborts_cell(tmp_path):
     log = (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
     assert "TIMEOUT" in log or "timed out" in log
 
+    # The rest of the cleanup still ran: the agent's tree is kept, the credential files
+    # are removed, and the solve's stream and cost are recorded before the cleanup.
+    assert (tmp_path / "out" / "work").is_dir()
+    assert any(c.argv[1] == "cp" and ":/app/." in c.argv[2] for c in cli.calls)
+    assert any(c.argv[1] == "exec" and "-rf" in c.argv and "files" in c.argv[-1] for c in cli.calls)
+    assert (tmp_path / "out" / "solver.jsonl").is_file()
+
 
 def test_recompile_timeout_aborts_cell(tmp_path):
-    """Thread #577: If recompile times out, abort the cell before verification.
+    """If recompile times out, abort the cell before verification.
 
     This prevents stale or partially-built binaries from being verified,
     and stops compilation from continuing to consume resources.
@@ -174,3 +181,27 @@ def test_reward_file_copy_timeout_fails_task(tmp_path):
     # The timeout should result in returncode 124 and reward 0.0
     assert result.returncode == 124, f"Should timeout when reward.txt copy times out; got {result.returncode}"
     assert result.reward == 0.0, "Should get reward 0.0 when reward.txt copy times out"
+
+
+def test_plugin_removal_timeout_aborts_cell(tmp_path):
+    """A plugin-directory removal that times out aborts the cell before verification."""
+    task = load_task(_fixture_task(tmp_path))
+    cli = _pipeline(reward=1.0, answer=lambda call: reply(timed_out=True) if (
+        call.argv[1] == "exec" and "-rf" in call.argv and "abskill" in call.argv[-1]) else None)
+
+    result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
+
+    assert result.returncode == 124
+    assert result.reward == 0.0
+    assert not [c for c in cli.calls if c.argv[1] == "exec" and "test.sh" in " ".join(c.argv)]
+
+
+def test_reward_copy_timeout_does_not_fall_back_to_the_exit_code(tmp_path):
+    """A verifier that exits 0 must not pass because the reward.txt copy timed out."""
+    task = load_task(_fixture_task(tmp_path))
+    cli = _pipeline(reward=0.0, answer=lambda call: reply(timed_out=True) if (
+        call.argv[1] == "cp" and "reward.txt" in " ".join(call.argv)) else None)
+
+    result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
+
+    assert (result.returncode, result.reward, result.passed) == (124, 0.0, False)

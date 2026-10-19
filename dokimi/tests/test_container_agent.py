@@ -920,7 +920,7 @@ def test_close_removes_the_env_file_dir(tmp_path):
     sb = _sandbox(tmp_path)
     sb.exec_argv("c1", {"ANTHROPIC_API_KEY": "secret"}, ["true"])
     assert list((tmp_path / "envfiles").iterdir())
-    sb.close(lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""), None, None)
+    sb.close(lambda *a, **k: reply(), None, None)
     assert not (tmp_path / "envfiles").exists()
 
 
@@ -1122,7 +1122,7 @@ def test_ctrl_c_while_the_sidecar_starts_still_cleans_up(tmp_path, monkeypatch):
         calls.append(list(args))
         if args[0] == "create":
             raise KeyboardInterrupt
-        return subprocess.CompletedProcess(args, 0, "", "")
+        return reply()
 
     # A temp dir of the test's own: under pytest-xdist other workers create and
     # remove dokimi-env-* in the shared one while this test runs.

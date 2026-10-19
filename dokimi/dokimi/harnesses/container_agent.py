@@ -84,6 +84,7 @@ _FILE_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS
               "GOOGLE_APPLICATION_CREDENTIALS", "AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE")
 PROXY_PORT = 3128
 _PROBE_TIMEOUT_SEC = 120.0
+DOCKER_STEP_TIMEOUT = 600.0  # a docker step without a budget of its own (cp, exec, inspect, ...)
 # The sidecar needs only a Python 3 interpreter. Pinned by digest (a tag moves, and
 # the sidecar holds the upstream proxy URL); override for a mirror or an offline runner.
 PROXY_IMAGE = os.environ.get(
@@ -215,8 +216,10 @@ class ContainerSandbox:
         task joins for its verifier. ``kill -1`` as the agent uid reaches only
         that uid's processes; PID 1 belongs to root and stays.
         """
-        docker(["exec", "-u", AGENT_UID, container, "sh", "-c", "kill -9 -1 2>/dev/null; true"],
-               log, check=False)
+        ran = docker(["exec", "-u", AGENT_UID, container, "sh", "-c", "kill -9 -1 2>/dev/null; true"],
+                     log, check=False)
+        if ran.timed_out:  # survivors may still be running: the caller must not verify
+            raise subprocess.TimeoutExpired(ran.argv, DOCKER_STEP_TIMEOUT)
 
     def env(self, source: dict[str, str], extra: Optional[dict[str, str]] = None) -> dict[str, str]:
         """The agent's environment inside the container."""
@@ -317,14 +320,20 @@ class ContainerSandbox:
         (a public task's verifier joins bridge right after)."""
         if self._stopped:
             return
-        self._stopped = True
         logs = docker(["logs", self.proxy_name], log, check=False)
         self.log = parse_log(getattr(logs, "stdout", "") or "")
-        docker(["rm", "-f", self.proxy_name], log, check=False)
+        removed = docker(["rm", "-f", self.proxy_name], log, check=False)
+        if removed.timed_out:  # still running, with the credentials: not stopped, close() retries
+            raise subprocess.TimeoutExpired(removed.argv, DOCKER_STEP_TIMEOUT)
+        self._stopped = True
 
     def close(self, docker: Docker, log, output_dir: Optional[Path]) -> None:
         """Stop the sidecar, save its decisions as ``egress.jsonl``, drop the network."""
-        self.stop_proxy(docker, log)
+        try:
+            self.stop_proxy(docker, log)
+        except subprocess.TimeoutExpired as exc:  # teardown is best-effort: go on to the network
+            if log is not None:
+                log.write(f"\n[sidecar removal] timed out after {exc.timeout:g}s\n")
         if output_dir is not None:
             with (output_dir / "egress.jsonl").open("w", encoding="utf-8") as fh:
                 for row in self.log:
