@@ -51,17 +51,27 @@ def shell_reads(script: str) -> list[str]:
     """Files a command only prints: ``cat a b``, ``head -n 5 a``, ``sed -n '1,80p' a``, ``nl -ba a``.
 
     A pipeline or a redirect is not a read of its arguments (``cat a > b`` writes b), so it gives nothing;
-    each ``&&`` / ``;`` part is read on its own.
+    each ``&&`` / ``;`` part is read on its own. Working directory changes via ``cd`` are tracked
+    to resolve subsequent reads to the correct path.
     """
     out: list[str] = []
-    for part in _SPLIT.split(script):
+    # Split only on unquoted shell operators to preserve quoted arguments.
+    parts = _split_at_unquoted_operators(script)
+    cwd = ""  # current working directory relative to script root
+    for part in parts:
         if not part or re.search(r"[|<>`$]", part):
             continue
         try:
             words = shlex.split(part)
         except ValueError:
             continue
-        if not words or words[0] not in _PRINTERS:
+        if not words:
+            continue
+        # Track directory changes from cd commands
+        if words[0] == "cd" and len(words) > 1:
+            cwd = words[1]
+            continue
+        if words[0] not in _PRINTERS:
             continue
         args = words[1:]
         if words[0] == "sed":
@@ -76,13 +86,68 @@ def shell_reads(script: str) -> list[str]:
                 skip = True
             elif not a.startswith("-"):
                 files.append(a)
+        # Apply cwd prefix to each file, if cwd is known
+        if cwd:
+            files = [f"{cwd}/{f}" if not f.startswith("/") else f for f in files]
         out.extend(files)
     return out
+
+
+def _split_at_unquoted_operators(script: str) -> list[str]:
+    """Split script on unquoted &&, ||, ;, and newlines only."""
+    parts = []
+    current = []
+    i = 0
+    in_single = False
+    in_double = False
+    while i < len(script):
+        c = script[i]
+        if c == "'" and not in_double:
+            in_single = not in_single
+            current.append(c)
+            i += 1
+        elif c == '"' and not in_single:
+            in_double = not in_double
+            current.append(c)
+            i += 1
+        elif c == "\\" and (in_single or in_double):
+            current.append(c)
+            if i + 1 < len(script):
+                i += 1
+                current.append(script[i])
+            i += 1
+        elif not in_single and not in_double and i + 1 < len(script) and script[i:i+2] == "&&":
+            if current:
+                parts.append("".join(current).strip())
+            current = []
+            i += 2
+        elif not in_single and not in_double and i + 1 < len(script) and script[i:i+2] == "||":
+            if current:
+                parts.append("".join(current).strip())
+            current = []
+            i += 2
+        elif not in_single and not in_double and c == ";":
+            if current:
+                parts.append("".join(current).strip())
+            current = []
+            i += 1
+        elif not in_single and not in_double and c == "\n":
+            if current:
+                parts.append("".join(current).strip())
+            current = []
+            i += 1
+        else:
+            current.append(c)
+            i += 1
+    if current:
+        parts.append("".join(current).strip())
+    return [p for p in parts if p]
 
 
 def codex_json(raw: str, workdir: str | None) -> Transcript:
     out = Transcript()
     messages: list[str] = []
+    by_id: dict[str, dict[str, Any]] = {}  # Track started items by ID to update on completion
     for n, line in enumerate(raw.splitlines(), 1):
         if not line.strip():
             continue
@@ -94,14 +159,17 @@ def codex_json(raw: str, workdir: str | None) -> Transcript:
         if not isinstance(rec, dict):
             continue
         try:
-            _codex_apply(out, rec, messages, workdir)
+            _codex_apply(out, rec, messages, workdir, by_id)
         except (AttributeError, TypeError, ValueError) as exc:
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     out.answer = messages[-1].strip() if messages else ""
     return out
 
 
-def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], workdir: str | None) -> None:
+def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], workdir: str | None,
+                  by_id: dict[str, dict[str, Any]] | None = None) -> None:
+    if by_id is None:
+        by_id = {}
     kind = rec.get("type")
     if kind == "turn.completed":
         usage = rec.get("usage") or {}
@@ -112,6 +180,19 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
         out.is_error = kind == "turn.failed"
         msg = rec.get("message") or (rec.get("error") or {}).get("message")
         out.errors.append(f"{kind}: {str(msg)[:200]}")
+    elif kind == "item.started":
+        # Record started items to preserve them even if completion is missing (timeout case)
+        item = rec.get("item") or {}
+        itype = item.get("type")
+        if itype == "command_execution":
+            script = unwrap_shell(str(item.get("command") or ""))
+            # Use command text as key to correlate with item.completed
+            item_key = ("command", script)
+            for path in shell_reads(script):
+                out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
+            event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None}
+            by_id[item_key] = event
+            out.events.append(event)
     elif kind == "item.completed":
         item = rec.get("item") or {}
         itype = item.get("type")
@@ -119,12 +200,23 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
             messages.append(str(item.get("text") or ""))
         elif itype == "command_execution":
             script = unwrap_shell(str(item.get("command") or ""))
-            for path in shell_reads(script):
-                out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
-            event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
-            if item.get("aggregated_output"):
-                event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
-            out.events.append(event)
+            # Use command text as key to correlate with item.started
+            item_key = ("command", script)
+            if item_key in by_id:
+                # Update the event from item.started with completion data
+                event = by_id[item_key]
+                event["rc"] = item.get("exit_code")
+                if item.get("aggregated_output"):
+                    event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
+                del by_id[item_key]
+            else:
+                # Fallback for item.completed without item.started
+                for path in shell_reads(script):
+                    out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
+                event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
+                if item.get("aggregated_output"):
+                    event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
+                out.events.append(event)
         elif itype == "file_change":
             for change in item.get("changes") or []:
                 if isinstance(change, dict) and change.get("path"):

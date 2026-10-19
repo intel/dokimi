@@ -370,7 +370,7 @@ def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace:
              timeout_s: int) -> tuple[Transcript | None, dict[str, Any]]:
     config_dir.mkdir()
     # As repo run does: a profile's config files (a Codex provider, a Claude Code hook) apply to the probe too.
-    profile.write_config(config_dir, {"config_dir": str(config_dir), "support_dir": str(SUPPORT_HOST)})
+    profile.write_config(config_dir, {"config_dir": config_dir.as_posix(), "support_dir": SUPPORT_HOST.as_posix()})
     argv = profile.argv(prompt=scenario.prompt, model=model, tools=scenario.tools,
                         max_turns=max_turns, budget_usd=budget_usd, bin_path=bin_path)
     row: dict[str, Any] = {"id": scenario.id, "cwd": scenario.cwd, "tools": scenario.tools,

@@ -96,6 +96,8 @@ def test_reach_refuses_a_native_prompt_profile(tmp_path):
     ("sed 's/a/b/' f", []),       # no -n: a transform, not a range print
     ("ls -la", []),
     ("cat 'unterminated", []),
+    ("sed -n '1p;2p' AGENTS.md", ["AGENTS.md"]),  # regression: quoted program should not be split
+    ("cd sub && cat AGENTS.md", ["sub/AGENTS.md"]),  # regression: cd changes cwd for following commands
 ])
 def test_shell_reads(command, reads):
     assert shell_reads(command) == reads
@@ -143,6 +145,18 @@ def test_codex_json_to_events():
 def test_codex_turn_failure_is_an_error_result():
     t = convert("codex-json", _jsonl({"type": "turn.failed", "error": {"message": "quota"}}), None)
     assert t.is_error and "turn.failed: quota" in t.errors and t.answer == ""
+
+
+def test_codex_incomplete_command_is_recorded_with_rc_null():
+    """Regression: a command with item.started but no item.completed (timeout) should have rc: null."""
+    raw = _jsonl(
+        {"type": "item.started", "item": {"type": "command_execution", "command": "make build"}},
+        # No item.completed (timeout scenario)
+        {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 1}},
+    )
+    t = convert("codex-json", raw, None)
+    assert len(t.events) == 1
+    assert t.events[0] == {"t": None, "kind": "command", "text": "make build", "rc": None}
 
 
 def test_copilot_json_to_events():
