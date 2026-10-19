@@ -446,7 +446,8 @@ class Judge:
     #: directly (``reasonable, not wrong``) or behind single-token ``/`` qualifiers that start
     #: right there (``misleading/wrong``, ``L2/wrong``). A ``/`` deeper in prose or a path
     #: (``see docs/wrong``, ``see section 4.2/wrong``) is not a verdict, so the claim stays
-    #: unread. ``not`` flips it. A ``/`` or ``,`` right after another verdict word
+    #: unread. A path right after the separator (``ref: tests/wrong``) reads like ``L2/wrong``;
+    #: only a path after a word, as in ``see docs/wrong``, stays unread. ``not`` flips it. A ``/`` or ``,`` right after another verdict word
     #: (``right/wrong``, ``correct, wrong``) is an alternative, not a verdict, so the claim stays
     #: unread; ``(?<!correct)`` also covers ``incorrect``. Only the intensifiers in
     #: ``_INTENSIFIERS`` may qualify the word here; any other ``-ly`` adverb (``hardly``,

@@ -258,12 +258,11 @@ class TestJudgeAnswer:
         (["64 bytes: partially right"], 95, 95),
         (["64 bytes, non-wrong"], 95, 95),
         ("none", 95, 95),                      # not a list: nothing to enforce
-        # From real Haiku judgements, read as nothing before: a qualifier list
-        # ends in the verdict, so the cap was let through.
+        # From real Haiku judgements: a qualifier list ending in the verdict is read.
         (["one execution port: misleading/wrong"], 95, 40),
         (["reads <270% of operations: ambiguous/wrong"], 95, 40),
         (["~160x AVX: speculative/wrong"], 95, 40),
-        # ... and the right-hand counterparts, now read (and not capped).
+        # The right-hand counterparts read as right and do not cap.
         (["expected throughput 4-8x: conditional/right"], 95, 95),
         (["4.5x speedup threshold: reasonable, not wrong"], 95, 95),
         (["SIMD_SORT_MIN_N = 32: reasonable heuristic (not wrong)"], 95, 95),
@@ -312,6 +311,14 @@ class TestJudgeAnswer:
         (["x \u2013 misleading/wrong"], 95, 40),
         (["x: L2/wrong"], 95, 40),
         (["x: misleading/wrong "], 95, 40),
+        # Intensifiers, a figure-like qualifier, and a verdict followed by text (read only by
+        # _VERDICT, not by the end-anchored fallback).
+        (["x: dubious, mostly wrong"], 95, 40),
+        (["x: dubious, largely wrong"], 95, 40),
+        (["x: dubious, totally wrong"], 95, 40),
+        (["x: v1.2/wrong"], 95, 40),
+        (["x (wrong, expected 128)"], 95, 40),
+        (["x: partially wrong (expected 128)"], 95, 40),
         # Figures with separators: the end-anchored pattern finds the real verdict.
         (["ratio 3:1, correct alignment assumed: misleading/wrong"], 95, 40),
         (["ratio 3:1, correct alignment assumed: not right"], 95, 40),
@@ -394,6 +401,7 @@ class TestJudgeAnswer:
         "x: unverified, wrong, right",
         "x: unverified, correct/wrong",
         "x: unverified, correct, wrong",
+        "x: unverified, incorrect/wrong",
         "x: dubious, barely wrong",
         "x: dubious, scarcely wrong",
         "x: dubious, seemingly right",
