@@ -200,6 +200,12 @@ CASES = [
      {("bazel_label", "//:one"): "ok", ("bazel_label", "//:one_tset"): "fail"}),
     ("a name in a comment is not a name", "`//:b`", {"BUILD": 'cc_library(name = "a")  # name = "b"\n'},
      {("bazel_label", "//:b"): "fail"}),
+    ("computed exports_files via glob marks exports computed", "`//:x`",
+     {"BUILD": 'exports_files(glob(["*"]))\ncc_library(name = "x")\n'},
+     {("bazel_label", "//:x"): "ok"}),
+    ("exports_files with metadata argument parses only positional", "`//:notice`",
+     {"BUILD": 'exports_files(["LICENSE"], licenses = ["notice"])\n', "LICENSE": ""},
+     {("bazel_label", "//:notice"): "fail"}),
     ("comments between def parameters",
      f"{FENCE}starlark\nm(\n    name = \"x\",\n    srcs = [],\n    flags = {{}},\n    nme = 1,\n)\n{FENCE}\n",
      {"BUILD": "", "a.bzl": 'def m(\n    name,  # the target (required):\n    srcs = [],  # inputs, if any\n'
@@ -209,6 +215,9 @@ CASES = [
     ("macro defined twice", f"{FENCE}starlark\nm(\n    name = \"x\",\n    extra = 1,\n)\n{FENCE}\n",
      {"BUILD": "", "a.bzl": "def m(name):\n    pass\n", "b.bzl": "def m(name, extra):\n    pass\n"},
      {("starlark_kwarg", "m(extra=)"): "unresolved"}),
+    ("definitions in docstrings are not public", f"{FENCE}starlark\nload(\"//:defs.bzl\", \"removed\", \"actual\")\n{FENCE}\n",
+     {"BUILD": "", "defs.bzl": '"""Example module.\n\ndef removed(name):\n    pass\n\ngone = rule()\n"""\n\ndef actual(name):\n    pass\n'},
+     {("starlark_load", "removed from //:defs.bzl"): "fail", ("starlark_load", "actual from //:defs.bzl"): "ok"}),
     # links to this repository by URL: a ref may hold slashes
     ("slash branch, file found", f"[a]({U}/blob/release/1.0/src/a.py)", {"src/a.py": ""},
      {("link", f"{U}/blob/release/1.0/src/a.py"): "ok"}),

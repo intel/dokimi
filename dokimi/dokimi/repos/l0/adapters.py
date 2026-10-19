@@ -164,25 +164,46 @@ def _build_names(text: str) -> tuple[set[str], bool]:
     toks = list(_tokens(text))
     stack: list[str] = []
     comp = False  # inside a `[...]` or `{...}` at the top level that starts a line
-    exports = False  # inside the top-level `exports_files(...)` call
+    exports = False  # inside the top-level `exports_files(...)` call positional argument
+    exports_depth = 0  # depth of nested parens/brackets in exports_files call
+    exports_computed = False  # exports_files argument contains computed values
     for i, (kind, val, first) in enumerate(toks):
         prev = toks[i - 1] if i else ("", "", False)
         nxt = toks[i + 1] if i + 1 < len(toks) else ("", "", False)
         if kind == "op" and val in "([{":
             comp = comp or (not stack and first and val in "[{")
             stack.append(val)
+            if exports:
+                exports_depth += 1
         elif kind == "op" and val in ")]}":
             if stack:
                 stack.pop()
             comp = comp and bool(stack)
-            exports = exports and bool(stack)
-        elif kind == "str" and exports:
+            if exports:
+                exports_depth -= 1
+                if exports_depth == 0:
+                    exports = False
+                    if exports_computed:
+                        computed = True
+                        exports_computed = False
+        elif kind == "str" and exports and exports_depth == 1:
             names.add(val)
+        elif kind == "op" and exports and exports_depth == 1 and val == ",":
+            # comma outside brackets ends the positional argument
+            exports = False
+            if exports_computed:
+                computed = True
+                exports_computed = False
         elif kind == "id" and val == "exports_files" and nxt[1] == "(" and not stack:
             exports = True
+            exports_depth = 0
+            exports_computed = False
         elif kind == "id" and nxt[1] == "(" and nxt[0] == "op" and prev[1] != ".":
             if ((not stack and first) or comp) and val not in BAZEL_NATIVE and val not in STARLARK_BUILTINS:
                 computed = True
+            # If this is a call inside exports_files positional argument, mark exports_files as computed
+            if exports and exports_depth == 1:
+                exports_computed = True
         elif (kind == "op" and val == "=" and prev[0] == "id" and prev[1] in ("name", "out", "outs")
               and stack[-1:] == ["("] and toks[i - 2][1] in ("(", ",") and nxt[1] != "="):
             depth, value, j = 0, [], i + 1
@@ -431,10 +452,50 @@ def _check_load(scan: Scan, file: str, line: int, args: str, snippet: str) -> No
 def _bzl_public(text: str) -> tuple[set[str], bool]:
     """The public top-level names of a ``.bzl`` file (``def x(``, ``x = ...``, ``x, _y = ...``), and whether it also
     binds names in a form not read here (``(x, y) = ...``, ``[x] = ...``)."""
+    # Mask strings and comments to avoid false matches in docstrings
+    masked_text = ""
+    i = 0
+    while i < len(text):
+        # Handle triple-quoted strings (docstrings)
+        if text[i:i+3] in ('"""', "'''"):
+            quote = text[i:i+3]
+            masked_text += "   "  # 3 spaces for opening quotes
+            i += 3
+            while i < len(text):
+                if text[i:i+3] == quote:
+                    masked_text += "   "  # 3 spaces for closing quotes
+                    i += 3
+                    break
+                masked_text += " " if text[i] != "\n" else "\n"
+                i += 1
+        # Handle single/double quoted strings
+        elif text[i] in ('"', "'"):
+            quote = text[i]
+            masked_text += " "
+            i += 1
+            while i < len(text):
+                if text[i] == quote and (i == 0 or text[i-1] != "\\"):
+                    masked_text += " "
+                    i += 1
+                    break
+                masked_text += " " if text[i] != "\n" else "\n"
+                i += 1
+        # Handle comments
+        elif text[i:i+1] == "#":
+            while i < len(text) and text[i] != "\n":
+                masked_text += " "
+                i += 1
+            if i < len(text):
+                masked_text += "\n"
+                i += 1
+        else:
+            masked_text += text[i]
+            i += 1
+
     names: set[str] = set()
-    for m in re.finditer(r"^def\s+([A-Za-z]\w*)\s*\(|^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*,?\s*=(?!=)", text, re.M):
+    for m in re.finditer(r"^def\s+([A-Za-z]\w*)\s*\(|^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*,?\s*=(?!=)", masked_text, re.M):
         names.update(n for n in re.split(r"\s*,\s*", m.group(1) or m.group(2)) if n and not n.startswith("_"))
-    return names, re.search(r"^[(\[][^\n]*\)?\]?\s*=(?!=)", text, re.M) is not None
+    return names, re.search(r"^[(\[][^\n]*\)?\]?\s*=(?!=)", masked_text, re.M) is not None
 
 
 def _load_strings(args: str) -> list[str]:
