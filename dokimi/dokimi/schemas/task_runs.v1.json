@@ -193,16 +193,16 @@
                   "max_desc_chars": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "Maximum allowed description characters."
+                    "description": "Per-skill cap on listing entry characters. An entry longer than this is cut to it."
                   },
                   "budget_chars": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "Total character budget for the listing."
+                    "description": "Claude Code's whole-listing character limit, recorded for reference. Not used to compute truncated."
                   },
                   "truncated": {
                     "type": "boolean",
-                    "description": "Whether the skill description was truncated to fit the budget."
+                    "description": "Whether the entry exceeded max_desc_chars and was cut to it. Only the per-skill cut sets this, never budget_chars."
                   }
                 },
                 "additionalProperties": true
@@ -639,7 +639,7 @@
                 ],
                 "minimum": -1,
                 "maximum": 1,
-                "description": "Null when the two arms lost different cells, or one has none scored."
+                "description": "Null when the two arms ran or lost different cells, or one has none scored."
               },
               "with_skill_invocation_rate": {
                 "type": [

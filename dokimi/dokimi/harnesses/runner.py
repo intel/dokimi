@@ -288,7 +288,7 @@ def _discovery_gaps(rows: list[dict[str, Any]],
 
     The two arms differ by the treatment notice only, so the gap is what the
     skill gives when it is announced and the agent does not find it alone. It is
-    withheld (``None``) when the arms lost different cells, as for
+    withheld (``None``) when the arms ran or lost different cells, as for
     ``pass_rate_delta``.
     """
     outcomes, attempted = _outcomes_by_cell(rows)

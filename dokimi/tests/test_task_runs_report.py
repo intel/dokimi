@@ -292,7 +292,7 @@ def test_report_puts_the_discovery_arm_beside_no_skill_and_with_skill():
     assert "| `docker-claude-skill-discover:s` | 100% | 0% | +100.00 pp | 100% | 0% |" in md
     assert "1 discovery row(s) ran with a description longer" in md
     data["summary"]["discovery_gaps"][arms[2]]["gap"] = None
-    assert "— (arms lost different cells)" in render_task_runs_report(data)
+    assert "— (arms ran or lost different cells)" in render_task_runs_report(data)
     del data["summary"]["discovery_gaps"]
     assert "## Skill discovery" not in render_task_runs_report(data)
 
@@ -389,7 +389,7 @@ def test_discovery_gap_no_scored_cells_differs_from_different_attempted():
 
     # Should say "arms lost different cells"
     md = render_task_runs_report(data)
-    assert "— (arms lost different cells)" in md
+    assert "— (arms ran or lost different cells)" in md
     assert "— (no scored cells)" not in md
 
     # When both arms fully errored, should say "no scored cells"
@@ -411,4 +411,4 @@ def test_discovery_gap_no_scored_cells_differs_from_different_attempted():
 
     md_err = render_task_runs_report(data_err)
     assert "— (no scored cells)" in md_err
-    assert "— (arms lost different cells)" not in md_err
+    assert "— (arms ran or lost different cells)" not in md_err

@@ -166,7 +166,7 @@ def _discovery_lines(data: dict[str, Any]) -> list[str]:
         elif g.get("with_skill_pass_rate") is None or g.get("discover_pass_rate") is None:
             gap_s = "— (no scored cells)"
         else:
-            gap_s = "— (arms lost different cells)"
+            gap_s = "— (arms ran or lost different cells)"
         lines.append(f"| `{h}` | {_fmt_rate(g.get('with_skill_pass_rate'))} | "
                      f"{_fmt_rate(g.get('discover_pass_rate'))} | {gap_s} | "
                      f"{_fmt_rate(g.get('with_skill_invocation_rate'))} | "
