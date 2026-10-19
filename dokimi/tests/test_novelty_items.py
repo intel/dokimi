@@ -5,11 +5,18 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from dokimi.eval.stats import point_biserial
 from dokimi.novelty.items import (
     MIN_DISCRIMINATION,
+    ProbeFileError,
     discrimination,
+    item_analysis,
     kind_agreement,
+    load_probe_cells,
 )
 from dokimi.novelty.measure import BASELINE_ARM, ERRORED, ProbeRun
 
@@ -251,3 +258,41 @@ def test_markdown_does_not_print_a_floor_that_was_not_applied():
         "n_atoms": 9, "n_non_discriminating": 0, "n_negative": 3,
         "models": ["a", "b", "c"]}}}))
     assert "r=None" not in text and "floor not applied to 9 atoms" in text
+
+
+def _probe_file(tmp_path, name, atoms, **fields):
+    runs = [{"atom_id": a, "probe_kind": "direct", "arm": arm, "verdict": "correct_complete"}
+            for a in atoms for arm in (BASELINE_ARM, "full")]
+    path = tmp_path / name
+    path.write_text(json.dumps({"model": name, "runs": runs, **fields}), encoding="utf-8")
+    return str(path)
+
+
+def test_probe_files_load_as_cells_and_warn_on_different_atom_sets(tmp_path):
+    a = _probe_file(tmp_path, "a.json", ["x", "y"], artifact="skill:s", ref_digest="d")
+    b = _probe_file(tmp_path, "b.json", ["x"])      # older output: no artifact, no digest
+    cells, warnings = load_probe_cells([a, b])
+    assert [(c["model"], c["source"], len(c["runs"])) for c in cells] == [
+        ("a.json", a, 4), ("b.json", b, 2)]
+    assert len(warnings) == 1 and "same atom set" in warnings[0]
+    record = item_analysis(cells, arm="full")
+    assert sorted(record) == ["cells", "discrimination", "kind_agreement"]
+    assert sorted(record["kind_agreement"]) == sorted([a, b])    # keyed by file, not model
+
+
+@pytest.mark.parametrize("payload, message", [
+    ({"runs": []}, "carries no probe runs"),
+    ({"runs": [{"atom_id": "x"}]}, "missing 'probe_kind'"),
+])
+def test_a_file_that_is_not_probe_output_is_refused(tmp_path, payload, message):
+    path = tmp_path / "p.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ProbeFileError, match=message):
+        load_probe_cells([str(path)])
+
+
+def test_runs_of_different_texts_are_not_correlated(tmp_path):
+    a = _probe_file(tmp_path, "a.json", ["x"], artifact="skill:s")
+    b = _probe_file(tmp_path, "b.json", ["x"], artifact="skill:t")
+    with pytest.raises(ProbeFileError, match="measured different texts"):
+        load_probe_cells([a, b])

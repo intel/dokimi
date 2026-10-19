@@ -13,8 +13,12 @@ from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.routing import (
     Candidate,
+    RoutingInputError,
+    catalog_competitors,
+    check_field,
     headings_as_queries,
     lexical_routing,
+    load_queries,
     model_routing,
 )
 
@@ -393,3 +397,41 @@ def test_bom_prefixed_json_queries_are_parsed_as_json(tmp_path):
 def test_line_files_are_lines_even_when_they_look_like_json(tmp_path, data):
     lexical = _run_queries(tmp_path, data)
     assert lexical["n_queries_given"] == len(data.splitlines())
+
+
+def test_a_field_where_selection_is_no_measurement_is_refused():
+    check_field(PERF, [TBB, MKL])
+    for competitors, message in (([], "needs competitors"), ([TBB, PERF], "against itself"),
+                                 ([TBB, MKL, TBB], "`onetbb-quickstart` more than once")):
+        with pytest.raises(RoutingInputError, match=message):
+            check_field(PERF, competitors)
+
+
+@pytest.mark.parametrize("content, queries", [
+    (json.dumps(["a b", "  ", "c d"]), ["a b", "c d"]),
+    (json.dumps({"queries": ["a b"]}), ["a b"]),
+    ("[urgent] build fails\n\nslow run\n", ["[urgent] build fails", "slow run"]),
+])
+def test_a_query_file_is_a_list_a_queries_key_or_one_per_line(tmp_path, content, queries):
+    path = tmp_path / "q"
+    path.write_text(content, encoding="utf-8")
+    assert load_queries(str(path)) == queries
+
+
+def test_a_query_file_that_is_not_strings_is_refused_but_a_missing_one_is_not_masked(
+        tmp_path):
+    path = tmp_path / "q.json"
+    path.write_text(json.dumps({"queries": "a b"}), encoding="utf-8")
+    with pytest.raises(RoutingInputError, match="list of strings"):
+        load_queries(str(path))
+    with pytest.raises(FileNotFoundError):
+        load_queries(str(tmp_path / "missing.json"))
+
+
+def test_the_catalog_leaves_out_the_names_it_is_told_to(tmp_path):
+    _skill(tmp_path, "perf", "profile a slow binary with perf")
+    _skill(tmp_path, "xpu", "profile a slow GPU kernel")
+    assert [c.name for c in catalog_competitors(str(tmp_path), {"perf"})] == ["xpu"]
+    with pytest.raises(ValueError, match="not a directory"):
+        catalog_competitors(str(tmp_path / "nope"), set())
+

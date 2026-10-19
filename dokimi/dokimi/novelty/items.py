@@ -25,6 +25,10 @@ uninformative, which is where an author's next probe budget should not go.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from typing import Any
+
 from dokimi.eval.stats import point_biserial
 
 from .measure import ProbeRun
@@ -217,4 +221,84 @@ def discrimination(cells: list[dict], *, scoring: str = "lenient", arm: str = "f
                 "cells before treating any single value as a finding."
             )
         ),
+    }
+
+
+class ProbeFileError(ValueError):
+    """A ``novelty probe`` output that item analysis cannot use, with the reason."""
+
+
+def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
+    """Read ``novelty probe`` outputs into item-analysis cells, one per file.
+
+    Correlating atoms across models only means something over one answer key and one
+    probed text. Atom ids are content hashes, so ids collide across artifacts only for
+    identical statements -- but then the "same atom" was asked with different context. A
+    file that does not record ``artifact`` or ``ref_digest`` (older output) is not held
+    against the rest.
+
+    Returns:
+        ``(cells, warnings)``; each cell is ``{"model", "runs", "source", "artifact",
+        "ref_digest"}`` as :func:`discrimination` reads it.
+
+    Raises:
+        ProbeFileError: A file that is not probe output, or files that measured different
+            texts. A file that cannot be read or is not JSON raises as reading it does.
+    """
+    cells = []
+    for raw in paths:
+        data = json.loads(Path(raw).read_text(encoding="utf-8"))
+        try:
+            runs = [
+                ProbeRun(
+                    atom_id=row["atom_id"], probe_kind=row["probe_kind"], arm=row["arm"],
+                    question=row.get("question", ""), response=row.get("response", ""),
+                    verdict=row["verdict"], confidence=row.get("confidence"),
+                )
+                for row in data.get("runs", [])
+            ]
+        except (KeyError, TypeError) as exc:
+            raise ProbeFileError(
+                f"{raw} has a probe run missing {exc}; it is not `novelty probe` output"
+            ) from None
+        if not runs:
+            raise ProbeFileError(f"{raw} carries no probe runs; item analysis needs `novelty "
+                                 "probe` output, not a novelty.json")
+        cells.append({"model": data.get("model", raw), "runs": runs, "source": raw,
+                      "artifact": data.get("artifact"), "ref_digest": data.get("ref_digest")})
+
+    for name in ("artifact", "ref_digest"):
+        values = {cell[name] for cell in cells if cell[name] is not None}
+        if len(values) > 1:
+            raise ProbeFileError(
+                f"these probe runs measured different texts ({name}: "
+                f"{', '.join(sorted(values))}); item analysis correlates one artifact's "
+                "atoms across models, so pass runs of one artifact at one revision"
+            )
+
+    warnings = []
+    if len({frozenset(run.atom_id for run in cell["runs"]) for cell in cells}) > 1:
+        warnings.append("these runs do not cover the same atom set; an atom missing from a "
+                        "cell is dropped from its own statistic rather than counted as a "
+                        "failure")
+    return cells, warnings
+
+
+def item_analysis(cells: list[dict], *, arm: str = "full") -> dict[str, Any]:
+    """The ``novelty items`` record over cells from :func:`load_probe_cells`.
+
+    ``kind_agreement`` is keyed by source file, not by model: two runs of the same model
+    (two seeds, say) must not overwrite each other.
+    """
+    return {
+        "cells": [{"model": cell["model"], "source": cell["source"],
+                   "n_runs": len(cell["runs"])} for cell in cells],
+        "discrimination": {
+            scoring: discrimination(cells, scoring=scoring, arm=arm)
+            for scoring in ("lenient", "strict")
+        },
+        "kind_agreement": {
+            cell["source"]: dict(kind_agreement(cell["runs"], arm=arm), model=cell["model"])
+            for cell in cells
+        },
     }

@@ -1,0 +1,1039 @@
+{
+ "atoms/all-atoms-beats-max": [
+  {
+   "calls": [
+    [
+     "extractor",
+     3
+    ]
+   ],
+   "cap": null,
+   "faithfulness": [
+    "supported"
+   ],
+   "n_atoms": 2,
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  }
+ ],
+ "atoms/default": [
+  {
+   "calls": [
+    [
+     "extractor",
+     3
+    ]
+   ],
+   "cap": 120,
+   "faithfulness": [
+    "supported"
+   ],
+   "n_atoms": 2,
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  }
+ ],
+ "atoms/max-atoms-1": [
+  {
+   "calls": [
+    [
+     "extractor",
+     2
+    ]
+   ],
+   "cap": 1,
+   "faithfulness": [
+    "supported"
+   ],
+   "n_atoms": 1,
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  }
+ ],
+ "atoms/no-verify": [
+  {
+   "calls": [
+    [
+     "extractor",
+     1
+    ]
+   ],
+   "cap": 120,
+   "faithfulness": [
+    "unchecked"
+   ],
+   "n_atoms": 2,
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  }
+ ],
+ "estimate/all-atoms": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Estimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": null,\n  \"estimate\": {\n    \"n_atoms\": 240,\n    \"paired_probes\": 480,\n    \"reversal_probes\": 240,\n    \"probe_calls\": 2880,\n    \"stage_calls\": 265,\n    \"oracle_pairs\": 2160,\n    \"total_calls\": 3145,\n    \"total_calls_if_every_pair_escalates\": 5305\n  },\n  \"tier\": null,\n  \"caveat\": null\n}\n"
+  }
+ ],
+ "estimate/all-atoms-beats-max": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Estimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": null,\n  \"estimate\": {\n    \"n_atoms\": 240,\n    \"paired_probes\": 480,\n    \"reversal_probes\": 240,\n    \"probe_calls\": 2880,\n    \"stage_calls\": 265,\n    \"oracle_pairs\": 2160,\n    \"total_calls\": 3145,\n    \"total_calls_if_every_pair_escalates\": 5305\n  },\n  \"tier\": null,\n  \"caveat\": null\n}\n"
+  }
+ ],
+ "estimate/arms-without-baseline": [
+  {
+   "calls": [],
+   "status": "--arms must include no_artifact: the 2x2 is a paired comparison",
+   "stderr": "",
+   "stdout": ""
+  }
+ ],
+ "estimate/arms-without-full": [
+  {
+   "calls": [],
+   "status": "--arms must include full: the headline 2x2 pairs it with no_artifact",
+   "stderr": "Tier `triage`: classify_content=False, confirm_carriers=False, max_atoms=25, paraphrases=0, reversals=False, shorten_artifact=False, verify_faithfulness=False\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\n  forfeits: no shortening candidates are scored, so nothing here says what could be cut\n  forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\n",
+   "stdout": ""
+  }
+ ],
+ "estimate/default": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Estimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 120,\n  \"estimate\": {\n    \"n_atoms\": 120,\n    \"paired_probes\": 240,\n    \"reversal_probes\": 120,\n    \"probe_calls\": 1440,\n    \"stage_calls\": 135,\n    \"oracle_pairs\": 1080,\n    \"total_calls\": 1575,\n    \"total_calls_if_every_pair_escalates\": 2655\n  },\n  \"tier\": null,\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/every-stage-off": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Estimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 120,\n  \"estimate\": {\n    \"n_atoms\": 120,\n    \"paired_probes\": 120,\n    \"reversal_probes\": 0,\n    \"probe_calls\": 480,\n    \"stage_calls\": 11,\n    \"oracle_pairs\": 0,\n    \"total_calls\": 491,\n    \"total_calls_if_every_pair_escalates\": 491\n  },\n  \"tier\": null,\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/four-arms": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Estimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 120,\n  \"estimate\": {\n    \"n_atoms\": 120,\n    \"paired_probes\": 240,\n    \"reversal_probes\": 120,\n    \"probe_calls\": 2880,\n    \"stage_calls\": 135,\n    \"oracle_pairs\": 1080,\n    \"total_calls\": 3015,\n    \"total_calls_if_every_pair_escalates\": 4095\n  },\n  \"tier\": null,\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/max-atoms-1": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Estimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 1,\n  \"estimate\": {\n    \"n_atoms\": 1,\n    \"paired_probes\": 2,\n    \"reversal_probes\": 1,\n    \"probe_calls\": 12,\n    \"stage_calls\": 7,\n    \"oracle_pairs\": 9,\n    \"total_calls\": 19,\n    \"total_calls_if_every_pair_escalates\": 28\n  },\n  \"tier\": null,\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/max-usd": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `standard`: classify_content=False, confirm_carriers=True, max_atoms=60, paraphrases=1, reversals=False, shorten_artifact=True, verify_faithfulness=True\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 60,\n  \"estimate\": {\n    \"n_atoms\": 60,\n    \"paired_probes\": 120,\n    \"reversal_probes\": 0,\n    \"probe_calls\": 480,\n    \"stage_calls\": 67,\n    \"oracle_pairs\": 540,\n    \"total_calls\": 547,\n    \"total_calls_if_every_pair_escalates\": 1087\n  },\n  \"tier\": {\n    \"name\": \"standard\",\n    \"forfeits\": [\n      \"`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\",\n      \"`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\",\n      \"shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\",\n      \"no reversal probe, so planted-inversion resistance is unmeasured\",\n      \"content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\"\n    ],\n    \"overrides\": {}\n  },\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/standard": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `standard`: classify_content=False, confirm_carriers=True, max_atoms=60, paraphrases=1, reversals=False, shorten_artifact=True, verify_faithfulness=True\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 60,\n  \"estimate\": {\n    \"n_atoms\": 60,\n    \"paired_probes\": 120,\n    \"reversal_probes\": 0,\n    \"probe_calls\": 480,\n    \"stage_calls\": 67,\n    \"oracle_pairs\": 540,\n    \"total_calls\": 547,\n    \"total_calls_if_every_pair_escalates\": 1087\n  },\n  \"tier\": {\n    \"name\": \"standard\",\n    \"forfeits\": [\n      \"`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\",\n      \"`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\",\n      \"shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\",\n      \"no reversal probe, so planted-inversion resistance is unmeasured\",\n      \"content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\"\n    ],\n    \"overrides\": {}\n  },\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/standard-budgets": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `standard`: classify_content=False, confirm_carriers=True, max_atoms=60, paraphrases=1, reversals=False, shorten_artifact=True, verify_faithfulness=True\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 60,\n  \"estimate\": {\n    \"n_atoms\": 60,\n    \"paired_probes\": 120,\n    \"reversal_probes\": 0,\n    \"probe_calls\": 480,\n    \"stage_calls\": 67,\n    \"oracle_pairs\": 780,\n    \"total_calls\": 547,\n    \"total_calls_if_every_pair_escalates\": 1327\n  },\n  \"tier\": {\n    \"name\": \"standard\",\n    \"forfeits\": [\n      \"`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\",\n      \"`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\",\n      \"shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\",\n      \"no reversal probe, so planted-inversion resistance is unmeasured\",\n      \"content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\"\n    ],\n    \"overrides\": {}\n  },\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/study": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `study`: classify_content=True, confirm_carriers=True, max_atoms=120, paraphrases=1, reversals=True, shorten_artifact=True, verify_faithfulness=True\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 120,\n  \"estimate\": {\n    \"n_atoms\": 120,\n    \"paired_probes\": 240,\n    \"reversal_probes\": 120,\n    \"probe_calls\": 1440,\n    \"stage_calls\": 135,\n    \"oracle_pairs\": 1080,\n    \"total_calls\": 1575,\n    \"total_calls_if_every_pair_escalates\": 2655\n  },\n  \"tier\": {\n    \"name\": \"study\",\n    \"forfeits\": [\n      \"`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\",\n      \"`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\",\n      \"shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\"\n    ],\n    \"overrides\": {}\n  },\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/study-all-atoms": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `study`: classify_content=True, confirm_carriers=True, max_atoms=None, paraphrases=1, reversals=True, shorten_artifact=True, verify_faithfulness=True\n  overridden by flags: ['all_atoms']\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": null,\n  \"estimate\": {\n    \"n_atoms\": 240,\n    \"paired_probes\": 480,\n    \"reversal_probes\": 240,\n    \"probe_calls\": 2880,\n    \"stage_calls\": 265,\n    \"oracle_pairs\": 2160,\n    \"total_calls\": 3145,\n    \"total_calls_if_every_pair_escalates\": 5305\n  },\n  \"tier\": {\n    \"name\": \"study\",\n    \"forfeits\": [],\n    \"overrides\": {\n      \"all_atoms\": true\n    }\n  },\n  \"caveat\": null\n}\n"
+  }
+ ],
+ "estimate/study-all-atoms-beats-max": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `study`: classify_content=True, confirm_carriers=True, max_atoms=None, paraphrases=1, reversals=True, shorten_artifact=True, verify_faithfulness=True\n  overridden by flags: ['all_atoms']\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": null,\n  \"estimate\": {\n    \"n_atoms\": 240,\n    \"paired_probes\": 480,\n    \"reversal_probes\": 240,\n    \"probe_calls\": 2880,\n    \"stage_calls\": 265,\n    \"oracle_pairs\": 2160,\n    \"total_calls\": 3145,\n    \"total_calls_if_every_pair_escalates\": 5305\n  },\n  \"tier\": {\n    \"name\": \"study\",\n    \"forfeits\": [],\n    \"overrides\": {\n      \"all_atoms\": true\n    }\n  },\n  \"caveat\": null\n}\n"
+  }
+ ],
+ "estimate/study-every-stage-off": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `study`: classify_content=False, confirm_carriers=False, max_atoms=120, paraphrases=0, reversals=False, shorten_artifact=False, verify_faithfulness=False\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\n  forfeits: no shortening candidates are scored, so nothing here says what could be cut\n  forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\n  overridden by flags: ['no_classify', 'no_confirm_carriers', 'no_paraphrase', 'no_reversal', 'no_shorten', 'no_verify']\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 120,\n  \"estimate\": {\n    \"n_atoms\": 120,\n    \"paired_probes\": 120,\n    \"reversal_probes\": 0,\n    \"probe_calls\": 480,\n    \"stage_calls\": 11,\n    \"oracle_pairs\": 0,\n    \"total_calls\": 491,\n    \"total_calls_if_every_pair_escalates\": 491\n  },\n  \"tier\": {\n    \"name\": \"study\",\n    \"forfeits\": [\n      \"`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\",\n      \"`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\",\n      \"atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\",\n      \"no shortening candidates are scored, so nothing here says what could be cut\",\n      \"no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\",\n      \"no reversal probe, so planted-inversion resistance is unmeasured\",\n      \"atoms are not checked against the spans cited for them, so no span colour is confirmed\",\n      \"content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\"\n    ],\n    \"overrides\": {\n      \"no_paraphrase\": true,\n      \"no_reversal\": true,\n      \"no_verify\": true,\n      \"no_classify\": true,\n      \"no_shorten\": true,\n      \"no_confirm_carriers\": true\n    }\n  },\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/study-max-atoms-120-explicit": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `study`: classify_content=True, confirm_carriers=True, max_atoms=120, paraphrases=1, reversals=True, shorten_artifact=True, verify_faithfulness=True\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 120,\n  \"estimate\": {\n    \"n_atoms\": 120,\n    \"paired_probes\": 240,\n    \"reversal_probes\": 120,\n    \"probe_calls\": 1440,\n    \"stage_calls\": 135,\n    \"oracle_pairs\": 1080,\n    \"total_calls\": 1575,\n    \"total_calls_if_every_pair_escalates\": 2655\n  },\n  \"tier\": {\n    \"name\": \"study\",\n    \"forfeits\": [\n      \"`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\",\n      \"`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\",\n      \"shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\"\n    ],\n    \"overrides\": {}\n  },\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/triage": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `triage`: classify_content=False, confirm_carriers=False, max_atoms=25, paraphrases=0, reversals=False, shorten_artifact=False, verify_faithfulness=False\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\n  forfeits: no shortening candidates are scored, so nothing here says what could be cut\n  forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 25,\n  \"estimate\": {\n    \"n_atoms\": 25,\n    \"paired_probes\": 25,\n    \"reversal_probes\": 0,\n    \"probe_calls\": 100,\n    \"stage_calls\": 3,\n    \"oracle_pairs\": 0,\n    \"total_calls\": 103,\n    \"total_calls_if_every_pair_escalates\": 103\n  },\n  \"tier\": {\n    \"name\": \"triage\",\n    \"forfeits\": [\n      \"`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\",\n      \"`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\",\n      \"atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\",\n      \"no shortening candidates are scored, so nothing here says what could be cut\",\n      \"no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\",\n      \"no reversal probe, so planted-inversion resistance is unmeasured\",\n      \"atoms are not checked against the spans cited for them, so no span colour is confirmed\",\n      \"content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\"\n    ],\n    \"overrides\": {}\n  },\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/triage-every-stage-off": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `triage`: classify_content=False, confirm_carriers=False, max_atoms=25, paraphrases=0, reversals=False, shorten_artifact=False, verify_faithfulness=False\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\n  forfeits: no shortening candidates are scored, so nothing here says what could be cut\n  forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 25,\n  \"estimate\": {\n    \"n_atoms\": 25,\n    \"paired_probes\": 25,\n    \"reversal_probes\": 0,\n    \"probe_calls\": 100,\n    \"stage_calls\": 3,\n    \"oracle_pairs\": 0,\n    \"total_calls\": 103,\n    \"total_calls_if_every_pair_escalates\": 103\n  },\n  \"tier\": {\n    \"name\": \"triage\",\n    \"forfeits\": [\n      \"`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\",\n      \"`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\",\n      \"atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\",\n      \"no shortening candidates are scored, so nothing here says what could be cut\",\n      \"no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\",\n      \"no reversal probe, so planted-inversion resistance is unmeasured\",\n      \"atoms are not checked against the spans cited for them, so no span colour is confirmed\",\n      \"content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\"\n    ],\n    \"overrides\": {}\n  },\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/triage-max-atoms-25-agrees": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `triage`: classify_content=False, confirm_carriers=False, max_atoms=25, paraphrases=0, reversals=False, shorten_artifact=False, verify_faithfulness=False\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\n  forfeits: no shortening candidates are scored, so nothing here says what could be cut\n  forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 25,\n  \"estimate\": {\n    \"n_atoms\": 25,\n    \"paired_probes\": 25,\n    \"reversal_probes\": 0,\n    \"probe_calls\": 100,\n    \"stage_calls\": 3,\n    \"oracle_pairs\": 0,\n    \"total_calls\": 103,\n    \"total_calls_if_every_pair_escalates\": 103\n  },\n  \"tier\": {\n    \"name\": \"triage\",\n    \"forfeits\": [\n      \"`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\",\n      \"`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\",\n      \"atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\",\n      \"no shortening candidates are scored, so nothing here says what could be cut\",\n      \"no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\",\n      \"no reversal probe, so planted-inversion resistance is unmeasured\",\n      \"atoms are not checked against the spans cited for them, so no span colour is confirmed\",\n      \"content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\"\n    ],\n    \"overrides\": {}\n  },\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "estimate/triage-max-atoms-90": [
+  {
+   "calls": [],
+   "status": 0,
+   "stderr": "Tier `triage`: classify_content=False, confirm_carriers=False, max_atoms=90, paraphrases=0, reversals=False, shorten_artifact=False, verify_faithfulness=False\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\n  forfeits: no shortening candidates are scored, so nothing here says what could be cut\n  forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\n  overridden by flags: ['max_atoms']\nEstimate only, nothing was measured. ~4 calls per paired probe is the measured shape; batch sizes and retries move the real figure.\nThe estimate counts calls, not dollars: what a call costs depends on the artifact's length and the models' prices. Pass --max-usd to stop the run at a dollar figure.\n",
+   "stdout": "{\n  \"spans\": 481,\n  \"atom_cap\": 90,\n  \"estimate\": {\n    \"n_atoms\": 90,\n    \"paired_probes\": 90,\n    \"reversal_probes\": 0,\n    \"probe_calls\": 360,\n    \"stage_calls\": 9,\n    \"oracle_pairs\": 0,\n    \"total_calls\": 369,\n    \"total_calls_if_every_pair_escalates\": 369\n  },\n  \"tier\": {\n    \"name\": \"triage\",\n    \"forfeits\": [\n      \"`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\",\n      \"`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\",\n      \"atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\",\n      \"no shortening candidates are scored, so nothing here says what could be cut\",\n      \"no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\",\n      \"no reversal probe, so planted-inversion resistance is unmeasured\",\n      \"atoms are not checked against the spans cited for them, so no span colour is confirmed\",\n      \"content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\"\n    ],\n    \"overrides\": {\n      \"max_atoms\": 90\n    }\n  },\n  \"caveat\": \"forfeits assume the atom cap is reached; the run recomputes them from the atoms it extracts\"\n}\n"
+  }
+ ],
+ "probe/arms-without-baseline": [
+  {
+   "calls": [
+    [
+     "extractor",
+     3
+    ]
+   ],
+   "cap": 120,
+   "faithfulness": [
+    "supported"
+   ],
+   "n_atoms": 2,
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  },
+  {
+   "calls": [
+    [
+     "extractor",
+     2
+    ],
+    [
+     "answerer",
+     0
+    ],
+    [
+     "judge",
+     0
+    ]
+   ],
+   "status": "--arms must include no_artifact: the 2x2 is a paired comparison",
+   "stderr": "",
+   "stdout": null
+  }
+ ],
+ "probe/default": [
+  {
+   "calls": [
+    [
+     "extractor",
+     3
+    ]
+   ],
+   "cap": 120,
+   "faithfulness": [
+    "supported"
+   ],
+   "n_atoms": 2,
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  },
+  {
+   "arms": [
+    "full",
+    "no_artifact"
+   ],
+   "calls": [
+    [
+     "extractor",
+     2
+    ],
+    [
+     "answerer",
+     12
+    ],
+    [
+     "judge",
+     12
+    ]
+   ],
+   "probe_kinds": [
+    "direct",
+    "paraphrase",
+    "reversal"
+   ],
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  }
+ ],
+ "probe/no-paraphrase": [
+  {
+   "calls": [
+    [
+     "extractor",
+     3
+    ]
+   ],
+   "cap": 120,
+   "faithfulness": [
+    "supported"
+   ],
+   "n_atoms": 2,
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  },
+  {
+   "arms": [
+    "full",
+    "no_artifact"
+   ],
+   "calls": [
+    [
+     "extractor",
+     1
+    ],
+    [
+     "answerer",
+     8
+    ],
+    [
+     "judge",
+     8
+    ]
+   ],
+   "probe_kinds": [
+    "direct",
+    "reversal"
+   ],
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  }
+ ],
+ "probe/no-probe-wordings": [
+  {
+   "calls": [
+    [
+     "extractor",
+     3
+    ]
+   ],
+   "cap": 120,
+   "faithfulness": [
+    "supported"
+   ],
+   "n_atoms": 2,
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  },
+  {
+   "arms": [
+    "full",
+    "no_artifact"
+   ],
+   "calls": [
+    [
+     "extractor",
+     0
+    ],
+    [
+     "answerer",
+     4
+    ],
+    [
+     "judge",
+     4
+    ]
+   ],
+   "probe_kinds": [
+    "direct"
+   ],
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  }
+ ],
+ "probe/no-reversal": [
+  {
+   "calls": [
+    [
+     "extractor",
+     3
+    ]
+   ],
+   "cap": 120,
+   "faithfulness": [
+    "supported"
+   ],
+   "n_atoms": 2,
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  },
+  {
+   "arms": [
+    "full",
+    "no_artifact"
+   ],
+   "calls": [
+    [
+     "extractor",
+     1
+    ],
+    [
+     "answerer",
+     8
+    ],
+    [
+     "judge",
+     8
+    ]
+   ],
+   "probe_kinds": [
+    "direct",
+    "paraphrase"
+   ],
+   "status": 0,
+   "stderr": "",
+   "stdout": null
+  }
+ ],
+ "run/arms-without-full": [
+  {
+   "calls": [
+    [
+     "extractor",
+     0
+    ],
+    [
+     "answerer",
+     0
+    ],
+    [
+     "judge",
+     0
+    ]
+   ],
+   "status": "--arms must include full: the headline 2x2 pairs it with no_artifact",
+   "stderr": "",
+   "stdout": ""
+  }
+ ],
+ "run/default": [
+  {
+   "calls": [
+    [
+     "extractor",
+     12
+    ],
+    [
+     "answerer",
+     12
+    ],
+    [
+     "judge",
+     12
+    ]
+   ],
+   "run_config": {
+    "arms": [
+     "no_artifact",
+     "full"
+    ],
+    "budgets": [
+     0.75,
+     0.5
+    ],
+    "include_resources": false,
+    "max_atoms": 120,
+    "paraphrases": 1,
+    "resource_roles": null,
+    "reversals": true,
+    "seed": 0,
+    "stages": {
+     "classify": true,
+     "confirm_carriers": true,
+     "shorten": true,
+     "verify": true
+    },
+    "tier": null
+   },
+   "status": 0,
+   "stderr": "WARNING 1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)\nWARNING 1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output\n",
+   "stdout": "OK Saved novelty artifact: out/novelty.json\nOK Saved novelty report:   out/novelty.md\nOK Saved annotated view:   out/annotated.html\nadded: 1.0 (lenient) / 1.0 (strict), already knew: 0.0, degraded: 0.0, dead tokens: 0.5714\n",
+   "warnings": [
+    "1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)",
+    "1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output"
+   ]
+  }
+ ],
+ "run/every-stage-off": [
+  {
+   "calls": [
+    [
+     "extractor",
+     2
+    ],
+    [
+     "answerer",
+     4
+    ],
+    [
+     "judge",
+     4
+    ]
+   ],
+   "run_config": {
+    "arms": [
+     "no_artifact",
+     "full"
+    ],
+    "budgets": [
+     0.75,
+     0.5
+    ],
+    "include_resources": false,
+    "max_atoms": 120,
+    "paraphrases": 0,
+    "resource_roles": null,
+    "reversals": false,
+    "seed": 0,
+    "stages": {
+     "classify": false,
+     "confirm_carriers": false,
+     "shorten": false,
+     "verify": false
+    },
+    "tier": null
+   },
+   "status": 0,
+   "stderr": "WARNING atoms were not checked against the spans they came from (--no-verify): `faithfulness` is empty, so distortion by the extractor is unbounded for this run\nWARNING content categories were not judged (--no-classify)\nWARNING no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\nWARNING no reversal probe, so planted-inversion resistance is unmeasured\nWARNING span citations were not confirmed (--no-confirm-carriers): the span views report the extractor's citation as given\n",
+   "stdout": "OK Saved novelty artifact: out/novelty.json\nOK Saved novelty report:   out/novelty.md\nOK Saved annotated view:   out/annotated.html\nadded: 1.0 (lenient) / 1.0 (strict), already knew: 0.0, degraded: 0.0, dead tokens: 0.5714\n",
+   "warnings": [
+    "atoms were not checked against the spans they came from (--no-verify): `faithfulness` is empty, so distortion by the extractor is unbounded for this run",
+    "content categories were not judged (--no-classify)",
+    "no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording",
+    "no reversal probe, so planted-inversion resistance is unmeasured",
+    "span citations were not confirmed (--no-confirm-carriers): the span views report the extractor's citation as given"
+   ]
+  }
+ ],
+ "run/max-atoms-1": [
+  {
+   "calls": [
+    [
+     "extractor",
+     6
+    ],
+    [
+     "answerer",
+     6
+    ],
+    [
+     "judge",
+     6
+    ]
+   ],
+   "run_config": {
+    "arms": [
+     "no_artifact",
+     "full"
+    ],
+    "budgets": [
+     0.75,
+     0.5
+    ],
+    "include_resources": false,
+    "max_atoms": 1,
+    "paraphrases": 1,
+    "resource_roles": null,
+    "reversals": true,
+    "seed": 0,
+    "stages": {
+     "classify": true,
+     "confirm_carriers": true,
+     "shorten": true,
+     "verify": true
+    },
+    "tier": null
+   },
+   "status": 0,
+   "stderr": "WARNING 1 of 1 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)\nWARNING 2 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output\nWARNING atom extraction hit the cap of 1; rates describe the sampled atoms, not the whole artifact\n",
+   "stdout": "OK Saved novelty artifact: out/novelty.json\nOK Saved novelty report:   out/novelty.md\nOK Saved annotated view:   out/annotated.html\nadded: 1.0 (lenient) / 1.0 (strict), already knew: 0.0, degraded: 0.0, dead tokens: 0.7619\n",
+   "warnings": [
+    "1 of 1 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)",
+    "2 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output",
+    "atom extraction hit the cap of 1; rates describe the sampled atoms, not the whole artifact"
+   ]
+  }
+ ],
+ "run/no-paraphrase-no-reversal": [
+  {
+   "calls": [
+    [
+     "extractor",
+     10
+    ],
+    [
+     "answerer",
+     4
+    ],
+    [
+     "judge",
+     4
+    ]
+   ],
+   "run_config": {
+    "arms": [
+     "no_artifact",
+     "full"
+    ],
+    "budgets": [
+     0.75,
+     0.5
+    ],
+    "include_resources": false,
+    "max_atoms": 120,
+    "paraphrases": 0,
+    "resource_roles": null,
+    "reversals": false,
+    "seed": 0,
+    "stages": {
+     "classify": true,
+     "confirm_carriers": true,
+     "shorten": true,
+     "verify": true
+    },
+    "tier": null
+   },
+   "status": 0,
+   "stderr": "WARNING 1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)\nWARNING 1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output\nWARNING no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\nWARNING no reversal probe, so planted-inversion resistance is unmeasured\n",
+   "stdout": "OK Saved novelty artifact: out/novelty.json\nOK Saved novelty report:   out/novelty.md\nOK Saved annotated view:   out/annotated.html\nadded: 1.0 (lenient) / 1.0 (strict), already knew: 0.0, degraded: 0.0, dead tokens: 0.5714\n",
+   "warnings": [
+    "1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)",
+    "1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output",
+    "no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording",
+    "no reversal probe, so planted-inversion resistance is unmeasured"
+   ]
+  }
+ ],
+ "run/standard": [
+  {
+   "calls": [
+    [
+     "extractor",
+     9
+    ],
+    [
+     "answerer",
+     8
+    ],
+    [
+     "judge",
+     8
+    ]
+   ],
+   "run_config": {
+    "arms": [
+     "no_artifact",
+     "full"
+    ],
+    "budgets": [
+     0.75,
+     0.5
+    ],
+    "include_resources": false,
+    "max_atoms": 60,
+    "paraphrases": 1,
+    "resource_roles": null,
+    "reversals": false,
+    "seed": 0,
+    "stages": {
+     "classify": false,
+     "confirm_carriers": true,
+     "shorten": true,
+     "verify": true
+    },
+    "tier": {
+     "forfeits": [
+      "no reversal probe, so planted-inversion resistance is unmeasured",
+      "content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing"
+     ],
+     "name": "standard",
+     "overrides": {}
+    }
+   },
+   "status": 0,
+   "stderr": "Tier `standard`: classify_content=False, confirm_carriers=True, max_atoms=60, paraphrases=1, reversals=False, shorten_artifact=True, verify_faithfulness=True\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nWARNING 1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)\nWARNING 1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output\nWARNING content categories were not judged (--no-classify)\nWARNING tier `standard` forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nWARNING tier `standard` forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n",
+   "stdout": "OK Saved novelty artifact: out/novelty.json\nOK Saved novelty report:   out/novelty.md\nOK Saved annotated view:   out/annotated.html\nadded: 1.0 (lenient) / 1.0 (strict), already knew: 0.0, degraded: 0.0, dead tokens: 0.5714\n",
+   "warnings": [
+    "1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)",
+    "1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output",
+    "content categories were not judged (--no-classify)",
+    "tier `standard` forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing",
+    "tier `standard` forfeits: no reversal probe, so planted-inversion resistance is unmeasured"
+   ]
+  }
+ ],
+ "run/standard-no-verify": [
+  {
+   "calls": [
+    [
+     "extractor",
+     7
+    ],
+    [
+     "answerer",
+     8
+    ],
+    [
+     "judge",
+     8
+    ]
+   ],
+   "run_config": {
+    "arms": [
+     "no_artifact",
+     "full"
+    ],
+    "budgets": [
+     0.75,
+     0.5
+    ],
+    "include_resources": false,
+    "max_atoms": 60,
+    "paraphrases": 1,
+    "resource_roles": null,
+    "reversals": false,
+    "seed": 0,
+    "stages": {
+     "classify": false,
+     "confirm_carriers": true,
+     "shorten": true,
+     "verify": false
+    },
+    "tier": {
+     "forfeits": [
+      "atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded",
+      "no reversal probe, so planted-inversion resistance is unmeasured",
+      "content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing"
+     ],
+     "name": "standard",
+     "overrides": {
+      "no_verify": true
+     }
+    }
+   },
+   "status": 0,
+   "stderr": "Tier `standard`: classify_content=False, confirm_carriers=True, max_atoms=60, paraphrases=1, reversals=False, shorten_artifact=True, verify_faithfulness=False\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\n  forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\n  overridden by flags: ['no_verify']\nWARNING 1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)\nWARNING 1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output\nWARNING atoms were not checked against the spans they came from (--no-verify): `faithfulness` is empty, so distortion by the extractor is unbounded for this run\nWARNING content categories were not judged (--no-classify)\nWARNING tier `standard` forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\nWARNING tier `standard` forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nWARNING tier `standard` forfeits: no reversal probe, so planted-inversion resistance is unmeasured\nWARNING tier `standard` was overridden by flags (no_verify); the forfeits above follow the settings this run used\n",
+   "stdout": "OK Saved novelty artifact: out/novelty.json\nOK Saved novelty report:   out/novelty.md\nOK Saved annotated view:   out/annotated.html\nadded: 1.0 (lenient) / 1.0 (strict), already knew: 0.0, degraded: 0.0, dead tokens: 0.5714\n",
+   "warnings": [
+    "1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)",
+    "1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output",
+    "atoms were not checked against the spans they came from (--no-verify): `faithfulness` is empty, so distortion by the extractor is unbounded for this run",
+    "content categories were not judged (--no-classify)",
+    "tier `standard` forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded",
+    "tier `standard` forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing",
+    "tier `standard` forfeits: no reversal probe, so planted-inversion resistance is unmeasured",
+    "tier `standard` was overridden by flags (no_verify); the forfeits above follow the settings this run used"
+   ]
+  }
+ ],
+ "run/study": [
+  {
+   "calls": [
+    [
+     "extractor",
+     12
+    ],
+    [
+     "answerer",
+     12
+    ],
+    [
+     "judge",
+     12
+    ]
+   ],
+   "run_config": {
+    "arms": [
+     "no_artifact",
+     "full"
+    ],
+    "budgets": [
+     0.75,
+     0.5
+    ],
+    "include_resources": false,
+    "max_atoms": 120,
+    "paraphrases": 1,
+    "resource_roles": null,
+    "reversals": true,
+    "seed": 0,
+    "stages": {
+     "classify": true,
+     "confirm_carriers": true,
+     "shorten": true,
+     "verify": true
+    },
+    "tier": {
+     "forfeits": [],
+     "name": "study",
+     "overrides": {}
+    }
+   },
+   "status": 0,
+   "stderr": "Tier `study`: classify_content=True, confirm_carriers=True, max_atoms=120, paraphrases=1, reversals=True, shorten_artifact=True, verify_faithfulness=True\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: shortening candidates are scored only against the capped atoms, i.e. the opening of the artifact: a cut of the uncovered tail looks free\nWARNING 1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)\nWARNING 1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output\n",
+   "stdout": "OK Saved novelty artifact: out/novelty.json\nOK Saved novelty report:   out/novelty.md\nOK Saved annotated view:   out/annotated.html\nadded: 1.0 (lenient) / 1.0 (strict), already knew: 0.0, degraded: 0.0, dead tokens: 0.5714\n",
+   "warnings": [
+    "1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)",
+    "1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output"
+   ]
+  }
+ ],
+ "run/study-all-atoms": [
+  {
+   "calls": [
+    [
+     "extractor",
+     12
+    ],
+    [
+     "answerer",
+     12
+    ],
+    [
+     "judge",
+     12
+    ]
+   ],
+   "run_config": {
+    "arms": [
+     "no_artifact",
+     "full"
+    ],
+    "budgets": [
+     0.75,
+     0.5
+    ],
+    "include_resources": false,
+    "max_atoms": null,
+    "paraphrases": 1,
+    "resource_roles": null,
+    "reversals": true,
+    "seed": 0,
+    "stages": {
+     "classify": true,
+     "confirm_carriers": true,
+     "shorten": true,
+     "verify": true
+    },
+    "tier": {
+     "forfeits": [],
+     "name": "study",
+     "overrides": {
+      "all_atoms": true
+     }
+    }
+   },
+   "status": 0,
+   "stderr": "Tier `study`: classify_content=True, confirm_carriers=True, max_atoms=None, paraphrases=1, reversals=True, shorten_artifact=True, verify_faithfulness=True\n  overridden by flags: ['all_atoms']\nWARNING 1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)\nWARNING 1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output\nWARNING tier `study` was overridden by flags (all_atoms); the forfeits above follow the settings this run used\n",
+   "stdout": "OK Saved novelty artifact: out/novelty.json\nOK Saved novelty report:   out/novelty.md\nOK Saved annotated view:   out/annotated.html\nadded: 1.0 (lenient) / 1.0 (strict), already knew: 0.0, degraded: 0.0, dead tokens: 0.5714\n",
+   "warnings": [
+    "1 of 2 atoms were not recoverable from any span cited for them; they are reported as unlocated rather than attributed, and are not necessarily wrong (in the study the faithfulness check called 46 of 49 such atoms supported)",
+    "1 shortening candidates drop protected spans; they are reported so the knowledge-vs-protection gap is visible, not offered as accepted output",
+    "tier `study` was overridden by flags (all_atoms); the forfeits above follow the settings this run used"
+   ]
+  }
+ ],
+ "run/triage": [
+  {
+   "calls": [
+    [
+     "extractor",
+     2
+    ],
+    [
+     "answerer",
+     4
+    ],
+    [
+     "judge",
+     4
+    ]
+   ],
+   "run_config": {
+    "arms": [
+     "no_artifact",
+     "full"
+    ],
+    "budgets": [
+     0.75,
+     0.5
+    ],
+    "include_resources": false,
+    "max_atoms": 25,
+    "paraphrases": 0,
+    "resource_roles": null,
+    "reversals": false,
+    "seed": 0,
+    "stages": {
+     "classify": false,
+     "confirm_carriers": false,
+     "shorten": false,
+     "verify": false
+    },
+    "tier": {
+     "forfeits": [
+      "atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded",
+      "no shortening candidates are scored, so nothing here says what could be cut",
+      "no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording",
+      "no reversal probe, so planted-inversion resistance is unmeasured",
+      "atoms are not checked against the spans cited for them, so no span colour is confirmed",
+      "content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing"
+     ],
+     "name": "triage",
+     "overrides": {}
+    }
+   },
+   "status": 0,
+   "stderr": "Tier `triage`: classify_content=False, confirm_carriers=False, max_atoms=25, paraphrases=0, reversals=False, shorten_artifact=False, verify_faithfulness=False\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\n  forfeits: no shortening candidates are scored, so nothing here says what could be cut\n  forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nWARNING atoms were not checked against the spans they came from (--no-verify): `faithfulness` is empty, so distortion by the extractor is unbounded for this run\nWARNING content categories were not judged (--no-classify)\nWARNING span citations were not confirmed (--no-confirm-carriers): the span views report the extractor's citation as given\nWARNING tier `triage` forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed\nWARNING tier `triage` forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\nWARNING tier `triage` forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nWARNING tier `triage` forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\nWARNING tier `triage` forfeits: no reversal probe, so planted-inversion resistance is unmeasured\nWARNING tier `triage` forfeits: no shortening candidates are scored, so nothing here says what could be cut\n",
+   "stdout": "OK Saved novelty artifact: out/novelty.json\nOK Saved novelty report:   out/novelty.md\nOK Saved annotated view:   out/annotated.html\nadded: 1.0 (lenient) / 1.0 (strict), already knew: 0.0, degraded: 0.0, dead tokens: 0.5714\n",
+   "warnings": [
+    "atoms were not checked against the spans they came from (--no-verify): `faithfulness` is empty, so distortion by the extractor is unbounded for this run",
+    "content categories were not judged (--no-classify)",
+    "span citations were not confirmed (--no-confirm-carriers): the span views report the extractor's citation as given",
+    "tier `triage` forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed",
+    "tier `triage` forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded",
+    "tier `triage` forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing",
+    "tier `triage` forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording",
+    "tier `triage` forfeits: no reversal probe, so planted-inversion resistance is unmeasured",
+    "tier `triage` forfeits: no shortening candidates are scored, so nothing here says what could be cut"
+   ]
+  }
+ ],
+ "run/triage-max-atoms-1": [
+  {
+   "calls": [
+    [
+     "extractor",
+     2
+    ],
+    [
+     "answerer",
+     2
+    ],
+    [
+     "judge",
+     2
+    ]
+   ],
+   "run_config": {
+    "arms": [
+     "no_artifact",
+     "full"
+    ],
+    "budgets": [
+     0.75,
+     0.5
+    ],
+    "include_resources": false,
+    "max_atoms": 1,
+    "paraphrases": 0,
+    "resource_roles": null,
+    "reversals": false,
+    "seed": 0,
+    "stages": {
+     "classify": false,
+     "confirm_carriers": false,
+     "shorten": false,
+     "verify": false
+    },
+    "tier": {
+     "forfeits": [
+      "`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep",
+      "`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)",
+      "atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded",
+      "no shortening candidates are scored, so nothing here says what could be cut",
+      "no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording",
+      "no reversal probe, so planted-inversion resistance is unmeasured",
+      "atoms are not checked against the spans cited for them, so no span colour is confirmed",
+      "content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing"
+     ],
+     "name": "triage",
+     "overrides": {
+      "max_atoms": 1
+     }
+    }
+   },
+   "status": 0,
+   "stderr": "Tier `triage`: classify_content=False, confirm_carriers=False, max_atoms=1, paraphrases=0, reversals=False, shorten_artifact=False, verify_faithfulness=False\n  forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\n  forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\n  forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\n  forfeits: no shortening candidates are scored, so nothing here says what could be cut\n  forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\n  forfeits: no reversal probe, so planted-inversion resistance is unmeasured\n  forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed\n  forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\n  overridden by flags: ['max_atoms']\nWARNING atom extraction hit the cap of 1; rates describe the sampled atoms, not the whole artifact\nWARNING atoms were not checked against the spans they came from (--no-verify): `faithfulness` is empty, so distortion by the extractor is unbounded for this run\nWARNING content categories were not judged (--no-classify)\nWARNING span citations were not confirmed (--no-confirm-carriers): the span views report the extractor's citation as given\nWARNING tier `triage` forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep\nWARNING tier `triage` forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)\nWARNING tier `triage` forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed\nWARNING tier `triage` forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded\nWARNING tier `triage` forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing\nWARNING tier `triage` forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording\nWARNING tier `triage` forfeits: no reversal probe, so planted-inversion resistance is unmeasured\nWARNING tier `triage` forfeits: no shortening candidates are scored, so nothing here says what could be cut\nWARNING tier `triage` was overridden by flags (max_atoms); the forfeits above follow the settings this run used\n",
+   "stdout": "OK Saved novelty artifact: out/novelty.json\nOK Saved novelty report:   out/novelty.md\nOK Saved annotated view:   out/annotated.html\nadded: 1.0 (lenient) / 1.0 (strict), already knew: 0.0, degraded: 0.0, dead tokens: 0.7619\n",
+   "warnings": [
+    "atom extraction hit the cap of 1; rates describe the sampled atoms, not the whole artifact",
+    "atoms were not checked against the spans they came from (--no-verify): `faithfulness` is empty, so distortion by the extractor is unbounded for this run",
+    "content categories were not judged (--no-classify)",
+    "span citations were not confirmed (--no-confirm-carriers): the span views report the extractor's citation as given",
+    "tier `triage` forfeits: `added` is a sampled rate over the atom cap: usable as a sign, not as a figure, and not comparable with another artifact's; pass --all-atoms for the full sweep",
+    "tier `triage` forfeits: `frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read as 0.743 on the study's largest artifact)",
+    "tier `triage` forfeits: atoms are not checked against the spans cited for them, so no span colour is confirmed",
+    "tier `triage` forfeits: atoms are not checked against the spans they were extracted from, so `faithfulness` is empty and distortion is unbounded",
+    "tier `triage` forfeits: content categories are not judged, so `harmful_conflicting` is unmeasured -- the one category that can make an artifact worse than nothing",
+    "tier `triage` forfeits: no paraphrase probe, so a `redundant` verdict is unprotected against the model matching the artifact's own wording",
+    "tier `triage` forfeits: no reversal probe, so planted-inversion resistance is unmeasured",
+    "tier `triage` forfeits: no shortening candidates are scored, so nothing here says what could be cut",
+    "tier `triage` was overridden by flags (max_atoms); the forfeits above follow the settings this run used"
+   ]
+  }
+ ]
+}
