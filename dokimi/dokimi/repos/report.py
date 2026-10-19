@@ -127,12 +127,28 @@ def resolved_models(rec: dict[str, Any]) -> list[str]:
     return [found] if isinstance(found, str) else [str(m) for m in found] if isinstance(found, list) else []
 
 
+def _normalize_model_id(model_id: str) -> str:
+    """Normalize model ID by stripping trailing version suffix (e.g., -v1:0)."""
+    # Strip Bedrock version suffix like -v1 or -v1:0
+    return re.sub(r"-v\d+(?::\d+)?$", "", model_id)
+
+
+def _model_prefix_matches(base: str, candidate: str) -> bool:
+    """Check if candidate is base optionally preceded by provider prefix (., /)."""
+    # base could be the suffix of candidate, with optional prefix
+    if base == candidate:
+        return True
+    # Check if candidate ends with . + base or / + base
+    return candidate.endswith(("." + base, "/" + base))
+
+
 def model_matches(requested: str, resolved: str) -> bool:
     """Whether ``resolved`` is the ``requested`` model: the same id, or that id behind a provider prefix
     (Bedrock's ``us.anthropic.claude-x`` answers as ``claude-x``, with its ``-v1:0`` too)."""
-    # Check both directions: resolved could be missing prefix/version, or requested could
-    return (re.fullmatch(rf"(?:.*[./])?{re.escape(resolved)}(?:-v\d+(?::\d+)?)?", requested) is not None or
-            re.fullmatch(rf"(?:.*[./])?{re.escape(requested)}(?:-v\d+(?::\d+)?)?", resolved) is not None)
+    # Normalize both by stripping version suffixes, then check prefix equivalence both ways
+    req_norm = _normalize_model_id(requested)
+    res_norm = _normalize_model_id(resolved)
+    return _model_prefix_matches(res_norm, req_norm) or _model_prefix_matches(req_norm, res_norm)
 
 
 def model_mismatch(cells: list[dict[str, Any]]) -> dict[str, list[str]]:

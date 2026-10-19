@@ -72,7 +72,12 @@ assert os.environ.get("FAKE_CONFIG_DIR"), "config dir not set"
 assert "SECRET_NOT_ALLOWED" not in os.environ, "environment not scrubbed"
 action = os.environ.get("FAKE_ACTION", "fix")
 cwd = Path.cwd()
-model = args[args.index("--model") + 1]
+# Guard against --model missing or being the last arg
+try:
+    model_idx = args.index("--model")
+    model = args[model_idx + 1] if model_idx + 1 < len(args) else "unknown"
+except (ValueError, IndexError):
+    model = "unknown"
 lines = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3", "cwd": str(cwd), "model": model}]
 if action == "sleep":
     time.sleep(60)

@@ -173,14 +173,13 @@ def _models_equivalent(base_models: set[str], treat_models: set[str]) -> bool:
     if base_models == treat_models:
         return True
     # Check if each base model has an equivalent in treatment models
+    # (model_matches is already bidirectional, so one call per pair suffices)
     for base_model in base_models:
-        if not any(model_matches(base_model, treat_model) or model_matches(treat_model, base_model)
-                   for treat_model in treat_models):
+        if not any(model_matches(base_model, treat_model) for treat_model in treat_models):
             return False
     # Check the reverse: every treatment model matches some base model
     for treat_model in treat_models:
-        if not any(model_matches(treat_model, base_model) or model_matches(base_model, treat_model)
-                   for base_model in base_models):
+        if not any(model_matches(treat_model, base_model) for base_model in base_models):
             return False
     return True
 
