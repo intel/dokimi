@@ -38,6 +38,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import posixpath
 import re
 import shutil
 import tempfile
@@ -354,9 +355,14 @@ def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
                removed: list[str]) -> tuple[list[str], dict[str, Any]]:
     """The guidance files of ``arm.rev_sha`` into ``ws``, whose own were ``removed``."""
     assert arm.rev_sha is not None
-    written = _guidance_at(git_dir, manifest, arm.rev_sha)
-    if written:  # checked out as files, as in step 1: no object of the source is copied
-        _checkout_tree(git_dir, arm.rev_sha, ws, paths=written)
+    written, links = _guidance_at(git_dir, manifest, arm.rev_sha)
+    files = [p for p in written if p not in links]
+    if files:  # checked out as files, as in step 1: no object of the source is copied
+        _checkout_tree(git_dir, arm.rev_sha, ws, paths=files)
+    for rel, target in links.items():  # the target's text at the link's path; the base's own copy of it stays
+        (ws / rel).parent.mkdir(parents=True, exist_ok=True)
+        (ws / rel).write_text(_run(["git", "-C", str(git_dir), "cat-file", "blob", f"{arm.rev_sha}:{target}"],
+                                   env=_git_env(SNAPSHOT_AUTHOR)), encoding="utf-8")
     return written, {"arm_rev": {"rev": arm.rev, "sha": arm.rev_sha, "removed": sorted(set(removed) - set(written))}}
 
 
@@ -374,73 +380,42 @@ def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple
     return written, ({"bridge_skipped": skipped} if skipped else {})
 
 
-def _guidance_at(git_dir: Path, manifest: RepoManifest, sha: str) -> list[str]:
-    """The files of commit ``sha`` the guidance globs match, outside ``eval_dir`` (step 2 deletes it).
-
-    Resolves symlink targets within the tree; rejects targets outside or inside eval_dir.
-    """
+def _guidance_at(git_dir: Path, manifest: RepoManifest, sha: str) -> tuple[list[str], dict[str, str]]:
+    """The files of commit ``sha`` the guidance globs match, outside ``eval_dir`` (step 2 deletes it), and for each
+    one that is a symbolic link the file it resolves to in that commit. A link out of the tree, into ``eval_dir``
+    or to nothing is refused."""
     eval_dir = manifest.run_paths()[0]
     listing = _run(["git", "-C", str(git_dir), "ls-tree", "-r", "-z", "--full-tree", sha], env=_git_env(SNAPSHOT_AUTHOR))
-    found = set()
-    symlinks = {}
+    entries = {}
     for entry in filter(None, listing.split("\0")):
         info, _, path = entry.partition("\t")
-        mode = info.split()[0]
-        obj_type = info.split()[1]
-
-        if obj_type == "blob" and not _is_within(path, eval_dir) and any(
-                match_glob(g, path) for g in manifest.guidance_globs):
-            found.add(path)
-        elif mode == "120000":  # symlink (mode 120000)
-            symlinks[path] = info.split()[2]  # store object id
-
-    # Resolve symlink targets
-    result = list(found)
-    for sym_path, obj_id in symlinks.items():
-        if sym_path not in found:
-            continue
-        # Get the symlink target
-        target_str = _run(["git", "-C", str(git_dir), "cat-file", "-p", obj_id], env=_git_env(SNAPSHOT_AUTHOR)).strip()
-        # Resolve relative symlinks
-        if target_str.startswith("/"):
-            # Absolute symlink; treat as invalid (outside tree)
-            continue
-        # Relative symlink: resolve from parent directory
-        sym_parent = "/".join(PurePosixPath(sym_path).parts[:-1])
-        if sym_parent:
-            target_path_parts = (sym_parent + "/" + target_str).split("/")
-        else:
-            target_path_parts = target_str.split("/")
-
-        # Normalize ../ and ./
-        normalized = []
-        for part in target_path_parts:
-            if part == "" or part == ".":
-                continue  # skip empty and "."
-            elif part == "..":
-                if normalized:
-                    normalized.pop()  # go up one level
-            else:
-                normalized.append(part)
-        target_path = "/".join(normalized)
-
-        # Check if target is valid (within tree, not in eval_dir)
-        if target_path and not _is_within(target_path, eval_dir):
-            # Verify target exists in the tree as a blob
-            proc = process.git("-C", str(git_dir), "cat-file", "-e", f"{sha}:{target_path}^{{blob}}", timeout=_GIT_TIMEOUT_S)
-            if proc.timed_out:
-                pass  # Target verification timed out; skip
-            elif proc.ok:
-                result.append(target_path)
-
-    return sorted(set(result))
+        mode, kind, oid = info.split()
+        if kind == "blob":
+            entries[path] = (mode, oid)
+    found = sorted(p for p in entries if not _is_within(p, eval_dir)
+                   and any(match_glob(g, p) for g in manifest.guidance_globs))
+    links = {}
+    for path in found:
+        target = path
+        for _ in range(8):  # a chain of links; a loop runs out
+            mode, oid = entries.get(target, ("", ""))
+            if mode != "120000":
+                break
+            dest = _run(["git", "-C", str(git_dir), "cat-file", "blob", oid], env=_git_env(SNAPSHOT_AUTHOR))
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(target), dest))
+            if dest.startswith("/") or target == ".." or target.startswith("../"):
+                raise PrepError(f"guidance {path} at {sha[:12]} links out of the tree ({dest})")
+            if _is_within(target, eval_dir):
+                raise PrepError(f"guidance {path} at {sha[:12]} links into eval_dir {eval_dir}")
+        if target != path:
+            if entries.get(target, ("",))[0] in ("", "120000"):
+                raise PrepError(f"guidance {path} at {sha[:12]} links to {target}, which is not a file there")
+            links[path] = target
+    return found, links
 
 
 def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm) -> tuple[list[str], dict[str, Any]]:
-    """``git apply`` of the arm's patch on the raw workspace; the files it changed.
-
-    Checks the resulting filesystem to catch ignored files that git add -A skips.
-    """
+    """``git apply`` of the arm's patch on the raw workspace; the files it changed."""
     assert arm.patch is not None
     _git(ws, env, "add", "-A")
     before = _git(ws, env, "write-tree").strip()  # after the setup patches; unreachable once step 6 commits
@@ -448,33 +423,38 @@ def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm
         path = Path(tmp) / "arm.patch"
         path.write_bytes(arm.patch)
         try:
+            touched = _patch_paths(_git(ws, env, "apply", "--numstat", "-z", str(path)))
             _git(ws, env, "apply", "--whitespace=nowarn", str(path))
         except PrepError as exc:
             raise PrepError(f"arm {arm}: patch {arm.patch_path} does not apply: {exc}") from exc
-
-    eval_dir = manifest.run_paths()[0]
-    eval_dir_path = ws / eval_dir
-
-    # Check git diff to find staged changes
     _git(ws, env, "add", "-A")
     changed = sorted(p for p in _git(ws, env, "diff", "--cached", "--name-only", "--no-renames", "-z", before).split("\0")
                      if p)
-
-    # Check filesystem for any files in eval_dir (including ignored ones)
-    inside = [p for p in changed if _is_within(p, eval_dir)]
-    if inside:
+    eval_dir = manifest.run_paths()[0]
+    # the patch's own paths too: a file .gitignore hides is written but never staged
+    inside = sorted(p for p in set(changed) | touched if _is_within(p, eval_dir))
+    if inside:  # the agent must not see an eval_dir, not even a patched-in one
         raise PrepError(f"arm {arm}: patch {arm.patch_path} writes into eval_dir {eval_dir}: {', '.join(inside)}")
-
-    # Additionally, check the filesystem directly for ignored files in eval_dir
-    if eval_dir_path.exists():
-        for file_path in eval_dir_path.rglob("*"):
-            if file_path.is_file() or (file_path.is_symlink() and not file_path.exists()):
-                rel_path = str(file_path.relative_to(ws))
-                if rel_path not in changed:
-                    raise PrepError(f"arm {arm}: patch {arm.patch_path} writes into eval_dir {eval_dir}: {rel_path} "
-                                  f"(ignored by .gitignore; not visible to git but present on filesystem)")
-
     return changed, {"arm_patch": {"path": arm.patch_path, "sha256": arm.patch_sha256}}
+
+
+def _patch_paths(numstat: str) -> set[str]:
+    """Every path ``git apply --numstat -z`` names: ``added<TAB>deleted<TAB>path``, or for a rename an empty path
+    followed by the old and the new one."""
+    paths: set[str] = set()
+    fields = numstat.split("\0")
+    i = 0
+    while i < len(fields):
+        rest = fields[i].split("\t", 2)
+        i += 1
+        if len(rest) < 3:
+            continue
+        if rest[2]:
+            paths.add(rest[2])
+        else:
+            paths.update(f for f in fields[i:i + 2] if f)
+            i += 2
+    return paths
 
 
 def _task_file(task: Task, rel: str) -> Path:

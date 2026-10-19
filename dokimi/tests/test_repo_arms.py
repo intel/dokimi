@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -242,57 +243,48 @@ def test_repo_run_refuses_an_unreadable_patch_before_building_anything(setup, ca
     assert not (setup["out"] / "b1").exists()
 
 
-def test_patch_arm_rejects_ignored_files_in_eval_dir(toy):
-    """Regression test: patch that creates ignored files in eval_dir must be detected."""
-    # Create a patch that writes to .agent-eval with a file that will be ignored by .gitignore
-    ignored_patch = """diff --git a/.agent-eval/notes.log b/.agent-eval/notes.log
-new file mode 100644
---- /dev/null
-+++ b/.agent-eval/notes.log
-@@ -0,0 +1 @@
-+test notes
-"""
-    patch = toy["tmp"] / "ignored_eval_dir.diff"
-    patch.write_text(ignored_patch)
-
-    # Temporarily revert the fix to verify this test catches the issue
-    # (by checking that without the fix, this would pass when it shouldn't)
-    with pytest.raises(PrepError, match=r"patch.*eval_dir.*\.agent-eval/notes\.log"):
+def test_patch_arm_rejects_a_file_gitignore_hides_inside_eval_dir(toy):
+    patch = toy["tmp"] / "ignored.diff"
+    patch.write_text("diff --git a/.gitignore b/.gitignore\nnew file mode 100644\n--- /dev/null\n+++ b/.gitignore\n"
+                     "@@ -0,0 +1 @@\n+*.log\n"
+                     "diff --git a/.agent-eval/notes.log b/.agent-eval/notes.log\nnew file mode 100644\n"
+                     "--- /dev/null\n+++ b/.agent-eval/notes.log\n@@ -0,0 +1 @@\n+answers\n")
+    with pytest.raises(PrepError, match=r"writes into eval_dir .*\.agent-eval/notes\.log"):
         _prep(toy, f"patch:{patch}")
 
 
-def test_rev_arm_resolves_symlinks_in_guidance_files(toy):
-    """Regression test: guidance:rev arm must resolve symlinks to their targets.
+def _link_commit(toy, branch: str, links: dict[str, str], files: dict[str, str]) -> str:
+    """A commit on ``branch`` (from the base) with ``files`` and the symbolic ``links`` (path -> target)."""
+    root = toy["root"]
+    wt = root.parent / f"wt-{branch}"
+    git(root, "worktree", "add", "-q", "-b", branch, str(wt), toy["base"])
+    for rel, text in files.items():
+        write(wt, rel, text)
+    for rel, target in links.items():
+        (wt / rel).unlink(missing_ok=True)
+        (wt / rel).parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(target, wt / rel)
+    git(wt, "add", "-A")
+    git(wt, "commit", "-qm", f"on {branch}")
+    sha = git(wt, "rev-parse", "HEAD")
+    git(root, "worktree", "remove", "--force", str(wt))
+    return sha
 
-    Create a revision with a symlink AGENTS.md -> docs/GUIDE.md. When we apply
-    guidance:rev with this revision, both the symlink and its target should be
-    included in arm_files, and the workspace should contain the guidance.
-    """
-    # We need to create a commit with a symlink using git's low-level operations
-    # since pathlib symlinks don't always work on all filesystems
-    import subprocess
-    from dokimi.repos.workspace import _guidance_at
 
-    wt = toy["root"].parent / f"wt-symlink-{len(list(toy['root'].parent.glob('wt-*')))}"
-    git(toy["root"], "worktree", "add", "-q", "-b", "with-symlink", str(wt), toy["base"])
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links")
+def test_rev_arm_writes_a_linked_guidance_files_target_at_the_link(toy):
+    _link_commit(toy, "linked", {"AGENTS.md": "docs/GUIDE.md"}, {"docs/GUIDE.md": "# new guide\n"})
+    meta, ws = _prep(toy, "guidance:rev:linked")
+    assert (ws / "AGENTS.md").read_text() == "# new guide\n" and not (ws / "AGENTS.md").is_symlink()
+    assert not (ws / "docs/GUIDE.md").exists()  # the target is not added beside the base's files
+    assert "AGENTS.md" in meta["arm_files"]
 
-    try:
-        # Create target file
-        write(wt, "docs/GUIDE.md", "# guide content\n")
-        git(wt, "add", "docs/GUIDE.md")
 
-        # Remove old AGENTS.md and create symlink
-        git(wt, "rm", "-f", "AGENTS.md")
-        # Use subprocess to create symlink since pathlib may not work
-        subprocess.run(["ln", "-s", "docs/GUIDE.md", str(wt / "AGENTS.md")], check=True)
-        git(wt, "add", "AGENTS.md")
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links")
+@pytest.mark.parametrize("target, why", [("../outside.md", "out of the tree"), (".agent-eval/grade.py", "into eval_dir"),
+                                         ("docs/missing.md", "not a file there")])
+def test_rev_arm_refuses_a_guidance_link_it_cannot_follow(toy, target, why):
+    _link_commit(toy, "bad-link", {"AGENTS.md": target}, {})
+    with pytest.raises(PrepError, match=why):
+        _prep(toy, "guidance:rev:bad-link")
 
-        git(wt, "commit", "-qm", "add symlink to guidance")
-        symlink_sha = git(wt, "rev-parse", "HEAD")
-
-        # Test that _guidance_at finds both the symlink and its target
-        guidance = _guidance_at(toy["git_dir"], toy["manifest"], symlink_sha)
-        # Both AGENTS.md (the symlink) and docs/GUIDE.md (the target) should be included
-        assert "AGENTS.md" in guidance or "docs/GUIDE.md" in guidance, f"Expected symlink or target in {guidance}"
-    finally:
-        git(toy["root"], "worktree", "remove", "--force", str(wt))
