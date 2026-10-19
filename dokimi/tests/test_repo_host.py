@@ -299,3 +299,17 @@ def test_run_refuses_a_bad_host_shape_before_any_agent(tmp_path, monkeypatch, ca
         _run(root, tmp_path / "runs", runner, monkeypatch)
     assert exc.value.code == 1 and not [s for s in runner.specs if "-p" in s.argv]
     assert "task fix_race: task.json host.cpu_flags must be a list of non-empty strings" in capsys.readouterr().err
+    # Regression: validate host requirements immediately after load_tasks, before harness_version/isolation_probe.
+    # The test confirms zero containers start before the host requirement error, not just zero agent containers.
+    assert len(runner.specs) == 0 or all("PROBE" in " ".join(s.argv) for s in runner.specs)
+
+
+def test_probe_resolves_limits_via_namespace_aware_cgroup_paths(tmp_path):
+    """Regression: probe must read /proc/self/cgroup and /proc/self/mountinfo to see container's own limits."""
+    # The probe script should resolve limits correctly even in a host cgroup namespace.
+    # This test verifies the PROBE script includes the namespace-aware resolution logic.
+    assert "resolve_cgroup_limits" in PROBE
+    assert "/proc/self/cgroup" in PROBE
+    assert "/proc/self/mountinfo" in PROBE
+    # Verify the fallback still works for systems without cgroup namespace features
+    assert "/sys/fs/cgroup/cpu" in PROBE

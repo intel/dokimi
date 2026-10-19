@@ -47,15 +47,42 @@ def read(path):
             return f.read()
     except OSError:
         return None
+def resolve_cgroup_limits():
+    # Resolve CPU limits via /proc/self/cgroup and /proc/self/mountinfo, accounting for cgroup namespace.
+    cgroup_text = read("/proc/self/cgroup") or ""
+    mountinfo_text = read("/proc/self/mountinfo") or ""
+    cpu_max, cfs_quota_us, cfs_period_us = None, None, None
+    # Try v2 first (unified hierarchy): find the cgroup path from cgroup v2 entry
+    for line in cgroup_text.split("\n"):
+        if line.startswith("0::"):
+            parts = line.split("::")
+            if len(parts) >= 3:
+                cgroup_v2_path = parts[2]
+                # Find v2 mount point from mountinfo
+                for mline in mountinfo_text.split("\n"):
+                    if "cgroup2" in mline:
+                        mparts = mline.split()
+                        if len(mparts) >= 5:
+                            mount_point = mparts[4]
+                            try:
+                                full_path = f"{mount_point}{cgroup_v2_path}".rstrip("/")
+                                cpu_max = read(f"{full_path}/cpu.max")
+                                if cpu_max:
+                                    return {"cpu_max": cpu_max, "cfs_quota_us": None, "cfs_period_us": None}
+                            except (IndexError, OSError):
+                                pass
+    # Fall back to v1 paths for devices with only cgroup v1
+    cpu_max = read("/sys/fs/cgroup/cpu.max")
+    cfs_quota_us = read("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")
+    cfs_period_us = read("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+    return {"cpu_max": cpu_max, "cfs_quota_us": cfs_quota_us, "cfs_period_us": cfs_period_us}
 try:
     affinity = len(os.sched_getaffinity(0))
 except AttributeError:
     affinity = os.cpu_count()
 cpuinfo = read("/proc/cpuinfo") or ""
-print(json.dumps({"affinity": affinity, "cpu_max": read("/sys/fs/cgroup/cpu.max"),
-                  "cfs_quota_us": read("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"),
-                  "cfs_period_us": read("/sys/fs/cgroup/cpu/cpu.cfs_period_us"),
-                  "cpuinfo": cpuinfo.strip().split("\n\n")[0]}))
+cgroup_limits = resolve_cgroup_limits()
+print(json.dumps({**cgroup_limits, "affinity": affinity, "cpuinfo": cpuinfo.strip().split("\n\n")[0]}))
 """
 
 
