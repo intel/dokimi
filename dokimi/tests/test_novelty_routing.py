@@ -209,6 +209,24 @@ def test_the_catalog_supplies_every_sibling_but_the_artifact(tmp_path, capsys):
     assert "--catalog" in capsys.readouterr().err
 
 
+def test_a_competitor_that_is_also_in_the_catalog_is_counted_once(tmp_path):
+    # The CLI excludes the --competitors names from the catalog. Otherwise xpu would be
+    # a candidate twice and the run would fail with "more than once".
+    catalog = tmp_path / "skills"
+    catalog.mkdir()
+    gold = _skill(catalog, "perf", "profile a slow binary with perf")
+    xpu = _skill(catalog, "xpu", "profile a slow GPU kernel")
+    _skill(catalog, "db", "tune a slow database query")
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["my binary is slow, where is the time going"]),
+                       encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing", "--artifact", gold, "--catalog", str(catalog),
+                  "--competitors", xpu, "--queries", str(queries), "--out", str(out))
+    args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 3  # perf, xpu once, db
+
+
 def test_a_catalog_that_is_not_a_directory_is_refused(tmp_path):
     args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
                   "--catalog", str(tmp_path / "nope"), "--queries-from-headings")
