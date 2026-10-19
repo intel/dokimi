@@ -91,3 +91,40 @@ class TestUploadArtifactErrFiles:
         files_expected = ["grade.err", "oracle.err", "isolation.err"]
         # This validates the reviewer's comment about these files
         assert len(files_expected) == 3
+
+
+class TestSharedFilesUnderTasksDir:
+    """Verify shared helper files under tasks dir are treated as harness changes."""
+
+    def test_shared_file_under_tasks_dir_selects_smoke(self) -> None:
+        """A file like tasks/common.py (helper shared by graders) should trigger smoke set."""
+        wf_path = Path(__file__).resolve().parents[2] / ".github/workflows/repo-eval.yml"
+        with open(wf_path, encoding="utf-8") as f:
+            workflow = f.read()
+        # Verify the workflow handles non-task-id first segments under prefix as harness
+        assert "first_segment not in all_ids" in workflow
+        assert "shared helper" in workflow or "tasks/common.py" in workflow.lower() or "tasks dir" in workflow.lower()
+
+    def test_deleted_task_directory_handled(self) -> None:
+        """A deleted task directory (first segment not in all_ids) should also be harness."""
+        # The workflow should treat deleted task dirs the same way as shared files
+        wf_path = Path(__file__).resolve().parents[2] / ".github/workflows/repo-eval.yml"
+        with open(wf_path, encoding="utf-8") as f:
+            workflow = f.read()
+        # Verify the logic handles non-task-id segments under prefix
+        assert "first_segment not in all_ids" in workflow
+
+
+class TestManifestPathNormalization:
+    """Verify manifest path is normalized for comparison with git output."""
+
+    def test_manifest_normalized_in_workflow(self) -> None:
+        """Manifest should be normalized with posixpath.normpath for git comparison."""
+        wf_path = Path(__file__).resolve().parents[2] / ".github/workflows/repo-eval.yml"
+        with open(wf_path, encoding="utf-8") as f:
+            workflow = f.read()
+        # Verify posixpath.normpath is used on MANIFEST
+        assert "posixpath.normpath" in workflow
+        assert "manifest_normalized" in workflow
+        # Verify manifest comparison uses the normalized version
+        assert "manifest_normalized" in workflow

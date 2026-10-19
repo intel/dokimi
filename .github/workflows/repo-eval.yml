@@ -218,6 +218,7 @@ jobs:
                   return None
               return r.stdout.split('\0') if r.stdout else []
 
+          import posixpath
           mode = env["TASKS"].strip()
           if mode == "all":
               sel = list(all_ids)
@@ -233,10 +234,17 @@ jobs:
                   caller = env["WORKFLOW_REF"].split("@", 1)[0].removeprefix(env["REPOSITORY"] + "/")
                   eval_dir = m["eval_dir"].rstrip("/") + "/"
                   roots = [p for p in env["SMOKE_PATHS"].split() if p]
+                  manifest_normalized = posixpath.normpath(env["MANIFEST"])
 
                   def harness(f):
-                      if f in (env["MANIFEST"], caller) or any(f.startswith(r) for r in roots):
+                      if f in (manifest_normalized, caller) or any(f.startswith(r) for r in roots):
                           return True
+                      if f.startswith(prefix):
+                          # a file under prefix (tasks dir) whose first segment is not a task id
+                          # is a shared helper (e.g., tasks/common.py); treat as harness
+                          first_segment = f[len(prefix):].split("/", 1)[0]
+                          if first_segment not in all_ids:
+                              return True
                       return f.startswith(eval_dir) and not f.startswith(prefix) and not f.endswith(".md")
 
                   hits = [f for f in files if harness(f)]
