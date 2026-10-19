@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from dokimi.novelty.bundle import GATE_COVERAGE_BASIS, Coverage
+from dokimi.novelty.bundle import COVERAGE_BASES, Coverage
 
 # ── Thresholds (override per call) ────────────────────────────────────────────
 
@@ -42,6 +42,10 @@ DEFAULTS: dict[str, Any] = {
     # heading path prepended, and 0.19 of atoms were not recoverable from their cited file at all,
     # so this is set below the measured best rather than at it.
     "min_frac_located": 0.80,
+    # Share of atom pairs the conflict check must have compared for a count of 0 to clear
+    # `harmful_atoms`. 1.0: analyze sends the capped atom set in one call, so a lower share
+    # means a call failed or split, and any unread pair can hide a contradiction.
+    "min_conflict_coverage": 1.0,
     # Below this, a candidate's `value` is atom coverage per token wearing a value label.
     "min_value_coverage": 0.50,
     # Share of an artifact's words that may sit in unmeasured bundled files before the run
@@ -76,10 +80,13 @@ class NoveltyCheck:
     message: str
     severity: str = "warn"
     measured: bool = True
+    #: What ``value`` is a share of, for a check whose figure depends on it
+    #: (``artifact_coverage``: the record's ``coverage_basis``); ``None`` otherwise.
+    basis: str | None = None
 
     def as_dict(self) -> dict:
         """Serializable form (what the scorecard carries)."""
-        return {
+        row = {
             "name": self.name,
             "measured": self.measured,
             "passed": self.passed,
@@ -88,6 +95,9 @@ class NoveltyCheck:
             "message": self.message,
             "severity": self.severity,
         }
+        if self.basis is not None:
+            row["basis"] = self.basis
+        return row
 
 
 @dataclass
@@ -137,6 +147,25 @@ class NoveltyVerdict:
         }
 
 
+def _pair_coverage(raw: Any) -> tuple[int, int] | None:
+    """``(compared, total)`` from ``conflict_coverage``, or ``None`` when it is not readable.
+
+    Validated artifacts already carry non-negative integers; the bool, type and
+    ``compared > total`` guards are for dicts that never went through the schema, which
+    cannot express the cross-field bound.
+    """
+    if not isinstance(raw, dict):
+        return None
+    compared, total = raw.get("pairs_compared"), raw.get("pairs_total")
+    if (
+        isinstance(compared, bool) or isinstance(total, bool)
+        or not isinstance(compared, int) or not isinstance(total, int)
+        or compared < 0 or total < 0 or compared > total
+    ):
+        return None
+    return compared, total
+
+
 def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -> NoveltyVerdict:
     """Run the soft checks over one ``novelty.v1`` artifact.
 
@@ -175,21 +204,64 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     categories = artifact.get("categories") or {}
     harmful = categories.get("harmful_conflicting", 0)
     degraded = (paired.get("strict") or {}).get("degraded")
+    # A count of 0 clears the check only when the conflict check read the pair space: enough
+    # of the pairs compared, over an atom set that was not capped. A conflict that was found is
+    # reported whatever the coverage. A missing `conflict_coverage` is an artifact written
+    # before the field existed and keeps the historical reading; one that is present but
+    # unreadable is not measured.
+    has_coverage = "conflict_coverage" in artifact
+    conflict_coverage = _pair_coverage(artifact.get("conflict_coverage"))
+    compared, total = conflict_coverage or (0, 0)
+    share = compared / total if total else 1.0
+    capped = bool(spans.get("capped_atom_set"))
+    if not categories:
+        message = (
+            "not measured: atoms were not classified, so harmful/conflicting content is "
+            "unknown"
+        )
+        measured = False
+    elif harmful:
+        message = f"{harmful} atoms classified harmful/conflicting"
+        measured = True
+    elif has_coverage and conflict_coverage is None:
+        message = (
+            "not measured: the conflict_coverage record is malformed, so a count of 0 is not "
+            "a cleared check"
+        )
+        measured = False
+    elif conflict_coverage is not None and share < cfg["min_conflict_coverage"]:
+        message = (
+            f"not measured: the conflict check compared {compared} of {total} atom "
+            f"pairs (floor {cfg['min_conflict_coverage']:.0%} of pairs), so a count of 0 "
+            "is not a cleared check"
+        )
+        measured = False
+    elif capped:
+        message = (
+            f"not measured: the atom set was capped ({spans.get('n_atoms_indexed')} indexed), "
+            "so 0 conflicts among the sampled atoms is not a cleared check of the artifact"
+        )
+        measured = False
+    else:
+        message = "0 atoms classified harmful/conflicting"
+        measured = True
+    if measured and compared < total:
+        message += f"; {compared} of {total} atom pairs were compared"
+    if measured and capped:
+        message += "; the atom set was capped, so this is a lower bound"
+    if degraded is not None:
+        message += f"; strict `degraded` {degraded:.3f}"
+    if measured:
+        message += (
+            ". Correctness gates before volume: one study skill carried 33 conflicts and still "
+            "routed at 0.810, so it loads and misinforms"
+        )
     checks.append(NoveltyCheck(
         name="harmful_atoms",
         passed=not harmful,
-        value=harmful if categories else None, threshold=0,
-        severity="warn", measured=bool(categories),
-        message=(
-            (f"{harmful} atoms classified harmful/conflicting" if categories else
-             # No count to report: "0 classified" read as a clean result on runs that
-             # never classified anything (the `standard` tier, --no-classify).
-             "not measured: atoms were not classified, so harmful/conflicting content is "
-             "unknown")
-            + (f"; strict `degraded` {degraded:.3f}" if degraded is not None else "")
-            + ". Correctness gates before volume: one study skill carried 33 conflicts and still "
-              "routed at 0.810, so it loads and misinforms"
-        ),
+        value=harmful if measured else None, threshold=0,
+        severity="warn", measured=measured,
+        message=message,
     ))
 
     # ── 3. Dead weight, only when the atom set behind it was not capped ──────
@@ -263,9 +335,13 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
 
     # ── 3b. Was the whole artifact measured, or only its entry point? ───────
     # The record owns its arithmetic: which excluded rows are a gap, what each denominator
-    # is, and when no figure can be computed. The gate only picks its basis and judges.
+    # is, and when no figure can be computed. The record also says which denominator it was
+    # written for (`coverage_basis`; none means all bundled words), so a stored artifact is
+    # judged as it was when it was written. The gate only judges the result.
     coverage = Coverage.from_record(artifact.get("bundle"))
-    unmeasured = None if coverage is None else coverage.unmeasured_share(GATE_COVERAGE_BASIS)
+    known = coverage is not None and coverage.basis in COVERAGE_BASES
+    unmeasured = (coverage.unmeasured_share(coverage.basis)
+                  if coverage is not None and known else None)
     if coverage is None:
         checks.append(NoveltyCheck(
             name="artifact_coverage", passed=True, value=None,
@@ -273,6 +349,17 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             message=(
                 "this run does not record which files of the artifact it read, so whether it "
                 "measured the whole artifact is unknown"
+            ),
+        ))
+    elif not known:
+        checks.append(NoveltyCheck(
+            name="artifact_coverage", passed=True, value=None,
+            threshold=cfg["max_unmeasured_outside_share"], severity="info", measured=False,
+            basis=coverage.basis,
+            message=(
+                f"this run records its coverage on the {coverage.basis!r} basis, which this "
+                f"version does not know ({', '.join(COVERAGE_BASES)}), so the share of the "
+                "artifact that was read is not judged"
             ),
         ))
     elif unmeasured is None:
@@ -291,17 +378,24 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
         # entry-point run leaves all of them out; a bundle run leaves out whatever the word
         # budgets dropped -- which on a 30k-word bundle is most of it at the default
         # 4,000/20,000 caps. Role decisions (a skill's own `evals/`) are never charged as
-        # unread, but on this basis they stay in the denominator, so for an entry-point run
-        # the gate's figure is lower than the analyzer's (readable-basis) warning. That
-        # disagreement is deliberate here: it is what the gate has always reported, and
-        # moving it is a change to the gate's numbers that ships, stamped, on its own.
-        mode = (
-            f"the bundle was measured ({coverage.n_files} files, "
-            f"{coverage.resource_words_measured} of {coverage.resource_words_on_disk} "
-            f"bundled words, {coverage.named_excluded_files} files excluded)"
-            if coverage.include_resources
-            else "only the entry point was measured"
-        )
+        # unread. On the readable basis they are not in the denominator either, so for an
+        # entry-point run this is the analyzer's `measurable_outside_share` and the two
+        # cannot disagree; a record from before the stamp keeps its all-bundled-words value.
+        readable = coverage.basis == "readable"
+        if not coverage.include_resources:
+            mode = "only the entry point was measured"
+        elif readable:
+            decided = (f", {coverage.decision_files} not measured by role"
+                       if coverage.decision_files else "")
+            gap_label = "file" if coverage.gap_files == 1 else "files"
+            mode = (f"the bundle was measured ({coverage.n_files} files, "
+                    f"{coverage.resource_words_measured} of "
+                    f"{coverage.measurable_resource_words} readable bundled words, "
+                    f"{coverage.gap_files} {gap_label} excluded by the word budgets{decided})")
+        else:
+            mode = (f"the bundle was measured ({coverage.n_files} files, "
+                    f"{coverage.resource_words_measured} of {coverage.resource_words_on_disk} "
+                    f"bundled words, {coverage.named_excluded_files} files excluded)")
         advice = (
             "raise --max-file-words / --max-resource-words, or narrow --resource-roles, "
             "before reading these rates as a property of the artifact"
@@ -313,8 +407,10 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             name="artifact_coverage",
             passed=unmeasured <= cfg["max_unmeasured_outside_share"],
             value=round(unmeasured, 4), threshold=cfg["max_unmeasured_outside_share"],
+            basis=coverage.basis,
             message=(
-                f"{mode}: {unmeasured:.0%} of this artifact's words were not read "
+                f"{mode}: {unmeasured:.0%} of this artifact's "
+                f"{'readable ' if readable else ''}words were not read "
                 f"(ceiling {cfg['max_unmeasured_outside_share']:.0%}); {advice}. A bundle "
                 "run is an upper bound on what the artifact can deliver -- whether the "
                 "agent loads a file is the agentic track's question"

@@ -122,11 +122,15 @@ marked. Read it as a review queue:
 
 - **Internal only.** It says the two statements disagree, not which is wrong. That needs a
   primary source, which this layer does not consult.
-- **Lower bound.** Only atoms in the same call are compared, in fixed chunks of 40. Above 40
-  atoms some pairs are never compared, and the share falls as the set grows: 41 atoms compare
-  780 of 820 pairs (95%), 77 atoms 1,446 of 2,926 (49%), 120 atoms 2,340 of 7,140 (33%). Fewer than
-  half are compared from 72 atoms (1,276 of 2,556). The artifact states the share (`X of Y atom
-  pairs shared a call`).
+- **Lower bound.** Only atoms in the same call are compared. `analyze` sends the whole
+  extracted atom set (at most `max_atoms`, 120 by default) in one call, so every pair is compared
+  unless a call fails or its reply has to be split. The artifact records the share as
+  `conflict_coverage` (`pairs_compared`, `pairs_total`) and warns `the conflict check compared X of
+  Y atom pairs` when it is short. `pairs_total` is over the extracted atoms, which is a sample when
+  `spans.capped_atom_set` is true. The `harmful_atoms` gate check reads a count of 0 as cleared only
+  when the share reaches `min_conflict_coverage` (1.0 by default) and the atom set was not capped;
+  otherwise it is `measured: false`, as it is when `conflict_coverage` is present but malformed. A
+  conflict that was found is always reported.
 - **Unchecked atoms.** A call whose reply does not parse is split and re-asked only while both
   halves keep two atoms, since one statement has no pair to look at; a chunk of two or three whose
   reply does not parse fails with its error. Atoms in a call that failed, and an atom left alone in
@@ -503,15 +507,14 @@ Things to know before reading a bundle result:
   exclusion is a *file* the run did not select; text it selected that no extraction call could
   read is an *unread span* (`spans.n_unread`, below), which narrows the dead-token figure and
   not coverage.
-- **Two surfaces quote coverage on different bases.** The CLI note, the analyzer's warnings,
-  the gate's `artifact_coverage` and the report all read the record through the same
-  `Coverage`, and each names the denominator it divides by (`COVERAGE_BASES`). The warnings
-  and the report use *readable* words (role decisions left out, so for an entry-point run the
-  figure is `measurable_outside_share`). The gate judges its 0.5 ceiling over *all bundled
-  words*, role decisions included, as it always has: for an entry-point run of a skill with
-  its own `evals/` its figure is lower than the warning's (26% against 56% for 400 entry
-  words, a 500-word reference and 1,000 words of evals). Moving the gate to the readable
-  basis changes its numbers, so it is a separate change, stamped in the record.
+- **Coverage has one basis, and the record says which.** The CLI note, the analyzer's
+  warnings, the gate's `artifact_coverage` and the report all read the record through the same
+  `Coverage`, over *readable* words: role decisions are left out of the denominator, so for an
+  entry-point run the gate judges `measurable_outside_share`, the figure the warning quotes.
+  The record carries `bundle.coverage_basis: "readable"`, and the gate's check carries it as
+  `basis`. Records written before the stamp were gated over *all bundled words*, role decisions
+  included (26% instead of 56% for 400 entry words, a 500-word reference and 1,000 words of
+  evals), and are still read that way, so re-gating a stored artifact does not move its value.
 
 The payoff is `bundle.by_source`: the paired 2×2 cut by the file that carried each atom. A
 reference whose atoms are all `redundant` is a file the model already knows; one full of
