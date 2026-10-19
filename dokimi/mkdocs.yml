@@ -119,6 +119,7 @@ nav:
       - repo-evaluation-mergeability.md
       - repo-evaluation-agent-modes.md
       - preparing-a-repository.md
+      - preparing-a-repository-evidence.md
   - Extending Dokimi:
       - architecture.md
       - contributing-metric.md

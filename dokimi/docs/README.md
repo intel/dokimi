@@ -280,6 +280,9 @@ code.
   repository and its environment so coding agents build, test and review it
   well (runnable pinned commands, tool lines in `AGENTS.md`, true guidance, a
   complete compile database, review rules), and how to measure each change.
+- [preparing-a-repository-evidence.md](preparing-a-repository-evidence.md) —
+  the runs behind each figure on that page: task set, arms, model, cell count
+  and raw count.
 
 ## Extending Dokimi
 
