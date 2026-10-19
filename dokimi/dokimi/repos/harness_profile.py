@@ -121,7 +121,8 @@ class HarnessProfile:
         binary name and version to detect changes to the effective harness executable.
         """
         key = {"profile": self.name, "invoke": list(self.invoke), "tools": list(self.tool_args(tools, delegation)),
-               "env_set": dict(sorted(self.env_set.items())), "config_files": dict(sorted(self.config_files.items())),
+               "env_set": dict(sorted(self.env_set.items())), "env_allow": list(self.env_allow),
+               "config_dir_env": self.config_dir_env, "config_files": dict(sorted(self.config_files.items())),
                "prompt_suffix": self.prompt_suffix, "harness_bin": harness_bin, "harness_version": harness_version}
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 

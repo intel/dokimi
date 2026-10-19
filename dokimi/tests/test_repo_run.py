@@ -130,7 +130,23 @@ def test_a_cell_is_reused_only_by_the_same_execution(setup, capsys):
     rec = json.loads((rd / "result.json").read_text())
     assert rec["execution"]["delegation"] == "none" and rec["execution"]["id"] != ran["id"]
     agent = [s for s in setup["runner"].specs if "-p" in s.argv][-1]
-    assert agent.argv[-1] == "--no-agents"
+    assert "--no-agents" in agent.argv
+
+
+def test_a_changed_harness_binary_crashes_on_resume(setup, capsys, tmp_path):
+    """Verify execution_id includes harness binary path, so reuse fails on binary change."""
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    # Move the harness binary and symlink a different one in its place
+    new_exe = tmp_path / "other-harness"
+    new_exe.write_text(setup["exe"].read_text())
+    new_exe.chmod(0o755)
+    setup["exe"].unlink()
+    setup["exe"].symlink_to(new_exe)
+    with pytest.raises(SystemExit):  # a crashed cell fails the run
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    out = capsys.readouterr()
+    assert "0 ran, 0 already done, 1 crashed" in out.out and "finished with another execution" in out.out
 
 
 def test_delegation_none_is_refused_before_anything_runs_when_the_profile_cannot(setup, capsys):

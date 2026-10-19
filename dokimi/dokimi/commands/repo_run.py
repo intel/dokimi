@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
     from dokimi.repos.workspace import Arm
 
+from dokimi.repos.harness_profile import DELEGATION_MODES
+
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     """Source, manifest, exported eval dir, image and caches shared by `tasks check` and `run`.
@@ -375,7 +377,7 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                        help="REQUIRED while the egress proxy is not implemented: the agent's container gets "
                        "this network, so its commands can reach any host. Recorded in meta.json")
     run_p.add_argument("--tools", default="all", help="Profile tool mode (default: all)")
-    run_p.add_argument("--delegation", choices=("native", "none"), default="native",  # DELEGATION_MODES
+    run_p.add_argument("--delegation", choices=DELEGATION_MODES, default="native",
                        help="native: the agent may start subagents (default); none: the profile's tool "
                             "arguments without the subagent tools, for a single-agent baseline")
     run_p.add_argument("--timeout", type=positive_int, default=2700,

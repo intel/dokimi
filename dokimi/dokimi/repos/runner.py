@@ -99,7 +99,7 @@ def cell_name(task: str, arm: str, model: str, rep: int) -> str:
 def execution_record(opts: AgentOptions) -> dict[str, str]:
     """How the cell's agent was started, as ``meta.json`` and ``result.json`` record it."""
     return {"id": opts.profile.execution_id(opts.tools, opts.delegation,
-                                             opts.harness_bin.name, opts.harness_version),
+                                             str(opts.harness_bin.resolve()), opts.harness_version),
             "tools": opts.tools, "delegation": opts.delegation}
 
 
