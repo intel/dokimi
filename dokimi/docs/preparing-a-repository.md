@@ -147,9 +147,8 @@ code. On "who calls X" questions with many callers or ambiguous names:
 F1 is computed on the set of files that call the function, from precision and recall.
 
 On the fix and review tasks measured with Sonnet 5, the guidance line was
-present and the tool was called in 0 of 20 runs ([E5](preparing-a-repository-evidence.md#e5)); results did not
-change. The
-tasks were five replays of real review PRs (`review_replay`), one seeded
+present and the tool was called in 0 of 20 runs ([E5](preparing-a-repository-evidence.md#e5)).
+The tasks were five replays of real review PRs (`review_replay`), one seeded
 missed-caller review (`review_seeded_fc`) and four fix or feature tasks. This
 was not repeated on the 5.5 models. Offer it when
 the repository has many cross-module call sites or shared names, and measure on
