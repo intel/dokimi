@@ -14,9 +14,8 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
+    DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
-    JUDGE_MODEL_FOR_PROVIDER,
-    JUDGE_MODEL_HELP,
 )
 
 
@@ -114,7 +113,7 @@ def register(sub, positive_int) -> None:
                              "repository: --questions-root /path/to/content-repo/questions")
     eval_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM model for generation/answering")
     eval_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
-    eval_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
+    eval_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="LLM model for evaluation")
     eval_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     eval_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                         help="Judge sampling temperature, recorded as judge_temperature in the eval output")

@@ -14,7 +14,7 @@ annotated-doc==0.0.5
     # via typer
 annotated-types==0.8.0
     # via pydantic
-anthropic==1.13.0
+anthropic==1.12.0
     # via
     #   -r requirements.txt
     #   langchain-anthropic
