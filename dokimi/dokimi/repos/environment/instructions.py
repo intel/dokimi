@@ -124,6 +124,8 @@ RULES: tuple[Rule, ...] = (
 def detect_instructions(files: list[str], sizes: dict[str, int] | None = None) -> list[Instruction]:
     """One record per (file, matching rule), sorted by path."""
     out: list[Instruction] = []
+    # Claude Code reads AGENTS.md only when the repository has no CLAUDE.md.
+    claude_reads_agents = not {"CLAUDE.md", ".claude/CLAUDE.md"} & set(files)
     for path in files:
         for rule in RULES:
             if not rule.match(path):
@@ -133,6 +135,8 @@ def detect_instructions(files: list[str], sizes: dict[str, int] | None = None) -
             item = Instruction(path, list(rule.harnesses), scope, activation, directory=rule.directory(path),
                                mode=rule.mode(path), legacy=rule.legacy, local_private=rule.local_private,
                                notes=list(rule.notes))
+            if path == "AGENTS.md" and claude_reads_agents:
+                item.harnesses.append("claude-code")
             size = (sizes or {}).get(path)
             if size is not None:
                 item.size_bytes = size

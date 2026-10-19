@@ -997,3 +997,33 @@ def test_script_and_manifest_patterns_are_linear_on_hostile_strings(tmp_path, fi
     start = time.monotonic()
     inspect_repo(WorkTree(tmp_path))
     assert time.monotonic() - start < 2
+
+
+@pytest.mark.parametrize("body", ["{not json", "[1, 2]", ""])
+def test_an_unreadable_package_json_is_listed_as_not_observed(tmp_path, body):
+    _repo(tmp_path, {"package.json": body})
+    assert any("package.json" in n for n in inspect_repo(WorkTree(tmp_path))["not_observed"])
+
+
+def test_a_dangling_package_json_is_listed_as_not_observed(tmp_path):
+    _repo(tmp_path, {"README.md": "x"})
+    (tmp_path / "package.json").symlink_to("missing.json")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+                    "-m", "link"], check=True)
+    assert any("package.json" in n for n in inspect_repo(GitTree(tmp_path, "HEAD"))["not_observed"])
+
+
+def test_a_readable_package_json_adds_no_not_observed_line(tmp_path):
+    _repo(tmp_path, {"package.json": '{"scripts": {}}'})
+    assert not any("package.json" in n for n in inspect_repo(WorkTree(tmp_path))["not_observed"])
+
+
+@pytest.mark.parametrize("files,listed", [
+    (["AGENTS.md"], True),
+    (["AGENTS.md", "CLAUDE.md"], False),
+    (["AGENTS.md", ".claude/CLAUDE.md"], False),
+])
+def test_agents_md_is_read_by_claude_code_only_without_a_claude_md(files, listed):
+    got = next(i for i in detect_instructions(files) if i.path == "AGENTS.md")
+    assert ("claude-code" in got.harnesses) is listed

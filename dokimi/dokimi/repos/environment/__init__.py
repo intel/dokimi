@@ -18,7 +18,7 @@ from typing import Any
 from dokimi.repos.l0.core import Scan
 from dokimi.repos.source import RepoTree, SourceError
 
-from .checks import KINDS, detect_checks
+from .checks import KINDS, detect_checks, package_json_unreadable
 from .files import LARGE_BYTES, inventory, sizes
 from .instructions import LARGE_INSTRUCTION_BYTES, detect_instructions
 from .instructions import RULES as INSTRUCTION_RULES
@@ -179,6 +179,8 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
     not_observed = list(NOT_OBSERVED)
     if size_of is None:
         not_observed.append("file sizes (a partial clone: listing them would fetch every blob)")
+    if package_json_unreadable(scan):
+        not_observed.append("package.json scripts (the file is unreadable or not a JSON object)")
     return {
         "repo": {"tree": tree.label, "sha": getattr(tree, "sha", None)},
         "instructions": [i.to_dict() for i in instructions],

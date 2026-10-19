@@ -67,6 +67,17 @@ def package_scripts(scan: Scan, path: str = "package.json") -> dict[str, str]:
     return {k: v for k, v in scripts.items() if isinstance(v, str)} if isinstance(scripts, dict) else {}
 
 
+def package_json_unreadable(scan: Scan, path: str = "package.json") -> bool:
+    """True when ``path`` is tracked but unreadable (non-UTF-8, dangling link, bad JSON) or not an object."""
+    if path not in scan.file_set:
+        return False
+    try:
+        doc = json.loads(scan.text(path).lstrip("\ufeff"))
+    except (json.JSONDecodeError, RecursionError, ValueError):
+        return True
+    return not isinstance(doc, dict)
+
+
 _NPM_PLACEHOLDER = re.compile(r"^\s*echo\b[^\n]*&&\s*exit\s+[1-9]\s*$", re.I)  # what `npm init` writes
 
 

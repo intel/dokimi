@@ -29,7 +29,8 @@
         "cursor",
         "windsurf",
         "cline",
-        "generic"
+        "generic",
+        "claude-code"
       ],
       "scope": "root",
       "activation": "always",
