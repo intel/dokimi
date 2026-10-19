@@ -58,6 +58,7 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
                guidance_names: tuple[str, ...] = ANCESTOR_NAMES,
                host: dict[str, Any] | None = None) -> dict[str, Any]:
     """Null, oracle and isolation checks for one task; ``verdict`` is ok, broken or unsupported.
+    An unsupported result says why in ``unsupported_by``: ``egress`` or ``host``.
 
     ``host`` is :func:`.host.probe_host`'s facts, probed once per check; without it a task with
     ``host`` requirements probes for itself."""
@@ -66,11 +67,11 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     try:
         net = "bridge" if warm else docker_network(network, task.egress)
     except ContainerError as exc:
-        res.update(verdict="unsupported", problems=[str(exc)])
+        res.update(verdict="unsupported", unsupported_by="egress", problems=[str(exc)])
         return res
     reason = _host_reason(ctx, task, work_dir, host)
     if reason:
-        res.update(verdict="unsupported", problems=[f"host: {reason}"])
+        res.update(verdict="unsupported", unsupported_by="host", problems=[f"host: {reason}"])
         return res
     for kind in ("null", "oracle"):
         rd = work_dir / f"{task.id}__{kind}"

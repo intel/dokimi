@@ -206,6 +206,37 @@ def test_tasks_check_refuses_a_bad_host_shape_before_any_container(tmp_path, mon
     assert "task fix_race: task.json host.min_cpus must be an integer >= 1, got '4'" in capsys.readouterr().err
 
 
+def test_allow_unsupported_lets_host_unsupported_tasks_pass_the_exit_code(tmp_path, monkeypatch, capsys):
+    root = _repo(tmp_path)
+    amd = _probe_out(affinity=2, cpuinfo=AMD_CPUINFO)
+    _check(root, tmp_path / "a", HostRunner(amd), monkeypatch, "--allow-unsupported")  # exits 0
+    out = capsys.readouterr().out
+    assert "fix_race: UNSUPPORTED\n  - host: needs min_cpus 4" in out and "2/3 ok" in out
+    assert "1 unsupported on this host, allowed by --allow-unsupported: fix_race" in out
+    doc = json.loads((tmp_path / "a/check/check.json").read_text())
+    race = next(t for t in doc["tasks"] if t["task"] == "fix_race")
+    assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host"
+
+
+@pytest.mark.parametrize("extra, why", [
+    ({"fix_nobug": {"family": "fix", "grader": "calc", "gate": ["tests_pass"], "prompt": "x"}}, "broken"),
+    ({"fix_pip": {"family": "fix", "grader": "calc", "egress": ["pypi.org"], "prompt": "x"}}, "egress"),
+])
+def test_allow_unsupported_still_fails_broken_and_egress_tasks(tmp_path, monkeypatch, capsys, extra, why):
+    root, _ = make_repo(tmp_path, {"fix_race": RACE, **extra})
+    (task,) = extra
+    with pytest.raises(SystemExit) as exc:
+        _check(root, tmp_path / "a", HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch,
+               "--allow-unsupported", "--task", "fix_race", "--task", task)
+    assert exc.value.code == 1
+    res = {t["task"]: t for t in json.loads((tmp_path / "a/check/check.json").read_text())["tasks"]}
+    assert res["fix_race"]["unsupported_by"] == "host"
+    if why == "broken":
+        assert res[task]["verdict"] == "broken"
+    else:
+        assert res[task]["verdict"] == "unsupported" and res[task]["unsupported_by"] == "egress"
+
+
 def _run(root, out, runner, monkeypatch, *extra):
     exe, profile = fake_harness(out.parent)
     monkeypatch.setenv("FAKE_ACTION", "fix")

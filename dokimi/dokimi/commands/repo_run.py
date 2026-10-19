@@ -147,7 +147,11 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         sys.exit(1)
     bad = [r for r in results if r["verdict"] != "ok"]
     print(f"{len(results) - len(bad)}/{len(results)} ok; wrote {out / 'check' / 'check.json'}")
-    if bad:
+    allowed = [r for r in bad if args.allow_unsupported and r.get("unsupported_by") == "host"]
+    if allowed:
+        print(f"{len(allowed)} unsupported on this host, allowed by --allow-unsupported: "
+              + ", ".join(r["task"] for r in allowed))
+    if len(bad) > len(allowed):
         sys.exit(1)
 
 
@@ -287,6 +291,10 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     _common(check_p, source_help, cache_help, positive_int)
     check_p.add_argument("--warm", action="store_true",
                          help="Run null and oracle with network to fill the caches before offline runs")
+    check_p.add_argument("--allow-unsupported", action="store_true", dest="allow_unsupported",
+                         help="Exit 0 when the only tasks that are not ok are unsupported because this host "
+                         "misses their task.json `host` requirements (still printed with the reason). Broken "
+                         "tasks and tasks that need egress still exit 1")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
 
