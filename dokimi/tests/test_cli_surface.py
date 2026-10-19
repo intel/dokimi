@@ -106,6 +106,22 @@ def test_swapping_positionals_is_a_change():
     assert any("position: 0 -> 1" in line for line in cs.diff_surfaces(a, b))
 
 
+def test_an_option_before_a_positional_does_not_move_the_positional():
+    a = cs._command(_positional_parser(("base", "head")), "dokimi")
+    p = argparse.ArgumentParser(prog="dokimi")
+    p.add_argument("--version", action="version", version="1")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    c = sub.add_parser("cmp")
+    c.add_argument("--opt")
+    c.add_argument("base")
+    c.add_argument("head")
+    b = cs._command(p, "dokimi")
+    assert cs.diff_surfaces(a, b) == [
+        "~ `dokimi cmp` parameters changed:",
+        "    + added option `--opt`",
+    ]
+
+
 def test_subcommand_required_change_is_reported():
     a = cs._command(_positional_parser(("x", "y")), "dokimi")
     b = cs._command(_positional_parser(("x", "y"), required=False), "dokimi")
@@ -211,6 +227,24 @@ def _one(**kw) -> dict:
 ])
 def test_opaque_types_and_defaults_are_compared_by_content(old, new):
     assert cs.diff_surfaces(_one(**old), _one(**new))
+
+
+def test_a_validator_default_is_compared_by_content():
+    def with_default(lo: int):
+        def positive(s: str, lo: int = lo) -> int:
+            if int(s) < lo:
+                raise argparse.ArgumentTypeError("too small")
+            return int(s)
+        return positive
+
+    assert cs.diff_surfaces(_one(type=with_default(1)), _one(type=with_default(0)))
+
+
+def test_default_objects_are_dumped_without_addresses():
+    a = _one(default=object())
+    b = _one(default=object())
+    assert cs.diff_surfaces(a, b) == []
+    assert "0x" not in json.dumps(a)
 
 
 def test_equal_opaque_values_are_stable():

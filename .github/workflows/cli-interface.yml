@@ -55,8 +55,19 @@ jobs:
           out="$RUNNER_TEMP/cli-surface"
           rm -rf "$out" && mkdir -p "$out/base"
           git -C .. archive "origin/$BASE_REF" dokimi | tar -x -C "$out/base"
-          PYTHONPATH="$out/base/dokimi" python scripts/cli_surface.py dump "$out/base.json"
-          PYTHONPATH=. python scripts/cli_surface.py dump "$out/head.json"
+          # A dump that raises (e.g. a PR that moves build_parser) must not fail the
+          # job: report "error" and leave the label as it is.
+          if ! PYTHONPATH="$out/base/dokimi" python scripts/cli_surface.py dump "$out/base.json" \
+              || ! PYTHONPATH=. python scripts/cli_surface.py dump "$out/head.json"; then
+            printf '%s\n' "## CLI interface check could not run" "" \
+              "The CLI surface could not be dumped from the base or the head; see the job log." \
+              > "$out/diff.md"
+            cat "$out/diff.md"
+            echo "changed=error" >> "$GITHUB_OUTPUT"
+            echo "file=$out/diff.md" >> "$GITHUB_OUTPUT"
+            cat "$out/diff.md" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           rc=0
           python scripts/cli_surface.py diff "$out/base.json" "$out/head.json" --markdown \
             > "$out/diff.md" || rc=$?
@@ -84,7 +95,16 @@ jobs:
                 { owner, repo, issue_number });
               const existing = comments.find((c) => c.user?.login === 'github-actions[bot]' &&
                 c.body && c.body.includes(marker));
-              if (changed) {
+              if (process.env.CHANGED === 'error') {
+                // The surface is unknown: say so, and leave the label as it is.
+                const diff = fs.readFileSync(process.env.DIFF_FILE, 'utf8');
+                const body = `${marker}\n${diff}`;
+                if (existing) {
+                  await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+                } else {
+                  await github.rest.issues.createComment({ owner, repo, issue_number, body });
+                }
+              } else if (changed) {
                 const diff = fs.readFileSync(process.env.DIFF_FILE, 'utf8');
                 const body = `${marker}\n${diff}\n_Updated on every push; the \`${label}\` ` +
                   'label is on while the diff is non-empty._';
