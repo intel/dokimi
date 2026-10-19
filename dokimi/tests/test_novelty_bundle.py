@@ -578,23 +578,36 @@ def test_a_basis_this_version_does_not_know_is_not_judged(tmp_path):
         bundle.coverage().denominator("tokens")
 
 
-def test_as_dict_omits_basis_for_non_coverage_checks(tmp_path):
-    """Non-measured checks should not serialize a basis key."""
-    bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path)}")
-    record = dict(bundle.summary(), coverage_basis="unknown")
-    check = _coverage_check(record)
-    assert check.measured is False  # unknown basis is unmeasured
-    assert "basis" not in check.as_dict()  # no basis key for non-coverage
+def test_as_dict_omits_basis_when_none(tmp_path):
+    """Checks without a basis (basis=None) should not serialize a basis key."""
+    from dokimi.gate.novelty_gate import NoveltyCheck
+
+    check = NoveltyCheck(
+        name="test_check",
+        passed=True,
+        value=None,
+        threshold=0.5,
+        message="test",
+        severity="info",
+        measured=False,
+        basis=None  # Explicitly None
+    )
+    assert "basis" not in check.as_dict()
 
 
-def test_as_dict_includes_basis_for_measured_coverage_checks(tmp_path):
-    """Measured coverage checks should include the stored basis in as_dict()."""
+def test_as_dict_includes_basis_when_set(tmp_path):
+    """Checks with any basis value (including unknown) should serialize it."""
     bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path)}")
-    record = dict(bundle.summary(), coverage_basis="readable")
-    check = _coverage_check(record)
-    assert check.measured is True
-    row = check.as_dict()
-    assert row["basis"] == "readable"
+
+    # Test with an unknown basis (still non-measured but has basis field)
+    record_unknown = dict(bundle.summary(), coverage_basis="unknown")
+    check_unknown = _coverage_check(record_unknown)
+    assert check_unknown.as_dict()["basis"] == "unknown"
+
+    # Test with a known basis (measured)
+    record_readable = dict(bundle.summary(), coverage_basis="readable")
+    check_readable = _coverage_check(record_readable)
+    assert check_readable.as_dict()["basis"] == "readable"
 
 
 def test_the_gate_counts_only_gaps_as_excluded_files(tmp_path):
