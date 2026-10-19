@@ -330,6 +330,12 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+_FORCE_REGEN_HELP = ("Do not reuse the personas and questions cached in the output directory: "
+                     "discover and generate them again, or re-read the golden set under "
+                     "--questions-root. A run with a golden set or --questions-from discovers "
+                     "no personas")
+
+
 def register(sub, positive_int) -> None:
     """Add the `benchmark` subcommand group."""
     benchmark_p = sub.add_parser("benchmark", help="Run context benchmark for one or more registered targets")
@@ -354,7 +360,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency",
                              help="Parallel API calls for answering and judging (default: 5)")
     bench_run_p.add_argument("--force-regen", action="store_true", dest="force_regen",
-                             help="Regenerate personas/questions even if cached files exist")
+                             help=_FORCE_REGEN_HELP)
     bench_run_p.add_argument("--questions-from", default=None, dest="questions_from",
                              help="Reuse questions from another run's output directory or JSON file. "
                                   "Skips question generation entirely — essential for fair multi-model "
@@ -409,7 +415,7 @@ def register(sub, positive_int) -> None:
     bench_batch_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
                                help="Max tokens to retrieve per question from doc source (default: 4000)")
     bench_batch_p.add_argument("--force-regen", action="store_true", dest="force_regen",
-                               help="Regenerate personas/questions even if cached files exist")
+                               help=_FORCE_REGEN_HELP)
     bench_batch_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_batch_p.add_argument("--questions-root", default=None, dest="questions_root",
                                help="Directory where each <target>_golden.json is looked "

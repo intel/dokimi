@@ -402,6 +402,26 @@ def test_shorten_restricts_a_bundle_answer_key_to_the_entry_point(tmp_path, caps
     assert "bundle spans" in capsys.readouterr().err
 
 
+def test_shorten_exits_with_a_message_on_a_bundle_block_it_cannot_slice(tmp_path):
+    """A malformed ``bundle`` block (a file row without ``end``) is an exit naming the file, not a traceback."""
+    from dokimi.novelty.atoms import save_atoms
+    from dokimi.novelty.bundle import load_bundle
+    from dokimi.novelty.spans import segment
+
+    root = _bundle_skill(tmp_path)
+    bundle = load_bundle(f"skill:{root}", include_resources=True)
+    atoms = tmp_path / "atoms.json"
+    save_atoms([], segment(bundle.text), atoms, extractor="e", cap=None, bundle=bundle.summary())
+    saved = json.loads(atoms.read_text(encoding="utf-8"))
+    del saved["bundle"]["files"][0]["end"]
+    atoms.write_text(json.dumps(saved), encoding="utf-8")
+    args = _parse("novelty", "shorten", "--artifact", f"skill:{root}", "--atoms", str(atoms),
+                  "--lexical-only")
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert str(exc.value) == f"{atoms}: the atoms record no span range for SKILL.md"
+
+
 def test_item_analysis_refuses_a_file_that_carries_no_probe_runs(tmp_path):
     path = tmp_path / "novelty.json"
     path.write_text(json.dumps({"model": "m", "paired": {}}), encoding="utf-8")

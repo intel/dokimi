@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import threading
 from collections.abc import Sequence
 
@@ -107,7 +108,15 @@ def main() -> None:
         process.install_signal_handlers()  # SIGTERM/SIGHUP: kill the process groups we started, then exit
     tolerate_console_encoding()
     args = parse_args()
-    args.func(args)
+    from dokimi.eval.question_text import EmptyQuestionError
+
+    try:
+        args.func(args)
+    except EmptyQuestionError as exc:  # a bad input record, not a bug: no traceback
+        print(f"Error: {exc}", file=sys.stderr)
+        # 2, as the commands' other input errors: 1 is the verdict of `eval judge-validity`
+        # and of the --strict gates, and a malformed file must not read as a failed gate.
+        sys.exit(2)
 
 
 if __name__ == "__main__":
