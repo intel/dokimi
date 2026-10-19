@@ -20,6 +20,7 @@ standard library. Standard library only: it runs on the image's ``python3``.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import sys
@@ -29,8 +30,9 @@ from pathlib import Path
 if __package__:
     from . import review
 else:  # a script under -I: its own directory is not on sys.path
+    # By name, not `import review`: dependency hygiene (deptry) reads a bare import as a third-party package.
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import review  # type: ignore[no-redef]
+    review = importlib.import_module("review")
 
 GRADERS = dict(review.GRADERS)
 ORACLES = dict(review.ORACLES)
