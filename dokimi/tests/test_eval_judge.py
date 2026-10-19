@@ -305,9 +305,15 @@ class TestJudgeAnswer:
         ([{"figure": "x", "verdict": "misleading/wrong"}], 95, 40),
         ([{"figure": "x", "verdict": "reasonable, not wrong"}], 95, 95),
         # Intensifiers strengthen the verdict; the en dash, a figure-like qualifier and a
-        # trailing space still read. `entirely` hedges instead of intensifying.
-        (["x: dubious, entirely wrong"], 95, 95),
+        # trailing space still read.
+        (["x: dubious, entirely wrong"], 95, 40),
+        (["8 ms: dubious, entirely wrong"], 95, 40),
         (["x: dubious, completely wrong"], 95, 40),
+        # A negated intensified "correct" is wrong: negation resolves before the intensifier.
+        (["x: dubious, not entirely correct"], 95, 40),
+        (["x: dubious, not partially correct"], 95, 40),
+        # An intensified "correct" is right, so it does not cap.
+        (["x: dubious, entirely correct"], 95, 95),
         (["x \u2013 misleading/wrong"], 95, 40),
         (["x: L2/wrong"], 95, 40),
         (["x: misleading/wrong "], 95, 40),
@@ -322,8 +328,7 @@ class TestJudgeAnswer:
         # Negated incorrect: flips to right, does not cap.
         (["x: dubious, not incorrect"], 95, 95),
         # Case insensitivity on intensifiers and multi-char-class qualifiers.
-        # `entirely` hedges instead of intensifies, so the claim is unread.
-        (["x: dubious, Entirely wrong"], 95, 95),
+        (["x: dubious, Entirely wrong"], 95, 40),
         (["x: C++/wrong"], 95, 40),
         (["x: AVX-512/wrong"], 95, 40),
         (["x (misleading/wrong)."], 95, 40),
