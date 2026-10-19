@@ -17,6 +17,7 @@ from dokimi.report.model_compare import (
     load_run,
     non_baseline_arms,
     prompt_digests,
+    scored_arms,
 )
 
 
@@ -189,10 +190,24 @@ def test_non_baseline_arms_ignores_binary_file_conditions():
     # Before the fix, this would raise:
     # "runs are scored on 2 different treatment arms (a=with_docs/without_docs, b=with_docs/without_docs)"
     # After the fix, non_baseline_arms returns set() for both, so consistency passes.
-    warnings = check_run_consistency([("a", run_a), ("b", run_b)], "regular")
+    check_run_consistency([("a", run_a), ("b", run_b)], "regular")
     # Both runs have no treatment arms, so they're compatible.
     # We may get warnings about no scored arms, which is fine.
-    assert not any("different treatment arms" in w for w in warnings)
+    assert non_baseline_arms(run_a) == set()
+    assert scored_arms(run_a) == set()
+
+
+def test_null_treatment_arm_in_every_record_still_counts_as_an_arm():
+    """A treatment that ran and produced nothing is still an arm of its run."""
+    run_a = {"baseline_arm": "baseline", "answers": [
+        {"question_id": "q1", "question_text": "Q?",
+         "arms": {"baseline": {"answer": "b"}, "docs": None}}]}
+    run_b = {"baseline_arm": "baseline", "answers": [
+        {"question_id": "q1", "question_text": "Q?",
+         "arms": {"baseline": {"answer": "b"}, "skill": {"answer": "s"}}}]}
+    assert non_baseline_arms(run_a) == {"docs"}
+    with pytest.raises(SystemExit, match="different treatment arms"):
+        check_run_consistency([("a", run_a), ("b", run_b)], "regular")
 
 
 def test_prompt_digests_collects_the_stamped_prompt_hashes():

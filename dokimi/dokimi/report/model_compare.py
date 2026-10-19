@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from dokimi.eval.records import Record, RecordError, arm_answers, arm_scores, records
+from dokimi.eval.records import Record, RecordError, arm_answers, arm_names, arm_scores, records
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import stats as arm_stats
 
@@ -125,7 +125,7 @@ def non_baseline_arms(run_data: dict) -> set[str]:
         return {a for a in arms if isinstance(a, str) and a != baseline_arm}
     return {
         a for section in ("evaluations", "answers") for r in _section(run_data, section)
-        for a in (*arm_scores(r), *arm_answers(r)) if a != baseline_arm
+        for a in arm_names(r) if a != baseline_arm
     }
 
 

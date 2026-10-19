@@ -3,6 +3,8 @@
 
 """Tests for the N-arm runner (answer generation + judging)."""
 
+from unittest.mock import MagicMock
+
 import pytest
 import dokimi.eval.arm_runner as arm_runner_mod
 from dokimi.eval.arm_runner import ArmRunner
@@ -431,6 +433,32 @@ def test_arm_runner_judge_skips_an_arm_whose_aggregate_is_none(monkeypatch, demo
     evaluations = runner.judge(_HalfFailing(), "oneTBB", records, baseline_arm="baseline")
     assert all(ev["deltas_vs_baseline"] == {} for ev in evaluations)
     assert runner.build_output("oneTBB", records, evaluations, judge=_HalfFailing())["summary"]
+
+
+def test_arm_runner_judge_makes_no_call_for_a_binary_record():
+    """A binary record holds no arms: nothing is scored and the judge is never called."""
+    runner = ArmRunner.__new__(ArmRunner)
+    runner.judge_context = MagicMock()
+    judge = MagicMock()
+    rec = {"question_id": "q1", "question_text": "How?",
+           "with_docs": {"answer": "with"}, "without_docs": {"answer": "without"}}
+    [row] = runner.judge(judge, "lib", [rec])
+    assert row["scores"] == {}
+    assert judge.score_answer.call_count == 0
+
+
+def test_arm_runner_judge_keeps_a_null_arm_as_an_unscored_row():
+    """An arm that ran and produced nothing keeps its row with a None score."""
+    runner = ArmRunner.__new__(ArmRunner)
+    runner.judge_context = MagicMock()
+    runner.judge_context.resolve_with_source.return_value = ("", "snippets")
+    judge = MagicMock()
+    judge.score_answer.return_value = {"aggregate": 60.0}
+    rec = {"question_id": "q1", "question_text": "How?",
+           "arms": {"baseline": {"answer": "base"}, "skill": None}}
+    [row] = runner.judge(judge, "lib", [rec], baseline_arm="baseline")
+    assert "skill" in row["scores"] and row["scores"]["skill"] is None
+    assert judge.score_answer.call_count == 1
 
 
 def test_cli_rejects_an_unknown_judge_panel_role_before_running(capsys):

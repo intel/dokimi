@@ -331,3 +331,27 @@ def test_question_id_wins_over_id_and_id_is_the_fallback():
     assert records.record({"question_id": "QID", "id": "ID"}).question_id == "QID"
     assert records.record({"question_id": "", "id": "ID"}).question_id == "ID"
     assert records.record({"id": 0}).question_id == 0
+
+
+def test_an_explicit_null_score_clears_the_legacy_inline_score():
+    rec = records.record({"question_id": "q1",
+                          "arms": {"baseline": {"answer": "b", "evaluation": {"aggregate_score": 60}}},
+                          "scores": {"baseline": None}})
+    assert rec.score("baseline") is None
+    assert records.arm_scores(rec) == {}
+
+
+def test_a_null_evaluation_does_not_keep_the_answers_inline_score_in_a_join():
+    answers = [{"question_id": "q1", "question_text": "Q?",
+                "arms": {"baseline": {"answer": "b", "evaluation": {"aggregate_score": 60}}}}]
+    evals = [{"question_id": "q1", "question_text": "Q?", "scores": {"baseline": None}}]
+    [q1] = records.join(answers, evals, source="run")
+    assert q1.score("baseline") is None
+
+
+def test_arm_names_lists_null_arms_and_skips_binary_conditions():
+    """A null arm is an arm that ran; a binary record has no arms at all."""
+    arms = records.record({"question_id": "q1", "arms": {"baseline": {"answer": "b"}, "docs": None}})
+    assert records.arm_names(arms) == ("baseline", "docs")
+    binary = records.record({"question_id": "q1", "with_docs": {"answer": "w"}, "without_docs": None})
+    assert records.arm_names(binary) == ()

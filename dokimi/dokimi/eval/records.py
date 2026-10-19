@@ -34,9 +34,10 @@ records(items) / record(item)
     function documented as taking records accepts either.
 join(answers, evaluations)
     Attach scores to the answers they score, by question id.
-arm_answers(record) / arm_scores(record) / has_arms(records)
+arm_answers(record) / arm_scores(record) / arm_names(record) / has_arms(records)
     Only what an arms run holds under ``arms`` and ``scores``, for the readers
-    that judge arms and refuse a binary file.
+    that judge arms and refuse a binary file. ``arm_names`` also lists the arms
+    that ran and produced nothing (``null``).
 
 Values are read, not normalised: a question id stays the ``str`` or ``int`` it was
 written as and an aggregate stays the ``int`` or ``float`` it was written as, so a
@@ -294,6 +295,10 @@ def record(item: RecordLike, *, source: str = "<input>", index: int = 0, kind: O
             conditions.append(name)
             if isinstance(payload, Mapping):
                 scores[name] = _score(payload)
+            else:
+                # An explicit null scores the arm as failed: a legacy inline score under
+                # the same name does not survive it.
+                scores.pop(name, None)
     else:
         is_eval = kind == "evaluations" or (kind is None and _looks_judged(item))
         for name in BINARY:
@@ -363,7 +368,9 @@ def join(
             persona=a.persona if a.persona is not None else e.persona,
             ground_truth=a.ground_truth or e.ground_truth,
             answers=a.answers,
-            scores={**a.scores, **e.scores},
+            # A condition the evaluation lists, null or not, takes its score from the
+            # evaluation: an answer's legacy inline score does not outlive an explicit null.
+            scores={**{c: s for c, s in a.scores.items() if c not in e.conditions}, **e.scores},
             conditions=tuple(dict.fromkeys([*a.conditions, *e.conditions])),
             error=a.error or e.error,
             diagnosis=e.diagnosis or a.diagnosis,
@@ -395,6 +402,17 @@ def arm_scores(rec: Record) -> Mapping[str, Score]:
         return {}
     return {name: rec.scores[name] for name, payload in block.items()
             if isinstance(payload, Mapping) and name in rec.scores}
+
+
+def arm_names(rec: Record) -> tuple[str, ...]:
+    """Every arm an arms record lists, ``null`` ones included; ``()`` for a binary record.
+
+    A ``null`` arm is one that ran and produced nothing. The judges and the consistency
+    checks need it: dropping it makes a run look as if it never had that arm.
+    """
+    if rec.raw.get("arms") is None and rec.raw.get("scores") is None:
+        return ()
+    return tuple(c for c in rec.conditions if c not in BINARY)
 
 
 def has_arms(recs: Iterable[Record]) -> bool:
