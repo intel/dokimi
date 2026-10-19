@@ -578,6 +578,25 @@ def test_a_basis_this_version_does_not_know_is_not_judged(tmp_path):
         bundle.coverage().denominator("tokens")
 
 
+def test_as_dict_omits_basis_for_non_coverage_checks(tmp_path):
+    """Non-measured checks should not serialize a basis key."""
+    bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path)}")
+    record = dict(bundle.summary(), coverage_basis="unknown")
+    check = _coverage_check(record)
+    assert check.measured is False  # unknown basis is unmeasured
+    assert "basis" not in check.as_dict()  # no basis key for non-coverage
+
+
+def test_as_dict_includes_basis_for_measured_coverage_checks(tmp_path):
+    """Measured coverage checks should include the stored basis in as_dict()."""
+    bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path)}")
+    record = dict(bundle.summary(), coverage_basis="readable")
+    check = _coverage_check(record)
+    assert check.measured is True
+    row = check.as_dict()
+    assert row["basis"] == "readable"
+
+
 def test_the_gate_counts_only_gaps_as_excluded_files(tmp_path):
     from dokimi.novelty.bundle import named_exclusions
 
