@@ -339,3 +339,39 @@ def test_needs_network_entries_match_real_jobs_and_steps() -> None:
                 f"NEEDS_NETWORK step name '{step_name}' not found in job '{job_id}'. "
                 f"Job has steps: {sorted(steps)}"
             )
+
+
+def test_gitleaks_job_in_needs_network() -> None:
+    """Regression: gitleaks job is in NEEDS_NETWORK so ci-local skips it offline."""
+    assert "gitleaks" in cl.NEEDS_NETWORK
+
+
+def test_gitleaks_workflow_includes_merge_diffs() -> None:
+    """Regression: gitleaks uses -m flag to include merge diffs in PR scans."""
+    workflows = cl.load_workflows()
+    gitleaks_wf = None
+    for name, wf in workflows:
+        if name == "gitleaks.yml":
+            gitleaks_wf = wf
+            break
+
+    assert gitleaks_wf is not None, "gitleaks.yml workflow not found"
+
+    job = gitleaks_wf["jobs"].get("gitleaks")
+    assert job is not None, "gitleaks job not found in gitleaks.yml"
+
+    # Find the "Scan commits" step
+    scan_step = None
+    for step in job.get("steps", []):
+        if step.get("name") == "Scan commits":
+            scan_step = step
+            break
+
+    assert scan_step is not None, "Scan commits step not found"
+
+    # Verify the step includes -m flag for merge diffs
+    run_script = str(scan_step.get("run", ""))
+    assert "-m" in run_script, "Merge diff flag (-m) not found in gitleaks scan step"
+    assert 'range=(--log-opts="-m origin/$BASE_REF..HEAD")' in run_script or \
+           'range=(--log-opts="-m origin/$' in run_script, \
+           "Merge diff flag not correctly placed in log-opts"

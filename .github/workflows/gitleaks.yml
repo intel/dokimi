@@ -66,5 +66,5 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           range=()
-          if [ "$EVENT" = pull_request ]; then range=(--log-opts="origin/$BASE_REF..HEAD"); fi
+          if [ "$EVENT" = pull_request ]; then range=(--log-opts="-m origin/$BASE_REF..HEAD"); fi
           "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --verbose --no-banner "${range[@]}" .
