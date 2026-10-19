@@ -6,7 +6,10 @@
 ``grade`` and ``oracle`` run in a container of their own after any agent has
 exited. It mounts the run directory read-write at ``/eval/run``, the exported
 eval dir read-only at ``/eval/content`` and, only for a template that names
-``{source_dir}``, the full-history source read-only at ``/eval/source``.
+``{source_dir}``, the full-history source read-only at ``/eval/source``. A task
+whose ``grader`` is ``dokimi:<name>`` runs a built-in grader
+(:mod:`dokimi.repos.graders`, mounted read-only at ``/eval/graders``) in that
+container instead of the manifest's entry point (contract §4.5).
 
 A grader failure is a failure of the run on every gated metric: ``grade``
 exiting non-zero, timing out, writing no valid ``grade.json``, or writing
@@ -30,6 +33,7 @@ from dokimi.artifacts import schema_errors
 
 from .container import (
     CONTENT_DIR,
+    GRADERS_DIR,
     INFRA_EXIT,
     RUN_DIR,
     SOURCE_DIR,
@@ -40,6 +44,11 @@ from .container import (
     ContainerSpec,
     Mount,
 )
+from .graders import ENTRY as BUILTIN_ENTRY
+from .graders import HOST_DIR as GRADERS_HOST
+from .graders import NAMES as BUILTIN_NAMES
+from .graders import PREFIX as BUILTIN_PREFIX
+from .graders import builtin_name
 from .manifest import RepoManifest
 from .workspace import Task
 
@@ -52,6 +61,7 @@ AGENT_GIT = "agent-git"    # where the workspace's own .git/config and hooks are
 _GRADER_GIT_CONFIG = (("core.fsmonitor", "false"), ("core.hooksPath", "/dev/null"))
 _PLAIN_GIT_CONFIG = "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n"
 # Run-dir files the framework reads or writes after a grader had the run dir read-write.
+_NOT_FOUND_EXIT = 127  # docker run: the command (here the image's python3) is not on PATH
 HOST_FILES = ("meta.json", "task.json", "answer.txt", "events.jsonl", "result.json", "grade.log", "grade.err")
 
 
@@ -102,10 +112,12 @@ def render_entry(template: str, task: Task) -> list[str]:
 
 def run_entry(ctx: EvalContext, kind: str, task: Task, run_dir: Path, network: str,
               name: str | None = None) -> ContainerResult:
-    """Run entry point ``kind`` (grade, oracle) for the run in ``run_dir``; logs go to ``<kind>.log``."""
-    template = ctx.manifest.entry_points.get(kind)
-    if not template:
-        raise ContainerError(f"the manifest declares no `{kind}` entry point")
+    """Run entry point ``kind`` (grade, oracle) for the run in ``run_dir``; logs go to ``<kind>.log``.
+
+    A task whose ``grader`` is ``dokimi:<name>`` runs the framework's built-in grader instead of the
+    manifest's entry point, in the same container (contract §4.5)."""
+    builtin = builtin_name(task.raw.get("grader"))
+    argv, extra = _builtin_entry(ctx, kind, task, builtin) if builtin is not None else _repo_entry(ctx, kind, task)
     home = run_dir / GRADE_HOME
     shutil.rmtree(home, ignore_errors=True)
     home.mkdir()
@@ -115,14 +127,43 @@ def run_entry(ctx: EvalContext, kind: str, task: Task, run_dir: Path, network: s
     for log in (f"{kind}.log", f"{kind}.err"):  # an earlier entry point's link would be opened for writing
         (run_dir / log).unlink(missing_ok=True)
     mounts = [Mount(run_dir.resolve(), RUN_DIR), Mount(ctx.content_dir.resolve(), CONTENT_DIR, read_only=True)]
-    if "{source_dir}" in template:
-        if ctx.source_dir is None:
-            raise ContainerError(f"`{kind}` uses {{source_dir}} but no full-history source is available")
-        mounts.append(Mount(ctx.source_dir.resolve(), SOURCE_DIR, read_only=True))
-    spec = ContainerSpec(image=ctx.image, argv=render_entry(template, task), workdir=WORKSPACE,
-                         mounts=mounts + ctx.cache_mounts(), env=ctx.grade_env(task), network=network, name=name)
-    return ctx.runner.run(spec, stdout=run_dir / f"{kind}.log", stderr=run_dir / f"{kind}.err",
-                          timeout_s=ctx.entry_timeout_s)
+    spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts + extra + ctx.cache_mounts(),
+                         env=ctx.grade_env(task), network=network, name=name)
+    result = ctx.runner.run(spec, stdout=run_dir / f"{kind}.log", stderr=run_dir / f"{kind}.err",
+                            timeout_s=ctx.entry_timeout_s)
+    if builtin is not None and result.returncode == _NOT_FOUND_EXIT:
+        raise ContainerError(f"{task.raw['grader']} runs on the image's python3, and the image has none on PATH "
+                             f"(`{kind}` exited {_NOT_FOUND_EXIT}; see {run_dir / f'{kind}.err'})")
+    return result
+
+
+def _repo_entry(ctx: EvalContext, kind: str, task: Task) -> tuple[list[str], list[Mount]]:
+    """argv of the manifest's entry point ``kind``, and ``{source_dir}`` when it names it."""
+    template = ctx.manifest.entry_points.get(kind)
+    if not template:
+        raise ContainerError(f"the manifest declares no `{kind}` entry point")
+    if "{source_dir}" not in template:
+        return render_entry(template, task), []
+    if ctx.source_dir is None:
+        raise ContainerError(f"`{kind}` uses {{source_dir}} but no full-history source is available")
+    return render_entry(template, task), [Mount(ctx.source_dir.resolve(), SOURCE_DIR, read_only=True)]
+
+
+def _builtin_entry(ctx: EvalContext, kind: str, task: Task, builtin: str) -> tuple[list[str], list[Mount]]:
+    """argv of built-in grader ``builtin`` for ``kind``, and the read-only mount of its code.
+
+    ``-I``: no ``PYTHONPATH`` from ``image.env``, no user site and no script directory on ``sys.path``,
+    so nothing the agent wrote can stand in for a standard-library module."""
+    if builtin not in BUILTIN_NAMES:
+        raise ContainerError(f"unknown built-in grader {task.raw['grader']!r}; known: "
+                             + ", ".join(BUILTIN_PREFIX + n for n in BUILTIN_NAMES))
+    try:
+        rel = task.dir.resolve().relative_to(ctx.content_dir.resolve())
+    except ValueError:
+        raise ContainerError(f"task {task.id}: its directory {task.dir} is not in the exported eval dir") from None
+    argv = ["python3", "-I", "-B", f"{GRADERS_DIR}/{BUILTIN_ENTRY}", kind, builtin,
+            f"{CONTENT_DIR}/{rel.as_posix()}", RUN_DIR]
+    return argv, [Mount(GRADERS_HOST, GRADERS_DIR, read_only=True)]
 
 
 def _set_git_config_aside(run_dir: Path) -> None:

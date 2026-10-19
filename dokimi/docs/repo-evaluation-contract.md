@@ -385,10 +385,82 @@ against the repository. Every other key, per claim and at the top level, is
 free-form and stored with the scan. A fixed minimum lets L0 merge any
 repository's checks with its own without knowing their rules.
 
+### 4.5 Built-in graders
+
+A task whose `grader` is `dokimi:<name>` is graded by the framework, not by
+the repository's `grade` and `oracle` entry points; any other name goes to
+those entry points. Such a task is data only: its directory holds
+`task.json`, the patch and the JSON files the grader reads. The `dokimi:`
+prefix is the framework's: an unknown `dokimi:` name fails `tasks check` and
+the run's grade, and is never handed to the repository.
+
+A built-in grader runs where `grade` and `oracle` run: in the grading
+container, with the same mounts, network and environment (§4.2). The
+framework's grader code is mounted read-only at `/eval/graders` (never into
+the agent's container) and runs as
+`python3 -I /eval/graders/main.py grade|oracle <name> <task dir> /eval/run`,
+where `<task dir>` is the task's directory under `{eval_dir}`. It uses the
+standard library only and the image's `python3` (3.8 or newer). `-I` keeps
+`PYTHONPATH` from `image.env` and the workspace off `sys.path`. An image with
+no `python3` on `PATH` is a grader failure that says so.
+
+- `grade` reads `task.json` and `answer.txt` from `{run_dir}` and the data
+  files from the task's directory, and writes `grade.json` (§4.2): numbers,
+  booleans and `null` under `metrics`; strings, lists and objects under
+  `details`, with `details.grader_version`. A grader that raises writes
+  `pass: null` with `errors`. A metric the task's `gate` names that the grader
+  did not produce is `null`.
+- `oracle` writes the reference answer to `answer.txt` and leaves the
+  workspace alone.
+
+Both review graders read the answer the same way. Its last parseable
+` ```json ` fence must be an array of findings
+`{"file", "line", "severity", "rule", "message"}`; entries that are not
+objects are dropped. `file` is made repository-relative (an absolute path is
+cut after `/repo/`, then leading `./` and `/` go). A `line` that is not an
+integer is -99, near nothing. `severity` `blocker` or `major` counts toward
+`n_severe`. An answer with no such array gives only `pass: false`,
+`parse_error: true` and `recall` 0 (replay: `recall_all` too; `null` when
+there is nothing to recall): the agent failed the task, and on a task with
+`score` that is a failed run with score 0, not a grader failure.
+
+| `grader` | data next to `task.json` (key that renames it) | `pass` | `metrics` | `details` |
+|---|---|---|---|---|
+| `dokimi:review_seeds` | `manifest.json` (`manifest`); oracle answer `oracle.json` (`oracle_answer`), a list of findings | `null`; for a manifest with no seeds (a clean-diff control), `true` when no finding is `blocker` or `major` | `n_findings`, `n_severe`, `n_decoys`, `unmatched`, `recall` (`null` with no seeds) | `seeds_hit`, `decoys_flagged`, `recall_by_class` (`"hit/total"`) |
+| `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
+
+`manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":
+[{id, file, lines, kw}]}`; `file` `"*"` matches any file, and `kw` is a
+regular expression searched case-insensitively in the finding's `rule`,
+`message` and `evidence`.
+
+- A finding on a seed's file hits every seed whose `kw` matches. When none
+  matches, it hits the one seed (not `"*"`) whose `lines` are nearest, if
+  within 1 line.
+- A finding that hits no seed is a false positive when it is on a decoy's
+  file and matches its `kw` or one of its `lines`; it is listed in
+  `decoys_flagged`. Otherwise it counts as `unmatched`.
+- `recall` is seeds hit / seeds.
+
+`gold.json` is `[{id, file, line, kind, comment, addressed}]`: one human
+review thread of a merged PR, anchored on a line of the reviewed revision.
+
+- A finding on a thread's file within `window` lines of its anchor can hit
+  it. Matching is one-to-one and nearest first: one finding credits at most
+  one thread, and one thread at most one finding.
+- `recall_addressed` counts only threads with `addressed: true` (the code
+  changed in response), `recall_by_kind` groups by `kind`, and
+  `precision_proxy` is the share of findings within the window of any
+  thread, a lower bound on precision. Humans miss problems and raise
+  non-defects, so neither is a verdict.
+- The oracle answer is one finding per thread, at its anchor.
+
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
 
-The harness stays in oneDAL and keeps working standalone. These changes make
-the same content runnable by the framework.
+oneDAL drops its standalone mode: the generic parts of its harness move into
+dokimi (#41), and `dev/agent_evals` keeps only its tasks, its image and the
+graders that know oneDAL. These changes make that content runnable by the
+framework.
 
 | Today | Change |
 |---|---|
@@ -396,16 +468,17 @@ the same content runnable by the framework.
 | `task.json` keys | already match the core keys. Add `gate: ["strict_pass"]` to fix tasks, so a hidden-test pass that breaks a regression suite is not counted as success. Add `score: {metric: recall, max: 1.0}` to review tasks |
 | `base` is a 8–12 character SHA | expand to the full 40-character SHA (keep a trailing `^`) |
 | entry points call `dev/agent_evals/run.py` | call `{eval_dir}/run.py`; the graders must not assume they sit inside the workspace (§1.1) |
-| `prep()` in `common.py` | unchanged for standalone use; under the framework the same steps run framework-side (§3) |
+| `prep()` in `common.py` | goes: the framework prepares every workspace (§3) |
 | arms `none` / `main-raw` | become `guidance:none` / `guidance:raw`. `guidance:bridge` is framework-only (§3); oneDAL keeps no bridge arm |
-| graders read history from `ONEDAL_EVAL_SRC` | read `{source_dir}` under the framework; the variable stays for standalone runs |
-| `contract.py` derives the base when `meta.json` has none | diff from `meta.json` `start_sha`, and read `base_sha` / `base_rev` for the upstream commit (§4); derive only standalone |
+| graders read history from `ONEDAL_EVAL_SRC` | read `{source_dir}`, the only full-history source; the variable goes |
+| `contract.py` derives the base when `meta.json` has none | diff from `meta.json` `start_sha`, and read `base_sha` / `base_rev` for the upstream commit (§4); nothing derives it |
 | `build_make_gnu` pip-installs MKL and TBB | install them in the image, or give the task `egress: [pypi.org, files.pythonhosted.org]` |
 | Bazel install base in the container's `HOME` | put it on a declared cache (`bin/bazel --output_user_root`) |
 | `static_check.py --out` writes `files` / `counts` / `claims` | add `"schema": "repo_static.v1"`; the claim fields already fit §4.4 |
-| `run.py grade <run_dir>` writes a flat dict | add `--contract` mode that reads §4 inputs and writes `repo_grade.v1` (scalar fields move under `metrics`, lists and objects under `details`) |
+| `run.py grade <run_dir>` writes a flat dict | `run.py grade --contract` reads the §4 inputs and writes `repo_grade.v1` (scalar fields under `metrics`, lists and objects under `details`); it stays for the graders that are not built in: `build.py` and `make.py`, which know oneDAL, and the fix and mutation graders until `dokimi:hidden_tests` and `dokimi:mutation` exist (#41) |
+| `graders/review.py` and `replay.py` (task `grader` `review`, `review_replay`) | review tasks name `dokimi:review_seeds` or `dokimi:review_replay` (§4.5) and keep `manifest.json`, `oracle.json` or `gold.json`; both files go. The built-in graders give the same metrics for the same answers |
 | graders read Claude stream-json via `traces.py` | read `events.jsonl` instead; `traces.py` becomes the Claude Code → events converter, which moves to the framework's harness profile |
-| oracle logic spread across `run.py check` | expose it as the `oracle` entry point |
+| oracle logic spread across `run.py check` | expose it as the `oracle` entry point; review tasks need none (§4.5) |
 | `bin/bazel` wrapper, shared caches, `MKLROOT` removal | expressed in the Dockerfile and `image.caches` / `image.env` |
 | clean-ancestor guard, no-background hook, per-run config dir | done by the framework for every harness |
 | fix and feature tasks have no review-level grading | add `rubric.json` per task ([mergeability](repo-evaluation-mergeability.md) §2), starting from the tasks mined from reviewed PRs; maintainers approve each rubric |
