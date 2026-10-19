@@ -12,20 +12,9 @@ recompile are handled correctly:
 
 from __future__ import annotations
 
-import io
-import json
-import os
-import subprocess
-from pathlib import Path
 
-import pytest
 
-from dokimi import process
 from dokimi.harnesses import load_task
-from dokimi.harnesses.docker_solver import (
-    _DEFAULT_VERIFY_TIMEOUT,
-    _task_verify_timeout,
-)
 from dokimi.harnesses.registry import create_harness
 from dokimi.process import reply
 from tests.test_docker_solver_harness import _fixture_task, _pipeline

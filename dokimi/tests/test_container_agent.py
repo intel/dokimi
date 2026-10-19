@@ -12,7 +12,6 @@ from __future__ import annotations
 import io
 import json
 import socket
-import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -899,7 +898,7 @@ def test_container_probe_does_not_deny_what_env_sets_itself(tmp_path, cli, docke
                                          ("fde8::1 10.0.0.1 ", "10.0.0.1"), ("garbage", ""), ("", "")])
 def test_gateway_is_the_first_valid_ipv4(tmp_path, out, gateway):
     sb = _sandbox(tmp_path)
-    assert sb.gateway(lambda *a, **k: subprocess.CompletedProcess(a, 0, out, ""), None) == gateway
+    assert sb.gateway(lambda *a, **k: reply(out), None) == gateway
 
 
 def test_a_failed_network_create_leaves_no_env_dir(tmp_path, monkeypatch):
@@ -909,7 +908,7 @@ def test_a_failed_network_create_leaves_no_env_dir(tmp_path, monkeypatch):
     def docker(args, log, **kwargs):
         if args[:2] == ["network", "create"]:
             raise RuntimeError("docker network failed")
-        return subprocess.CompletedProcess(args, 0, "", "")
+        return reply()
 
     with pytest.raises(RuntimeError):
         ContainerSandbox.open("r1", docker, None, source_env={"ANTHROPIC_API_KEY": "k"})
@@ -920,7 +919,7 @@ def test_close_removes_the_env_file_dir(tmp_path):
     sb = _sandbox(tmp_path)
     sb.exec_argv("c1", {"ANTHROPIC_API_KEY": "secret"}, ["true"])
     assert list((tmp_path / "envfiles").iterdir())
-    sb.close(lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""), None, None)
+    sb.close(lambda *a, **k: reply(), None, None)
     assert not (tmp_path / "envfiles").exists()
 
 
@@ -1122,7 +1121,7 @@ def test_ctrl_c_while_the_sidecar_starts_still_cleans_up(tmp_path, monkeypatch):
         calls.append(list(args))
         if args[0] == "create":
             raise KeyboardInterrupt
-        return subprocess.CompletedProcess(args, 0, "", "")
+        return reply()
 
     # A temp dir of the test's own: under pytest-xdist other workers create and
     # remove dokimi-env-* in the shared one while this test runs.
