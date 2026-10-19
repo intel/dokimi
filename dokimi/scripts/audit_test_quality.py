@@ -210,11 +210,23 @@ def _constructor_inputs(nodes: list[ast.AST]) -> dict[str, set[tuple[str, object
     """``var -> {(kwarg, literal, type)}`` for every ``var = Call(kw=LIT)``.
 
     A name bound more than once is dropped: which binding an assert reads is not
-    decidable without control flow.
+    decidable without control flow. Also drops names that are mutated via method
+    calls or attribute assignments after construction.
     """
     bound: dict[str, set[tuple[str, object, type]]] = {}
     seen: collections.Counter[str] = collections.Counter()
+    mutated: set[str] = set()
     for node in nodes:
+        # Track mutations via method calls or attribute assignments
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+            call = node.value
+            if isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name):
+                mutated.add(call.func.value.id)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
+                    mutated.add(target.value.id)
+
         if not isinstance(node, ast.Assign | ast.AnnAssign):
             continue
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
@@ -228,7 +240,7 @@ def _constructor_inputs(nodes: list[ast.AST]) -> dict[str, set[tuple[str, object
                     for kw in node.value.keywords
                     if kw.arg and isinstance(kw.value, ast.Constant)
                 }
-    return {name: pairs for name, pairs in bound.items() if seen[name] == 1}
+    return {name: pairs for name, pairs in bound.items() if seen[name] == 1 and name not in mutated}
 
 
 def _echoes_input(test: ast.expr, inputs: dict[str, set[tuple[str, object, type]]]) -> bool:
@@ -271,9 +283,18 @@ def _is_mock_verify(test: ast.expr) -> bool:
 
     ``assert m.call_count == 2 and vote.aggregate == 70.0`` also checks a value,
     so each operand of an ``and`` is judged on its own.
+
+    Tuple comparisons like ``assert (m.call_count, out) == (1, 42)`` check both
+    the mock call and the output, so they are not mock-only.
     """
     if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
         return all(map(_is_mock_verify, test.values))
+    # If this is a comparison with tuples, check if any element is not a mock attribute
+    if isinstance(test, ast.Compare):
+        for comp in ast.walk(test):
+            if isinstance(comp, ast.Tuple):
+                # A tuple in a comparison likely checks multiple values; not mock-only
+                return False
     return any(isinstance(n, ast.Attribute) and n.attr in _MOCK_VERIFY_ATTRS
                for n in ast.walk(test))
 
@@ -357,8 +378,10 @@ def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str]) -
     t = _collect(fn)
     inputs = _constructor_inputs(t.nodes)
     checks = bool(t.asserts or t.raises or t.assert_calls)
+    # A test that calls an asserting helper has behavioral checks even if its direct asserts are weak
+    helper_checks = any(_call_name(c) in helpers for c in t.calls)
     flags = {
-        "type_only": bool(t.asserts) and not (t.value_asserts or t.raises or t.assert_calls),
+        "type_only": bool(t.asserts) and not (t.value_asserts or t.raises or t.assert_calls or helper_checks),
         "mock_echo": (
             t.patching and not t.raises and bool(t.asserts or t.assert_calls)
             and all(_is_mock_verify(a.test) for a in t.asserts)
@@ -383,11 +406,15 @@ def _duplicates(tests: list[tuple[str, _FuncDef]]) -> set[str]:
     for qualname, fn in tests:
         a = fn.args
         params = tuple(p.arg for p in (*a.posonlyargs, *a.args, *a.kwonlyargs))
+        # Include parameter defaults in the identity
+        defaults = tuple(ast.dump(d) for d in (a.defaults or []))
+        kw_defaults = tuple(ast.dump(d) if d else "" for d in (a.kw_defaults or []))
         identity = (
             qualname.rpartition(".")[0],
             # Without line/column attributes two bodies at different lines dump the same.
             ast.dump(ast.Module(body=fn.body, type_ignores=[])),
             params, a.vararg and a.vararg.arg, a.kwarg and a.kwarg.arg,
+            defaults, kw_defaults,
             tuple(ast.dump(d) for d in fn.decorator_list),
         )
         if identity in first:

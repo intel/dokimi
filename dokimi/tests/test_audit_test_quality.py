@@ -239,3 +239,51 @@ def test_the_report_and_json_list_every_flagged_test(tmp_path, capsys):
     rows = json.loads(out_json.read_text(encoding="utf-8"))
     assert [(Path(r["file"]).name, r["test"], r["flags"], r["exempt"]) for r in rows] == [
         ("test_mod.py", "test_x", ["no_assert"], False)]
+
+
+def test_constructor_tracking_invalidates_after_mutation():
+    """A mutation after construction invalidates the echo check."""
+    flags = _flags("""
+        def test_mutation_invalidates_echo():
+            cfg = Config(retries=3)
+            cfg.retries = 9
+            cfg.reset()
+            assert cfg.retries == 3
+        """)
+    assert "set_then_read" not in flags["test_mutation_invalidates_echo"]
+
+
+def test_tuple_comparison_is_not_mock_only():
+    """A tuple comparison with both mock and value checks is not mock-only."""
+    flags = _flags("""
+        from unittest.mock import patch
+        def test_tuple_and_value():
+            with patch("mod.send") as send:
+                out = run()
+            assert (send.call_count, out) == (1, 42)
+        """)
+    assert "mock_echo" not in flags["test_tuple_and_value"]
+
+
+def test_weak_assert_with_asserting_helper_is_not_type_only():
+    """A weak direct assert plus an asserting helper counts as behavioral."""
+    flags = _flags("""
+        def _check_output(x):
+            assert x == 42
+        def test_weak_plus_helper():
+            out = run()
+            assert isinstance(out, dict)
+            _check_output(out.get("value"))
+        """)
+    assert "type_only" not in flags["test_weak_plus_helper"]
+
+
+def test_different_defaults_do_not_duplicate():
+    """Tests with different parameter defaults are not duplicates."""
+    flags = _flags("""
+        def test_a(x=1):
+            assert transform(x) == x * 10
+        def test_b(x=2):
+            assert transform(x) == x * 10
+        """)
+    assert flags == {"test_a": (), "test_b": ()}
