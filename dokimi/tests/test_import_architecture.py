@@ -331,9 +331,15 @@ def banned_imports(imports: Imports, banned=BANNED_IMPORTS) -> dict[tuple[str, s
 
 
 def spawn_sites(tree: ast.Module) -> list[int]:
-    """Lines that start a child process without :mod:`dokimi.process`."""
+    """Lines that start a child process without :mod:`dokimi.process`.
+
+    Each launch counts once: an attribute call (``subprocess.run(...)``) or a call
+    through a directly imported name (``execute(...)`` after ``from subprocess import
+    run as execute``). A directly imported name that is never called counts at its
+    import line, since it may be passed around and called there.
+    """
     module_aliases: dict[str, str] = {}  # alias -> module name
-    name_aliases: dict[str, str] = {}  # alias -> callable name
+    name_aliases: dict[str, tuple[int, str]] = {}  # alias -> (import line, module)
     lines: list[int] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -341,22 +347,27 @@ def spawn_sites(tree: ast.Module) -> list[int]:
                 if a.name in _SPAWNS:
                     module_aliases[a.asname or a.name] = a.name
         elif isinstance(node, ast.ImportFrom) and node.module in _SPAWNS and not node.level:
-            lines += [node.lineno for a in node.names if a.name in _SPAWNS[node.module]]
-            # Track direct imports: from subprocess import run as execute
             for a in node.names:
-                if a.name in _SPAWNS.get(node.module, ()):
-                    name_aliases[a.asname or a.name] = node.module
+                if a.name in _SPAWNS[node.module]:
+                    name_aliases[a.asname or a.name] = (node.lineno, node.module)
+    called: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            # Count calls through directly imported names: execute(...)
-            if node.func.id in name_aliases:
-                lines.append(node.lineno)
-        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.attr in _SPAWNS.get(module_aliases.get(node.func.value.id, ""), ())):
-            # Count attribute calls: subprocess.run(...) via alias
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in name_aliases:
+            called.add(func.id)
             lines.append(node.lineno)
+        elif (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                and func.attr in _SPAWNS.get(module_aliases.get(func.value.id, ""), ())):
+            lines.append(node.lineno)
+    lines += [line for alias, (line, _) in name_aliases.items() if alias not in called]
     return sorted(lines)
+
+
+def stale_entries(baseline: Iterable, found: Iterable) -> list:
+    """Baseline entries that no longer match anything found: they must be deleted."""
+    return sorted(set(baseline) - set(found))
 
 
 def spawn_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
@@ -396,7 +407,7 @@ def test_no_import_crosses_a_layer_upward(imports):
 
 
 def test_a_fixed_layer_violation_leaves_the_baseline(imports):
-    stale = sorted(set(LAYER_BASELINE) - set(layer_violations(imports)))
+    stale = stale_entries(LAYER_BASELINE, layer_violations(imports))
     assert not stale, f"{stale} no longer cross a layer; delete them from LAYER_BASELINE"
 
 
@@ -409,7 +420,7 @@ def test_llm_provider_sdks_go_through_dokimi_llm(imports):
     found = banned_imports(imports)
     added = sorted(f"{m}:{line} imports {name}; use {BANNED_IMPORTS[name]}"
                    for (m, name), line in found.items() if (m, name) not in BANNED_BASELINE)
-    stale = sorted(set(BANNED_BASELINE) - set(found))
+    stale = stale_entries(BANNED_BASELINE, found)
     assert not added, "\n".join(added)
     assert not stale, f"{stale} no longer import the banned module; delete them from BANNED_BASELINE"
 
@@ -503,27 +514,37 @@ def test_a_direct_spawn_outside_the_wrapper_fails(tmp_path):
     assert "lower SPAWN_BASELINE" in problems[-1]
 
 
-def test_imported_callable_aliases_are_counted(tmp_path):
-    """Regression: two calls through one alias from a direct import exceed a one-site baseline."""
+def test_imported_callable_aliases_count_each_launch_once(tmp_path):
     imports = _package(tmp_path, {
-        "dokimi/process.py": "def f():\n    pass\n",
-        "dokimi/a.py": "from subprocess import run as execute\nexecute(['x'])\nexecute(['y'])\n",
+        "dokimi/one.py": "from subprocess import run as execute\nexecute(['x'])\n",
+        "dokimi/two.py": "from subprocess import run as execute\nexecute(['x'])\nexecute(['y'])\n",
+        "dokimi/idle.py": "from subprocess import run\n",
     })
-    problems = spawn_problems(imports, {"dokimi.a": (1, "one site baseline")})
-    # The import at line 1 counts as a site, then the two execute() calls count as two more,
-    # exceeding the baseline of 1
-    assert "dokimi.a" in problems[0]
-    assert "3" in problems[0]  # Should have 3 sites: import line + 2 calls
+    assert spawn_sites(imports.trees["dokimi.one"]) == [2]  # the call, not the import
+    assert spawn_sites(imports.trees["dokimi.two"]) == [2, 3]
+    assert spawn_sites(imports.trees["dokimi.idle"]) == [1]  # never called: the import
+    baseline = {"dokimi.one": (1, "one"), "dokimi.two": (1, "one"), "dokimi.idle": (1, "one")}
+    problems = spawn_problems(imports, baseline)
+    assert problems == ["dokimi.two starts a process at lines [2, 3]; use dokimi.process.run"]
 
 
 def test_stronger_edge_kind_wins_for_duplicate_imports(tmp_path):
-    """When a module imports the same target twice with different edge kinds,
-    the stronger kind (lowest rank: MODULE > LAZY > TYPING) is recorded."""
-    imports = _package(tmp_path, {
-        "dokimi/x.py": "pass\n",
-        "dokimi/a.py": "import dokimi.x\ndef f():\n    import dokimi.x\n",  # Module-level and lazy
-    })
-    # Both edges exist, but the module-level import (MODULE kind, rank 0) should win
-    # over the lazy import (LAZY kind, rank 1), so the recorded edge is MODULE
-    edge_kind, _ = imports.edges["dokimi.a"]["dokimi.x"]
-    assert edge_kind == MODULE
+    """A type-only import of b followed by a lazy one must leave a lazy edge, so the
+    a <-> b cycle is seen; the order of the two imports does not matter."""
+    for name, a_src in {
+        "typing_first": ("from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from dokimi import b\n"
+                         "def f():\n    from dokimi import b\n"),
+        "lazy_first": ("def f():\n    from dokimi import b\n"
+                       "from typing import TYPE_CHECKING\nif TYPE_CHECKING:\n    from dokimi import b\n"),
+    }.items():
+        root = tmp_path / name
+        root.mkdir()
+        imports = _package(root, {"dokimi/a.py": a_src, "dokimi/b.py": "from dokimi import a\n"})
+        assert imports.edges["dokimi.a"]["dokimi.b"][0] == LAZY
+        assert strongly_connected(imports) == [frozenset({"dokimi.a", "dokimi.b"})]
+
+
+def test_a_stale_layer_or_banned_baseline_entry_is_reported():
+    assert stale_entries({("a", "b"): "x", ("c", "d"): "y"}, {("c", "d"): "z"}) == [("a", "b")]
+    assert stale_entries({("m", "litellm"): "x"}, {}) == [("m", "litellm")]
+    assert stale_entries({}, {("m", "litellm"): 1}) == []
