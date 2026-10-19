@@ -12,12 +12,19 @@ recompile are handled correctly:
 
 from __future__ import annotations
 
+import pytest
 
-
+from dokimi.harnesses import container_agent as container_mod
 from dokimi.harnesses import load_task
 from dokimi.harnesses.registry import create_harness
 from dokimi.process import reply
 from tests.test_docker_solver_harness import _fixture_task, _pipeline
+
+
+@pytest.fixture(autouse=True)
+def _no_host_claude(tmp_path, monkeypatch):
+    """CI has no ``claude`` on PATH; the binary is only copied, never run, here."""
+    monkeypatch.setattr(container_mod, "claude_binary", lambda: tmp_path / "claude")
 
 
 def test_stop_proxy_timeout_aborts_before_verification(tmp_path):
