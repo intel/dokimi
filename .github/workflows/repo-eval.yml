@@ -212,11 +212,11 @@ jobs:
                   rng = [env["BEFORE"], "HEAD"]
               else:
                   return None
-              r = subprocess.run(["git", "diff", "--name-only", *rng], capture_output=True, text=True)
+              r = subprocess.run(["git", "diff", "--no-renames", "--name-only", "-z", *rng], capture_output=True, text=True)
               if r.returncode:
                   print(f"::warning::git diff {' '.join(rng)} failed, checking every task: {r.stderr.strip()}")
                   return None
-              return r.stdout.split()
+              return r.stdout.split('\0') if r.stdout else []
 
           mode = env["TASKS"].strip()
           if mode == "all":
@@ -389,4 +389,5 @@ jobs:
             ${{ runner.temp }}/repo-check/check/check.json
             ${{ runner.temp }}/repo-check/check/*/grade.json
             ${{ runner.temp }}/repo-check/check/*/*.log
+            ${{ runner.temp }}/repo-check/check/*/*.err
           if-no-files-found: ignore
