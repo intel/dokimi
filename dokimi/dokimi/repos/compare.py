@@ -491,9 +491,13 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
         else:
             found["gate"] = [float(bool(r["grade"]["success"])) for r in recs]
         nums = {measure: _finite(vals) for measure, vals in found.items()}
-        maxes = set(_finite([r.get("score_max") for r in recs]))  # cells of two eval trees may differ
+        score_max_vals = [r.get("score_max") for r in recs]
+        maxes = set(_finite(score_max_vals))  # cells of two eval trees may differ
+        # If any cell has unknown max, or maxes differ, top is None; otherwise take the single value
+        has_unknown_max = any(v is None for v in score_max_vals)
+        top = (maxes.pop() if len(maxes) == 1 and not has_unknown_max else None) if score_task else 1.0
         out[key] = {"kind": "score" if score_task else "gate",
-                    "top": (maxes.pop() if len(maxes) == 1 else None) if score_task else 1.0,
+                    "top": top,
                     "n": {measure: len(v) for measure, v in nums.items()},
                     "values": {measure: (sum(v) / len(v) if v else None) for measure, v in nums.items()}}
     return out

@@ -222,6 +222,21 @@ def test_score_headroom_is_measured_against_score_max(tmp_path):
     assert _row(compare([c], "guidance:none"), "score")["headroom"] == "floor"
 
 
+def test_score_headroom_unknown_when_pooling_legacy_and_current_cells(tmp_path):
+    """Regression: when legacy cells (score_max=None) and current cells (score_max=1.0) appear for the same task,
+    do not report ceiling if the legacy cells' maxima are unknown."""
+    b = tmp_path / "b1"
+    for i in range(2):
+        # Current cells with known score_max
+        _cell(b, f"task_{i}", "guidance:none", 1, score=1.0, score_max=1.0)
+        _cell(b, f"task_{i}", "guidance:raw", 1, score=1.0, score_max=1.0)
+        # Legacy cells from before score_max tracking, same task IDs
+        _cell(b, f"task_{i}", "guidance:none", 2, score=1.0, score_max=None)
+        _cell(b, f"task_{i}", "guidance:raw", 2, score=1.0, score_max=None)
+    # Both arms reach 1.0, but legacy cells have unknown maxima: headroom should be None, not "ceiling"
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] is None
+
+
 def test_unpaired_tasks_are_listed_not_compared(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1)
