@@ -177,7 +177,8 @@ def test_score_tasks_are_their_own_measure_and_a_grader_failure_scores_zero(tmp_
     ((True, True, True), (True, True, True), "ceiling"),
     ((False, False, False), (False, False, False), "floor"),
     ((True, True, False), (True, True, True), "near_ceiling"),  # one task can move up
-    ((True, True, True), (True, False, True), "near_ceiling"),  # none can move up; a loss still shows
+    ((True, True, True), (True, False, True), None),  # a loss is an effect, not "too few can improve"
+    ((True, True, True), (False, False, False), None),  # the treatment collapsed
     ((True, False, False), (True, True, True), None),
     ((False, True, False), (False, True, False), None),  # all tied, but not all at one end
 ])
@@ -219,7 +220,27 @@ def test_score_headroom_is_measured_against_score_max(tmp_path):
     for i in range(2):
         _cell(c, f"review_{i}", "guidance:none", 1, score=0.0)
         _cell(c, f"review_{i}", "guidance:raw", 1, score=0.0, failure=True)  # a grader failure scores 0
-    assert _row(compare([c], "guidance:none"), "score")["headroom"] == "floor"
+    assert _row(compare([c], "guidance:none"), "score")["headroom"] is None  # the zeros include a grader failure
+    d = tmp_path / "b3"
+    for i in range(2):
+        _cell(d, f"review_{i}", "guidance:none", 1, score=0.0)
+        _cell(d, f"review_{i}", "guidance:raw", 1, score=0.0)
+    assert _row(compare([d], "guidance:none"), "score")["headroom"] == "floor"
+    e = tmp_path / "b4"
+    for i in range(2):
+        _cell(e, f"review_{i}", "guidance:none", 1, score=0.0, failure=True)
+        _cell(e, f"review_{i}", "guidance:raw", 1, score=0.0, failure=True)
+    assert _row(compare([e], "guidance:none"), "score")["headroom"] is None
+
+
+def test_score_headroom_is_unknown_when_the_arms_have_different_score_max(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(2):
+        _cell(b, f"r{i}", "guidance:none", 1, score=4.0, score_max=4.0)
+        _cell(b, f"r{i}", "guidance:raw", 1, score=1.0, score_max=1.0)
+    s = compare([b], "guidance:none")
+    row = _row(s, "score")
+    assert row["delta"]["mean"] == -3.0 and row["headroom"] is None
 
 
 def test_score_headroom_unknown_when_pooling_legacy_and_current_cells(tmp_path):
