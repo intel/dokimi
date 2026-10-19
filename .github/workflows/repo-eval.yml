@@ -14,7 +14,8 @@ name: repo-eval
 # Nothing here calls a model or reads a secret. The caller pins dokimi twice,
 # by the same commit SHA (or tag): in `uses: ...@<sha>` and in `dokimi-ref`. The
 # ref installs dokimi and, through its requirements.lock.txt, every dependency,
-# so a rerun checks with the same framework. A branch name is refused.
+# so a rerun checks with the same framework. A branch name is refused. The
+# calling job grants `contents: read`, all any job here asks for.
 #
 # Task selection (`tasks`): `changed` on a pull request is the tasks whose
 # directories it touches, plus `smoke-tasks` when it changes anything else the
@@ -354,6 +355,8 @@ jobs:
           MANIFEST: ${{ inputs.manifest }}
           TASK: ${{ matrix.task }}
           WARM: ${{ inputs.warm }}
+          # Each task's verdict in the log as it lands, not when the step ends.
+          PYTHONUNBUFFERED: '1'
         run: |
           warm=()
           if [ "$WARM" = true ]; then warm=(--warm); fi
