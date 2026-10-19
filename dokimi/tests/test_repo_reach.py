@@ -26,7 +26,8 @@ import yaml
 from dokimi.artifacts import validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import RepoSource, SourceError, WorkTree, load_manifest, open_source
-from dokimi.repos.events import OUTPUT_KEEP, OUTPUT_LIMIT, clip_output, convert
+from dokimi.repos.events import convert
+from dokimi.repos.transcript import OUTPUT_KEEP, OUTPUT_LIMIT, clip_output
 from dokimi.repos.harness_profile import ProfileError, load_profile, parse_profile
 from dokimi.repos.reach import (
     ReachError,

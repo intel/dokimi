@@ -25,7 +25,7 @@ import re
 import shlex
 from typing import Any
 
-from .events import Transcript, _parse_time, relative_path, clip_output
+from .transcript import Transcript, _parse_time, clip_output, relative_path
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}

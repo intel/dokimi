@@ -12,7 +12,7 @@ from tests.test_repo_reach import _profile, _reach, _repo, _write
 
 from dokimi import process
 from dokimi.repos import SourceError, WorkTree, load_manifest
-from dokimi.repos.events import OUTPUT_KEEP, clip_output
+from dokimi.repos.transcript import OUTPUT_KEEP, clip_output
 from dokimi.repos.harness_profile import load_profile
 from dokimi.repos.reach import (
     ReachError,

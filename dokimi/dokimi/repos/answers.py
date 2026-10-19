@@ -22,7 +22,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from .events import relative_path
+from .transcript import relative_path
 
 log = logging.getLogger(__name__)
 

@@ -47,7 +47,8 @@ from typing import Any
 from dokimi import process
 from dokimi.utils import retry_writable
 
-from .events import Transcript, convert
+from .events import convert
+from .transcript import Transcript
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, check_repo
 from .runner import SUPPORT_HOST
