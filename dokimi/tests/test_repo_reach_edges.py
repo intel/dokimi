@@ -8,7 +8,7 @@ from __future__ import annotations
 import sys
 
 import pytest
-from test_repo_reach import _profile, _reach, _repo, _write
+from tests.test_repo_reach import _profile, _reach, _repo, _write
 
 from dokimi import process
 from dokimi.repos import SourceError, WorkTree, load_manifest
