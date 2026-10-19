@@ -216,11 +216,16 @@ def _pin_arms(arms: list[Arm], git_dir: Path, source: str) -> list[str]:
     remote = parsed.remote
     worktree = None if remote else Path(parsed.location)  # HEAD of a linked worktree is not the main one's
     pinned: list[str] = []  # Arm objects: run_batch hands each to prepare_workspace
+    first_path: dict[str, str | None] = {}
     for arm in arms:
         named = pin_arm(arm, git_dir, fetch=remote, worktree_dir=worktree)
         if named != named.spec:
             detail = f"{named.patch_path}, sha256 {named.patch_sha256}" if named.patch is not None else named.spec
             print(f"arm {named} = {detail}", file=sys.stderr)
+        first = first_path.setdefault(named, named.patch_path)
+        if first != named.patch_path:  # same bytes under another path: one cell, recorded under the first path
+            print(f"arm {named}: {named.patch_path} and {first} are the same patch and share one cell; "
+                  f"meta.json names {first}", file=sys.stderr)
         pinned.append(named)
     return list(dict.fromkeys(pinned))
 

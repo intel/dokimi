@@ -16,7 +16,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.repos import RepoSource, load_manifest, open_source
 from dokimi.repos.compare import compare, parse_selector
-from dokimi.repos.workspace import PrepError, load_tasks, parse_arm, pin_arm, prepare_workspace, source_git_dir
+from dokimi.repos.workspace import PrepError, _apply_rev, load_tasks, parse_arm, pin_arm, prepare_workspace, source_git_dir
 from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo, write
 
 TOOLING_PATCH = """diff --git a/Makefile b/Makefile
@@ -114,7 +114,8 @@ def test_rev_arm_puts_another_revisions_guidance_on_the_base(toy):
     meta, ws = _prep(toy, "guidance:rev:pr")
     assert meta["arm"] == f"guidance:rev:{toy['pr']}"
     assert meta["arm_rev"] == {"rev": "pr", "sha": toy["pr"], "removed": ["sub/AGENTS.md"]}
-    assert meta["arm_files"] == ["AGENTS.md", "src/AGENTS.md"]  # not the eval dir's: step 2 deleted it
+    # written and deleted (contract §3): the deleted base guidance is in arm_files too, not the eval dir's
+    assert meta["arm_files"] == ["AGENTS.md", "src/AGENTS.md", "sub/AGENTS.md"]
     assert (ws / "AGENTS.md").read_text() == "# pr guidance\n"
     assert (ws / "src/AGENTS.md").read_text() == "# src guidance\n"
     assert (ws / "src/calc.py").read_text() == "def add(a, b):\n    return a - b\n"  # base + setup patch
@@ -303,6 +304,55 @@ def test_rev_arm_refuses_symlinked_destination_components(toy):
     # Should work normally without symlinked components
     assert (ws / "AGENTS.md").read_text() == "# guide\n"
     assert "AGENTS.md" in meta["arm_files"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links")
+def test_rev_arm_refuses_to_write_through_a_symlinked_base_directory(toy):
+    """A base directory that is a symlink out of the workspace is refused, and nothing lands outside."""
+    outside = toy["tmp"] / "outside"
+    outside.mkdir()
+    _link_commit(toy, "sub-link", {"sub/AGENTS.md": "../docs/GUIDE.md"}, {"docs/GUIDE.md": "# guide\n"})
+    arm = pin_arm(parse_arm("guidance:rev:sub-link"), toy["git_dir"])
+    ws = toy["tmp"] / "ws-symlinked"
+    ws.mkdir()
+    (ws / "sub").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(PrepError, match="would write through symlink"):
+        _apply_rev(ws, toy["git_dir"], toy["manifest"], arm, [])
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links")
+def test_rev_arm_reports_a_base_file_where_the_revision_has_a_directory(toy):
+    """A base file at a directory the revision links into is a PrepError naming the file, not a raw OSError."""
+    _link_commit(toy, "ops-link", {"ops/AGENTS.md": "../docs/GUIDE.md"}, {"docs/GUIDE.md": "# guide\n"})
+    arm = pin_arm(parse_arm("guidance:rev:ops-link"), toy["git_dir"])
+    ws = toy["tmp"] / "ws-file-dir"
+    ws.mkdir()
+    (ws / "ops").write_text("base file\n")
+    with pytest.raises(PrepError, match="cannot be written"):
+        _apply_rev(ws, toy["git_dir"], toy["manifest"], arm, [])
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links")
+def test_rev_arm_copies_the_executable_bit_of_a_linked_target(toy):
+    """A linked guidance file whose target is executable in the revision is executable in the workspace."""
+    _link_commit(toy, "exec-link", {"AGENTS.md": "run.sh"}, {"run.sh": "#!/bin/sh\necho hi\n"})
+    wt = toy["root"].parent / "wt-exec-fix"
+    git(toy["root"], "worktree", "add", "-q", str(wt), "exec-link")
+    git(wt, "update-index", "--chmod=+x", "run.sh")
+    git(wt, "commit", "-qm", "make the target executable")
+    rev = git(wt, "rev-parse", "HEAD")
+    git(toy["root"], "worktree", "remove", "--force", str(wt))
+    meta, ws = _prep(toy, f"guidance:rev:{rev}")
+    assert (ws / "AGENTS.md").read_text() == "#!/bin/sh\necho hi\n"
+    assert os.stat(ws / "AGENTS.md").st_mode & 0o111
+    assert "AGENTS.md" in meta["arm_files"]
+
+
+def test_patch_arm_names_an_unknown_home_user_as_a_prep_error(tmp_path):
+    """``patch:~nosuchuser/...`` is an arm error, not a traceback (the home directory cannot be found)."""
+    with pytest.raises(PrepError, match="cannot read the patch"):
+        parse_arm("patch:~nosuchuser-dokimi-test/x.diff")
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symbolic links")

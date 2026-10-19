@@ -110,10 +110,10 @@ def parse_arm(spec: str) -> Arm:
             raise PrepError(f"arm {spec!r}: {rev!r} is not a revision (a SHA, tag or branch of the source)")
         return Arm(spec, rev=rev)
     if spec.startswith(PATCH_ARM):
-        path = Path(spec[len(PATCH_ARM):]).expanduser()
         try:
+            path = Path(spec[len(PATCH_ARM):]).expanduser()
             data = path.read_bytes()
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:  # RuntimeError: "~user" names no home directory
             raise PrepError(f"arm {spec!r}: cannot read the patch: {exc}") from exc
         if not data.strip():
             raise PrepError(f"arm {spec!r}: the patch is empty")
@@ -374,7 +374,10 @@ def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
                 break
             if p.is_symlink():
                 raise PrepError(f"arm {arm}: guidance {rel} at {arm.rev_sha[:12]} would write through symlink {p}")
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:  # a base file where the revision has a directory
+            raise PrepError(f"arm {arm}: guidance {rel} at {arm.rev_sha[:12]} cannot be written: {exc}") from exc
         # Check again in case a parent component was created as a symlink
         if dest_path.is_symlink():
             raise PrepError(f"arm {arm}: guidance {rel} at {arm.rev_sha[:12]} exists as a symlink in base")
@@ -384,8 +387,18 @@ def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
                           timeout=_GIT_TIMEOUT_S, capture_limit=None)
         if proc.returncode != 0:
             raise PrepError(f"arm {arm}: cannot read target {target}: {proc.stdout}")
-        dest_path.write_bytes(proc.stdout_bytes)
-    return written, {"arm_rev": {"rev": arm.rev, "sha": arm.rev_sha, "removed": sorted(set(removed) - set(written))}}
+        try:
+            dest_path.write_bytes(proc.stdout_bytes)
+        except OSError as exc:
+            raise PrepError(f"arm {arm}: guidance {rel} at {arm.rev_sha[:12]} cannot be written: {exc}") from exc
+        # git tracks one mode bit: the copy is executable when the target blob is
+        mode = _run(["git", "-C", str(git_dir), "ls-tree", "--full-tree", arm.rev_sha, "--", target],
+                    env=_git_env(SNAPSHOT_AUTHOR)).split(" ", 1)[0]
+        if mode == "100755":
+            dest_path.chmod(dest_path.stat().st_mode | 0o111)
+    # arm_files: the files it wrote and the base's guidance it deleted (contract §3 meta.json)
+    return sorted(set(written) | set(removed)), {"arm_rev": {"rev": arm.rev, "sha": arm.rev_sha,
+                                                             "removed": sorted(set(removed) - set(written))}}
 
 
 def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple[list[str], dict[str, Any]]:
