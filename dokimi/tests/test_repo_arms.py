@@ -398,3 +398,26 @@ def test_repo_run_pins_duplicate_arms_once(toy):
     pinned = _pin_arms([arm_rev_short, arm_rev_full, arm_raw], git_dir, str(toy["root"]))
     assert len(pinned) == 2
 
+
+
+def test_pin_arms_resolves_head_in_the_linked_worktree_the_source_names(toy):
+    from dokimi.commands.repo_run import _pin_arms
+
+    wt = toy["tmp"] / "linked"
+    git(toy["root"], "worktree", "add", "-q", str(wt), "pr")  # its HEAD is the pr commit, the main worktree's is not
+    main_sha = git(toy["root"], "rev-parse", "HEAD").strip()
+    assert main_sha != toy["pr"]
+    arm = parse_arm("guidance:rev:HEAD")
+    assert _pin_arms([arm], toy["git_dir"], str(wt))[0].rev_sha == toy["pr"]
+    assert _pin_arms([arm], toy["git_dir"], str(toy["root"]))[0].rev_sha == main_sha
+
+
+def test_pin_arms_fetches_a_remote_branch_before_pinning_it(toy):
+    from dokimi.commands.repo_run import _pin_arms
+
+    cached = toy["tmp"] / "cached.git"  # a clone made before the branch moved
+    subprocess.run(["git", "clone", "-q", "--bare", str(toy["root"]), str(cached)], check=True)
+    moved = commit_on(toy["root"], "pr", {"AGENTS.md": "# moved\n"})
+    assert moved != toy["pr"]
+    pinned = _pin_arms([parse_arm("guidance:rev:pr")], cached, f"file://{toy['root']}@{toy['pr']}")
+    assert pinned[0].rev_sha == moved

@@ -177,7 +177,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         harness_bin = _harness_bin(args.bin or profile.bin)
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, pin=True)
-        arms = _pin_arms(parsed, ctx.git_dir, args.source, source_path=Path(args.source) if args.source.startswith('/') or args.source.startswith('.') else None)
+        arms = _pin_arms(parsed, ctx.git_dir, args.source)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, timeout_s=args.timeout, max_turns=args.max_turns,
@@ -206,17 +206,18 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         sys.exit(1)
 
 
-def _pin_arms(arms: list[Arm], git_dir: Path, source: str, source_path: Path | None = None) -> list[str]:
+def _pin_arms(arms: list[Arm], git_dir: Path, source: str) -> list[str]:
     """Each arm under the name its cells get, resolved once for the whole batch (a revision to its
     full SHA, so a branch that moves later names another arm); two spellings of one arm run once."""
     from dokimi.repos import RepoSource
     from dokimi.repos.workspace import pin_arm
 
-    remote = RepoSource.parse(source).remote
+    parsed = RepoSource.parse(source)
+    remote = parsed.remote
+    worktree = None if remote else Path(parsed.location)  # HEAD of a linked worktree is not the main one's
     pinned: list[str] = []  # Arm objects: run_batch hands each to prepare_workspace
     for arm in arms:
-        # Pass source_path (the working tree) for worktree-aware HEAD resolution
-        named = pin_arm(arm, git_dir, fetch=remote, worktree_dir=source_path)
+        named = pin_arm(arm, git_dir, fetch=remote, worktree_dir=worktree)
         if named != named.spec:
             detail = f"{named.patch_path}, sha256 {named.patch_sha256}" if named.patch is not None else named.spec
             print(f"arm {named} = {detail}", file=sys.stderr)
