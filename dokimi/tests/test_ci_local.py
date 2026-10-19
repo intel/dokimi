@@ -339,3 +339,31 @@ def test_needs_network_entries_match_real_jobs_and_steps() -> None:
                 f"NEEDS_NETWORK step name '{step_name}' not found in job '{job_id}'. "
                 f"Job has steps: {sorted(steps)}"
             )
+
+
+def test_isolated_job_ids_match_real_jobs() -> None:
+    """Every job id in ISOLATED names a real job that pip-installs the package."""
+    workflows = cl.load_workflows()
+    job_ids = {job_id for _, wf in workflows for job_id in wf["jobs"]}
+
+    for job_id in cl.ISOLATED:
+        assert job_id in job_ids, f"ISOLATED job id '{job_id}' does not exist in workflows"
+        # Verify it runs `pip install ` steps that refer to wheels or packages
+        found_pip_install = False
+        for _, wf in workflows:
+            if job_id in wf["jobs"]:
+                job = wf["jobs"][job_id]
+                for step in job.get("steps", []):
+                    if "run" in step and "pip install" in str(step.get("run", "")):
+                        found_pip_install = True
+                        break
+        assert found_pip_install, (
+            f"ISOLATED job id '{job_id}' does not contain a pip install step"
+        )
+
+
+def test_windows_smoke_is_registered_as_isolated() -> None:
+    """The windows-smoke job that installs packages must be in ISOLATED to avoid
+    expanding $RUNNER_TEMP/dist/*.whl as a literal path in ci_local."""
+    assert "windows-smoke" in cl.ISOLATED
+    assert "windows-smoke" in cl.NEEDS_NETWORK

@@ -64,10 +64,10 @@ WORKFLOWS = REPO / ".github" / "workflows"
 
 # Jobs or steps that cannot run offline. Keyed by job id, or (job id, step name).
 # pre-commit clones its hook repositories on first use.
-NEEDS_NETWORK = {"package-smoke", ("static", "pre-commit"), ("static", "pip-audit")}
+NEEDS_NETWORK = {"package-smoke", "windows-smoke", ("static", "pre-commit"), ("static", "pip-audit")}
 NEEDS_DOCKER = {"external-catalog-smoke"}
 # Jobs that `pip install .`: run on a copy of the tree in a throwaway venv.
-ISOLATED = {"package-smoke"}
+ISOLATED = {"package-smoke", "windows-smoke"}
 PIP_INSTALL = re.compile(r"^\s*(python -m )?pip install\b")
 # pip options that take a value, by spelling, mapped to the short form `tools` emits.
 PAIRED = {"-r": "-r", "--requirement": "-r", "-c": "-c", "--constraint": "-c",
