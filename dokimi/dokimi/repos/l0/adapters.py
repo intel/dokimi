@@ -154,10 +154,11 @@ def _literal(value: list[tuple[str, str]], list_ok: bool) -> bool:
 def _build_names(text: str) -> tuple[set[str], bool]:
     """The target and output names a BUILD file spells out, and whether it also makes names it does not spell out.
 
-    Spelled out: ``name = "x"`` or ``out = "x"`` (either quote), ``outs = ["x.h", ...]``, the files of a top-level
-    ``exports_files([...])`` (every name of a plain list). Computed: any other value
-    of those arguments, ``exports_files(glob(...))`` and the like, (``"t_" + s``, ``"t_%s" % s``, a variable), a call at the start of a line, or in a comprehension
-    that starts a line, to anything but a native rule or a builtin (a macro, which may generate targets).
+    Spelled out: ``name = "x"`` or ``out = "x"`` (either quote), ``outs = ["x.h", ...]``, and the files of a
+    top-level ``exports_files([...])`` (every name of a plain list). Computed: any other value of those arguments
+    (``"t_" + s``, ``"t_%s" % s``, a variable), ``exports_files(glob(...))`` and the like, a call at the start of a
+    line, or in a comprehension that starts a line, to anything but a native rule or a builtin (a macro, which may
+    generate targets). A ``%{...}`` anywhere in the file is a template placeholder, filled in on rendering.
     """
     names: set[str] = set()
     computed = False
@@ -200,7 +201,7 @@ def _build_names(text: str) -> tuple[set[str], bool]:
                 names.update(v for k, v in value if k == "str")
             else:
                 computed = True
-    return names, computed or any("%{" in n for n in names)  # a template's `%{name}` is filled in on rendering
+    return names, computed or "%{" in text  # a template's `%{...}` is filled in on rendering
 
 
 def _exports_names(toks: list[tuple[str, str, bool]], start: int) -> tuple[set[str], bool]:
@@ -394,7 +395,8 @@ def reads_as_build(scan: Scan, fence: Fence) -> bool:
     native rule only Bazel has (``cc_library``, ``http_archive``). A call to a macro of a ``.bzl`` file proves
     nothing: ``run(`` and ``build(`` are as often plain Python."""
     code = "\n".join(text for _, text in fence.lines)
-    return bool(_LOAD_LABEL.search(code)) or any(m.group(1) in _BUILD_ONLY for m in re.finditer(r"^(\w+)\(", code, re.M))
+    return bool(_LOAD_LABEL.search(code)) or any(
+        m.group(1) in _BUILD_ONLY for m in re.finditer(r"^[ \t]*(\w+)\(", code, re.M))
 
 
 def check_starlark(scan: Scan, file: str, fence: Fence) -> None:
@@ -421,7 +423,7 @@ def check_starlark(scan: Scan, file: str, fence: Fence) -> None:
                 scan.add(file, line, "starlark_kwarg", f"{name}({kw}=)", "unresolved" if kwargs else "fail",
                          f"{name} is defined more than once or takes **kwargs" if kwargs
                          else f"not a parameter of {name} in {where}", snippet)
-    for m in _TOKEN.finditer(code):  # a string of either quote, not one inside a comment or a longer string
+    for m in _TOKEN.finditer(code):  # a string of either quote (triple-quoted too), not one inside a comment
         if m.lastgroup != "str":
             continue
         label = m.group().lstrip("rRbB")
@@ -593,8 +595,10 @@ def _cmake_source(scan: Scan, file: str, line: int, src: str, text: str) -> None
     """``-S <dir>`` names a directory with a ``CMakeLists.txt``. Where the command runs is known only after a
     literal ``cd``; without one the directory is tried at the guidance file's directory and its ancestors, and a
     miss is ``unresolved``, since the text may say elsewhere where to run it."""
-    if not src or dynamic(src) or src.startswith(("/", "~", "-")) or any(c in src for c in "*?[{"):
-        return  # a glob or brace expansion names directories this text does not list
+    if not src or dynamic(src) or src.startswith(("/", "~", "-")) or any(c in src for c in "*?[{%\\"):
+        return  # a glob or brace expansion, a Windows path or a Windows variable names directories this text does not list
+    if re.match(r"^[A-Za-z]:", src):
+        return
     cd = scan.cd_dirs
     if cd == []:
         scan.add(file, line, "cmake_src", src, "unresolved", "after a `cd` this tree cannot follow", text)

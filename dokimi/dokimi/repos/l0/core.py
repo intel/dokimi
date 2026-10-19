@@ -50,8 +50,9 @@ _WRAPPED = re.compile(r"^`([^`]+)`(\s+#.*)?$")  # a whole command in backticks, 
 # `2>&1`, `> log`, `>>log`, `&>/dev/null`, `< in`: a redirection and its target, not arguments.
 _REDIRECT = re.compile(r"(?:(?<=\s)|^)[0-9]?(?:&>>?|>>?|<)(?:&[0-9]+|\s*[^\s|;&<>]+)")
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)")
-# `<name>` touching nothing but word characters on its inside: a placeholder to fill in, not two redirections.
-_FILL_IN = re.compile(r"<[A-Za-z_][\w.-]*>")
+# `<name>` or `<source dir>`: a placeholder to fill in, not two redirections. It starts with a letter and does not end
+# in a space (`< in.txt >out` is a redirection).
+_FILL_IN = re.compile(r"<[A-Za-z_](?:[^<>\n;&|]*[^\s<>;&|])?>")
 _CONTROL = frozenset({"&&", "||", "|", ";", "&", "|&", ";;", "(", ")"})
 _CONTROL_RUN = re.compile(r"&&|\|\||\|&|;;|[;&|()]")
 # A ref that is one path segment: a default branch, a commit or a version tag. Any other ref may hold slashes.
@@ -414,7 +415,7 @@ class Scan:
     def cd_dirs(self) -> list[str] | None:
         """Where a literal ``cd`` in this fence or span moved to (``""`` is the root); ``[]`` after a ``cd`` that
         cannot be followed, ``None`` when there was no ``cd``."""
-        return self._cd
+        return None if self._cd is None else list(self._cd)
 
     def _scope(self, control: str) -> None:
         """A `(` saves the directory a subshell starts in, a `)` restores it."""

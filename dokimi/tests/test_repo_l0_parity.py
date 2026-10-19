@@ -231,6 +231,7 @@ def test_a_computed_first_build_file_is_not_forgotten_by_the_second(tmp_path):
     ('exports_files(srcs = ["LICENSE", "NOTICE"])\n', "NOTICE", "ok"),
     ('exports_files(FILES)\ncc_library(name = "zlib")\n', "NOTICE", "unresolved"),
     ('cc_library(name = "%{target_name}")\n', "zlib", "unresolved"),  # a template, rendered on fetching
+    ('cc_library(name = "a")\n%{extra_targets}\n', "b", "unresolved"),  # a bare placeholder injects targets
 ])
 def test_external_exports_files_and_templates(tmp_path, build, label, expected):
     files = _external({"third_party/repos.bzl": 'r(name = "zlib", build_file = "//third_party:zlib.tpl.BUILD")\n',
@@ -258,3 +259,52 @@ def test_starlark_load_claims_carry_the_load_line(tmp_path):
     agents = "intro\n\n" + _fence("python", *_BUILD_SNIPPET)
     claims = [c for c in _scan(tmp_path, agents, _DEFS)["claims"] if c["kind"] in ("starlark_load", "starlark_macro")]
     assert {(c["kind"], c["line"]) for c in claims} == {("starlark_load", 4), ("starlark_macro", 6)}
+
+
+@pytest.mark.parametrize("cmd", [
+    "cd nocm && cmake -S <path/to/src> -B b",
+    "cd nocm && cmake -S <source dir> -B b",
+    "cd nocm && cmake -S C:/x/y -B b",
+    "cd nocm && cmake -S %SRC% -B b",
+    "cd nocm && cmake -S /abs/path -B b",
+    "cd nocm && cmake -S ~/src -B b",
+    "cd nocm && cmake -S -Wno-dev -B b",
+    "cd nocm && cmake -S examples/?pp -B b",
+    "cd nocm && cmake -S examples/[ab]pp -B b",
+    "cd nocm && cmake -S examples/{a,b} -B b",
+])
+def test_cmake_source_that_is_not_a_literal_tree_path_is_not_claimed(tmp_path, cmd):
+    got = _verdicts(_scan(tmp_path, _fence("bash", cmd) + "\n", {"nocm/x.txt": "", **_CMAKE}))
+    assert got == {}, got
+
+
+def test_redirections_next_to_a_placeholder_are_not_placeholders(tmp_path):
+    agents = _fence("bash", "cd nocm && cmake -S examples/app -B b < in.txt >out.txt")
+    got = _verdicts(_scan(tmp_path, agents + "\n", {"nocm/x.txt": "", **_CMAKE}))
+    assert got == {("cmake_src", "examples/app"): "fail"}, got
+
+
+def test_every_string_form_of_a_label_is_checked_on_its_own_line(tmp_path):
+    agents = _fence("starlark", "x = 1", 'y = r"//a:kore"', "z = '''//a:kore'''", "w = b'//a:kore'")
+    claims = [c for c in _scan(tmp_path, agents + "\n", _DEFS)["claims"] if c["kind"] == "bazel_label"]
+    assert sorted((c["status"], c["line"]) for c in claims) == [("fail", 3), ("fail", 4), ("fail", 5)]
+
+
+@pytest.mark.parametrize("call", ["glob", "select", "alias", "module", "platform", "toolchain", "workspace",
+                                  "licenses", "exports_files", "package_group", "package", "test_suite"])
+def test_python_fence_calling_a_name_plain_python_also_uses_is_plain_python(tmp_path, call):
+    agents = _fence("python", f"{call}(", '    name = "x",', ")", 'print("//a:kore")')
+    assert _verdicts(_scan(tmp_path, agents, _DEFS)) == {}
+
+
+@pytest.mark.parametrize("lines", [
+    ("http_archive(", '    name = "x",', '    deps = ["//a:kore"],', ")"),
+    ("genrule(", '    name = "x",', '    deps = ["//a:kore"],', ")"),
+    ("py_test(", '    name = "x",', '    deps = ["//a:kore"],', ")"),
+    ("config_setting(", '    name = "x",', '    deps = ["//a:kore"],', ")"),
+    ("# BUILD", "cc_library(", '    name = "x",', '    deps = ["//a:kore"],', ")"),
+    ("def build():", "    cc_library(", '        name = "x",', '        deps = ["//a:kore"],', "    )"),
+])
+def test_python_fence_calling_a_bazel_rule_reads_as_bazel(tmp_path, lines):
+    agents = _fence("python", *lines)
+    assert _verdicts(_scan(tmp_path, agents, _DEFS)) == {("bazel_label", "//a:kore"): "fail"}
