@@ -437,8 +437,8 @@ class Judge:
     _VERDICT = re.compile(
         r"(?::|\s[-\u2013\u2014]|\()\s*(?:[a-z]+ly\s+)?(wrong|incorrect|right|correct)\b", re.I
     )
-    #: Gate for the fallback: the claim must contain a ``:``, `` -`` or ``(`` somewhere (it may be
-    #: inside the figure). The fallback searches the whole claim; its end-anchor, not a start
+    #: Gate for the fallback: the claim must contain a ``:``, a dash after whitespace (``-``,
+    #: en or em dash) or ``(`` somewhere (it may be inside the figure). The fallback searches the whole claim; its end-anchor, not a start
     #: offset, is what keeps a ``/`` or ``,`` in the figure from being read as the verdict.
     _VERDICT_PART = re.compile(r":|\s[-\u2013\u2014]|\(")
     #: Fallback for a claim ``_VERDICT`` cannot read. The verdict word must end the claim (only
@@ -449,13 +449,13 @@ class Judge:
     #: unread. A path right after the separator (``ref: tests/wrong``) reads like ``L2/wrong``;
     #: only a path after a word, as in ``see docs/wrong``, stays unread. ``not`` flips it.
     #: A ``/`` or ``,`` right after another verdict word (``right/wrong``, ``correct, wrong``)
-    #: is an alternative, not a verdict, so the claim stays
-    #: unread; ``(?<!correct)`` also covers ``incorrect``. Only the intensifiers in
-    #: ``_INTENSIFIERS`` may qualify the word here; any other ``-ly`` adverb (``hardly``,
-    #: ``possibly``, ``formerly``, ``entirely``) hedges or dates the verdict and leaves the
-    #: claim unread, as does a negated adverb (``not entirely wrong``). A verdict word with no separator in front
-    #: stays unread on purpose: ``correctly marked as WRONG to claim`` says the answer flagged a
-    #: bad claim, not that its figure is wrong.
+    #: is an alternative, not a verdict, so the claim stays unread; ``(?<!correct)`` also
+    #: covers ``incorrect``. Only the intensifiers in ``_INTENSIFIERS`` may qualify the word
+    #: here; any other ``-ly`` adverb (``hardly``, ``possibly``, ``formerly``, ``entirely``)
+    #: hedges or dates the verdict and leaves the claim unread, as does a negated adverb
+    #: (``not entirely wrong``). A verdict word with no separator in front stays unread on
+    #: purpose: ``correctly marked as WRONG to claim`` says the answer flagged a bad claim,
+    #: not that its figure is wrong.
     _QUALIFIED_VERDICT = re.compile(
         r"(?:(?::|\s[-\u2013\u2014]|\(|(?<!wrong)(?<!right)(?<!correct),)\s*"
         r"(?:(?!(?:wrong|right|correct|incorrect)/)[\w.+-]+/)*)"
