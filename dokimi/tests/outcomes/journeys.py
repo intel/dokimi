@@ -122,12 +122,32 @@ def _subparsers(parser: argparse.ArgumentParser) -> dict:
 
 
 def _flags(parser: argparse.ArgumentParser) -> set[str]:
-    return {opt for action in parser._actions for opt in action.option_strings}
+    """Canonical flag identities per action dest, avoiding alias collisions."""
+    return {action.dest for action in parser._actions if action.option_strings}
+
+
+def _canonicalize_flags(parser: argparse.ArgumentParser, raw_flags: list[str]) -> list[str]:
+    """Map raw flag strings (e.g. "-o", "--out") to their canonical dest names.
+
+    Unknown flags are preserved as-is to ensure proper error reporting.
+    """
+    canonical = []
+    for flag in raw_flags:
+        if hasattr(parser, '_option_string_actions'):
+            action = parser._option_string_actions.get(flag)
+            if action:
+                canonical.append(action.dest)
+            else:
+                # Preserve unknown flags for error reporting
+                canonical.append(flag)
+        else:
+            canonical.append(flag)
+    return canonical
 
 
 def resolve(root: argparse.ArgumentParser, tokens: list[str]) -> tuple[argparse.ArgumentParser, list[str], list[str]]:
-    """The parser ``tokens`` lead to, the command path taken, and the flags passed."""
-    parser, path, flags = root, [], []
+    """The parser ``tokens`` lead to, the command path taken, and the flags passed (canonicalized)."""
+    parser, path, raw_flags = root, [], []
     walking = True
     for token in tokens:
         subs = _subparsers(parser)
@@ -137,7 +157,8 @@ def resolve(root: argparse.ArgumentParser, tokens: list[str]) -> tuple[argparse.
             continue
         walking = walking and token.startswith("-")
         if token.startswith("-") and token != "-":
-            flags.append(token.split("=", 1)[0])
+            raw_flags.append(token.split("=", 1)[0])
+    flags = _canonicalize_flags(parser, raw_flags)
     return parser, path, flags
 
 

@@ -26,6 +26,7 @@ invocation passes only if its tests made one.
 from __future__ import annotations
 
 import argparse
+import contextvars
 import json
 import re
 import sys
@@ -43,6 +44,7 @@ ROOT_PROG = "dokimi"  # build_parser()'s prog; subcommand parsers are "dokimi <c
 _results: dict[str, list[str]] = {}
 _invocations: dict[str, list[list[str]]] = {}
 _CALLS = pytest.StashKey[list]()
+_calls_contextvar: contextvars.ContextVar[list[list[str]] | None] = contextvars.ContextVar("_calls", default=None)
 
 
 def pytest_addoption(parser):
@@ -80,14 +82,18 @@ def pytest_runtest_call(item):
 
     def capture(self, args=None, namespace=None):
         parsed, leftover = original(self, args, namespace)
-        if self.prog == ROOT_PROG and not leftover:  # record only results with no leftover arguments
-            calls.append([str(a) for a in (sys.argv[1:] if args is None else args)])
+        # Only append if this test's contextvar is active, avoiding cross-thread contamination.
+        active_calls = _calls_contextvar.get()
+        if active_calls is not None and self.prog == ROOT_PROG and not leftover:  # record only results with no leftover arguments
+            active_calls.append([str(a) for a in (sys.argv[1:] if args is None else args)])
         return parsed, leftover
 
     argparse.ArgumentParser.parse_known_args = capture  # type: ignore[method-assign]
+    token = _calls_contextvar.set(calls)
     try:
         yield
     finally:
+        _calls_contextvar.reset(token)
         argparse.ArgumentParser.parse_known_args = original  # type: ignore[method-assign]
 
 

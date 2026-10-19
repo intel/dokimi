@@ -90,7 +90,9 @@ def test_every_enforced_criterion_names_evidence_some_test_claims():
     registry = yaml.safe_load((plugin.CONTRACT_DIR / "journeys.yaml").read_text(encoding="utf-8"))
     ids = {e["id"] for entry in registry["criteria"].values() if entry.get("enforce") for e in entry["evidence"]}
     source = "\n".join(p.read_text(encoding="utf-8") for p in (plugin.REPO_ROOT / "tests").glob("test_*.py"))
-    assert sorted(i for i in ids if f'"{i}"' not in source) == []
+    # Match both single and double quotes: f'"{i}"' or f"'{i}'" or other syntaxes
+    missing = [i for i in ids if f'"{i}"' not in source and f"'{i}'" not in source]
+    assert sorted(missing) == []
 
 
 # ------------------------------------------------------------------ catalog problems
