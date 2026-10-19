@@ -125,13 +125,15 @@ def _errors():
     from dokimi.repos import ManifestError, SourceError
     from dokimi.repos.container import ContainerError
     from dokimi.repos.harness_profile import ProfileError
+    from dokimi.repos.arms import ArmError
     from dokimi.repos.workspace import PrepError
 
-    return (SourceError, ManifestError, ContainerError, PrepError, ProfileError, ValueError, OSError)
+    return (ArmError, SourceError, ManifestError, ContainerError, PrepError, ProfileError, ValueError, OSError)
 
 
 def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
     """Self-check (no LLM): null fails the gate, oracle passes it, the agent cannot see the tasks."""
+    from dokimi.repos.arms import check_arms
     from dokimi.repos.selfcheck import run_check
     from dokimi.repos.workspace import load_tasks
 
@@ -139,6 +141,10 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
     try:
         ctx, _ = _context(args, out)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
+        arms = [a for spec in args.arm or () for a in spec.split(",") if a]
+        check_arms(arms, ctx.content_dir, tasks)  # skill paths exist, catalogs hold each expected_skill
+        if arms:
+            print(f"{len(arms)} arm(s) ok: {', '.join(arms)}", file=sys.stderr)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
               file=sys.stderr)
         results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs)
@@ -165,17 +171,18 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos.runner import (
         AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps)
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
-    from dokimi.repos.workspace import ARMS, load_tasks
+    from dokimi.repos.arms import check_arms, parse_arm
+    from dokimi.repos.workspace import load_tasks
 
     try:
-        bad_arms = [a for a in arms if a not in ARMS]
-        if bad_arms:
-            raise ValueError(f"unknown arm(s) {', '.join(bad_arms)} (known: {', '.join(ARMS)})")
+        for arm in arms:
+            parse_arm(arm)
         profile = load_profile(args.harness)
         harness_bin = _harness_bin(args.bin or profile.bin)
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
+        check_arms(arms, ctx.content_dir, tasks)
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, timeout_s=args.timeout, max_turns=args.max_turns,
                                 budget_usd=args.budget) for m in args.model]
@@ -287,6 +294,9 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     _common(check_p, source_help, cache_help, positive_int)
     check_p.add_argument("--warm", action="store_true",
                          help="Run null and oracle with network to fill the caches before offline runs")
+    check_p.add_argument("--arm", action="append", default=None,
+                         help="Also check this `repo run` arm: its skill paths exist and a skill-catalog "
+                         "holds each task's expected_skill; repeatable or comma-separated")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
 
@@ -295,7 +305,9 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
         "result.json per cell, already finished cells skipped")
     _common(run_p, source_help, cache_help, positive_int)
     run_p.add_argument("--arm", action="append", default=None, required=True,
-                       help="guidance:none | guidance:raw | guidance:bridge; repeatable or comma-separated")
+                       help="guidance:none | guidance:raw | guidance:bridge | skill:<path> | skill-catalog:<dir>, "
+                       "parts joined with + (guidance:none+skill:skills/x); a relative path is in eval_dir. "
+                       "Repeatable or comma-separated")
     run_p.add_argument("--model", action="append", required=True,
                        help="Model string passed to the harness as it is; repeatable")
     run_p.add_argument("--reps", type=positive_int, default=1)

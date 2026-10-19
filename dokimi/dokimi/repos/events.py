@@ -9,6 +9,7 @@ Graders and probes read only these events, never a harness-specific trace:
     {"t": 3.1,  "kind": "read",    "path": "AGENTS.md"}
     {"t": 5.0,  "kind": "edit",    "path": "src/foo.cpp"}
     {"t": 20.2, "kind": "tool",    "name": "WebFetch", "denied": true}
+    {"t": 2.0,  "kind": "tool",    "name": "Skill", "skill": "lint-fix"}
 
 ``t`` is seconds since the first timestamped trace line, or ``null`` when the
 format has no timestamps. Paths inside the workspace are made relative to it.
@@ -46,6 +47,8 @@ class Transcript:
     num_turns: int | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
     is_error: bool = False
     harness_version: str | None = None
     result_subtype: str | None = None
@@ -137,6 +140,8 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
         usage = rec.get("usage") or {}
         out.input_tokens = usage.get("input_tokens")
         out.output_tokens = usage.get("output_tokens")
+        out.cache_read_input_tokens = usage.get("cache_read_input_tokens")
+        out.cache_creation_input_tokens = usage.get("cache_creation_input_tokens")
         for denial in rec.get("permission_denials") or []:
             if isinstance(denial, dict) and denial.get("tool_use_id") in by_id:
                 by_id[denial["tool_use_id"]]["denied"] = True
@@ -154,6 +159,8 @@ def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> 
         event.update(kind="read" if name in _READ_TOOLS else "edit", path=_relative(str(path), workdir))
     else:
         event.update(kind="tool", name=name)
+        if name == "Skill":  # Claude Code names the skill in `skill`; older versions in `command`
+            event["skill"] = str(args.get("skill") or args.get("command") or "")
     return event
 
 

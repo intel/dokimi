@@ -10,7 +10,12 @@
 - **missing**: cells planned or started that have no ``result.json``. They
   never finished, so they are left out of the rate rather than counted as
   failures; rerun the batch to fill them.
-- cost and turns are means over finished cells, as the harness reported them.
+- cost, turns and tokens (``input_tokens``, ``output_tokens``,
+  ``cache_read_input_tokens``, ``cache_creation_input_tokens``) are means over
+  finished cells, as the harness reported them.
+- skill arms add ``skill_invoked`` (cells whose agent used the expected skill,
+  or any installed one when the task names none) and, when the task has an
+  ``expected_skill``, ``skill_selected_correct`` (cells that used it first).
 """
 
 from __future__ import annotations
@@ -23,6 +28,8 @@ from typing import Any
 import math
 
 from .runner import slug
+
+_TOKENS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
 
 
 def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
@@ -68,6 +75,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
                                "cost_usd": _mean([r["agent"]["cost_usd"] for r in recs]),
                                "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in recs), 6),
                                "turns": _mean([r["agent"]["num_turns"] for r in recs]),
+                               **{k: _mean([r["agent"].get(k) for r in recs]) for k in _TOKENS},
                                "networks": sorted({str(r["agent"].get("network")) for r in recs})}
         if score_only:
             scores = [0.0 if r["grade"]["status"] == "grader_failure" else r["grade"]["score"] for r in recs]
@@ -75,6 +83,11 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
         else:
             wins = sum(bool(r["grade"]["success"]) for r in recs)
             row.update(kind="gate", successes=wins, success_rate=round(wins / n, 4), ci95=wilson(wins, n))
+        used = [r["skills"] for r in recs if r.get("skills")]
+        if used:
+            row["skill_invoked"] = sum(bool(u["skill_invoked"]) for u in used)
+            if any(u.get("expected_skill") for u in used):
+                row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in used)
         rows.append(row)
     return {"batch": str(batch_dir), "cells": len(cells), "missing": missing, "rows": rows,
             "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in cells), 6),
@@ -102,6 +115,8 @@ def format_report(summary: dict[str, Any]) -> str:
                      f"{result:<22}  {r['grader_failures']:>11}  {r['missing']:>7}  {cost:>8}  {turns:>6}")
         noted = ("agent_timeouts", "agent_errors", "over_budget", "cost_unknown")
         notes = [f"{r[k]} {k.replace('_', ' ')}" for k in noted if r[k]]
+        notes += [f"{r[k]}/{r['n']} {k.replace('_', ' ')}" for k in ("skill_invoked", "skill_selected_correct")
+                  if k in r]
         if notes:
             lines.append(" " * (width + 2) + "  " + ", ".join(notes))
     if summary["missing"]:

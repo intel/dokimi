@@ -472,6 +472,9 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     if not (isinstance(egress, list) and all(isinstance(h, str) and _HOST_RE.match(h) for h in egress)):
         problems.append("egress must be a list of hosts (DNS labels, `*` for one whole label, the last two literal, optional :port)")
         egress = []
+    expected = raw.get("expected_skill")
+    if expected is not None and not (isinstance(expected, str) and expected and "/" not in expected):
+        problems.append("expected_skill must be a skill name (its directory name)")
     for key in ("timeout_s", "max_turns", "budget_usd"):
         value = raw.get(key)
         if value is not None and not _positive(value):

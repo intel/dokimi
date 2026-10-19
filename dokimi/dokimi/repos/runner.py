@@ -55,6 +55,7 @@ from .container import (
     Mount,
     docker_network,
 )
+from .arms import skill_usage
 from .events import convert
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
@@ -153,10 +154,11 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     if rd.exists():
         _rmtree(rd)
     rd.mkdir(parents=True)
-    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile)
+    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir)
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
                 batch=batch_dir.name, agent_network=network, egress_proxy=False)
     _write_json(rd / "meta.json", meta)
+    skills: dict[str, Any] | None = None
 
     mounts, env = agent_layout(ctx, rd, task)
     bin_in = f"{HARNESS_DIR}/{opts.harness_bin.name}"
@@ -182,7 +184,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         "rc": result.returncode, "timed_out": result.timed_out, "wall_s": result.wall_s, "cost_usd": None,
         # A killed harness reports no cost; the batch budget counts the cell's cap instead of $0.
         "charged_usd": caps["budget_usd"], "num_turns": None, "is_error": None, "result_subtype": None,
-        "input_tokens": None, "output_tokens": None, "plugins": [], "over_budget": False, "caps": caps,
+        "input_tokens": None, "output_tokens": None,
+        "cache_read_input_tokens": None, "cache_creation_input_tokens": None, "plugins": [], "over_budget": False, "caps": caps,
         "network": network, "trace_errors": []}
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
@@ -197,8 +200,11 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             cost_usd=cost, charged_usd=cost if cost is not None else caps["budget_usd"],
             num_turns=transcript.num_turns, is_error=transcript.is_error,
             result_subtype=transcript.result_subtype, input_tokens=transcript.input_tokens,
-            output_tokens=transcript.output_tokens, plugins=transcript.plugins,
+            output_tokens=transcript.output_tokens, cache_read_input_tokens=transcript.cache_read_input_tokens,
+            cache_creation_input_tokens=transcript.cache_creation_input_tokens, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
+        if meta.get("skills"):
+            skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
         grade = outcome(task, rd, graded)
     except Exception as exc:  # noqa: BLE001  # the grade run failed to start, or the host failed around it
@@ -206,9 +212,12 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         # Excluding the run would favour arms that break workspaces (contract §4.2): it fails the task.
         what = "grade run failed" if isinstance(exc, ContainerError) else f"host error after the agent ran ({type(exc).__name__})"
         grade = failed_outcome(f"{what}: {str(exc)[:300]}")
-    record = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model, "rep": rep,
+    record: dict[str, Any] = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model, "rep": rep,
               "harness": opts.profile.name, "harness_version": meta["harness_version"],
               "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "grade": grade}
+    if meta.get("skills"):  # without a trace the agent used none of them
+        record["skills"] = skills if skills is not None else skill_usage(
+            [], [s["name"] for s in meta["skills"]], task.expected_skill)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
         _write_json(rd / "result.json", record)

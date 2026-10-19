@@ -11,7 +11,8 @@ Every task runs in ``<run_dir>/workspace``, made from the task's ``base``:
 2. delete ``eval_dir``
 3. ``git init`` and commit (no history, so an upstream fix cannot leak)
 4. apply ``setup_patches``
-5. apply the arm (``guidance:none`` | ``guidance:raw`` | ``guidance:bridge``)
+5. apply the arm: its guidance part (``guidance:none`` | ``guidance:raw`` |
+   ``guidance:bridge``), then its skills into ``.claude/skills/`` (:mod:`.arms`)
 6. amend the commit
 7. apply ``review_patch`` with ``git am`` under a neutral author
 8. expire the reflog and prune unreachable objects, so the commits steps 6
@@ -40,11 +41,12 @@ from typing import Any
 
 from dokimi import process
 
+from .arms import GUIDANCE, ArmError, Skill, parse_arm, resolve_skills, tree_sha256
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
 
-ARMS = ("guidance:none", "guidance:raw", "guidance:bridge")
+ARMS = GUIDANCE  # the guidance parts; an arm may add skills to one (:func:`.arms.parse_arm`)
 SNAPSHOT_AUTHOR = ("dokimi", "dokimi@example.invalid")
 REVIEW_AUTHOR = ("Contributor", "contributor@example.invalid")
 FIXED_DATE = "2000-01-01T00:00:00+00:00"
@@ -84,6 +86,10 @@ class Task:
     @property
     def egress(self) -> tuple[str, ...]:
         return tuple(self.raw.get("egress") or ())
+
+    @property
+    def expected_skill(self) -> str | None:
+        return self.raw.get("expected_skill") or None
 
     @property
     def score(self) -> dict[str, Any] | None:
@@ -169,12 +175,17 @@ def _export(tree: RepoTree, dest: Path, only: str | None, exclude: str | None) -
 
 
 def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: str, run_dir: Path,
-                      profile: HarnessProfile | None = None) -> dict[str, Any]:
-    """Steps 1-7 into ``run_dir/workspace``; returns the ``meta.json`` fields prep owns."""
-    if arm not in ARMS:
-        raise PrepError(f"unknown arm {arm!r} (known: {', '.join(ARMS)})")
+                      profile: HarnessProfile | None = None, content_dir: Path | None = None) -> dict[str, Any]:
+    """Steps 1-7 into ``run_dir/workspace``; returns the ``meta.json`` fields prep owns.
+
+    ``content_dir`` (the exported ``{eval_dir}``) is where relative skill paths of ``arm`` are found."""
+    try:
+        parsed = parse_arm(arm)
+        skills = resolve_skills(parsed, content_dir or _content_dir(manifest, task)) if parsed.skills else []
+    except ArmError as exc:
+        raise PrepError(str(exc)) from exc
     bridge = profile.bridge if profile is not None else None
-    if arm == "guidance:bridge" and not bridge:
+    if parsed.guidance == "guidance:bridge" and not bridge:
         name = profile.name if profile is not None else "no harness"
         raise PrepError(f"guidance:bridge needs a harness profile with a `bridge` key; {name} has none")
     try:
@@ -201,7 +212,8 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
         except PrepError as exc:
             raise PrepError(f"task {task.id}: setup patch {rel} does not apply: {exc}") from exc
         patches.append({"path": rel, "sha256": _sha256(path)})
-    arm_files, bridge_skipped = _apply_arm(ws, env, manifest, arm, bridge)                   # 5
+    arm_files, bridge_skipped = _apply_arm(ws, env, manifest, parsed.guidance, bridge)       # 5
+    installed = _install_skills(ws, task, skills)
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
     if task.review_patch:                                                                     # 7
@@ -223,7 +235,29 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     }
     if bridge_skipped:
         meta["bridge_skipped"] = bridge_skipped
+    if installed:
+        meta["skills"] = installed
     return meta
+
+
+def _content_dir(manifest: RepoManifest, task: Task) -> Path:
+    """The exported eval dir a task directory of :func:`load_tasks` is in."""
+    eval_dir, tasks = manifest.run_paths()
+    return task.dir.parents[len(PurePosixPath(tasks).relative_to(eval_dir).parts)]
+
+
+def _install_skills(ws: Path, task: Task, skills: list[Skill]) -> list[dict[str, str]]:
+    """Copy each skill to ``.claude/skills/<name>/``; a skill the repository already has there is refused,
+    as replacing it would change what the guidance arm measures."""
+    out = []
+    for skill in skills:
+        dest = ws / skill.target
+        if dest.exists():
+            raise PrepError(f"task {task.id}: the workspace already has {skill.target}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(skill.dir, dest, symlinks=False)  # a link out of the skill would not exist in the container
+        out.append({"name": skill.name, "path": skill.target, "sha256": tree_sha256(dest)})
+    return out
 
 
 def _forget(ws: Path, env: dict[str, str]) -> None:
