@@ -403,7 +403,9 @@ where `<task dir>` is the task's directory under `{eval_dir}`. It uses the
 standard library only and the image's `python3` (3.8 or newer). `-I` keeps
 `PYTHONPATH` from `image.env` and the workspace off `sys.path`; `-B` prevents
 writing `.pyc` files to the read-only mount. An image with no `python3` on
-`PATH` is a grader failure that says so.
+`PATH` is a grader failure that says so: the grader exits 127 and its
+`<kind>.err` file shows `exec python3 failed` or `python3: not found`. Any
+other exit 127 is reported as a plain `grade exited 127`.
 
 - `grade` reads `task.json` and `answer.txt` from `{run_dir}` and the data
   files from the task's directory, and writes `grade.json` (§4.2): numbers,
