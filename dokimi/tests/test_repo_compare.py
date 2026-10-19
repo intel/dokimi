@@ -258,6 +258,59 @@ def test_score_headroom_unknown_when_pooling_legacy_and_current_cells(tmp_path):
     assert _row(compare([b], "guidance:none"), "score")["headroom"] is None
 
 
+def test_a_grader_failure_in_either_arm_is_not_floor(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(2):
+        _cell(b, f"review_{i}", "guidance:raw", 1, score=0.0)
+    _cell(b, "review_0", "guidance:none", 1, score=0.0)
+    _cell(b, "review_1", "guidance:none", 1, score=0.0, failure=True)  # baseline only: the treatment is clean
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] is None
+
+
+def test_a_gate_task_with_a_grader_failure_on_one_rep_is_not_floor(tmp_path):
+    b = tmp_path / "b1"
+    for arm in ("guidance:none", "guidance:raw"):
+        _cell(b, "fix_a", arm, 1, success=False)
+        _cell(b, "fix_a", arm, 2, success=False, failure=True)  # the second rep only
+        _cell(b, "fix_b", arm, 1, success=False)
+        _cell(b, "fix_b", arm, 2, success=False)
+    assert _row(compare([b], "guidance:none"), "gate")["headroom"] is None
+
+
+def test_a_grader_failure_on_the_one_task_that_can_move_is_not_near_ceiling(tmp_path):
+    b = tmp_path / "b1"
+    _cell(b, "r0", "guidance:none", 1, score=1.0, score_max=1.0)
+    _cell(b, "r0", "guidance:raw", 1, score=1.0, score_max=1.0)
+    _cell(b, "r1", "guidance:none", 1, score=0.0, score_max=1.0, failure=True)  # not measured, not "room"
+    _cell(b, "r1", "guidance:raw", 1, score=1.0, score_max=1.0)
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] is None
+    c = tmp_path / "b2"
+    _cell(c, "r0", "guidance:none", 1, score=1.0, score_max=1.0)
+    _cell(c, "r0", "guidance:raw", 1, score=1.0, score_max=1.0)
+    _cell(c, "r1", "guidance:none", 1, score=0.0, score_max=1.0)  # the same, measured as a zero
+    _cell(c, "r1", "guidance:raw", 1, score=1.0, score_max=1.0)
+    assert _row(compare([c], "guidance:none"), "score")["headroom"] == "near_ceiling"
+
+
+@pytest.mark.parametrize("pairs,tops,failed,expected", [
+    # two all-zero pairs; one grader failure is not a floor (any, not all)
+    ([{"baseline": 0.0, "treatment": 0.0}] * 2, [(1.0, 1.0)] * 2, [True, False], None),
+    # a legacy baseline (unknown top) against a known one: two scales, whatever the values
+    ([{"baseline": 0.0, "treatment": 0.0}] * 2, [(None, 4.0), (4.0, 4.0)], None, None),
+    # tops that differ on one pair
+    ([{"baseline": 4.0, "treatment": 4.0}, {"baseline": 1.0, "treatment": 1.0}], [(4.0, 4.0), (4.0, 1.0)], None, None),
+    # equal tops on every pair and all zeros: a floor
+    ([{"baseline": 0.0, "treatment": 0.0}] * 2, [(4.0, 4.0), (4.0, 4.0)], None, "floor"),
+    # the one non-top pair is a grader failure: no near_ceiling
+    ([{"baseline": 1.0, "treatment": 1.0}, {"baseline": 0.5, "treatment": 1.0}], [(1.0, 1.0)] * 2,
+     [False, True], None),
+    ([{"baseline": 1.0, "treatment": 1.0}, {"baseline": 0.5, "treatment": 1.0}], [(1.0, 1.0)] * 2,
+     [False, False], "near_ceiling"),
+])
+def test_headroom_on_mixed_tops_and_grader_failures(pairs, tops, failed, expected):
+    assert compare_mod.headroom(pairs, tops, failed) == expected
+
+
 def test_unpaired_tasks_are_listed_not_compared(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1)

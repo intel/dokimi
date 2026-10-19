@@ -34,9 +34,10 @@ gate and the task's ``score.max`` for score (recorded in ``result.json``; a batc
 top, so its score rows are never at ceiling). ``ceiling``: both arms at the top on every paired task;
 ``floor``: both arms at 0 on every paired task, none of the zeros a grader failure (those say the
 measurement failed, not that the tasks had no room); ``near_ceiling``: neither, at least 2 paired tasks,
-the baseline at the top on all but at most one and the treatment nowhere below the baseline, so at most
-one task can improve and a gain resting on one task has a sign-flip p of 1. A pair whose baseline and
-treatment tops differ is on two scales: ``None``. Otherwise ``None``. The flag is a note; p and Holm are unchanged.
+the baseline at the top on all but at most one, that one not a grader failure, and the treatment nowhere below
+the baseline, so at most one task can improve and a gain resting on one task has a sign-flip p of 1. A pair
+whose baseline and treatment tops differ is on two scales, and any other case has no flag: ``None``. The flag
+is a note; p and Holm are unchanged.
 
 Each selector's batches are reported with the stamp ``repo run`` pins a batch
 to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
@@ -300,12 +301,14 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
             else:
                 pairs.append(pair)
         if pairs:
-            tops = [(base_vals[(model, p["task"])]["top"], treat_vals[(model, p["task"])]["top"]) for p in pairs]
-            failed = [base_vals[(model, p["task"])]["grader_failed"] or treat_vals[(model, p["task"])]["grader_failed"]
-                      for p in pairs]
+            flag = None
+            if measure in PRIMARY:
+                tops = [(base_vals[(model, p["task"])]["top"], treat_vals[(model, p["task"])]["top"]) for p in pairs]
+                failed = [base_vals[(model, p["task"])]["grader_failed"]
+                          or treat_vals[(model, p["task"])]["grader_failed"] for p in pairs]
+                flag = headroom(pairs, tops, failed)
             rows.append({"treatment": treatment, "model": model, "measure": measure,
-                         **paired_summary(pairs, measure, seed=seed),
-                         "headroom": headroom(pairs, tops, failed) if measure in PRIMARY else None})
+                         **paired_summary(pairs, measure, seed=seed), "headroom": flag})
 
 
 def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float | None]],
@@ -317,16 +320,21 @@ def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float |
     """
     if any(b != t for b, t in tops):
         return None  # two scales: neither "at the top" nor the delta compares
+    if failed is None:
+        failed = [False] * len(pairs)
+
     def at_top(value: float, top: float | None) -> bool:
         return top is not None and value >= top - EPS
 
     base_top = [at_top(p["baseline"], b) for p, (b, _) in zip(pairs, tops, strict=True)]
     if all(base_top) and all(at_top(p["treatment"], t) for p, (_, t) in zip(pairs, tops, strict=True)):
         return "ceiling"
-    if (not any(failed or ()) and
-            all(abs(p["baseline"]) <= EPS and abs(p["treatment"]) <= EPS for p in pairs)):
+    if not any(failed) and all(abs(p["baseline"]) <= EPS and abs(p["treatment"]) <= EPS for p in pairs):
         return "floor"
-    if len(pairs) >= 2 and base_top.count(False) <= 1 and all(p["treatment"] >= p["baseline"] - EPS for p in pairs):
+    # the one task that may still move must have a measured baseline: a grader failure says nothing about its room
+    not_top_failed = any(f and not t for f, t in zip(failed, base_top, strict=True))
+    if (len(pairs) >= 2 and base_top.count(False) <= 1 and not not_top_failed
+            and all(p["treatment"] >= p["baseline"] - EPS for p in pairs)):
         return "near_ceiling"
     return None
 
