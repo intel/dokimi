@@ -103,7 +103,7 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         runs = []
         for name in names:
             try:
-                runs.append(read_run(Path(name)))
+                runs.append(read_run(Path(name), args.shell))
             except TraceError as exc:
                 print(f"✗ {exc}", file=sys.stderr)
                 failed = True
@@ -197,5 +197,8 @@ def register(sub, positive_int) -> None:
                         "before, after_last, last_ok)")
     cons_p.add_argument("--threshold", type=float, default=0.34,
                         help="Max order distance of collapsed paths within one strategy (default 0.34)")
+    cons_p.add_argument("--shell", choices=("split", "call"), default="split",
+                        help="split (default): one step per chained shell command, shell writes "
+                        "count as edits; call: one step per tool call")
     cons_p.add_argument("--json", action="store_true", help="Print the profiles as JSON")
     cons_p.set_defaults(func=cmd_context_consistency)

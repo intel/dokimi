@@ -10,7 +10,7 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.context.consistency import (_program, check_contract, jsd, parse_contract,
+from dokimi.context.consistency import (_program, _written, check_contract, jsd, parse_contract,
                                         parse_run, pass_at, pass_hat, profile, seq_distance)
 
 
@@ -164,3 +164,45 @@ def test_cli_arms_outcomes_and_json(tmp_path, capsys):
     args.func(args)
     text = capsys.readouterr().out
     assert "| skill | 2 | 100%" in text and "harness result event" in text
+
+
+def test_one_shell_call_is_the_steps_it_chains():
+    cmd = ("cd /w; sed -i 's/a/b/' shop/pricing.py\nsed -i 's/x/y/' CHANGELOG.md\n"
+           "grep -n d shop/pricing.py; sh .claude/skills/s/finish.sh")
+    run = _run("r", ("Bash", {"command": cmd}, True))
+    assert run.kinds() == ["Bash:sed", "Bash:sed", "Bash:grep", "Bash:sh"]
+    assert [e.input.get("file_path") for e in run.events] == ["shop/pricing.py", "CHANGELOG.md", None, None]
+    assert [e.failed for e in run.events] == [False, False, False, True]  # the status is the last command's
+    assert parse_run(_trace(("Bash", {"command": cmd})), shell="call").kinds() == ["Bash:sed"]
+
+
+def test_shell_edit_satisfies_the_contract():
+    c = parse_contract({"actions": {"log": {"tool": ["Edit", "Bash"], "file_path": r"CHANGELOG\.md$"}},
+                        "rules": [{"requires": "log"}]})
+    assert check_contract(_run("r", ("Bash", {"command": "echo '- fix' >> CHANGELOG.md"})), c) == []
+    assert check_contract(_run("r", ("Bash", {"command": "cat CHANGELOG.md"})), c) == ["requires: log"]
+
+
+@pytest.mark.parametrize("seg, want", [
+    ("sed -i 's/a/b/' f.py", "f.py"), ("sed -n 1,5p f.py", ""), ("echo x > out.txt", "out.txt"),
+    ("make 2>&1", ""), ("ls >/dev/null", ""), ("echo x | tee -a log.md", "log.md"),
+])
+def test_written(seg, want):
+    assert _written(seg) == want
+
+
+def test_heredoc_body_is_not_commands():
+    cmd = "python3 - <<'EOF'\nimport os\nrm_everything()\nEOF\npytest -q"
+    assert _run("r", ("Bash", {"command": cmd})).kinds() == ["Bash:python3", "Bash:pytest"]
+
+
+def test_blocked_stop_hook_is_a_failed_step():
+    raw = _trace(EDIT) + "\n" + json.dumps({"type": "user", "parent_tool_use_id": None, "message": {
+        "content": [{"type": "text", "text": "Stop hook feedback:\n[sh hook]: Not done"}]}})
+    run = parse_run(raw)
+    assert run.kinds() == ["Edit", "Hook:Stop"] and run.events[-1].failed
+
+
+def test_quoted_newlines_stay_one_command():
+    cmd = 'cd /w && python3 -c "\nfrom a import b\n# note\nprint(b(1); 2)\n" && make check \\\n  -j2\n# done'
+    assert _run("r", ("Bash", {"command": cmd})).kinds() == ["Bash:python3", "Bash:make"]
