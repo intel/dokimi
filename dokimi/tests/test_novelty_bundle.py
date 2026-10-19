@@ -623,7 +623,7 @@ def test_the_gate_counts_only_gaps_as_excluded_files(tmp_path):
     # the image and the symlink are not content at all. The gate used to say "3 files
     # excluded" here while the analyzer warned about 1.
     check = _coverage_check(record)
-    assert "1 files excluded by the word budgets, 1 not measured by role" in check.message
+    assert "1 file excluded by the word budgets, 1 not measured by role" in check.message
     assert "30 of 80 readable bundled words" in check.message
     assert len(excluded_of(bundle.excluded, "gap")) == 1
     assert sum("1 bundled files were excluded" in w for w in bundle.coverage_warnings()) == 1
