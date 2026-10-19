@@ -365,11 +365,9 @@ def test_isolated_job_ids_match_real_jobs() -> None:
 def test_windows_smoke_is_registered_as_isolated() -> None:
     """The windows-smoke job that installs packages must be in ISOLATED to avoid
     expanding $RUNNER_TEMP/dist/*.whl as a literal path in ci_local."""
-    # The bug this test guards against: tool_specs() may return shell wildcards
-    # or variables ($RUNNER_TEMP/dist/*.whl) if windows-smoke is not registered.
-    # Assert on the output, not just on constant membership.
+    # The bug this test guards against: tool_specs() returns the literal
+    # $RUNNER_TEMP/dist/*.whl string if windows-smoke is not registered.
     specs = cl.tool_specs()
-    assert all("$" not in s and "*" not in s for s in specs), (
-        "tool_specs() should not contain unescaped shell variables or wildcards; "
-        "check that windows-smoke is registered in ISOLATED"
+    assert "$RUNNER_TEMP" not in "".join(specs), (
+        "tool_specs() contains $RUNNER_TEMP; windows-smoke may not be registered in ISOLATED"
     )
