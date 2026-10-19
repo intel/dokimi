@@ -6,9 +6,11 @@
 The answer's last parseable ```` ```json ```` fenced block must be an array of
 findings, each an object ``{file, line, severity, rule, message}`` (``evidence``
 is read too). Anything else is ``pass: false`` and ``parse_error``, with
-``recall`` 0 (``null`` where there is nothing to recall): the agent failed. A finding's ``file`` is made
-repository-relative: an absolute path into the run's ``repo/`` is cut there,
-then leading ``./`` and ``/`` are dropped. ``severity`` ``blocker`` or
+every recall 0 (``null`` where there is nothing to recall): the agent failed. A finding's ``file`` is made
+repository-relative: an absolute path into the agent's workspace
+(``/eval/run/workspace/``) or, failing that, into a standalone run's ``repo/``
+is cut there (so a relative ``a/repo/b`` is cut too, as oneDAL's graders
+did), then leading ``./`` and ``/`` are dropped. ``severity`` ``blocker`` or
 ``major`` counts toward ``n_severe``.
 
 ``review_seeds``: ``manifest.json`` next to ``task.json`` (or ``task.json``
@@ -70,9 +72,8 @@ def last_json(text):
 
 
 def norm_path(p):
-    """Repository-relative path of a finding: an absolute path into the run's ``repo/`` or workspace is cut there."""
+    """Repository-relative path of a finding: a path into the workspace, else into ``repo/``, is cut there."""
     p = str(p or "").strip().replace("\\", "/")
-    # Strip workspace prefix (/eval/run/workspace) first, then /repo/ for backwards compatibility
     if "/eval/run/workspace/" in p:
         p = p.rsplit("/eval/run/workspace/", 1)[1]
     elif "/repo/" in p:
@@ -192,9 +193,10 @@ def grade_replay(task, task_dir, answer):
     """``review_replay``: score-only, ``recall`` over the human threads."""
     gold = _read_json(task_dir, task.get("gold", "gold.json"))
     findings = findings_of(answer)
-    if findings is None:  # no findings to score: the run failed, and recall is 0, not unmeasured
+    if findings is None:  # no findings to score: the run failed, and every recall is 0, not unmeasured
         zero = _ratio(0, len(gold))
-        return {"pass": False, "parse_error": True, "recall": zero, "recall_all": zero}
+        return {"pass": False, "parse_error": True, "recall": zero, "recall_all": zero,
+                "recall_addressed": _ratio(0, sum(bool(g.get("addressed")) for g in gold))}
     pairs, near = _replay_pairs(gold, findings, task.get("window", 5))
     hit, used = set(), set()
     for _, i, gid in sorted(pairs):  # nearest first: one finding per thread, one thread per finding

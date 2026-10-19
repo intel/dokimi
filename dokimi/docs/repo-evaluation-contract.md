@@ -416,13 +416,16 @@ no `python3` on `PATH` is a grader failure that says so.
 Both review graders read the answer the same way. Its last parseable
 ` ```json ` fence must be an array of findings
 `{"file", "line", "severity", "rule", "message"}`; entries that are not
-objects are dropped. `file` is made repository-relative (an absolute path is
-cut after `/repo/`, then leading `./` and `/` go). A `line` that is not an
+objects are dropped. `file` is made repository-relative: a path is cut after
+`/eval/run/workspace/`, else after `/repo/` (a standalone run's workspace;
+so a relative `a/repo/b` becomes `b`, as in oneDAL's graders), then leading
+`./` and `/` go. A `line` that is not an
 integer is -99, near nothing. `severity` `blocker` or `major` counts toward
 `n_severe`. An answer with no such array gives only `pass: false`,
-`parse_error: true` and `recall` 0 (replay: `recall_all` too; `null` when
-there is nothing to recall): the agent failed the task, and on a task with
-`score` that is a failed run with score 0, not a grader failure.
+`parse_error: true` and every recall 0 (`recall`; replay also `recall_all`
+and `recall_addressed`; `null` when there is nothing to recall): the agent
+failed the task, and on a task with `score` that is a failed run with score
+0, not a grader failure.
 
 | `grader` | data next to `task.json` (key that renames it) | `pass` | `metrics` | `details` |
 |---|---|---|---|---|

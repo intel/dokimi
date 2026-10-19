@@ -33,9 +33,11 @@ TASKS = {
     "seeds_mul": {**REVIEW, "grader": "dokimi:review_seeds", "score": {"metric": "recall", "max": 1.0}},
     "replay_mul": {**REVIEW, "grader": "dokimi:review_replay", "score": {"metric": "recall", "max": 1.0}},
     "clean_mul": {**REVIEW, "grader": "dokimi:review_seeds"},  # clean-diff control: gate ["pass"]
+    "addressed_mul": {**REVIEW, "grader": "dokimi:review_replay", "score": {"metric": "recall_addressed", "max": 1.0}},
 }
 DATA = {"seeds_mul": {"manifest.json": SEEDS, "oracle.json": ORACLE}, "replay_mul": {"gold.json": GOLD},
-        "clean_mul": {"manifest.json": {"seeds": [], "decoys": []}, "oracle.json": []}}
+        "clean_mul": {"manifest.json": {"seeds": [], "decoys": []}, "oracle.json": []},
+        "addressed_mul": {"gold.json": GOLD}}
 
 
 def fence(findings) -> str:
@@ -139,7 +141,8 @@ def test_replay_is_one_to_one_nearest_first_within_the_window(tmp_path):
     assert review.grade_replay({"window": 2}, d, fence([_f(8)]))["threads_hit"] == []
     assert review.grade_replay({}, d, fence([_f(3)]))["threads_hit"] == ["t_doc"]  # 1 from t_doc, 2 from t_op
     assert review.grade_replay({}, d, fence([]))["precision_proxy"] is None
-    assert review.grade_replay({}, d, "none") == {"pass": False, "parse_error": True, "recall": 0.0, "recall_all": 0.0}
+    assert review.grade_replay({}, d, "none") == {"pass": False, "parse_error": True, "recall": 0.0, "recall_all": 0.0,
+                                                  "recall_addressed": 0.0}
 
 
 def test_oracles_reach_full_recall(tmp_path):
@@ -247,7 +250,7 @@ def test_tasks_check_runs_builtin_graders_not_the_repository_grade(tmp_path, mon
     runner = FakeRunner()
     res = _check(_repo(tmp_path), tmp_path / "chk", runner, monkeypatch, *TASKS, "fix_add")
     assert {k: v["verdict"] for k, v in res.items()} == dict.fromkeys([*TASKS, "fix_add"], "ok"), res
-    for task_id in ("seeds_mul", "replay_mul"):
+    for task_id in ("seeds_mul", "replay_mul", "addressed_mul"):
         null, oracle = res[task_id]["null"], res[task_id]["oracle"]
         assert oracle["score"] == 1.0 and oracle["score_only"]
         # an empty answer has no findings: a failed run with recall 0 (parse_error), not a grader failure
@@ -256,7 +259,7 @@ def test_tasks_check_runs_builtin_graders_not_the_repository_grade(tmp_path, mon
     assert res["clean_mul"]["null"]["success"] is False and res["clean_mul"]["oracle"]["success"] is True
     builtin = [s for s in runner.specs if f"{GRADERS_DIR}/main.py" in s.argv]
     repo = [s for s in runner.specs if any(a.endswith("/grade.py") for a in s.argv)]
-    assert len(builtin) == len(repo) * len(TASKS) == 9  # null grade, oracle, oracle grade
+    assert len(builtin) == 3 * len(TASKS) and len(repo) == 3  # each: null grade, oracle, oracle grade
     for s in builtin:
         assert s.argv[:3] == ["python3", "-I", "-B"]
         kind, name, task_dir = s.argv[4:7]
