@@ -142,6 +142,9 @@ latency, turns):
   the way Claude Code installs one. This is the **with-skill treatment arm**;
   compare it against `docker-claude` (without-skill) as the baseline. See
   [How the skill arm offers the skill](#how-the-skill-arm-offers-the-skill).
+- `docker-claude-skill-discover:<skill-path>` — `docker-claude-skill` without
+  the treatment notice: the **discovery arm**. See
+  [Three skill arms](#three-skill-arms).
 - `docker-probe` — no LLM, free. Runs an isolation probe in exactly the work
   tree and environment `docker-claude` would get, writes
   `isolation_probe.json`, and passes only when nothing in
@@ -150,7 +153,7 @@ latency, turns):
   when the with-skill arm's skill lives outside the task's checkout, so the
   baseline is checked against the treatment it must not see.
 - `docker-claude-host`, `docker-claude-host-skill:<skill-path>`,
-  `docker-probe-host`, `docker-probe-host:<skill-path>` — the same, with the
+  `docker-claude-host-skill-discover:<skill-path>`, `docker-probe-host`, `docker-probe-host:<skill-path>` — the same, with the
   agent on the host. These are weaker: use them only where the in-container
   launch cannot run, and do not compare a host arm against a container
   baseline (`tasks run` warns). A `-host` agent edits a copy of `/app`, of
@@ -722,8 +725,9 @@ The arms differ by the skill and one notice, and by nothing else:
   where it disagrees. The notice names no task, API or fix, and follows
   intel/skills' `evaluation/harbor/instructions/use-<skill>.md`. Without it the
   arm would also measure whether the description gets the skill selected,
-  which is a second variable in the reward delta. Measure discoverability
-  separately. Changing the notice changes what past deltas mean.
+  which is a second variable in the reward delta. The discovery arm measures
+  that variable on its own (see [Three skill arms](#three-skill-arms)).
+  Changing the notice changes what past deltas mean.
 - **Evidence it reached the agent.** Read from the stream, per cell:
     - `metrics.offered_plugins` and `metrics.offered_skills` are what the
       session's `init` event lists, with `metrics.plugin_errors` when it reports
@@ -758,6 +762,52 @@ The arms differ by the skill and one notice, and by nothing else:
 - **Tokens.** `prompt_tokens` and the other token counts are summed over the
   result's `modelUsage`, which also covers helper models; the result's own
   `usage` covers the parent session only. `metrics.models_used` lists them.
+
+### Three skill arms
+
+One skill, three arms over the same tasks, each answering its own question:
+
+| Arm | Skill installed | Notice | What its pass rate measures |
+| --- | :---: | :---: | --- |
+| `docker-claude` | no | no | the task without the skill (baseline) |
+| `docker-claude-skill:<path>` | yes | yes | the skill's content, given that it is loaded |
+| `docker-claude-skill-discover:<path>` | yes | no | the skill as a user meets it: the agent has to find it from its description |
+
+The discovery arm installs the skill exactly as the skill arm does: same
+plugin, same `Skill` tool, same launch flags. Only the notice is dropped, so
+the two arms differ by one variable. The default skill arm keeps the notice.
+Run all three together:
+
+```bash
+python cli.py tasks run --tasks-root <content-checkout>/evaluation/harbor/tasks \
+  --tasks onetbb-transpose \
+  --harnesses docker-claude,docker-claude-skill:<skill>,docker-claude-skill-discover:<skill> \
+  --baseline-harness docker-claude --model <model> --repeats 3 \
+  --out-json results/onetbb-discover.json
+```
+
+- **Which arm a row is.** Rows of both skill arms carry `metrics.skill_notice`
+  (`true` for the skill arm, `false` for the discovery arm), next to the
+  `metrics.treatment`, `metrics.offered_plugins` and `metrics.n_skill_invocations`
+  described above. A discovery cell with `n_skill_invocations: 0` is an agent
+  that never loaded the skill.
+- **Discovery gap.** When a discovery arm runs next to the skill arm with the
+  same path and launch, `summary.discovery_gaps` holds both pass rates, the
+  gap (with-skill − discovery) and both skill-invocation rates. The report
+  shows them in a *Skill discovery* table. The gap is withheld when the two arms
+  lost different cells to errors, as `pass_rate_delta` is. Each arm also gets
+  its own row against the baseline.
+- **Was the description visible?** Claude Code lists skills to the model as
+  name plus description (and `when_to_use`), cutting each description at
+  `skillListingMaxDescChars` (1536 by default) and shortening the whole listing
+  to fit `skillListingBudgetFraction` of the context window (1%, about 8000
+  characters on a 200k window). A catalog of dozens of skills overruns that
+  budget and shows bare names. These arms offer one plugin skill and a core
+  command or two, so the budget is not reached; a description over the per-skill cap is still cut.
+  `metrics.skill_listing` records `description_chars` and `truncated`; a truncated
+  discovery cell gets a warning in `run.log`, and the report notes it. A
+  treatment whose plugin is missing from the session's `init` event fails the
+  cell (`solver_error`), in this arm too.
 
 ### Report and raw data
 

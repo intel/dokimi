@@ -15,7 +15,7 @@ from dokimi.eval import binary_stats
 from dokimi.eval.stats import adjust_pvalues
 
 from .models import HarnessResult, OperationRecord, TaskRunResult
-from .registry import create_harness
+from .registry import create_harness, with_skill_counterpart
 from .tasks import TaskSpec
 
 
@@ -275,7 +275,42 @@ def summarize_task_results(
             }
         _correct_across_harnesses(comparisons)
 
-    return {"per_harness": per_harness, "comparisons": comparisons}
+    summary: dict[str, Any] = {"per_harness": per_harness, "comparisons": comparisons}
+    gaps = _discovery_gaps(rows, per_harness)
+    if gaps:
+        summary["discovery_gaps"] = gaps
+    return summary
+
+
+def _discovery_gaps(rows: list[dict[str, Any]],
+                    per_harness: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """With-skill pass rate minus discovery pass rate, per ``-skill-discover`` arm run beside its pair.
+
+    The two arms differ by the treatment notice only, so the gap is what the
+    skill gives when it is announced and the agent does not find it alone. It is
+    withheld (``None``) when the arms lost different cells, as for
+    ``pass_rate_delta``.
+    """
+    outcomes, attempted = _outcomes_by_cell(rows)
+    gaps: dict[str, dict[str, Any]] = {}
+    for harness, stats in per_harness.items():
+        pair = with_skill_counterpart(harness)
+        if pair is None or pair not in per_harness:
+            continue
+        with_rate, discover_rate = per_harness[pair]["pass_rate"], stats["pass_rate"]
+        comparable = (_errored_cells(outcomes, attempted, harness)
+                      == _errored_cells(outcomes, attempted, pair))
+        gaps[harness] = {
+            "with_skill_harness": pair,
+            "with_skill_pass_rate": with_rate,
+            "discover_pass_rate": discover_rate,
+            "gap": (round(with_rate - discover_rate, 4)
+                    if comparable and with_rate is not None and discover_rate is not None
+                    else None),
+            "with_skill_invocation_rate": per_harness[pair]["skill_invocation_rate"],
+            "discover_invocation_rate": stats["skill_invocation_rate"],
+        }
+    return gaps
 
 
 def _outcomes_by_cell(

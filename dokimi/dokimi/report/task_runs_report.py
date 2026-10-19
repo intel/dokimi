@@ -138,6 +138,43 @@ def _mcnemar_lines(cmp: dict[str, Any], baseline: str | None) -> list[str]:
     return lines
 
 
+def _fmt_rate(v: Any) -> str:
+    return f"{v*100:.0f}%" if isinstance(v, (int, float)) else "—"
+
+
+def _discovery_lines(data: dict[str, Any]) -> list[str]:
+    """The ``-skill-discover`` arms beside their with-skill pair (``summary.discovery_gaps``)."""
+    gaps = data.get("summary", {}).get("discovery_gaps") or {}
+    if not gaps:
+        return []
+    lines = [
+        "## Skill discovery",
+        "",
+        "_The discovery arm installs the same skill as its with-skill arm but does "
+        "not announce it, so the agent finds it by its description or not at all. "
+        "Gap = with-skill pass rate − discovery pass rate; skill invoked = rows "
+        "that loaded the skill with the `Skill` tool._",
+        "",
+        "| Discovery arm | With-skill pass | Discovery pass | Gap | "
+        "With-skill invoked | Discovery invoked |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for h, g in gaps.items():
+        gap = g.get("gap")
+        gap_s = f"{gap*100:+.2f} pp" if isinstance(gap, (int, float)) else "— (arms lost different cells)"
+        lines.append(f"| `{h}` | {_fmt_rate(g.get('with_skill_pass_rate'))} | "
+                     f"{_fmt_rate(g.get('discover_pass_rate'))} | {gap_s} | "
+                     f"{_fmt_rate(g.get('with_skill_invocation_rate'))} | "
+                     f"{_fmt_rate(g.get('discover_invocation_rate'))} |")
+    cut = sum(1 for r in data.get("results", []) if r.get("harness") in gaps
+              and (r.get("metrics", {}).get("skill_listing") or {}).get("truncated"))
+    if cut:
+        lines += ["", f"_⚠️ {cut} discovery row(s) ran with a description longer than the "
+                  "skill listing shows; the agent saw only its start._"]
+    lines.append("")
+    return lines
+
+
 def render_task_runs_report(data: dict[str, Any]) -> str:
     """Render a ``task_runs.v1`` artifact as Markdown."""
     lines: list[str] = []
@@ -285,6 +322,7 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
                          f"{cr.get('operation_count_delta', 0):+} | {cd_s} |")
         lines.append("")
         lines.extend(_mcnemar_lines(cmp, baseline))
+    lines.extend(_discovery_lines(data))
 
     # ── per-task pass + cost (one column pair per harness) ──
     lines.append("## Per-task pass + cost")

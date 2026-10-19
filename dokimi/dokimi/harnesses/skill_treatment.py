@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""How the ``docker-claude-skill:<path>`` arm offers its skill to the solver.
+"""How the ``docker-claude-skill[-discover]:<path>`` arms offer their skill to the solver.
 
 The skill is installed the way Claude Code installs any skill, so the agent
 loads it with its own ``Skill`` tool:
@@ -16,6 +16,12 @@ loads it with its own ``Skill`` tool:
   measure whether the description gets the skill picked, a second variable in
   the reward delta. The wording follows intel/skills'
   ``evaluation/harbor/instructions/use-<skill>.md``.
+
+The ``docker-claude-skill-discover:<path>`` arm is that second variable on
+purpose: the same plugin and tool set, and no notice, so the agent has only
+the skill's listing entry (name and description) to find it by. Its pass rate
+next to the skill arm's is the discovery gap (see :func:`skill_listing` for
+whether the description was shown in full).
 
 Both arms get the ``Skill`` tool (see ``SOLVER_TOOLS``), so the arms differ by
 the skill and the notice only. :func:`stream_stats` reads the agent's
@@ -49,6 +55,13 @@ TREATMENT_NOTICE = (
     "you normally would. If the skill contradicts what you observe in the "
     "environment, trust the environment and say so in your final message.\n\n"
 )
+
+# Claude Code's skill listing (2.1.296): each entry is ``description`` (plus
+# `` - when_to_use``) cut to ``skillListingMaxDescChars`` (default 1536), and the
+# whole listing shortened to fit ``skillListingBudgetFraction`` (default 0.01)
+# of the context window at 4 characters per token, 8000 characters at 200k.
+LISTING_MAX_DESC_CHARS = 1536
+LISTING_BUDGET_CHARS = 8000
 
 # Skills both arms may be offered besides the treatment: the core ``doctor``
 # command, and on the host route ``design``, which the model cannot invoke
@@ -205,6 +218,24 @@ def build_plugin(skill_dir: Path, dest: Path) -> Treatment:
 
 def treatment_notice(treatment: Optional[Treatment]) -> str:
     return TREATMENT_NOTICE.format(skill_id=treatment.skill_id) if treatment else ""
+
+
+def skill_listing(skill_dir: Path) -> dict[str, Any]:
+    """What of the skill's description the agent's skill listing can show.
+
+    Without the notice the listing entry is all the agent has to find the skill
+    by. The run offers this one plugin skill and ``doctor``, so the listing's
+    default budget (:data:`LISTING_BUDGET_CHARS`) is not reached; a description
+    over :data:`LISTING_MAX_DESC_CHARS` is cut, and ``truncated`` says so.
+    """
+    path = skill_dir / "SKILL.md"
+    meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+    text = str(meta.get("description") or "")
+    if meta.get("when_to_use") is not None:
+        text = f"{text} - {meta['when_to_use']}"
+    return {"description_chars": len(text), "max_desc_chars": LISTING_MAX_DESC_CHARS,
+            "budget_chars": LISTING_BUDGET_CHARS,
+            "truncated": len(text) > LISTING_MAX_DESC_CHARS}
 
 
 def stream_stats(stream: str, treatment: Optional[Treatment] = None) -> dict[str, Any]:

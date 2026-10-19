@@ -3,6 +3,7 @@
 
 """Tests for the executable task-run Markdown report renderer."""
 
+from dokimi.harnesses.runner import summarize_task_results
 from dokimi.report.task_runs_report import _md_cell, render_task_runs_report
 
 
@@ -265,3 +266,32 @@ def test_pseudo_replication_is_disclosed_when_repeats_are_paired_as_cells():
     assert "anti-conservative" in md
     # The n=n_units case must stay silent rather than warn on every single run.
     assert "anti-conservative" not in render_task_runs_report(_with_mcnemar())
+
+
+def test_report_puts_the_discovery_arm_beside_no_skill_and_with_skill():
+    arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
+    rows = []
+    for harness, passed, invoked in zip(arms, (False, True, False), (None, 1, 0), strict=True):
+        metrics = {"operation_count": 0, "operations_by_type": {}}
+        if invoked is not None:
+            metrics.update(n_skill_invocations=invoked, skill_notice=harness == arms[1],
+                           skill_listing={"truncated": harness == arms[2]})
+        rows.append({"task": "t1", "harness": harness, "passed": passed, "reward": float(passed),
+                     "returncode": 0, "output_dir": None, "metrics": metrics,
+                     "operations": []})
+    data = {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+            "baseline_harness": arms[0], "harnesses": arms, "results": rows,
+            "tasks": [{"name": "t1", "path": "p", "metadata": {"difficulty": "easy"},
+                       "verifier": {}, "agent": {}, "environment": {}}],
+            "summary": summarize_task_results(rows, baseline_harness=arms[0])}
+    from dokimi.artifacts import validate_artifact
+    validate_artifact("task_runs", data)
+    md = render_task_runs_report(data)
+    assert all(f"| `{h}` | " in md.split("## Difficulty rollup")[0] for h in arms)
+    assert "## Skill discovery" in md
+    assert "| `docker-claude-skill-discover:s` | 100% | 0% | +100.00 pp | 100% | 0% |" in md
+    assert "1 discovery row(s) ran with a description longer" in md
+    data["summary"]["discovery_gaps"][arms[2]]["gap"] = None
+    assert "— (arms lost different cells)" in render_task_runs_report(data)
+    del data["summary"]["discovery_gaps"]
+    assert "## Skill discovery" not in render_task_runs_report(data)

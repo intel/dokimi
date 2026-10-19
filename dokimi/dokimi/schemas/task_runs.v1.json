@@ -177,6 +177,10 @@
                 "minimum": 0,
                 "description": "Invocations of the arm's treatment skill in this row's trajectory (not every skill loaded). Where a harness deploys a root of packs (benchflow-*), every pack in that root is treatment, a distractor placed there included. Written only by harnesses that can see skill use (null when they could not count); feeds summary skill_invocation_rate."
               },
+              "skill_notice": {
+                "type": "boolean",
+                "description": "Skill arms of the docker-claude family: whether the prompt opened with the treatment notice (false on the -skill-discover arms, which install the same skill and leave finding it to its description)."
+              },
               "exploration_metrics": {
                 "type": "object",
                 "description": "Optional exploration-quality block. Emitted only when the operation stream contains read/search/subagent/edit signal. Metrics that cannot be derived from the available telemetry are null.",
@@ -569,6 +573,63 @@
                 "minimum": -1,
                 "maximum": 1,
                 "description": "The Marx & Cummings (2007) piecewise formula applied to aggregate pass rates, in [-1, 1]: equals normalized_gain for a gain; a loss is (pass_rate - base) / base, the share of the baseline's passes lost; 0 when the rates are equal. The halves are on different scales, so compare sign and bounds, not magnitudes across signs. Null when both rates are 0 or both 1 (M&C drop that case), or under the same rule as pass_rate_delta (the arms' errored cells differ)."
+              }
+            }
+          }
+        },
+        "discovery_gaps": {
+          "type": "object",
+          "description": "Per -skill-discover arm run beside its with-skill arm (same launch and skill): gap = with-skill pass rate - discovery pass rate. Present only when such a pair ran.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "with_skill_harness",
+              "gap"
+            ],
+            "properties": {
+              "with_skill_harness": {
+                "type": "string"
+              },
+              "with_skill_pass_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "discover_pass_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "gap": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": -1,
+                "maximum": 1,
+                "description": "Null when the two arms lost different cells, or one has none scored."
+              },
+              "with_skill_invocation_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "discover_invocation_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
               }
             }
           }

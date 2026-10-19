@@ -30,6 +30,9 @@ def known_harnesses() -> dict[str, str]:
         "docker-oracle": "Local Docker: apply the task's own solve.sh (no LLM)",
         "docker-claude": "Local Docker: `claude -p` inside the task container, egress to the LLM only",
         "docker-claude-skill:<skill>": "docker-claude with a skill dir exposed (with-skill arm)",
+        "docker-claude-skill-discover:<skill>": (
+            "docker-claude-skill without the treatment notice (discovery arm)"
+        ),
         "benchflow:<agent>": "BenchFlow `bench eval run` (SkillsBench runner), no-skill arm",
         "benchflow-skill:<agent>[:<skills_dir>]": (
             "BenchFlow with-skill arm: the task's environment/skills, or a skills dir"
@@ -40,6 +43,7 @@ def known_harnesses() -> dict[str, str]:
         "docker-probe": "Local Docker: no LLM; report what a docker-claude agent could reach",
         "docker-claude-host": "docker-claude with the agent on the host (absolute paths, network open)",
         "docker-claude-host-skill:<skill>": "docker-claude-host with a skill dir exposed",
+        "docker-claude-host-skill-discover:<skill>": "docker-claude-host-skill without the notice",
         "docker-probe-host": "docker-probe for the docker-claude-host launch",
         "docker-probe:<skill>": "docker-probe that also forbids <skill> (the baseline's treatment)",
         "command:<template>": "Custom shell-like command template",
@@ -77,10 +81,11 @@ def _create(harness: str, command_template: str | None):
     for prefix, location in (("docker-claude-host", "host"), ("docker-claude", "container")):
         if harness == prefix:
             return DockerSolverHarness(harness_id=harness, mode="claude", agent_location=location)
-        if harness.startswith(f"{prefix}-skill:"):
-            return DockerSolverHarness(harness_id=harness, mode="claude",
-                                       skill_path=_skill_arg(harness, f"{prefix}-skill"),
-                                       agent_location=location)
+        for arm, notice in (("skill", True), ("skill-discover", False)):
+            if harness.startswith(f"{prefix}-{arm}:"):
+                return DockerSolverHarness(harness_id=harness, mode="claude",
+                                           skill_path=_skill_arg(harness, f"{prefix}-{arm}"),
+                                           agent_location=location, skill_notice=notice)
     for name, location in (("docker-probe-host", "host"), ("docker-probe", "container")):
         if harness == name:
             return DockerSolverHarness(harness_id=harness, mode="probe", agent_location=location)
@@ -103,6 +108,19 @@ def _create(harness: str, command_template: str | None):
         f"Unknown harness '{harness}'. Known: {', '.join(known_harnesses())}; "
         "or pass --command-template."
     )
+
+
+def with_skill_counterpart(harness: str) -> str | None:
+    """The with-skill arm a ``docker-claude[-host]-skill-discover:<skill>`` arm pairs with.
+
+    Same launch and skill path, notice on: the two differ by the notice only, so
+    their pass-rate difference is the discovery gap. ``None`` for any other id.
+    """
+    for prefix in ("docker-claude-host", "docker-claude"):
+        discover = f"{prefix}-skill-discover:"
+        if harness.startswith(discover):
+            return f"{prefix}-skill:{harness[len(discover):]}"
+    return None
 
 
 def _skill_arg(harness: str, prefix: str) -> str:
