@@ -24,7 +24,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import enum
+import hashlib
+import inspect
 import json
+import re
 import sys
 from pathlib import Path, PurePath
 from typing import Any
@@ -32,6 +36,14 @@ from typing import Any
 # The attributes of an option or argument compared between base and head.
 FIELDS = ("required", "is_flag", "nargs", "default", "type", "choices", "hidden", "action",
           "position", "const", "group_key", "group_required")
+
+
+def _filled(cell: Any) -> bool:
+    try:
+        _ = cell.cell_contents
+    except ValueError:
+        return False
+    return True
 
 
 def _value(value: Any) -> Any:
@@ -44,8 +56,26 @@ def _value(value: Any) -> Any:
         return {str(k): _value(v) for k, v in value.items()}
     if isinstance(value, PurePath):
         return str(value)
+    if isinstance(value, (set, frozenset)):
+        return sorted(repr(_value(v)) for v in value)
+    if isinstance(value, enum.Enum):
+        return repr(value)
+    if inspect.isfunction(value):
+        # A validator's name alone hides a loosened body: add a hash of its source.
+        try:
+            src = inspect.getsource(value)
+        except (OSError, TypeError):
+            src = "nosource"
+        # Captured values and defaults (a factory's `lo`) change what the function accepts too.
+        cells = [c.cell_contents for c in (value.__closure__ or ()) if _filled(c)]
+        src += repr([_value(c) for c in cells]) + repr(_value(value.__defaults__))
+        digest = hashlib.sha256(src.encode("utf-8")).hexdigest()[:12]
+        return f"{value.__module__}.{value.__qualname__}#{digest}"
     name = getattr(value, "__name__", None)
-    return name if isinstance(name, str) else type(value).__name__
+    if isinstance(name, str):
+        return name
+    text = repr(value)  # e.g. FileType('r'); object addresses would differ run to run
+    return type(value).__name__ if re.search(r" at 0x[0-9a-fA-F]+", text) else text
 
 
 def _param(action: argparse.Action, position: int | None, group_key: str | None = None,

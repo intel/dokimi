@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import enum
 import importlib.util
 import json
 from pathlib import Path
@@ -179,3 +180,66 @@ def test_mutually_exclusive_group_membership_removal_is_reported():
     lines = cs.diff_surfaces(a, b)
     group_key = "--all|--tasks"
     assert any(f"group_key: '{group_key}' -> None" in line for line in lines)
+
+
+class _Mode(enum.Enum):
+    A = 1
+    B = 2
+
+
+def _make_validator(lo: int):
+    def positive(s: str) -> int:
+        v = int(s)
+        if v < lo:
+            raise argparse.ArgumentTypeError("too small")
+        return v
+    return positive
+
+
+def _one(**kw) -> dict:
+    p = argparse.ArgumentParser(prog="dokimi")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("run").add_argument("--n", **kw)
+    return cs._command(p, "dokimi")
+
+
+@pytest.mark.parametrize("old, new", [
+    ({"type": _make_validator(1)}, {"type": _make_validator(0)}),
+    ({"default": _Mode.A}, {"default": _Mode.B}),
+    ({"default": {"a"}}, {"default": {"a", "b"}}),
+    ({"type": argparse.FileType("r")}, {"type": argparse.FileType("w")}),
+])
+def test_opaque_types_and_defaults_are_compared_by_content(old, new):
+    assert cs.diff_surfaces(_one(**old), _one(**new))
+
+
+def test_equal_opaque_values_are_stable():
+    kw = {"type": _make_validator(1), "default": {"a", "b"}}
+    assert cs.diff_surfaces(_one(**kw), _one(type=_make_validator(1), default={"b", "a"})) == []
+
+
+def _flag_variants():
+    return [
+        ({}, {"required": True}, "required: False -> True"),
+        ({"type": int}, {"type": str}, "type: 'int' -> 'str'"),
+        ({"choices": ["a"]}, {"choices": ["a", "b"]}, "choices:"),
+        ({"nargs": "?"}, {"nargs": "*"}, "nargs: '?' -> '*'"),
+        ({"action": "store_true"}, {"action": "store_false"}, "action: '_StoreTrueAction' -> '_StoreFalseAction'"),
+        ({"action": "store_true"}, {"action": "store_true", "help": argparse.SUPPRESS}, "hidden: False -> True"),
+        ({"action": "store_true"}, {"nargs": "?"}, "is_flag: True -> False"),
+    ]
+
+
+@pytest.mark.parametrize("old, new, expected", _flag_variants())
+def test_each_field_change_is_reported(old, new, expected):
+    lines = cs.diff_surfaces(_one(**old), _one(**new))
+    assert any(expected in line for line in lines), lines
+
+
+def test_reordered_choices_are_no_change():
+    assert cs.diff_surfaces(_one(choices=["a", "b"]), _one(choices=["b", "a"])) == []
+
+
+def test_removed_command_lists_its_options():
+    lines = cs.diff_surfaces(_surface(), _surface(drop_cmd=True))
+    assert "    - option `--n`" in lines and "    - argument `questions`" in lines
