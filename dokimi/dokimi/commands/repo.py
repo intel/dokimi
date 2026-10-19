@@ -200,7 +200,7 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         print("| when | kind | path | chars |")
         print("|---|---|---|---|")
         order = {"start": 0, "lazy": 1, "on demand": 2, "off": 3}
-        for e in sorted(payload["entries"], key=lambda e: (order[e["when"]], -e["chars"])):
+        for e in sorted(payload["entries"], key=lambda e: (order[e["when"]], -e["chars"], e["path"])):
             print(f"| {e['when']} | {e['kind']} | {e['path']} | {e['chars']:,} |")
         if payload["mcp_servers"]:
             print(f"MCP servers in .mcp.json: {', '.join(payload['mcp_servers'])} "

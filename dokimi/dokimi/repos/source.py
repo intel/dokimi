@@ -214,10 +214,11 @@ class GitTree:
 
     def resolve(self, path: str, dirs: bool = False) -> str:
         start = path = _norm(path)
+        links = self._links()
         for _ in range(40):
             parts = path.split("/")
             # The first component that is a link, a directory in the middle of the path included.
-            hop = next((i for i in range(1, len(parts) + 1) if "/".join(parts[:i]) in self._links()), None)
+            hop = next((i for i in range(1, len(parts) + 1) if "/".join(parts[:i]) in links), None)
             if hop is not None and hop < len(parts):
                 head = "/".join(parts[:hop])
                 text = _git(self.git_dir, "show", f"{self.sha}:{head}")

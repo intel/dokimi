@@ -6,7 +6,7 @@
 A static inventory, in characters, of the context a harness takes from the tree when it
 starts at the repository root:
 
-- **start**: guidance files at the root, the files a root CLAUDE.md ``@import``s (imports are
+- **start**: guidance files at the root, the files a root ``CLAUDE*`` file ``@import``s (imports are
   followed from ``CLAUDE*`` files only), and the skill
   listing (each project skill's ``name``, plus its ``description`` and ``when_to_use`` up to
   1,536 characters together; a skill with

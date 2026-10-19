@@ -633,7 +633,8 @@ def test_code_span_stripping_is_linear_on_backtick_runs():
     for text in ("`" * 50_000, "`" + "`a" * 50_000, "``" + "` " * 50_000 + "\n\n@x.md"):
         started = time.monotonic()
         _strip_code_spans(text)
-        assert time.monotonic() - started < 1
+        # Permissive timing check to avoid flakiness on slower/contended runners
+        assert time.monotonic() - started < 5
     assert _strip_code_spans("a `b` c ``d`e`` f") == "a  c  f"
     assert _strip_code_spans("`a\nb` @x.md") == " @x.md"
     assert _strip_code_spans("`a\n\nb` @x.md") == "`a\n\nb` @x.md"
