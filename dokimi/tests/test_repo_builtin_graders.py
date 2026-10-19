@@ -61,7 +61,7 @@ def test_last_json_takes_the_last_parseable_fence():
 
 
 def test_norm_path_cuts_at_repo_and_drops_leading_dots_and_slashes():
-    assert review.norm_path("/tmp/r1/repo/src/calc.py") == "src/calc.py"
+    assert review.norm_path("/runs/r1/repo/src/calc.py") == "src/calc.py"
     assert review.norm_path(" ./././src\\calc.py ") == "src/calc.py"
     assert review.norm_path(None) == ""
 
