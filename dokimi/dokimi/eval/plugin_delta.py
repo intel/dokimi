@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from dokimi.eval.records import Record, RecordError, records
+from dokimi.records import Record, RecordError, records
 
 
 class PluginDeltaError(ValueError):

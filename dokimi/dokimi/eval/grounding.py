@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from typing import Iterable
 
-from dokimi.eval.records import CONTEXT, RecordLike, records
+from dokimi.records import CONTEXT, RecordLike, records
 from dokimi.eval.stats import bootstrap_ci
 
 # Minimal stopword set so the overlap reflects content, not function words.

@@ -648,7 +648,7 @@ class EvaluationPipeline:
         """Evaluate answers using LLM-as-judge."""
         from dokimi.eval import Judge
         
-        from dokimi.eval.records import load, read
+        from dokimi.records import load, read
 
         # Use in-memory answers from the previous step (avoid stale disk read);
         # fall back to the answers file when none were passed.

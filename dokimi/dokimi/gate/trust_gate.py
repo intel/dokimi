@@ -15,7 +15,7 @@ import statistics
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
-from dokimi.eval.records import BASELINE, CONTEXT, RecordLike, records
+from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 
 # ── Thresholds (can be overridden via spec/config) ────────────────────────────

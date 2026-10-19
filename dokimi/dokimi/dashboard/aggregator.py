@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Union
 
-from dokimi.eval.records import BASELINE, CONTEXT, RecordError, records
+from dokimi.records import BASELINE, CONTEXT, RecordError, records
 
 logger = logging.getLogger(__name__)
 

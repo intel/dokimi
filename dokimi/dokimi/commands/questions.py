@@ -52,7 +52,7 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
             raw = questions_data["questions"]
         elif "answers" in questions_data:
             # An answers file: its records carry the question as `question_text`.
-            from dokimi.eval.records import RecordError, read
+            from dokimi.records import RecordError, read
 
             try:
                 answers = read(questions_data, source=args.questions, section="answers")

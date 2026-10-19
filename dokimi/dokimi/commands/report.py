@@ -92,7 +92,7 @@ def cmd_report(args: argparse.Namespace) -> None:
 
 def cmd_report_eval(args: argparse.Namespace) -> None:
     """Generate quality report from eval JSON (dynamic vs static breakdown)."""
-    from dokimi.eval.records import RecordError
+    from dokimi.records import RecordError
     from dokimi.report.eval_report import generate_report
 
     if args.out:
@@ -110,7 +110,7 @@ def cmd_report_eval(args: argparse.Namespace) -> None:
 
 def cmd_report_generate(args: argparse.Namespace) -> None:
     """Generate comprehensive analysis report from eval results."""
-    from dokimi.eval.records import RecordError
+    from dokimi.records import RecordError
     from dokimi.report import ReportGenerator
 
     # Load eval and questions

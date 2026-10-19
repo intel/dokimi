@@ -35,7 +35,7 @@ insufficient_data
 
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
-from dokimi.eval.records import Answer, RecordLike, records
+from dokimi.records import Answer, RecordLike, records
 
 # Keyword-overlap score below which retrieved docs are considered off-topic
 LOW_RELEVANCE_CUTOFF = 0.3

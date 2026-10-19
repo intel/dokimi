@@ -22,8 +22,8 @@ from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 
 
 def _load_answers(path: str):
-    """The parsed file and its answers records (eval/records.py), or a clean exit."""
-    from dokimi.eval.records import RecordError, read
+    """The parsed file and its answers records (dokimi/records.py), or a clean exit."""
+    from dokimi.records import RecordError, read
 
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     try:
@@ -40,7 +40,7 @@ def _require_arms(path: str, records, command: str) -> None:
     The arm judges read an arms run; a binary answers file's ``with_docs`` and
     ``without_docs`` are not arms to them, so such a file would judge nothing.
     """
-    from dokimi.eval.records import has_arms
+    from dokimi.records import has_arms
 
     if not has_arms(records):
         print(f"Error: {path} has no arms answers (no record has an `arms` field); "
@@ -260,7 +260,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         JudgeContextStore.from_artifact(data) if args.judges and isinstance(data, dict) else None
     )
 
-    from dokimi.eval.records import RecordError
+    from dokimi.records import RecordError
 
     try:
         stored = None if args.no_stored or not isinstance(data, dict) else stored_measure(data)

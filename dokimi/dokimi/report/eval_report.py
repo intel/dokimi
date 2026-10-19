@@ -21,7 +21,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
 from dokimi.eval import stats as eval_stats
-from dokimi.eval.records import BASELINE, CONTEXT, Record, RecordError, record, records
+from dokimi.records import BASELINE, CONTEXT, Record, RecordError, record, records
 
 #: Mirrors :data:`dokimi.eval.stats.HAS_SCIPY`; the tests themselves
 #: live there now. Note this module defines a local ``stats()`` helper, hence

@@ -52,7 +52,7 @@ import math
 import random
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from dokimi.eval.records import RecordLike, records
+from dokimi.records import RecordLike, records
 
 try:
     from scipy import stats as _sp_stats

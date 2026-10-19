@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Readers that read keys no writer writes, and malformed records, since eval/records.py.
+"""Readers that read keys no writer writes, and malformed records, since dokimi/records.py.
 
 Each eval file here comes from the writer itself (``JudgePanel.evaluate_answers``
 with the LLM stubbed out), not from a hand-built dict, so a reader is held to
@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from dokimi.eval.panel import JudgePanel, PanelVerdict
-from dokimi.eval.records import RecordError
+from dokimi.records import RecordError
 from tests.artifact_fixtures import artifact_fixture
 
 
@@ -343,7 +343,7 @@ def test_baseline_summary_leaves_out_a_question_with_an_unscored_arm():
 
 def test_report_top_deltas_leave_out_a_bool_aggregate():
     """A bool aggregate is unscored; its row would raise in the markdown table."""
-    from dokimi.eval.records import records
+    from dokimi.records import records
     from dokimi.report.generator import ReportGenerator
 
     evals = records([_ev(0, 80, 60, 20), _ev(1, True, 60, 30)], source="e", kind="evaluations")
@@ -353,7 +353,7 @@ def test_report_top_deltas_leave_out_a_bool_aggregate():
 
 
 def test_a_binary_record_with_a_stray_null_scores_keeps_its_scores():
-    from dokimi.eval.records import BASELINE, CONTEXT, record
+    from dokimi.records import BASELINE, CONTEXT, record
 
     r = record({**_ev(0, 80, 60, 20), "scores": None}, kind="evaluations")
     assert (r.score(CONTEXT), r.score(BASELINE)) == (80, 60)
@@ -361,7 +361,7 @@ def test_a_binary_record_with_a_stray_null_scores_keeps_its_scores():
 
 def test_a_binary_record_with_a_stray_null_arms_keeps_its_answers():
     """`arms: null` does not make a binary record an arms record with no conditions."""
-    from dokimi.eval.records import BASELINE, CONTEXT, record
+    from dokimi.records import BASELINE, CONTEXT, record
 
     r = record({"question_id": 0, "question_text": "q0", "arms": None,
                 "with_docs": {"answer": "with"}, "without_docs": {"answer": "without"}}, kind="answers")
@@ -370,7 +370,7 @@ def test_a_binary_record_with_a_stray_null_arms_keeps_its_answers():
 
 
 def test_report_top_and_bottom_deltas_are_ordered():
-    from dokimi.eval.records import records
+    from dokimi.records import records
     from dokimi.report.generator import ReportGenerator
 
     evals = records([_ev(0, 70, 60, 10), _ev(1, 90, 60, 30), _ev(2, 80, 60, 20)], source="e", kind="evaluations")

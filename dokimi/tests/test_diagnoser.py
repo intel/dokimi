@@ -4,8 +4,8 @@
 """Tests for failure diagnoser."""
 
 import pytest
-from dokimi.eval import records
-from dokimi.eval.records import CONTEXT
+from dokimi import records
+from dokimi.records import CONTEXT
 from tests.artifact_fixtures import artifact_fixture
 from dokimi.eval.diagnoser import (
     diagnose,

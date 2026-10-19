@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from dokimi.eval.records import RecordLike, records
+from dokimi.records import RecordLike, records
 from dokimi.eval.stats import (
     _apply_correction,
     _describe_deltas,

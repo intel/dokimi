@@ -21,7 +21,7 @@ from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
-from dokimi.eval.records import BASELINE, CONTEXT, Record, RecordLike, records
+from dokimi.records import BASELINE, CONTEXT, Record, RecordLike, records
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
@@ -281,7 +281,7 @@ class Judge:
 
         Args:
             library_name: Library name for context
-            answers: Answers records (from Answerer, or read by eval/records.py)
+            answers: Answers records (from Answerer, or read by dokimi/records.py)
             output_path: If set, write incrementally after each evaluation
             concurrency: Number of parallel judge calls (default: 1 = sequential)
 

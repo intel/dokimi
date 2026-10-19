@@ -54,9 +54,9 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
 from dokimi.eval.question_text import require_question_text
-from dokimi.eval.records import Answer, Record, RecordError, RecordLike, Run, arm_answers, arm_scores
-from dokimi.eval.records import record as as_record
-from dokimi.eval.records import records as as_records
+from dokimi.records import Answer, Record, RecordError, RecordLike, Run, arm_answers, arm_scores
+from dokimi.records import record as as_record
+from dokimi.records import records as as_records
 from dokimi.eval.stats import adjust_pvalues, mean_ci
 
 ALPHA = 0.05

@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 from dokimi.llm import llm_call
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.question_text import require_question_texts
-from dokimi.eval.records import BASELINE, CONTEXT, Answer, RecordLike, records
+from dokimi.records import BASELINE, CONTEXT, Answer, RecordLike, records
 
 logger = logging.getLogger(__name__)
 

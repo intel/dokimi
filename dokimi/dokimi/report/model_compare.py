@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from dokimi.eval.records import Record, RecordError, arm_answers, arm_names, arm_scores, records
+from dokimi.records import Record, RecordError, arm_answers, arm_names, arm_scores, records
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import stats as arm_stats
 

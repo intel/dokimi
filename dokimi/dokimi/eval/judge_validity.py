@@ -57,7 +57,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from dokimi.eval.records import RecordLike
+from dokimi.records import RecordLike
 from dokimi.eval.degrade import DEGRADATIONS, NEUTRAL_VARIANTS, build_pairs
 from dokimi.eval.validity_scoring import (  # noqa: F401  (re-exported)
     NEUTRAL_TOLERANCE,

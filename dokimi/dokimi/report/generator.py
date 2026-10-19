@@ -14,7 +14,7 @@ from dokimi.eval.diagnoser import (
     DIAGNOSIS_LABELS,
     DIAGNOSIS_DESCRIPTIONS,
 )
-from dokimi.eval.records import BASELINE, CONTEXT, Record, records
+from dokimi.records import BASELINE, CONTEXT, Record, records
 
 #: The persisted condition key each report column reads.
 _MODES = {"with_docs": CONTEXT, "without_docs": BASELINE}

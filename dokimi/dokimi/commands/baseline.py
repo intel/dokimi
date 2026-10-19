@@ -31,7 +31,7 @@ def _save_manifest(manifest: Dict[str, Any]) -> None:
 
 def _compute_summary(eval_data: Dict[str, Any]) -> Dict[str, Any]:
     """Extract key stats from an eval file."""
-    from dokimi.eval.records import BASELINE, CONTEXT, records
+    from dokimi.records import BASELINE, CONTEXT, records
 
     evals = records(eval_data.get("evaluations", []), source="evaluations", kind="evaluations")
     # Unscored arms stay out of the means, as in the trust gate.
@@ -110,7 +110,7 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     name = args.name or f"{product}-{timestamp}"
 
-    from dokimi.eval.records import RecordError
+    from dokimi.records import RecordError
 
     try:
         summary = _compute_summary(eval_data)
@@ -215,7 +215,7 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
               f" the changes below mix the model change with the content change.{detail}",
               file=sys.stderr)
 
-    from dokimi.eval.records import RecordError, records
+    from dokimi.records import RecordError, records
 
     try:
         baseline_evals = {e.key: e for e in records(baseline_data.get("evaluations", []),

@@ -87,7 +87,7 @@ Lives under `dokimi/{personas,questions,mcp,eval,report,dashboard,orchestrator}`
 4. `eval/` runs answer generation (`llm.py`), single-judge scoring, the
    multi-judge panel, and RAGAS meta-evaluation. Every consumer of an
    `answers.v1`/`eval.v1`/`arms.v1` record (judge, panel, RAGAS, grounding,
-   reports, gates) reads it through `eval/records.py`, the one module that
+   reports, gates) reads it through `dokimi/records.py`, the one module that
    knows the binary (`with_docs`/`without_docs`) and N-arm (`arms`/`scores`)
    shapes.
 5. `report/eval_report.py` produces the per-product Markdown analysis.

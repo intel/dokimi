@@ -18,7 +18,7 @@ from dokimi.eval.degrade import build_pairs
 from dokimi.eval.judge import Judge
 from dokimi.eval.pairwise import run_arm_pairwise
 from dokimi.eval.panel import JudgePanel
-from dokimi.eval.records import RecordError
+from dokimi.records import RecordError
 from dokimi.eval.question_text import (
     EmptyQuestionError,
     require_question_text,
@@ -229,7 +229,7 @@ def test_degradation_pairs_skip_a_blank_record_that_cannot_become_a_pair(blank):
 
 
 def test_degradation_pairs_refuse_a_record_without_an_id():
-    """No id: a malformed record (dokimi.eval.records), refused before the question check."""
+    """No id: a malformed record (dokimi.records), refused before the question check."""
     answers = [_arms_record(f"q{i}", f"question {i}?") for i in range(4)]
     noid = {"question_text": " ", "arms": {"baseline": {"answer": ANSWER}}}
     with pytest.raises(RecordError, match=r"answers\[4\]: missing question_id"):

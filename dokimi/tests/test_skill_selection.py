@@ -265,7 +265,7 @@ def test_skill_catalog_rejects_tool_name_collisions_and_long_names(tmp_path):
 
 def test_selection_summary_refuses_a_non_object_arm():
     """No writer writes an arm payload that is not an object or null; it names the record."""
-    from dokimi.eval.records import RecordError
+    from dokimi.records import RecordError
 
     rec = _rec("a", "a")
     rec["arms"]["broken"] = "error string"

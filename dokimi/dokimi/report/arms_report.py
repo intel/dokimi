@@ -6,7 +6,7 @@
 from typing import Any, Dict, List
 
 from dokimi.eval.arm_summary import TOOL_COUNTS
-from dokimi.eval.records import records
+from dokimi.records import records
 
 
 def _md_cell(text: str) -> str:

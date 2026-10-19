@@ -48,7 +48,7 @@ from decimal import Context, Decimal
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from dokimi.eval.question_text import require_question_text
-from dokimi.eval.records import RecordLike, records
+from dokimi.records import RecordLike, records
 
 #: Minimum answer length (characters) worth degrading. Short answers have too
 #: little content for truncation or code-stripping to mean anything.
@@ -589,7 +589,7 @@ def degrade(
 def _answer_pool(answers: Iterable[RecordLike]) -> List[Dict[str, Any]]:
     """Flatten a run's answers into (question_id, question_text, arm, answer) rows.
 
-    Any answers shape :mod:`dokimi.eval.records` reads: arms
+    Any answers shape :mod:`dokimi.records` reads: arms
     (``arms: {name: {answer: ...}}``) or binary (``with_docs``/``without_docs``).
     A question with no text is kept here; :func:`build_pairs` refuses it when
     the row could become a pair (the others are never judged).

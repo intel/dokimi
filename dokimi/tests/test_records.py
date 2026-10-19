@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval/records.py, the one reader of answers, eval and arms records.
+"""dokimi/records.py, the one reader of answers, eval and arms records.
 
 Every fixture here is a schema-checked artifact (``artifact_fixture``) in the
 shape its writer writes: the answerer's ``question_text`` and doc ``snippet``,
@@ -13,8 +13,8 @@ import json
 
 import pytest
 
-from dokimi.eval import records
-from dokimi.eval.records import BASELINE, CONTEXT, Record, RecordError
+from dokimi import records
+from dokimi.records import BASELINE, CONTEXT, Record, RecordError
 from tests.artifact_fixtures import artifact_fixture
 
 

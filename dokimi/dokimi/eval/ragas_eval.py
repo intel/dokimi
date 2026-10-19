@@ -24,7 +24,7 @@ from typing import List, Dict, Any, Optional
 
 from dokimi.eval.question_text import require_question_text
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
-from dokimi.eval.records import BASELINE, CONTEXT, RecordLike, records
+from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 logger = logging.getLogger(__name__)
 

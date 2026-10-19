@@ -58,7 +58,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.question_text import require_question_text
-from dokimi.eval.records import RecordLike, arm_answers, records as as_records
+from dokimi.records import RecordLike, arm_answers, records as as_records
 
 PAIRWISE_PROMPT = """You are comparing two answers to the same technical question about __LIBRARY_NAME__.
 

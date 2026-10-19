@@ -971,7 +971,7 @@ def test_cross_judge_judges_refuses_one_damaged_question_among_eight(
     code, seen = _cross_judge(tmp_path, monkeypatch, data)
     err = capsys.readouterr().err
     if damage == "null_qid":
-        # A record with no id is malformed (dokimi.eval.records): refused, naming it.
+        # A record with no id is malformed (dokimi.records): refused, naming it.
         assert code == 1 and not seen
         assert "evaluations[5]: missing question_id" in err
         return

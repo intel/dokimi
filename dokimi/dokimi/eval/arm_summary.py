@@ -5,7 +5,7 @@
 
 Split out of :mod:`dokimi.eval.arm_runner` to keep that module under
 the repo's 500-line ceiling. All are pure aggregations over the
-records ``ArmRunner.run`` produced, read through :mod:`dokimi.eval.records`.
+records ``ArmRunner.run`` produced, read through :mod:`dokimi.records`.
 Two are re-attached to ``ArmRunner`` as
 ``_summarize_agentic_usage`` / ``_cost_summary`` so existing call sites and
 tests keep working.
@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Mapping
 
-from dokimi.eval.records import RecordLike
-from dokimi.eval.records import records as as_records
+from dokimi.records import RecordLike
+from dokimi.records import records as as_records
 
 #: Stamp on an agentic answer's ``tool_usage["counts"]``: its tool counts skip
 #: calls that failed (``error`` in the transcript). Unstamped answers counted

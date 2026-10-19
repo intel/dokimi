@@ -43,8 +43,8 @@ def _warn_judge_independence(
 
 
 def _load_answers(path: str):
-    """The answers artifact at ``path`` (read by eval/records.py), or a clean exit."""
-    from dokimi.eval.records import RecordError, load
+    """The answers artifact at ``path`` (read by dokimi/records.py), or a clean exit."""
+    from dokimi.records import RecordError, load
 
     try:
         return load(path, section="answers")
@@ -153,7 +153,7 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
                                                    "answer_provider": answer_provider})
 
     # Summary: the context arm's own quality, not a comparison.
-    from dokimi.eval.records import CONTEXT, records
+    from dokimi.records import CONTEXT, records
 
     valid = [r.scores[CONTEXT] for r in records(results, kind="evaluations") if r.score(CONTEXT) is not None]
     if valid:
@@ -214,7 +214,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
     else:
         output_path = Path(f"eval/{args.product}.json")
 
-    from dokimi.eval.records import RecordError
+    from dokimi.records import RecordError
 
     try:
         evaluations = judge.evaluate_answers(args.product, answers, output_path=output_path,

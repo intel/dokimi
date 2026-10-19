@@ -28,7 +28,7 @@ from dokimi.eval.arm_summary import (
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
-from dokimi.eval.records import Record, RecordLike, arm_names, records as as_records
+from dokimi.records import Record, RecordLike, arm_names, records as as_records
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import SOURCE_STORED
 from dokimi.eval.judge_context import stamp_for as judge_context_stamp

@@ -25,7 +25,7 @@ import math
 import time
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from dokimi.eval.records import RecordLike
+from dokimi.records import RecordLike
 from dokimi.eval.degrade import DEFAULT_MIN_CHARS, DEGRADATIONS, NEUTRAL_VARIANTS, _answer_pool
 from dokimi.eval.judge_validity import (
     DEFAULT_MIN_ACCURACY,
