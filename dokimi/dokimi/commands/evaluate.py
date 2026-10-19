@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -41,15 +42,16 @@ def _warn_judge_independence(
     return same
 
 
+def _require_ragas() -> None:
+    """Exit before any model call when the ragas extra is not installed."""
+    if importlib.util.find_spec("ragas") is None:
+        sys.exit("RAGAS meta-evaluation needs the ragas extra: pip install 'dokimi[ragas]'")
+
+
 def _run_ragas_eval(answers, output_path, args) -> None:
     """Run RAGAS meta-evaluation and save results alongside answers."""
     from dokimi.eval.question_text import EmptyQuestionError
-
-    try:
-        from dokimi.eval.ragas_eval import RagasEvaluator
-    except ImportError as e:
-        print(f"\n⚠️  RAGAS not available ({e}). Skipping meta-evaluation.")
-        return
+    from dokimi.eval.ragas_eval import RagasEvaluator
 
     ragas_model = getattr(args, "ragas_model", DEFAULT_JUDGE_MODEL)
     ragas_provider = getattr(args, "ragas_provider", DEFAULT_JUDGE_PROVIDER)
@@ -225,6 +227,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
 
 def cmd_eval_ragas(args: argparse.Namespace) -> None:
     """Run standalone RAGAS meta-evaluation on an answers JSON."""
+    _require_ragas()
     answers_data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
     answers = answers_data.get("answers", answers_data)
     print(f"Loaded {len(answers)} answers from {args.answers}")
