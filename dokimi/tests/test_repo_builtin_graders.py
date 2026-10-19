@@ -110,6 +110,16 @@ def test_replay_with_workspace_paths(tmp_path):
     assert g["recall"] == 1.0
 
 
+def test_a_nested_repo_directory_matches_from_any_path_form(tmp_path):
+    seeds = {"seeds": [{"id": "s", "class": "c", "file": "src/repo/calc.py", "lines": [5], "kw": "nomatch"}]}
+    write(tmp_path / "t", "manifest.json", json.dumps(seeds))
+    gold = [{"id": "g", "file": "src/repo/calc.py", "line": 5, "kind": "k", "comment": "c"}]
+    write(tmp_path / "t", "gold.json", json.dumps(gold))
+    for path in ("src/repo/calc.py", "/eval/run/workspace/src/repo/calc.py", "/runs/r1/repo/src/repo/calc.py"):
+        assert review.grade_seeds({}, tmp_path / "t", fence([_f(5, file=path)]))["recall"] == 1.0, path
+        assert review.grade_replay({}, tmp_path / "t", fence([_f(5, file=path)]))["recall"] == 1.0, path
+
+
 def test_line_fallback_credits_only_the_nearest_seed_within_one_line(tmp_path):
     d = _task_dir(tmp_path, "seeds_mul")
     assert review.grade_seeds({}, d, fence([_f(4)]))["seeds_hit"] == ["s_name"]  # 0 from s_name, 1 from s_op

@@ -7,10 +7,10 @@ The answer's last parseable ```` ```json ```` fenced block must be an array of
 findings, each an object ``{file, line, severity, rule, message}`` (``evidence``
 is read too). Anything else is ``pass: false`` and ``parse_error``, with
 every recall 0 (``null`` where there is nothing to recall): the agent failed. A finding's ``file`` is made
-repository-relative: an absolute path into the agent's workspace
-(``/eval/run/workspace/``) or, failing that, into a standalone run's ``repo/``
-is cut there (so a relative ``a/repo/b`` is cut too, as oneDAL's graders
-did), then leading ``./`` and ``/`` are dropped. ``severity`` ``blocker`` or
+repository-relative: it is cut after ``/eval/run/workspace/`` (the agent's
+workspace), then after the last ``/repo/`` (a standalone oneDAL run's
+workspace; a relative ``a/repo/b`` becomes ``b`` too, on a seed's or a
+thread's file as on a finding's), then leading ``./`` and ``/`` are dropped. ``severity`` ``blocker`` or
 ``major`` counts toward ``n_severe``.
 
 ``review_seeds``: ``manifest.json`` next to ``task.json`` (or ``task.json``
@@ -72,11 +72,11 @@ def last_json(text):
 
 
 def norm_path(p):
-    """Repository-relative path of a finding: a path into the workspace, else into ``repo/``, is cut there."""
+    """Repository-relative path of a finding: cut after the workspace, then after the last ``/repo/``."""
     p = str(p or "").strip().replace("\\", "/")
-    if "/eval/run/workspace/" in p:
+    if "/eval/run/workspace/" in p:  # the agent's workspace under dokimi
         p = p.rsplit("/eval/run/workspace/", 1)[1]
-    elif "/repo/" in p:
+    if "/repo/" in p:  # oneDAL's rule, applied to every path alike so a seed's file and a finding's agree
         p = p.rsplit("/repo/", 1)[1]
     while p.startswith("./"):
         p = p[2:]

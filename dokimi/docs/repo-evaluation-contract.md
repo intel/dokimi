@@ -417,9 +417,9 @@ Both review graders read the answer the same way. Its last parseable
 ` ```json ` fence must be an array of findings
 `{"file", "line", "severity", "rule", "message"}`; entries that are not
 objects are dropped. `file` is made repository-relative: a path is cut after
-`/eval/run/workspace/`, else after `/repo/` (a standalone run's workspace;
-so a relative `a/repo/b` becomes `b`, as in oneDAL's graders), then leading
-`./` and `/` go. A `line` that is not an
+`/eval/run/workspace/`, then after the last `/repo/` (a standalone oneDAL
+run's workspace; a relative `a/repo/b` becomes `b`, the seed's or thread's
+`file` as well as the finding's), then leading `./` and `/` go. A `line` that is not an
 integer is -99, near nothing. `severity` `blocker` or `major` counts toward
 `n_severe`. An answer with no such array gives only `pass: false`,
 `parse_error: true` and every recall 0 (`recall`; replay also `recall_all`
