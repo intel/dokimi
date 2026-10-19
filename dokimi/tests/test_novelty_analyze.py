@@ -7,10 +7,7 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
-from dokimi.artifacts import ArtifactValidationError, load_artifact, save_artifact, validate_artifact
-from dokimi.gate.novelty_gate import evaluate_novelty
+from dokimi.artifacts import load_artifact, save_artifact, validate_artifact
 from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.report import render_novelty_markdown
@@ -178,11 +175,6 @@ def test_end_to_end_artifact_validates_and_reports_added_knowledge(tmp_path):
     assert artifact["model"] == "answerer-m"
     assert artifact["judge_model"] == "judge-m"
     assert artifact["categories"]["novel_useful"] == 2
-    assert artifact["conflict_coverage"]["pairs_total"] == 1
-    assert (
-        artifact["conflict_coverage"]["pairs_compared"]
-        == artifact["conflict_coverage"]["pairs_total"]
-    )
     # the kind/tag cut is present under both scorings, even when every slice is thin
     kinds = artifact["by_knowledge_kind"]
     assert set(kinds) == {"lenient", "strict"}
@@ -406,11 +398,7 @@ def test_a_failed_conflict_check_reaches_the_artifact(tmp_path):
     n = len(_ATOMS)
     assert any(w.startswith(f"{n} of {n} atoms were not checked for conflicts")
                for w in artifact["warnings"])
-    assert any("compared 0 of 1 atom pairs" in w for w in artifact["warnings"])
-    assert artifact["conflict_coverage"] == {"pairs_compared": 0, "pairs_total": 1}
-    withheld = evaluate_novelty(artifact)
-    check = next(c for c in withheld.checks if c.name == "harmful_atoms")
-    assert check.measured is False
+    assert any("0 of 1 atom pairs shared a call" in w for w in artifact["warnings"])
 
 
 def test_a_truncating_extractor_is_recovered_and_an_unreadable_span_is_a_warning(tmp_path):
@@ -480,7 +468,6 @@ def test_skipping_classification_is_recorded_as_a_warning(tmp_path):
     result = _analyze(tmp_path, classify_content=False)
     assert any("categories" in w for w in result.artifact["warnings"])
     assert result.artifact["categories"] == {}
-    assert "conflict_coverage" not in result.artifact
 
 
 def test_span_citations_are_confirmed_by_default(tmp_path):
@@ -671,30 +658,3 @@ def test_a_failed_adjudication_is_a_warning_and_a_count(tmp_path):
     assert any(w.startswith(f"{errors} of {artifact['retention']['llm_escalations']} "
                             "retention adjudications got no usable verdict")
                for w in artifact["warnings"])
-
-
-def test_the_conflict_check_sends_the_capped_atom_set_in_one_call(tmp_path, monkeypatch):
-    # The default batch of 40 under a cap of 120 compared about a third of the pairs.
-    from dokimi.novelty import classify
-
-    seen = {}
-    real = classify.detect_conflicts
-
-    def spy(atoms, **kwargs):
-        seen["batch"] = kwargs.get("batch")
-        return real(atoms, **kwargs)
-
-    monkeypatch.setattr(classify, "detect_conflicts", spy)
-    _analyze(tmp_path, max_atoms=120)
-    assert seen["batch"] == 120
-
-
-def test_a_negative_or_string_pair_count_fails_the_schema(tmp_path):
-    artifact = _analyze(tmp_path).artifact
-    for bad in ({"pairs_compared": -1, "pairs_total": 1},
-                {"pairs_compared": "1", "pairs_total": 1},
-                {"pairs_total": 1},
-                {"pairs_compared": 1, "pairs_total": 1, "extra": 0}):
-        broken = {**artifact, "conflict_coverage": bad, "schema_version": "novelty.v1"}
-        with pytest.raises(ArtifactValidationError):
-            validate_artifact("novelty", broken)

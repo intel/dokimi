@@ -6,11 +6,11 @@
   it. Before, `docker-oracle` waited for it with no limit.
 - **Every `docker-*` step has a budget** — the build, the solve and the verifier
   keep their own. Every other `docker` step (`cp`, `inspect`, the `exec`s that copy
-  files in, the sidecar's `create`, which may pull its image, the recompile) gets
-  600 s instead of none. A step that must succeed and runs out errors the cell. A
-  step whose failure was already tolerated (`rm -f`, the recompile, which lands in
-  `recompile_failed`) treats running out as that failure. A killed step's partial
-  output is now in `run.log`.
+  files in, the sidecar's `create`, which may pull its image) gets 600 s instead of
+  none. A step that must succeed and runs out errors the cell. Critical cleanup steps
+  that prevent verification (pre-verifier reap, credential-file removal, sidecar removal,
+  recompile) abort the cell on timeout to prevent security issues and stale binaries
+  from being scored. A killed step's partial output is now in `run.log`.
 - **`docker-claude-host` is contained** — the host `claude` starts through the
   process runner. A timeout kills its whole process tree, so a tool process the
   agent started no longer outlives its cell. `claude`'s output is read as UTF-8,

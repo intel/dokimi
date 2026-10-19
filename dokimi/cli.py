@@ -5,18 +5,15 @@
 """CLI for dokimi: thin compatibility shim.
 
 The implementation now lives in the ``dokimi`` package. This module
-keeps ``python cli.py ...`` working. Only ``main``, ``build_parser`` and
-``parse_args`` are re-exported here; import command functions from
-``dokimi.commands.*``. Parse with ``parse_args``: ``build_parser().parse_args()``
-leaves defaults that hang on another flag (``--judge-model`` on
-``--judge-provider``) unresolved.
+keeps ``python cli.py ...`` working. Only ``main`` and ``build_parser`` are
+re-exported here; import command functions from ``dokimi.commands.*``.
 """
 
 from __future__ import annotations
 
-from dokimi.cli import build_parser, main, parse_args
+from dokimi.cli import build_parser, main
 
-__all__ = ["build_parser", "main", "parse_args"]
+__all__ = ["build_parser", "main"]
 
 if __name__ == "__main__":
     main()

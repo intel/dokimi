@@ -10,13 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-from dokimi.defaults import (
-    DEFAULT_CONCURRENCY,
-    DEFAULT_JUDGE_MODEL,
-    DEFAULT_JUDGE_PROVIDER,
-    JUDGE_MODEL_FOR_PROVIDER,
-    JUDGE_MODEL_HELP,
-)
+from dokimi.defaults import DEFAULT_CONCURRENCY, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 from dokimi.utils import normalize_model_ref
@@ -439,7 +433,7 @@ def register(sub, positive_int) -> None:
     score_p.add_argument("--run-id", default=None, dest="run_id",
                          help="Run tag (e.g. gpt4o). Sets output to results/{product}_{run_id}/eval/{product}.json")
     score_p.add_argument("--output", default=None, help="Output file (default: eval/{product}.json)")
-    score_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
+    score_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="LLM model for judging")
     score_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     score_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, help="Parallel judge calls (default: 5)")
     score_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
@@ -499,7 +493,7 @@ def register(sub, positive_int) -> None:
                             help="Also escalate pairs called TIE in both orders (default: only order-inconsistent)")
     validity_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY,
                             help=f"Parallel judge calls (default: {DEFAULT_CONCURRENCY})")
-    validity_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
+    validity_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="LLM model for judging")
     validity_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     validity_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                             help="Judge sampling temperature; match arms run --judge-temperature to certify the same judge")

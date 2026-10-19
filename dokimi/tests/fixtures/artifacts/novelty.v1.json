@@ -151,10 +151,6 @@
     "Per-atom-kind and per-tag rates are labels, not measurements. With extraction held fixed, two independent relabellings reproduced the tag rates to within 0.08 (six of nine tags at kappa 0.52-0.73), so tag slices are quotable; `rare-critical` (0.39-0.45) and `temporal` are not, and the 5-way atom `type` vocabulary agrees at only 0.32-0.38. Gate on the protection tags (`routing`, `negative-constraint`, `version-bound`) or on nothing; report shape slices without gating on them.",
     "Per-artifact `added` is a profile, not a ranking: the cross-artifact ranking destabilizes below a 0.75 probe budget, so keep any `added` gate soft."
   ],
-  "conflict_coverage": {
-    "pairs_compared": 1,
-    "pairs_total": 1
-  },
   "conflicts": [],
   "controls": {
     "abstentions": {

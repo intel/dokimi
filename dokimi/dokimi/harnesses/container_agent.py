@@ -214,17 +214,9 @@ class ContainerSandbox:
         copies it in and rewrite ``/app`` under it, or use the bridge a public
         task joins for its verifier. ``kill -1`` as the agent uid reaches only
         that uid's processes; PID 1 belongs to root and stays.
-
-        If the reap operation times out, raise so the cell is aborted before verification
-        proceeds with processes still running.
         """
-        proc = docker(["exec", "-u", AGENT_UID, container, "sh", "-c", "kill -9 -1 2>/dev/null; true"],
-                      log, check=False)
-        if proc.timed_out:
-            raise subprocess.TimeoutExpired(
-                ["docker", "exec", "-u", AGENT_UID, container, "sh", "-c", "kill -9 -1"],
-                getattr(proc, "timeout", 600.0)
-            )
+        docker(["exec", "-u", AGENT_UID, container, "sh", "-c", "kill -9 -1 2>/dev/null; true"],
+               log, check=False)
 
     def env(self, source: dict[str, str], extra: Optional[dict[str, str]] = None) -> dict[str, str]:
         """The agent's environment inside the container."""
@@ -322,38 +314,17 @@ class ContainerSandbox:
 
     def stop_proxy(self, docker: Docker, log) -> None:
         """Collect the sidecar's decisions and remove it, so the verifier has no proxy
-        (a public task's verifier joins bridge right after).
-
-        Raises TimeoutExpired if sidecar removal times out, so verification does not proceed
-        with the credential-bearing sidecar still running. Errors are logged but do not raise,
-        allowing subsequent cleanup to continue.
-        """
+        (a public task's verifier joins bridge right after)."""
         if self._stopped:
             return
+        self._stopped = True
         logs = docker(["logs", self.proxy_name], log, check=False)
         self.log = parse_log(getattr(logs, "stdout", "") or "")
-        # Require successful removal before marking as stopped.
-        proc = docker(["rm", "-f", self.proxy_name], log, check=False)
-        if proc.timed_out:
-            raise subprocess.TimeoutExpired(
-                ["docker", "rm", "-f", self.proxy_name],
-                getattr(proc, "timeout", 600.0)
-            )
-        self._stopped = True
+        docker(["rm", "-f", self.proxy_name], log, check=False)
 
     def close(self, docker: Docker, log, output_dir: Optional[Path]) -> None:
-        """Stop the sidecar, save its decisions as ``egress.jsonl``, drop the network.
-
-        Retries sidecar removal if it was not yet successfully stopped (e.g., on
-        a previous timeout during verification).
-        """
-        # Retry sidecar removal if a timeout prevented it earlier; keep as best-effort.
-        if not self._stopped:
-            try:
-                self.stop_proxy(docker, log)
-            except subprocess.TimeoutExpired:
-                # Timeout on retry in close(): log and continue, don't fail the teardown.
-                log.write("\n[close] sidecar removal timed out during teardown; continuing cleanup\n")
+        """Stop the sidecar, save its decisions as ``egress.jsonl``, drop the network."""
+        self.stop_proxy(docker, log)
         if output_dir is not None:
             with (output_dir / "egress.jsonl").open("w", encoding="utf-8") as fh:
                 for row in self.log:

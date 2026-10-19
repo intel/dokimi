@@ -5,9 +5,9 @@
 
 These tests verify that timeouts during sidecar cleanup, pre-verifier reap, and
 recompile are handled correctly:
-- Thread #235 (stop_proxy): Require successful removal before advancing; retry on close.
-- Thread #450 (reap): Abort the cell on a timeout.
-- Thread #577 (recompile): Abort the cell on a timeout.
+- Sidecar removal timeout (stop_proxy): Require successful removal before advancing; retry on close.
+- Pre-verifier reap timeout: Abort the cell on a timeout.
+- Recompile timeout: Abort the cell on a timeout.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def test_stop_proxy_timeout_retried_in_close(tmp_path):
 
     # Verify that rm was called for egress cleanup (stop_proxy + retry in close)
     rm_calls = [c for c in cli.calls if c.argv[1] == "rm" and "egress" in " ".join(c.argv)]
-    assert len(rm_calls) >= 1, f"Should attempt sidecar removal, got {len(rm_calls)} calls"
+    assert len(rm_calls) == 3, f"Should attempt sidecar removal 3 times (open + stop_proxy + close), got {len(rm_calls)}"
 
 
 def test_reap_timeout_aborts_cell(tmp_path):
@@ -130,3 +130,47 @@ def test_recompile_timeout_aborts_cell(tmp_path):
 
     log = (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
     assert "TIMEOUT" in log or "timed out" in log
+
+
+def test_credential_file_removal_timeout_aborts_cell(tmp_path):
+    """Credential-file removal timeout aborts the cell before verification.
+
+    The pre-verifier cleanup removes credential files at FILES_DIR. If this
+    operation times out, verification must not proceed, as test.sh runs as
+    root and could access leftover credential files.
+    """
+    task = load_task(_fixture_task(tmp_path))
+
+    # Mock docker to timeout on rm of FILES_DIR (credential file removal)
+    cli = _pipeline(reward=1.0, answer=lambda call: reply(timed_out=True) if (
+        call.argv[1] == "exec" and "-rf" in call.argv and "files" in " ".join(call.argv)) else None)
+
+    result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
+
+    # The timeout should result in returncode 124 and reward 0.0
+    assert result.returncode == 124, f"Should timeout when credential removal times out; got {result.returncode}"
+    assert result.reward == 0.0, "Should get reward 0.0 on credential removal timeout"
+
+    # Verify that verify (test.sh) was NOT called
+    test_calls = [c for c in cli.calls if c.argv[1] == "exec" and "test.sh" in " ".join(c.argv)]
+    assert len(test_calls) == 0, "Verification should not run after credential removal timeout"
+
+
+def test_reward_file_copy_timeout_fails_task(tmp_path):
+    """Docker cp of reward.txt timeout fails the task (reward 0.0, rc 124).
+
+    If the copy of reward.txt from the container times out, the verifier's
+    decision is lost. The task must fail as reward 0.0 rather than proceeding
+    with an empty reward file or an incorrect assumption.
+    """
+    task = load_task(_fixture_task(tmp_path))
+
+    # Mock docker to timeout on cp of reward.txt from container
+    cli = _pipeline(reward=1.0, answer=lambda call: reply(timed_out=True) if (
+        call.argv[1] == "cp" and "reward.txt" in " ".join(call.argv)) else None)
+
+    result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
+
+    # The timeout should result in returncode 124 and reward 0.0
+    assert result.returncode == 124, f"Should timeout when reward.txt copy times out; got {result.returncode}"
+    assert result.reward == 0.0, "Should get reward 0.0 when reward.txt copy times out"

@@ -172,9 +172,9 @@ class ClassifyReport:
             )
         if self.pairs_total and self.pairs_compared < self.pairs_total:
             out.append(
-                f"the conflict check compared {self.pairs_compared} of {self.pairs_total} "
-                f"atom pairs, so a contradiction between atoms that did not share an "
-                f"answered call is not detected"
+                f"conflicts were looked for within batches: {self.pairs_compared} of "
+                f"{self.pairs_total} atom pairs shared a call, so a contradiction between "
+                f"atoms in different batches is not detected"
             )
         if self.retried_batches:
             out.append(

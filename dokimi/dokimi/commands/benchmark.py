@@ -17,12 +17,11 @@ from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
     DEFAULT_CONCURRENCY,
+    DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
     DEFAULT_MAX_TOKENS_PER_QUESTION,
     DEFAULT_RETRIEVAL_TOP_K,
     DEFAULT_RESULTS_SUFFIX,
-    JUDGE_MODEL_FOR_PROVIDER,
-    JUDGE_MODEL_HELP,
 )
 from dokimi.commands.library import _load_registry
 
@@ -350,8 +349,7 @@ def register(sub, positive_int) -> None:
                              help="Output directory (default: results/{target}_final)")
     bench_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
-    bench_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
-                             help=JUDGE_MODEL_HELP)
+    bench_run_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
     bench_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                              choices=JUDGE_PROVIDERS)
     bench_run_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
@@ -386,8 +384,7 @@ def register(sub, positive_int) -> None:
     bench_pre_p.add_argument("--output-dir", default=None, dest="output_dir", help="Output directory (default: results/{target}_final)")
     bench_pre_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
-    bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
-                             help=JUDGE_MODEL_HELP)
+    bench_pre_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
     bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
     bench_pre_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_pre_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
@@ -408,8 +405,7 @@ def register(sub, positive_int) -> None:
     bench_batch_p.add_argument("--output-dir", default="results", dest="output_dir")
     bench_batch_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
-    bench_batch_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
-                               help=JUDGE_MODEL_HELP)
+    bench_batch_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
     bench_batch_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                                choices=JUDGE_PROVIDERS)
     bench_batch_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
