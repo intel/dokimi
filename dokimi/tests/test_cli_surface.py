@@ -203,6 +203,20 @@ class _Mode(enum.Enum):
     B = 2
 
 
+class _Opener:
+    """An opaque argparse type with a stable repr. argparse.FileType would be the real one, but its
+    construction warns on Python 3.14, and filterwarnings=error makes that a collection error."""
+
+    def __init__(self, mode: str) -> None:
+        self.mode = mode
+
+    def __call__(self, path: str) -> str:
+        return path
+
+    def __repr__(self) -> str:
+        return f"_Opener({self.mode!r})"
+
+
 def _make_validator(lo: int):
     def positive(s: str) -> int:
         v = int(s)
@@ -223,7 +237,7 @@ def _one(**kw) -> dict:
     ({"type": _make_validator(1)}, {"type": _make_validator(0)}),
     ({"default": _Mode.A}, {"default": _Mode.B}),
     ({"default": {"a"}}, {"default": {"a", "b"}}),
-    ({"type": argparse.FileType("r")}, {"type": argparse.FileType("w")}),
+    ({"type": _Opener("r")}, {"type": _Opener("w")}),
 ])
 def test_opaque_types_and_defaults_are_compared_by_content(old, new):
     assert cs.diff_surfaces(_one(**old), _one(**new))
