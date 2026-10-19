@@ -15,7 +15,7 @@ This page is for repository owners who want coding agents (Claude Code, Codex,
 Copilot and others) to build, test, change and review their code reliably. It
 lists what to put in the repository and its environment, and how to check with
 Dokimi that each piece helps. Each figure links to the runs behind it (task
-set, arms, model, cell count) on the [evidence page](preparing-a-repository-evidence.md); figures with no
+set, arms, model, cell count) on the [evidence page](preparing-a-repository-evidence.md) with anchors to the specific row; figures with no
 stored result are given without a number.
 
 Every tool and file below is an ordinary repository artifact that people and CI
@@ -23,11 +23,10 @@ use too. No tool is declared to Dokimi. Dokimi compares configurations: the same
 tasks run with and without a change (an arm). See
 [repository evaluation](repo-evaluation-contract.md).
 
-The recommendations come from measurements on two C++ libraries (oneDAL and
-ScalableVectorSearch). Agents were Claude Code with Haiku and Sonnet 5.5, plus
-earlier generations where noted, and Codex. Samples were small: 8 to 24 cells per
-arm. Some effects disappeared when the model changed, so measure before you rely
-on any of them (§8).
+The recommendations come from measurements on oneDAL, a C++ library.
+Agents were Claude Code with Haiku and Sonnet 5.5, plus earlier generations
+where noted, and Codex. Samples were small: 5 to 24 cells per arm. Some effects
+disappeared when the model changed, so measure before you rely on any of them (§8).
 
 ## 1. Make every command in the guidance runnable
 
@@ -37,16 +36,17 @@ turns and leads to work-arounds.
 - **One command per action.** Format, build what changed, test what changed, lint.
   Prefer the build system and the repository's existing hooks (Bazel `rdeps`
   queries, CMake presets, pre-commit) over new wrapper scripts. CI, people and
-  agents then run the same thing.
+  agents then run the same thing. Name the commands explicitly so agents find them.
 - **The same version as CI.** If CI pins clang-format 20.1.8 and the environment
   has 18, every formatted file can fail the CI check.
     - With Haiku 4.5, a named command for the pinned formatter raised the share of
       runs that passed the CI format check from 5/16 to 12/16 (p = 0.016).
-      Installing the right version without naming it reached 7/16
-      ([E1](preparing-a-repository-evidence.md)).
+      Installing the right version without naming it reached 7/16, but at 16 cells
+      the 7 vs 5 gain is not separated from noise (p = 0.062)
+      ([E1](preparing-a-repository-evidence.md#e1)).
     - With Haiku 5.5, 12/16 runs already passed without it. With Sonnet 5.5 the
       share went from 5/8 to 7/8, within noise at that sample size
-      ([E1b](preparing-a-repository-evidence.md)).
+      ([E1b](preparing-a-repository-evidence.md#e1b)).
 - **Installed where the agent runs.** A guidance file told agents to run
   `pre-commit run --all-files`, but pre-commit was not installed in the agent
   image, so the command could never work. Check every command in the image or dev
@@ -67,7 +67,7 @@ A tool the agent is not told about is rarely used.
 - The same server plus one line in the root `AGENTS.md` saying when to use it was
   called in 13 and 16 of 24 runs, and the scores improved in those arms (§5).
 
-[E4](preparing-a-repository-evidence.md): 12 questions × 2 repetitions = 24 runs per arm, Haiku 5.5 and Sonnet 5.5,
+([E4](preparing-a-repository-evidence.md#e4)): 12 questions × 2 repetitions = 24 runs per arm, Haiku 5.5 and Sonnet 5.5,
 arms none vs tool only vs tool plus guidance line; counts are runs with at least
 one tool call.
 
@@ -96,8 +96,8 @@ real repository, corrected in
   exceptions next to a rule.
 - Add a line for each trap the code really has. For example: several unrelated
   functions share a short name, so grep over-matches. With Haiku 4.5, such a line
-  raised the recall of missed call sites in review from 0.67 to 0.92, and the
-  tool it advertised was called in none of the 12 runs ([E3](preparing-a-repository-evidence.md)).
+  raised the recall of missed call sites in review from 0.67 to 0.92 (3 of 4 tasks improved, none worsened; p = 0.25, too few to separate from noise), and the
+  tool it advertised was called in none of the 12 runs ([E3](preparing-a-repository-evidence.md#e3)).
 - Guidance coverage alone does not predict where agents struggle. Neither naming a
   module nor writing about it predicted agent errors. Structure did:
     - modules called from many places;
@@ -138,17 +138,16 @@ A compiler-resolved call graph exposed as tools (who calls, callees, subclasses,
 files that change together, likely tests) paid off for questions that enumerate
 code. On "who calls X" questions with many callers or ambiguous names:
 
-| Model | F1 of the caller-file set, without | F1 of the caller-file set, with tool and guidance line |
-|---|---|---|
-| Sonnet 5.5 | 0.906 | 0.968, at about half the cost per run ($0.136 to $0.074) |
-| Haiku 5.5 | 0.874 | 0.951 (cost $0.0121 to $0.0081 per run) |
+| Model | F1 without | F1 with tool and guidance line | Cost without | Cost with tool and guidance line |
+|---|---|---|---|---|
+| Sonnet 5.5 | 0.906 | 0.968 | $0.156 | $0.0738 per run |
+| Haiku 5.5 | 0.874 | 0.951 | $0.0147 | $0.0081 per run |
 
-[E4](preparing-a-repository-evidence.md): 12 questions × 2 repetitions = 24 runs per arm, Haiku 5.5 and Sonnet 5.5,
-arms none vs tool plus guidance line. F1 is computed on the set of files that
-call the function, from precision and recall.
+[E4](preparing-a-repository-evidence.md#e4): 12 questions × 2 repetitions = 24 runs per arm, Haiku 5.5 and Sonnet 5.5.
+F1 is computed on the set of files that call the function, from precision and recall.
 
 On the fix and review tasks measured with Sonnet 5, the guidance line was
-present and the tool was called in 0 of 20 runs ([E5](preparing-a-repository-evidence.md)); results did not
+present and the tool was called in 0 of 20 runs ([E5](preparing-a-repository-evidence.md#e5)); results did not
 change. The
 tasks were five replays of real review PRs (`review_replay`), one seeded
 missed-caller review (`review_seeded_fc`) and four fix or feature tasks. This
@@ -165,17 +164,20 @@ Recurring review comments are review knowledge a repository already has.
   paths it applies to.
 - **A maintainer curates the list.** In one run, one mined rule contradicted the
   repository's own guidance and had to be dropped.
-- **Keep them in a review section of the root `AGENTS.md`,** and check that each
-  harness you use loads that file (§7).
+- **Place them in the prompt for now.** E6 measured rules in the prompt; the
+  `rulesmd` arm tested rules in `AGENTS.md` but only on real-PR replays (E7),
+  where the effect was zero anyway. `AGENTS.md` placement has not been tested on
+  seeded defects.
 - **Expect help on recurring defects, not one-offs.**
     - On review tasks with seeded recurring defects, rules raised the recall of
       Codex with a small OpenAI model (`gpt-6-luna`) from 0.68 to 0.875
-      ([E6](preparing-a-repository-evidence.md)). The defects were drawn from the rules, so this is an upper
+      (5 of 4 tasks improved, 0 worsened; p = 0.062, 8 cells)
+      ([E6](preparing-a-repository-evidence.md#e6)). The defects were drawn from the rules, so this is an upper
       bound.
     - Current Claude models were already near that level without them: Haiku 5.5
       went from 0.84 to 0.875, and Sonnet 5.5 stayed at 0.875.
     - On replays of real PRs, whose comments were almost all specific to that PR,
-      the rules changed nothing ([E7](preparing-a-repository-evidence.md)).
+      the rules changed nothing ([E7](preparing-a-repository-evidence.md#e7)).
 - **Linters on the changed lines** (clang-tidy, cppcheck) given to the reviewer as
   hints helped in the same way, and distracted one weaker model.
 
@@ -212,8 +214,10 @@ cheap-model call per scenario.
 
 What helps depends on the model:
 
-- With Haiku 4.5, a fast compile check of the edited files cut new build breaks in
-  a cross-module rename from 5.9 to 0.4 per run ([E2](preparing-a-repository-evidence.md)).
+- With Haiku 4.5, the `tools` arm (named `fmt` and `check` commands plus one `AGENTS.md`
+  line, not isolated to compile checks) cut new build breaks in a cross-module rename
+  from 5.9 to 0.4 per run; pass rate 4/9 to 6/9 ([E2](preparing-a-repository-evidence.md#e2)).
+  The change includes the formatter, so the compile-check effect alone is not known.
 - With Haiku 5.5 and Sonnet 5.5, both arms passed all 9 runs.
 
 `dokimi repo run` requires the [contract's](repo-evaluation-contract.md) manifest
