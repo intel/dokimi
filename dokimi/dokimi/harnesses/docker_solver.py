@@ -569,12 +569,20 @@ class DockerSolverHarness:
         Returns the compile commands that failed. A recompile failure is a
         *tooling* failure, not a solve failure: the caller records it in
         ``metrics`` so such cells can be told apart from genuine model misses.
+
+        Aborts (raises TimeoutExpired) if a recompile step times out, so the verifier
+        does not proceed with stale binaries and the container is removed without running it.
         """
         failed: list[str] = []
         for match in _RECOMPILE_RE.finditer(task.instruction):
             cc = match.group(0).strip()
             log.write(f"\n[recompile] {cc}\n")
             proc = self._docker(["exec", "-u", "root", container, "bash", "-lc", cc], log, check=False)
+            if proc.timed_out:
+                raise subprocess.TimeoutExpired(
+                    ["docker", "exec", "-u", "root", container, "bash", "-lc", cc],
+                    _DOCKER_STEP_TIMEOUT
+                )
             if proc.returncode != 0:
                 log.write(f"[recompile] FAILED (exit {proc.returncode}): {cc}\n")
                 failed.append(cc)
