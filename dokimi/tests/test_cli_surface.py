@@ -240,6 +240,11 @@ def test_reordered_choices_are_no_change():
     assert cs.diff_surfaces(_one(choices=["a", "b"]), _one(choices=["b", "a"])) == []
 
 
+def test_choices_with_different_types_are_reported():
+    # [1, 2] and ['1', '2'] are distinct and should be reported as changed
+    assert cs.diff_surfaces(_one(choices=[1, 2]), _one(choices=["1", "2"]))
+
+
 def test_removed_command_lists_its_options():
     lines = cs.diff_surfaces(_surface(), _surface(drop_cmd=True))
     assert "    - option `--n`" in lines and "    - argument `questions`" in lines

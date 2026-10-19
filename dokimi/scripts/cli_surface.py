@@ -91,7 +91,7 @@ def _param(action: argparse.Action, position: int | None, group_key: str | None 
         "default": _value(action.default),
         "const": _value(action.const),
         "type": _value(action.type),
-        "choices": sorted(str(c) for c in action.choices) if action.choices else None,
+        "choices": sorted(repr(_value(c)) for c in action.choices) if action.choices else None,
         "hidden": action.help == argparse.SUPPRESS,
         "action": type(action).__name__,
         "group_key": group_key,
@@ -180,7 +180,7 @@ def diff_surfaces(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
                          f"{new[path].get('subcommand_required')!r}")
         param_lines = _diff_params(old[path]["params"], new[path]["params"])
         if param_lines:
-            lines.append(f"~ `{path}` options changed:")
+            lines.append(f"~ `{path}` parameters changed:")
             lines += param_lines
     return lines
 
