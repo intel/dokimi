@@ -16,8 +16,10 @@ empty ``answer.txt`` and ``events.jsonl``):
 
 A grader failure on either workspace is a grader bug: the task is ``broken``
 and stays out of paid runs. A task whose network needs the egress proxy is
-``unsupported`` until the proxy exists. ``--warm`` runs null and oracle with
-network so the caches fill before offline runs (§2).
+``unsupported`` until the proxy exists, and so is a task whose ``host``
+requirements (:mod:`.host`) the evaluation's containers do not meet: its bug
+cannot show here, so null and oracle would say nothing. ``--warm`` runs null
+and oracle with network so the caches fill before offline runs (§2).
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from typing import Any
 
 from .container import CONTENT_DIR, RUN_DIR, SOURCE_DIR, ContainerError, ContainerSpec, docker_network
 from .grading import EvalContext, outcome, run_entry
+from .host import probe_host, unmet, validate_tasks
 from .runner import agent_layout, container_name
 from .workspace import PrepError, Task, prepare_workspace
 
@@ -52,14 +55,22 @@ exit $bad
 """
 
 def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
-               guidance_names: tuple[str, ...] = ANCESTOR_NAMES) -> dict[str, Any]:
-    """Null, oracle and isolation checks for one task; ``verdict`` is ok, broken or unsupported."""
+               guidance_names: tuple[str, ...] = ANCESTOR_NAMES,
+               host: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Null, oracle and isolation checks for one task; ``verdict`` is ok, broken or unsupported.
+
+    ``host`` is :func:`.host.probe_host`'s facts, probed once per check; without it a task with
+    ``host`` requirements probes for itself."""
     network = ctx.manifest.image.network if ctx.manifest.image else "none"
     res: dict[str, Any] = {"task": task.id, "family": task.family, "warm": warm, "problems": []}
     try:
         net = "bridge" if warm else docker_network(network, task.egress)
     except ContainerError as exc:
         res.update(verdict="unsupported", problems=[str(exc)])
+        return res
+    reason = _host_reason(ctx, task, work_dir, host)
+    if reason:
+        res.update(verdict="unsupported", problems=[f"host: {reason}"])
         return res
     for kind in ("null", "oracle"):
         rd = work_dir / f"{task.id}__{kind}"
@@ -82,6 +93,12 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
         res["problems"] += [f"isolation: {p}" for p in res["isolation"]]
     res["verdict"] = "broken" if res["problems"] else "ok"
     return res
+
+
+def _host_reason(ctx: EvalContext, task: Task, work_dir: Path, host: dict[str, Any] | None) -> str | None:
+    if host is None and task.raw.get("host") is not None:
+        host = probe_host(ctx, work_dir / f"{task.id}__host")
+    return unmet(task, host)
 
 
 def _prepare(ctx: EvalContext, task: Task, rd: Path) -> None:
@@ -135,15 +152,18 @@ def isolation_probe(ctx: EvalContext, tasks: list[Task], rd: Path,
 
 def run_check(ctx: EvalContext, tasks: list[Task], work_dir: Path, warm: bool = False, jobs: int = 1,
               guidance_names: tuple[str, ...] = ANCESTOR_NAMES, log=print) -> list[dict[str, Any]]:
+    """Every task's :func:`check_task`; ``check.json`` also records the probed host."""
+    validate_tasks(tasks)  # a bad `host` value is refused before any container starts
     work_dir.mkdir(parents=True, exist_ok=True)
+    host = probe_host(ctx, work_dir)
 
     def one(task: Task) -> dict[str, Any]:
-        res = check_task(ctx, task, work_dir, warm, guidance_names)
+        res = check_task(ctx, task, work_dir, warm, guidance_names, host)
         log(f"{task.id}: {res['verdict'].upper()}" + "".join(f"\n  - {p}" for p in res["problems"]))
         return res
 
     with ThreadPoolExecutor(max(1, jobs)) as pool:
         results = list(pool.map(one, tasks))
-    (work_dir / "check.json").write_text(json.dumps({"warm": warm, "tasks": results}, indent=1) + "\n",
-                                         encoding="utf-8")
+    (work_dir / "check.json").write_text(json.dumps({"warm": warm, "host": host, "tasks": results}, indent=1)
+                                         + "\n", encoding="utf-8")
     return results

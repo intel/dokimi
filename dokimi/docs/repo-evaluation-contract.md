@@ -227,6 +227,7 @@ belongs to the repository's grader and is passed through unread.
 | `gate` | no | framework | what counts as success; default `["pass"]`. Each entry is a boolean metric name, which must be `true`, or `{"metric": <name>, "min": <number>}` for a numeric metric |
 | `score` | for score-only tasks | framework | `{"metric": <name>, "max": <number>}`: the metric that is the result when `pass` is `null`, and the value the oracle must reach (§4.3) |
 | `timeout_s`, `max_turns`, `budget_usd` | no | framework | per-task caps, overriding run defaults; each a finite number > 0 |
+| `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`). They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
@@ -365,6 +366,12 @@ For every task, before any paid run:
 - for score-only tasks, the oracle must reach `score.max` on `score.metric`
 - the agent container must not be able to read any file under `tasks` or
   `{source_dir}` (§1.1)
+
+A task whose `host` requirements (§3) the probe container does not meet is
+`unsupported` with the reason, like a task whose `egress` needs the missing
+proxy, and `tasks check` exits 1 for it. `repo run` does not run its cells:
+each holds an `unsupported.json` with the reason, and `repo report` lists them
+apart, neither failed nor missing.
 
 Each task runs with its own network (`image.network` plus its `egress`).
 `tasks check --warm` runs the same null and oracle steps with network and

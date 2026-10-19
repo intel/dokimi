@@ -10,6 +10,9 @@
 - **missing**: cells planned or started that have no ``result.json``. They
   never finished, so they are left out of the rate rather than counted as
   failures; rerun the batch to fill them.
+- **unsupported**: cells not run because the host did not meet their task's
+  ``host`` requirements (``unsupported.json``, with the reason). They are
+  neither failures nor missing.
 - cost and turns are means over finished cells, as the harness reported them.
 """
 
@@ -22,7 +25,7 @@ from typing import Any
 
 import math
 
-from .runner import slug
+from .runner import UNSUPPORTED_FILE, slug
 
 
 def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
@@ -39,7 +42,20 @@ def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
         rec["score_task"] = bool(rec.get("score_task", rec["grade"]["score_only"]))
         finished.append(rec)
     done = {r["cell"] for r in finished}
-    return finished, sorted((planned | started) - done)
+    unsupported = {p.parent.name for p in batch_dir.glob(f"*/{UNSUPPORTED_FILE}")}
+    return finished, sorted((planned | started) - done - unsupported)
+
+
+def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:
+    """Cells the runner did not run on a host that missed their task's ``host`` requirements."""
+    out = []
+    for path in sorted(batch_dir.glob(f"*/{UNSUPPORTED_FILE}")):
+        if (path.parent / "result.json").is_file():
+            continue
+        rec = json.loads(path.read_text(encoding="utf-8"))
+        out.append({"cell": path.parent.name, "task": rec.get("task"), "arm": rec.get("arm"),
+                    "model": rec.get("model"), "reason": rec.get("reason")})
+    return out
 
 
 def summarize(batch_dir: Path) -> dict[str, Any]:
@@ -77,6 +93,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
             row.update(kind="gate", successes=wins, success_rate=round(wins / n, 4), ci95=wilson(wins, n))
         rows.append(row)
     return {"batch": str(batch_dir), "cells": len(cells), "missing": missing, "rows": rows,
+            "unsupported": load_unsupported(batch_dir),
             "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in cells), 6),
             "unproxied_network": sorted({str(r["agent"].get("network")) for r in cells} - {"none"})}
 
@@ -108,10 +125,19 @@ def format_report(summary: dict[str, Any]) -> str:
         shown = summary["missing"][:10]
         lines.append("missing (no result.json; rerun the batch): " + ", ".join(shown)
                      + (f" and {len(summary['missing']) - len(shown)} more" if len(summary["missing"]) > 10 else ""))
+    lines += _unsupported_lines(summary.get("unsupported", []))
     if summary["unproxied_network"]:
         lines.append("warning: agents ran with network " + ", ".join(summary["unproxied_network"])
                      + " instead of the egress proxy (not implemented); their commands could reach any host")
     return "\n".join(lines)
+
+
+def _unsupported_lines(cells: list[dict[str, Any]]) -> list[str]:
+    by_task: dict[tuple[str, str], int] = defaultdict(int)
+    for u in cells:
+        by_task[(str(u["task"]), str(u["reason"]))] += 1
+    return [f"unsupported (not run, not failed): {task}, {n} cell(s): {reason}"
+            for (task, reason), n in sorted(by_task.items())]
 
 
 def _cell_arm(arm: str) -> str:
