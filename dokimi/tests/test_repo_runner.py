@@ -293,6 +293,7 @@ def _check_argv(root, out, *extra):
             "--out", str(out), "--cache-root", str(out / "caches"), *extra]
 
 
+@pytest.mark.outcome("cjm-tasks-check-graders")
 def test_tasks_check_ok_builds_image_without_tasks(toy, monkeypatch, capsys):
     runner = FakeRunner()
     _cli(_check_argv(toy["root"], toy["tmp"] / "chk"), monkeypatch, runner)
@@ -326,6 +327,7 @@ def _broken_variant(tmp_path, grader_patch: str, task_extra=None):
     ('meta = json.loads|||raise SystemExit(3)\nmeta = json.loads', "null: grader failure (grade exited 3"),
     ('recall = 1.0 if|||recall = 0.5 if', "oracle: recall = 0.5, below score.max 1.0"),
 ])
+@pytest.mark.outcome("cjm-tasks-check-graders")
 def test_tasks_check_finds_broken_graders(tmp_path, monkeypatch, capsys, patch, problem):
     root = _broken_variant(tmp_path, patch)
     with pytest.raises(SystemExit) as exc:
@@ -336,6 +338,7 @@ def test_tasks_check_finds_broken_graders(tmp_path, monkeypatch, capsys, patch, 
     assert any(problem in p for p in problems), problems
 
 
+@pytest.mark.outcome("cjm-tasks-check-isolation")
 def test_tasks_check_refuses_egress_and_flags_a_leaky_image(tmp_path, monkeypatch, capsys):
     root, _ = make_repo(tmp_path, {"fix_pip": {"family": "fix", "grader": "calc", "egress": ["pypi.org"],
                                                "prompt": "x"}})

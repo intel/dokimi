@@ -86,6 +86,7 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert summary["total_cost_usd"] == 0.04 and summary["unproxied_network"] == ["host"]
 
 
+@pytest.mark.outcome("cjm-repo-run-resume")
 def test_already_graded_cells_are_skipped_unless_forced(setup, capsys):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     assert "1 ran, 0 already done" in capsys.readouterr().out
@@ -95,6 +96,7 @@ def test_already_graded_cells_are_skipped_unless_forced(setup, capsys):
     assert "1 ran, 0 already done" in capsys.readouterr().out
 
 
+@pytest.mark.outcome("cjm-repo-grader-crash")
 def test_a_grader_crash_is_a_failure_not_an_exclusion(setup, monkeypatch, capsys):
     monkeypatch.setenv("FAKE_ACTION", "break")  # the agent deletes src/calc.py, the grader cannot import it
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2")
@@ -141,6 +143,7 @@ def test_run_refuses_to_open_the_network_silently(setup, capsys):
     assert not list((setup["out"] / "b1").glob("*/meta.json"))
 
 
+@pytest.mark.outcome("cjm-repo-run-egress")
 def test_run_refuses_an_egress_task_before_any_cell(tmp_path, monkeypatch, capsys):
     root, _ = make_repo(tmp_path, {"fix_pip": {"family": "fix", "grader": "calc", "egress": ["pypi.org"],
                                                "prompt": "x"}})

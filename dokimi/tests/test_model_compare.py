@@ -104,6 +104,7 @@ def test_consistency_baseline_mismatch_raises():
         )
 
 
+@pytest.mark.outcome("cjm-question-set-hash-warn")
 def test_consistency_hash_mismatch_warns():
     runs = [_run_pair("a", model="m1", q_hash="aaaa"), _run_pair("b", model="m2", q_hash="bbbb")]
     warns = check_run_consistency(runs, "g")
@@ -309,6 +310,7 @@ def test_pinned_treatment_arm_exempts_multi_arm_runs():
     assert check_run_consistency(runs, "regular", treatment_arm="docs") == []
 
 
+@pytest.mark.outcome("cjm-arm-digest-refused")
 def test_consistency_rejects_one_arm_name_carrying_two_prompts():
     """Editing a profile in place keeps the arm name, so only the digest separates the cells."""
     runs = [

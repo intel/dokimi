@@ -56,6 +56,7 @@ def _run(*argv):
     return args
 
 
+@pytest.mark.outcome("cjm-novelty-authoring-path")
 def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys):
     rival = tmp_path / "rival"
     rival.mkdir()
@@ -154,6 +155,7 @@ def test_a_cheap_tier_run_writes_its_forfeits_into_the_artifact(tmp_path, skill,
     assert any("--include-resources" in w for w in artifact["warnings"])
 
 
+@pytest.mark.outcome("cjm-novelty-stale-inventory")
 def test_probing_atoms_from_a_changed_artifact_is_refused(tmp_path, skill, stub_models):
     atoms_out = tmp_path / "atoms.json"
     _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--include-resources",
@@ -165,6 +167,7 @@ def test_probing_atoms_from_a_changed_artifact_is_refused(tmp_path, skill, stub_
              "--out", str(tmp_path / "p.json"))
 
 
+@pytest.mark.outcome("cjm-novelty-remeasure")
 def test_the_re_measure_step_probes_a_shortened_entry_point(tmp_path, skill, stub_models):
     """Step 8 of the walkthrough, which the end-to-end test stops short of.
 
@@ -214,6 +217,7 @@ def test_every_documented_novelty_command_parses():
         build_parser().parse_args(argv)
 
 
+@pytest.mark.outcome("cjm-novelty-estimate")
 def test_documented_estimate_prices_the_bundle_it_will_run():
     """The estimate must carry the flags of the run it prices, or it under-reports."""
     estimates = [c for c in _documented_novelty_commands() if "--estimate-only" in c]

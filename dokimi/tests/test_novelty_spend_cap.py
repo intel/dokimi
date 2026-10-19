@@ -30,6 +30,7 @@ def _priced(cost):
     return transport, calls
 
 
+@pytest.mark.outcome("cjm-novelty-spend-cap")
 def test_the_cap_refuses_the_call_after_the_limit_is_spent():
     transport, calls = _priced(0.6)
     client = LLMClient(model="m", transport=transport, cap=SpendCap(limit_usd=1.0))
@@ -40,6 +41,7 @@ def test_the_cap_refuses_the_call_after_the_limit_is_spent():
     assert calls == ["a", "b"]  # the refused call never reached the provider
 
 
+@pytest.mark.outcome("cjm-novelty-spend-cap")
 def test_a_call_without_a_price_stops_a_capped_run():
     transport, _ = _priced(None)
     client = LLMClient(model="m", transport=transport, cap=SpendCap(limit_usd=5.0))
@@ -71,6 +73,7 @@ def test_a_cap_that_could_never_trip_is_refused(value):
 
 
 @pytest.mark.parametrize("sub", ["analyze", "atoms", "probe", "shorten", "routing"])
+@pytest.mark.outcome("cjm-novelty-spend-cap")
 def test_every_command_that_calls_a_model_takes_the_flag(sub):
     extra = {"probe": ["--atoms", "a.json"], "shorten": ["--atoms", "a.json"],
              "routing": ["--competitors", "skill:y"]}.get(sub, [])
@@ -107,6 +110,7 @@ def test_the_cap_gets_through_a_stage_that_absorbs_failed_calls(tmp_path, monkey
     assert not out.exists()
 
 
+@pytest.mark.outcome("cjm-novelty-estimate")
 def test_the_estimate_points_at_the_cap(tmp_path, capsys):
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)

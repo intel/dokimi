@@ -1,0 +1,291 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The journey trace refuses broken links and never lets missing evidence pass.
+
+The catalog (docs/user-journeys/journeys.md) and the registry
+(tests/outcomes/journeys.yaml) must agree with each other, with the tree and
+with build_parser(); an enforced criterion passes only on claimed, passing
+evidence, and a cli_scenario only when its test parsed the declared command.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+import yaml
+
+from dokimi.cli import build_parser
+from tests.outcomes import journeys, plugin
+
+pytest_plugins = ["pytester"]
+
+ROOT = build_parser()
+
+
+def _catalog_text(extra_criteria: str = "") -> str:
+    parts = []
+    for n in range(1, 15):
+        parts.append(f"## J{n} — Journey {n}\n\n#### UC-J{n:02d}-001 Case\n\n- **AC-J{n:02d}-001** Criterion {n}.\n")
+    return "\n".join(parts) + extra_criteria
+
+
+def _tree(tmp_path, catalog=None, criteria=None):
+    """A repo root with a catalog, a registry and one doc, as the check reads them."""
+    pages = tmp_path / "docs" / "user-journeys"
+    pages.mkdir(parents=True)
+    (pages / "journeys.md").write_text(catalog if catalog is not None else _catalog_text(), encoding="utf-8")
+    (tmp_path / "doc.md").write_text("## Real heading\n", encoding="utf-8")
+    registry = tmp_path / "journeys.yaml"
+    registry.write_text(yaml.safe_dump({"schema": 1, "criteria": criteria or {}}), encoding="utf-8")
+    return registry
+
+
+def _evidence(results):
+    """plugin._evidence over ``results`` instead of the session's own."""
+    def lookup(evidence_id):
+        saved, plugin._results = plugin._results, results
+        try:
+            return plugin._evidence(evidence_id)
+        finally:
+            plugin._results = saved
+    return lookup
+
+
+def _check(tmp_path, criteria, results=None, invocations=None, catalog=None):
+    registry = _tree(tmp_path, catalog, criteria)
+    return journeys.check(registry, tmp_path, {}, _evidence(results or {}), invocations or {}, plugin._anchors)
+
+
+def _row(report, ac):
+    return next(r for r in report["criteria"] if r["id"] == ac)
+
+
+SCAN = {"id": "ev", "kind": "cli_scenario", "invokes": ["repo scan --out"], "stubs": []}
+
+
+# ------------------------------------------------------------------ the real tree
+
+
+def test_the_real_catalog_and_registry_have_no_problems():
+    catalog, problems = journeys.parse_catalog(plugin.REPO_ROOT / journeys.CATALOG)
+    assert problems == []
+    registry = yaml.safe_load((plugin.CONTRACT_DIR / "journeys.yaml").read_text(encoding="utf-8"))
+    contracts = {json.loads(p.read_text())["id"]: json.loads(p.read_text()) for p in plugin.CONTRACT_DIR.glob("*.json")}
+    assert journeys.static_problems(registry, catalog, plugin.REPO_ROOT, contracts, plugin._anchors, ROOT) == []
+    pages = sorted((plugin.REPO_ROOT / journeys.CATALOG).parent.glob("*.md"))
+    assert journeys.dangling_ids(pages, catalog) == []
+
+
+def test_the_real_catalog_keeps_the_fourteen_journeys_and_novelty_under_j14():
+    catalog, _ = journeys.parse_catalog(plugin.REPO_ROOT / journeys.CATALOG)
+    assert list(catalog["journeys"]) == journeys.JOURNEYS
+    assert not any("novelty" in j["title"].lower() for j in catalog["journeys"].values())
+    assert any("novelty" in catalog["use_cases"][uc]["title"].lower() for uc in catalog["journeys"]["J14"]["use_cases"])
+
+
+def test_every_enforced_criterion_names_evidence_some_test_claims():
+    """The ids are spelled as the markers spell them; a typo would only show at session end."""
+    registry = yaml.safe_load((plugin.CONTRACT_DIR / "journeys.yaml").read_text(encoding="utf-8"))
+    ids = {e["id"] for entry in registry["criteria"].values() if entry.get("enforce") for e in entry["evidence"]}
+    source = "\n".join(p.read_text(encoding="utf-8") for p in (plugin.REPO_ROOT / "tests").glob("test_*.py"))
+    assert sorted(i for i in ids if f'"{i}"' not in source) == []
+
+
+# ------------------------------------------------------------------ catalog problems
+
+
+def test_a_missing_journey_is_a_problem(tmp_path):
+    text = _catalog_text().replace("## J7 — Journey 7", "## Not a journey")
+    (tmp_path / "j.md").write_text(text, encoding="utf-8")
+    _, problems = journeys.parse_catalog(tmp_path / "j.md")
+    assert any("journeys not defined: J7" in p for p in problems)
+
+
+def test_a_duplicate_or_misplaced_criterion_is_a_problem(tmp_path):
+    text = _catalog_text("\n- **AC-J14-001** Again.\n- **AC-J03-009** Under J14.\n")
+    (tmp_path / "j.md").write_text(text, encoding="utf-8")
+    _, problems = journeys.parse_catalog(tmp_path / "j.md")
+    assert any("AC-J14-001 defined twice" in p for p in problems)
+    assert any("AC-J03-009 is not under a use case of J3" in p for p in problems)
+
+
+def test_a_criterion_inside_a_code_fence_is_not_defined(tmp_path):
+    text = _catalog_text("\n```\n- **AC-J14-002** Example only.\n```\n")
+    (tmp_path / "j.md").write_text(text, encoding="utf-8")
+    catalog, _ = journeys.parse_catalog(tmp_path / "j.md")
+    assert "AC-J14-002" not in catalog["criteria"]
+
+
+def test_an_id_a_page_mentions_but_the_catalog_lacks_is_dangling(tmp_path):
+    (tmp_path / "j.md").write_text(_catalog_text("\nSee AC-J04-099.\n"), encoding="utf-8")
+    catalog, _ = journeys.parse_catalog(tmp_path / "j.md")
+    found = journeys.dangling_ids([tmp_path / "j.md"], catalog)
+    assert len(found) == 1 and found[0].endswith(": AC-J04-099 is not defined in the catalog")
+
+
+# ------------------------------------------------------------------ registry problems
+
+
+@pytest.mark.parametrize("entry, problem", [
+    ({"delivery": "done"}, "delivery must be one of"),
+    ({"delivery": "proposed", "enforce": True, "evidence": [{"id": "e", "kind": "unit", "stubs": []}]},
+     "an enforced criterion is partial or available"),
+    ({"delivery": "available", "enforce": True, "evidence": [{"id": "e", "kind": "live_agent"}]},
+     "needs evidence a pytest session produces"),
+    ({"delivery": "available", "surfaces": ["repo nosuch"]}, "unknown command: repo nosuch"),
+    ({"delivery": "available", "surfaces": ["repo scan --no-such-flag"]}, "unknown flag: repo scan --no-such-flag"),
+    ({"delivery": "available", "surfaces": ["repo"]}, "not a leaf command: repo"),
+    ({"delivery": "available", "evidence": [{"id": "e", "kind": "cli_scenario", "stubs": []}]},
+     "a cli_scenario names the surface it invokes"),
+    ({"delivery": "available", "evidence": [{"id": "e", "kind": "unit", "invokes": ["repo scan"], "stubs": []}]},
+     "only a cli_scenario declares invokes"),
+    ({"delivery": "available", "evidence": [{"id": "e", "kind": "integration"}]}, "state its stubs"),
+    ({"delivery": "available", "evidence": [{"id": "e", "kind": "e2e", "stubs": []}]}, "kind must be one of"),
+    ({"delivery": "available", "refs": ["missing.py"]}, "missing path: missing.py"),
+    ({"delivery": "available", "refs": ["doc.md#renamed"]}, "missing anchor: doc.md#renamed"),
+    ({"delivery": "available", "outcome": "OUTCOME-NONE"}, "no outcome contract OUTCOME-NONE"),
+    ({"delivery": "available", "decision_ref": "see chat"}, "decision_ref is an issue or PR URL"),
+])
+def test_a_broken_entry_is_an_error(tmp_path, entry, problem):
+    report = _check(tmp_path, {"AC-J04-001": entry})
+    assert report["verdict"] == "error"
+    assert any(problem in p for p in report["problems"]), report["problems"]
+
+
+def test_a_criterion_the_catalog_does_not_define_is_an_error(tmp_path):
+    report = _check(tmp_path, {"AC-J04-777": {"delivery": "proposed"}})
+    assert report["verdict"] == "error"
+    assert any("AC-J04-777: not defined" in p for p in report["problems"])
+
+
+def test_evidence_outside_the_named_outcome_contract_is_an_error(tmp_path):
+    registry = _tree(tmp_path, criteria={"AC-J04-001": {
+        "delivery": "available", "outcome": "C", "evidence": [{"id": "other", "kind": "unit", "stubs": []}]}})
+    report = journeys.check(registry, tmp_path, {"C": {"evidence_ids": ["ev"]}}, _evidence({"other": ["passed"]}),
+                            {}, plugin._anchors)
+    assert any("other is not an evidence id of C" in p for p in report["problems"])
+
+
+def test_a_real_anchor_and_surface_resolve(tmp_path):
+    entry = {"delivery": "available", "refs": ["doc.md#real-heading"], "surfaces": ["repo scan --fail-on-fail"]}
+    assert _check(tmp_path, {"AC-J04-001": entry})["problems"] == []
+
+
+# ------------------------------------------------------------------ verdicts
+
+
+def _enforced(*evidence):
+    return {"AC-J04-001": {"delivery": "available", "enforce": True, "evidence": list(evidence)}}
+
+
+UNIT = {"id": "ev", "kind": "unit", "stubs": []}
+
+
+@pytest.mark.parametrize("outcomes, verdict", [
+    (None, "error"),
+    (["passed", "failed"], "fail"),
+    (["skipped", "skipped"], "inconclusive"),
+    (["passed"], "pass"),
+])
+def test_enforced_evidence_passes_only_when_claimed_and_passing(tmp_path, outcomes, verdict):
+    report = _check(tmp_path, _enforced(UNIT), results={"ev": outcomes} if outcomes else {})
+    assert report["verdict"] == verdict
+    assert _row(report, "AC-J04-001")["verdict"] == verdict
+
+
+def test_an_unenforced_criterion_with_unwritten_tests_is_not_run_and_blocks_nothing(tmp_path):
+    report = _check(tmp_path, {"AC-J04-001": {"delivery": "partial", "evidence": [UNIT]}})
+    assert report["verdict"] == "pass"
+    assert _row(report, "AC-J04-001")["verdict"] == "not_run"
+    assert "AC-J04-001" in report["unverified"]
+
+
+def test_untracked_criteria_are_listed_as_unverified(tmp_path):
+    report = _check(tmp_path, {})
+    assert report["verdict"] == "pass"
+    assert len(report["unverified"]) == 14 and not any(r["tracked"] for r in report["criteria"])
+
+
+def test_a_cli_scenario_that_never_parsed_its_command_does_not_pass(tmp_path):
+    report = _check(tmp_path, _enforced(SCAN), results={"ev": ["passed"]},
+                    invocations={"ev": [["repo", "reach", "x", "--out", "o"]]})
+    row = _row(report, "AC-J04-001")
+    assert report["verdict"] == "error" and row["verdict"] == "error"
+    assert row["evidence"][0]["invokes"] == {"repo scan --out": False}
+
+
+def test_a_cli_scenario_needs_every_declared_flag(tmp_path):
+    report = _check(tmp_path, _enforced(SCAN), results={"ev": ["passed"]},
+                    invocations={"ev": [["repo", "scan", "src@HEAD"]]})
+    assert report["verdict"] == "error"
+
+
+def test_a_cli_scenario_that_parsed_its_command_passes(tmp_path):
+    report = _check(tmp_path, _enforced(SCAN), results={"ev": ["passed"]},
+                    invocations={"ev": [["repo", "scan", "src@HEAD", "--out=r.json"]]})
+    assert report["verdict"] == "pass"
+
+
+def test_an_alias_reaches_the_same_command():
+    assert journeys.invoked(ROOT, "library list", [["product", "list"]])
+
+
+def test_the_report_states_its_provenance_and_stubs(tmp_path):
+    stubbed = {**UNIT, "stubs": ["model client"]}
+    report = _check(tmp_path, _enforced(stubbed), results={"ev": ["passed"]})
+    assert {"commit", "run_id", "date", "scope"} <= set(report["provenance"])
+    text = journeys.markdown(report)
+    assert "stubs: model client" in text and "not a completed real-user journey" in text
+    assert "13 of 14 documented criteria have no passing evidence" in text
+
+
+# ------------------------------------------------------------------ through a real session
+
+
+def _session(pytester, monkeypatch, criteria, test_source):
+    root = pytester.path
+    contracts = root / "contracts"
+    contracts.mkdir()
+    (contracts / "c.json").write_text(json.dumps({"id": "C", "evidence_ids": ["base"]}), encoding="utf-8")
+    registry = _tree(root, criteria=criteria)
+    registry.rename(contracts / "journeys.yaml")
+    monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REPO_ROOT", root)
+    monkeypatch.setattr(plugin, "_results", {})
+    monkeypatch.setattr(plugin, "_invocations", {})
+    pytester.makepyfile("import pytest\nfrom dokimi.cli import build_parser\n\n"
+                        "@pytest.mark.outcome('base')\ndef test_base():\n    assert True\n\n" + test_source)
+    result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes", "--outcomes-report=o.json",
+                                "--journeys-report=j.json")
+    return result, json.loads((root / "j.json").read_text())
+
+
+def test_a_session_records_the_argv_a_marked_test_parsed(pytester, monkeypatch):
+    result, report = _session(pytester, monkeypatch, _enforced(SCAN),
+                              "@pytest.mark.outcome('ev')\ndef test_scan():\n"
+                              "    build_parser().parse_args(['repo', 'scan', 'x@HEAD', '--out', 'r.json'])\n")
+    assert result.ret == 0 and report["verdict"] == "pass"
+    assert (pytester.path / "j.md").read_text().startswith("# Journey coverage")
+
+
+def test_a_command_named_only_in_a_string_is_not_an_invocation(pytester, monkeypatch):
+    result, report = _session(pytester, monkeypatch, _enforced(SCAN),
+                              "@pytest.mark.outcome('ev')\ndef test_scan():\n"
+                              "    assert 'repo scan --out' in 'python cli.py repo scan --out r.json'\n")
+    assert result.ret == 2 and report["verdict"] == "error"
+
+
+def test_an_argv_the_parser_rejects_is_not_an_invocation(pytester, monkeypatch):
+    result, report = _session(pytester, monkeypatch, _enforced(SCAN),
+                              "@pytest.mark.outcome('ev')\ndef test_scan():\n"
+                              "    with pytest.raises(SystemExit):\n"
+                              "        build_parser().parse_args(['repo', 'scan', '--out', 'r', '--bogus'])\n")
+    assert result.ret == 2 and report["verdict"] == "error"
+
+
+def test_an_all_skipped_enforced_criterion_makes_the_session_inconclusive(pytester, monkeypatch):
+    result, report = _session(pytester, monkeypatch, _enforced(UNIT),
+                              "@pytest.mark.outcome('ev')\ndef test_x():\n    pytest.skip('no docker')\n")
+    assert result.ret == 3 and report["verdict"] == "inconclusive"

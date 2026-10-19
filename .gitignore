@@ -10,6 +10,8 @@ coverage.json
 /dokimi/diff-cover.md
 /dokimi/compat.txt
 /dokimi/outcomes-result.json
+/dokimi/journeys-result.json
+/dokimi/journeys-result.md
 
 # Local environments and credentials
 .venv/

@@ -222,6 +222,7 @@ def test_invalid_static_output_is_reported_not_merged(toy):
     assert all(c["source"] == "framework" for c in payload["claims"])
 
 
+@pytest.mark.outcome("cjm-repo-scan")
 def test_scan_command_writes_a_valid_artifact(toy, tmp_path, capsys):
     root, sha = toy
     manifest_file = tmp_path / "m.json"

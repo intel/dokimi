@@ -100,6 +100,11 @@ validation:
 
 nav:
   - Home: README.md
+  - User journeys:
+      - user-journeys/README.md
+      - user-journeys/journeys.md
+      - user-journeys/flow-map.md
+      - user-journeys/traceability.md
   - Using Dokimi:
       - external-content.md
       - quickstart.md

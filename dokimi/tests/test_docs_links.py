@@ -17,7 +17,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 DOCS = PROJECT / "docs"
 #: Link *sources*: the docs plus the project README, which is the entry point most readers
 #: arrive through and links into `docs/` ten times.
-SOURCES = sorted(DOCS.glob("*.md")) + [PROJECT / "README.md"]
+SOURCES = sorted(DOCS.glob("*.md")) + sorted(DOCS.glob("user-journeys/*.md")) + [PROJECT / "README.md"]
 LINK = re.compile(r"\[[^\]]+\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 #: A reference-style definition, `[label]: target`, which an inline-only pattern never sees.
 REFERENCE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?([^\s>]+)>?", re.M)

@@ -73,6 +73,7 @@ def test_sequential_fails_an_inverted_judge_early():
     assert s["per_variant"]["truncate_20"]["n"] == SPRT_BATCH
 
 
+@pytest.mark.outcome("cjm-judge-cap-no-pass")
 def test_sequential_reports_the_cap_as_inconclusive():
     answers = _many_answers()
     report = run_sequential(answers, lambda *_: 50.0, max_bases=20, variants=["truncate_20"])

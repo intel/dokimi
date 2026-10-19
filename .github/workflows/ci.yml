@@ -184,7 +184,8 @@ jobs:
       # Offline by construction: pytest-socket (addopts in pyproject.toml) fails
       # any test that opens a network socket. --outcomes also checks the user
       # outcomes in tests/outcomes/: an evidence id that no test claims fails the
-      # job even when every test passes. -n auto: one pytest-xdist worker
+      # job even when every test passes. It also checks the journey trace
+      # (tests/outcomes/journeys.yaml) and writes the journey coverage report. -n auto: one pytest-xdist worker
       # per CPU. Coverage on the coverage leg only: one report is gated and
       # uploaded, and 3.14 traces through sys.monitoring, where the tracer costs
       # the least (the suite with --cov-branch takes about 40% longer on 3.11-3.13).
@@ -193,9 +194,9 @@ jobs:
           COVERAGE: ${{ matrix.coverage }}
         run: |
           if [ "$COVERAGE" = true ]; then
-            pytest -n auto --outcomes --outcomes-report=outcomes-result.json --cov=dokimi --cov-branch --cov-report=term --cov-report=xml
+            pytest -n auto --outcomes --outcomes-report=outcomes-result.json --journeys-report=journeys-result.json --cov=dokimi --cov-branch --cov-report=term --cov-report=xml
           else
-            pytest -n auto --outcomes --outcomes-report=outcomes-result.json
+            pytest -n auto --outcomes --outcomes-report=outcomes-result.json --journeys-report=journeys-result.json
           fi
       # Coverage of the lines this PR changes, not of the whole tree: the total
       # moves too little per PR to gate on, an untested new function does not.
@@ -229,6 +230,8 @@ jobs:
             dokimi/diff-cover.json
             dokimi/diff-cover.md
             dokimi/outcomes-result.json
+            dokimi/journeys-result.json
+            dokimi/journeys-result.md
           if-no-files-found: ignore
       # Trend, PR comment and badge. Informational only (codecov.yml): the gate
       # is the changed-lines step above, and a Codecov outage does not fail CI.
