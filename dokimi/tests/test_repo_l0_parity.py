@@ -24,12 +24,14 @@ FENCE = "```"
 ALL = ["bazel", "make", "cmake", "pytest", "pre-commit"]
 
 
-def _scan(tmp_path: Path, agents: str, files: dict[str, str], build_systems=ALL):
+def _scan(tmp_path: Path, agents: str, files: dict[str, str], build_systems=ALL, links: dict[str, str] | None = None):
     root = tmp_path / "r"
     for rel, text in {"AGENTS.md": agents, "ev/tasks/t/task.json": "{}", **files}.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
+    for rel, target in (links or {}).items():
+        (root / rel).symlink_to(target)
     run = lambda *a: subprocess.run(["git", "-C", str(root), *a], check=True, capture_output=True,  # noqa: E731
                                     text=True).stdout.strip()
     run("init", "-q")
@@ -67,6 +69,20 @@ _EXTERNAL = {
     "third_party/stray.BUILD": 'cc_library(name = "stray")\n',  # named by no .bzl file: not known to be @stray's
 }
 _EXTERNAL["third_party/repos.bzl"] += '    gen_repo(name = "gen", build_file = "//third_party:gen.BUILD")\n'
+_EXTERNAL_REVIEW = {
+    "BUILD": "", "MODULE.bazel": 'module(name = "case")\n',
+    "third_party/repos.bzl": 'def deps():\n    zlib_repo(name = "zlib", build_file = "//third_party:zlib.BUILD")\n'
+                             '    lib_repo(name = "lib", build_file = "//third_party:lib.BUILD")\n'
+                             '    tools_repo(name = "lib_tools", build_file = "//third_party:lib_tools.BUILD")\n'
+                             '    # old_repo(name = "zlib", build_file = "//old:zlib.BUILD")\n',
+    "third_party/zlib.BUILD": 'exports_files(["LICENSE"])\ncc_library(name = "zlib", srcs = ["adler32"])\n',
+    "old/zlib.BUILD": 'cc_library(name = "stale")\n',  # same basename, referenced only in a comment
+    "third_party/lib.BUILD": 'cc_library(name = "lib")\n',
+    "third_party/lib_tools.BUILD": 'cc_library(name = "tool")\n',
+}
+_BZL_UNPACK = {"BUILD": "", "defs.bzl": "MyInfo, _new_myinfo = provider(init = _init)\n",
+               "pair.bzl": "(A, B) = (1, 2)\n"}
+_CMAKE_LINKS = {"src/CMakeLists.txt": "", ".gitmodules": '[submodule "lib"]\n\tpath = vendor/lib\n'}
 _CMAKE = {"examples/app/CMakeLists.txt": "project(app)\n", "docs/conf.py": "", "sub/CMakeLists.txt": ""}
 
 CASES = [
@@ -102,6 +118,18 @@ CASES = [
       ("bazel_label", "@mkl//:mkl_core"): "ok", ("bazel_label", "@mkl//:mkl_core_win"): "ok",
       ("bazel_label", "@mkl//:mkl_cor"): "fail", ("bazel_label", "@gen//:any"): "unresolved",
       ("bazel_label", "@stray//:x"): "unresolved", ("bazel_label", "@other//:x"): "unresolved"}),
+    ("external repository: wildcards, exported and source files, which BUILD file is the repository's",
+     "`@zlib//:all` `@zlib//:all-targets` `@zlib//:LICENSE` `@zlib//:adler32` `@zlib//:stale` `@lib//:tool` "
+     "`@lib//:lib`", _EXTERNAL_REVIEW,
+     {("bazel_label", "@zlib//:all"): "ok", ("bazel_label", "@zlib//:all-targets"): "ok",
+      ("bazel_label", "@zlib//:LICENSE"): "ok", ("bazel_label", "@zlib//:adler32"): "unresolved",
+      ("bazel_label", "@zlib//:stale"): "fail", ("bazel_label", "@lib//:tool"): "fail",
+      ("bazel_label", "@lib//:lib"): "ok"}),
+    ("load of a name an unpacking assignment binds",
+     _fence("starlark", 'load("//:defs.bzl", "MyInfo", "_new_myinfo", "Gone")', 'load("//:pair.bzl", "A")'),
+     _BZL_UNPACK, {("starlark_load", "MyInfo from //:defs.bzl"): "ok",
+                   ("starlark_load", "_new_myinfo from //:defs.bzl"): "fail",
+                   ("starlark_load", "Gone from //:defs.bzl"): "fail", ("starlark_load", "A from //:pair.bzl"): "unresolved"}),
     ("the module's own repository name alone", "Use full `@case//` labels; `@case//:nope` is checked here.",
      {"BUILD": "", "MODULE.bazel": 'module(name = "case")\n'},
      {("bazel_label", "@case//"): "ok", ("bazel_label", "@case//:nope"): "fail"}),
@@ -120,6 +148,8 @@ CASES = [
      {("cmake_src", "."): "unresolved"}),
     ("cmake -S to a directory", _fence("bash", "cmake -S sub -B build", "cmake -Ssub -B build"), _CMAKE,
      {("cmake_src", "sub"): "ok"}),
+    ("cmake -S in a submodule after a cd", _fence("bash", "cd . && cmake -S vendor/lib -B build"), _CMAKE_LINKS,
+     {("cmake_src", "vendor/lib"): "unresolved"}),
     ("cmake -S after a cd that cannot be followed", _fence("bash", "cd $SRC && cmake -S . -B b", "cmake -S$X"),
      _CMAKE, {("cmake_src", "."): "unresolved", ("cmake_src", "$X"): None}),
 ]
@@ -132,6 +162,12 @@ def test_rule(tmp_path, name, agents, files, expected):
     if not expected:
         assert got == {}, got
     assert {k: got.get(k) for k in expected} == expected, got
+
+
+def test_cmake_source_through_a_directory_link(tmp_path):
+    agents = _fence("bash", "cd current", "cmake -S . -B build")
+    got = _verdicts(_scan(tmp_path, agents + "\n", {"src/CMakeLists.txt": ""}, links={"current": "src"}))
+    assert got[("cmake_src", ".")] == "ok", got
 
 
 def test_starlark_load_claims_carry_the_load_line(tmp_path):

@@ -154,7 +154,8 @@ def _literal(value: list[tuple[str, str]], list_ok: bool) -> bool:
 def _build_names(text: str) -> tuple[set[str], bool]:
     """The target and output names a BUILD file spells out, and whether it also makes names it does not spell out.
 
-    Spelled out: ``name = "x"`` or ``out = "x"`` (either quote), ``outs = ["x.h", ...]``. Computed: any other value
+    Spelled out: ``name = "x"`` or ``out = "x"`` (either quote), ``outs = ["x.h", ...]``, the files of a top-level
+    ``exports_files([...])``. Computed: any other value
     of those arguments (``"t_" + s``, ``"t_%s" % s``, a variable), a call at the start of a line, or in a comprehension
     that starts a line, to anything but a native rule or a builtin (a macro, which may generate targets).
     """
@@ -163,6 +164,7 @@ def _build_names(text: str) -> tuple[set[str], bool]:
     toks = list(_tokens(text))
     stack: list[str] = []
     comp = False  # inside a `[...]` or `{...}` at the top level that starts a line
+    exports = False  # inside the top-level `exports_files(...)` call
     for i, (kind, val, first) in enumerate(toks):
         prev = toks[i - 1] if i else ("", "", False)
         nxt = toks[i + 1] if i + 1 < len(toks) else ("", "", False)
@@ -173,6 +175,11 @@ def _build_names(text: str) -> tuple[set[str], bool]:
             if stack:
                 stack.pop()
             comp = comp and bool(stack)
+            exports = exports and bool(stack)
+        elif kind == "str" and exports:
+            names.add(val)
+        elif kind == "id" and val == "exports_files" and nxt[1] == "(" and not stack:
+            exports = True
         elif kind == "id" and nxt[1] == "(" and nxt[0] == "op" and prev[1] != ".":
             if ((not stack and first) or comp) and val not in BAZEL_NATIVE and val not in STARLARK_BUILTINS:
                 computed = True
@@ -246,7 +253,8 @@ def _other_repository(scan: Scan, file: str, line: int, label: str, parts: tuple
 
 def _check_external(scan: Scan, file: str, line: int, label: str, parts: tuple[str, str, str | None], ctx: str) -> None:
     """A label in another repository: checked when this tree holds that repository's BUILD file (see
-    :func:`_external_builds`), else ``unresolved``. A target that may be a file (``x.h``) is never ``fail``."""
+    :func:`_external_builds`), else ``unresolved``. A target that may be a file (``x.h``, or a name the BUILD file
+    uses as a string, as a source is) is never ``fail``."""
     repo, pkg, target = parts
     builds = _external_builds(scan, repo) if not pkg and target and "/" not in target else []
     if not builds or target is None:
@@ -259,9 +267,10 @@ def _check_external(scan: Scan, file: str, line: int, label: str, parts: tuple[s
         names |= found
         computed = computed or comp
     where = ", ".join(builds)
-    if target in names:
+    if target in names or target in ("all", "*", "all-targets"):
         scan.add(file, line, "bazel_label", label, "ok", f'name = "{target}" in {where}, the BUILD file of @{repo}', ctx)
-    elif computed or "." in target:
+    elif computed or "." in target or target in scan.cached(
+            f"bazel_strs:{where}", lambda: {v for b in builds for k, v, _ in _tokens(scan.text(b)) if k == "str"}):
         scan.add(file, line, "bazel_label", label, "unresolved",
                  f'no literal name = "{target}" in {where}; it may be computed there or be a file of @{repo}', ctx)
     else:
@@ -274,12 +283,38 @@ def _external_builds(scan: Scan, repo: str) -> list[str]:
     ``repo.tpl.BUILD``, ``repo_win.BUILD.bazel``) and named in turn by a ``.bzl`` file, ``MODULE.bazel`` or
     ``WORKSPACE``, as a ``build_file`` or a template is."""
     def make() -> list[str]:
-        refs = scan.cached("bazel_refs", lambda: "\n".join(
-            scan.text(f) for f in scan.files if f.endswith(".bzl") or f in ("MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel")))
+        paths, repos = scan.cached("bazel_refs", lambda: _bazel_refs(scan))
         r = re.escape(repo)
         named = re.compile(rf"^(?:BUILD\.{r}(?:\.bazel)?|{r}(?:[._][\w.-]*?)?\.BUILD(?:\.bazel)?)$")
-        return [f for f in scan.files if named.match(posixpath.basename(f)) and posixpath.basename(f) in refs]
+        longer = [o for o in repos if o != repo and o.startswith(repo)]  # `lib_tools.BUILD` is @lib_tools', not @lib's
+        return [f for f in scan.files if f in paths and named.match(b := posixpath.basename(f))
+                and not any(re.match(rf"^(?:BUILD\.)?{re.escape(o)}(?:[._]|$)", b) for o in longer)]
     return scan.cached(f"bazel_external:{repo}", make)
+
+
+def _bazel_refs(scan: Scan) -> tuple[set[str], set[str]]:
+    """The tracked paths that a string of a ``.bzl`` file, ``MODULE.bazel`` or ``WORKSPACE`` names (a label
+    ``//pkg:f``, ``:f`` or a bare ``f`` next to that file, or a path ``pkg/f``), and the repository names those files
+    declare (``name = "x"``). Comments do not count."""
+    paths: set[str] = set()
+    repos: set[str] = set()
+    for f in scan.files:
+        if not (f.endswith(".bzl") or f in ("MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel")):
+            continue
+        here = posixpath.dirname(f)
+        toks = list(_tokens(scan.text(f)))
+        for i, (kind, val, _) in enumerate(toks):
+            if kind != "str":
+                continue
+            if i >= 2 and toks[i - 1][1] == "=" and toks[i - 2][1] == "name":
+                repos.add(val)
+            m = re.match(r"^(?:@@?[\w.~+-]*)?//([^:]*):(.+)$", val)
+            if m:
+                paths.add(posixpath.normpath(posixpath.join(m.group(1), m.group(2))))
+            else:
+                paths.add(posixpath.normpath(posixpath.join(here, val.lstrip(":"))))
+                paths.add(posixpath.normpath(val))
+    return paths, repos
 
 
 def label_claims(scan: Scan, file: str, line: int, text: str) -> bool:
@@ -384,12 +419,22 @@ def _check_load(scan: Scan, file: str, line: int, args: str, snippet: str) -> No
     path = posixpath.join(m.group(2), m.group(3) or "")
     if path not in scan.file_set:
         return
-    public = scan.cached(f"bzl_public:{path}", lambda: {a or b for a, b in re.findall(
-        r"^def\s+([A-Za-z]\w*)\s*\(|^([A-Za-z]\w*)\s*=(?!=)", scan.text(path), re.M)})
+    public, other = scan.cached(f"bzl_public:{path}", lambda: _bzl_public(scan.text(path)))
     for sym in strs[1:]:
         ok = sym in public
-        scan.add(file, line, "starlark_load", f"{sym} from {strs[0]}", "ok" if ok else "fail",
-                 f"defined in {path}" if ok else f"no public top-level {sym} in {path}", snippet)
+        status = "ok" if ok else "unresolved" if other else "fail"
+        scan.add(file, line, "starlark_load", f"{sym} from {strs[0]}", status,
+                 f"defined in {path}" if ok else f"no public top-level {sym} in {path}"
+                 + ("; it binds names in a form not read here" if other else ""), snippet)
+
+
+def _bzl_public(text: str) -> tuple[set[str], bool]:
+    """The public top-level names of a ``.bzl`` file (``def x(``, ``x = ...``, ``x, _y = ...``), and whether it also
+    binds names in a form not read here (``(x, y) = ...``, ``[x] = ...``)."""
+    names: set[str] = set()
+    for m in re.finditer(r"^def\s+([A-Za-z]\w*)\s*\(|^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*,?\s*=(?!=)", text, re.M):
+        names.update(n for n in re.split(r"\s*,\s*", m.group(1) or m.group(2)) if n and not n.startswith("_"))
+    return names, re.search(r"^[(\[][^\n]*\)?\]?\s*=(?!=)", text, re.M) is not None
 
 
 def _load_strings(args: str) -> list[str]:
@@ -531,12 +576,15 @@ def _cmake_source(scan: Scan, file: str, line: int, src: str, text: str) -> None
         return
     dirs = [d for d in dict.fromkeys(posixpath.normpath(posixpath.join(b, src)) for b in (cd or ancestors(file)))
             if not d.startswith("..")]
-    hit = next((d for d in dirs if posixpath.normpath(posixpath.join(d, "CMakeLists.txt")) in scan.file_set), None)
+    hit = next((d for d in dirs if scan.exists(posixpath.join(d, "CMakeLists.txt"))), None)
     if hit is not None:
         scan.add(file, line, "cmake_src", src, "ok", f"{posixpath.normpath(posixpath.join(hit, 'CMakeLists.txt'))} exists", text)
     elif cd is None:
         scan.add(file, line, "cmake_src", src, "unresolved",
                  f"no CMakeLists.txt in {', '.join(dirs) or src}; it depends on where the command runs", text)
+    elif sub := scan.submodule_of(dirs):
+        scan.add(file, line, "cmake_src", src, "unresolved", f"inside the submodule {sub}, which this snapshot does not hold",
+                 text)
     else:
         scan.add(file, line, "cmake_src", src, "fail", f"no CMakeLists.txt in {', '.join(dirs)} after the `cd`", text)
 
