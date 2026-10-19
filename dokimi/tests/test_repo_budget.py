@@ -423,8 +423,7 @@ def test_unreadable_skill_warns_about_encoding_not_description(tmp_path):
     skill.parent.mkdir(parents=True)
     skill.write_bytes(b"\xff\xfe---\nname: a\ndescription: Do x y z\n---\nbody")
     got = budget(tree, NAMES)
-    assert got["warnings"] == [".claude/skills/a/SKILL.md: not readable (non-UTF-8 or binary), body counted as 0; "
-                               "the listing falls back to the directory name"]
+    assert got["warnings"] == [".claude/skills/a/SKILL.md: not readable (non-UTF-8 or binary), body counted as 0"]
     entries = _by_path(got)
     assert entries[(".claude/skills/a/SKILL.md", "skill body")]["chars"] == 0
 
@@ -602,10 +601,9 @@ def test_unreadable_skill_warnings_name_the_cause(tmp_path):
     (d / "dang").mkdir()
     _link(d / "dang" / "SKILL.md", "nowhere")
     got = budget(tree, NAMES)
-    tail = "body counted as 0; the listing falls back to the directory name"
     assert sorted(got["warnings"]) == [
-        f".claude/skills/bin/SKILL.md: not readable (non-UTF-8 or binary), {tail}",
-        f".claude/skills/dang/SKILL.md: not readable (not found, broken link, or outside tree), {tail}",
+        ".claude/skills/bin/SKILL.md: not readable (non-UTF-8 or binary), body counted as 0",
+        ".claude/skills/dang/SKILL.md: not readable (not found, broken link, or outside tree), body counted as 0",
     ]
 
 

@@ -131,8 +131,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
                         "them (import each with `@AGENTS.md` from a CLAUDE.md beside it; `repo reach` measures it)")
     for s in skills:
         if s["unreadable"]:
-            warnings.append(f"{s['path']}: not readable ({s['unreadable']}), body counted as 0; "
-                            "the listing falls back to the directory name")
+            warnings.append(f"{s['path']}: not readable ({s['unreadable']}), body counted as 0")
         elif s["listed"] and not s["description"]:
             warnings.append(f"{s['path']}: no description; the listing gives the agent nothing to choose it by")
     duplicates = _near_duplicates([s for s in skills if s["listed"]])
