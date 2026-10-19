@@ -307,6 +307,15 @@ reads the upstream base (`base_sha`) and the workspace start commit
   (Claude Code), `rc` is `0` or `1`. It is `null` when no result came back,
   for example when the run stopped at its turn or budget limit; a grader
   must not count `null` as a failure.
+- `agent` is present on an event a subagent made: the id of the parent's
+  `Agent`/`Task` call that started it. Events without it are the parent's.
+
+`result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
+`cache_read_tokens`, `cache_write_tokens`) over the same scope as `cost_usd`.
+`usage_scope` is `tree` when they include subagents and helper models (Claude
+Code's `modelUsage`), `main` when the harness reported the parent's only, and
+`null` when it reported none. `subagent_calls` counts the parent's and
+subagents' `Agent`/`Task` calls.
 
 ### 4.2 `grade.json` (written by `grade` to `{run_dir}/grade.json`)
 

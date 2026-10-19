@@ -291,6 +291,31 @@ def test_claude_stream_json_to_events():
         convert("xml", "")
 
 
+def test_tokens_cover_the_subagents_the_cost_covers():
+    lines = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Agent", "input": {"prompt": "find x"}}]}},
+        {"type": "assistant", "parent_tool_use_id": "t1", "message": {"content": [
+            {"type": "tool_use", "id": "c1", "name": "Read", "input": {"file_path": "/ws/a.c"}}]}},
+        {"type": "result", "result": "ok", "total_cost_usd": 0.5,
+         "usage": {"input_tokens": 7, "output_tokens": 2},
+         "modelUsage": {"m-main": {"inputTokens": 7, "outputTokens": 2, "cacheReadInputTokens": 100},
+                        "m-sub": {"inputTokens": 30, "outputTokens": 9, "cacheCreationInputTokens": 5}}},
+    ]
+    t = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
+    assert (t.input_tokens, t.output_tokens, t.cache_read_tokens, t.cache_write_tokens) == (37, 11, 100, 5)
+    assert t.usage_scope == "tree" and t.subagent_calls == 1
+    assert t.events[1] == {"t": None, "kind": "read", "path": "a.c", "agent": "t1"}
+    assert "agent" not in t.events[0]
+
+
+def test_tokens_without_model_usage_are_the_parents_only():
+    raw = json.dumps({"type": "result", "result": "ok", "usage": {"input_tokens": 7, "output_tokens": 2}})
+    t = convert("claude-stream-json", raw)
+    assert (t.input_tokens, t.output_tokens, t.usage_scope) == (7, 2, "main")
+    assert convert("claude-stream-json", json.dumps({"type": "result", "result": "ok"})).usage_scope is None
+
+
 @pytest.mark.parametrize("line", [
     {"type": "assistant", "message": "hi"},
     {"type": "result", "result": "x", "usage": "n/a"},

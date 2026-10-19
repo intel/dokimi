@@ -52,6 +52,16 @@ def _parse_claude_json(stdout: str, task: str, model: str, latency: float) -> Op
 
 def _tokens(obj: dict) -> tuple[int, int, int, int]:
     """Input, output, cache-read and cache-write tokens of a result object."""
+    counts = token_counts(obj)
+    return counts[1] if counts is not None else (0, 0, 0, 0)
+
+
+def token_counts(obj: dict) -> Optional[tuple[str, tuple[int, int, int, int]]]:
+    """``(scope, (input, output, cache_read, cache_write))`` of a result object, ``None`` without usage.
+
+    ``scope`` is ``"tree"`` when summed over ``modelUsage`` (the scope of
+    ``total_cost_usd``), ``"main"`` when only the parent's ``usage`` is there.
+    """
 
     def n(block: dict, key: str) -> int:
         try:
@@ -65,11 +75,12 @@ def _tokens(obj: dict) -> tuple[int, int, int, int]:
         if isinstance(by_model, dict) else []
     if per_model:
         i, o, r, w = (sum(n(m, k) for m in per_model) for k in keys)
-        return i, o, r, w
+        return "tree", (i, o, r, w)
     usage = obj.get("usage")
-    u: dict = usage if isinstance(usage, dict) else {}
-    return (n(u, "input_tokens"), n(u, "output_tokens"), n(u, "cache_read_input_tokens"),
-            n(u, "cache_creation_input_tokens"))
+    if not isinstance(usage, dict):
+        return None
+    return "main", (n(usage, "input_tokens"), n(usage, "output_tokens"), n(usage, "cache_read_input_tokens"),
+                    n(usage, "cache_creation_input_tokens"))
 
 
 def _main_model(model_usage: object) -> str:
