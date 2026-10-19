@@ -80,6 +80,10 @@ CI additionally holds a PR to:
 - **mypy on the whole package.** No module is exempt: fix the type errors rather
   than adding an `ignore_errors` override to `pyproject.toml` (`tests/test_mypy_config.py`
   fails on one).
+- **The import contract.** `tests/test_import_architecture.py` holds the layers
+  (front end → tracks → evaluation → components → foundation; nothing imports `cli` or
+  `commands`), fails a new import cycle, and keeps provider SDKs behind `dokimi.llm` and
+  child processes behind `dokimi.process`. Its baselines only shrink.
 - **Tests that fail loudly.** `pytest` fails a test that runs over 60 s
   (`@pytest.mark.timeout(N)` allows more), turns a warning into an error, and
   shuffles the test order (pytest-randomly). The header prints

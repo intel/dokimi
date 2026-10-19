@@ -1,0 +1,493 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The package's import contract: layers, no new import cycles, wrapped clients.
+
+Three rules, read from one import graph of ``dokimi/`` (``ast``, no import is run):
+
+* **Layers.** Every module sits in one layer of :data:`LAYERS` and imports only from
+  its own layer or the layers below it. ``cli`` and ``commands`` are the front end; no
+  other module imports them. An edge already breaking this is in
+  :data:`LAYER_BASELINE` with its reason.
+* **Cycles.** An import cycle is a strongly connected component (SCC) of the graph.
+  Every SCC must be one of :data:`CYCLE_BASELINE`: no new cycle, no module joining a
+  baselined one. A baselined cycle that shrinks or breaks leaves the baseline in the
+  same change, so it cannot grow back.
+* **Wrapped clients.** LLM provider SDKs are imported only by :mod:`dokimi.llm`, and a
+  child process is started only by :mod:`dokimi.process`. Exceptions are in
+  :data:`BANNED_BASELINE` and :data:`SPAWN_BASELINE`.
+
+Function-level (lazy) imports count: they defer a cycle to call time, they do not
+remove the dependency. Imports under ``if TYPE_CHECKING:`` never run, so they count
+for layers but not for cycles.
+
+A baseline only shrinks. Never add an entry to make a new import pass: import from
+the right layer, or move the shared piece down. Each rule has a test below that plants
+a violation in a scratch package and checks the rule fails on it, so a broken checker
+cannot pass silently.
+"""
+
+from __future__ import annotations
+
+import ast
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable, Mapping
+
+import pytest
+
+PROJECT = Path(__file__).resolve().parents[1]
+PACKAGE = "dokimi"
+
+#: Layers, top first. An entry names a module or a package (and everything under it);
+#: the bare package name means ``dokimi/__init__.py`` only. A module may import from
+#: its own layer and any layer below it.
+LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # The argparse front end: parses flags, calls into the tracks, prints.
+    ("frontend", ("dokimi.__main__", "dokimi.cli", "dokimi.commands")),
+    # Whole tracks and the tools beside them: static run, novelty, executable tasks,
+    # repositories, subjects, reports, dashboards, the one-command pipeline.
+    ("tracks", (
+        "dokimi.config_check", "dokimi.context", "dokimi.coverage", "dokimi.dashboard",
+        "dokimi.datasets_export", "dokimi.explore", "dokimi.external", "dokimi.harnesses",
+        "dokimi.novelty", "dokimi.orchestrator", "dokimi.report", "dokimi.repos",
+        "dokimi.runner", "dokimi.schema_check", "dokimi.schema_compat", "dokimi.subjects",
+        "dokimi.tool_preference",
+    )),
+    # The LLM evaluation engine: answering, judging, panels, arms, questions, personas.
+    ("evaluation", (
+        "dokimi.eval", "dokimi.personas", "dokimi.plugins", "dokimi.questions",
+        "dokimi.treatments",
+    )),
+    # Content loaders and pure scoring: doc sources, skills, agent profiles, Markdown
+    # ingest, static metrics, gates.
+    ("components", (
+        "dokimi.agent_profiles", "dokimi.gate", "dokimi.ingest", "dokimi.mcp",
+        "dokimi.metrics", "dokimi.skills",
+    )),
+    # What everything shares: defaults, registries, artifact I/O, the LLM and process
+    # chokepoints, console output.
+    ("foundation", (
+        "dokimi", "dokimi._version", "dokimi.artifacts", "dokimi.caching", "dokimi.config",
+        "dokimi.console", "dokimi.defaults", "dokimi.intents", "dokimi.llm",
+        "dokimi.process", "dokimi.registry", "dokimi.utils",
+        # Token/cost record the LLM chokepoint fills; it lives under metrics/ but
+        # depends on nothing and is read by every LLM caller.
+        "dokimi.metrics.usage",
+    )),
+)
+
+#: Imports that already cross a layer upward, (importer, imported): reason.
+LAYER_BASELINE: dict[tuple[str, str], str] = {
+    ("dokimi.gate.novelty_gate", "dokimi.novelty.bundle"):
+        "the novelty gate reads Coverage and its basis from the bundle; the bundle "
+        "record belongs below gate (and closes the novelty cycle below)",
+}
+
+#: Import cycles that exist today, each the exact module set of one SCC: reason.
+CYCLE_BASELINE: dict[frozenset[str], str] = {
+    frozenset({"dokimi.eval.judge", "dokimi.eval.panel"}):
+        "panel imports Judge lazily; judge imports the panel's numeric-claim prompts",
+    frozenset({"dokimi.eval.interactions", "dokimi.eval.stats"}):
+        "stats re-exports interactions at its end, which imports stats' private helpers",
+    frozenset({"dokimi.eval.judge_sequential", "dokimi.eval.judge_validity"}):
+        "judge_validity imports the SPRT bounds lazily from judge_sequential",
+    frozenset({"dokimi.harnesses.exploration", "dokimi.harnesses.models"}):
+        "models imports summarize_exploration lazily; exploration needs OperationRecord",
+    frozenset({"dokimi.gate.novelty_gate", "dokimi.novelty.analyze", "dokimi.novelty.bundle",
+               "dokimi.novelty.report"}):
+        "bundle imports load_artifact_text lazily from analyze; analyze imports the gate "
+        "DEFAULTS lazily; the gate imports the bundle",
+    frozenset({"dokimi.repos.bases", "dokimi.repos.manifest"}):
+        "manifest imports check_bases lazily; bases needs RepoCheckReport",
+    frozenset({"dokimi.repos.l0.adapters", "dokimi.repos.l0.core"}):
+        "core imports adapters lazily; adapters needs Scan from core",
+    frozenset({"dokimi.commands.repo", "dokimi.commands.repo_run"}):
+        "repo dispatches to repo_run lazily; repo_run reuses repo's manifest helpers",
+}
+
+#: Third-party modules only their wrapper imports: banned module -> the wrapper.
+BANNED_IMPORTS: dict[str, str] = {
+    "anthropic": "dokimi.llm",
+    "langchain_anthropic": "dokimi.llm",
+    "langchain_openai": "dokimi.llm",
+    "litellm": "dokimi.llm",
+    "openai": "dokimi.llm",
+}
+
+#: Modules importing a banned module anyway, (importer, banned module): reason.
+BANNED_BASELINE: dict[tuple[str, str], str] = {
+    ("dokimi.eval.ragas_eval", "langchain_anthropic"):
+        "ragas takes a LangChain chat model; dokimi.llm has no LangChain adapter",
+    ("dokimi.eval.ragas_eval", "langchain_openai"):
+        "ragas takes a LangChain chat model; dokimi.llm has no LangChain adapter",
+    ("dokimi.questions.validator", "openai"):
+        "embeddings for deduplication; dokimi.llm wraps chat completions only",
+}
+
+#: The process wrapper; every other module starts a child through it.
+SPAWN_WRAPPER = "dokimi.process"
+_SPAWNS = {
+    "subprocess": {"Popen", "call", "check_call", "check_output", "getoutput",
+                   "getstatusoutput", "run"},
+    "os": {"execl", "execle", "execlp", "execlpe", "execv", "execve", "execvp", "execvpe",
+           "popen", "posix_spawn", "posix_spawnp", "spawnl", "spawnle", "spawnlp",
+           "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe", "system"},
+    "asyncio": {"create_subprocess_exec", "create_subprocess_shell"},
+}
+
+#: Modules that still start a child directly: module -> (spawn sites, reason).
+SPAWN_BASELINE: dict[str, tuple[int, str]] = {
+    "dokimi.harnesses.container_agent": (
+        1, "docker exec of the agent in the task container; not yet on process.run"),
+    "dokimi.harnesses.docker_solver": (
+        1, "the solver's docker run; moving to process.run in its own change"),
+    "dokimi.harnesses.solver_stream": (
+        1, "runs the solver and records its partial stream on timeout"),
+}
+
+
+# --- the import graph -------------------------------------------------------------
+
+#: Edge kinds, strongest first: a module-level import, one inside a function, one
+#: under ``if TYPE_CHECKING:``.
+MODULE, LAZY, TYPING = "module", "lazy", "typing"
+_RANK = {MODULE: 0, LAZY: 1, TYPING: 2}
+
+
+@dataclass(frozen=True)
+class Imports:
+    """One package's imports: first-party module edges and third-party names."""
+
+    modules: frozenset[str]
+    #: importer -> imported first-party module -> (kind, line)
+    edges: Mapping[str, Mapping[str, tuple[str, int]]]
+    #: importer -> top-level third-party (or stdlib) module -> line
+    external: Mapping[str, Mapping[str, int]]
+    trees: Mapping[str, ast.Module]
+
+
+def _module_name(path: Path, root: Path) -> str:
+    parts = list(path.relative_to(root).with_suffix("").parts)
+    return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
+
+
+def _guarded_by_type_checking(test: ast.expr) -> bool:
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING")
+
+
+def _kinds(tree: ast.Module) -> dict[int, str]:
+    """``id(node) -> kind`` for every import that is not at module level."""
+    kinds: dict[int, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for inner in ast.walk(node):
+                kinds.setdefault(id(inner), LAZY)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and _guarded_by_type_checking(node.test):
+            for stmt in node.body:
+                for inner in ast.walk(stmt):
+                    kinds[id(inner)] = TYPING
+    return kinds
+
+
+def build_imports(root: Path, package: str = PACKAGE) -> Imports:
+    """Parse every module under ``root/package``; nothing is imported."""
+    paths = {_module_name(p, root): p for p in sorted((root / package).rglob("*.py"))}
+    modules = frozenset(paths)
+    trees = {m: ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
+             for m, p in paths.items()}
+
+    def resolve(name: str) -> str | None:
+        while name and name not in modules:
+            name = name.rpartition(".")[0]
+        return name or None
+
+    edges: dict[str, dict[str, tuple[str, int]]] = {}
+    external: dict[str, dict[str, int]] = {}
+    for mod, tree in trees.items():
+        here = mod if paths[mod].name == "__init__.py" else mod.rpartition(".")[0]
+        kinds = _kinds(tree)
+        out = edges.setdefault(mod, {})
+        ext = external.setdefault(mod, {})
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                targets = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    base = here.split(".")[: len(here.split(".")) - node.level + 1]
+                    origin = ".".join(base + ([node.module] if node.module else []))
+                else:
+                    origin = node.module or ""
+                # `from pkg import sub` depends on pkg.sub; any other name, on pkg.
+                subs = [f"{origin}.{a.name}" for a in node.names
+                        if f"{origin}.{a.name}" in modules]
+                targets = subs if len(subs) == len(node.names) else [*subs, origin]
+            else:
+                continue
+            kind = kinds.get(id(node), MODULE)
+            for target in targets:
+                if target != package and not target.startswith(package + "."):
+                    ext.setdefault(target.partition(".")[0], node.lineno)
+                    continue
+                dst = resolve(target)
+                if dst is None or dst == mod:
+                    continue
+                if dst not in out or _RANK[kind] < _RANK[out[dst][0]]:
+                    out[dst] = (kind, node.lineno)
+    return Imports(modules, edges, external, trees)
+
+
+def strongly_connected(imports: Imports, kinds: Iterable[str] = (MODULE, LAZY)
+                       ) -> list[frozenset[str]]:
+    """Import cycles: every SCC with more than one module (Tarjan)."""
+    keep = set(kinds)
+    graph = {m: sorted(d for d, (k, _) in imports.edges.get(m, {}).items() if k in keep)
+             for m in sorted(imports.modules)}
+    index: dict[str, int] = {}
+    low: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    found: list[frozenset[str]] = []
+
+    def visit(v: str) -> None:
+        index[v] = low[v] = len(index)
+        stack.append(v)
+        on_stack.add(v)
+        for w in graph[v]:
+            if w not in index:
+                visit(w)
+                low[v] = min(low[v], low[w])
+            elif w in on_stack:
+                low[v] = min(low[v], index[w])
+        if low[v] == index[v]:
+            component = set()
+            while True:
+                w = stack.pop()
+                on_stack.discard(w)
+                component.add(w)
+                if w == v:
+                    break
+            if len(component) > 1:
+                found.append(frozenset(component))
+
+    for v in graph:
+        if v not in index:
+            visit(v)
+    return found
+
+
+# --- the rules --------------------------------------------------------------------
+
+
+def layer_of(module: str, layers=LAYERS, package: str = PACKAGE) -> str | None:
+    """The layer of the longest entry naming ``module`` or a package above it."""
+    best: tuple[int, str] | None = None
+    for name, entries in layers:
+        for entry in entries:
+            hit = module == entry or (entry != package and module.startswith(entry + "."))
+            if hit and (best is None or len(entry) > best[0]):
+                best = (len(entry), name)
+    return best[1] if best else None
+
+
+def layer_violations(imports: Imports, layers=LAYERS) -> dict[tuple[str, str], str]:
+    """Every import of a higher layer: (importer, imported) -> description."""
+    rank = {name: i for i, (name, _) in enumerate(layers)}
+    found = {}
+    for src, deps in imports.edges.items():
+        src_layer = layer_of(src, layers)
+        for dst, (kind, line) in deps.items():
+            dst_layer = layer_of(dst, layers)
+            if src_layer and dst_layer and rank[dst_layer] < rank[src_layer]:
+                found[(src, dst)] = f"{src}:{line} ({src_layer}) imports {dst} ({dst_layer}), {kind}"
+    return found
+
+
+def cycle_problems(found: Iterable[frozenset[str]],
+                   baseline: Mapping[frozenset[str], str]) -> list[str]:
+    """A cycle not in the baseline, or a baseline entry that is no longer a cycle."""
+    found = set(found)
+    problems = []
+    for cycle in sorted(found - set(baseline), key=sorted):
+        grown = [b for b in baseline if b < cycle]
+        what = (f"grew from {sorted(grown[0])}" if grown else "is new")
+        if any(cycle < b for b in baseline):
+            what = "shrank: replace its CYCLE_BASELINE entry with this set"
+        problems.append(f"import cycle {sorted(cycle)} {what}")
+    for gone in sorted(set(baseline) - found, key=sorted):
+        if not any(cycle < gone for cycle in found):
+            problems.append(f"baselined cycle {sorted(gone)} is gone: delete it from CYCLE_BASELINE")
+    return problems
+
+
+def banned_imports(imports: Imports, banned=BANNED_IMPORTS) -> dict[tuple[str, str], int]:
+    """(importer, banned module) -> line, for every importer but the wrapper."""
+    return {(mod, name): line
+            for mod, names in imports.external.items()
+            for name, line in names.items()
+            if name in banned and mod != banned[name]}
+
+
+def spawn_sites(tree: ast.Module) -> list[int]:
+    """Lines that start a child process without :mod:`dokimi.process`."""
+    aliases: dict[str, str] = {}
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name in _SPAWNS:
+                    aliases[a.asname or a.name] = a.name
+        elif isinstance(node, ast.ImportFrom) and node.module in _SPAWNS and not node.level:
+            lines += [node.lineno for a in node.names if a.name in _SPAWNS[node.module]]
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.attr in _SPAWNS.get(aliases.get(node.func.value.id, ""), ())):
+            lines.append(node.lineno)
+    return sorted(lines)
+
+
+def spawn_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
+                   wrapper: str = SPAWN_WRAPPER) -> list[str]:
+    counts = {m: spawn_sites(t) for m, t in imports.trees.items() if m != wrapper}
+    problems = []
+    for mod, lines in sorted(counts.items()):
+        allowed = baseline.get(mod, (0, ""))[0]
+        if len(lines) > allowed:
+            problems.append(f"{mod} starts a process at lines {lines}; use {wrapper}.run")
+    for mod, (allowed, _) in sorted(baseline.items()):
+        now = len(counts.get(mod, []))
+        if now < allowed:
+            problems.append(f"{mod} has {now} spawn site(s), baseline {allowed}: lower SPAWN_BASELINE")
+    return problems
+
+
+# --- the package ------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def imports() -> Imports:
+    return build_imports(PROJECT)
+
+
+def test_every_module_is_in_a_layer(imports):
+    unplaced = sorted(m for m in imports.modules if layer_of(m) is None)
+    assert not unplaced, f"{unplaced} are in no layer: add them to LAYERS in this test"
+
+
+def test_no_import_crosses_a_layer_upward(imports):
+    new = layer_violations(imports)
+    added = [desc for edge, desc in sorted(new.items()) if edge not in LAYER_BASELINE]
+    assert not added, (
+        "imports from a higher layer (see LAYERS in tests/test_import_architecture.py; "
+        "frontend modules are imported by no one):\n  " + "\n  ".join(added))
+
+
+def test_a_fixed_layer_violation_leaves_the_baseline(imports):
+    stale = sorted(set(LAYER_BASELINE) - set(layer_violations(imports)))
+    assert not stale, f"{stale} no longer cross a layer; delete them from LAYER_BASELINE"
+
+
+def test_import_cycles_do_not_grow(imports):
+    problems = cycle_problems(strongly_connected(imports), CYCLE_BASELINE)
+    assert not problems, "\n".join(problems)
+
+
+def test_llm_provider_sdks_go_through_dokimi_llm(imports):
+    found = banned_imports(imports)
+    added = sorted(f"{m}:{line} imports {name}; use {BANNED_IMPORTS[name]}"
+                   for (m, name), line in found.items() if (m, name) not in BANNED_BASELINE)
+    stale = sorted(set(BANNED_BASELINE) - set(found))
+    assert not added, "\n".join(added)
+    assert not stale, f"{stale} no longer import the banned module; delete them from BANNED_BASELINE"
+
+
+def test_child_processes_start_through_dokimi_process(imports):
+    problems = spawn_problems(imports, SPAWN_BASELINE)
+    assert not problems, "\n".join(problems)
+
+
+def test_baselines_are_explained_and_name_real_modules(imports):
+    reasons = [*LAYER_BASELINE.values(), *CYCLE_BASELINE.values(), *BANNED_BASELINE.values(),
+               *(reason for _, reason in SPAWN_BASELINE.values())]
+    assert all(r.strip() for r in reasons), "every baseline entry carries its reason"
+    named = {*(m for edge in LAYER_BASELINE for m in edge), *(m for c in CYCLE_BASELINE for m in c),
+             *(m for m, _ in BANNED_BASELINE), *SPAWN_BASELINE}
+    assert named <= imports.modules, f"{sorted(named - imports.modules)} name no module"
+
+
+# --- each rule fails on a violation ---------------------------------------------
+
+
+def _package(tmp_path: Path, files: dict[str, str]) -> Imports:
+    for rel, text in {"dokimi/__init__.py": "", **files}.items():
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        if path.parent != tmp_path / "dokimi":
+            (path.parent / "__init__.py").touch()
+    return build_imports(tmp_path)
+
+
+def test_core_importing_the_frontend_is_a_violation(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/eval/judge.py": "def f():\n    from dokimi.commands import run\n",
+        "dokimi/commands/run.py": "",
+    })
+    assert ("dokimi.eval.judge", "dokimi.commands.run") in layer_violations(imports)
+
+
+def test_an_upward_import_is_a_violation_even_when_type_only(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/llm.py": ("from typing import TYPE_CHECKING\n"
+                          "if TYPE_CHECKING:\n    from dokimi.eval import stats\n"),
+        "dokimi/eval/stats.py": "from ..llm import LLM\n",
+    })
+    found = layer_violations(imports)
+    assert set(found) == {("dokimi.llm", "dokimi.eval.stats")}
+    assert found[("dokimi.llm", "dokimi.eval.stats")].endswith("typing")
+
+
+def test_a_new_and_a_grown_cycle_fail_and_a_type_only_one_does_not(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/eval/a.py": "from dokimi.eval import b\n",
+        "dokimi/eval/b.py": "def f():\n    from . import a\n",
+        "dokimi/eval/c.py": "from dokimi.eval.a import X\n",
+        "dokimi/eval/d.py": "import typing\nif typing.TYPE_CHECKING:\n    from . import e\n",
+        "dokimi/eval/e.py": "from . import d\n",
+    })
+    cycles = strongly_connected(imports)
+    ab = frozenset({"dokimi.eval.a", "dokimi.eval.b"})
+    assert cycles == [ab]
+    assert cycle_problems(cycles, {ab: "known"}) == []
+    assert "is new" in cycle_problems(cycles, {})[0]
+    grown = cycle_problems([ab | {"dokimi.eval.c"}], {ab: "known"})
+    assert "grew from" in grown[0]
+
+
+def test_a_shrunk_or_broken_cycle_must_leave_the_baseline():
+    abc = frozenset({"a", "b", "c"})
+    assert "shrank" in cycle_problems([frozenset({"a", "b"})], {abc: "known"})[0]
+    assert "is gone" in cycle_problems([], {abc: "known"})[0]
+
+
+def test_a_provider_sdk_outside_the_wrapper_is_banned(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/llm.py": "def f():\n    from litellm import completion\n",
+        "dokimi/eval/judge.py": "def f():\n    import litellm.utils\n",
+    })
+    assert set(banned_imports(imports)) == {("dokimi.eval.judge", "litellm")}
+
+
+def test_a_direct_spawn_outside_the_wrapper_fails(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/process.py": "import subprocess\nsubprocess.Popen(['x'])\n",
+        "dokimi/a.py": "import subprocess as sp\nsp.run(['x'])\nsp.TimeoutExpired\n",
+        "dokimi/b.py": "from subprocess import check_output\n",
+        "dokimi/c.py": "import os\nos.system('x')\nos.path.join('a')\n",
+    })
+    problems = spawn_problems(imports, {"dokimi.c": (2, "two sites once")})
+    assert [p.split()[0] for p in problems] == ["dokimi.a", "dokimi.b", "dokimi.c"]
+    assert "lower SPAWN_BASELINE" in problems[-1]

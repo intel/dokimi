@@ -28,6 +28,9 @@ also holds a PR to:
 - 80% coverage of changed lines (when 20+ are measurable): add tests with the change.
 - mypy on the whole package, no module exempt: fix a type error rather than
   adding an `ignore_errors` override to `pyproject.toml`.
+- Imports follow the layers in `dokimi/tests/test_import_architecture.py`: no
+  upward import, no new cycle, LLM SDKs only in `dokimi.llm`, spawns only in
+  `dokimi.process`. Its baselines only shrink.
 - Docs that name a command, flag, path or module must match the tree
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
