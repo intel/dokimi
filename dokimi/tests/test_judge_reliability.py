@@ -1535,11 +1535,15 @@ def test_score_measure_marks_a_measure_stored_only_if_an_arm_saw_material():
 
     real = JudgeContextStore()
     real.put("q1", "skill", "real material")
+    # the baseline answer falls back to snippets, so the judge saw both kinds: mixed, not stored
+    assert cj.score_measure(records, scorer, name="p/m", library="lib", store=real).context == "mixed"
+    real.put("q1", "baseline", "other material")
     assert cj.score_measure(records, scorer, name="p/m", library="lib", store=real).context == "stored"
-    # A store holding only the empty baseline text is not material (the Thread 3 trap).
+    # An empty stored baseline is still "stored" (the arm was judged with the no-context
+    # marker), and the skill answer falls back to snippets: a mix, which validates nothing.
     empty = JudgeContextStore()
     empty.put("q1", "baseline", "")
-    assert cj.score_measure(records, scorer, name="p/m", library="lib", store=empty).context == "none"
+    assert cj.score_measure(records, scorer, name="p/m", library="lib", store=empty).context == "mixed"
     assert cj.score_measure(records, scorer, name="p/m", library="lib").context == "none"
 
 

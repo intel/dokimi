@@ -1731,10 +1731,13 @@ def test_a_stored_validity_report_gates_the_rescored_judge_in_cross_judge(tmp_pa
     stored_pass.write_text(json.dumps({"summary": {**failing, "passed": True}}))
 
     digest = digest_text("FULL SKILL BODY")
+    empty = digest_text("")  # the baseline arm's stored material is empty, and still stored
     run = {"library_name": "L", "judge_provider": "amazon-bedrock", "judge_model": "m",
-           "judge_context": "treatment_material.v1", "judge_materials": {digest: "FULL SKILL BODY"},
+           "judge_context": "treatment_material.v1",
+           "judge_materials": {digest: "FULL SKILL BODY", empty: ""},
            "answers": [{"question_id": f"Q{i}", "question_text": "q", "arms": {
-               "baseline": {"answer": f"b{i}"}, "skill": {"answer": f"s{i}", "judge_context_sha256": digest}}}
+               "baseline": {"answer": f"b{i}", "judge_context_sha256": empty},
+               "skill": {"answer": f"s{i}", "judge_context_sha256": digest}}}
                for i in range(8)]}
 
     def gates(report_path):
@@ -1824,6 +1827,48 @@ def test_an_arm_with_material_but_no_sampled_base_is_refused():
             assert any(r.arm == "skill" for r in report.rows)
             covered += 1
     assert refused and covered
+
+
+def test_a_scorer_without_a_context_argument_is_refused_before_pairs_are_built():
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_validity import NoUsablePairs
+    from dokimi.utils import digest_text
+
+    digest = digest_text("FULL SKILL BODY")
+    data = {"answers": [{"question_id": "Q0", "question_text": "q?", "arms": {
+        "skill": {"answer": ANSWER, "judge_context_sha256": digest}}}],
+        "judge_materials": {digest: "FULL SKILL BODY"}}
+    with pytest.raises(NoUsablePairs, match="does not accept a `context=` argument"):
+        run_validity(data["answers"], lambda lib, q, a: 1.0, n_bases=5, variants=["truncate_20"],
+                     store=JudgeContextStore.from_artifact(data))
+
+
+def test_a_noop_variant_leaving_an_arm_unpaired_is_refused_before_scoring():
+    """strip_code is a no-op on the skill answers (no fence), so the skill arm, which has
+    verified material, gets no pair. The refusal names it and no judge call is made."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_validity import NoUsablePairs
+    from dokimi.utils import digest_text
+
+    digest = digest_text("FULL SKILL BODY")
+    empty = digest_text("")
+    plain = "Plain skill prose without any code fence, long enough to be a usable answer. " * 25
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?", "arms": {
+        "baseline": {"answer": ANSWER + f" Base {i}. ", "judge_context_sha256": empty}}}
+               for i in range(10)]
+    for i in range(3):
+        answers[i]["arms"]["skill"] = {"answer": plain + f" {i}", "judge_context_sha256": digest}
+    data = {"answers": answers, "judge_materials": {empty: "", digest: "FULL SKILL BODY"}}
+    calls = []
+
+    def scorer(lib, q, a, context=None):
+        calls.append(a)
+        return 1.0
+
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\]"):
+        run_validity(data["answers"], scorer, n_bases=50, seed=0, variants=["strip_code"],
+                     store=JudgeContextStore.from_artifact(data))
+    assert calls == []
 
 
 def test_fixed_mode_arm_with_material_and_only_noop_bases_is_refused():

@@ -53,6 +53,7 @@ at the configured error rates.
 
 from __future__ import annotations
 
+import inspect
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -470,6 +471,21 @@ def judge_scorer(judge: Any, *, draw: int = 0) -> Scorer:
     return score
 
 
+def require_context_scorer(scorer: Callable[..., Any]) -> None:
+    """With a store, pairs are scored with ``context=``: refuse a scorer that cannot take it
+    before any pair is built, rather than failing every pair mid-run."""
+    try:
+        params = inspect.signature(scorer).parameters
+    except (TypeError, ValueError):  # a callable with no introspectable signature: let the call decide
+        return
+    takes_context = "context" in params or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+    if not takes_context:
+        raise NoUsablePairs(
+            "The scorer does not accept a `context=` argument, so it cannot judge stored "
+            "material: add a `context` parameter, or run without a store")
+
+
 def run_validity(
     answers: Sequence[Dict[str, Any]],
     scorer: Scorer,
@@ -490,12 +506,24 @@ def run_validity(
     With *store* (``JudgeContextStore.from_artifact(data)``) each answer is
     judged with its arm's stored treatment material, as the arms run judged it.
     """
+    if store is not None:
+        require_context_scorer(scorer)
     noop: Dict[str, int] = {}
     variants = list(variants or DEGRADATIONS)
     dropped: List[int] = [0]
     by_arm: Dict[str, Dict[str, int]] = {}
     pairs = _build(answers, noop, n_bases=n_bases, seed=seed, variants=variants, library=library,
                    store=store, dropped=dropped, by_arm=by_arm)
+    # In fixed mode, refuse before scoring if an arm with kept material has no pair left
+    # (--bases can leave it out, or every one of its variants can be a no-op).
+    if store is not None:
+        paired_arms = {p.get("arm", "") for p in pairs}
+        starved = sorted(a for a, c in by_arm.items() if c.get("kept", 0) > 0 and a not in paired_arms)
+        if starved:
+            raise NoUsablePairs(
+                f"Arm(s) {starved} have verified judge material but no base was scored, "
+                "so the gate would not cover them: raise --bases or drop those arms"
+            )
     report = evaluate_pairs(
         scorer, pairs, judge=judge, min_accuracy=min_accuracy, seed=seed, progress=progress,
         concurrency=concurrency, pair_scorer=pair_scorer,
@@ -505,19 +533,6 @@ def run_validity(
     report.context = "stored" if store is not None else "none"
     report.n_without_context = dropped[0]
     report.by_arm = by_arm
-    # In fixed mode, refuse if an arm with kept material has no rows scored.
-    if store is not None:
-        arms_with_rows = {r.arm for r in report.rows}
-        starved = []
-        for arm, counts in by_arm.items():
-            kept = counts.pop("_kept_count", 0)
-            if kept > 0 and arm not in arms_with_rows:
-                starved.append(arm)
-        if starved:
-            raise NoUsablePairs(
-                f"Arm(s) {sorted(starved)} have verified judge material but no base was scored, "
-                "so the gate would not cover them: raise --bases / --max-bases or drop those arms"
-            )
     return report
 
 
@@ -572,12 +587,6 @@ def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropp
                 f"Arm(s) {lost} have answers but no verified judge material, so the gate would "
                 "not cover them: repair the artifact's judge_materials or drop those arms"
             )
-        # --bases samples the pooled shuffle, so an arm with a few kept answers can
-        # get no base at all, or a variant can be a no-op for all its bases; the gate
-        # would then not cover it either. The check must happen after pairs are scored,
-        # so defer it and store the kept counts.
-        for _arm, counts in arms.items():
-            counts["_kept_count"] = counts.get("kept", 0)
         pairs = attach_stored_context(pairs, store)
         if dropped is not None:
             dropped[0] = dropped_from_pairs.get("total", 0)

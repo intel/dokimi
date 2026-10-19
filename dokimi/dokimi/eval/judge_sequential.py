@@ -33,6 +33,7 @@ from dokimi.eval.judge_validity import (
     ValidityReport,
     _build,
     _score_pairs,
+    require_context_scorer,
 )
 
 #: Sequential mode tests H0 "accuracy = gate - delta" against H1 "accuracy =
@@ -130,6 +131,8 @@ def run_sequential(
     is gated on them.
     """
     sprt_bounds(min_accuracy)  # refuse an undecidable gate before any pair is built or scored
+    if store is not None:
+        require_context_scorer(scorer)
     noop: Dict[str, int] = {}
     dropped: List[int] = [0]
     by_arm: Dict[str, Dict[str, int]] = {}
@@ -189,6 +192,5 @@ def run_sequential(
     # per arm the bases that were actually scored, not the pool that was built.
     for arm, counts in by_arm.items():
         counts["scored"] = sum(1 for _, a in scored_bases if a == arm)
-        counts.pop("_kept_count", None)  # Clean up temporary field from _build
     report.wall_seconds = time.time() - started
     return report

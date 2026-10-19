@@ -264,11 +264,12 @@ def score_measure(
     what a run before ``judge_context`` showed its judge.
     """
     store = store if store is not None else JudgeContextStore()
-    jobs = [
-        (r["question_id"], arm, question, body["answer"],
-         store.resolve_with_source(r["question_id"], arm, body)[0])
-        for r, arm, body, question in scored_answers(records, arms)
-    ]
+    jobs = []
+    stored_flags: set = set()  # per answer: True if the judge saw stored material
+    for r, arm, body, question in scored_answers(records, arms):
+        context, source = store.resolve_with_source(r["question_id"], arm, body)
+        stored_flags.add(source == SOURCE_STORED)
+        jobs.append((r["question_id"], arm, question, body["answer"], context))
 
     def one(job):
         qid, arm, question, answer, context = job
@@ -279,8 +280,15 @@ def score_measure(
         except Exception:  # an unscored answer drops out of the pairing, it does not kill the run
             return (qid, arm), None
 
-    has_material = any(store.materials().values()) if store else False
-    m = Measure(name=name, kind="grounded" if ground_truth else "aggregate", context="stored" if has_material else "none")
+    if not stored_flags:
+        context_label = "none"
+    elif stored_flags == {True}:
+        context_label = "stored"
+    elif stored_flags == {False}:
+        context_label = "none"
+    else:
+        context_label = "mixed"  # some answers fell back to snippets: no single-context PASS describes it
+    m = Measure(name=name, kind="grounded" if ground_truth else "aggregate", context=context_label)
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         for i, (key, value) in enumerate(pool.map(one, jobs), 1):
             m.scores[key] = value
