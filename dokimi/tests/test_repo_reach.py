@@ -206,6 +206,21 @@ def test_delegation_none_drops_the_subagent_tools_and_changes_the_execution_id()
         profile.tool_args("all", "fork")
 
 
+def test_harness_binary_and_version_change_the_execution_id():
+    profile = load_profile("claude-code")
+    # Same settings without harness info: same id
+    id1 = profile.execution_id("all")
+    id2 = profile.execution_id("all")
+    assert id1 == id2
+    # Different harness binary: different id
+    id3 = profile.execution_id("all", harness_bin="claude-old")
+    assert id3 != id1
+    # Different harness version: different id
+    id4 = profile.execution_id("all", harness_bin="claude", harness_version="2.0.0")
+    id5 = profile.execution_id("all", harness_bin="claude", harness_version="2.1.0")
+    assert id4 != id5 and id4 != id1
+
+
 def test_a_profile_without_delegation_cannot_run_without_subagents(tmp_path):
     with pytest.raises(ProfileError, match="declares no `delegation: none`"):
         load_profile(_profile(tmp_path)).tool_args("read", "none")
