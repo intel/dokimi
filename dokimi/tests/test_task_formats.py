@@ -11,6 +11,7 @@ task-bundled ``environment/skills``.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -622,10 +623,20 @@ def _run(tasks, harness_ids, tmp_path, runner):
 
 
 def _no_harbor():
-    """A runner standing for the harbor CLI: every call exits 0 and is recorded."""
+    """A runner standing for the harbor CLI: every call exits 0, leaves a passing
+    trial's result.json under ``--jobs-dir`` (what a cell is graded from), and is
+    recorded."""
     from dokimi.process import FakeRunner
 
-    return FakeRunner()
+    def harbor(call):
+        argv = list(call.argv)
+        trial = Path(argv[argv.index("--jobs-dir") + 1]) / "job" / "trial" / "result.json"
+        trial.parent.mkdir(parents=True)
+        trial.write_text(json.dumps({"verifier_result": {"rewards": {"reward": 1.0}},
+                                     "exception_info": None}), encoding="utf-8")
+        return None
+
+    return FakeRunner(harbor)
 
 
 @pytest.mark.parametrize(
