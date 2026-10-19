@@ -29,7 +29,6 @@ from .events import Transcript, _parse_time, _relative, clip_output
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
-_SPLIT = re.compile(r"\s*(?:&&|\|\||;|\n)\s*")
 _COPILOT_SHELL = {"bash", "powershell"}
 _COPILOT_READ = {"view"}
 _COPILOT_EDIT = {"edit", "create", "str_replace_editor", "write"}
@@ -48,146 +47,167 @@ def unwrap_shell(command: str) -> str:
     return parts[0] if len(parts) == 1 else command
 
 
-def shell_reads(script: str) -> list[str]:
+def shell_reads(script: str, cwd: str = "") -> list[str]:
     """Files a command only prints: ``cat a b``, ``head -n 5 a``, ``sed -n '1,80p' a``, ``nl -ba a``.
 
     A pipeline or a redirect is not a read of its arguments (``cat a > b`` writes b), so it gives nothing;
-    each ``&&`` / ``;`` / ``||`` part is read on its own. Working directory changes via ``cd`` are tracked
-    to resolve subsequent reads to the correct path. After ``||`` the cwd resets to unknown (command may have failed).
-    Paths are normalized to remove ``.`` and ``..`` components.
+    each ``&&`` / ``;`` / ``||`` / ``&`` / newline part is read on its own. ``cwd`` is the directory the
+    script starts in, relative to the workspace root. ``cd`` moves it for the parts that follow: a
+    relative path is joined to it and normalised (no ``.`` or ``..``), and after ``cd -``, a bare
+    ``cd``, a ``cd`` to a computed path, or a ``||`` that follows a ``cd`` (the next part may run in
+    either directory) it is unknown, so a relative read is not recorded. Absolute paths are kept.
     """
     out: list[str] = []
-    # Split only on unquoted shell operators to preserve quoted arguments.
-    parts = _split_at_unquoted_operators(script)
-    cwd = ""  # current working directory relative to script root, empty if unknown
-    for part in parts:
-        if not part or re.search(r"[|<>`$]", part):
-            # After ||, reset cwd since the previous command may have failed
-            if "||" in part:
-                cwd = ""
-            continue
+    here: str | None = posixpath.normpath(cwd) if cwd else ""
+    moved = False  # a cd was seen: after ||, the directory is not known
+    previous = ""
+    for part, after in _split_script(script):
+        op, previous = previous, after
+        if op == "||" and moved:
+            here = None
         try:
-            words = shlex.split(part)
+            words = shlex.split(part) if not _computed(part) else None
         except ValueError:
+            continue
+        if words is None:
+            if part.split(None, 1)[:1] == ["cd"]:
+                here, moved = None, True
             continue
         if not words:
             continue
-        # Track directory changes from cd commands, skip cd options like -, -L, -P
         if words[0] == "cd":
-            if len(words) > 1:
-                # Skip option flags (-, -L, -P, etc.) to find the actual directory
-                target_idx = 1
-                while target_idx < len(words) and words[target_idx].startswith("-"):
-                    target_idx += 1
-                if target_idx < len(words):
-                    target = words[target_idx]
-                    # Handle special case of "cd -" (previous directory); keep cwd as-is or mark unknown
-                    if target == "-":
-                        cwd = ""  # We don't track the previous directory
-                    else:
-                        # Join with current cwd and normalize
-                        new_cwd = target if target.startswith("/") else posixpath.normpath(f"{cwd}/{target}" if cwd else target)
-                        cwd = new_cwd
-            continue
-        if words[0] not in _PRINTERS:
-            continue
-        args = words[1:]
-        if words[0] == "sed":
-            # Reject if in-place edit (-i or --in-place)
-            if any(a.startswith("-i") or a.startswith("--in-place") for a in args):
+            moved = True
+            if after == "&":  # runs in a subshell: this shell stays where it was
                 continue
-            if "-n" not in args:
-                continue
-            # Handle -e, -f, --expression, --file properly; they take the next arg or are combined
-            filtered_args = []
-            skip_next = False
-            for i, a in enumerate(args):
-                if skip_next:
-                    skip_next = False
-                    continue
-                if a in ("-e", "-f", "--expression", "--file"):
-                    skip_next = True
-                    continue
-                if a == "-n":
-                    continue
-                if a.startswith("-E") or a.startswith("--regexp-extended"):
-                    continue
-                if a.startswith("-s") or a.startswith("--separate"):
-                    continue
-                if not a.startswith("-"):
-                    filtered_args.append(a)
-            # First non-flag arg is the script, rest are files
-            args = filtered_args[1:] if len(filtered_args) > 0 else []
-        files, skip = [], False
-        for a in args:
-            if skip:
-                skip = False
-            elif a in ("-n", "-c") and words[0] in ("head", "tail"):
-                skip = True
-            elif not a.startswith("-"):
-                files.append(a)
-        # Apply cwd prefix to each file, normalize paths
-        if cwd:
-            files = [posixpath.normpath(f"{cwd}/{f}") if not f.startswith("/") else f for f in files]
-        else:
-            # Even without cwd, normalize paths to remove . and .. for better matching
-            files = [posixpath.normpath(f) if not f.startswith("/") else f for f in files]
-        out.extend(files)
+            here = _cd(here, words[1:])
+            continue
+        if words[0] not in _PRINTERS :
+            continue
+        files = _sed_files(words[1:]) if words[0] == "sed" else _print_files(words[0], words[1:])
+        for f in files:
+            if f.startswith("/"):
+                out.append(posixpath.normpath(f))
+            elif here is not None:
+                out.append(posixpath.normpath(posixpath.join(here, f)))
     return out
 
 
-def _split_at_unquoted_operators(script: str) -> list[str]:
-    """Split script on unquoted &&, ||, ;, and newlines only."""
-    parts = []
-    current = []
+def _cd(here: str | None, args: list[str]) -> str | None:
+    """The directory after ``cd <args>`` from ``here`` (``None``: unknown)."""
+    rest = list(args)
+    while rest and rest[0] in ("-L", "-P", "-e", "-@"):
+        rest.pop(0)
+    if rest and rest[0] == "--":
+        rest.pop(0)
+    if len(rest) != 1 or rest[0] == "-" or rest[0].startswith("~"):
+        return None  # home, the previous directory, or something we do not track
+    target = rest[0]
+    if target.startswith("/"):
+        return posixpath.normpath(target)
+    return None if here is None else posixpath.normpath(posixpath.join(here, target))
+
+
+def _computed(part: str) -> bool:
+    """A shell expansion outside single quotes (``$x``, backticks) or a pipe or redirect outside any quote."""
+    bare = re.sub(r"'[^']*'", "''", part)
+    if re.search(r"[$`]", bare):
+        return True
+    return bool(re.search(r"[|<>]", re.sub(r'"[^"]*"', '""', bare)))
+
+
+def _print_files(cmd: str, args: list[str]) -> list[str]:
+    files, skip, ended = [], False, False
+    for a in args:
+        if skip:
+            skip = False
+        elif ended or not a.startswith("-"):
+            files.append(a)
+        elif a == "--":
+            ended = True
+        elif a in ("-n", "-c") and cmd in ("head", "tail"):
+            skip = True
+    return files
+
+
+def _sed_files(args: list[str]) -> list[str]:
+    """Files of ``sed -n <script> files``; nothing for an in-place edit or a run without ``-n``."""
+    quiet = scripted = ended = skip = False
+    positional: list[str] = []
+    for a in args:
+        if skip:
+            skip = False
+        elif ended or not a.startswith("-") or a == "-":
+            positional.append(a)
+        elif a == "--":
+            ended = True
+        elif a.startswith("--"):
+            name = a.split("=", 1)[0]
+            if name == "--in-place":
+                return []
+            quiet |= name in ("--quiet", "--silent")
+            if name in ("--expression", "--file"):
+                scripted = True
+                skip = "=" not in a
+        else:  # a cluster of short options: -n, -ne, -nE, -i.bak
+            for i, c in enumerate(a[1:], 1):
+                if c == "i":
+                    return []
+                quiet |= c == "n"
+                if c in "ef":
+                    scripted = True
+                    skip = i == len(a) - 1  # the value is the next word unless it is attached
+                    break
+                if c in "l":
+                    skip = i == len(a) - 1
+                    break
+    if not quiet:
+        return []
+    return positional if scripted else positional[1:]
+
+
+def _split_script(script: str) -> list[tuple[str, str]]:
+    """``(part, operator after it)`` for each part of ``script`` split at unquoted ``&&``, ``||``,
+    ``;``, ``&`` and newlines (the operator is ``""`` after the last part)."""
+    parts: list[tuple[str, str]] = []
+    cur: list[str] = []
+    quote = ""
     i = 0
-    in_single = False
-    in_double = False
     while i < len(script):
         c = script[i]
-        if c == "'" and not in_double:
-            in_single = not in_single
-            current.append(c)
-            i += 1
-        elif c == '"' and not in_single:
-            in_double = not in_double
-            current.append(c)
-            i += 1
-        elif c == "\\" and (in_single or in_double):
-            current.append(c)
-            if i + 1 < len(script):
+        two = script[i:i + 2]
+        if quote:
+            cur.append(c)
+            if c == "\\" and quote == '"' and i + 1 < len(script):
                 i += 1
-                current.append(script[i])
-            i += 1
-        elif not in_single and not in_double and i + 1 < len(script) and script[i:i+2] == "&&":
-            if current:
-                parts.append("".join(current).strip())
-            current = []
-            i += 2
-        elif not in_single and not in_double and i + 1 < len(script) and script[i:i+2] == "||":
-            if current:
-                parts.append("".join(current).strip())
-            current = []
-            i += 2
-        elif not in_single and not in_double and c == ";":
-            if current:
-                parts.append("".join(current).strip())
-            current = []
-            i += 1
-        elif not in_single and not in_double and c == "\n":
-            if current:
-                parts.append("".join(current).strip())
-            current = []
+                cur.append(script[i])
+            elif c == quote:
+                quote = ""
+        elif c in "'\"":
+            quote = c
+            cur.append(c)
+        elif c == "\\" and i + 1 < len(script):
+            cur.append(c + script[i + 1])
             i += 1
         else:
-            current.append(c)
-            i += 1
-    if current:
-        parts.append("".join(current).strip())
-    return [p for p in parts if p]
+            op = two if two in ("&&", "||") else c if c in ";\n" else ""
+            if c == "&" and not op and script[i - 1:i] not in (">", "<") and script[i + 1:i + 2] != ">":
+                op = "&"
+            if not op:
+                cur.append(c)
+            else:
+                text = "".join(cur).strip()
+                if text:
+                    parts.append((text, op if op != "\n" else ";"))
+                cur = []
+                i += len(op) - 1
+        i += 1
+    text = "".join(cur).strip()
+    if text:
+        parts.append((text, ""))
+    return parts
 
 
-def codex_json(raw: str, workdir: str | None) -> Transcript:
+def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     out = Transcript()
     messages: list[str] = []
     by_id: dict[str, dict[str, Any]] = {}  # Track started items by ID to update on completion
@@ -202,7 +222,7 @@ def codex_json(raw: str, workdir: str | None) -> Transcript:
         if not isinstance(rec, dict):
             continue
         try:
-            _codex_apply(out, rec, messages, workdir, by_id)
+            _codex_apply(out, rec, messages, workdir, by_id, cwd)
         except (AttributeError, TypeError, ValueError) as exc:
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     out.answer = messages[-1].strip() if messages else ""
@@ -210,7 +230,7 @@ def codex_json(raw: str, workdir: str | None) -> Transcript:
 
 
 def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], workdir: str | None,
-                  by_id: dict[str, dict[str, Any]] | None = None) -> None:
+                  by_id: dict[str, dict[str, Any]] | None = None, cwd: str = "") -> None:
     if by_id is None:
         by_id = {}
     kind = rec.get("type")
@@ -233,8 +253,8 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
             script = unwrap_shell(str(item.get("command") or ""))
             # Use item.id if available (handles overlapping commands with same text), fallback to text
             item_id = item.get("id")
-            item_key = item_id if item_id else ("command_text", script)
-            for path in shell_reads(script):
+            item_key = str(item_id) if item_id else f"text:{script}"
+            for path in shell_reads(script, cwd):
                 out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
             event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None}
             by_id[item_key] = event
@@ -248,7 +268,7 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
             script = unwrap_shell(str(item.get("command") or ""))
             # Use item.id if available (handles overlapping commands with same text), fallback to text
             item_id = item.get("id")
-            item_key = item_id if item_id else ("command_text", script)
+            item_key = str(item_id) if item_id else f"text:{script}"
             if item_key in by_id:
                 # Update the event from item.started with completion data
                 event = by_id[item_key]
@@ -258,7 +278,7 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
                 del by_id[item_key]
             else:
                 # Fallback for item.completed without item.started
-                for path in shell_reads(script):
+                for path in shell_reads(script, cwd):
                     out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
                 event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
                 if item.get("aggregated_output"):
@@ -273,7 +293,7 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
             out.events.append({"t": None, "kind": "tool", "name": name})
 
 
-def copilot_json(raw: str, workdir: str | None) -> Transcript:
+def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     out = Transcript()
     start = None
     by_id: dict[str, list[dict[str, Any]]] = {}
@@ -305,7 +325,7 @@ def copilot_json(raw: str, workdir: str | None) -> Transcript:
                     if data.get("phase") == "final_answer":
                         final = text
             elif kind == "tool.execution_start":
-                events = _copilot_tool(data, t, workdir)
+                events = _copilot_tool(data, t, workdir, cwd)
                 out.events.extend(events)
                 by_id[str(data.get("toolCallId"))] = events
             elif kind == "tool.execution_complete":
@@ -319,12 +339,12 @@ def copilot_json(raw: str, workdir: str | None) -> Transcript:
     return out
 
 
-def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None) -> list[dict[str, Any]]:
+def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cwd: str = "") -> list[dict[str, Any]]:
     name = str(data.get("toolName") or "")
     args = data.get("arguments")
     if name in _COPILOT_SHELL:
         command = str((args or {}).get("command", "")) if isinstance(args, dict) else ""
-        reads = [{"t": t, "kind": "read", "path": _relative(p, workdir)} for p in shell_reads(command)]
+        reads = [{"t": t, "kind": "read", "path": _relative(p, workdir)} for p in shell_reads(command, cwd)]
         return [*reads, {"t": t, "kind": "command", "text": command, "rc": None}]
     if name in _COPILOT_READ | _COPILOT_EDIT and isinstance(args, dict):
         path = str(args.get("path") or args.get("file_path") or "")

@@ -98,9 +98,42 @@ def test_reach_refuses_a_native_prompt_profile(tmp_path):
     ("cat 'unterminated", []),
     ("sed -n '1p;2p' AGENTS.md", ["AGENTS.md"]),  # regression: quoted program should not be split
     ("cd sub && cat AGENTS.md", ["sub/AGENTS.md"]),  # regression: cd changes cwd for following commands
+    ("cd sub && cd inner && cat AGENTS.md", ["sub/inner/AGENTS.md"]),  # successive cds compose
+    ("cat ./AGENTS.md", ["AGENTS.md"]),                   # dot components are normalised
+    ("cd sub && cat ../AGENTS.md", ["AGENTS.md"]),
+    ("cd - && cat X", []),                                # the previous directory is not tracked
+    ("cd missing || cat X", []),                          # runs in an unknown directory
+    ("cd /abs && cat X", ["/abs/X"]),
+    ("cd $D && cat X", []),
+    ("cat a || cat b", ["a", "b"]),                       # no cd: the directory is known
+    ("cat a & cat b", ["a", "b"]),                        # a single & separates commands
+    ("cat a 2>&1", []),                                   # ... but not in a redirect
+    ("sed -n -e '1p' f", ["f"]),
+    ("sed -n -E '1,3p' f", ["f"]),
+    ("sed -n -i.bak 1p f", []),                           # in-place edit
+    ("sed -n --in-place 1p f", []),
+    ("sed -n '$p' f", ["f"]),                             # $ inside single quotes is the last line
+    ("sed -n '1,$p' AGENTS.md", ["AGENTS.md"]),
+    ("cat \"$HOME/f\"", []),                              # an expansion is not a path
 ])
 def test_shell_reads(command, reads):
     assert shell_reads(command) == reads
+
+
+def test_shell_reads_start_in_the_given_directory():
+    assert shell_reads("cat AGENTS.md", "sub") == ["sub/AGENTS.md"]
+    assert shell_reads("cd inner && cat ../x", "sub") == ["sub/x"]
+    assert shell_reads("cat /ws/a", "sub") == ["/ws/a"]
+
+
+def test_cli_traces_resolve_relative_reads_from_the_starting_directory():
+    codex = _jsonl({"type": "item.completed", "item": {"id": "1", "type": "command_execution",
+                                                       "command": "cat AGENTS.md", "exit_code": 0}})
+    assert convert("codex-json", codex, "/ws", "sub").reads() == {"sub/AGENTS.md"}
+    assert convert("codex-json", codex, "/ws").reads() == {"AGENTS.md"}
+    copilot = _jsonl({"type": "tool.execution_start", "data": {"toolCallId": "c", "toolName": "bash",
+                                                               "arguments": {"command": "cat AGENTS.md"}}})
+    assert convert("copilot-json", copilot, "/ws", "sub").reads() == {"sub/AGENTS.md"}
 
 
 def test_unwrap_shell():
@@ -145,6 +178,23 @@ def test_codex_json_to_events():
 def test_codex_turn_failure_is_an_error_result():
     t = convert("codex-json", _jsonl({"type": "turn.failed", "error": {"message": "quota"}}), None)
     assert t.is_error and "turn.failed: quota" in t.errors and t.answer == ""
+
+
+def test_codex_overlapping_commands_are_matched_by_item_id():
+    def cmd(kind, i, **extra):
+        return {"type": kind, "item": {"id": i, "type": "command_execution", "command": "make build", **extra}}
+
+    raw = _jsonl(cmd("item.started", "a"), cmd("item.started", "b"),
+                 cmd("item.completed", "b", exit_code=1, aggregated_output="bad"),
+                 cmd("item.completed", "a", exit_code=0, aggregated_output="ok"))
+    events = convert("codex-json", raw, None).events
+    assert [(e["rc"], e["output"]) for e in events] == [(0, "ok"), (1, "bad")]  # in start order
+
+
+def test_codex_turn_failed_is_not_cleared_by_a_later_error():
+    raw = _jsonl({"type": "turn.failed", "message": "x"}, {"type": "error", "message": "boom"})
+    t = convert("codex-json", raw, None)
+    assert t.is_error and t.errors[:2] == ["turn.failed: x", "error: boom"]
 
 
 def test_codex_incomplete_command_is_recorded_with_rc_null():
@@ -227,6 +277,27 @@ def test_codex_review_findings():
         {"file": "a.c", "line": 3, "end_line": 3, "severity": "blocker", "priority": "P0", "rule": "Crash",
          "message": "boom"}]
     assert codex_review_findings("No issues found.") == []
+
+
+def test_codex_review_findings_titles_with_dashes_and_trailing_prose():
+    text = ("- [P1] Leaks \u2014 secrets \u2014 /ws/a.py:3\n  body one\n\nOverall: patch is incorrect.\n")
+    assert codex_review_findings(text, "/ws") == [
+        {"file": "a.py", "line": 3, "end_line": 3, "severity": "major", "priority": "P1",
+         "rule": "Leaks \u2014 secrets", "message": "body one"}]
+    last = "- [P2] T \u2014 a.c:1\n  body\nOverall: bad."  # a non-indented line ends the body too
+    assert codex_review_findings(last)[0]["message"] == "body"
+
+
+def test_convert_answer_maps_every_severity_and_separates_the_block(caplog):
+    text = "\n".join(f"- [P{n}] t{n} \u2014 f{n}.c:{n}\n  b" for n in (0, 1, 2, 3, 9))
+    out = convert_answer("codex-review", text)
+    head, block = out.split("\n\n```json\n")
+    assert head == text and block.endswith("\n```\n")
+    assert [f["severity"] for f in json.loads(block.split("\n```")[0])] == ["blocker", "major", "minor", "minor", "minor"]
+    assert not caplog.records
+    with caplog.at_level("WARNING"):
+        convert_answer("codex-review", "- [p1] lowercase \u2014 a.c:1\n  b\n- [P1] hyphen - a.c:2\n")
+    assert "2 finding marker(s)" in caplog.text and "0 parsed" in caplog.text
 
 
 def test_convert_answer_appends_a_last_json_block_and_keeps_the_text():

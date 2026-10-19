@@ -59,8 +59,11 @@ class Transcript:
         return "".join(json.dumps(e, sort_keys=True) + "\n" for e in self.events)
 
 
-def convert(fmt: str, raw: str, workdir: str | None = None) -> Transcript:
-    """Convert a raw harness stdout in format ``fmt`` to a :class:`Transcript`."""
+def convert(fmt: str, raw: str, workdir: str | None = None, cwd: str = "") -> Transcript:
+    """Convert a raw harness stdout in format ``fmt`` to a :class:`Transcript`.
+
+    ``cwd`` is the directory the harness started in, relative to ``workdir``: a shell command's relative
+    paths (Codex, Copilot) are read from there."""
     if fmt == "text":
         return Transcript(answer=raw.strip())
     if fmt == "claude-stream-json":
@@ -68,7 +71,7 @@ def convert(fmt: str, raw: str, workdir: str | None = None) -> Transcript:
     if fmt in ("codex-json", "copilot-json"):
         from .cli_traces import codex_json, copilot_json
 
-        return (codex_json if fmt == "codex-json" else copilot_json)(raw, workdir)
+        return (codex_json if fmt == "codex-json" else copilot_json)(raw, workdir, cwd)
     raise ValueError(f"unknown trace format {fmt!r} (known: {', '.join(TRACE_FORMATS)})")
 
 

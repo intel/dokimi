@@ -58,7 +58,7 @@ if mode == "crash":
     print("boom", file=sys.stderr); sys.exit(3)
 if mode == "config":  # the profile's config file must be in the per-run config dir, filled in
     cfg = Path(os.environ["FAKE_CONFIG_DIR"])
-    assert (cfg / "provider.toml").read_text() == f"dir={cfg} support={os.environ['FAKE_SUPPORT']}", "no config"
+    assert (cfg / "provider.toml").read_text() == f"dir={cfg.as_posix()} support={os.environ['FAKE_SUPPORT']}", "no config"
 if mode == "line_then_hang":  # some trace, then nothing until it is killed
     import time
     print(json.dumps({"type": "system", "subtype": "init", "claude_code_version": "9.8.7"}), flush=True)
@@ -428,7 +428,7 @@ def test_reach_writes_the_profile_config_files(tmp_path, monkeypatch):
     from dokimi.repos.reach import SUPPORT_HOST
 
     monkeypatch.setenv("FAKE_MODE", "config")
-    monkeypatch.setenv("FAKE_SUPPORT", str(SUPPORT_HOST))
+    monkeypatch.setenv("FAKE_SUPPORT", SUPPORT_HOST.as_posix())
     root = _repo(tmp_path)
     tree = WorkTree(root)
     (tmp_path / "work").mkdir()

@@ -386,7 +386,7 @@ def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace:
         row.update(error=f"TimeoutExpired: {argv[0]} timed out after {timeout_s} seconds",
                    _stdout=proc.stdout)
         return None, row
-    transcript = convert(profile.trace, proc.stdout, str(workspace))
+    transcript = convert(profile.trace, proc.stdout, str(workspace), scenario.cwd)
     row.update(returncode=proc.returncode, cost_usd=transcript.cost_usd,
                num_turns=transcript.num_turns, _stdout=proc.stdout)
     if proc.returncode != 0 or transcript.is_error or not transcript.answer:
