@@ -89,3 +89,8 @@ def test_matching_lists_pass() -> None:
     src = "Text:\n\n- a\n    - b\n"
     site = "<p>Text:</p><ul><li>a<ul><li>b</li></ul></li></ul>"
     assert hooks.list_mismatch(src, site) is None
+
+
+def test_front_matter_list_is_not_a_page_list() -> None:
+    src = "---\ndepends_on:\n  - a/b.py\n---\n<!-- header -->\n\n- a\n"
+    assert hooks.list_mismatch(src, "<ul><li>a</li></ul>") is None

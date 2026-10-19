@@ -1,3 +1,9 @@
+---
+depends_on:
+  - dokimi/scripts/check_release.py
+  - dokimi/scripts/smoke_installed.py
+  - .github/workflows/release.yml
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

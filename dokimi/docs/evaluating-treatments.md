@@ -1,3 +1,9 @@
+---
+depends_on:
+  - dokimi/dokimi/treatments/**
+  - dokimi/dokimi/commands/arms.py
+  - dokimi/dokimi/schemas/arms.v1.json
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

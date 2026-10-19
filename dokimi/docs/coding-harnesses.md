@@ -1,3 +1,11 @@
+---
+depends_on:
+  - dokimi/dokimi/harnesses/**
+  - dokimi/dokimi/commands/tasks.py
+  - dokimi/dokimi/report/task_runs_report.py
+  - dokimi/dokimi/eval/binary_stats.py
+  - dokimi/dokimi/schemas/task_runs.v1.json
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

@@ -1,3 +1,12 @@
+---
+depends_on:
+  - dokimi/dokimi/repos/**
+  - dokimi/dokimi/commands/repo.py
+  - dokimi/dokimi/commands/repo_run.py
+  - dokimi/dokimi/schemas/repo_*.json
+  - dokimi/dokimi/schemas/guidance_reach.v1.json
+  - dokimi/dokimi/schemas/harness_profile.v1.json
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

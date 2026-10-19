@@ -1,3 +1,9 @@
+---
+depends_on:
+  - dokimi/dokimi/eval/judge.py
+  - dokimi/dokimi/eval/panel.py
+  - dokimi/dokimi/gate/trust_gate.py
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
