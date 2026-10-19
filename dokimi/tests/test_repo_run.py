@@ -526,7 +526,11 @@ def test_report_warns_when_another_model_answered(setup, capsys):
 @pytest.mark.parametrize("requested, resolved, same", [
     ("m-1", "m-1", True), ("us.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5", True),
     ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5-20251001", True),
-    ("haiku", "claude-haiku-3", False), ("us.anthropic.claude-opus-5-5", "claude-opus-5", False)])
+    ("haiku", "claude-haiku-3", False), ("us.anthropic.claude-opus-5-5", "claude-opus-5", False),
+    ("claude-sonnet-4-5", "claude-sonnet-4-5-20250929", True), ("claude-sonnet-4-5", "claude-sonnet-4-5@20250929", True),
+    ("claude-sonnet-4-5-20250929", "claude-sonnet-4-5", True),
+    ("claude-3-5-sonnet-20240620", "claude-3-5-sonnet-20241022", False),
+    ("deepseek-v2", "deepseek-v3", False), ("x.claude-haiku", "haiku", False)])
 def test_a_provider_prefix_is_not_another_model(requested, resolved, same):
     assert model_matches(requested, resolved) is same
 

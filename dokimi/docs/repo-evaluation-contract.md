@@ -720,4 +720,9 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   batch of a comparison has no pin, or when the two arms ran from different
   `eval_dir` or `image` pins or harness versions. An image `repo run` tagged
   from the tree (`dokimi/<id>:<sha>`) follows the tree, so two revisions are
-  not warned about it; an `--image` of its own is compared.
+  not warned about it; an `--image` of its own is compared. `repo report` warns
+  (`model_mismatch` in its summary) when a cell's `model_resolved` is another
+  model than the one requested; a snapshot of the requested id (`-20250929`,
+  `@20250929`) or its provider-prefixed form is the same model, `-v2` against
+  `-v3` is not. `repo compare` warns the same way when the two arms of a
+  comparison were answered by different models.

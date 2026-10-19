@@ -641,6 +641,13 @@ def test_compare_models_equivalent_pins_symmetric_coverage(tmp_path):
     _cell(b, "fix_a", "guidance:raw", 1, model=m, model_resolved="claude-haiku-4-5-20251001")
     # No warning because both forms are equivalent
     assert [w for w in compare([b], "guidance:none")["warnings"] if "was answered by" in w] == []
+    # Baseline {m, short}, treatment {short, other}: `other` has no baseline match, so it must warn
+    b2 = tmp_path / "b2"
+    _cell(b2, "fix_a", "guidance:none", 1, model=m, model_resolved=m)
+    _cell(b2, "fix_a", "guidance:none", 2, model=m, model_resolved="claude-haiku-4-5-20251001")
+    _cell(b2, "fix_a", "guidance:raw", 1, model=m, model_resolved="claude-haiku-4-5-20251001")
+    _cell(b2, "fix_a", "guidance:raw", 2, model=m, model_resolved="claude-opus-4-1")
+    assert [w for w in compare([b2], "guidance:none")["warnings"] if "was answered by" in w]
 
 
 def test_an_unreadable_batch_stamp_is_no_stamp(tmp_path):

@@ -128,9 +128,14 @@ def resolved_models(rec: dict[str, Any]) -> list[str]:
 
 
 def _normalize_model_id(model_id: str) -> str:
-    """Normalize model ID by stripping trailing version suffix (e.g., -v1:0)."""
-    # Strip Bedrock version suffix like -v1 or -v1:0
-    return re.sub(r"-v\d+(?::\d+)?$", "", model_id)
+    """Strip Bedrock's transport suffix (``-v1:0``). A bare ``-v2`` is part of the id: deepseek-v2 is not v3."""
+    return re.sub(r"-v\d+:\d+$", "", model_id)
+
+
+def _snapshot_of(dated: str, undated: str) -> bool:
+    """Whether ``dated`` is ``undated`` pinned to a snapshot date (``-20250929`` or Vertex's ``@20250929``)."""
+    base = re.sub(r"[-@]\d{8}$", "", dated)
+    return base != dated and _model_prefix_matches(base, undated)
 
 
 def _model_prefix_matches(base: str, candidate: str) -> bool:
@@ -148,7 +153,8 @@ def model_matches(requested: str, resolved: str) -> bool:
     # Normalize both by stripping version suffixes, then check prefix equivalence both ways
     req_norm = _normalize_model_id(requested)
     res_norm = _normalize_model_id(resolved)
-    return _model_prefix_matches(res_norm, req_norm) or _model_prefix_matches(req_norm, res_norm)
+    return (_model_prefix_matches(res_norm, req_norm) or _model_prefix_matches(req_norm, res_norm)
+            or _snapshot_of(res_norm, req_norm) or _snapshot_of(req_norm, res_norm))
 
 
 def model_mismatch(cells: list[dict[str, Any]]) -> dict[str, list[str]]:
