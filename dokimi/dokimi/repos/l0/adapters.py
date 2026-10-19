@@ -155,8 +155,8 @@ def _build_names(text: str) -> tuple[set[str], bool]:
     """The target and output names a BUILD file spells out, and whether it also makes names it does not spell out.
 
     Spelled out: ``name = "x"`` or ``out = "x"`` (either quote), ``outs = ["x.h", ...]``, the files of a top-level
-    ``exports_files([...])``. Computed: any other value
-    of those arguments (``"t_" + s``, ``"t_%s" % s``, a variable), a call at the start of a line, or in a comprehension
+    ``exports_files([...])`` (every name of a plain list). Computed: any other value
+    of those arguments, ``exports_files(glob(...))`` and the like, (``"t_" + s``, ``"t_%s" % s``, a variable), a call at the start of a line, or in a comprehension
     that starts a line, to anything but a native rule or a builtin (a macro, which may generate targets).
     """
     names: set[str] = set()
@@ -164,49 +164,23 @@ def _build_names(text: str) -> tuple[set[str], bool]:
     toks = list(_tokens(text))
     stack: list[str] = []
     comp = False  # inside a `[...]` or `{...}` at the top level that starts a line
-    exports = False  # inside the top-level `exports_files(...)` call positional argument
-    exports_depth = 0  # depth of nested parens/brackets in exports_files call
-    exports_computed = False  # exports_files argument contains computed values
-    skip_exports_paren = False  # skip counting the opening paren of exports_files( call
     for i, (kind, val, first) in enumerate(toks):
         prev = toks[i - 1] if i else ("", "", False)
         nxt = toks[i + 1] if i + 1 < len(toks) else ("", "", False)
         if kind == "op" and val in "([{":
             comp = comp or (not stack and first and val in "[{")
             stack.append(val)
-            if exports and not skip_exports_paren:
-                exports_depth += 1
-            skip_exports_paren = False
         elif kind == "op" and val in ")]}":
             if stack:
                 stack.pop()
             comp = comp and bool(stack)
-            if exports:
-                exports_depth -= 1
-                if exports_depth == 0:
-                    exports = False
-                    if exports_computed:
-                        computed = True
-                        exports_computed = False
-        elif kind == "str" and exports and exports_depth == 1:
-            names.add(val)
-        elif kind == "op" and exports and exports_depth == 1 and val == ",":
-            # comma outside brackets ends the positional argument
-            exports = False
-            if exports_computed:
-                computed = True
-                exports_computed = False
         elif kind == "id" and val == "exports_files" and nxt[1] == "(" and not stack:
-            exports = True
-            exports_depth = 0
-            exports_computed = False
-            skip_exports_paren = True
+            found, comp_args = _exports_names(toks, i + 2)
+            names |= found
+            computed = computed or comp_args
         elif kind == "id" and nxt[1] == "(" and nxt[0] == "op" and prev[1] != ".":
             if ((not stack and first) or comp) and val not in BAZEL_NATIVE and val not in STARLARK_BUILTINS:
                 computed = True
-            # If this is a call inside exports_files positional argument, mark exports_files as computed
-            if exports and exports_depth == 1:
-                exports_computed = True
         elif (kind == "op" and val == "=" and prev[0] == "id" and prev[1] in ("name", "out", "outs")
               and stack[-1:] == ["("] and toks[i - 2][1] in ("(", ",") and nxt[1] != "="):
             depth, value, j = 0, [], i + 1
@@ -226,7 +200,32 @@ def _build_names(text: str) -> tuple[set[str], bool]:
                 names.update(v for k, v in value if k == "str")
             else:
                 computed = True
-    return names, computed
+    return names, computed or any("%{" in n for n in names)  # a template's `%{name}` is filled in on rendering
+
+
+def _exports_names(toks: list[tuple[str, str, bool]], start: int) -> tuple[set[str], bool]:
+    """The files of the first argument of ``exports_files(``, whose arguments start at ``toks[start]``: its strings
+    when it is a plain list, and ``True`` for anything else (``glob([...])``, a variable, a sum), which exports
+    files not spelled out. Later arguments (``visibility``, ``licenses``) are not files."""
+    arg: list[tuple[str, str]] = []
+    depth = 0
+    for kind, val, _ in toks[start:]:
+        if kind == "op" and val in "([{":
+            depth += 1
+        elif kind == "op" and val in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif depth == 0 and kind == "op" and val == ",":
+            break
+        arg.append((kind, val))
+    if arg[:2] == [("id", "srcs"), ("op", "=")]:
+        arg = arg[2:]
+    if not arg:
+        return set(), False
+    if _literal(arg, True):
+        return {v for k, v in arg if k == "str"}, False
+    return set(), True
 
 
 def check_label(scan: Scan, file: str, line: int, label: str, ctx: str) -> None:
@@ -385,22 +384,17 @@ def _bazel(scan: Scan, file: str, line: int, toks: list[str], text: str) -> None
 
 
 _LOAD_LABEL = re.compile(r"""^load\(\s*["'](?:@|//|:)""", re.M)
+# Calls only Bazel has. A name plain Python also uses (`test_suite`, `package`, `platform`, `glob`) is left out.
+_BUILD_ONLY = BAZEL_NATIVE - {"load", "package", "glob", "select", "alias", "test_suite", "module", "platform",
+                              "toolchain", "workspace", "licenses", "exports_files", "package_group"}
 
 
 def reads_as_build(scan: Scan, fence: Fence) -> bool:
     """A fence in another language (Python) holds BUILD code: it loads a label, or a line starts a call to a
-    native rule only Bazel has (``cc_library``, ``http_archive``) or a ``name =`` call to a macro of a tracked
-    ``.bzl`` file."""
+    native rule only Bazel has (``cc_library``, ``http_archive``). A call to a macro of a ``.bzl`` file proves
+    nothing: ``run(`` and ``build(`` are as often plain Python."""
     code = "\n".join(text for _, text in fence.lines)
-    if _LOAD_LABEL.search(code):
-        return True
-    defs = _bazel_facts(scan)["defs"]
-    for m in re.finditer(r"^(\w+)\(", code, re.M):
-        name = m.group(1)
-        if (name in BAZEL_NATIVE and "_" in name) or (
-                name in defs and re.search(r"^\s*name\s*=", _call_body(code, m.end() - 1), re.M)):
-            return True
-    return False
+    return bool(_LOAD_LABEL.search(code)) or any(m.group(1) in _BUILD_ONLY for m in re.finditer(r"^(\w+)\(", code, re.M))
 
 
 def check_starlark(scan: Scan, file: str, fence: Fence) -> None:
@@ -427,8 +421,13 @@ def check_starlark(scan: Scan, file: str, fence: Fence) -> None:
                 scan.add(file, line, "starlark_kwarg", f"{name}({kw}=)", "unresolved" if kwargs else "fail",
                          f"{name} is defined more than once or takes **kwargs" if kwargs
                          else f"not a parameter of {name} in {where}", snippet)
-    for n, text in fence.lines:
-        for label in re.findall(r'"((?:@@?[\w.~+-]*)?//[^"]*)"', text):
+    for m in _TOKEN.finditer(code):  # a string of either quote, not one inside a comment or a longer string
+        if m.lastgroup != "str":
+            continue
+        label = m.group().lstrip("rRbB")
+        label = label[3:-3] if label[:3] in ('"""', "'''") else label[1:-1]
+        if _LABEL_PARTS.match(label) and _is_label(label):
+            n, text = fence.lines[code.count("\n", 0, m.start())]
             check_label(scan, file, n, label, text)
 
 
@@ -455,46 +454,8 @@ def _check_load(scan: Scan, file: str, line: int, args: str, snippet: str) -> No
 def _bzl_public(text: str) -> tuple[set[str], bool]:
     """The public top-level names of a ``.bzl`` file (``def x(``, ``x = ...``, ``x, _y = ...``), and whether it also
     binds names in a form not read here (``(x, y) = ...``, ``[x] = ...``)."""
-    # Mask strings and comments to avoid false matches in docstrings
-    masked_text = ""
-    i = 0
-    while i < len(text):
-        # Handle triple-quoted strings (docstrings)
-        if text[i:i+3] in ('"""', "'''"):
-            quote = text[i:i+3]
-            masked_text += "   "  # 3 spaces for opening quotes
-            i += 3
-            while i < len(text):
-                if text[i:i+3] == quote:
-                    masked_text += "   "  # 3 spaces for closing quotes
-                    i += 3
-                    break
-                masked_text += " " if text[i] != "\n" else "\n"
-                i += 1
-        # Handle single/double quoted strings
-        elif text[i] in ('"', "'"):
-            quote = text[i]
-            masked_text += " "
-            i += 1
-            while i < len(text):
-                if text[i] == quote and (i == 0 or text[i-1] != "\\"):
-                    masked_text += " "
-                    i += 1
-                    break
-                masked_text += " " if text[i] != "\n" else "\n"
-                i += 1
-        # Handle comments
-        elif text[i:i+1] == "#":
-            while i < len(text) and text[i] != "\n":
-                masked_text += " "
-                i += 1
-            if i < len(text):
-                masked_text += "\n"
-                i += 1
-        else:
-            masked_text += text[i]
-            i += 1
-
+    masked_text = _TOKEN.sub(lambda m: re.sub(r"[^\n]", " ", m.group()) if m.lastgroup in ("str", "comment")
+                             else m.group(), text)  # a docstring or a comment binds nothing
     names: set[str] = set()
     for m in re.finditer(r"^def\s+([A-Za-z]\w*)\s*\(|^([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*,?\s*=(?!=)", masked_text, re.M):
         names.update(n for n in re.split(r"\s*,\s*", m.group(1) or m.group(2)) if n and not n.startswith("_"))
@@ -632,8 +593,8 @@ def _cmake_source(scan: Scan, file: str, line: int, src: str, text: str) -> None
     """``-S <dir>`` names a directory with a ``CMakeLists.txt``. Where the command runs is known only after a
     literal ``cd``; without one the directory is tried at the guidance file's directory and its ancestors, and a
     miss is ``unresolved``, since the text may say elsewhere where to run it."""
-    if not src or dynamic(src) or src.startswith(("/", "~", "-")):
-        return
+    if not src or dynamic(src) or src.startswith(("/", "~", "-")) or any(c in src for c in "*?[{"):
+        return  # a glob or brace expansion names directories this text does not list
     cd = scan.cd_dirs
     if cd == []:
         scan.add(file, line, "cmake_src", src, "unresolved", "after a `cd` this tree cannot follow", text)

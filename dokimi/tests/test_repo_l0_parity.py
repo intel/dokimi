@@ -91,9 +91,29 @@ CASES = [
      {("starlark_macro", "m"): "ok", ("starlark_kwarg", "m(srsc=)"): "fail", ("starlark_kwarg", "m(deps=)"): "fail",
       ("starlark_load", "m from //:defs.bzl"): "ok", ("bazel_label", "//a:core"): "ok",
       ("bazel_label", "//a:kore"): "fail"}),
-    ("python fence without a load: a macro called with name =",
-     _fence("py", "m(", '    name = "x",', "    srsc = [],", ")"), _DEFS,
-     {("starlark_macro", "m"): "ok", ("starlark_kwarg", "m(srsc=)"): "fail"}),
+    ("python fence of a macro call alone is plain Python",
+     _fence("py", "m(", '    name = "x",', "    srsc = [],", ")"), _DEFS, {}),
+    ("python fence with test_suite and strings that look like labels",
+     _fence("python", "test_suite(", '    name = "x",', ")", 'p = x.split("//")', 'urls = ["//a/b"]'), _DEFS, {}),
+    ("python fence calling run( when a .bzl defines run",
+     _fence("python", "run(", '    name = "job",', "    verbose = True,", ")"),
+     {**_DEFS, "run.bzl": 'def run(name, mode = "x"):\n    pass\n'}, {}),
+    ("starlark fence: a URL string is not a label", _fence("starlark", 'url = "//cdn.example.com/x.tar"'), _DEFS, {}),
+    ("python fence loading a relative label", _fence("python", 'load(":x.bzl", "m")', 'y = ["//a:kore"]'), _DEFS,
+     {("bazel_label", "//a:kore"): "fail"}),
+    ("python fence loading from a repository", _fence("python", 'load("@rules//:x.bzl", "m")', 'y = ["//a:kore"]'),
+     _DEFS, {("bazel_label", "//a:kore"): "fail"}),
+    ("python fence with a load over several lines",
+     _fence("python", "load(", '    "//:defs.bzl",', '    "m",', ")", 'y = ["//a:kore"]'), _DEFS,
+     {("bazel_label", "//a:kore"): "fail", ("starlark_load", "m from //:defs.bzl"): "ok"}),
+    ("a single-quoted load of a file the tree lacks, in a python fence",
+     _fence("python", "load('//:gone.bzl', 'm')"), _DEFS, {("bazel_label", "//:gone.bzl"): "fail"}),
+    ("a single-quoted load of a file the tree lacks, in a starlark fence",
+     _fence("starlark", "load('//:gone.bzl', 'm')"), _DEFS, {("bazel_label", "//:gone.bzl"): "fail"}),
+    ("a .bzl whose string ends in an escaped backslash still defines what follows",
+     _fence("starlark", 'load("//:defs.bzl", "m", "n")'),
+     {"BUILD": "", "defs.bzl": 'SEP = "\\\\"\ndef m(name):\n    pass\n\ndef n(name):\n    pass\n'},
+     {("starlark_load", "m from //:defs.bzl"): "ok", ("starlark_load", "n from //:defs.bzl"): "ok"}),
     ("python fence with a native rule only Bazel has",
      _fence("python3", "cc_library(", '    name = "x",', '    deps = ["//a:kore"],', ")"), _DEFS,
      {("bazel_label", "//a:kore"): "fail"}),
@@ -150,9 +170,73 @@ CASES = [
      {("cmake_src", "sub"): "ok"}),
     ("cmake -S in a submodule after a cd", _fence("bash", "cd . && cmake -S vendor/lib -B build"), _CMAKE_LINKS,
      {("cmake_src", "vendor/lib"): "unresolved"}),
+    ("cmake -S with a glob is not a literal directory", _fence("bash", "cd . && cmake -S examples/* -B build"),
+     _CMAKE, {("cmake_src", "examples/*"): None}),
     ("cmake -S after a cd that cannot be followed", _fence("bash", "cd $SRC && cmake -S . -B b", "cmake -S$X"),
      _CMAKE, {("cmake_src", "."): "unresolved", ("cmake_src", "$X"): None}),
 ]
+
+
+def _external(files: dict[str, str]) -> dict[str, str]:
+    return {"BUILD": "", **files}
+
+
+# One repository per BUILD file name form and per way of naming it: the whole claim set is the verdict
+_BUILD_FORMS = [
+    ("BUILD.zlib.bazel", {"third_party/repos.bzl": 'r(name = "zlib", build_file = "//third_party:BUILD.zlib.bazel")\n',
+                          "third_party/BUILD.zlib.bazel": 'cc_library(name = "t")\n'}),
+    ("zlib.BUILD.bazel", {"third_party/repos.bzl": 'r(name = "zlib", build_file = "//third_party:zlib.BUILD.bazel")\n',
+                          "third_party/zlib.BUILD.bazel": 'cc_library(name = "t")\n'}),
+    ("a root-relative path", {"third_party/repos.bzl": 'r(name = "zlib", build_file = "third_party/zlib.BUILD")\n',
+                              "third_party/zlib.BUILD": 'cc_library(name = "t")\n'}),
+    ("a label relative to the .bzl file", {"third_party/repos.bzl": 'r(name = "zlib", build_file = ":zlib.BUILD")\n',
+                                           "third_party/zlib.BUILD": 'cc_library(name = "t")\n'}),
+    ("WORKSPACE.bazel", {"WORKSPACE.bazel": 'r(name = "zlib", build_file = "//third_party:zlib.BUILD")\n',
+                         "third_party/zlib.BUILD": 'cc_library(name = "t")\n'}),
+    ("MODULE.bazel", {"MODULE.bazel": 'module(name = "case")\nr(name = "zlib", build_file = "//third_party:zlib.BUILD")\n',
+                      "third_party/zlib.BUILD": 'cc_library(name = "t")\n'}),
+]
+
+
+@pytest.mark.parametrize("files", [f for _, f in _BUILD_FORMS], ids=[n for n, _ in _BUILD_FORMS])
+def test_external_build_file_name_forms(tmp_path, files):
+    got = _verdicts(_scan(tmp_path, "`@zlib//:t` `@zlib//:nope`\n", _external(files)))
+    assert got == {("bazel_label", "@zlib//:t"): "ok", ("bazel_label", "@zlib//:nope"): "fail"}
+
+
+def test_a_longer_repository_name_does_not_claim_the_shorter_ones_build_file(tmp_path):
+    files = _external({
+        "third_party/repos.bzl": 'r(name = "lib", build_file = "//third_party:lib.BUILD")\n'
+                                 'r(name = "lib_tools", build_file = "//third_party:lib_tools_win.BUILD")\n',
+        "third_party/lib.BUILD": 'cc_library(name = "lib")\n',
+        "third_party/lib_tools_win.BUILD": 'cc_library(name = "win")\n'})
+    got = _verdicts(_scan(tmp_path, "`@lib//:win` `@lib//:lib`\n", files))
+    assert got == {("bazel_label", "@lib//:win"): "fail", ("bazel_label", "@lib//:lib"): "ok"}
+
+
+def test_a_computed_first_build_file_is_not_forgotten_by_the_second(tmp_path):
+    files = _external({
+        "third_party/repos.bzl": 'r(name = "lib", build_file = "//third_party:lib.BUILD")\n'
+                                 'r(name = "lib", build_file = "//third_party:lib_win.BUILD")\n',
+        "third_party/lib.BUILD": "[cc_library(name = n) for n in NAMES]\n",
+        "third_party/lib_win.BUILD": 'cc_library(name = "win")\n'})
+    got = _verdicts(_scan(tmp_path, "`@lib//:zz` `@lib//:win`\n", files))
+    assert got == {("bazel_label", "@lib//:zz"): "unresolved", ("bazel_label", "@lib//:win"): "ok"}
+
+
+@pytest.mark.parametrize("build, label, expected", [
+    ('exports_files(glob(["*"]))\ncc_library(name = "zlib")\n', "LICENSE", "unresolved"),
+    ('exports_files(["LICENSE", "NOTICE"])\ncc_library(name = "zlib")\n', "NOTICE", "ok"),
+    ('exports_files(["LICENSE", "NOTICE"])\ncc_library(name = "zlib")\n', "OTHER", "fail"),
+    ('exports_files(srcs = ["LICENSE", "NOTICE"])\n', "NOTICE", "ok"),
+    ('exports_files(FILES)\ncc_library(name = "zlib")\n', "NOTICE", "unresolved"),
+    ('cc_library(name = "%{target_name}")\n', "zlib", "unresolved"),  # a template, rendered on fetching
+])
+def test_external_exports_files_and_templates(tmp_path, build, label, expected):
+    files = _external({"third_party/repos.bzl": 'r(name = "zlib", build_file = "//third_party:zlib.tpl.BUILD")\n',
+                       "third_party/zlib.tpl.BUILD": build})
+    got = _verdicts(_scan(tmp_path, f"`@zlib//:{label}`\n", files))
+    assert got == {("bazel_label", f"@zlib//:{label}"): expected}
 
 
 @pytest.mark.parametrize("name, agents, files, expected", CASES, ids=[c[0] for c in CASES])

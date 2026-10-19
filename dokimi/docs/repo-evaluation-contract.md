@@ -552,9 +552,9 @@ in one request.
 | Check | Claims |
 |---|---|
 | generic | Markdown links (inline and reference definitions, `<angle-bracket>` targets; relative, and blob/tree links to `source.url`), paths and globs in code spans (see below), identifiers (a word in some tracked file that is not prose; a missing ALL_CAPS name is `unresolved`, since a tool outside the tree may read it), `python <script>` paths, a command wrapped in backticks inside a shell fence |
-| `bazel` | `--config` values against `.bazelrc` and its imports, flag aliases, labels against the target and output names (`name`, `outs`) that the package's `BUILD.bazel`, else `BUILD`, spells out in either quote style (a package that calls a macro or computes a name, `"t_" + s` or a comprehension, gives `unresolved`, not `fail`), macros and keyword arguments in Starlark fences against tracked `.bzl` files, `load()` symbols against the public top-level names (a `def` or an assignment) of the in-tree `.bzl` an absolute label names, labels of an external repository against its BUILD file when the tree holds one (see below), and `@<module>//` alone as this repository |
+| `bazel` | `--config` values against `.bazelrc` and its imports, flag aliases, labels against the target and output names (`name`, `outs`, and the files of a top-level `exports_files([...])`) that the package's `BUILD.bazel`, else `BUILD`, spells out in either quote style (a package that calls a macro or computes a name, `"t_" + s`, a comprehension or `exports_files(glob(...))`, gives `unresolved`, not `fail`), macros and keyword arguments in Starlark fences against tracked `.bzl` files, `load()` symbols against the public top-level names (a `def` or an assignment) of the in-tree `.bzl` an absolute label names, labels of an external repository against its BUILD file when the tree holds one (see below), and `@<module>//` alone as this repository |
 | `make` | targets against the rules of every makefile (a `%:` catch-all or a rule named by a variable gives `unresolved`), `VAR=value` against the makefiles |
-| `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json`, `-S <dir>` against a `CMakeLists.txt` in that directory (`fail` only after a literal `cd`; without one the directory the command runs in is not known, so a miss is `unresolved`) |
+| `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json`, `-S <dir>` against a `CMakeLists.txt` in that directory (`ok` when any ancestor directory of the guidance file holds it; `fail` only after a literal `cd`, and there a miss inside a declared submodule is `unresolved`; without a `cd` the directory the command runs in is not known, so a miss is `unresolved`; a glob such as `examples/*` is not a literal directory and gets no claim) |
 | `pytest` | path arguments and `::test` nodes |
 | `pre-commit` | `pre-commit run <hook>` against hook ids and aliases |
 
@@ -565,15 +565,22 @@ files at the root (any `conftest.py` or a pytest section also selects
 Starlark is a Python dialect, so guidance often fences a BUILD snippet as
 `python`. With the `bazel` adapter on, such a fence is checked as Starlark when
 it reads as BUILD code: it loads a label, or a line starts a call to a native
-rule only Bazel has (`cc_library`, `http_archive`) or a `name =` call to a
-macro of a tracked `.bzl` file. Any other `python` fence is not checked. An
+rule only Bazel has (`cc_library`, `http_archive`). A call to a macro of a
+tracked `.bzl` file does not count (`run(` and `build(` are as often plain
+Python), nor does `test_suite(`. Any other `python` fence is not checked.
+Every string of a checked fence that is a label is looked up, in either quote
+style; a string such as `//cdn.example.com/x.tar` (a host name) is not a label. An
 external repository's BUILD file is in the tree when a tracked file is named
 for the repository (`zlib.BUILD`, `BUILD.zlib`, `mkl.tpl.BUILD`,
 `mkl_win.tpl.BUILD`, with an optional `.bazel`) and a `.bzl` file,
 `MODULE.bazel` or `WORKSPACE` names that file, as a `build_file` or a
 template. A label in the root package of such a repository is `ok` when one of
-those files spells the name out, `fail` when none does, and `unresolved` when
-one computes names or the target may be a file (`x.h`). Labels of any other
+those files spells the name out (or lists it in `exports_files([...])`), or
+the target is `all`, `*` or `all-targets`. It is `unresolved` when one of those
+files computes names (a macro, `exports_files(glob(...))`, or a template's
+`%{...}` substitution), when the target contains a `.`, or when the name
+appears as any string in the file (a source in `srcs`); otherwise it is
+`fail`. Labels of any other
 external repository stay `unresolved`.
 
 L0 checks only what holds for any repository. The rules of oneDAL's own
