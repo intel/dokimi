@@ -1,0 +1,95 @@
+# Run consistency: result, path, contract
+
+An agent that solved a task once may not solve it again, and an agent that
+solves it every time may get there by a different route each time. Those are
+two questions, and a third sits beside them: did the route keep the rules the
+task sets. `context consistency` reads repeated runs of one task from their
+Claude Code `stream-json` traces and answers each one apart. It calls no model.
+
+```bash
+python cli.py context consistency \
+  --arm no-skill='runs/base/*.jsonl' --arm skill='runs/skill/*.jsonl' \
+  --outcomes verdicts.json --contract contract.yaml
+```
+
+| Axis | Question | Numbers |
+|---|---|---|
+| Result | Does it solve the task every time? | `success_rate`, `pass@k` (any of k), `pass^k` (all of k, τ-bench) |
+| Path | Do the runs take the same steps? | `mix_jsd` (same tools in same amounts), `order_distance` (same order), `action_distance` (same files and commands), CV of tool calls, turns, output tokens |
+| Contract | Did each run keep the required process? | `conformance_rate`, violations per rule, `passed_but_nonconforming` |
+
+The path is the main thread's tool calls. `Bash` calls are named by program
+(`Bash:pytest`, `Bash:git`), so a shell-heavy run is not one undifferentiated
+step. Subagent calls are left out; a `Task` call is one step.
+
+## Where the outcome comes from
+
+Pass `--outcomes`: a JSON object of trace path (or file name, or stem) to
+`true`/`false`, written by a verifier that checked the workspace. Without it a
+run passes when the harness ended cleanly (`result` event, `success`), which
+says the agent stopped, not that the task is done. The report says which source
+it used.
+
+## Strategies
+
+A task with two valid routes would read as unstable if every pair of runs were
+compared. Runs are grouped by the order distance of their tool paths, repeats
+collapsed (`--threshold`, default 0.34), and each group gets a verdict:
+
+| Verdict | Reading |
+|---|---|
+| one strategy, stable success | reproducible process |
+| several strategies, all stable success | valid diversity |
+| one strategy, unstable | the route is right, execution breaks |
+| one strategy, stable failure | a reproducible mistake |
+
+A group is a shape, not a proof the shape is right; the result and the
+contract judge that.
+
+## Contract
+
+Named actions match tool calls by tool (or kind, like `Bash:pytest`) and regexes
+over the call's input. Rules constrain only what matters; any order they do not
+constrain conforms.
+
+```yaml
+actions:
+  guide: {tool: Read, file_path: 'AGENTS\.md$'}
+  edit:  {tool: [Edit, Write, MultiEdit]}
+  test:  {tool: Bash, command: '\b(pytest|make test)\b'}
+  push:  {tool: Bash, command: 'git push'}
+rules:
+  - before: [guide, edit]      # the guide is read before the first edit
+  - after_last: [edit, test]   # a test runs after the last edit
+  - last_ok: test              # the last test did not fail
+  - forbids: push
+  - requires: test
+```
+
+`passed_but_nonconforming` counts runs the verifier passed that broke a rule:
+what a result-only score hides, such as a change that happened to be right but
+was never tested.
+
+## Designing the experiment
+
+Keep the sources of variation apart; one number over all of them explains
+nothing.
+
+| Series | What changes | What it measures |
+|---|---|---|
+| Repeat | nothing; the workspace reset each run | the agent's own variance |
+| Paraphrase | the wording, not the task | robustness to the prompt |
+| Fault | injected tool errors, timeouts | recovery |
+
+Compare arms (no skill, prose skill, skill with scripts, skill with executable
+checks) within one series. The useful finding is which uncertainty a skill
+removed: the tool choice (`mix_jsd`), the order (`order_distance`), the targets
+(`action_distance`), the failure handling (`last_ok`, failed calls) or the
+final check (`after_last`).
+
+Background: *Towards a Science of AI Agent Reliability*
+(arXiv:2602.16666) for the outcome / trajectory-distribution /
+trajectory-sequence / resource split; *Consistency as a Testable Property*
+(arXiv:2605.10516) for strategy grouping; Yao et al., τ-bench
+(arXiv:2406.12045) for `pass^k`; process-mining conformance checking for the
+contract.
