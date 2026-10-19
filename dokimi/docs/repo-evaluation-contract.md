@@ -721,3 +721,53 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   `eval_dir` or `image` pins or harness versions. An image `repo run` tagged
   from the tree (`dokimi/<id>:<sha>`) follows the tree, so two revisions are
   not warned about it; an `--image` of its own is compared.
+
+CI for a repository: `.github/workflows/repo-eval.yml` is a reusable workflow
+that runs the no-LLM checks on the caller's checkout and needs no secret.
+
+- `validate` runs `repo validate` and gates the other two jobs; `scan` runs `repo scan`
+  (report only: the claim counts and failing claims go to the job summary, the
+  `repo_readiness.v1` report to an artifact); `tasks-check` runs `repo tasks check`
+  for each selected task in a job of its own (docker; the image is built from the
+  manifest's Dockerfile), and uploads `check.json` and the grade logs.
+- `tasks: changed` (the default) checks, on a pull request, the tasks whose
+  directories it touches, plus `smoke-tasks` (empty: every task) when it changes
+  the eval directory outside its tasks (Markdown excepted), the manifest, the
+  calling workflow file or a path under `smoke-paths`. On a push it diffs against
+  the previous tip, on any other event it checks every task. `all` or a list of
+  task ids selects directly; `exclude-tasks` always drops tasks.
+- Pin dokimi by a commit SHA or a release tag, the same one in `uses:` and in
+  `dokimi-ref` (a branch is refused). It installs
+  `dokimi @ git+https://github.com/intel/dokimi@<sha>#subdirectory=dokimi` with
+  that commit's `requirements.lock.txt` as constraints, so a rerun checks with the
+  same framework and dependencies. Moving the pin is a change to the calling
+  workflow, so it runs the smoke set.
+- Other inputs: `manifest`, `max-parallel` (4), `warm` (`--warm`, for a cache that
+  starts empty on every runner), `runs-on` (`ubuntu-latest`), `timeout-minutes`
+  (180, per task) and `dokimi-repository` (`intel/dokimi`).
+
+```yaml
+# .github/workflows/agent-evals.yml in the repository
+name: Agent evals
+on:
+  pull_request:
+    paths: ['dev/agent_evals/**', '**/AGENTS.md', '.github/workflows/agent-evals.yml']
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  evals:
+    permissions:
+      contents: read
+    uses: intel/dokimi/.github/workflows/repo-eval.yml@<sha>  # vX.Y.Z
+    with:
+      dokimi-ref: <sha>
+      manifest: dev/agent_evals/repo-eval.yaml
+      smoke-tasks: build_kmeans_host fix_finiteness_mut review_seeded_fc
+      max-parallel: 4
+      warm: true
+```
+
+dokimi runs the workflow on its own `.agent-eval/` (`repo-eval-self.yml`), with
+the commit under test as `dokimi-ref`.
