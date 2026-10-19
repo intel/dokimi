@@ -251,7 +251,7 @@ next release.
   `--fail-on-warning`. `start` is not an upper bound: `.claude/rules/*.md` files are not
   counted, only `@path.md` imports are followed (`@notes.txt` adds nothing), skills are read
   only from real `.claude/skills/*/SKILL.md` directories at the root (a skill behind a linked
-  directory is not seen), and imports are followed past Claude Code's four-hop limit. Nor is it
+  directory is not seen), and imports stop at the profile's `guidance.import_max_depth` (four hops for Claude Code), with a warning naming what was skipped. Nor is it
   a lower bound: the skill listing is charged in full, and the harness cuts it past its listing
   budget.
 - `dokimi/repos/static.py` — the `repo_static.v1` schema: what the

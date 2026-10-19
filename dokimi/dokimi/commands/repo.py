@@ -190,7 +190,7 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
     except (SourceError, ProfileError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
-    payload = budget(tree, profile.guidance_names)
+    payload = budget(tree, profile.guidance_names, profile.import_max_depth)
     if args.json:
         print(json.dumps(payload, indent=2))
     else:

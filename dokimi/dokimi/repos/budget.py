@@ -21,7 +21,7 @@ Characters, not tokens: how many tokens a character costs depends on the model's
 and differs between model families. The exact cost is the first-call prompt difference
 between a run with the file and one without.
 
-Four checks ride along: skills with no description, skills whose descriptions are near-duplicates
+Five checks ride along (the fifth: imports past the harness's hop limit): skills with no description, skills whose descriptions are near-duplicates
 (the agent has to choose between them from the listing alone), AGENTS.md files turned off by a
 CLAUDE.md at the root, and unreadable files (non-UTF-8, dangling link).
 """
@@ -57,7 +57,7 @@ _WORD = re.compile(r"\w+")
 _STOP = frozenset("a an and the of to for in on with use when or is are be this that it its from by as at".split())
 
 
-def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
+def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: int | None = None) -> dict[str, Any]:
     files = tree.files()
     names = set(guidance_names)
     every = [f for f in files if f.rsplit("/", 1)[-1] in names]
@@ -73,8 +73,9 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
     root_claude_for_off = [f for f in root_claude if f == "CLAUDE.md" and _is_resolvable(tree, f)]
     root_claude_readable = [f for f in root_claude if _is_resolvable(tree, f)]
     # A root CLAUDE.md's imports load at start; a nested one's when the agent reaches its subtree.
-    at_start = _imports(tree, root_claude_readable)
-    lazily = _imports(tree, [f for f in claude if f not in root_claude]) - at_start
+    at_start, cut_start = _imports(tree, root_claude_readable, import_max_depth)
+    lazy_all, cut_lazy = _imports(tree, [f for f in claude if f not in root_claude], import_max_depth)
+    lazily = lazy_all - at_start
 
     start_t = {_target(tree, p) for p in at_start}
     loaded_t = start_t | {_target(tree, p) for p in lazily}
@@ -120,6 +121,9 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...]) -> dict[str, Any]:
 
     totals = {w: sum(e["chars"] for e in entries if e["when"] == w) for w in ("start", "lazy", "on demand", "off")}
     warnings = unreadable_warnings[:]
+    for f, target in sorted(set(cut_start + cut_lazy)):
+        warnings.append(f"{f}: import of {target} is past the harness's {import_max_depth}-hop import limit, "
+                        "not followed")
     off = [e["path"] for e in entries if e["when"] == "off"]
     if off:
         warnings.append(f"{', '.join(root_claude_for_off)} turns AGENTS.md loading off and no CLAUDE.md "
@@ -194,25 +198,39 @@ def _chars(tree: RepoTree, path: str) -> tuple[int, str | None]:
         return 0, f"{path}: not readable ({_unreadable_reason(err)}), counted as 0"
 
 
-def _imports(tree: RepoTree, roots: list[str]) -> set[str]:
-    """Files the root CLAUDE.md files ``@import``, transitively (relative to the importing file)."""
+def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> tuple[set[str], list[tuple[str, str]]]:
+    """Files the CLAUDE.md ``roots`` ``@import``, transitively (relative to the importing file).
+
+    Breadth first, so a file is placed at its shortest hop count. With ``max_depth``, imports of
+    files already ``max_depth`` hops from a root are not followed; those left unreached come back
+    as ``(importing file, target)`` pairs.
+    """
     seen: set[str] = set()
-    todo = list(roots)
-    while todo:
-        f = todo.pop()
-        try:
-            text = tree.read_text(f)
-        except (OSError, ValueError, RuntimeError):  # RuntimeError: a link loop before Python 3.13
-            continue
-        here = f.rsplit("/", 1)[0] + "/" if "/" in f else ""
-        for target in IMPORT.findall(_strip_code_spans(_CODE_BLOCK.sub("", text))):
-            if target.startswith("/"):
-                continue  # an absolute path names the host filesystem, not a file of the tree
-            path = _normalize(here + target)
-            if path and path not in seen:
+    level = list(roots)
+    cut: list[tuple[str, str]] = []
+    depth = 0
+    while level:
+        nxt: list[str] = []
+        for f in level:
+            try:
+                text = tree.read_text(f)
+            except (OSError, ValueError, RuntimeError):  # RuntimeError: a link loop before Python 3.13
+                continue
+            here = f.rsplit("/", 1)[0] + "/" if "/" in f else ""
+            for target in IMPORT.findall(_strip_code_spans(_CODE_BLOCK.sub("", text))):
+                if target.startswith("/"):
+                    continue  # an absolute path names the host filesystem, not a file of the tree
+                path = _normalize(here + target)
+                if not path or path in seen:
+                    continue
+                if max_depth is not None and depth >= max_depth:
+                    cut.append((f, path))
+                    continue
                 seen.add(path)
-                todo.append(path)
-    return seen
+                nxt.append(path)
+        level = nxt
+        depth += 1
+    return seen, [(f, p) for f, p in cut if p not in seen]
 
 
 def _normalize(path: str) -> str:

@@ -748,3 +748,34 @@ def test_link_loops_warn_instead_of_crashing(tmp_path, monkeypatch):
     assert any(w.startswith("CLAUDE.md: not readable") for w in got["warnings"])
     assert any(w.startswith(".claude/skills/s/SKILL.md: not readable") for w in got["warnings"])
     assert {e["path"] for e in got["entries"]} >= {"CLAUDE.md", ".claude/skills/s/SKILL.md"}
+
+
+def _chain(tmp_path, links):
+    files = {"CLAUDE.md": "@c1.md\n"}
+    for i in range(1, links + 1):
+        files[f"c{i}.md"] = (f"@c{i + 1}.md\n" if i < links else "end\n")
+    return _tree(tmp_path, files)
+
+
+def test_imports_stop_at_the_depth_limit_and_warn(tmp_path):
+    got = budget(_chain(tmp_path, 5), NAMES, import_max_depth=4)  # c5 is the fifth hop
+    entries = _by_path(got)
+    assert all((f"c{i}.md", "import") in entries for i in range(1, 5))
+    assert ("c5.md", "import") not in entries
+    assert any("c4.md" in w and "c5.md" in w and "4-hop" in w for w in got["warnings"])
+
+
+def test_imports_exactly_at_the_depth_limit_do_not_warn(tmp_path):
+    got = budget(_chain(tmp_path, 4), NAMES, import_max_depth=4)
+    assert ("c4.md", "import") in _by_path(got)
+    assert not any("hop" in w for w in got["warnings"])
+
+
+def test_imports_are_unlimited_without_a_depth_limit(tmp_path):
+    got = budget(_chain(tmp_path, 8), NAMES)
+    assert ("c8.md", "import") in _by_path(got) and not got["warnings"]
+
+
+def test_the_claude_code_profile_limits_imports_to_four_hops():
+    from dokimi.repos.harness_profile import load_profile
+    assert load_profile("claude-code").import_max_depth == 4
