@@ -295,3 +295,58 @@ def test_report_puts_the_discovery_arm_beside_no_skill_and_with_skill():
     assert "— (arms lost different cells)" in render_task_runs_report(data)
     del data["summary"]["discovery_gaps"]
     assert "## Skill discovery" not in render_task_runs_report(data)
+
+
+def test_discovery_gap_withheld_when_arms_attempted_different_cells():
+    """Gap is None when discovery arm ran fewer tasks than the with-skill arm."""
+    arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
+    rows = []
+    # Discovery arm: runs 1 task (killed run or different --tasks selection)
+    # With-skill arm: runs 2 tasks
+    for harness in arms:
+        for task_idx in (0, 1):
+            if harness == arms[2] and task_idx == 1:
+                # Discovery arm only ran the first task (index 0)
+                continue
+            passed = (harness == arms[1])  # Only skill arm passes
+            metrics = {"operation_count": 0, "operations_by_type": {}}
+            if harness != arms[0]:
+                metrics.update(n_skill_invocations=(1 if harness == arms[1] else 0),
+                              skill_notice=harness == arms[1])
+            task_name = f"t{task_idx}"
+            rows.append({"task": task_name, "harness": harness, "passed": passed,
+                        "reward": float(passed), "returncode": 0, "output_dir": None,
+                        "metrics": metrics, "operations": []})
+
+    tasks = [{"name": f"t{i}", "path": "p", "metadata": {"difficulty": "easy"},
+             "verifier": {}, "agent": {}, "environment": {}} for i in range(2)]
+    data = {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+            "baseline_harness": arms[0], "harnesses": arms, "results": rows, "tasks": tasks,
+            "summary": summarize_task_results(rows, baseline_harness=arms[0])}
+
+    # Gap should be None because attempted cells differ
+    assert data["summary"]["discovery_gaps"][arms[2]]["gap"] is None
+
+
+def test_discovery_gap_both_arms_fully_errored():
+    """Gap is None when both arms have no pass_rate (all errored), and no crash."""
+    arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
+    rows = []
+    for harness in arms:
+        metrics = {"error": "rejected credentials" if harness != arms[0] else "no api key"}
+        if harness != arms[0]:
+            metrics["n_skill_invocations"] = 0
+            metrics["skill_notice"] = harness == arms[1]
+        rows.append({"task": "t1", "harness": harness, "passed": False, "reward": 0.0,
+                    "returncode": 1, "output_dir": None, "metrics": metrics, "operations": []})
+
+    data = {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+            "baseline_harness": arms[0], "harnesses": arms, "results": rows,
+            "tasks": [{"name": "t1", "path": "p", "metadata": {"difficulty": "easy"},
+                      "verifier": {}, "agent": {}, "environment": {}}],
+            "summary": summarize_task_results(rows, baseline_harness=arms[0])}
+
+    # Gap should be None because pass_rate is None for both arms
+    assert data["summary"]["discovery_gaps"][arms[2]]["gap"] is None
+    assert data["summary"]["discovery_gaps"][arms[2]]["discover_pass_rate"] is None
+    assert data["summary"]["discovery_gaps"][arms[2]]["with_skill_pass_rate"] is None

@@ -181,6 +181,32 @@
                 "type": "boolean",
                 "description": "Skill arms of the docker-claude family: whether the prompt opened with the treatment notice (false on the -skill-discover arms, which install the same skill and leave finding it to its description)."
               },
+              "skill_listing": {
+                "type": "object",
+                "description": "Skill listing metrics for -skill and -skill-discover arms: description length budget and truncation status.",
+                "properties": {
+                  "description_chars": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Number of characters in the skill description."
+                  },
+                  "max_desc_chars": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Maximum allowed description characters."
+                  },
+                  "budget_chars": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total character budget for the listing."
+                  },
+                  "truncated": {
+                    "type": "boolean",
+                    "description": "Whether the skill description was truncated to fit the budget."
+                  }
+                },
+                "additionalProperties": true
+              },
               "exploration_metrics": {
                 "type": "object",
                 "description": "Optional exploration-quality block. Emitted only when the operation stream contains read/search/subagent/edit signal. Metrics that cannot be derived from the available telemetry are null.",
