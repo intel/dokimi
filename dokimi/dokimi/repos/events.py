@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
-TRACE_FORMATS = ("claude-stream-json", "text")
+TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
 OUTPUT_LIMIT = 8192
 OUTPUT_KEEP = 4096
 
@@ -65,6 +65,10 @@ def convert(fmt: str, raw: str, workdir: str | None = None) -> Transcript:
         return Transcript(answer=raw.strip())
     if fmt == "claude-stream-json":
         return _claude_stream_json(raw, workdir)
+    if fmt in ("codex-json", "copilot-json"):
+        from .cli_traces import codex_json, copilot_json
+
+        return (codex_json if fmt == "codex-json" else copilot_json)(raw, workdir)
     raise ValueError(f"unknown trace format {fmt!r} (known: {', '.join(TRACE_FORMATS)})")
 
 

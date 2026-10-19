@@ -52,6 +52,9 @@ class HarnessProfile:
     bridge: dict[str, str] | None = None
     prompt_suffix: str = ""
     config_files: dict[str, str] = field(default_factory=dict)
+    bin_companions: tuple[str, ...] = ()  # files beside the executable that it needs; mounted next to it
+    native_prompt: bool = False  # the harness's own prompt (a native review mode); the task prompt is not passed
+    answer_format: str | None = None  # answers.convert_answer applies it before grading
     path: str = "<profile>"
 
     @property
@@ -164,8 +167,14 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
         unknown = set(_PLACEHOLDER_RE.findall(content)) - CONFIG_PLACEHOLDERS
         if unknown:
             raise ProfileError(f"{path}: config_files/{name} uses unknown placeholder(s) {sorted(unknown)}")
-    if not any("{prompt}" in element for element in raw["invoke"]):
-        raise ProfileError(f"{path}: invoke never passes {{prompt}}")
+    passes_prompt = any("{prompt}" in element for element in raw["invoke"])
+    if raw.get("native_prompt"):
+        if passes_prompt or raw.get("prompt_suffix"):
+            raise ProfileError(f"{path}: native_prompt runs the harness's own prompt; invoke cannot pass "
+                               "{prompt} and there is no prompt_suffix to add")
+    elif not passes_prompt:
+        raise ProfileError(f"{path}: invoke never passes {{prompt}} (set native_prompt for a harness that "
+                           "uses its own)")
     if raw["invoke"].count(TOOLS_ELEMENT) != 1:
         raise ProfileError(f"{path}: invoke must have exactly one {TOOLS_ELEMENT} element")
     return HarnessProfile(
@@ -184,6 +193,9 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
         bridge=raw.get("bridge"),
         prompt_suffix=raw.get("prompt_suffix") or "",
         config_files=dict(raw.get("config_files") or {}),
+        bin_companions=tuple(raw.get("bin_companions") or ()),
+        native_prompt=bool(raw.get("native_prompt")),
+        answer_format=raw.get("answer_format"),
         path=path,
     )
 

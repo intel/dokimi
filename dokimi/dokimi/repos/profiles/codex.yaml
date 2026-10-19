@@ -1,0 +1,68 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+schema: harness_profile.v1
+name: codex
+bin: codex  # npm's codex is a node launcher; mount the native one (.../vendor/<triple>/bin/codex) with --bin
+version_cmd: ["{bin}", "--version"]
+# Codex 0.160 runs every tool call through codex-code-mode-host, which it starts from
+# beside its own binary; without it in the container no command can run.
+bin_companions: [codex-code-mode-host]
+# `codex exec` is Codex's non-interactive mode; --json prints one event per line on
+# stdout. The prompt comes last, after `--`, so a prompt starting with "-" is not a
+# flag. Codex has no turn or spend cap on the command line: {max_turns} and {budget}
+# are not passed and the run's timeout is the only bound. No --ignore-user-config:
+# CODEX_HOME is a fresh per-run directory, and a profile copy that routes Codex to
+# another endpoint does it with a config.toml in config_files.
+invoke:
+  - "{bin}"
+  - "exec"
+  - "--model"
+  - "{model}"
+  - "--ephemeral"
+  - "--skip-git-repo-check"
+  - "--json"
+  - "--color"
+  - "never"
+  - "{tools}"
+  - "--"
+  - "{prompt}"
+# Codex cannot switch tools off: `none` and `read` both get its read-only sandbox,
+# which needs unprivileged user namespaces (bwrap); where the host denies them every
+# command fails, which leaves the agent with no tools at all. `all` relies on the
+# framework's container for isolation.
+tools:
+  none: ["--sandbox", "read-only"]
+  read: ["--sandbox", "read-only"]
+  all: ["--dangerously-bypass-approvals-and-sandbox"]
+config_dir_env: CODEX_HOME
+env_allow:
+  - PATH
+  - HOME
+  - LANG
+  - SYSTEMROOT
+  - CODEX_API_KEY
+  - OPENAI_API_KEY
+  - OPENAI_BASE_URL
+  - http_proxy
+  - https_proxy
+  - no_proxy
+  - HTTP_PROXY
+  - HTTPS_PROXY
+  - NO_PROXY
+egress:
+  - api.openai.com
+endpoint_env: OPENAI_BASE_URL
+trace: codex-json
+guidance:
+  names: [AGENTS.md, AGENTS.override.md]
+  resolution: codex-home + git-root-to-cwd + lazy-by-shell-read
+  imports: null
+  notes: >-
+    Documented for codex-cli 0.160: one AGENTS.override.md or AGENTS.md per
+    directory from the git root down to the working directory, joined root
+    first; an AGENTS.override.md replaces the AGENTS.md beside it. CLAUDE.md,
+    .github/copilot-instructions.md and .github/instructions are not read.
+    Measured on 0.160 with gpt-6-luna (oneDAL review task): root AGENTS.md
+    applied, subtree AGENTS.md applied only after the agent printed them with a
+    shell command; AGENTS.override.md hid the root AGENTS.md.

@@ -236,15 +236,19 @@ next release.
   it can see. A file comes back `loaded`, `truncated` (one token — the file was
   cut), `fetched` (seen only after the agent read it), `not_loaded`, or `error`
   (no usable answer). Harness behaviour is data, not code:
-  `dokimi/repos/profiles/claude-code.yaml` is a `harness_profile.v1`
-  file and any other harness is another YAML.
+  `dokimi/repos/profiles/` holds `harness_profile.v1` files for Claude
+  Code, the Codex CLI (`codex`, and its native review mode `codex-review`) and
+  the Copilot CLI (`copilot`, and its `/review` agent `copilot-review`); any
+  other harness is another YAML.
 - `dokimi/repos/static.py` — the `repo_static.v1` schema: what the
   repository's own `static` entry point writes, so its checks can be merged
   into L0.
 - `dokimi/repos/bases.py` — checks that need every task base: each
   `base` must resolve, and the guidance globs are evaluated at each base.
 - `dokimi/repos/events.py` — converts a harness trace to the
-  `events.jsonl` run trace.
+  `events.jsonl` run trace; `dokimi/repos/cli_traces.py` holds the Codex and
+  Copilot JSON converters, and `dokimi/repos/answers.py` the `answer_format`
+  conversions that turn a native review answer into a findings block.
 - `dokimi/repos/l0/` — `repo scan` (L0): checks the links, paths,
   identifiers, commands and build labels the guidance names against the same
   tree (`repo_readiness.v1`), with no LLM call.

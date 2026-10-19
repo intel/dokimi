@@ -52,6 +52,8 @@ from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, check_repo
 from .source import RepoTree, SourceError
 
+SUPPORT_HOST = Path(__file__).resolve().parent / "support"  # the framework's helper scripts, as repo run mounts them
+
 TOKEN_RE = re.compile(r"\bRC[0-9A-F]{6}\b")
 PROBE_FILE = "REACH_PROBE.txt"
 PROSE_LIMIT = 8
@@ -105,6 +107,9 @@ def token(salt: str, path: str, position: str) -> str:
 
 def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile) -> list[str]:
     """Guidance by the manifest's globs, plus files named like the harness's own guidance."""
+    if profile.native_prompt:
+        raise ReachError(f"{profile.name} runs its own prompt (native_prompt), so it cannot be asked to report "
+                         "what it loaded; probe the same CLI's exec profile instead")
     declared = set(check_repo(tree, manifest).guidance_files)
     names = set(profile.guidance_names)
     native = {p for p in tree.files() if PurePosixPath(p).name in names}
@@ -364,6 +369,8 @@ def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace:
              config_dir: Path, bin_path: str | None, max_turns: int, budget_usd: float,
              timeout_s: int) -> tuple[Transcript | None, dict[str, Any]]:
     config_dir.mkdir()
+    # As repo run does: a profile's config files (a Codex provider, a Claude Code hook) apply to the probe too.
+    profile.write_config(config_dir, {"config_dir": str(config_dir), "support_dir": str(SUPPORT_HOST)})
     argv = profile.argv(prompt=scenario.prompt, model=model, tools=scenario.tools,
                         max_turns=max_turns, budget_usd=budget_usd, bin_path=bin_path)
     row: dict[str, Any] = {"id": scenario.id, "cwd": scenario.cwd, "tools": scenario.tools,
