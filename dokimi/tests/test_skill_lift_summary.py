@@ -232,6 +232,15 @@ def test_bool_cost_is_not_a_price():
     assert cost["cost_known_n"] == 0 and cost["cost_per_pass_usd"] is None
 
 
+def test_bool_reward_is_not_a_score():
+    """True is an int, so it used to enter avg_reward as 1.0 — a perfect score."""
+    rows = [_row("t1", "a", False), _row("t2", "a", False)]
+    rows[0]["reward"] = True
+    rows[1]["reward"] = False
+    stats = summarize_task_results(rows)["per_harness"]["a"]
+    assert stats["avg_reward"] is None
+
+
 @pytest.mark.parametrize("path, value", [
     (("summary", "comparisons", "benchflow-skill:a", "normalized_change"), -1.5),
     (("summary", "comparisons", "benchflow-skill:a", "normalized_gain"), 1.5),

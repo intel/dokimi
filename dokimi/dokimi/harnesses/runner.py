@@ -139,7 +139,8 @@ def summarize_task_results(
         stats["passed"] += 1 if passed else 0
         stats["errored"] += 1 if errored else 0
         reward = row.get("reward")
-        if isinstance(reward, (int, float)) and not errored:
+        # bool is an int subclass: reward=True is not a score of 1.
+        if isinstance(reward, (int, float)) and not isinstance(reward, bool) and not errored:
             stats["reward_sum"] += float(reward)
             stats["reward_n"] += 1
         stats["elapsed_sec"] += float(row.get("elapsed_sec") or 0.0)
