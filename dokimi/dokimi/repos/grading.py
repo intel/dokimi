@@ -251,23 +251,9 @@ def score_value(task: Task, grade: dict[str, Any] | None) -> float | None:
 def outcome(task: Task, run_dir: Path, result: ContainerResult, error: str | None = None) -> dict[str, Any]:
     """The framework's verdict on one ``grade`` run (contract §4.2); ``error`` when the run itself failed."""
     grade, problems = read_grade(run_dir)
-    reasons = []
-    if error:
-        reasons.append(error)
-    elif result.timed_out:
-        reasons.append("grade timed out")
-    elif result.returncode != 0:
-        reasons.append(f"grade exited {result.returncode}")
-    reasons += problems
+    reasons = _run_reasons(result, error) + problems
     reasons += [f"{name} is not a regular file after grading" for name in replaced_files(run_dir)]
-    if grade is not None and grade["pass"] is None and grade["errors"]:
-        reasons.append("grader error: " + str(grade["errors"][0]).strip().splitlines()[0][:300])
-    elif grade is not None and grade["pass"] is None and not task.score:
-        # score-only is a property of the task, not of one grade: a gated task's grade must decide
-        reasons.append("grade.json is score-only (pass: null) but task.json has no `score`")
-    if not reasons and task.score and score_value(task, grade) is None:
-        # a missing score would leave the mean, while a grader failure counts as 0
-        reasons.append(f"grade.json has no numeric metrics.{task.score['metric']} (task.json `score`)")
+    reasons += _grade_reasons(task, grade, bool(reasons))
     failed = bool(reasons)
     score_only = not failed and grade is not None and grade["pass"] is None
     return {
@@ -281,6 +267,29 @@ def outcome(task: Task, run_dir: Path, result: ContainerResult, error: str | Non
         "timed_out": result.timed_out,
         "wall_s": result.wall_s,
     }
+
+
+def _run_reasons(result: ContainerResult, error: str | None) -> list[str]:
+    if error:
+        return [error]
+    if result.timed_out:
+        return ["grade timed out"]
+    return [f"grade exited {result.returncode}"] if result.returncode != 0 else []
+
+
+def _grade_reasons(task: Task, grade: dict[str, Any] | None, failed: bool) -> list[str]:
+    """Why a valid ``grade.json`` still makes a grader failure; ``failed``: the run already is one."""
+    if grade is None:
+        return []
+    if grade["pass"] is None and grade["errors"]:
+        return ["grader error: " + str(grade["errors"][0]).strip().splitlines()[0][:300]]
+    if grade["pass"] is None and not task.score:
+        # score-only is a property of the task, not of one grade: a gated task's grade must decide
+        return ["grade.json is score-only (pass: null) but task.json has no `score`"]
+    if not failed and task.score and score_value(task, grade) is None:
+        # a missing score would leave the mean, while a grader failure counts as 0
+        return [f"grade.json has no numeric metrics.{task.score['metric']} (task.json `score`)"]
+    return []
 
 
 def failed_outcome(reason: str) -> dict[str, Any]:
