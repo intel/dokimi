@@ -40,7 +40,9 @@ REPO_ROOT = CONTRACT_DIR.parent.parent
 EXIT = {"pass": 0, "fail": 1, "error": 2, "inconclusive": 3}
 # The worst verdict wins when one contract or one session combines several.
 RANK = ["pass", "inconclusive", "fail", "error"]
-ROOT_PROG = "dokimi"  # build_parser()'s prog; subcommand parsers are "dokimi <cmd>"
+# The journey registry. A test of the contracts alone sets it to None; a missing
+# file at this path is an error in the journey report, never a skipped check.
+REGISTRY: Path | None = CONTRACT_DIR / "journeys.yaml"
 
 _results: dict[str, list[str]] = {}
 _invocations: dict[str, list[list[str]]] = {}
@@ -48,6 +50,17 @@ _CALLS = pytest.StashKey[list]()
 # The argv list of the marked test now running, or None. A module global, not a
 # ContextVar: a worker thread the test starts must still record into it.
 _active_calls: list[list[str]] | None = None
+_root_prog: str | None = None
+
+
+def _root() -> str:
+    """build_parser()'s prog, read once: subcommand parsers are "<prog> <cmd>"."""
+    global _root_prog
+    if _root_prog is None:
+        from dokimi.cli import build_parser
+
+        _root_prog = build_parser().prog
+    return _root_prog
 
 
 def pytest_addoption(parser):
@@ -67,8 +80,8 @@ def pytest_configure(config):
 
 
 def pytest_runtest_logreport(report):
-    # A failed setup counts as a failure of the evidence; otherwise only the call phase.
-    if report.when != "call" and not (report.when == "setup" and not report.passed):
+    # A failed setup or teardown counts as a failure of the evidence; otherwise only the call phase.
+    if report.when != "call" and not report.failed:
         return
     ids = [i for key, value in report.user_properties if key == "outcome_ids" for i in value]
     for evidence_id in ids:
@@ -81,7 +94,8 @@ def pytest_runtest_logreport(report):
 
 
 @pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_call(item):
+def pytest_runtest_protocol(item, nextitem):
+    # Around setup, call and teardown: a fixture that runs the CLI counts too.
     if not any(item.iter_markers("outcome")):
         yield
         return
@@ -93,7 +107,7 @@ def pytest_runtest_call(item):
     def capture(self, args=None, namespace=None):
         parsed, leftover = original(self, args, namespace)
         # Leftovers mean parse_args() is about to reject the argv: nothing was invoked.
-        if _active_calls is not None and self.prog == ROOT_PROG and not leftover:
+        if _active_calls is not None and self.prog == _root() and not leftover:
             _active_calls.append([str(a) for a in (sys.argv[1:] if args is None else args)])
         return parsed, leftover
 
@@ -180,7 +194,7 @@ def pytest_sessionfinish(session, exitstatus):
     report = {"verdict": verdict, "outcomes": checked}
     Path(config.getoption("outcomes_report")).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     journeys = None
-    if (registry := CONTRACT_DIR / "journeys.yaml").exists():
+    if (registry := REGISTRY) is not None:
         from tests.outcomes import journeys as trace
 
         contracts = {c.get("id", p.stem): c for p in paths

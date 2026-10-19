@@ -102,11 +102,16 @@ def parse_catalog(path: Path) -> tuple[dict, list[str]]:
 
 
 def dangling_ids(docs: list[Path], catalog: dict) -> list[str]:
-    """UC/AC ids a page mentions that the catalog does not define."""
+    """UC/AC ids a page mentions outside fenced code that the catalog does not define."""
     known = set(catalog["use_cases"]) | set(catalog["criteria"])
     found = []
     for doc in docs:
+        fenced = False
         for n, line in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
+            if line.lstrip().startswith(("```", "~~~")):
+                fenced = not fenced
+            if fenced:
+                continue
             found += [f"{doc.name}:{n}: {i} is not defined in the catalog"
                       for i in ANY_ID.findall(line) if i not in known]
     return found
@@ -134,6 +139,8 @@ def _option(parser: argparse.ArgumentParser, token: str) -> str:
     name = token.split("=", 1)[0]
     actions = parser._option_string_actions
     action = actions.get(name)
+    if action is None and len(name) > 2 and name[0] == "-" and name[1] != "-":
+        action = actions.get(name[:2])  # a short option with its value attached: -j2
     if action is None and parser.allow_abbrev and name.startswith("--"):
         owners = {id(a): a for opt, a in actions.items() if opt.startswith(name)}
         if len(owners) == 1:
@@ -210,6 +217,32 @@ def _ref_problem(repo_root: Path, ref: str, anchors: Callable[[Path], set[str]])
     if anchor and (target.suffix != ".md" or anchor not in anchors(target)):
         return f"missing anchor: {ref}"
     return None
+
+
+def _normalize(registry: dict) -> list[str]:
+    """Drop the nested shapes the checks cannot read, in place, and say what was dropped."""
+    problems = []
+    if not isinstance(registry.get("criteria") or {}, dict):
+        problems.append("journeys.yaml: criteria must be a mapping")
+        registry["criteria"] = {}
+    criteria = registry.get("criteria") or {}
+    for ac, entry in list(criteria.items()):
+        if not isinstance(entry, dict):
+            problems.append(f"journeys.yaml {ac}: must be a mapping")
+            del criteria[ac]
+            continue
+        evidence = entry.get("evidence") or []
+        if not isinstance(evidence, list):
+            problems.append(f"journeys.yaml {ac}: evidence must be a list")
+            evidence = []
+        if any(not isinstance(e, dict) for e in evidence):
+            problems.append(f"journeys.yaml {ac}: every evidence entry must be a mapping")
+        entry["evidence"] = [e for e in evidence if isinstance(e, dict)]
+        for key in ("surfaces", "refs"):
+            if not isinstance(entry.get(key) or [], list):
+                problems.append(f"journeys.yaml {ac}: {key} must be a list")
+                entry[key] = []
+    return problems
 
 
 def static_problems(registry: dict, catalog: dict, repo_root: Path, contracts: dict[str, dict],
@@ -302,6 +335,7 @@ def check(registry_path: Path, repo_root: Path, contracts: dict[str, dict],
     else:
         problems = [] if isinstance(registry, dict) else [f"{registry_path.name}: not a mapping"]
         registry = registry if isinstance(registry, dict) else {}
+    problems += _normalize(registry)
     catalog_path = repo_root / registry.get("catalog", CATALOG)
     try:
         catalog, catalog_problems = parse_catalog(catalog_path)

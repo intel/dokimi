@@ -72,7 +72,7 @@ def test_the_real_catalog_and_registry_have_no_problems():
     catalog, problems = journeys.parse_catalog(plugin.REPO_ROOT / journeys.CATALOG)
     assert problems == []
     registry = yaml.safe_load((plugin.CONTRACT_DIR / "journeys.yaml").read_text(encoding="utf-8"))
-    contracts = {json.loads(p.read_text())["id"]: json.loads(p.read_text()) for p in plugin.CONTRACT_DIR.glob("*.json")}
+    contracts = {c["id"]: c for c in (json.loads(p.read_text()) for p in plugin.CONTRACT_DIR.glob("*.json"))}
     assert journeys.static_problems(registry, catalog, plugin.REPO_ROOT, contracts, plugin._anchors, ROOT) == []
     pages = sorted((plugin.REPO_ROOT / journeys.CATALOG).parent.glob("*.md"))
     assert journeys.dangling_ids(pages, catalog) == []
@@ -128,6 +128,32 @@ def test_an_id_a_page_mentions_but_the_catalog_lacks_is_dangling(tmp_path):
 
 
 # ------------------------------------------------------------------ registry problems
+
+
+@pytest.mark.parametrize("criteria, problem", [
+    (["AC-J04-001"], "criteria must be a mapping"),
+    ({"AC-J04-001": None}, "AC-J04-001: must be a mapping"),
+    ({"AC-J04-001": {"delivery": "available", "evidence": {"id": "e"}}}, "evidence must be a list"),
+    ({"AC-J04-001": {"delivery": "available", "evidence": ["e"]}}, "every evidence entry must be a mapping"),
+    ({"AC-J04-001": {"delivery": "available", "surfaces": "repo scan"}}, "surfaces must be a list"),
+])
+def test_a_malformed_registry_shape_is_a_problem_not_a_crash(tmp_path, criteria, problem):
+    registry = _tree(tmp_path)
+    registry.write_text(yaml.safe_dump({"schema": 1, "criteria": criteria}), encoding="utf-8")
+    report = journeys.check(registry, tmp_path, {}, _evidence({}), {}, plugin._anchors)
+    assert report["verdict"] == "error"
+    assert any(problem in p for p in report["problems"]), report["problems"]
+
+
+def test_an_id_inside_a_code_fence_is_not_dangling(tmp_path):
+    page = tmp_path / "p.md"
+    page.write_text("```\nAC-J99-001\n```\nAC-J98-001\n", encoding="utf-8")
+    found = journeys.dangling_ids([page], {"use_cases": {}, "criteria": {}})
+    assert len(found) == 1 and "AC-J98-001" in found[0]
+
+
+def test_an_attached_short_option_value_counts_as_its_option():
+    assert journeys.invoked(ROOT, "repo run --jobs", [["repo", "run", "src", "-j2"]])
 
 
 @pytest.mark.parametrize("entry, problem", [
@@ -268,6 +294,7 @@ def _session(pytester, monkeypatch, criteria, test_source):
     registry = _tree(root, criteria=criteria)
     registry.rename(contracts / "journeys.yaml")
     monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REGISTRY", contracts / "journeys.yaml")
     monkeypatch.setattr(plugin, "REPO_ROOT", root)
     monkeypatch.setattr(plugin, "_results", {})
     monkeypatch.setattr(plugin, "_invocations", {})
@@ -356,6 +383,7 @@ def test_the_journeys_report_must_be_json_and_its_directory_is_created(pytester,
     registry = _tree(root, criteria=criteria)
     registry.rename(contracts / "journeys.yaml")
     monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REGISTRY", contracts / "journeys.yaml")
     monkeypatch.setattr(plugin, "REPO_ROOT", root)
     monkeypatch.setattr(plugin, "_results", {})
     monkeypatch.setattr(plugin, "_invocations", {})
@@ -490,3 +518,36 @@ def test_a_journeys_report_that_is_not_json_fails_before_the_run(pytester):
 def test_a_failure_outranks_inconclusive_when_contracts_and_journeys_combine():
     assert plugin._worst(["inconclusive", "fail"]) == "fail"
     assert plugin._worst(["pass", "inconclusive"]) == "inconclusive"
+
+
+def test_an_invocation_from_a_fixture_is_recorded(pytester, monkeypatch):
+    result, report = _session(pytester, monkeypatch, _enforced(SCAN),
+                              "@pytest.fixture\ndef scanned():\n"
+                              "    build_parser().parse_known_args(['repo', 'scan', '.', '--out', 'x'])\n\n"
+                              "@pytest.mark.outcome('ev')\ndef test_scan(scanned):\n    assert True\n")
+    assert _row(report, "AC-J04-001")["verdict"] == "pass", report
+
+
+def test_a_failed_teardown_fails_the_evidence(pytester, monkeypatch):
+    result, report = _session(pytester, monkeypatch, _enforced(UNIT),
+                              "@pytest.fixture\ndef broken():\n    yield\n    raise RuntimeError('teardown')\n\n"
+                              "@pytest.mark.outcome('ev')\ndef test_x(broken):\n    assert True\n")
+    assert _row(report, "AC-J04-001")["verdict"] == "fail", report
+
+
+def test_a_missing_registry_is_an_error_not_a_skipped_check(pytester, monkeypatch):
+    root = pytester.path
+    contracts = root / "contracts"
+    contracts.mkdir()
+    monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REGISTRY", contracts / "journeys.yaml")
+    monkeypatch.setattr(plugin, "REPO_ROOT", root)
+    monkeypatch.setattr(plugin, "_results", {})
+    monkeypatch.setattr(plugin, "_invocations", {})
+    pytester.makepyfile("def test_x():\n    assert True\n")
+    result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes", "--outcomes-report=o.json",
+                                "--journeys-report=j.json")
+    report = json.loads((root / "j.json").read_text())
+    assert report["verdict"] == "error"
+    assert any("journeys.yaml: cannot read" in p for p in report["problems"])
+    assert result.ret == 2
