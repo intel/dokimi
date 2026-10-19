@@ -42,7 +42,7 @@ turns and leads to work-arounds.
     - With Haiku 4.5, a named command for the pinned formatter raised the share of
       runs that passed the CI format check from 5/16 to 12/16 (p = 0.016).
       Installing the right version without naming it reached 7/16, but at 16 cells
-      the 7 vs 5 gain is not separated from noise (p = 0.062)
+      the 7 vs 5 gain is not separated from noise (2 up, 0 down, p = 0.5)
       ([E1](preparing-a-repository-evidence.md#e1)).
     - With Haiku 5.5, 12/16 runs already passed without it. With Sonnet 5.5 the
       share went from 5/8 to 7/8, within noise at that sample size
@@ -96,7 +96,7 @@ real repository, corrected in
   exceptions next to a rule.
 - Add a line for each trap the code really has. For example: several unrelated
   functions share a short name, so grep over-matches. With Haiku 4.5, such a line
-  raised the recall of missed call sites in review from 0.67 to 0.92 (3 of 4 tasks improved, none worsened; p = 0.25, too few to separate from noise), and the
+  raised the recall of missed call sites in review from 0.67 to 0.92 (3 of 12 cells improved, in 2 of 4 tasks, none worsened; p = 0.25, too few to separate from noise), and the
   tool it advertised was called in none of the 12 runs ([E3](preparing-a-repository-evidence.md#e3)).
 - Guidance coverage alone does not predict where agents struggle. Neither naming a
   module nor writing about it predicted agent errors. Structure did:
@@ -140,8 +140,8 @@ code. On "who calls X" questions with many callers or ambiguous names:
 
 | Model | F1 without | F1 with tool and guidance line | Cost without | Cost with tool and guidance line |
 |---|---|---|---|---|
-| Sonnet 5.5 | 0.906 | 0.968 | $0.156 | $0.0738 per run |
-| Haiku 5.5 | 0.874 | 0.951 | $0.0147 | $0.0081 per run |
+| Sonnet 5.5 | 0.906 | 0.968 | $0.136 | $0.074 per run |
+| Haiku 5.5 | 0.874 | 0.951 | $0.0121 | $0.0081 per run |
 
 [E4](preparing-a-repository-evidence.md#e4): 12 questions × 2 repetitions = 24 runs per arm, Haiku 5.5 and Sonnet 5.5.
 F1 is computed on the set of files that call the function, from precision and recall.
@@ -171,7 +171,7 @@ Recurring review comments are review knowledge a repository already has.
 - **Expect help on recurring defects, not one-offs.**
     - On review tasks with seeded recurring defects, rules raised the recall of
       Codex with a small OpenAI model (`gpt-6-luna`) from 0.68 to 0.875
-      (5 of 4 tasks improved, 0 worsened; p = 0.062, 8 cells)
+      (5 of 8 cells improved, in 3 of 4 tasks, none worsened; p = 0.062)
       ([E6](preparing-a-repository-evidence.md#e6)). The defects were drawn from the rules, so this is an upper
       bound.
     - Current Claude models were already near that level without them: Haiku 5.5
