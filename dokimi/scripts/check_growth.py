@@ -114,7 +114,7 @@ def _complexity(stmts: list[ast.stmt]) -> int:
             last = stmt.cases[-1] if stmt.cases else None
             if last is not None and last.guard is None and _is_irrefutable(last.pattern):
                 n -= 1
-        elif isinstance(stmt, (ast.Try, ast.TryStar)):
+        elif isinstance(stmt, (ast.Try, *((ast.TryStar,) if hasattr(ast, "TryStar") else ()))):
             n += _complexity(stmt.body) + _complexity(stmt.finalbody)
             n += (1 if stmt.orelse else 0) + _complexity(stmt.orelse)
             n += sum(1 + _complexity(h.body) for h in stmt.handlers)

@@ -300,7 +300,7 @@ def run(args: argparse.Namespace) -> int:
                 root, env = REPO, base_env
                 if job_id in ISOLATED:
                     root, iso_env = make_isolated_env(tmp / job_id, py)
-                    env = {**iso_env, **{k: base_env[k] for k in ("RUNNER_TEMP", "CI")}}
+                    env = {**iso_env, **{k: base_env[k] for k in ("RUNNER_TEMP", "CI", "DOKIMI_GROWTH_BASE")}}
                 for i, step in enumerate(job.get("steps", [])):
                     if "run" not in step:
                         continue
