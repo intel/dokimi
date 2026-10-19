@@ -280,6 +280,9 @@ def run_agent_loop(
         serialized_calls = []
         for tc in tool_calls:
             tc_id, name, args = _tool_call_fields(tc)
+            # A call with no name is replayed to the model as "unknown" (the
+            # API needs a string), while the transcript keeps tool: None.
+            # Intentional: the replay stays valid, the record stays truthful.
             serialized_calls.append({
                 "id": tc_id,
                 "type": "function",

@@ -442,6 +442,27 @@ def test_a_null_function_on_a_dict_call_does_not_crash_the_loop(monkeypatch):
     assert replayed == "unknown"
 
 
+def test_a_null_function_on_an_object_call_does_not_crash_the_loop(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    call = _FakeToolCall("c1", "search_documentation", "{}")
+    call.function = None
+    steps = [_FakeMessage(tool_calls=[call]), _FakeMessage(content="ok")]
+    fake, _ = _scripted_completion(steps)
+    seen = []
+
+    def spy(messages, *a, **kw):
+        seen.append([dict(m) for m in messages])
+        return fake(messages, *a, **kw)
+
+    monkeypatch.setattr(ar_mod, "chat_completion", spy)
+    result = run_agent_loop("q", [tool], model="m")
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "unknown_tool"
+    assert result["transcript"][0]["tool"] is None
+    replayed = seen[-1][-2]["tool_calls"][0]
+    assert replayed["id"] == "c1"
+    assert replayed["function"] == {"name": "unknown", "arguments": "{}"}
+
 def test_tool_exception_is_recorded_as_tool_error(monkeypatch):
     class _Boom(DocQueryTool):
         def call(self, **kw):
