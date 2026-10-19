@@ -633,6 +633,19 @@ def test_the_gate_counts_only_gaps_as_excluded_files(tmp_path):
     assert len(named_exclusions(bundle.excluded)[0]) == 3
 
 
+def test_the_gate_message_keeps_gaps_and_role_decisions_apart(tmp_path):
+    """3 word-budget gaps and 2 role decisions: no count can be swapped for the other."""
+    root = _skill_with_evals(tmp_path, refs=10)
+    for i in range(3):
+        (root / "references" / f"big{i}.md").write_text("w " * 30, encoding="utf-8")
+    (root / "evals" / "more.md").write_text("w " * 5, encoding="utf-8")
+    bundle = load_bundle(f"skill:{root}", include_resources=True, max_file_words=20)
+    record = bundle.summary()
+    assert len(excluded_of(bundle.excluded, "gap")) == 3
+    check = _coverage_check(record)
+    assert "3 files excluded by the word budgets, 2 not measured by role" in check.message
+
+
 def test_a_stamped_record_validates(tmp_path):
     from dokimi.artifacts import validate_artifact
 
