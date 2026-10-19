@@ -987,12 +987,13 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   failed, and the next run of the batch fills it. `meta.json` and
   `result.json` record `execution`: the tool mode, the delegation mode and an
   `id` hashing the profile's `invoke`, tool arguments, `env_set`,
-  `config_files` and `prompt_suffix`. A rerun whose `id` differs (another
-  `--tools`, `--delegation` or profile) does not reuse the cell: the cell is
-  reported as crashed, and `--force` or another `--batch` runs it. A result
-  from before `execution` was recorded counts as `--delegation native`. A batch stays on the eval
-  tree it started with: its revision, or for a working tree the digests of
-  its `eval_dir` and of the image build context. A batch with a task that
+  `config_files`, `prompt_suffix`, harness binary name (`--bin` file name) and harness version.
+  A rerun whose `id` differs (another `--tools`, `--delegation`, profile, harness binary or
+  harness version) does not reuse the cell: the cell is reported as crashed, and
+  `--force` or another `--batch` runs it. A result from before `execution` was
+  recorded counts as `--delegation native`. A batch stays on the eval tree it
+  started with: its revision, or for a working tree the digests of its `eval_dir`
+  and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
 - The agent's container mounts the workspace, the per-run `home`, `config` and
   scratch directories (each `image.env` value under `{run_dir}/`), the caches,

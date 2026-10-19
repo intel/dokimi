@@ -221,6 +221,52 @@ def test_harness_binary_and_version_change_the_execution_id():
     assert id4 != id5 and id4 != id1
 
 
+def test_execution_id_pinned_by_profile_name():
+    profile = load_profile("claude-code")
+    id1 = profile.execution_id("all")
+    # Profile name is part of the id (in the key dict)
+    assert id1 == load_profile("claude-code").execution_id("all")
+
+
+def test_execution_id_pinned_by_env_set(tmp_path):
+    # env_set is part of the id
+    tmp1 = tmp_path / "t1"
+    tmp2 = tmp_path / "t2"
+    tmp1.mkdir()
+    tmp2.mkdir()
+    p1 = _profile(tmp1, env_set={"VAR": "value1"})
+    p2 = _profile(tmp2, env_set={"VAR": "value2"})
+    profile1 = load_profile(p1)
+    profile2 = load_profile(p2)
+    assert profile1.execution_id("read") != profile2.execution_id("read")
+
+
+def test_execution_id_pinned_by_config_files(tmp_path):
+    # config_files is part of the id
+    tmp1 = tmp_path / "t1"
+    tmp2 = tmp_path / "t2"
+    tmp1.mkdir()
+    tmp2.mkdir()
+    p1 = _profile(tmp1, config_files={"cfg.json": "{\"a\": 1}"})
+    p2 = _profile(tmp2, config_files={"cfg.json": "{\"a\": 2}"})
+    profile1 = load_profile(p1)
+    profile2 = load_profile(p2)
+    assert profile1.execution_id("read") != profile2.execution_id("read")
+
+
+def test_execution_id_pinned_by_prompt_suffix(tmp_path):
+    # prompt_suffix is part of the id
+    tmp1 = tmp_path / "t1"
+    tmp2 = tmp_path / "t2"
+    tmp1.mkdir()
+    tmp2.mkdir()
+    p1 = _profile(tmp1, prompt_suffix="suffix1")
+    p2 = _profile(tmp2, prompt_suffix="suffix2")
+    profile1 = load_profile(p1)
+    profile2 = load_profile(p2)
+    assert profile1.execution_id("read") != profile2.execution_id("read")
+
+
 def test_a_profile_without_delegation_cannot_run_without_subagents(tmp_path):
     with pytest.raises(ProfileError, match="declares no `delegation: none`"):
         load_profile(_profile(tmp_path)).tool_args("read", "none")
