@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import shlex
 import shutil
@@ -304,16 +305,26 @@ def harbor_usage(agent_result: Any) -> dict[str, Any]:
 
 
 def _harbor_reward(trial: dict[str, Any]) -> float | None:
+    """Verifier result reward: must be finite and in [0, 1], else None (treated as missing)."""
     verifier = trial.get("verifier_result")
     rewards = verifier.get("rewards") if isinstance(verifier, dict) else None
     value = rewards.get("reward") if isinstance(rewards, dict) else None
     number = _number(value)
-    return float(number) if number is not None else None
+    # Reward must be finite (not inf/nan) and in [0, 1]
+    if number is not None and math.isfinite(number) and 0.0 <= number <= 1.0:
+        return float(number)
+    return None
 
 
 def _number(value: Any) -> int | float | None:
+    """Extract a finite number (token count or cost). Non-finite (inf/nan) or negative values return None."""
     # bool is an int subclass: True is not a token count or a reward.
-    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    # Reject non-finite and negative values (negative token counts or costs corrupt sums)
+    if not math.isfinite(value) or value < 0:
+        return None
+    return value
 
 
 def _load_json(path: Path) -> dict[str, Any] | None:

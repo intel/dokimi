@@ -228,3 +228,56 @@ def test_a_command_template_keeps_its_exit_code_fallback(tmp_path):
 
     assert (result.passed, result.reward) == (True, None)
     assert "error" not in result.metrics
+
+
+@pytest.mark.parametrize("reward_val, expect_pass, expect_reward", [
+    (float("inf"), False, None),  # Non-finite: error
+    (float("nan"), False, None),  # Non-finite: error
+    (2.0, False, None),            # Out of [0,1]: error
+    (-1.0, False, None),           # Negative: error
+    (0.5, False, 0.5),             # Valid fractional reward
+    (0.0, False, 0.0),             # Valid: reward 0 is allowed
+    (1.0, True, 1.0),              # Valid: reward 1 is a pass
+])
+def test_harbor_reward_validation(tmp_path, reward_val, expect_pass, expect_reward):
+    """Non-finite and out-of-range rewards are errors; valid [0,1] and at/above 1 pass."""
+    result = _run(tmp_path, _harbor_writes("pass", edit=lambda d: d["verifier_result"]["rewards"].update(reward=reward_val)))
+    assert result.passed == expect_pass
+    assert result.reward == expect_reward
+    if expect_reward is None:
+        assert "error" in result.metrics or result.reward is None
+
+
+def test_harbor_token_count_validation():
+    """Non-finite and negative token counts are rejected; null counts are skipped (unknown)."""
+    from dokimi.harnesses.command import _number
+
+    # Non-finite values should be rejected
+    assert _number(float("nan")) is None
+    assert _number(float("inf")) is None
+    assert _number(float("-inf")) is None
+
+    # Negative values should be rejected (corrupt sums)
+    assert _number(-5) is None
+    assert _number(-0.1) is None
+
+    # Null and non-numeric should be skipped
+    assert _number(None) is None
+    assert _number("not a number") is None
+    assert _number(True) is None  # bool is int subclass
+
+    # Valid values should pass through
+    assert _number(0) == 0
+    assert _number(100) == 100
+    assert _number(0.5) == 0.5
+    assert _number(1e6) == 1e6
+
+
+def test_result_json_path_is_properly_recorded(tmp_path):
+    """Regression: metrics['result_json'] correctly stores the trial result.json location."""
+    result = _run(tmp_path, _harbor_writes("pass"))
+    # The path should be recorded and point to the trial's result.json
+    assert "result_json" in result.metrics
+    result_path = result.metrics["result_json"]
+    assert "result.json" in result_path
+    assert Path(result_path).exists()  # verify the path is valid
