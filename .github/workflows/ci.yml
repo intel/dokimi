@@ -26,7 +26,7 @@ permissions:
 # (repository_owner is the base repository's); an outside contributor's runs
 # need a maintainer's approval first. A fork's own pushes fall back to
 # ubuntu-latest. release.yml and stack-health.yml, not PR checks, stay on
-# ubuntu-latest.
+# ubuntu-latest. windows-smoke, a PR check, runs on windows-latest.
 
 # A new push to a PR supersedes the run in flight. Every other run gets a group of its
 # own (run_id): in a shared group a third queued run cancels the pending second one
