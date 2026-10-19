@@ -1049,6 +1049,68 @@ def test_a_plugin_manifest_is_high_only_when_it_brings_hooks_or_mcp(tmp_path, bo
     assert not any(".claude-plugin" in n for n in not_observed)
 
 
+@pytest.mark.parametrize("command, flagged", [
+    ("command -v make", False), ("command -V yarn", False), ("command -v pnpm >/dev/null", False),
+    ("command -v bun >/dev/null 2>&1 || echo no", False),
+])
+def test_command_v_lookup_not_flagged(tmp_path, command, flagged):
+    """command -v/-V is a lookup, not command execution."""
+    settings = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": command}]}]}}
+    _repo(tmp_path, {"AGENTS.md": "x", ".claude/settings.json": json.dumps(settings)})
+    assert bool(inspect_repo(WorkTree(tmp_path))["hook_risks"]) is flagged
+
+
+@pytest.mark.parametrize("command, flagged", [
+    ("bash <<EOF\nnpm ci\nEOF", True),
+    ("cat <<EOF | sh\nnpm ci\nEOF", True),
+    ("bash <<< 'npm ci'", True),
+    ("cat <<EOF\nnpm ci\nEOF", False),  # cat only prints, it doesn't execute
+])
+def test_heredoc_and_here_string_parsing(tmp_path, command, flagged):
+    """Heredocs and here-strings fed to a shell should parse the body."""
+    settings = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": command}]}]}}
+    _repo(tmp_path, {"AGENTS.md": "x", ".claude/settings.json": json.dumps(settings)})
+    assert bool(inspect_repo(WorkTree(tmp_path))["hook_risks"]) is flagged
+
+
+@pytest.mark.parametrize("command, flagged", [
+    ("npm cit", True), ("npm it", True), ("npm install-test", True), ("npm ic", True),
+    ("pnpm fetch", False), ("pnpm self-update", False), ("yarn plugin import x", False), ("bun pm ls", False),
+    ("yarn check", False),
+])
+def test_package_manager_aliases_and_builtins(tmp_path, command, flagged):
+    """Missing npm install aliases and yarn/pnpm/bun built-ins should be recognized."""
+    settings = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": command}]}]}}
+    _repo(tmp_path, {"AGENTS.md": "x", ".claude/settings.json": json.dumps(settings)})
+    assert bool(inspect_repo(WorkTree(tmp_path))["hook_risks"]) is flagged
+
+
+@pytest.mark.parametrize("command, flagged", [
+    ("./scripts/env", True), ("./scripts/sudo", True), ("./bin/python", True), (".claude/hooks/env", True),
+    ("$CLAUDE_PROJECT_DIR/.claude/hooks/env", True),
+])
+def test_repository_scripts_named_like_wrappers(tmp_path, command, flagged):
+    """Repository scripts named like wrappers should be flagged, not skipped."""
+    files = {"AGENTS.md": "x", "scripts/env": "#!/bin/bash\necho ok\n",
+             "scripts/sudo": "#!/bin/bash\necho ok\n", "bin/python": "#!/bin/bash\necho ok\n",
+             ".claude/hooks/env": "#!/bin/bash\necho ok\n"}
+    settings = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": command}]}]}}
+    files[".claude/settings.json"] = json.dumps(settings)
+    _repo(tmp_path, files)
+    assert bool(inspect_repo(WorkTree(tmp_path))["hook_risks"]) is flagged
+
+
+@pytest.mark.parametrize("path", [
+    "test/a.jl", "tests/test_a.r", "test/a_test.clj", "t/a.pl", "tests/a.cljs",
+    "tests/a.erl", "t/unit.pm", "tests/Test.php",
+])
+def test_test_files_in_more_ecosystems(tmp_path, path):
+    """Test files in Julia, R, Clojure, Perl, Erlang, Elixir and PHP should be recognized."""
+    _repo(tmp_path, {"AGENTS.md": "x", path: "# test"})
+    payload = inspect_repo(WorkTree(tmp_path))
+    assert payload["files"]["test_files"] == 1
+
+
 @pytest.mark.parametrize("body", ["{not json", "[1, 2]"])
 def test_a_malformed_plugin_manifest_stays_high_and_is_not_observed(tmp_path, body):
     got, not_observed = _plugin_risk(tmp_path, body)

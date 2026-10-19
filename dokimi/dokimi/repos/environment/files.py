@@ -31,12 +31,12 @@ _MINIFIED = re.compile(r"\.(min|bundle)\.(js|css)$", re.I)
 _TEST_FILE_STRICT = re.compile(
     r"\.(test|spec)\.[cm]?[jt]sx?$|_test\.go$|(^|/)(test_[^/]+|[^/]+_test)\.py$"
     r"|(^|/)[A-Z][A-Za-z0-9]*(?:Test|Tests|IT)\.(java|kt|kts|scala|cs|swift)$|(^|/)[A-Z][A-Za-z0-9]*Spec\.(scala|groovy)$|_(test|spec)\.(rb|exs?)$"
-    r"|_test\.(cc|cpp|cxx|c)$")
+    r"|_test\.(cc|cpp|cxx|c)$|_test\.clj(?:s)?$|Test\.php$")
 # Any source file under a test directory, except a package marker such as ``__init__.py``. A ``spec/``
 # directory counts only at the root (RSpec's layout); ``docs/spec/`` holds specifications.
 _TEST_FILE_DIR = re.compile(
-    r"(?:(^|/)(?:__tests__|tests?)/|^specs?/)(?:.*/)?(?!__init__\.py$)[^/]+\.(?:[cm]?[jt]sx?|java|kts?|scala|py|rb|exs?|go|rs"
-    r"|c|cc|cpp|cxx|h|hh|hpp|hxx|cs|swift|php|lua|dart|hs|sh|bats)$", re.I)
+    r"(?:(^|/)(?:__tests__|tests?|t)/|^specs?/)(?:.*/)?(?!__init__\.py$)[^/]+\.(?:[cm]?[jt]sx?|java|kts?|scala|py|rb|exs?|go|rs"
+    r"|c|cc|cpp|cxx|h|hh|hpp|hxx|cs|swift|php|lua|dart|hs|sh|bats|jl|r|clj|cljs|erl|pl|pm|t|ml|zig|nim|ex)$", re.I)
 
 
 def is_test_file(path: str) -> bool:

@@ -200,7 +200,7 @@ _PM_BUILTINS = frozenset({"install", "i", "ci", "add", "remove", "rm", "uninstal
                           "config", "why", "outdated", "help", "audit", "init", "create", "link", "unlink", "upgrade",
                           "update", "up", "cache", "store", "dlx", "login", "logout", "whoami", "pack", "publish",
                           "version", "set", "dedupe", "prune", "env", "bin", "root", "global", "-v", "--version", "-h",
-                          "--help"})
+                          "--help", "fetch", "self-update", "setup", "plugin", "pm", "check", "licenses", "npm"})
 # Words that run the command after them: wrappers, with how many positional arguments of their own
 # to skip after their options (``timeout 5 cmd``).
 _WRAPPERS = {"sudo": 0, "exec": 0, "nohup": 0, "env": 0, "command": 0, "nice": 0, "time": 0, "timeout": 1,
@@ -231,8 +231,8 @@ _RESERVED = frozenset({"if", "then", "elif", "else", "while", "until", "do", "!"
 # Install subcommands per package manager; ``None`` is a bare ``yarn``.
 _INSTALL_COMMANDS = {
     "npm": frozenset({"install", "i", "in", "ins", "inst", "insta", "instal", "isnt", "isnta", "isntal", "isntall",
-                      "ci", "clean-install", "ic", "install-clean", "isntall-clean", "add", "update", "up", "upgrade",
-                      "udpate", "dedupe", "ddp"}),
+                      "ci", "clean-install", "ic", "install-clean", "isntall-clean", "install-ci-test", "cit", "it",
+                      "install-test", "add", "update", "up", "upgrade", "udpate", "dedupe", "ddp"}),
     "yarn": frozenset({None, "install", "add", "upgrade", "up", "upgrade-interactive", "dedupe"}),
     "pnpm": frozenset({"install", "i", "add", "update", "up", "upgrade", "dedupe", "rebuild", "rb"}),
     "bun": frozenset({"install", "i", "add", "update"}),
@@ -409,18 +409,58 @@ def _segments(command: str, depth: int = 0) -> list[list[str]]:
     extra: list[list[str]] = []
     for body in _double_quoted_substitutions(text):
         extra += _segments(body, depth + 1)
+    # Extract here-strings: ``<<<`` followed by a word
+    for m in re.finditer(r"<<<\s+([^\n;|&)}`]+)", text):
+        # Here-strings use single or double quotes, which the tokenizer removes
+        here_string = m.group(1).strip()
+        if here_string:
+            # Remove surrounding quotes if present
+            if (here_string.startswith("'") and here_string.endswith("'")) or \
+               (here_string.startswith('"') and here_string.endswith('"')):
+                here_string = here_string[1:-1]
+            if here_string:
+                extra += _segments(here_string, depth + 1)
+    # Extract heredoc bodies only when they're fed to a shell
+    # Find which commands have heredocs and which ones are shells
+    shell_heredoc_segments: set[int] = set()
+    for k, argv in enumerate(out):
+        _, i = _command_start(argv)
+        if i < len(argv) and argv[i].rsplit("/", 1)[-1] in _SHELLS:
+            if any(w.startswith(("<<", "<<-")) for w in argv[i:]):
+                shell_heredoc_segments.add(k)
+        # Also check if a subsequent shell is piped after this command (like `cat <<EOF | sh`)
+        if k + 1 < len(out) and seps[k + 1] == "|":
+            _, next_i = _command_start(out[k + 1])
+            if next_i < len(out[k + 1]) and out[k + 1][next_i].rsplit("/", 1)[-1] in _SHELLS:
+                if any(w.startswith(("<<", "<<-")) for w in argv):
+                    shell_heredoc_segments.add(k)
+    # If any heredoc-using segments are shells, extract all heredoc bodies
+    if shell_heredoc_segments:
+        heredoc_labels: set[str] = set()
+        for m in re.finditer(r"<<-?['\"]?([A-Za-z_][\w.-]*)['\"]?", text):
+            heredoc_labels.add(m.group(1))
+        for label in heredoc_labels:
+            # Pattern: <<[-]?LABEL followed by anything on the line, then newline, then body, then LABEL on its own line
+            pattern = r"<<-?['\"]?" + re.escape(label) + r"['\"]?[^\n]*\n(.*?)\n" + re.escape(label) + r"(?:\n|;|$)"
+            for m in re.finditer(pattern, text, re.DOTALL):
+                body_text = m.group(1).rstrip("\n")
+                if body_text:
+                    extra += _segments(body_text, depth + 1)
     for k, argv in enumerate(out):
         _, i = _command_start(argv)
         if i >= len(argv):
             continue
         if argv[i] == "eval":
             extra += _segments(" ".join(argv[i + 1:]), depth + 1)
-        elif (k and seps[k] == "|" and argv[i].rsplit("/", 1)[-1] in _SHELLS
-              and all(w.startswith("-") and "c" not in w for w in argv[i + 1:])):
+        elif k and seps[k] == "|" and argv[i].rsplit("/", 1)[-1] in _SHELLS:
             prev = out[k - 1]
             _, p = _command_start(prev)
-            if p < len(prev) and prev[p] in ("echo", "printf"):
+            if p < len(prev) and prev[p] in ("echo", "printf") and all(w.startswith("-") and "c" not in w for w in argv[i + 1:]):
                 extra += _segments(" ".join(w for w in prev[p + 1:] if not w.startswith("-")), depth + 1)
+        # When the command is a shell that takes a heredoc as input, parse the body
+        elif argv[i].rsplit("/", 1)[-1] in _SHELLS and any(w.startswith(("<<", "<<-")) for w in argv[i:]):
+            # Heredoc bodies are already extracted above
+            pass
     return out + extra
 
 
@@ -428,6 +468,8 @@ def _command_start(argv: list[str]) -> tuple[dict[str, str], int]:
     """``VAR=value`` assignments before the command word, and the command word's index.
 
     Wrappers such as ``sudo``, ``timeout N``, ``env`` and ``source`` are skipped too.
+    For ``command``, ``-v``/``-V`` is a lookup and no actual command follows it.
+    Only match wrappers by basename for absolute paths, not relative paths like ``./scripts/env``.
     """
     env: dict[str, str] = {}
     i = 0
@@ -439,8 +481,15 @@ def _command_start(argv: list[str]) -> tuple[dict[str, str], int]:
             name, _, value = word.partition("=")
             env[name.lower()] = value
             i += 1
-        elif word.rsplit("/", 1)[-1] in _WRAPPERS:
+        elif word.startswith(("./", "$CLAUDE_PROJECT_DIR")):
+            # A relative path is code, not a wrapper
+            break
+        elif word.rsplit("/", 1)[-1] in _WRAPPERS and ("/" not in word or word.startswith("/")):
+            # Match wrappers by basename only for absolute paths or bare names, not relative paths
             name = word.rsplit("/", 1)[-1]
+            # ``command -v`` / ``command -V`` is a lookup, not command execution
+            if name == "command" and i + 1 < len(argv) and argv[i + 1] in ("-v", "-V"):
+                return env, len(argv)  # no command word to find
             value_opts = _WRAPPER_VALUE_OPTS.get(name, frozenset())
             i += 1
             while i < len(argv) and argv[i].startswith("-") and argv[i] != "-":
@@ -510,7 +559,12 @@ def _runs_repository_code(argv: list[str], tracked: set[str], npmrc_ignores: boo
     if i >= len(argv):
         return False
     cmd, rest = argv[i], argv[i + 1:]
+    # A path that starts with ./ or $CLAUDE_PROJECT_DIR, or is a tracked file, is repository code before it is a wrapper
+    if _in_tree(cmd, tracked):
+        return True
     name = cmd.rsplit("/", 1)[-1]
+    # Only match wrappers by basename for absolute paths (``/usr/bin/env``) or common interpreters
+    # For relative paths or repository-named scripts, check if it's a tracked file or path first
     if name in ("make", "gmake"):
         return True
     if name in _PACKAGE_MANAGERS:
@@ -536,7 +590,7 @@ def _runs_repository_code(argv: list[str], tracked: set[str], npmrc_ignores: boo
             else:
                 return _in_tree(word, tracked)
         return False
-    return _in_tree(cmd, tracked)
+    return False
 
 
 def detect_hook_risks(scan: Scan) -> list[HookRisk]:
