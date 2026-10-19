@@ -39,7 +39,8 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[2]
 DOCS = "dokimi/docs"
-_FRONT_MATTER = re.compile(r"\A---[ \t]*\n(.*?\n)---[ \t]*\n", re.DOTALL)
+# Match front matter with optional UTF-8 BOM and flexible line endings (LF or CRLF)
+_FRONT_MATTER = re.compile(r"\A﻿?---[ \t]*\r?\n(.*?\n)---[ \t]*\r?\n", re.DOTALL)
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -73,7 +74,10 @@ def depends_on(text: str) -> list[str]:
     match = _FRONT_MATTER.match(text)
     if not match:
         return []
-    meta = yaml.safe_load(match.group(1)) or {}
+    try:
+        meta = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError as e:
+        raise ValueError(f"front matter YAML is invalid: {e}") from e
     if not isinstance(meta, dict):
         raise ValueError("front matter is not a mapping")
     globs = meta.get("depends_on", [])
@@ -86,9 +90,13 @@ def load_pages(root: Path = REPO) -> dict[str, list[str]]:
     """Repo-relative page path -> its ``depends_on`` globs, for pages that declare any."""
     pages = {}
     for path in sorted((root / DOCS).glob("*.md")):
-        globs = depends_on(path.read_text(encoding="utf-8"))
-        if globs:
-            pages[path.relative_to(root).as_posix()] = globs
+        try:
+            globs = depends_on(path.read_text(encoding="utf-8"))
+            if globs:
+                pages[path.relative_to(root).as_posix()] = globs
+        except ValueError as e:
+            print(f"ERROR: {path.relative_to(root)}: {e}", file=sys.stderr)
+            sys.exit(1)
     return pages
 
 
