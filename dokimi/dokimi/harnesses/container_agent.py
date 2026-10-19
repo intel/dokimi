@@ -48,6 +48,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+from dokimi import process
+
 from . import egress_proxy
 from .agent_sandbox import (
     PROBE_DIRECT,
@@ -81,6 +83,7 @@ LABEL = "dokimi.run"  # on the network, sidecar and task container: find leftove
 _FILE_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE",
               "GOOGLE_APPLICATION_CREDENTIALS", "AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE")
 PROXY_PORT = 3128
+_PROBE_TIMEOUT_SEC = 120.0
 # The sidecar needs only a Python 3 interpreter. Pinned by digest (a tag moves, and
 # the sidecar holds the upstream proxy URL); override for a mirror or an offline runner.
 PROXY_IMAGE = os.environ.get(
@@ -98,7 +101,7 @@ _HOST_ONLY = frozenset({"PATH", "SHELL", "USER", "LOGNAME", "TMPDIR", "SSL_CERT_
 _PROXY_NAMES = tuple(n for base in ("HTTPS", "HTTP", "ALL", "FTP", "NO")
                      for n in (f"{base}_PROXY", f"{base.lower()}_proxy"))
 
-Docker = Callable[..., subprocess.CompletedProcess]
+Docker = Callable[..., process.Completed]
 
 
 def claude_binary() -> Path:
@@ -126,11 +129,12 @@ class ContainerSandbox:
     workdir: str = "/app"
     _stopped: bool = False
     _scratch: Optional[Path] = None
+    runner: process.Runner = field(default=process.run, repr=False)  # starts the probe's docker exec
 
     @classmethod
     def open(cls, run_id: str, docker: Docker, log, *, source_env: dict[str, str],
              task_egress: Optional[list[str] | str] = None,
-             with_agent: bool = True) -> "ContainerSandbox":
+             with_agent: bool = True, runner: process.Runner = process.run) -> "ContainerSandbox":
         if with_agent:
             preflight(source_env)
         binary = claude_binary() if with_agent else None
@@ -142,7 +146,7 @@ class ContainerSandbox:
                  if source_env.get(v) and Path(source_env[v]).is_file()}
         sandbox = cls(network=f"dokimi-net-{run_id}", proxy_name=f"dokimi-egress-{run_id}",
                       allow=sorted(set(allow)), binary=binary, files=files,
-                      label=f"{LABEL}={run_id}")
+                      label=f"{LABEL}={run_id}", runner=runner)
         # A crashed run with the same id may still hold the network: container first.
         for leftover in (run_id, sandbox.proxy_name):
             docker(["rm", "-f", leftover], log, check=False)
@@ -277,8 +281,9 @@ class ContainerSandbox:
         env.update(probe_env(forbidden, env_fingerprints(source, deny), PROBE_URL, PROBE_DIRECT))
         env["PROBE_GATEWAY"] = self.gateway(docker, log)
         argv, client_env = self.exec_argv(container, env, ["sh", "-c", probe_script()])
-        proc = subprocess.run(argv, text=True, capture_output=True, timeout=120, check=False,
-                              env=client_env)
+        proc = self.runner(argv, timeout=_PROBE_TIMEOUT_SEC, env=process.Env.only((), client_env))
+        if proc.timed_out:  # a hung check showed nothing closed; the caller records it untested
+            raise subprocess.TimeoutExpired(argv, _PROBE_TIMEOUT_SEC, proc.stdout_bytes, proc.stderr_bytes)
         return parse_probe_output(proc.stdout)
 
     def gateway(self, docker: Docker, log) -> str:

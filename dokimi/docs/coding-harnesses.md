@@ -496,8 +496,8 @@ McNemar pairing like a failed `docker build`:
 - a timeout before any model response reached the agent (a provider that never
   answers);
 - an `oracle` whose `solve.sh` overruns `agent.timeout_sec`: BenchFlow kills it
-  as an exec timeout and does not run the verifier (`docker-oracle` has no
-  limit on the oracle and would wait).
+  as an exec timeout and does not run the verifier (`docker-oracle` gives
+  `solve.sh` the same budget and scores an overrun as a failed cell, reward 0).
 
 A provider failure that starts after the agent's first model response and
 outlasts its budget (for example 429 backoff past the deadline) is a 0
@@ -881,7 +881,12 @@ dir that could not be deleted), or whose solver CLI made no attempt
 (`metrics.solver_error`). It produced no verdict, so it is
 missing data, not a 0. An agent that exceeds its timeout, or a verifier that
 does, is a failure (reward 0, returncode 124), not an error: otherwise an arm
-that hangs would score above one that fails fast.
+that hangs would score above one that fails fast. So is a `docker-oracle`
+`solve.sh` that exceeds the agent budget. A `docker-*` step with no budget of
+its own (`docker cp`, `inspect`, the `exec`s that copy files in) gets 600 s; one
+that must succeed and runs out errors the cell. A timeout kills the step's whole process tree on
+the host (a host agent's tool processes too); in the container, whatever the
+agent uid left running is killed before the verifier starts.
 
 - `per_harness.<h>` carries `errored` and `scored = n - errored`, and
   `pass_rate = passed / scored`. `per_task` carries `errored` too.

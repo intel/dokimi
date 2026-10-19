@@ -9,6 +9,7 @@ The proxy tests use real sockets on loopback only. The harness tests replace
 
 from __future__ import annotations
 
+import io
 import json
 import socket
 import subprocess
@@ -33,6 +34,8 @@ from dokimi.harnesses.egress_proxy import (
     parse_log,
 )
 from dokimi.harnesses.registry import create_harness
+from dokimi.process import reply
+from docker_cli_fake import DockerCLI
 
 
 @pytest.fixture(autouse=True)
@@ -291,44 +294,44 @@ def _task(tmp_path: Path, *, public: bool = False, egress: str = "") -> Path:
 
 
 @pytest.fixture
-def docker_calls(tmp_path, monkeypatch):
-    import dokimi.harnesses.docker_solver as solver_mod
-
-    calls: list[list[str]] = []
-
-    def fake_docker(args, log, **kwargs):
-        calls.append(list(args))
-        out = ""
-        if args[0] == "logs":  # the sidecar: ready, then one denied CONNECT
-            out = '{"ready": true, "port": 3128}\n' + json.dumps(
-                {"t": 1.0, "host": "evil.example", "port": 443, "decision": "denied", "reason": "x"})
-        return subprocess.CompletedProcess(args, 0, out, "")
-
-    monkeypatch.setattr(solver_mod, "_docker", fake_docker)
+def cli(tmp_path, monkeypatch):
+    """The docker CLI and the in-container claude; the sidecar denies one CONNECT."""
     monkeypatch.setattr(container_mod, "claude_binary", lambda: tmp_path / "claude")
-    monkeypatch.setattr(DockerSolverHarness, "_build_image",
-                        lambda self, t, i, log: calls.append(["build"]))  # a step like the rest
-    monkeypatch.setattr(DockerSolverHarness, "_verify", lambda *a, **k: 1.0)
-    monkeypatch.setattr(DockerSolverHarness, "_recompile", lambda *a, **k: [])
-    return calls
+    return DockerCLI(sidecar_log=json.dumps(
+        {"t": 1.0, "host": "evil.example", "port": 443, "decision": "denied", "reason": "x"}))
 
 
-def _fake_claude(monkeypatch, seen: dict):
-    import dokimi.harnesses.docker_solver as solver_mod
-
-    def fake_run(argv, **kwargs):
-        seen["argv"], seen["env"], seen["stdin"] = argv, kwargs["env"], kwargs.get("stdin")
-        return subprocess.CompletedProcess(argv, 0, seen.get("stream", '{"num_turns": 1}'), "")
-
-    monkeypatch.setattr(solver_mod.subprocess, "run", fake_run)
+@pytest.fixture
+def docker_calls(cli):
+    """Each docker call's argv after ``docker``, in order."""
+    return cli.args
 
 
-def test_container_solve_lifecycle(tmp_path, docker_calls, monkeypatch):
+def _fake_claude(cli: DockerCLI, seen: dict):
+    def solve(call):
+        seen["argv"], seen["env"], seen["stdin"] = list(call.argv), call.env, call.input
+        return reply(seen.get("stream", '{"num_turns": 1}'))
+
+    cli.solver = solve
+
+
+def _probe_answer(seen: dict, out: str):
+    """The in-container probe prints ``out``; ``seen`` gets its argv and agent env."""
+    def answer(call):
+        if not DockerCLI.is_probe(call.argv):
+            return None
+        seen.update(argv=list(call.argv), env=_exec_env(list(call.argv), call.env))
+        return reply(out)
+
+    return answer
+
+
+def test_container_solve_lifecycle(tmp_path, cli, docker_calls, monkeypatch):
     seen: dict = {}
-    _fake_claude(monkeypatch, seen)
+    _fake_claude(cli, seen)
     task = load_task(_task(tmp_path, egress="pypi.org"))
     out = tmp_path / "out"
-    result = create_harness("docker-claude").run(task, model="haiku", output_dir=out)
+    result = create_harness("docker-claude", runner=cli).run(task, model="haiku", output_dir=out)
 
     verbs = [c[:2] for c in docker_calls]
     assert ["network", "create"] in verbs and "--internal" in docker_calls[verbs.index(["network", "create"])]
@@ -361,9 +364,9 @@ def test_container_solve_lifecycle(tmp_path, docker_calls, monkeypatch):
     assert json.loads((out / "egress.jsonl").read_text(encoding="utf-8"))["host"] == "evil.example"
 
 
-def test_container_skill_arm_installs_a_plugin_outside_app(tmp_path, docker_calls, monkeypatch):
+def test_container_skill_arm_installs_a_plugin_outside_app(tmp_path, cli, docker_calls, monkeypatch):
     seen: dict = {}
-    _fake_claude(monkeypatch, seen)
+    _fake_claude(cli, seen)
     skill = tmp_path / "skill"
     skill.mkdir()
     (skill / "SKILL.md").write_text(
@@ -371,7 +374,7 @@ def test_container_skill_arm_installs_a_plugin_outside_app(tmp_path, docker_call
         encoding="utf-8")
     task = load_task(_task(tmp_path))
     out = tmp_path / "out"
-    create_harness(f"docker-claude-skill:{skill}").run(task, model="haiku", output_dir=out)
+    create_harness(f"docker-claude-skill:{skill}", runner=cli).run(task, model="haiku", output_dir=out)
 
     def at(pred):
         return next(i for i, c in enumerate(docker_calls) if pred(c))
@@ -416,27 +419,27 @@ def _stream(*plugins, skill="demo-skill:demo-skill"):
 
 
 def test_container_skill_arm_counts_the_treatment_and_flags_one_not_offered(
-        tmp_path, docker_calls, monkeypatch):
+        tmp_path, cli, docker_calls, monkeypatch):
     skill = _demo_skill(tmp_path)
     task = load_task(_task(tmp_path))
     seen: dict = {"stream": _stream("demo-skill")}
-    _fake_claude(monkeypatch, seen)
-    ok = create_harness(f"docker-claude-skill:{skill}").run(task, model="haiku",
+    _fake_claude(cli, seen)
+    ok = create_harness(f"docker-claude-skill:{skill}", runner=cli).run(task, model="haiku",
                                                             output_dir=tmp_path / "ok")
     assert ok.metrics["n_skill_invocations"] == 1 and "solver_error" not in ok.metrics
     assert ok.metrics["treatment"]["plugin"] == "demo-skill"
     assert ok.metrics["offered_plugins"] == ["demo-skill"]
-    assert "--verbose" in seen["argv"] and seen["stdin"] is subprocess.DEVNULL
+    assert "--verbose" in seen["argv"] and seen["stdin"] is None  # the runner closes stdin
     seen["stream"] = _stream()  # the plugin did not load
-    bad = create_harness(f"docker-claude-skill:{skill}").run(task, model="haiku",
+    bad = create_harness(f"docker-claude-skill:{skill}", runner=cli).run(task, model="haiku",
                                                              output_dir=tmp_path / "bad")
     assert bad.metrics["solver_error"].startswith("treatment not offered")
-    base = create_harness("docker-claude").run(task, model="haiku", output_dir=tmp_path / "base")
+    base = create_harness("docker-claude", runner=cli).run(task, model="haiku", output_dir=tmp_path / "base")
     assert "n_skill_invocations" not in base.metrics and "treatment" not in base.metrics
 
 
 @pytest.mark.parametrize("make", ["missing", "readme", "outside-link", "fork", "link-loop"])
-def test_a_bad_skill_fails_before_any_docker_step(tmp_path, docker_calls, monkeypatch, make):
+def test_a_bad_skill_fails_before_any_docker_step(tmp_path, cli, docker_calls, monkeypatch, make):
     skill = _demo_skill(tmp_path, extra="context: fork\n" if make == "fork" else "")
     path = skill
     if make == "missing":
@@ -454,50 +457,42 @@ def test_a_bad_skill_fails_before_any_docker_step(tmp_path, docker_calls, monkey
             (skill / "c" / "d").symlink_to("../a", target_is_directory=True)
         except OSError:
             pytest.skip("cannot create symlinks here")
-    _fake_claude(monkeypatch, {})
+    _fake_claude(cli, {})
     with pytest.raises(ValueError):
-        create_harness(f"docker-claude-skill:{path}").run(load_task(_task(tmp_path)), model="haiku",
+        create_harness(f"docker-claude-skill:{path}", runner=cli).run(load_task(_task(tmp_path)), model="haiku",
                                                           output_dir=tmp_path / "out")
     assert docker_calls == []
     assert not (tmp_path / "out" / "plugin").exists()
 
 
-def test_a_failed_plugin_copy_leaves_no_staged_plugin(tmp_path, docker_calls, monkeypatch):
-    import dokimi.harnesses.docker_solver as solver_mod
-
+def test_a_failed_plugin_copy_leaves_no_staged_plugin(tmp_path, cli, docker_calls, monkeypatch):
     skill = _demo_skill(tmp_path)
-    real = solver_mod._docker
-
-    def failing(args, log, **kwargs):
-        if args[0] == "cp" and args[-1].endswith(":/opt/abskill"):
-            raise RuntimeError("docker cp failed")
-        return real(args, log, **kwargs)
-
-    monkeypatch.setattr(solver_mod, "_docker", failing)
-    _fake_claude(monkeypatch, {})
+    cli.answer = lambda call: (reply(stderr="docker cp failed", returncode=1)
+                               if call.argv[1] == "cp" and call.argv[-1].endswith(":/opt/abskill") else None)
+    _fake_claude(cli, {})
     out = tmp_path / "out"
-    harness = create_harness(f"docker-claude-skill:{skill}")
+    harness = create_harness(f"docker-claude-skill:{skill}", runner=cli)
     with pytest.raises(RuntimeError):
-        harness._install_plugin_in_container("c1", out, None, {})
+        harness._install_plugin_in_container("c1", out, io.StringIO(), {})
     out.mkdir(exist_ok=True)
     assert not (out / "plugin").exists()
 
 
-def test_container_baseline_gets_no_plugin_and_no_notice(tmp_path, docker_calls, monkeypatch):
+def test_container_baseline_gets_no_plugin_and_no_notice(tmp_path, cli, docker_calls, monkeypatch):
     seen: dict = {}
-    _fake_claude(monkeypatch, seen)
+    _fake_claude(cli, seen)
     task = load_task(_task(tmp_path))
-    create_harness("docker-claude").run(task, model="haiku", output_dir=tmp_path / "out")
+    create_harness("docker-claude", runner=cli).run(task, model="haiku", output_dir=tmp_path / "out")
     argv = seen["argv"]
     assert "--plugin-dir" not in argv
     assert argv[argv.index("-p") + 1].startswith("Solve this coding task.")
     assert "Skill" in argv[argv.index("--tools") + 1].split(",")
 
 
-def test_public_task_gets_bridge_only_after_the_agent(tmp_path, docker_calls, monkeypatch):
-    _fake_claude(monkeypatch, {})
+def test_public_task_gets_bridge_only_after_the_agent(tmp_path, cli, docker_calls, monkeypatch):
+    _fake_claude(cli, {})
     task = load_task(_task(tmp_path, public=True))
-    create_harness("docker-claude").run(task, model="haiku", output_dir=tmp_path / "out")
+    create_harness("docker-claude", runner=cli).run(task, model="haiku", output_dir=tmp_path / "out")
     run_call = next(c for c in docker_calls if c[0] == "run")
     assert run_call[run_call.index("--network") + 1].startswith("dokimi-net-")
     joins = [i for i, c in enumerate(docker_calls) if c[:3] == ["network", "connect", "bridge"]]
@@ -506,38 +501,42 @@ def test_public_task_gets_bridge_only_after_the_agent(tmp_path, docker_calls, mo
     assert len(joins) == 1 and joins[0] > sidecar_gone  # bridge only after the agent's proxy is gone
 
 
-def test_a_container_cli_crash_records_no_result(tmp_path, docker_calls, monkeypatch):
-    import dokimi.harnesses.docker_solver as solver_mod
-
-    monkeypatch.setattr(solver_mod.subprocess, "run",
-                        lambda argv, **kw: subprocess.CompletedProcess(argv, 137, "", "Killed"))
-    result = create_harness("docker-claude").run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+def test_a_container_cli_crash_records_no_result(tmp_path, cli, docker_calls, monkeypatch):
+    cli.solver = lambda call: reply(stderr="Killed", returncode=137)
+    result = create_harness("docker-claude", runner=cli).run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
     assert result.metrics["terminal_reason"] == "no_result"
 
 
-def test_network_is_removed_when_the_container_never_starts(tmp_path, docker_calls, monkeypatch):
-    def boom(self, *a, **k):
-        raise RuntimeError("docker run failed")
-
-    monkeypatch.setattr(DockerSolverHarness, "_start_container", boom)
+def test_network_is_removed_when_the_container_never_starts(tmp_path, cli, docker_calls, monkeypatch):
+    cli.answer = lambda call: reply(stderr="docker: Error response from daemon", returncode=125) if (
+        call.argv[1] == "run") else None
     task = load_task(_task(tmp_path))
-    result = create_harness("docker-probe").run(task, output_dir=tmp_path / "out")
+    result = create_harness("docker-probe", runner=cli).run(task, output_dir=tmp_path / "out")
     assert "docker run failed" in result.metrics["error"] and result.reward is None  # errored
     assert docker_calls[-1][:2] == ["network", "rm"]
 
 
-def test_container_probe_runs_as_the_agent_with_container_paths_forbidden(tmp_path, docker_calls,
+def test_container_probe_runs_as_the_agent_with_container_paths_forbidden(tmp_path, cli, docker_calls,
                                                                           monkeypatch):
     seen: dict = {}
-    monkeypatch.setattr(container_mod.subprocess, "run", lambda argv, **kw: (
-        seen.update(argv=argv, env=_exec_env(argv, kw["env"])) or subprocess.CompletedProcess(
-            argv, 0, json.dumps({k: "closed" for k in sandbox_mod.LEAK_CLASSES}), "")))
+    cli.answer = _probe_answer(seen, json.dumps({k: "closed" for k in sandbox_mod.LEAK_CLASSES}))
     task = load_task(_task(tmp_path))
-    result = create_harness("docker-probe").run(task, output_dir=tmp_path / "out")
+    result = create_harness("docker-probe", runner=cli).run(task, output_dir=tmp_path / "out")
     assert seen["argv"][:4] == ["docker", "exec", "-u", AGENT_UID]
     assert "/solution" in seen["env"]["PROBE_TASK_FILES"].split()
     assert result.reward == 1.0 and result.passed is True
     assert not any(c[0] == "cp" and c[-1].endswith(":/opt/dokimi-agent/claude") for c in docker_calls)
+
+
+def test_a_hung_container_probe_is_untested_not_sealed(tmp_path, cli, docker_calls, monkeypatch):
+    """The probe's docker exec has 120 s, as before; running out shows nothing closed."""
+    cli.answer = lambda call: reply('{"task_files": "closed"}', timed_out=True) if cli.is_probe(call.argv) else None
+    result = create_harness("docker-probe", runner=cli).run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    probe = next(c for c in cli.calls if cli.is_probe(c.argv))
+    assert probe.timeout == 120
+    assert set(result.metrics["isolation_probe"].values()) == {"untested"}
+    assert result.reward == 0.0 and result.returncode == 0  # a verdict, not a timed-out cell
+    assert "[probe] TIMEOUT" in (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
 
 
 def test_parse_log_keeps_only_decision_rows():
@@ -545,42 +544,34 @@ def test_parse_log_keeps_only_decision_rows():
     assert parse_log(text) == [{"host": "a", "decision": "allowed"}]
 
 
-def test_container_probe_skips_variables_the_image_sets(tmp_path, docker_calls, monkeypatch):
-    import dokimi.harnesses.docker_solver as solver_mod
+def test_container_probe_skips_variables_the_image_sets(tmp_path, cli, docker_calls, monkeypatch):
+    seen: dict = {}
+    probe = _probe_answer(seen, "{}")
 
-    real = solver_mod._docker
-
-    def with_image_env(args, log, **kwargs):
+    def with_image_env(call):
+        args = list(call.argv[1:])
         if args[:2] == ["image", "inspect"]:  # the image's own env
             assert args[-1] == "sha256:img"
-            return subprocess.CompletedProcess(args, 0, '["DEBIAN_FRONTEND=noninteractive"]', "")
+            return reply('["DEBIAN_FRONTEND=noninteractive"]')
         if args[0] == "inspect" and "{{.Image}}" in args:
-            return subprocess.CompletedProcess(args, 0, "sha256:img", "")
-        if args[0] == "inspect":  # the container's: the image's names plus what the client injected
-            return subprocess.CompletedProcess(
-                args, 0, '["DEBIAN_FRONTEND=noninteractive", "GITHUB_TOKEN=injected"]', "")
-        return real(args, log, **kwargs)
+            return reply("sha256:img")
+        if args[0] == "inspect" and "{{.State.Running}}" not in args:
+            # the container's: the image's names plus what the client injected
+            return reply('["DEBIAN_FRONTEND=noninteractive", "GITHUB_TOKEN=injected"]')
+        return probe(call)
 
-    monkeypatch.setattr(solver_mod, "_docker", with_image_env)
+    cli.answer = with_image_env
     monkeypatch.setenv("DEBIAN_FRONTEND", "noninteractive")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp")
-    seen: dict = {}
-    monkeypatch.setattr(container_mod.subprocess, "run", lambda argv, **kw: (
-        seen.update(env=_exec_env(argv, kw["env"])) or subprocess.CompletedProcess(argv, 0, "{}", "")))
-    create_harness("docker-probe").run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    create_harness("docker-probe", runner=cli).run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
     deny = [tok.split(":", 1)[0] for tok in seen["env"]["PROBE_ENV_DENY"].split()]
     assert "GITHUB_TOKEN" in deny and "DEBIAN_FRONTEND" not in deny
 
 
-def test_container_timeout_reaps_and_keeps_the_tree(tmp_path, docker_calls, monkeypatch):
-    import dokimi.harnesses.docker_solver as solver_mod
-
-    def slow(argv, **kwargs):
-        raise subprocess.TimeoutExpired(argv, 1)
-
-    monkeypatch.setattr(solver_mod.subprocess, "run", slow)
+def test_container_timeout_reaps_and_keeps_the_tree(tmp_path, cli, docker_calls, monkeypatch):
+    cli.solver = lambda call: reply(timed_out=True)
     out = tmp_path / "out"
-    result = create_harness("docker-claude").run(load_task(_task(tmp_path)), model="haiku",
+    result = create_harness("docker-claude", runner=cli).run(load_task(_task(tmp_path)), model="haiku",
                                                  output_dir=out)
     assert result.returncode == 124
     reap = next(i for i, c in enumerate(docker_calls)
@@ -603,20 +594,15 @@ def _leaked_stream():
 
 @pytest.mark.parametrize("timeout", [False, True])
 def test_a_container_solve_redacts_the_credentials_it_saves(
-        tmp_path, docker_calls, monkeypatch, timeout):
-    import dokimi.harnesses.docker_solver as solver_mod
-
+        tmp_path, cli, docker_calls, monkeypatch, timeout):
     for name, value in _LEAKED.items():
         monkeypatch.setenv(name, value)
     if timeout:
-        def slow(argv, **kwargs):
-            raise subprocess.TimeoutExpired(argv, 1, output=_leaked_stream().encode())
-
-        monkeypatch.setattr(solver_mod.subprocess, "run", slow)
+        cli.solver = lambda call: reply(_leaked_stream(), timed_out=True)
     else:
-        _fake_claude(monkeypatch, {"stream": _leaked_stream()})
+        _fake_claude(cli, {"stream": _leaked_stream()})
     out = tmp_path / "out"
-    create_harness("docker-claude").run(load_task(_task(tmp_path)), model="haiku", output_dir=out)
+    create_harness("docker-claude", runner=cli).run(load_task(_task(tmp_path)), model="haiku", output_dir=out)
     saved = (out / "solver.jsonl").read_text(encoding="utf-8")
     assert "[REDACTED]" in saved
     assert [p for v in _LEAKED.values() for p in v.splitlines() if p in saved] == []
@@ -624,13 +610,12 @@ def test_a_container_solve_redacts_the_credentials_it_saves(
         assert "hdrSecret" not in (out / "solver.json").read_text(encoding="utf-8")
 
 
-def test_container_probe_with_a_skill_forbids_it(tmp_path, docker_calls, monkeypatch):
+def test_container_probe_with_a_skill_forbids_it(tmp_path, cli, docker_calls, monkeypatch):
     skill = tmp_path / "elsewhere" / "skills" / "demo"
     skill.mkdir(parents=True)
     seen: dict = {}
-    monkeypatch.setattr(container_mod.subprocess, "run", lambda argv, **kw: (
-        seen.update(env=_exec_env(argv, kw["env"])) or subprocess.CompletedProcess(argv, 0, "{}", "")))
-    create_harness(f"docker-probe:{skill}").run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    cli.answer = _probe_answer(seen, "{}")
+    create_harness(f"docker-probe:{skill}", runner=cli).run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
     assert str(skill) in seen["env"]["PROBE_TREATMENT"].split()
     assert not any(c[0] == "cp" and c[-1].endswith(":/app/.skill") for c in docker_calls)
 
@@ -706,12 +691,12 @@ def test_plain_http_is_not_chained_through_an_upstream_proxy():
     assert _upstream({**env, "NO_PROXY": "gw.internal"}, "gw.internal", "http") is None
 
 
-def test_a_loopback_base_url_fails_fast(tmp_path, docker_calls, monkeypatch):
+def test_a_loopback_base_url_fails_fast(tmp_path, cli, docker_calls, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:4000")
     assert loopback_base_urls({"ANTHROPIC_BASE_URL": "http://localhost:4000"})
     assert not loopback_base_urls({"ANTHROPIC_BASE_URL": "http://172.17.0.1:4000"})
     with pytest.raises(ValueError, match="docker-claude-host"):
-        create_harness("docker-claude").run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+        create_harness("docker-claude", runner=cli).run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
     assert not any(c[:2] == ["network", "create"] for c in docker_calls)
 
 
@@ -800,40 +785,32 @@ def test_preflight_rejects_setups_a_container_cannot_carry():
     preflight({"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_BEARER_TOKEN_BEDROCK": "t"})
 
 
-def test_ca_and_credential_files_are_copied_in_and_repointed(tmp_path, docker_calls, monkeypatch):
+def test_ca_and_credential_files_are_copied_in_and_repointed(tmp_path, cli, docker_calls, monkeypatch):
     ca = tmp_path / "corp-ca.pem"
     ca.write_text("-----BEGIN CERTIFICATE-----", encoding="utf-8")
     monkeypatch.setenv("NODE_EXTRA_CA_CERTS", str(ca))
     seen: dict = {}
-    _fake_claude(monkeypatch, seen)
-    create_harness("docker-claude").run(load_task(_task(tmp_path)), model="haiku",
+    _fake_claude(cli, seen)
+    create_harness("docker-claude", runner=cli).run(load_task(_task(tmp_path)), model="haiku",
                                        output_dir=tmp_path / "out")
     assert any(c[:2] == ["cp", str(ca)] and c[2].endswith(":/opt/dokimi-agent/files/NODE_EXTRA_CA_CERTS")
                for c in docker_calls)
 
 
-def test_a_binary_that_cannot_run_in_the_image_fails_clearly(tmp_path, docker_calls, monkeypatch):
-    import dokimi.harnesses.docker_solver as solver_mod
-
-    real = solver_mod._docker
-
-    def musl_image(args, log, **kwargs):
-        if args[:1] == ["exec"] and args[-1] == "--version":
-            return subprocess.CompletedProcess(args, 127, "", "exec /opt/dokimi-agent/claude: no such file")
-        return real(args, log, **kwargs)
-
-    monkeypatch.setattr(solver_mod, "_docker", musl_image)
+def test_a_binary_that_cannot_run_in_the_image_fails_clearly(tmp_path, cli, docker_calls, monkeypatch):
+    cli.answer = lambda call: reply(stderr="exec /opt/dokimi-agent/claude: no such file", returncode=127) if (
+        call.argv[1] == "exec" and call.argv[-1] == "--version") else None
     # Errored, with the isolation and egress record kept rather than raised away.
-    result = create_harness("docker-claude").run(load_task(_task(tmp_path)), model="haiku",
+    result = create_harness("docker-claude", runner=cli).run(load_task(_task(tmp_path)), model="haiku",
                                                  output_dir=tmp_path / "out")
     assert "cannot run in the task image" in result.metrics["error"] and result.reward is None
     assert result.metrics["isolation"]["agent_location"] == "container"
     assert docker_calls[-1][:2] == ["network", "rm"]
 
 
-def test_a_stale_container_is_removed_before_its_network(tmp_path, docker_calls, monkeypatch):
-    _fake_claude(monkeypatch, {})
-    create_harness("docker-claude").run(load_task(_task(tmp_path)), model="haiku",
+def test_a_stale_container_is_removed_before_its_network(tmp_path, cli, docker_calls, monkeypatch):
+    _fake_claude(cli, {})
+    create_harness("docker-claude", runner=cli).run(load_task(_task(tmp_path)), model="haiku",
                                        output_dir=tmp_path / "out")
     first_rm = next(i for i, c in enumerate(docker_calls) if c[:2] == ["rm", "-f"])
     net_rm = next(i for i, c in enumerate(docker_calls) if c[:2] == ["network", "rm"])
@@ -908,13 +885,12 @@ def test_loopback_proxy_urls_are_parsed_as_addresses(url, loop):
     assert _is_loopback_url(url) is loop
 
 
-def test_container_probe_does_not_deny_what_env_sets_itself(tmp_path, docker_calls, monkeypatch):
+def test_container_probe_does_not_deny_what_env_sets_itself(tmp_path, cli, docker_calls, monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
     monkeypatch.setenv("GITHUB_TOKEN", "ghp")
     seen: dict = {}
-    monkeypatch.setattr(container_mod.subprocess, "run", lambda argv, **kw: (
-        seen.update(env=_exec_env(argv, kw["env"])) or subprocess.CompletedProcess(argv, 0, "{}", "")))
-    create_harness("docker-probe").run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    cli.answer = _probe_answer(seen, "{}")
+    create_harness("docker-probe", runner=cli).run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
     deny = [tok.split(":", 1)[0] for tok in seen["env"]["PROBE_ENV_DENY"].split()]
     assert "GITHUB_TOKEN" in deny and "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" not in deny
 
@@ -948,9 +924,9 @@ def test_close_removes_the_env_file_dir(tmp_path):
     assert not (tmp_path / "envfiles").exists()
 
 
-def test_sidecar_binds_its_internal_alias_and_is_digest_pinned(tmp_path, docker_calls, monkeypatch):
-    _fake_claude(monkeypatch, {})
-    create_harness("docker-claude").run(load_task(_task(tmp_path)), model="haiku", output_dir=tmp_path / "out")
+def test_sidecar_binds_its_internal_alias_and_is_digest_pinned(tmp_path, cli, docker_calls, monkeypatch):
+    _fake_claude(cli, {})
+    create_harness("docker-claude", runner=cli).run(load_task(_task(tmp_path)), model="haiku", output_dir=tmp_path / "out")
     sidecar = next(c for c in docker_calls if c[0] == "create")
     assert sidecar[sidecar.index("--bind") + 1] == "egress"
     assert "@sha256:" in container_mod.PROXY_IMAGE and container_mod.PROXY_IMAGE in sidecar
@@ -959,38 +935,34 @@ def test_sidecar_binds_its_internal_alias_and_is_digest_pinned(tmp_path, docker_
     assert int(run_call[-1]) >= 1800 and run_call[-2] == "sleep"
 
 
-def test_the_container_outlives_a_long_solve(tmp_path, docker_calls, monkeypatch):
-    _fake_claude(monkeypatch, {})
+def test_the_container_outlives_a_long_solve(tmp_path, cli, docker_calls, monkeypatch):
+    _fake_claude(cli, {})
     task_dir = _task(tmp_path)
     (task_dir / "task.toml").write_text("[agent]\ntimeout_sec = 2400\n[verifier]\ntimeout_sec = 300\n",
                                         encoding="utf-8")
-    create_harness("docker-claude").run(load_task(task_dir), model="haiku", output_dir=tmp_path / "out")
+    create_harness("docker-claude", runner=cli).run(load_task(task_dir), model="haiku", output_dir=tmp_path / "out")
     run_call = next(c for c in docker_calls if c[0] == "run")
     assert int(run_call[-1]) >= 2400 + 300
 
 
 def test_a_verifier_on_a_dead_container_is_errored_not_zero(tmp_path, monkeypatch):
-    import dokimi.harnesses.docker_solver as solver_mod
-
-    def docker(args, log, **kwargs):
-        if args[0] == "exec":
-            return subprocess.CompletedProcess(args, 1, "", "container dokimi-run-x is not running")
+    def dead(call):
+        args = call.argv[1:]
+        if args[0] == "exec" and "test.sh" in args[-1]:  # it died during the verifier
+            return reply(stderr="container dokimi-run-x is not running", returncode=1)
         if args[0] == "cp" and ":/logs/" in args[1]:
-            return subprocess.CompletedProcess(args, 1, "", "")
+            return reply(returncode=1)
         if args[0] == "inspect":
-            return subprocess.CompletedProcess(args, 0, "false\n", "")
-        return subprocess.CompletedProcess(args, 0, "", "")
+            return reply("false\n")
+        return None
 
-    monkeypatch.setattr(solver_mod, "_docker", docker)
     task = load_task(_task(tmp_path))
     with open(tmp_path / "log", "w") as log, pytest.raises(RuntimeError, match="not running at verify time"):
-        DockerSolverHarness(harness_id="docker-oracle", mode="oracle")._verify(
+        DockerSolverHarness(harness_id="docker-oracle", mode="oracle", runner=DockerCLI(answer=dead))._verify(
             task, "dokimi-run-x", tmp_path, log)
 
 
-def test_container_skill_arm_ships_the_skill_with_links_followed(tmp_path, docker_calls, monkeypatch):
-    import dokimi.harnesses.docker_solver as solver_mod
-
+def test_container_skill_arm_ships_the_skill_with_links_followed(tmp_path, cli, docker_calls, monkeypatch):
     skill = tmp_path / "skills" / "demo"
     shared = skill / "shared" / "refs"
     shared.mkdir(parents=True)
@@ -998,18 +970,18 @@ def test_container_skill_arm_ships_the_skill_with_links_followed(tmp_path, docke
     (skill / "SKILL.md").write_text("---\nname: demo\ndescription: d\n---\nx", encoding="utf-8")
     (skill / "references").symlink_to("shared/refs")
     staged: dict = {}
-    real = solver_mod._docker
 
-    def record(args, log, **kwargs):
+    def record(call):
+        args = call.argv[1:]
         if args[0] == "cp" and args[-1].endswith(":/opt/abskill"):
             links = [p for p in Path(args[1].rstrip(".")).rglob("*") if p.is_symlink()]
             refs = list(Path(args[1].rstrip(".")).rglob("references/a.md"))
             staged.update(links=links, ref=refs[0].read_text(encoding="utf-8") if refs else None)
-        return real(args, log, **kwargs)
+        return None
 
-    monkeypatch.setattr(solver_mod, "_docker", record)
-    _fake_claude(monkeypatch, {})
-    create_harness(f"docker-claude-skill:{skill}").run(load_task(_task(tmp_path)), model="haiku",
+    cli.answer = record
+    _fake_claude(cli, {})
+    create_harness(f"docker-claude-skill:{skill}", runner=cli).run(load_task(_task(tmp_path)), model="haiku",
                                                       output_dir=tmp_path / "out")
     assert staged == {"links": [], "ref": "ref"}
 
@@ -1131,7 +1103,7 @@ def test_the_allowlist_is_normalised_once(monkeypatch):
     assert proxy.allowed("PyPI.org.", 443) and not proxy.allowed("pypi.org", 80)
 
 
-def test_a_vertex_region_is_trimmed_and_a_comma_is_refused_before_any_container(tmp_path, docker_calls,
+def test_a_vertex_region_is_trimmed_and_a_comma_is_refused_before_any_container(tmp_path, cli, docker_calls,
                                                                               monkeypatch):
     vertex = {"CLAUDE_CODE_USE_VERTEX": "1", "CLAUDE_CODE_SKIP_VERTEX_AUTH": "1"}
     assert {"us-east5-aiplatform.googleapis.com:443"} <= set(llm_hosts({**vertex, "CLOUD_ML_REGION": "us-east5 "}))
@@ -1139,7 +1111,7 @@ def test_a_vertex_region_is_trimmed_and_a_comma_is_refused_before_any_container(
         monkeypatch.setenv(name, value)
     monkeypatch.setenv("VERTEX_REGION_CLAUDE_4_5_SONNET", "x,evil.example:443,y")
     with pytest.raises(ValueError, match="no wildcards"):
-        create_harness("docker-claude").run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+        create_harness("docker-claude", runner=cli).run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
     assert not any(c[:2] == ["network", "create"] or c[0] == "create" for c in docker_calls)
 
 
@@ -1162,15 +1134,13 @@ def test_ctrl_c_while_the_sidecar_starts_still_cleans_up(tmp_path, monkeypatch):
 
 
 def test_the_plugin_modes_are_reset_not_widened(tmp_path, monkeypatch):
-    import dokimi.harnesses.docker_solver as solver_mod
     skill = tmp_path / "skill"
     skill.mkdir()
     (skill / "SKILL.md").write_text(
         "---\nname: demo-skill\ndescription: Use for demo things.\n---\n# Demo\n", encoding="utf-8")
-    calls: list[list[str]] = []
-    monkeypatch.setattr(solver_mod, "_docker", lambda args, log, **kw: calls.append(args))
-    harness = create_harness(f"docker-claude-skill:{skill}")
-    harness._install_plugin_in_container("c1", tmp_path / "out", None, {})
-    chmod = next(c for c in calls if "chmod" in c)
+    cli = DockerCLI()
+    harness = create_harness(f"docker-claude-skill:{skill}", runner=cli)
+    harness._install_plugin_in_container("c1", tmp_path / "out", io.StringIO(), {})
+    chmod = next(c for c in cli.args if "chmod" in c)
     # a+rX would keep a setuid or world-writable file from the source as it is.
     assert chmod == ["exec", "-u", "root", "c1", "chmod", "-R", "u=rwX,go=rX", "/opt/abskill"]

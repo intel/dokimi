@@ -289,10 +289,10 @@ prints one or more traces as a comparison table; it calls no model. Guide:
 
 ## Shared building blocks
 
-- `dokimi/process.py` — the process runner that spawning code goes
-  through (git, `gh`, doc snippets, harness profiles, the `command:`, Harbor
-  and BenchFlow harnesses, the explorer and the repository-mode docker runner;
-  the `docker-*` task harnesses still spawn on their own). A timeout,
+- `dokimi/process.py` — the one place in the package that spawns a process
+  (git, `gh`, doc snippets, harness profiles, the `command:`, Harbor, BenchFlow
+  and `docker-*` harnesses with their `docker` and `claude` calls, the explorer and
+  the repository-mode docker runner). A timeout,
   an interrupt or the command's exit kills its whole process group / job
   object (with `term_grace`, as for `bench` and `docker run`, a timeout or an
   interrupt sends the group SIGTERM first and kills it after the grace); so does a SIGTERM/SIGHUP to the `dokimi` CLI, which installs

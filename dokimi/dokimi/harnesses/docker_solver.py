@@ -56,6 +56,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from dokimi import process
 from dokimi.metrics.usage import UsageRecord
 
 from .agent_sandbox import (
@@ -70,7 +71,7 @@ from .agent_sandbox import (
 )
 from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
 from .command import _parse_reward_text
-from .container_agent import AGENT_BIN, FILES_DIR, ContainerSandbox
+from .container_agent import AGENT_BIN, FILES_DIR, ContainerSandbox, Docker
 from .models import HarnessResult, OperationRecord
 from .skill_treatment import Treatment, build_plugin, check_skill, treatment_notice
 from .solver_stream import record_solver, run_solver
@@ -89,6 +90,7 @@ from .tasks import (  # noqa: F401  (timeouts re-exported)
 _RECOMPILE_RE = re.compile(r"(g\+\+|gcc) [^`\n]*-o /app/[^ `\n]*")
 _PROXY_VARS = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
 _DEFAULT_SOLVE_TIMEOUT = 600.0
+_DOCKER_STEP_TIMEOUT = 600.0  # a docker step without a budget of its own (cp, exec, inspect, ...)
 _CONTAINER_PLUGIN = "/opt/abskill"
 # The only tree a docker-* agent edits: the host agent's snapshot and copy-back,
 # the in-container agent's chown and `-w`. Anything else (an exported
@@ -119,6 +121,7 @@ class DockerSolverHarness:
     kind: str = "docker"
     env: dict[str, str] = field(default_factory=dict)
     agent_location: str = "container"
+    runner: process.Runner = field(default=process.run, compare=False, repr=False)
 
     def run(
         self,
@@ -210,14 +213,14 @@ class DockerSolverHarness:
                     f"docker build timed out after {exc.timeout}s; see run.log"
                 ) from exc
             if self.mode in ("claude", "probe") and self.agent_location == "container":
-                sandbox = ContainerSandbox.open(container, _docker, log, source_env=operator_source_env(),
+                sandbox = ContainerSandbox.open(container, self._docker, log, source_env=operator_source_env(),
                                                 task_egress=task.environment.get("egress"),
-                                                with_agent=self.mode == "claude")
+                                                with_agent=self.mode == "claude", runner=self.runner)
             try:
                 self._start_container(task, image, container, log, sandbox)
                 try:
                     if self.mode == "oracle":
-                        self._solve_oracle(task, container, log)
+                        self._solve_oracle(task, container, log, timeout=solve_timeout)
                     elif self.mode == "claude":
                         usage = self._solve_claude(
                             task, container, output_dir, model, solve_timeout,
@@ -229,16 +232,16 @@ class DockerSolverHarness:
                     else:
                         raise ValueError(f"unknown mode {self.mode!r}")
                     if sandbox is not None:
-                        sandbox.stop_proxy(_docker, log)  # the verifier gets no route out either
+                        sandbox.stop_proxy(self._docker, log)  # the verifier gets no route out either
                         if _is_public(task):  # "public" is the verifier's, after the agent exits
-                            _docker(["network", "connect", "bridge", container], log)
+                            self._docker(["network", "connect", "bridge", container], log)
                     if self.mode != "probe":  # the probe's reward is its own verdict
                         reward = self._verify(task, container, output_dir, log)
                 finally:
-                    _docker(["rm", "-f", container], log, check=False)
+                    self._docker(["rm", "-f", container], log, check=False)
             finally:
                 if sandbox is not None:  # also when the container never started
-                    sandbox.close(_docker, log, output_dir)
+                    sandbox.close(self._docker, log, output_dir)
                     extra_metrics["egress"] = sandbox.egress_summary()
         except subprocess.TimeoutExpired as exc:
             log.write(f"\nTIMEOUT: {_describe_timeout(exc)}\n")
@@ -278,6 +281,10 @@ class DockerSolverHarness:
             metrics=metrics,
         )
 
+    def _docker(self, args: list[str], log, **kwargs: Any) -> process.Completed:
+        """:func:`_docker` through this harness's runner."""
+        return _docker(args, log, runner=self.runner, **kwargs)
+
     # ── pipeline steps ──────────────────────────────────────────────────────
 
     def _build_image(self, task: TaskSpec, image: str, log) -> None:
@@ -311,7 +318,7 @@ class DockerSolverHarness:
                 # ...` (radar-vital-signs copies it into seven agent paths), and
                 # a missing source fails the build in every arm.
                 (context / "skills").mkdir()
-            _docker(
+            self._docker(
                 ["build", "-q", *build_args, "-t", image,
                  "-f", str(context / "Dockerfile"), str(context)],
                 log, timeout=timeout,
@@ -343,15 +350,17 @@ class DockerSolverHarness:
         # in-container agent dies mid-solve and the verifier finds no container.
         lifetime = int(max(1800.0, (task.timeout_sec or _DEFAULT_SOLVE_TIMEOUT)
                            + _task_verify_timeout(task) + 600))
-        _docker(["rm", "-f", container], log, check=False)
-        _docker(
+        self._docker(["rm", "-f", container], log, check=False)
+        self._docker(
             ["run", "-d", "--name", container, *net_args,
              "--cpus", cpus, "--memory", memory, image, "sleep", str(lifetime)],
             log,
         )
 
-    def _solve_oracle(self, task: TaskSpec, container: str, log) -> None:
-        """Apply the oracle's solve.sh as root (some images set a non-root USER).
+    def _solve_oracle(self, task: TaskSpec, container: str, log,
+                      timeout: float = _DEFAULT_SOLVE_TIMEOUT) -> None:
+        """Apply the oracle's solve.sh as root (some images set a non-root USER), within the
+        agent's ``timeout``: an oracle that runs out of time is a failed cell, like an agent.
 
         Copies the whole oracle directory, not just ``solve.sh`` -- our own
         tasks' solve.sh is always self-contained, but an external task's
@@ -360,11 +369,11 @@ class DockerSolverHarness:
         ``/solution`` (Harbor) and ``/oracle`` (BenchFlow), because a script
         written for one layout refers to its siblings by that layout's path.
         """
-        _copy_dir_into(task.solution_dir, container, ("/solution", "/oracle"), log)
-        _docker(
+        _copy_dir_into(task.solution_dir, container, ("/solution", "/oracle"), log, self._docker)
+        self._docker(
             ["exec", "-u", "root", *_exec_env(task, "oracle"), container, "bash", "-lc",
              "chmod +x /solution/solve.sh && /solution/solve.sh"],
-            log, check=False,
+            log, check=False, timeout=timeout,
         )
 
     def _solve_claude(
@@ -383,7 +392,7 @@ class DockerSolverHarness:
         if sandbox is not None:
             return self._solve_claude_in_container(task, container, output_dir, model, timeout,
                                                    operations, log, extra_metrics, sandbox)
-        workdir = _require_agent_workdir(task, container, log)
+        workdir = _require_agent_workdir(task, container, log, self._docker)
         workspace, treatment = self._prepare_workspace(task, container, log, extra_metrics,
                                                        output_dir=output_dir)
         extra_metrics["isolation"] = workspace.isolation()
@@ -396,14 +405,14 @@ class DockerSolverHarness:
             env = workspace.env(operator_source_env(), self.env)
             secrets = credential_values(env)
             proc = run_solver(cmd, output_dir, extra_metrics, treatment, secrets, cwd=str(work),
-                              timeout=timeout, env=env)
+                              timeout=timeout, env=env, runner=self.runner)
             usage = record_solver(proc, task.name, model, time.time() - t0, output_dir,
                                   operations, log, extra_metrics, treatment, secrets,
                                   edited=workspace.state() != before)
             # The agent sees all of /app but writes back only its working tree: a
             # read-only baseline beside it (/app/baseline) stays the image's.
             back = work / posixpath.relpath(workdir, _AGENT_TREE)
-            _docker(["cp", f"{back}/.", f"{container}:{workdir}/"], log)
+            self._docker(["cp", f"{back}/.", f"{container}:{workdir}/"], log)
         finally:
             # Keep the agent's tree with the run (also after a timeout); the plugin is
             # beside it, not in it.
@@ -425,10 +434,10 @@ class DockerSolverHarness:
     ) -> Optional[UsageRecord]:
         """The agent edits its work tree in place; the grader files are not in the container yet."""
         # Before the chown, which hands it this tree only: nothing is spent yet.
-        sandbox.workdir = _require_agent_workdir(task, container, log)
+        sandbox.workdir = _require_agent_workdir(task, container, log, self._docker)
         extra_metrics["isolation"] = sandbox.isolation()
         treatment = self._install_plugin_in_container(container, output_dir, log, extra_metrics)
-        sandbox.prepare(container, _docker, log)
+        sandbox.prepare(container, self._docker, log)
         env = sandbox.env(operator_source_env(), self.env)
         secrets = credential_values(env)
         argv, client_env = sandbox.exec_argv(container, env, [AGENT_BIN, *self._claude_args(
@@ -436,16 +445,16 @@ class DockerSolverHarness:
         t0 = time.time()
         try:
             proc = run_solver(argv, output_dir, extra_metrics, treatment, secrets, timeout=timeout,
-                              env=client_env)
+                              env=client_env, runner=self.runner)
         finally:  # also on a timeout: stop the agent, keep its tree for debugging
-            sandbox.reap(container, _docker, log)  # nothing the agent backgrounded sees /tests
+            sandbox.reap(container, self._docker, log)  # nothing the agent backgrounded sees /tests
             # Not on the verifier's side of the run.
-            _docker(["exec", "-u", "root", container, "rm", "-rf", _CONTAINER_PLUGIN], log, check=False)
+            self._docker(["exec", "-u", "root", container, "rm", "-rf", _CONTAINER_PLUGIN], log, check=False)
             _rmtree(output_dir / "work")
             (output_dir / "work").mkdir(parents=True)
-            _docker(["cp", f"{container}:/app/.", str(output_dir / "work")], log, check=False)
+            self._docker(["cp", f"{container}:/app/.", str(output_dir / "work")], log, check=False)
             # The verifier runs the agent's /app code as root, on bridge for a public task.
-            _docker(["exec", "-u", "root", container, "rm", "-rf", FILES_DIR], log, check=False)
+            self._docker(["exec", "-u", "root", container, "rm", "-rf", FILES_DIR], log, check=False)
         usage = record_solver(proc, task.name, model, time.time() - t0, output_dir,
                               operations, log, extra_metrics, treatment, secrets)
         failed = self._recompile(task, container, log)
@@ -467,7 +476,7 @@ class DockerSolverHarness:
                                       output_dir=output_dir)
         workspace = AgentWorkspace.create(forbidden=forbidden)
         try:
-            _docker(["cp", f"{container}:/app/.", str(workspace.work)], log)
+            self._docker(["cp", f"{container}:/app/.", str(workspace.work)], log)
             treatment = None
             if skill_dir is not None and not probing:
                 treatment = build_plugin(skill_dir, workspace.root / "plugin")
@@ -491,11 +500,11 @@ class DockerSolverHarness:
             extra_metrics["treatment"] = treatment.as_metrics()
             # Create the target first and copy its contents: `docker cp dir path` nests
             # dir inside an existing path, and fails where /opt does not exist.
-            _docker(["exec", "-u", "root", container, "mkdir", "-p", _CONTAINER_PLUGIN], log)
-            _docker(["cp", f"{staged}/.", f"{container}:{_CONTAINER_PLUGIN}"], log)
+            self._docker(["exec", "-u", "root", container, "mkdir", "-p", _CONTAINER_PLUGIN], log)
+            self._docker(["cp", f"{staged}/.", f"{container}:{_CONTAINER_PLUGIN}"], log)
             # Root-owned, read-only to the agent. u=rwX,go=rX also clears setuid/setgid and
             # group/other write that copy2 and docker cp carry over (a+rX only adds bits).
-            _docker(["exec", "-u", "root", container, "chmod", "-R", "u=rwX,go=rX",
+            self._docker(["exec", "-u", "root", container, "chmod", "-R", "u=rwX,go=rX",
                      _CONTAINER_PLUGIN], log)
         finally:  # also when a docker step fails: the copy is not kept with the run
             _rmtree(staged)
@@ -522,14 +531,14 @@ class DockerSolverHarness:
         """Run the isolation probe where the agent would run; reward 1.0 only if sealed."""
         untested = {k: "untested" for k in LEAK_CLASSES}
         # Where docker-claude is refused, its probe would vouch for an arm that never runs.
-        workdir = _require_agent_workdir(task, container, log)
+        workdir = _require_agent_workdir(task, container, log, self._docker)
         if sandbox is not None:
             sandbox.workdir = workdir
-            sandbox.prepare(container, _docker, log)
+            sandbox.prepare(container, self._docker, log)
             skill_dir = self._resolve_skill_dir()  # docker-probe:<skill>: forbidden, never offered
             try:
                 result = sandbox.run_probe(container, task.path, operator_source_env(), self.env,
-                                           _docker, log, [skill_dir] if skill_dir else [])
+                                           self._docker, log, [skill_dir] if skill_dir else [])
             except subprocess.TimeoutExpired as exc:  # a hung check: nothing was shown closed
                 log.write(f"\n[probe] TIMEOUT: {exc}\n")
                 result = untested
@@ -537,7 +546,7 @@ class DockerSolverHarness:
         else:
             workspace, _ = self._prepare_workspace(task, container, log, output_dir=output_dir)
             try:
-                result = run_probe(workspace, operator_source_env(), self.env)
+                result = run_probe(workspace, operator_source_env(), self.env, runner=self.runner)
             except subprocess.TimeoutExpired as exc:
                 log.write(f"\n[probe] TIMEOUT: {exc}\n")
                 result = untested
@@ -565,7 +574,7 @@ class DockerSolverHarness:
         for match in _RECOMPILE_RE.finditer(task.instruction):
             cc = match.group(0).strip()
             log.write(f"\n[recompile] {cc}\n")
-            proc = _docker(["exec", "-u", "root", container, "bash", "-lc", cc], log, check=False)
+            proc = self._docker(["exec", "-u", "root", container, "bash", "-lc", cc], log, check=False)
             if proc.returncode != 0:
                 log.write(f"[recompile] FAILED (exit {proc.returncode}): {cc}\n")
                 failed.append(cc)
@@ -578,18 +587,18 @@ class DockerSolverHarness:
         SkillsBench ``test.sh`` runs ``pytest /verifier/test_outputs.py`` even
         after ``bench tasks export`` has renamed the directory to ``tests/``.
         """
-        _copy_dir_into(task.tests_dir, container, ("/tests", "/verifier"), log)
+        _copy_dir_into(task.tests_dir, container, ("/tests", "/verifier"), log, self._docker)
         # After an in-container agent the verifier runs its /app code as root: no
         # proxy credentials then (the sidecar kept them from the agent; see :func:`_exec_env`).
         agent_code = self.mode == "claude" and self.agent_location == "container"
-        proc = _docker(
+        proc = self._docker(
             ["exec", "-u", "root", *_exec_env(task, "verifier", credentials=not agent_code),
              container, "bash", "-lc",
              "mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh"],
             log, check=False, timeout=_task_verify_timeout(task),
         )
         reward_file = output_dir / "reward.txt"
-        pulled = _docker(
+        pulled = self._docker(
             ["cp", f"{container}:/logs/verifier/reward.txt", str(reward_file)],
             log, check=False,
         )
@@ -598,7 +607,7 @@ class DockerSolverHarness:
                 reward_file.read_text(encoding="utf-8", errors="replace"), reward_file=True
             )
         if proc.returncode != 0:  # no verdict at all if the container is gone, not a 0
-            running = _docker(["inspect", "-f", "{{.State.Running}}", container], log, check=False)
+            running = self._docker(["inspect", "-f", "{{.State.Running}}", container], log, check=False)
             if (getattr(running, "stdout", "") or "").strip() != "true":
                 raise RuntimeError(f"task container {container} is not running at verify time; see run.log")
         # No reward file written: fall back to verifier exit code.
@@ -666,7 +675,7 @@ def _refuse_unrunnable(task: TaskSpec, mode: str, agent_location: str) -> None:
         )
 
 
-def _require_agent_workdir(task: TaskSpec, container: str, log) -> str:
+def _require_agent_workdir(task: TaskSpec, container: str, log, docker: "Docker") -> str:
     """The task's working tree, refused before the agent starts unless it is in ``/app``.
 
     Both agents edit ``/app`` only: the host one a snapshot it copies back, the
@@ -678,15 +687,15 @@ def _require_agent_workdir(task: TaskSpec, container: str, log) -> str:
     an image without that directory is refused with its name. This needs the
     built image, so ``--dry-run`` cannot see it.
     """
-    workdir = _task_workdir(task, container, log)
+    workdir = _task_workdir(task, container, log, docker)
     if not _in_agent_tree(workdir):
         raise ValueError(
             f"{task.name}: the task works in {workdir}, but a docker-* agent edits "
             f"only {_AGENT_TREE}; {_NO_ARM}"
         )
     # Exit 1 is "no such directory"; 126/127 (no `test` in the image) leaves it to the copy.
-    if _docker(["exec", "-u", "root", container, "test", "-d", workdir], log,
-               check=False).returncode == 1:
+    if docker(["exec", "-u", "root", container, "test", "-d", workdir], log,
+              check=False).returncode == 1:
         raise ValueError(
             f"{task.name}: the image has no {workdir}, the tree a docker-* agent edits; {_NO_ARM}"
         )
@@ -706,7 +715,7 @@ def _declared_workdir(task: TaskSpec) -> Optional[str]:
     return "/" + posixpath.normpath(declared).lstrip("/")  # normpath keeps a leading "//"
 
 
-def _task_workdir(task: TaskSpec, container: str, log) -> str:
+def _task_workdir(task: TaskSpec, container: str, log, docker: "Docker") -> str:
     """The task's working tree: ``environment.workdir``, else the image's
     ``WORKDIR``, else ``/app`` (the Harbor convention our own tasks follow).
     The agent works there only if it is ``/app`` or below it (see
@@ -716,9 +725,7 @@ def _task_workdir(task: TaskSpec, container: str, log) -> str:
         # A declared "/" (also "/." or "/app/..") is ignored, like an image
         # WORKDIR of "/": a snapshot would `docker cp` the whole filesystem.
         return declared
-    proc = _docker(
-        ["inspect", "-f", "{{.Config.WorkingDir}}", container], log, check=False,
-    )
+    proc = docker(["inspect", "-f", "{{.Config.WorkingDir}}", container], log, check=False)
     found = (proc.stdout or "").strip()
     if proc.returncode != 0 or not found.startswith("/"):
         return "/app"
@@ -726,13 +733,13 @@ def _task_workdir(task: TaskSpec, container: str, log) -> str:
     return found if found != "/" else "/app"
 
 
-def _copy_dir_into(src: Path, container: str, dests: tuple[str, ...], log) -> None:
+def _copy_dir_into(src: Path, container: str, dests: tuple[str, ...], log, docker: "Docker") -> None:
     """Copy *src*'s contents to each dest: ``docker cp src c:dest`` nests ``src``
     inside a dest the image already has (``RUN mkdir -p /tests/...``), so the
     entry script would be missing. Same as BenchFlow: ``mkdir -p``, then ``src/.``."""
-    _docker(["exec", "-u", "root", container, "mkdir", "-p", *dests], log)
+    docker(["exec", "-u", "root", container, "mkdir", "-p", *dests], log)
     for dest in dests:
-        _docker(["cp", f"{src}/.", f"{container}:{dest}"], log)
+        docker(["cp", f"{src}/.", f"{container}:{dest}"], log)
 
 
 def _exec_env(task: TaskSpec, table: str, *, credentials: bool = True) -> list[str]:
@@ -825,20 +832,34 @@ def _describe_timeout(exc: subprocess.TimeoutExpired) -> str:
             + " ".join(shlex.quote(_redact(str(a))) for a in cmd))
 
 
-def _docker(args: list[str], log, *, check: bool = True,
-            timeout: Optional[float] = None) -> subprocess.CompletedProcess:
-    """Run a ``docker`` subcommand, tee-ing output to the run log."""
-    proc = subprocess.run(
-        ["docker", *args], text=True, capture_output=True, timeout=timeout, check=False,
-    )
+def _docker(args: list[str], log, *, check: bool = True, timeout: Optional[float] = None,
+            runner: process.Runner = process.run) -> process.Completed:
+    """Run a ``docker`` subcommand, tee-ing output (also a killed step's) to the run log.
+
+    ``timeout`` is a step's own budget (build, solve, verify): running out raises
+    :class:`subprocess.TimeoutExpired`, and the caller decides what the cell is.
+    Any other step gets :data:`_DOCKER_STEP_TIMEOUT`; running out is exit 124,
+    which ``check`` raises like any failure (an errored cell). The CLI keeps the
+    caller's environment: its context, ``DOCKER_HOST`` and ``~/.docker``. Its output
+    is kept whole, in memory: callers parse it (the sidecar's decision log), and it is
+    redacted before run.log gets all of it.
+    """
+    argv = ["docker", *args]
+    budget = timeout if timeout is not None else _DOCKER_STEP_TIMEOUT
+    proc = runner(argv, timeout=budget, env=process.Env.inherit(), capture_limit=None)
     log.write(f"$ docker {' '.join(shlex.quote(_redact(a)) for a in args)}\n")
     # The output too: a verifier or a build step can echo a proxy URL it was given.
     if proc.stdout:
         log.write(_redact(proc.stdout))
     if proc.stderr:
         log.write(_redact(proc.stderr))
+    if proc.timed_out:
+        log.write(f"[killed after {budget:g}s]\n")
+        if timeout is not None:
+            raise subprocess.TimeoutExpired(argv, timeout, proc.stdout_bytes, proc.stderr_bytes)
     if check and proc.returncode != 0:
-        raise RuntimeError(f"docker {args[0]} failed (exit {proc.returncode}); see run.log")
+        why = f"timed out after {budget:g}s" if proc.timed_out else f"exit {proc.returncode}"
+        raise RuntimeError(f"docker {args[0]} failed ({why}); see run.log")
     return proc
 
 

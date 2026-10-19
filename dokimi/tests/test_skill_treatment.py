@@ -22,6 +22,7 @@ from dokimi.harnesses.skill_treatment import (
     treatment_notice,
 )
 from dokimi.harnesses.solver_stream import record_solver, record_stream, run_solver
+from dokimi.process import FakeRunner, reply
 
 
 def _skill(root, name="onetbb-quickstart", dirname=None, extra=""):
@@ -371,8 +372,7 @@ def test_credentials_the_agent_prints_are_redacted_from_the_saved_stream(tmp_pat
     key = "sk-ant-api03-secretvalue"
     printed = _ev(type="user", message={"content": [
         {"type": "tool_result", "tool_use_id": "a", "content": f"ANTHROPIC_API_KEY={key}\nR=us"}]})
-    proc = subprocess.CompletedProcess(["claude"], 0, "\n".join([_init("doctor"), printed, RESULT]),
-                                       f"debug {key}")
+    proc = reply("\n".join([_init("doctor"), printed, RESULT]), f"debug {key}")
 
     class Log(list):
         write = list.append
@@ -397,7 +397,7 @@ def test_values_the_stream_stores_as_json_escapes_are_redacted_too(tmp_path):
     printed = _ev(type="user", message={"content": [{"type": "tool_result", "tool_use_id": "a",
                                                      "content": " | ".join(env.values())}]})
     result = _ev(type="result", num_turns=2, result=env["AWS_SECRET_ACCESS_KEY"])
-    proc = subprocess.CompletedProcess(["claude"], 0, "\n".join([printed, result]), "")
+    proc = reply("\n".join([printed, result]))
     record_solver(proc, "t", None, 1.0, tmp_path, [], type("L", (), {"write": lambda *a: 0})(), {},
                   None, credential_values(env))
     for name in ("solver.jsonl", "solver.json"):
@@ -425,7 +425,7 @@ def test_tokens_cover_every_model_the_cell_used(tmp_path):
         def write(self, _):
             pass
 
-    proc = subprocess.CompletedProcess(["claude"], 0, json.dumps(obj), "")
+    proc = reply(json.dumps(obj))
     record_solver(proc, "t", None, 1.0, tmp_path, [], Log(), metrics)
     assert metrics["models_used"] == ["claude-haiku-4-5", "claude-opus-5-5"]
 
@@ -452,14 +452,12 @@ def test_a_timed_out_solve_keeps_its_partial_stream(tmp_path, monkeypatch):
                          _call("Skill", "a", skill="onetbb-quickstart:onetbb-quickstart"),
                          _result_of("a")]).encode()
 
-    def boom(*a, **k):
-        raise subprocess.TimeoutExpired(cmd="claude", timeout=1, output=partial)
-
-    monkeypatch.setattr(subprocess, "run", boom)
+    hung = FakeRunner(lambda call: reply(partial, timed_out=True))
     metrics: dict = {}
     with pytest.raises(subprocess.TimeoutExpired):
-        run_solver(["claude"], tmp_path, metrics, TBB, timeout=1)
+        run_solver(["claude"], tmp_path, metrics, TBB, timeout=1, env={}, runner=hung)
     assert (tmp_path / "solver.jsonl").read_bytes() == partial
+    assert hung.calls[0].timeout == 1 and hung.calls[0].env == {}  # exactly the env it is given
     assert metrics["n_skill_invocations"] == 1
     # A timeout is a miss, not a tooling failure: it must not carry solver_error,
     # which the docs say to drop before comparing arms.
@@ -470,13 +468,10 @@ def test_a_timed_out_solve_keeps_its_partial_stream(tmp_path, monkeypatch):
 def test_a_timed_out_solve_without_its_plugin_is_still_a_solver_error(tmp_path, monkeypatch):
     partial = _init("doctor").encode()
 
-    def boom(*a, **k):
-        raise subprocess.TimeoutExpired(cmd="claude", timeout=1, output=partial)
-
-    monkeypatch.setattr(subprocess, "run", boom)
+    hung = FakeRunner(lambda call: reply(partial, timed_out=True))
     metrics: dict = {}
     with pytest.raises(subprocess.TimeoutExpired):
-        run_solver(["claude"], tmp_path, metrics, TBB, timeout=1)
+        run_solver(["claude"], tmp_path, metrics, TBB, timeout=1, env={}, runner=hung)
     assert metrics["solver_error"].startswith("treatment not offered")
     assert "solver_timeout" in metrics
 

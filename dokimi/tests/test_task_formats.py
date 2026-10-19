@@ -327,23 +327,16 @@ def test_command_harness_fractional_reward_is_kept_and_fails(tmp_path):
 
 @pytest.mark.parametrize("text, reward", [("0.75\n", 0.75), ("1.00\n", 1.0)])
 def test_docker_verify_keeps_a_fractional_reward_file(tmp_path, monkeypatch, text, reward):
-    import dokimi.harnesses.docker_solver as mod
+    import io
+
+    from docker_cli_fake import DockerCLI
     from dokimi.harnesses.docker_solver import DockerSolverHarness
 
-    class _P:
-        returncode, stdout = 0, ""
-
-    def _docker(args, log, **kwargs):
-        if args[0] == "cp" and args[1].endswith("/logs/verifier/reward.txt"):
-            Path(args[2]).write_text(text, encoding="utf-8")
-        return _P()
-
-    monkeypatch.setattr(mod, "_docker", _docker)
     out = tmp_path / "o"
     out.mkdir()
     task = load_task(_harbor(tmp_path))
-    harness = DockerSolverHarness(harness_id="docker-oracle", mode="oracle")
-    assert harness._verify(task, "c1", out, log=None) == reward
+    harness = DockerSolverHarness(harness_id="docker-oracle", mode="oracle", runner=DockerCLI(reward=text))
+    assert harness._verify(task, "c1", out, log=io.StringIO()) == reward
 
 
 def test_yaml_dates_stay_json_serialisable(tmp_path):
@@ -453,34 +446,29 @@ def test_environment_and_sandbox_together_is_rejected(tmp_path):
 def test_docker_claude_host_errors_on_a_task_md_task(tmp_path, monkeypatch):
     """The host-side agent cannot run a task.md task (its instruction names
     container paths): the cell is an error (missing data), with no docker call."""
-    import dokimi.harnesses.docker_solver as mod
+    from docker_cli_fake import DockerCLI
     from dokimi.harnesses import TaskSuiteRunner
 
-    calls: list[list[str]] = []
-    monkeypatch.setattr(mod, "_docker", lambda args, log, **k: calls.append(list(args)))
+    cli = DockerCLI()
     task = load_task(_task_md(tmp_path / "tasks"))
-    out = TaskSuiteRunner([task], ["docker-claude-host"], output_root=tmp_path / "runs").run()
+    out = TaskSuiteRunner([task], ["docker-claude-host"], output_root=tmp_path / "runs", runner=cli).run()
     (row,) = out["results"]
     assert row["reward"] is None and row["passed"] is False
     assert "cannot be solved by a host-side agent" in row["metrics"]["error"]
-    assert calls == []
+    assert cli.calls == []
 
 
 def test_docker_oracle_runs_a_task_md_task_from_its_own_dirs(tmp_path, monkeypatch):
     """docker-oracle runs a task.md task: oracle/ and verifier/ are copied in,
     not solution/ and tests/ (this replaces #69's temporary refusal)."""
-    import dokimi.harnesses.docker_solver as mod
+    from docker_cli_fake import DockerCLI
     from dokimi.harnesses import TaskSuiteRunner
 
-    calls: list[list[str]] = []
-
-    class _P:
-        returncode, stdout = 0, ""
-
-    monkeypatch.setattr(mod, "_docker", lambda args, log, **k: calls.append(list(args)) or _P())
+    cli = DockerCLI()
+    calls = cli.args
     task = load_task(_task_md(tmp_path / "tasks",
                               text=_TASK_MD.replace("    SECRET: ${HOST_SECRET}\n", "")))
-    out = TaskSuiteRunner([task], ["docker-oracle"], output_root=tmp_path / "runs").run()
+    out = TaskSuiteRunner([task], ["docker-oracle"], output_root=tmp_path / "runs", runner=cli).run()
     (row,) = out["results"]
     assert "error" not in row["metrics"]
     sources = {c[1] for c in calls if c[0] == "cp" and c[2].startswith("dokimi-run-")}
@@ -508,22 +496,11 @@ _MIGRATED = (
 )
 
 
-def _recording_docker(monkeypatch):
-    import dokimi.harnesses.docker_solver as mod
+def _recording_docker():
+    """The docker CLI (verifier reward 1), harbor and claude: every call exits 0 and is recorded."""
+    from docker_cli_fake import DockerCLI
 
-    class _P:
-        returncode, stdout = 0, ""
-
-    calls: list[list[str]] = []
-
-    def _docker(args, log, **kwargs):
-        calls.append(list(args))
-        if args[0] == "cp" and args[1].endswith("/logs/verifier/reward.txt"):
-            Path(args[2]).write_text("1", encoding="utf-8")
-        return _P()
-
-    monkeypatch.setattr(mod, "_docker", _docker)
-    return calls
+    return DockerCLI(reward="1")
 
 
 def test_migrated_dir_with_task_toml_and_task_md_runs_everywhere(tmp_path, monkeypatch):
@@ -536,10 +513,10 @@ def test_migrated_dir_with_task_toml_and_task_md_runs_everywhere(tmp_path, monke
     (path / "task.md").write_text(_MIGRATED, encoding="utf-8")
     task = load_task(path)
     assert task.format == FORMAT_TASK_MD and task.tests_dir.name == "tests"
-    calls = _recording_docker(monkeypatch)
-    harbor = _no_harbor()
+    cli = _recording_docker()
+    calls = cli.args
     ids = ["docker-oracle", "docker-claude", "terminal-bench:oracle", "codex"]
-    out = TaskSuiteRunner([task], ids, output_root=tmp_path / "runs", runner=harbor).run()
+    out = TaskSuiteRunner([task], ids, output_root=tmp_path / "runs", runner=cli).run()
     # docker-claude starts an egress proxy, which may be missing on the test host;
     # what it must never do is refuse the directory.
     errors = {r["harness"]: (r["metrics"] or {}).get("error", "") for r in out["results"]}
@@ -547,7 +524,7 @@ def test_migrated_dir_with_task_toml_and_task_md_runs_everywhere(tmp_path, monke
     assert not any(v for k, v in errors.items() if k != "docker-claude"), errors
     cps = [(Path(c[1]).name, c[2].split(":", 1)[1]) for c in calls if c[0] == "cp" and Path(c[1]).is_dir()]
     assert ("solution", "/solution") in cps and ("tests", "/tests") in cps
-    assert any("harbor" in " ".join(c.argv) for c in harbor.calls)
+    assert any(c.argv[0] == "harbor" for c in cli.calls)
 
 
 def test_task_toml_with_only_oracle_and_verifier_dirs_runs_in_docker(tmp_path, monkeypatch):
@@ -558,10 +535,11 @@ def test_task_toml_with_only_oracle_and_verifier_dirs_runs_in_docker(tmp_path, m
     path = _harbor(tmp_path / "tasks")
     (path / "solution").rename(path / "oracle")
     (path / "tests").rename(path / "verifier")
-    calls = _recording_docker(monkeypatch)
+    cli = _recording_docker()
+    calls = cli.args
     task = load_task(path)
     assert task.format == FORMAT_HARBOR
-    out = TaskSuiteRunner([task], ["docker-oracle"], output_root=tmp_path / "runs").run()
+    out = TaskSuiteRunner([task], ["docker-oracle"], output_root=tmp_path / "runs", runner=cli).run()
     (row,) = out["results"]
     assert "error" not in row["metrics"]
     copied = {(Path(c[1].removesuffix("/.")).name, c[2].split(":", 1)[1])
@@ -750,12 +728,11 @@ def test_task_md_and_task_toml_drift_warns_and_harbor_refuses(tmp_path, monkeypa
     with pytest.warns(UserWarning, match=f"differ in {section}"):
         task = load_task(path)
     assert legacy_drift(task) == [section]
-    harbor = _no_harbor()
-    _recording_docker(monkeypatch)
-    rows = _run([task], ["codex", "docker-oracle"], tmp_path, harbor)
+    cli = _recording_docker()
+    rows = _run([task], ["codex", "docker-oracle"], tmp_path, cli)
     assert f"differ in {section}" in rows["codex"]["metrics"]["error"]
     assert "error" not in (rows["docker-oracle"]["metrics"] or {})
-    assert harbor.calls == []
+    assert not any(c.argv[0] == "harbor" for c in cli.calls)
 
 
 _ALIAS_BOMB = (
