@@ -11,5 +11,6 @@
   `coverage_basis: "readable"`, and the gate check in the scorecard carries it as `basis`.
   A record without the stamp, which is every artifact stored before this release, is still
   gated on all bundled words, so re-gating it gives the value it had; a stamp this version
-  does not know is reported as not measured. Do not compare `artifact_coverage` values
+  does not know is reported as not measured by `evaluate_novelty`, and rejected by schema
+  validation when the record is loaded. Do not compare `artifact_coverage` values
   across the two bases.

@@ -657,6 +657,19 @@ def test_the_gate_message_keeps_gaps_and_role_decisions_apart(tmp_path):
     assert "3 files excluded by the word budgets, 2 not measured by role" in check.message
 
 
+def test_the_gate_message_omits_role_decisions_when_there_are_none(tmp_path):
+    root = tmp_path / "s"
+    (root / "references").mkdir(parents=True)
+    (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n" + "w " * 40,
+                                   encoding="utf-8")
+    (root / "references" / "big.md").write_text("w " * 30, encoding="utf-8")
+    bundle = load_bundle(f"skill:{root}", include_resources=True, max_file_words=20)
+    check = _coverage_check(bundle.summary())
+    assert len(excluded_of(bundle.excluded, "gap")) == 1
+    assert "1 file excluded by the word budgets): " in check.message
+    assert "not measured by role" not in check.message
+
+
 def test_a_stamped_record_validates(tmp_path):
     from dokimi.artifacts import validate_artifact
 
