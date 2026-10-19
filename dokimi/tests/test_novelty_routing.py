@@ -435,3 +435,23 @@ def test_the_catalog_leaves_out_the_names_it_is_told_to(tmp_path):
     with pytest.raises(ValueError, match="not a directory"):
         catalog_competitors(str(tmp_path / "nope"), set())
 
+
+def test_catalog_competitors_with_name_in_competitors_excludes_it_from_catalog(tmp_path):
+    # When --competitors specifies a skill that is also in the --catalog directory,
+    # the exclusion set must include it so catalog_competitors does not add it again.
+    # This mutation test: if the exclusion set drops the --competitors names,
+    # the same skill appears twice and check_field fails with "more than once" error.
+    _skill(tmp_path, "perf", "profile a slow binary with perf")
+    _skill(tmp_path, "xpu", "profile a slow GPU kernel")
+    _skill(tmp_path, "cache", "profile cache misses")
+
+    # The exclusion set should include both gold and named competitors.
+    # In the CLI, this is: {gold.name, *(c.name for c in competitors)}
+    excluded = {"perf"}  # perf is a named competitor and also in the catalog
+    catalog = catalog_competitors(str(tmp_path), excluded)
+
+    # perf should not appear twice; the catalog must exclude it.
+    names = [c.name for c in catalog]
+    assert names.count("perf") == 0, "perf should be excluded from catalog"
+    assert set(names) == {"xpu", "cache"}, f"Expected xpu and cache, got {names}"
+

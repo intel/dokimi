@@ -156,7 +156,9 @@ def analyze(
             exact bytes it was measured on. Defaults to the bundle's ``measured_digest``
             when ``artifact_bundle`` is given.
         tier: The older spelling of ``config.tier`` and ``config.tier_overrides``: a
-            ``{"name", "overrides"}`` record, which takes precedence over the config's.
+            ``{"name", "overrides"}`` record. When supplied, it replaces both the config's
+            tier and overrides entirely (no merge): a tier-passed run records only the
+            overrides in the tier record, not combined with ``config.tier_overrides``.
         artifact_bundle: The resolved bundle ``text`` was rendered from. Supplying it adds
             per-file provenance: every span, atom and outcome can then be traced to the
             file it came from, which is the cut an author needs to decide what belongs in

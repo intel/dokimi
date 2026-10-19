@@ -296,3 +296,40 @@ def test_runs_of_different_texts_are_not_correlated(tmp_path):
     b = _probe_file(tmp_path, "b.json", ["x"], artifact="skill:t")
     with pytest.raises(ProbeFileError, match="measured different texts"):
         load_probe_cells([a, b])
+
+
+def test_item_analysis_respects_arm_parameter_in_discrimination():
+    # item_analysis() must pass arm= through to discrimination(), not hardcode "full".
+    # If arm= is dropped, all analysis uses the full arm regardless of the caller's request.
+    runs_placebo = [_run("a1", "direct", "placebo", True), _run("a1", "paraphrase", "placebo", True),
+                    _run("a2", "direct", "placebo", True), _run("a2", "paraphrase", "placebo", False),
+                    _run("a3", "direct", "placebo", True)]
+    runs_full = [_run("a1", "direct", "full", True), _run("a1", "paraphrase", "full", False),
+                 _run("a2", "direct", "full", True), _run("a2", "paraphrase", "full", True),
+                 _run("a3", "direct", "full", True)]
+    cells = [
+        {"model": "m1", "source": "file1.json", "runs": runs_placebo},
+        {"model": "m2", "source": "file2.json", "runs": runs_full},
+    ]
+    # Placebo arm has a1 and a2 agreeing, full arm has a1 disagreeing.
+    result_placebo = item_analysis(cells, arm="placebo")
+    result_full = item_analysis(cells, arm="full")
+    # The agreement numbers must differ between arms if arm= is passed correctly.
+    placebo_agreement = result_placebo["kind_agreement"]["file1.json"]["agreement"]
+    full_agreement = result_full["kind_agreement"]["file1.json"]["agreement"]
+    assert placebo_agreement != full_agreement, \
+        "item_analysis must pass arm= to kind_agreement; if arm= is dropped, both return the same value"
+
+
+def test_item_analysis_respects_arm_parameter_in_kind_agreement():
+    # item_analysis() must pass arm= through to kind_agreement(), not hardcode "full".
+    runs = [
+        _run("a1", "direct", "placebo", True), _run("a1", "paraphrase", "placebo", True),
+        _run("a1", "direct", "full", True), _run("a1", "paraphrase", "full", False),
+    ]
+    cells = [{"model": "m1", "source": "file.json", "runs": runs}]
+    result_placebo = item_analysis(cells, arm="placebo")
+    result_full = item_analysis(cells, arm="full")
+    # Placebo: both kinds agree (both correct), agreement=1.0; Full: they disagree, agreement=0.0
+    assert result_placebo["kind_agreement"]["file.json"]["agreement"] == 1.0
+    assert result_full["kind_agreement"]["file.json"]["agreement"] == 0.0
