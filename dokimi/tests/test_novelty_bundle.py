@@ -610,6 +610,17 @@ def test_as_dict_includes_basis_when_set(tmp_path):
     assert check_readable.as_dict()["basis"] == "readable"
 
 
+def test_an_explicit_none_coverage_basis_is_an_invalid_stamp(tmp_path):
+    bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path)}")
+    record = dict(bundle.summary(), coverage_basis=None)
+    check = _coverage_check(record)
+    assert (check.measured, check.passed, check.value, check.basis) == (
+        False, True, None, "None")
+    assert "'None' basis" in check.message
+    with pytest.raises(ValueError, match="unknown coverage basis"):
+        bundle.coverage().denominator("None")
+
+
 def test_the_gate_counts_only_gaps_as_excluded_files(tmp_path):
     from dokimi.novelty.bundle import named_exclusions
 
