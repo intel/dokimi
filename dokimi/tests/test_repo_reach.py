@@ -297,6 +297,8 @@ def test_tokens_cover_the_subagents_the_cost_covers():
             {"type": "tool_use", "id": "t1", "name": "Agent", "input": {"prompt": "find x"}}]}},
         {"type": "assistant", "parent_tool_use_id": "t1", "message": {"content": [
             {"type": "tool_use", "id": "c1", "name": "Read", "input": {"file_path": "/ws/a.c"}}]}},
+        {"type": "assistant", "parent_tool_use_id": "t1", "message": {"content": [
+            {"type": "tool_use", "id": "t2", "name": "Task", "input": {"prompt": "nested"}}]}},
         {"type": "result", "result": "ok", "total_cost_usd": 0.5,
          "usage": {"input_tokens": 7, "output_tokens": 2},
          "modelUsage": {"m-main": {"inputTokens": 7, "outputTokens": 2, "cacheReadInputTokens": 100},
@@ -304,7 +306,7 @@ def test_tokens_cover_the_subagents_the_cost_covers():
     ]
     t = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
     assert (t.input_tokens, t.output_tokens, t.cache_read_tokens, t.cache_write_tokens) == (37, 11, 100, 5)
-    assert t.usage_scope == "tree" and t.subagent_calls == 1
+    assert t.usage_scope == "tree" and t.subagent_calls == 2
     assert t.events[1] == {"t": None, "kind": "read", "path": "a.c", "agent": "t1"}
     assert "agent" not in t.events[0]
 
