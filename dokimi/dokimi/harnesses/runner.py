@@ -298,12 +298,13 @@ def _discovery_gaps(rows: list[dict[str, Any]],
         if pair is None or pair not in per_harness:
             continue
         with_rate, discover_rate = per_harness[pair]["pass_rate"], stats["pass_rate"]
-        # Check both the attempted cells and the errored cells match between arms.
         # Two arms with the same discovered gap are comparable only if they attempted
-        # the same cells and errored on the same subset.
-        comparable = (attempted.get(harness) == attempted.get(pair) and
-                      _errored_cells(outcomes, attempted, harness)
-                      == _errored_cells(outcomes, attempted, pair))
+        # the same cells and errored on the same subset. The two checks are kept apart
+        # in the summary, so the report can say which one withheld the gap.
+        attempted_match = attempted.get(harness) == attempted.get(pair)
+        errored_match = (_errored_cells(outcomes, attempted, harness)
+                         == _errored_cells(outcomes, attempted, pair))
+        comparable = attempted_match and errored_match
         gaps[harness] = {
             "with_skill_harness": pair,
             "with_skill_pass_rate": with_rate,
@@ -311,6 +312,8 @@ def _discovery_gaps(rows: list[dict[str, Any]],
             "gap": (round(with_rate - discover_rate, 4)
                     if comparable and with_rate is not None and discover_rate is not None
                     else None),
+            "attempted_cells_match": attempted_match,
+            "errored_cells_match": errored_match,
             "with_skill_invocation_rate": per_harness[pair]["skill_invocation_rate"],
             "discover_invocation_rate": stats["skill_invocation_rate"],
         }

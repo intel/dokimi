@@ -639,7 +639,15 @@
                 ],
                 "minimum": -1,
                 "maximum": 1,
-                "description": "Null when the two arms ran or lost different cells, or one has none scored."
+                "description": "Null when the two arms ran different cells (attempted_cells_match false) or lost different cells (errored_cells_match false), or one has none scored."
+              },
+              "attempted_cells_match": {
+                "type": "boolean",
+                "description": "Whether the two arms attempted the same (task, repeat) cells, errors included. False withholds the gap as 'ran different cells'. Absent in artifacts written before this field."
+              },
+              "errored_cells_match": {
+                "type": "boolean",
+                "description": "Whether the two arms errored on the same attempted cells. False withholds the gap as 'lost different cells'. Absent in artifacts written before this field."
               },
               "with_skill_invocation_rate": {
                 "type": [

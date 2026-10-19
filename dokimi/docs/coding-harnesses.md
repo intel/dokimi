@@ -796,8 +796,9 @@ python cli.py tasks run --tasks-root <content-checkout>/evaluation/harbor/tasks 
   same path and launch, `summary.discovery_gaps` holds both pass rates, the
   gap (with-skill − discovery) and both skill-invocation rates. The report
   shows them in a *Skill discovery* table. The gap is withheld when the two arms
-  ran or lost different cells (attempted or errored), as `pass_rate_delta` is. Each arm also gets
-  its own row against the baseline.
+  ran different cells (`attempted_cells_match` is false: one arm attempted a cell the other
+  did not) or lost different cells (`errored_cells_match` is false: the errored cells differ).
+  The report labels which one withheld it. Each arm also gets its own row against the baseline.
 - **Was the description visible?** Claude Code lists skills to the model as
   name plus description (and `when_to_use`), cutting each description at
   `skillListingMaxDescChars` (1536 by default) and shortening the whole listing

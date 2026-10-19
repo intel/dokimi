@@ -306,11 +306,14 @@ def test_summary_reports_the_discovery_gap_per_pair():
     summary = summarize_task_results(rows, baseline_harness=base)
     assert summary["discovery_gaps"] == {disc: {
         "with_skill_harness": skill, "with_skill_pass_rate": 1.0, "discover_pass_rate": 0.5,
-        "gap": 0.5, "with_skill_invocation_rate": 1.0, "discover_invocation_rate": 0.0}}
+        "gap": 0.5, "attempted_cells_match": True, "errored_cells_match": True,
+        "with_skill_invocation_rate": 1.0, "discover_invocation_rate": 0.0}}
     # The discovery arm is an arm of its own against the baseline, too.
     assert summary["comparisons"][disc]["pass_rate_delta"] == 0.5
     rows[-2]["metrics"]["solver_error"] = "boom"  # arms lost different cells: withheld
-    assert summarize_task_results(rows)["discovery_gaps"][disc]["gap"] is None
+    lost = summarize_task_results(rows)["discovery_gaps"][disc]
+    assert lost["gap"] is None
+    assert lost["attempted_cells_match"] is True and lost["errored_cells_match"] is False
     assert "discovery_gaps" not in summarize_task_results(rows[:2])
 
 

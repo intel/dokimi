@@ -166,7 +166,16 @@ def _discovery_lines(data: dict[str, Any]) -> list[str]:
         elif g.get("with_skill_pass_rate") is None or g.get("discover_pass_rate") is None:
             gap_s = "— (no scored cells)"
         else:
-            gap_s = "— (arms ran or lost different cells)"
+            # Artifacts from before the two flags were recorded get the combined reading.
+            ran, lost = g.get("attempted_cells_match"), g.get("errored_cells_match")
+            if ran is False and lost is False:
+                gap_s = "— (arms ran and lost different cells)"
+            elif ran is False:
+                gap_s = "— (arms ran different cells)"
+            elif lost is False:
+                gap_s = "— (arms lost different cells)"
+            else:
+                gap_s = "— (arms ran or lost different cells)"
         lines.append(f"| `{h}` | {_fmt_rate(g.get('with_skill_pass_rate'))} | "
                      f"{_fmt_rate(g.get('discover_pass_rate'))} | {gap_s} | "
                      f"{_fmt_rate(g.get('with_skill_invocation_rate'))} | "

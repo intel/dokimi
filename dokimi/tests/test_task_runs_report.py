@@ -3,6 +3,8 @@
 
 """Tests for the executable task-run Markdown report renderer."""
 
+import pytest
+
 from dokimi.harnesses.runner import summarize_task_results
 from dokimi.report.task_runs_report import _md_cell, render_task_runs_report
 
@@ -291,7 +293,11 @@ def test_report_puts_the_discovery_arm_beside_no_skill_and_with_skill():
     assert "## Skill discovery" in md
     assert "| `docker-claude-skill-discover:s` | 100% | 0% | +100.00 pp | 100% | 0% |" in md
     assert "1 discovery row(s) ran with a description longer" in md
-    data["summary"]["discovery_gaps"][arms[2]]["gap"] = None
+    # An artifact from before the two match flags gets the combined reading.
+    entry = data["summary"]["discovery_gaps"][arms[2]]
+    entry["gap"] = None
+    for key in ("attempted_cells_match", "errored_cells_match"):
+        del entry[key]
     assert "— (arms ran or lost different cells)" in render_task_runs_report(data)
     del data["summary"]["discovery_gaps"]
     assert "## Skill discovery" not in render_task_runs_report(data)
@@ -324,8 +330,56 @@ def test_discovery_gap_withheld_when_arms_attempted_different_cells():
             "baseline_harness": arms[0], "harnesses": arms, "results": rows, "tasks": tasks,
             "summary": summarize_task_results(rows, baseline_harness=arms[0])}
 
-    # Gap should be None because attempted cells differ
-    assert data["summary"]["discovery_gaps"][arms[2]]["gap"] is None
+    # Gap should be None because attempted cells differ, and nothing errored
+    entry = data["summary"]["discovery_gaps"][arms[2]]
+    assert entry["gap"] is None
+    assert entry["attempted_cells_match"] is False and entry["errored_cells_match"] is True
+    assert "— (arms ran different cells)" in render_task_runs_report(data)
+    assert "lost different cells" not in render_task_runs_report(data)
+
+
+def _gap_data(disc_tasks, skill_errored, disc_errored):
+    """Three arms over tasks t0 and t1; each arm runs the listed tasks and errors on the listed ones."""
+    arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
+    errored = {arms[1]: skill_errored, arms[2]: disc_errored}
+    rows = []
+    for harness in arms:
+        for task_idx in (0, 1):
+            if harness == arms[2] and task_idx not in disc_tasks:
+                continue
+            metrics = {"operation_count": 0, "operations_by_type": {}}
+            if harness != arms[0]:
+                metrics.update(n_skill_invocations=(1 if harness == arms[1] else 0),
+                               skill_notice=harness == arms[1])
+            if task_idx in errored.get(harness, ()):
+                metrics["error"] = "boom"
+            passed = harness == arms[1] and task_idx not in errored.get(harness, ())
+            rows.append({"task": f"t{task_idx}", "harness": harness, "passed": passed,
+                         "reward": float(passed), "returncode": 0, "output_dir": None,
+                         "metrics": metrics, "operations": []})
+    tasks = [{"name": f"t{i}", "path": "p", "metadata": {"difficulty": "easy"},
+              "verifier": {}, "agent": {}, "environment": {}} for i in range(2)]
+    return {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+            "baseline_harness": arms[0], "harnesses": arms, "results": rows, "tasks": tasks,
+            "summary": summarize_task_results(rows, baseline_harness=arms[0])}
+
+
+@pytest.mark.parametrize("disc_tasks, skill_errored, disc_errored, attempted_match, errored_match, label", [
+    # The discovery arm ran fewer cells, and lost none.
+    ((0,), (), (), False, True, "— (arms ran different cells)"),
+    # Both arms ran the same cells, and the discovery arm lost one.
+    ((0, 1), (), (1,), True, False, "— (arms lost different cells)"),
+    # The arms ran different cells and lost different ones.
+    ((0,), (1,), (), False, False, "— (arms ran and lost different cells)"),
+])
+def test_discovery_gap_labels_run_and_loss_differences_apart(
+        disc_tasks, skill_errored, disc_errored, attempted_match, errored_match, label):
+    data = _gap_data(disc_tasks, skill_errored, disc_errored)
+    entry = data["summary"]["discovery_gaps"]["docker-claude-skill-discover:s"]
+    assert entry["gap"] is None
+    assert entry["attempted_cells_match"] is attempted_match
+    assert entry["errored_cells_match"] is errored_match
+    assert label in render_task_runs_report(data)
 
 
 def test_discovery_gap_both_arms_fully_errored():
@@ -387,9 +441,9 @@ def test_discovery_gap_no_scored_cells_differs_from_different_attempted():
                       "verifier": {}, "agent": {}, "environment": {}} for i in range(2)],
             "summary": summarize_task_results(rows, baseline_harness=arms[0])}
 
-    # Should say "arms lost different cells"
+    # The discovery arm ran one task fewer, so the label says it ran different cells
     md = render_task_runs_report(data)
-    assert "— (arms ran or lost different cells)" in md
+    assert "— (arms ran different cells)" in md
     assert "— (no scored cells)" not in md
 
     # When both arms fully errored, should say "no scored cells"

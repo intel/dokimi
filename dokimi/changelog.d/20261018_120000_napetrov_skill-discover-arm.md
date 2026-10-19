@@ -14,5 +14,6 @@
   description the listing cuts gets a warning in `run.log`.
 - **Discovery gap in `tasks run` summaries and reports** — when a discovery arm runs next to
   its with-skill arm, `summary.discovery_gaps` (`task_runs.v1`) holds both pass rates, the
-  gap (with-skill − discovery, withheld when the arms lost different cells) and both
-  skill-invocation rates, and the Markdown report gains a *Skill discovery* table.
+  gap (with-skill − discovery, withheld when the arms ran or lost different cells, with
+  `attempted_cells_match` and `errored_cells_match` saying which) and both skill-invocation
+  rates, and the Markdown report gains a *Skill discovery* table.
