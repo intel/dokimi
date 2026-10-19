@@ -73,6 +73,8 @@ def _run_ragas_eval(answers, output_path, args) -> None:
 
     except EmptyQuestionError:
         raise  # a bad input record is a refusal, not a RAGAS failure: cli.main reports it (exit 2)
+    except ImportError as exc:
+        sys.exit(f"RAGAS meta-evaluation was requested but cannot run: {exc}")
     except Exception as exc:
         print(f"\n⚠️  RAGAS evaluation failed: {exc}")
 

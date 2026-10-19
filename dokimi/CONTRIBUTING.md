@@ -49,8 +49,9 @@ The package exposes a console entry point:
 dokimi --help           # equivalent to `python -m dokimi`
 ```
 
-Optional feature sets are available as extras: `ocr` (Docling ingestion),
-`mcp`, and `embeddings`. Install what you need, e.g. `pip install -e ".[dev,ocr]"`.
+Optional feature sets are available as extras: `ragas` (`eval ragas`, which
+`dev` includes), `ocr` (Docling ingestion), `mcp`, and `embeddings`. Install
+what you need, e.g. `pip install -e ".[dev,ocr]"`.
 
 ## Before you open a PR
 

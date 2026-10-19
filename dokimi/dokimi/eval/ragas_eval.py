@@ -104,7 +104,7 @@ class RagasEvaluator:
             Dataset, ragas_evaluate = _import_ragas_runtime()
         except ImportError as exc:
             raise ImportError("ragas and datasets packages are required. "
-                              "Install: pip install ragas datasets") from exc
+                              "Install the ragas extra: pip install 'dokimi[ragas]'") from exc
 
         rows_with = []
         rows_without = []
@@ -254,7 +254,7 @@ class RagasEvaluator:
             # import (e.g. a langchain_community module that a newer release removed).
             raise ImportError(
                 f"RAGAS evaluation could not import {exc.name or 'a dependency'}: {exc}. "
-                "Install the locked dependencies: pip install -r requirements.lock.txt"
+                "Install the ragas extra: pip install 'dokimi[ragas]'"
             ) from exc
 
     def _build_metrics(self) -> list:

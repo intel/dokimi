@@ -17,6 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 
 _PROBE = """
@@ -42,3 +44,14 @@ def test_ragas_imports_and_evaluator_builds_from_installed_deps():
         timeout=120,
     )
     assert proc.returncode == 0, proc.stderr[-3000:]
+
+
+def test_ragas_without_the_extra_exits_with_the_install_command(monkeypatch, tmp_path):
+    from dokimi.commands.evaluate import _run_ragas_eval
+
+    monkeypatch.setitem(sys.modules, "ragas", None)
+    monkeypatch.setitem(sys.modules, "ragas.llms", None)
+    with pytest.raises(SystemExit) as exc:
+        _run_ragas_eval([], tmp_path / "answers.json", object())
+    assert "pip install 'dokimi[ragas]'" in str(exc.value.code)
+    assert not (tmp_path / "answers_ragas.json").exists()

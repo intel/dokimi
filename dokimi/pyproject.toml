@@ -33,13 +33,6 @@ dependencies = [
   "numpy>=1.24.0",
   "scipy>=1.11.0",
   "PyGithub>=2.1.0",
-  "ragas>=0.3.0,<0.4",
-  # Every ragas release imports langchain_community.chat_models.vertexai, which 0.4.2 removed.
-  "langchain-community<0.4.2",
-  # eval ragas wraps the judge in ChatOpenAI or ChatAnthropic, typed as langchain-core's BaseChatModel.
-  "langchain-anthropic>=1.0,<2",
-  "langchain-openai>=1.0,<2",
-  "langchain-core>=1.0,<2",
   "datasets>=2.20,<6",
   "openai>=1.51,<3",
 ]
@@ -59,6 +52,18 @@ dev = [
   "types-PyYAML",
   "types-jsonschema",
   "scriv>=1.5",
+  # The test suite covers eval ragas.
+  "dokimi[ragas]",
+]
+# `eval ragas` and `answers generate --ragas`.
+ragas = [
+  "ragas>=0.3.0,<0.4",
+  # Every ragas release imports langchain_community.chat_models.vertexai, which 0.4.2 removed.
+  "langchain-community<0.4.2",
+  # eval ragas wraps the judge in ChatOpenAI or ChatAnthropic, typed as langchain-core's BaseChatModel.
+  "langchain-anthropic>=1.0,<2",
+  "langchain-openai>=1.0,<2",
+  "langchain-core>=1.0,<2",
 ]
 ocr = ["docling>=2.0"]
 mcp = ["mcp>=1.0"]
