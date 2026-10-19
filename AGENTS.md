@@ -28,6 +28,9 @@ also holds a PR to:
 - 80% coverage of changed lines (when 20+ are measurable): add tests with the change.
 - mypy on the whole package; the `[[tool.mypy.overrides]]` list in
   `pyproject.toml` only shrinks.
+- No growth: a file over 800 lines (tests 1000) or a function over complexity 10
+  fails unless `scripts/growth_baseline.json` holds it, and then it may only
+  shrink. Split instead; after shrinking, `python scripts/check_growth.py --update`.
 - Docs that name a command, flag, path or module must match the tree
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
