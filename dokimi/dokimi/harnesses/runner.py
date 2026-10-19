@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -140,23 +141,24 @@ def summarize_task_results(
         stats["errored"] += 1 if errored else 0
         reward = row.get("reward")
         # bool is an int subclass: reward=True is not a score of 1.
-        if isinstance(reward, (int, float)) and not isinstance(reward, bool) and not errored:
-            stats["reward_sum"] += float(reward)
+        reward = _num(reward)
+        if reward is not None and not errored:
+            stats["reward_sum"] += reward
             stats["reward_n"] += 1
         stats["elapsed_sec"] += float(row.get("elapsed_sec") or 0.0)
         metrics = row.get("metrics", {})
-        stats["operation_count"] += int(metrics.get("operation_count") or 0)
+        stats["operation_count"] += _count(metrics.get("operation_count")) or 0
         for op_type, count in metrics.get("operations_by_type", {}).items():
             stats["operations_by_type"][op_type] = stats["operations_by_type"].get(op_type, 0) + count
         # Cost/token telemetry (present when an LLM harness emitted a UsageRecord).
-        cost = metrics.get("cost_usd")
         # bool is an int subclass: cost_usd=True is not a price.
-        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
-            stats["_cost_sum"] += float(cost)
+        cost = _num(metrics.get("cost_usd"))
+        if cost is not None:
+            stats["_cost_sum"] += cost
             stats["_cost_known"] += 1
         for key in stats["_tokens"]:
-            val = metrics.get(key)
-            if isinstance(val, (int, float)):
+            val = _num(metrics.get(key))
+            if val is not None:
                 stats["_tokens"][key] += int(val)
                 stats["_tokens_known"][key] += 1
         # Skill use, for harnesses that write metrics.n_skill_invocations;
@@ -328,6 +330,15 @@ def _is_control_harness(harness: str) -> bool:
         return True
     prefix, _, rest = harness.partition(":")
     return prefix in _BENCHFLOW_PREFIXES and rest.split(":", 1)[0] == "oracle"
+
+
+def _num(value: Any) -> float | None:
+    """A finite number as float, else ``None``. A bool is a flag, not a
+    number (bool is an int subclass); nan / inf are not values."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
 
 
 def _count(value: Any) -> int | None:
