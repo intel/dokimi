@@ -1,130 +1,156 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Regression tests for repo-eval workflow task selection with NUL-separated filenames."""
+"""The reusable repo-eval workflow's ``Select tasks`` step, run for real.
+
+The step's Python is lifted out of ``.github/workflows/repo-eval.yml`` and run in a
+scratch git repository with the environment GitHub gives it, so a change to the
+selector (path splitting, the smoke set, the manifest comparison) fails here and not
+on a caller's pull request.
+"""
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
 from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+
+WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "repo-eval.yml"
+EVAL_DIR = ".agent-eval"
+TASKS = f"{EVAL_DIR}/tasks"
+
+pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 
 
-def parse_changed_files(output: str) -> list[str]:
-    """Parse NUL-separated git diff output (regression for PR #113 thread 1)."""
-    return [f for f in output.split('\0') if f]
+def _steps() -> list[dict[str, Any]]:
+    doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    return [s for job in doc["jobs"].values() for s in job.get("steps", [])]
 
 
-class TestChangedFilesNulSeparation:
-    """Verify task selection handles NUL-separated filenames with spaces and renames."""
-
-    def test_nul_separated_output_with_spaces(self) -> None:
-        """Files with spaces should be parsed correctly when NUL-separated."""
-        # Simulate git diff --no-renames --name-only -z output
-        output = "tasks/task1/file.txt\0tasks/agent eval/file.py\0tasks/task2/file.md\0"
-        result = parse_changed_files(output)
-        assert result == [
-            "tasks/task1/file.txt",
-            "tasks/agent eval/file.py",
-            "tasks/task2/file.md",
-        ]
-
-    def test_nul_separated_output_with_quotes(self) -> None:
-        """Files with quotes (Git's quoted format) should be parsed correctly."""
-        # Git quotes filenames with special chars when not using -z
-        # With -z, they come unquoted
-        output = 'tasks/file"name".txt\0tasks/file\'name\'.py\0'
-        result = parse_changed_files(output)
-        assert result == ['tasks/file"name".txt', "tasks/file'name'.py"]
-
-    def test_nul_separated_empty_output(self) -> None:
-        """Empty output should produce empty list."""
-        output = ""
-        result = parse_changed_files(output)
-        assert result == []
-
-    def test_nul_separated_trailing_nul(self) -> None:
-        """Trailing NUL should not produce empty entry."""
-        output = "file1.txt\0file2.txt\0"
-        result = parse_changed_files(output)
-        assert result == ["file1.txt", "file2.txt"]
-
-    def test_no_renames_flag_prevents_omission(self) -> None:
-        """--no-renames flag ensures both source and dest of moves are reported."""
-        # Without --no-renames: file moved from A to B reports only B
-        # With --no-renames: both A and B are reported
-        # This test validates the flag is present in the workflow
-        wf_path = Path(__file__).resolve().parents[2] / ".github/workflows/repo-eval.yml"
-        with open(wf_path, encoding="utf-8") as f:
-            workflow = f.read()
-        # Verify the --no-renames flag is in the git diff command
-        assert '--no-renames' in workflow
-        assert '--name-only' in workflow
-        assert '-z' in workflow
-        # Check the order and that they're in a git diff command
-        assert 'git", "diff", "--no-renames", "--name-only", "-z"' in workflow
+def _select_script() -> str:
+    run = next(s for s in _steps() if s.get("id") == "select")["run"]
+    match = re.search(r"python - <<'PY'\n(.*)\nPY\s*$", run, re.S)
+    assert match, "the Select tasks step is no longer a python heredoc"
+    return match.group(1)
 
 
-class TestUploadArtifactErrFiles:
-    """Verify upload artifact includes .err files for grader/oracle stderr."""
-
-    def test_err_files_in_upload_path(self) -> None:
-        """Verify *.err pattern is included in upload artifact paths."""
-        wf_path = Path(__file__).resolve().parents[2] / ".github/workflows/repo-eval.yml"
-        with open(wf_path, encoding="utf-8") as f:
-            workflow = f.read()
-        # Find the upload artifact section for check results
-        assert "repo-eval-check-" in workflow
-        # Verify *.err files are listed
-        assert '${{ runner.temp }}/repo-check/check/*/*.err' in workflow
-        # Verify it's in the right section (after the log files)
-        artifact_section = workflow[
-            workflow.find("Upload the check results") :
-        ]
-        assert '*.err' in artifact_section or '*/*.err' in artifact_section
-
-    def test_err_files_purpose(self) -> None:
-        """Document that .err files contain grader and oracle stderr."""
-        # This is a documentation test; the actual files are:
-        # - grade.err: grader stderr
-        # - oracle.err: oracle stderr
-        # - isolation.err: isolation probe stderr
-        # These are all captured by repos/grading.py:124 and the isolation probe
-        files_expected = ["grade.err", "oracle.err", "isolation.err"]
-        # This validates the reviewer's comment about these files
-        assert len(files_expected) == 3
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout
 
 
-class TestSharedFilesUnderTasksDir:
-    """Verify shared helper files under tasks dir are treated as harness changes."""
-
-    def test_shared_file_under_tasks_dir_selects_smoke(self) -> None:
-        """A file like tasks/common.py (helper shared by graders) should trigger smoke set."""
-        wf_path = Path(__file__).resolve().parents[2] / ".github/workflows/repo-eval.yml"
-        with open(wf_path, encoding="utf-8") as f:
-            workflow = f.read()
-        # Verify the workflow handles non-task-id first segments under prefix as harness
-        assert "first_segment not in all_ids" in workflow
-        assert "shared helper" in workflow or "tasks/common.py" in workflow.lower() or "tasks dir" in workflow.lower()
-
-    def test_deleted_task_directory_handled(self) -> None:
-        """A deleted task directory (first segment not in all_ids) should also be harness."""
-        # The workflow should treat deleted task dirs the same way as shared files
-        wf_path = Path(__file__).resolve().parents[2] / ".github/workflows/repo-eval.yml"
-        with open(wf_path, encoding="utf-8") as f:
-            workflow = f.read()
-        # Verify the logic handles non-task-id segments under prefix
-        assert "first_segment not in all_ids" in workflow
+def _write(repo: Path, rel: str, text: str = "x\n") -> None:
+    (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+    (repo / rel).write_text(text, encoding="utf-8")
 
 
-class TestManifestPathNormalization:
-    """Verify manifest path is normalized for comparison with git output."""
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    for cmd in (["init", "-q", "-b", "main"], ["config", "user.email", "t@example.com"],
+                ["config", "user.name", "t"], ["config", "commit.gpgsign", "false"]):
+        _git(root, *cmd)
+    for task in ("t1", "my task"):
+        _write(root, f"{TASKS}/{task}/task.json", "{}")
+        _write(root, f"{TASKS}/{task}/grader.py")
+    _write(root, "README.md")
+    _write(root, f"{EVAL_DIR}/repo-eval.yaml")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "base")
+    _git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+    return root
 
-    def test_manifest_normalized_in_workflow(self) -> None:
-        """Manifest should be normalized with posixpath.normpath for git comparison."""
-        wf_path = Path(__file__).resolve().parents[2] / ".github/workflows/repo-eval.yml"
-        with open(wf_path, encoding="utf-8") as f:
-            workflow = f.read()
-        # Verify posixpath.normpath is used on MANIFEST
-        assert "posixpath.normpath" in workflow
-        assert "manifest_normalized" in workflow
-        # Verify manifest comparison uses the normalized version
-        assert "manifest_normalized" in workflow
+
+def _select(repo: Path, tmp_path: Path, **overrides: str) -> list[str]:
+    """Commit nothing more; run the step on the working tree's diff against origin/main."""
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "change", "--allow-empty")
+    temp = tmp_path / "runner"
+    temp.mkdir(exist_ok=True)
+    (temp / "validate.json").write_text(json.dumps({"manifest": {
+        "id": "demo", "tasks": TASKS, "eval_dir": EVAL_DIR}}), encoding="utf-8")
+    env = {
+        **os.environ, "RUNNER_TEMP": str(temp), "GITHUB_OUTPUT": str(temp / "out"),
+        "GITHUB_STEP_SUMMARY": str(temp / "summary"), "EVENT": "pull_request", "BASE_REF": "main",
+        "BEFORE": "", "WORKFLOW_REF": "o/r/.github/workflows/ci.yml@refs/heads/x", "REPOSITORY": "o/r",
+        "MANIFEST": f"{EVAL_DIR}/repo-eval.yaml", "TASKS": "changed", "SMOKE_TASKS": "t1",
+        "SMOKE_PATHS": "", "EXCLUDE_TASKS": "", **overrides,
+    }
+    (temp / "out").write_text("", encoding="utf-8")
+    result = subprocess.run([sys.executable, "-c", _select_script()], cwd=repo, env=env,
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    line = next(ln for ln in (temp / "out").read_text(encoding="utf-8").splitlines() if ln.startswith("tasks="))
+    return json.loads(line.removeprefix("tasks="))
+
+
+def test_a_task_directory_with_a_space_is_selected_whole(repo, tmp_path):
+    _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
+    assert _select(repo, tmp_path) == ["my task"]
+
+
+def test_a_quoted_file_name_does_not_hide_its_task(repo, tmp_path):
+    _write(repo, f'{TASKS}/t1/we"irdé name.txt')
+    assert _select(repo, tmp_path) == ["t1"]
+
+
+def test_both_sides_of_a_move_between_tasks_are_selected(repo, tmp_path):
+    _write(repo, f"{TASKS}/t1/big.py", "".join(f"line {i}\n" for i in range(200)))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "more")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    (repo / TASKS / "t1" / "big.py").rename(repo / TASKS / "my task" / "big.py")
+    assert _select(repo, tmp_path) == ["my task", "t1"]
+
+
+def test_a_shared_helper_directly_in_the_tasks_dir_runs_the_smoke_set(repo, tmp_path):
+    _write(repo, f"{TASKS}/common.py")
+    assert _select(repo, tmp_path) == ["t1"]
+
+
+def test_a_shared_directory_in_the_tasks_dir_runs_the_smoke_set(repo, tmp_path):
+    _write(repo, f"{TASKS}/_shared/lib.py")
+    assert _select(repo, tmp_path) == ["t1"]
+
+
+def test_a_deleted_task_directory_runs_the_smoke_set(repo, tmp_path):
+    shutil.rmtree(repo / TASKS / "my task")
+    assert _select(repo, tmp_path) == ["t1"]
+
+
+def test_a_harness_file_in_the_eval_dir_adds_the_smoke_set_to_the_changed_task(repo, tmp_path):
+    _write(repo, f"{EVAL_DIR}/Dockerfile")
+    _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
+    assert _select(repo, tmp_path) == ["my task", "t1"]
+
+
+@pytest.mark.parametrize("manifest", [f"{EVAL_DIR}/repo-eval.yaml", f"./{EVAL_DIR}/../repo-eval.yaml"])
+def test_the_manifest_is_compared_normalised(repo, tmp_path, manifest):
+    if manifest.startswith("./"):
+        _write(repo, "repo-eval.yaml")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "m")
+        _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+        _write(repo, "repo-eval.yaml", "changed\n")
+    else:
+        _write(repo, f"{EVAL_DIR}/repo-eval.yaml", "changed\n")
+    assert _select(repo, tmp_path, MANIFEST=manifest) == ["t1"]
+
+
+def test_an_unrelated_file_selects_nothing(repo, tmp_path):
+    _write(repo, "README.md", "changed\n")
+    assert _select(repo, tmp_path) == []
+
+
+def test_the_check_results_artifact_keeps_the_stderr_files():
+    upload = next(s for s in _steps() if "Upload the check results" in str(s.get("name", "")))
+    paths = [ln.strip() for ln in str(upload["with"]["path"]).splitlines()]
+    assert "${{ runner.temp }}/repo-check/check/*/*.err" in paths
