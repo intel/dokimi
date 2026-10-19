@@ -187,7 +187,7 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
         if itype == "command_execution":
             script = unwrap_shell(str(item.get("command") or ""))
             # Use command text as key to correlate with item.completed
-            item_key = ("command", script)
+            item_key = f"command:{script}"
             for path in shell_reads(script):
                 out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
             event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None}
@@ -201,7 +201,7 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
         elif itype == "command_execution":
             script = unwrap_shell(str(item.get("command") or ""))
             # Use command text as key to correlate with item.started
-            item_key = ("command", script)
+            item_key = f"command:{script}"
             if item_key in by_id:
                 # Update the event from item.started with completion data
                 event = by_id[item_key]
@@ -213,10 +213,10 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
                 # Fallback for item.completed without item.started
                 for path in shell_reads(script):
                     out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
-                event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
+                fallback: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
                 if item.get("aggregated_output"):
-                    event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
-                out.events.append(event)
+                    fallback["output"], fallback["output_truncated"] = clip_output(str(item["aggregated_output"]))
+                out.events.append(fallback)
         elif itype == "file_change":
             for change in item.get("changes") or []:
                 if isinstance(change, dict) and change.get("path"):
