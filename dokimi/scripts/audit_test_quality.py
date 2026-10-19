@@ -111,6 +111,11 @@ def _call_name(node: ast.Call) -> str:
     return func.attr if isinstance(func, ast.Attribute) else ""
 
 
+def _is_self_call(node: ast.Call) -> bool:
+    func = node.func
+    return isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id == "self"
+
+
 def _dotted(node: ast.expr) -> str:
     parts: list[str] = []
     while isinstance(node, ast.Attribute):
@@ -217,14 +222,17 @@ def _constructor_inputs(nodes: list[ast.AST]) -> dict[str, set[tuple[str, object
     seen: collections.Counter[str] = collections.Counter()
     mutated: set[str] = set()
     for node in nodes:
-        # Track mutations via method calls or attribute assignments
-        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-            call = node.value
-            if isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name):
-                mutated.add(call.func.value.id)
-            # Track setattr() calls
-            elif _call_name(call) == "setattr" and len(call.args) >= 1 and isinstance(call.args[0], ast.Name):
-                mutated.add(call.args[0].id)
+        # Any call on the object (c.bump(), c.items.append(3)) or taking it as an
+        # argument (setattr(c, ...), mutate(c)) may change it, wherever the call sits.
+        if isinstance(node, ast.Call):
+            root = node.func
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            if isinstance(node.func, ast.Attribute) and isinstance(root, ast.Name):
+                mutated.add(root.id)
+            mutated.update(a.id for a in node.args if isinstance(a, ast.Name))
+        elif isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
+            seen[node.target.id] += 1  # a walrus rebind: which binding an assert reads is unknown
         elif isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
@@ -317,15 +325,19 @@ def _is_mock_verify(test: ast.expr) -> bool:
         left_tuple = isinstance(test.left, ast.Tuple)
         right_tuple = isinstance(test.comparators[0], ast.Tuple) if test.comparators else False
         if left_tuple or right_tuple:
-            # If either side is a tuple, all elements in any tuple must be mock attributes
+            # Every tuple element is a mock attribute or a literal expectation; any other
+            # element is an output being checked. At least one mock attribute is needed.
+            saw_mock = False
             for operand in (test.left, *test.comparators):
                 if isinstance(operand, ast.Tuple):
                     for elt in operand.elts:
+                        if isinstance(elt, ast.Constant):
+                            continue
                         if not (isinstance(elt, ast.Attribute) and elt.attr in _MOCK_VERIFY_ATTRS):
                             # Found a non-mock element in a tuple comparison
                             return False
-            # All tuple elements are mock attributes
-            return True
+                        saw_mock = True
+            return saw_mock
     return any(isinstance(n, ast.Attribute) and n.attr in _MOCK_VERIFY_ATTRS
                for n in ast.walk(test))
 
@@ -397,7 +409,10 @@ def _collect(fn: _FuncDef) -> _Facts:
         nodes=nodes,
         asserts=asserts,
         value_asserts=[a for a in asserts if not _is_weak(a.test)],
-        raises=any(map(_raises_block, nodes)),
+        # Context-manager form, or callable form: pytest.raises(ValueError, int, "bad").
+        raises=any(map(_raises_block, nodes)) or any(
+            isinstance(n, ast.Call) and _call_name(n) in _RAISES_CALLS and len(n.args) >= 2
+            for n in nodes),
         calls=calls,
         assert_calls=[c for c in calls if _call_name(c).startswith("assert")],
         patching=any(map(_is_patching_call, itertools.chain(calls, decorator_calls))),
@@ -418,12 +433,16 @@ def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str],
     # A test that calls a helper with a behavioral assert has behavioral checks even if its
     # direct asserts are weak; a helper that only checks a shape does not count.
     helper_checks = any(_call_name(c) in value_helpers for c in t.calls)
-    # For no_assert: bare calls with hint words or same-file helpers count.
-    # Method calls (e.g., v.validate) do not suppress no_assert.
+    # For no_assert: bare calls with hint words count; same-file helpers count when called
+    # bare or through self (a method of the test's own class). Other method calls
+    # (e.g., v.validate) do not suppress no_assert: the receiver may be unrelated.
     has_hinted_bare_call = any(
         _has_hint(_call_name(c)) and isinstance(c.func, ast.Name) for c in t.calls
     )
-    has_helper_call = any(_call_name(c) in helpers and isinstance(c.func, ast.Name) for c in t.calls)
+    has_helper_call = any(
+        _call_name(c) in helpers and (isinstance(c.func, ast.Name) or _is_self_call(c))
+        for c in t.calls
+    )
     flags = {
         "type_only": bool(t.asserts) and not (t.value_asserts or t.raises or t.assert_calls or helper_checks),
         "mock_echo": (

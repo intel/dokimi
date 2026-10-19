@@ -344,6 +344,10 @@ def test_a_length_check_alone_is_type_only(check):
     "c.n: int = 5",  # AnnAssign with value
     "c.n, y = 5, 6",  # Tuple targets
     "setattr(c, 'n', 7)",  # setattr() call
+    "r = c.bump()",  # method call assigned, not an expression statement
+    "c.items.append(3)",  # method call on an attribute of the object
+    "(c := Config(n=9))",  # walrus rebind
+    "mutate(c)",  # object passed as an argument
 ])
 def test_mutation_patterns_invalidate_echo(mutation):
     """All mutation patterns invalidate the constructor echo check."""
@@ -378,18 +382,16 @@ def test_and_or_splits_in_mock_echo():
     assert "mock_echo" in flags["test_or_split"]
 
 
-def test_tuple_with_any_value_is_not_mock_echo():
-    """A tuple comparison with any value element is not mock-only."""
-    # Even though send.call_count and send.called are mock attrs,
-    # the tuple structure checks that both values match, making it a behavior check.
+def test_tuple_of_mock_attrs_and_literals_is_mock_echo():
+    """A tuple of mock attributes against literal expectations only reads the mock."""
     flags = _flags("""
         from unittest.mock import patch
-        def test_tuple_with_value():
+        def test_tuple_mock_only():
             with patch("mod.send") as send:
-                out = run()
-            assert (send.call_count, out) == (1, 42)
+                run()
+            assert (send.call_count, send.called) == (1, True)
         """)
-    assert "mock_echo" not in flags["test_tuple_with_value"]
+    assert "mock_echo" in flags["test_tuple_mock_only"]
 
 
 @pytest.mark.parametrize("check,expected_no_assert", [
@@ -410,3 +412,32 @@ def test_no_assert_only_suppressed_by_bare_calls(check, expected_no_assert):
         assert "no_assert" in flags["test_x"]
     else:
         assert "no_assert" not in flags["test_x"]
+
+
+def test_callable_form_raises_is_a_check():
+    flags = _flags("""
+        import pytest
+        def test_callable_raises():
+            pytest.raises(ValueError, int, "bad")
+        def test_unused_raises_context_stays_flagged():
+            pytest.raises(ValueError)
+        """)
+    assert "no_assert" not in flags["test_callable_raises"]
+    assert "no_assert" in flags["test_unused_raises_context_stays_flagged"]
+
+
+def test_self_helper_that_asserts_counts_as_a_check():
+    flags = _flags("""
+        def _check_output(out):
+            assert out == 42
+        class TestOutput:
+            def test_via_self(self):
+                self._check_output(run())
+            def test_via_unrelated_receiver(self):
+                v.validate_output(run())
+            def test_same_name_on_unrelated_receiver(self):
+                v._check_output(run())
+        """)
+    assert "no_assert" not in flags["TestOutput.test_via_self"]
+    assert "no_assert" in flags["TestOutput.test_via_unrelated_receiver"]
+    assert "no_assert" in flags["TestOutput.test_same_name_on_unrelated_receiver"]
