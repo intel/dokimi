@@ -299,7 +299,8 @@ def test_network_exec_pattern_is_linear_on_repeated_tokens(tmp_path):
 
 @pytest.mark.parametrize("path", ["src/Credit.java", "Unit.java", "Edit.kt", "Exit.java",
                                   "Sources/Latest.swift", "Contest.cs", "docs/spec/api.yaml",
-                                  "docs/specs/api.yaml", "tests/__init__.py", "Tests.swift"])
+                                  "docs/specs/api.yaml", "tests/__init__.py", "Tests.swift",
+                                  "src/t/types.go", "docs/t/x.r", "lib/t/Thing.pm"])
 def test_test_file_excludes_false_positives(path):
     """Java/Kotlin/C# files without Test/Tests/IT/Spec prefix and doc dirs should not match."""
     from dokimi.repos.environment import files as F
@@ -311,7 +312,8 @@ def test_test_file_excludes_false_positives(path):
                                   "tests/test_a.py", "spec/a_spec.rb", "__tests__/a.js",
                                   "tests/foo.c", "tests/foo.cc", "tests/foo.cpp", "tests/foo.cxx", "tests/foo.h",
                                   "tests/foo.hh", "tests/foo.hpp", "test/a.lua", "test/a.dart", "tests/a.hs",
-                                  "tests/a.sh", "test/a.bats"])
+                                  "tests/a.sh", "test/a.bats", "t/basic.t", "test/runtests.jl",
+                                  "tests/testthat/test-a.R"])
 def test_test_file_includes_true_positives(path):
     """Legitimate test files should still match."""
     from dokimi.repos.environment import files as F
@@ -447,7 +449,9 @@ def test_npm_install_1mb_completes_quickly(tmp_path):
     start = time.monotonic()
     payload = inspect_repo(WorkTree(tmp_path))
     elapsed = time.monotonic() - start
-    assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
+    # Typically well under a second; a quadratic parse takes minutes here. The bound is loose so a
+    # slow CI runner does not fail it.
+    assert elapsed < 5.0, f"Took {elapsed} seconds, should be < 5s"
     assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
 
@@ -682,8 +686,7 @@ def test_manifest_readers_are_linear_on_repeated_tokens(tmp_path, files):
     assert time.monotonic() - start < 2
 
 
-def test_blob_less_clone_reads_manifests_in_few_requests(tmp_path):
-    import os
+def test_blob_less_clone_reads_manifests_in_few_requests(tmp_path, monkeypatch):
     src = tmp_path / "src"
     files = {"AGENTS.md": "x"}
     for i in range(8):
@@ -697,11 +700,8 @@ def test_blob_less_clone_reads_manifests_in_few_requests(tmp_path):
     sha = subprocess.run(["git", "-C", str(pc), "rev-parse", "HEAD"], check=True, capture_output=True,
                          text=True).stdout.strip()
     trace = tmp_path / "trace"
-    os.environ["GIT_TRACE"] = str(trace)
-    try:
-        inspect_repo(GitTree(pc, sha))
-    finally:
-        del os.environ["GIT_TRACE"]
+    monkeypatch.setenv("GIT_TRACE", str(trace))  # restored after the test, whatever it was before
+    inspect_repo(GitTree(pc, sha))
     fetches = sum("fetch" in line and "built-in: git fetch" in line for line in trace.read_text().splitlines())
     assert fetches <= 6, fetches
 
@@ -972,7 +972,7 @@ def _fixture_artifact(tmp_path: Path) -> dict:
                                       "--out", str(out), "--cache-dir", str(tmp_path / "cache")])
     args.func(args)
     data = json.loads(out.read_text(encoding="utf-8"))
-    data["repo"]["tree"] = data["repo"]["tree"].replace(str(tmp_path) + "/", "")
+    data["repo"]["tree"] = data["repo"]["tree"].replace(str(root), "toy")  # OS-independent separators
     return data
 
 
@@ -1064,13 +1064,46 @@ def test_command_v_lookup_not_flagged(tmp_path, command, flagged):
     ("bash <<EOF\nnpm ci\nEOF", True),
     ("cat <<EOF | sh\nnpm ci\nEOF", True),
     ("bash <<< 'npm ci'", True),
+    ("bash <<<'npm ci'", True),
+    ("bash <<< 'echo a; npm ci'", True),
+    ("bash <<< 'npm ci' >/dev/null", True),
+    ("bash << EOF\nnpm ci\nEOF", True),
+    ("bash << 'EOF'\nnpm ci\nEOF", True),
     ("cat <<EOF\nnpm ci\nEOF", False),  # cat only prints, it doesn't execute
+    ("grep -q ci <<< 'npm ci'", False),  # grep reads the here-string as data
+    ("cat <<< 'npm ci'", False),
+    ("bash -c 'echo' <<EOF\nnpm ci\nEOF", False),  # bash -c ignores stdin
+    ("cat <<EOF\nnpm ci\nEOF\nsh -s <<<y", False),  # the cat body is not read by a shell
 ])
 def test_heredoc_and_here_string_parsing(tmp_path, command, flagged):
     """Heredocs and here-strings fed to a shell should parse the body."""
     settings = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": command}]}]}}
     _repo(tmp_path, {"AGENTS.md": "x", ".claude/settings.json": json.dumps(settings)})
     assert bool(inspect_repo(WorkTree(tmp_path))["hook_risks"]) is flagged
+
+
+def test_unclosed_heredocs_are_linear(tmp_path):
+    """Many heredoc starts with no terminator, and many labels, must not scan the text per start."""
+    import time
+    from dokimi.repos.environment.risks import _segments
+    hostile = "bash <<A\n" + "<<A\n" * 20_000 + "".join(f"<<L{i}\n" for i in range(20_000))
+    start = time.monotonic()
+    _segments(hostile)
+    assert time.monotonic() - start < 5.0
+
+
+def test_redirection_keeps_its_fd_digit():
+    from dokimi.repos.environment.risks import _segments
+    assert [" ".join(argv) for argv in _segments("npm ci 2>&1 | tee log")] == ["npm ci 2>&1", "tee log"]
+
+
+def test_whitespace_is_one_line_and_control_characters_are_escaped():
+    from dokimi.commands.repo import _normalize_whitespace
+    assert _normalize_whitespace("a\r\n\tb  c") == "a b c"
+    assert _normalize_whitespace("rm\x1b[2K ok") == "rm\\x1b[2K ok"
+    assert _normalize_whitespace("dir\ndz") == "dir dz"
+    assert _normalize_whitespace("x" * 150) == "x" * 100
+    assert _normalize_whitespace("x" * 150, max_len=None) == "x" * 150
 
 
 @pytest.mark.parametrize("command, flagged", [

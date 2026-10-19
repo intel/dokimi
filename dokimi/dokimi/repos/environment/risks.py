@@ -11,6 +11,7 @@ that runs the checked-out branch's lifecycle scripts. None of it is proof of a v
 
 from __future__ import annotations
 
+import bisect
 import json
 import re
 import shlex
@@ -391,6 +392,8 @@ def _segments(command: str, depth: int = 0) -> list[list[str]]:
             continue
         if token == "&" and current and current[-1].endswith((">", "<")):  # 2>&1
             current[-1] += token
+        elif current and current[-1].endswith((">&", "<&")) and (token.isdigit() or token == "-"):
+            current[-1] += token  # the fd after 2>& stays in the same word
         elif token and not token.strip(_PUNCTUATION):
             if current:
                 out.append(current)
@@ -415,43 +418,22 @@ def _segments(command: str, depth: int = 0) -> list[list[str]]:
     extra: list[list[str]] = []
     for body in _double_quoted_substitutions(text):
         extra += _segments(body, depth + 1)
-    # Extract here-strings: ``<<<`` followed by a word
-    for m in re.finditer(r"<<<\s+([^\n;|&)}`]+)", text):
-        # Here-strings use single or double quotes, which the tokenizer removes
-        here_string = m.group(1).strip()
-        if here_string:
-            # Remove surrounding quotes if present
-            if (here_string.startswith("'") and here_string.endswith("'")) or \
-               (here_string.startswith('"') and here_string.endswith('"')):
-                here_string = here_string[1:-1]
-            if here_string:
-                extra += _segments(here_string, depth + 1)
-    # Extract heredoc bodies only when they're fed to a shell
-    # Find which commands have heredocs and which ones are shells
-    shell_heredoc_segments: set[int] = set()
+    # Here-strings and heredoc bodies are commands only when a shell reads them as its stdin.
+    shell_labels: list[str] = []
     for k, argv in enumerate(out):
         _, i = _command_start(argv)
-        if i < len(argv) and argv[i].rsplit("/", 1)[-1] in _SHELLS:
-            if any(w.startswith(("<<", "<<-")) for w in argv[i:]):
-                shell_heredoc_segments.add(k)
-        # Also check if a subsequent shell is piped after this command (like `cat <<EOF | sh`)
+        if i < len(argv) and argv[i].rsplit("/", 1)[-1] in _SHELLS and _reads_stdin(argv, i):
+            for here_string in _here_strings(argv[i:]):
+                extra += _segments(here_string, depth + 1)
+            shell_labels += _heredoc_labels(argv[i:])
+        # A shell piped after this command reads its heredoc (`cat <<EOF | sh`)
         if k + 1 < len(out) and seps[k + 1] == "|":
             _, next_i = _command_start(out[k + 1])
-            if next_i < len(out[k + 1]) and out[k + 1][next_i].rsplit("/", 1)[-1] in _SHELLS:
-                if any(w.startswith(("<<", "<<-")) for w in argv):
-                    shell_heredoc_segments.add(k)
-    # If any heredoc-using segments are shells, extract all heredoc bodies
-    if shell_heredoc_segments:
-        heredoc_labels: set[str] = set()
-        for m in re.finditer(r"<<-?['\"]?([A-Za-z_][\w.-]*)['\"]?", text):
-            heredoc_labels.add(m.group(1))
-        for label in heredoc_labels:
-            # Pattern: <<[-]?LABEL followed by anything on the line, then newline, then body, then LABEL on its own line
-            pattern = r"<<-?['\"]?" + re.escape(label) + r"['\"]?[^\n]*\n(.*?)\n" + re.escape(label) + r"(?:\n|;|$)"
-            for m in re.finditer(pattern, text, re.DOTALL):
-                body_text = m.group(1).rstrip("\n")
-                if body_text:
-                    extra += _segments(body_text, depth + 1)
+            if (next_i < len(out[k + 1]) and out[k + 1][next_i].rsplit("/", 1)[-1] in _SHELLS
+                    and _reads_stdin(out[k + 1], next_i)):
+                shell_labels += _heredoc_labels(argv)
+    for body in _heredoc_bodies(text, set(shell_labels)):
+        extra += _segments(body, depth + 1)
     for k, argv in enumerate(out):
         _, i = _command_start(argv)
         if i >= len(argv):
@@ -468,6 +450,83 @@ def _segments(command: str, depth: int = 0) -> list[list[str]]:
             # Heredoc bodies are already extracted above
             pass
     return out + extra
+
+
+def _reads_stdin(argv: list[str], i: int) -> bool:
+    """Whether the shell at ``argv[i]`` reads its script from stdin, so a heredoc or here-string feeds it.
+
+    ``bash -c '…'`` runs its own script and ignores stdin.
+    """
+    return not any(w[:1] == "-" and w[1:2] != "-" and "c" in w for w in argv[i + 1:])
+
+
+def _here_strings(argv: list[str]) -> list[str]:
+    """The word of each here-string on a command: ``<<<word`` or ``<<< word``, quotes already removed."""
+    out = []
+    for j, word in enumerate(argv):
+        if not word.startswith("<<<"):
+            continue
+        text = word[3:] if word != "<<<" else (argv[j + 1] if j + 1 < len(argv) else "")
+        if text:
+            out.append(text)
+    return out
+
+
+def _heredoc_labels(argv: list[str]) -> list[str]:
+    """The terminator labels of the heredocs a command opens: ``<<EOF``, ``<<-EOF`` or ``<< EOF``."""
+    labels = []
+    for j, word in enumerate(argv):
+        if word in ("<<", "<<-") and j + 1 < len(argv):
+            labels.append(argv[j + 1])
+        else:
+            m = _HEREDOC.match(word)
+            if m:
+                labels.append(m.group(1))
+    return labels
+
+
+# A heredoc start in the text, ``<<EOF``, ``<< 'EOF'`` or ``<<-EOF``; ``<<<`` is a here-string.
+_HEREDOC_START = re.compile(r"(?<!<)<<-?[ \t]*['\"]?([A-Za-z_][\w.-]*)['\"]?(?![\w.-])")
+
+
+def _heredoc_bodies(text: str, labels: set[str]) -> list[str]:
+    """The bodies of the heredocs that ``labels`` open, each read to the next line that is its label.
+
+    One pass over the text per call, so a long run of unclosed heredocs is linear, not quadratic.
+    """
+    if not labels:
+        return []
+    lines = text.split("\n")
+    line_starts: list[int] = []
+    offset = 0
+    for line in lines:
+        line_starts.append(offset)
+        offset += len(line) + 1
+    terminators: dict[str, list[int]] = {}
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped in labels:
+            terminators.setdefault(stripped, []).append(idx)
+    starts: dict[str, list[int]] = {}
+    for m in _HEREDOC_START.finditer(text):
+        if m.group(1) in labels:
+            line_idx = bisect.bisect_right(line_starts, m.start()) - 1
+            starts.setdefault(m.group(1), []).append(line_idx)
+    out = []
+    for label, label_starts in starts.items():
+        ends = terminators.get(label, [])
+        cursor = -1  # a start inside an earlier body is data, not a new heredoc
+        for s in label_starts:
+            if s <= cursor:
+                continue
+            k = bisect.bisect_right(ends, s)
+            if k == len(ends):
+                break
+            body = "\n".join(lines[s + 1:ends[k]])
+            if body.strip():
+                out.append(body)
+            cursor = ends[k]
+    return out
 
 
 def _command_start(argv: list[str]) -> tuple[dict[str, str], int]:

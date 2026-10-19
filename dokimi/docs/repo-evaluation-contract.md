@@ -681,11 +681,13 @@ The report keeps observations apart from findings:
   `env -u X`, `/usr/bin/env`, `source`, `sh -c`, `eval`, `$(…)` in double quotes, or `echo '…' | sh`),
   so starting a session or running tools executes code from the checked-out branch. Hook
   commands are read word by word, with quotes (also across lines) and comments
-  honoured, so a command named inside `echo '…'`, after `#` or in a heredoc body
-  does not count. `npm update`, `dedupe` and the like count as installs. `--ignore-scripts`
-  (the last such flag wins), `npm_config_ignore_scripts=true`, a root `.npmrc`
-  with `ignore-scripts=true` (npm, pnpm) and a global install (`-g`, `yarn global`) clear the
-  install risk.
+  honoured, so a command named inside `echo '…'` or after `#` does not count. A heredoc or
+  here-string body counts only when a shell reads it (`bash <<EOF`, `cat <<EOF | sh`,
+  `bash <<< '…'`), not under `bash -c` or a non-shell command. `npm update`, `dedupe` and the like
+  count as installs. `--ignore-scripts` (the last such flag wins), `npm_config_ignore_scripts=true`,
+  a root `.npmrc` with `ignore-scripts=true` (npm, pnpm) and a global install (`-g`, `yarn global`)
+  clear the install risk. A `.claude/settings.json` or `.claude/settings.local.json` that cannot be
+  parsed is listed under `not_observed`, since its hooks were not read.
 - `files`: counts and bytes, generated files (lockfiles, `vendor/`,
   `third_party/`, test fixtures, `*_pb2.py`, …), minified bundles, test files,
   and files over `--large-bytes` (default 100 000, about 30k tokens: large

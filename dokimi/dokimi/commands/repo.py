@@ -13,10 +13,11 @@ import sys
 from pathlib import Path
 
 
-def _normalize_whitespace(text: str, max_len: int = 100) -> str:
-    """Replace newlines and carriage returns with spaces, then truncate."""
-    normalized = re.sub(r'[\r\n]+', ' ', text).strip()
-    return normalized[:max_len]
+def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
+    """One line: whitespace runs become one space, control characters are escaped, then truncated."""
+    flat = re.sub(r"\s+", " ", text).strip()
+    printable = "".join(c if c.isprintable() else f"\\x{ord(c):02x}" for c in flat)
+    return printable[:max_len]
 
 
 def cmd_repo_validate(args: argparse.Namespace) -> None:
@@ -143,7 +144,7 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
         print(f"  findings: {c['error']} error, {c['warning']} warning, {c['info']} info")
         for f in payload["findings"]:
             if f["severity"] != "info":
-                where = f" {f['path']}" if f["path"] else ""
+                where = f" {_normalize_whitespace(f['path'], max_len=None)}" if f["path"] else ""
                 print(f"  {f['severity'].upper()} {f['rule']}{where} -- {_normalize_whitespace(f['why'])}")
         print("  stages: " + ", ".join(f"{s['stage']} {s['status']}" for s in payload["stages"]))
         if args.out:

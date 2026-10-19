@@ -22,7 +22,13 @@ from .checks import KINDS, detect_checks, package_json_unreadable
 from .files import LARGE_BYTES, inventory, sizes
 from .instructions import LARGE_INSTRUCTION_BYTES, detect_instructions
 from .instructions import RULES as INSTRUCTION_RULES
-from .risks import detect_capabilities, unreadable_plugin_manifests, unreadable_claude_settings, detect_hook_risks, detect_script_signals
+from .risks import (
+    detect_capabilities,
+    detect_hook_risks,
+    detect_script_signals,
+    unreadable_claude_settings,
+    unreadable_plugin_manifests,
+)
 
 # Only stages a warning or an error can reach: a stage no rule can affect would always read
 # "no known blocker". Review and merge are not judged from the tree (see ``NOT_OBSERVED``).
