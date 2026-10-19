@@ -1,0 +1,24 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# The tools CI, `make dev` and .agent-eval/Dockerfile install on top of
+# requirements.lock.txt, compiled with hashes into requirements-ci.lock.txt.
+# ruff: an exact pin, the same as the dev extra in pyproject.toml and the
+# ruff-check rev in .pre-commit-config.yaml (Renovate's ruff group). zizmor
+# likewise matches its pre-commit rev. PyYAML and jsonschema: schema-check in
+# the static job, which installs no other lock.
+ruff==0.17.0
+zizmor==1.30.1
+pre-commit==4.6.2
+bandit==1.9.4
+pip-audit==2.10.1
+mypy==2.4.0
+PyYAML
+jsonschema
+types-PyYAML
+types-jsonschema
+deptry==0.25.1
+diff-cover
+build
+twine
+uv==0.13.0

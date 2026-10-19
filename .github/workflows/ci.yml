@@ -60,17 +60,12 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
-      # ruff: an exact pin, not a floor: a ruff release adds rules to the families
-      # dokimi/pyproject.toml selects whole. The same version as the ruff-check
-      # rev in .pre-commit-config.yaml, the dev extra in dokimi/pyproject.toml
-      # and .agent-eval/Dockerfile, so the hook, a local run, the eval image and
-      # CI report the same findings; Renovate bumps them together. The zizmor rev
-      # in .pre-commit-config.yaml is this zizmor version too. One `pip install`
-      # per line: Renovate's regex reads the pins of a line that starts with one.
+      # The tools, hash-locked in dokimi/requirements-ci.lock.txt (input:
+      # requirements-ci.txt, which says why ruff is an exact pin). Every install
+      # from a lock passes --require-hashes, so a tampered or re-uploaded
+      # artifact fails the install.
       - name: Install tools
-        run: |
-          pip install ruff==0.17.0 zizmor==1.30.1 pre-commit==4.6.2
-          pip install bandit==1.9.4 pip-audit==2.10.1 PyYAML jsonschema
+        run: pip install --require-hashes -r requirements-ci.lock.txt
       # Lint only: most of the tree predates the formatter (205 of 276 files would
       # be rewritten), so a format gate would mean a repo-wide reformat first.
       - name: ruff check
@@ -145,8 +140,7 @@ jobs:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: dokimi/requirements.lock.txt
-      - run: pip install -r requirements.lock.txt
-      - run: pip install mypy==2.4.0 types-PyYAML types-jsonschema
+      - run: pip install --require-hashes -r requirements.lock.txt -r requirements-ci.lock.txt
       - name: mypy
         run: mypy
       # Dependency hygiene, config in [tool.deptry] of pyproject.toml: an import
@@ -154,8 +148,6 @@ jobs:
       # import that only resolves through another package's dependencies (DEP003),
       # a dev-extra tool imported by the package (DEP004). Here, not in `static`:
       # deptry maps import names to packages through the installed lock.
-      - run: pip install deptry==0.25.1
-        if: ${{ !cancelled() }}
       - name: deptry
         if: ${{ !cancelled() }}
         run: deptry .
@@ -190,7 +182,7 @@ jobs:
       # The lock, not the ranges: a PR's result should not depend on what was
       # released upstream that morning. test-latest below watches the ranges.
       - name: Install deps
-        run: pip install -r requirements.lock.txt
+        run: pip install --require-hashes -r requirements.lock.txt
       # Offline by construction: pytest-socket (addopts in pyproject.toml) fails
       # any test that opens a network socket. --outcomes also checks the user
       # outcomes in tests/outcomes/: an evidence id that no test claims fails the
@@ -298,7 +290,7 @@ jobs:
       # sdist, so a file missing from either is missing from the wheel.
       - name: Build sdist and wheel
         run: |
-          python -m pip install --upgrade pip build twine
+          python -m pip install --require-hashes -r requirements-ci.lock.txt
           python -m build --outdir "$RUNNER_TEMP/dist"
           twine check --strict "$RUNNER_TEMP"/dist/*
       - name: Install the wheel

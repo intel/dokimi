@@ -55,7 +55,7 @@ jobs:
       # with no target), so the sdist conda-forge builds from is proven too.
       - name: Build sdist and wheel
         run: |
-          python -m pip install --upgrade pip build twine
+          python -m pip install --require-hashes -r requirements-ci.lock.txt
           python -m build --outdir dist
           twine check --strict dist/*
           ls -l dist
