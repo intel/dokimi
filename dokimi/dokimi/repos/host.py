@@ -41,48 +41,53 @@ PROBE_TIMEOUT_S = 120
 # Runs in the image: stdlib only, reads files and prints one JSON object. The host interprets it.
 PROBE = r"""
 import json, os
+ROOT = os.environ.get("DOKIMI_PROBE_ROOT", "")  # tests point this at fake /proc and /sys trees
 def read(path):
     try:
-        with open(path, encoding="utf-8", errors="replace") as f:
+        with open(ROOT + path, encoding="utf-8", errors="replace") as f:
             return f.read()
     except OSError:
         return None
-def resolve_cgroup_limits():
-    # Resolve CPU limits via /proc/self/cgroup and /proc/self/mountinfo, accounting for cgroup namespace.
-    cgroup_text = read("/proc/self/cgroup") or ""
-    mountinfo_text = read("/proc/self/mountinfo") or ""
-    cpu_max, cfs_quota_us, cfs_period_us = None, None, None
-    # Try v2 first (unified hierarchy): find the cgroup path from cgroup v2 entry
-    for line in cgroup_text.split("\n"):
+def v2_cpu_max():
+    # The container's own cgroup (/proc/self/cgroup, "0::<path>") under the cgroup2 mount
+    # (/proc/self/mountinfo); every visible ancestor's cpu.max too. The tightest quota wins.
+    own = None
+    for line in (read("/proc/self/cgroup") or "").splitlines():
         if line.startswith("0::"):
-            parts = line.split(":", 2)  # split on at most 2 colons to handle v2 paths like 0::/docker/eval
-            if len(parts) >= 3:
-                cgroup_v2_path = parts[2]
-                # Find v2 mount point from mountinfo
-                for mline in mountinfo_text.split("\n"):
-                    if "cgroup2" in mline:
-                        mparts = mline.split()
-                        if len(mparts) >= 5:
-                            mount_point = mparts[4]
-                            try:
-                                full_path = f"{mount_point}{cgroup_v2_path}".rstrip("/")
-                                cpu_max = read(f"{full_path}/cpu.max")
-                                if cpu_max:
-                                    return {"cpu_max": cpu_max, "cfs_quota_us": None, "cfs_period_us": None}
-                            except (IndexError, OSError):
-                                pass
-    # Fall back to v1 paths for devices with only cgroup v1
+            own = line.split(":", 2)[2]
+    mounts = []
+    for line in (read("/proc/self/mountinfo") or "").splitlines():
+        fields = line.split()
+        if "-" in fields and len(fields) > 4 and fields[fields.index("-") + 1] == "cgroup2":
+            mounts.append(fields[4])
+    if own is None or not mounts:
+        return None
+    parts = [p for p in own.split("/") if p]
+    best, best_ratio = None, None
+    for depth in range(len(parts), -1, -1):
+        text = read(mounts[0] + "".join("/" + p for p in parts[:depth]) + "/cpu.max")
+        if text is None:
+            continue
+        best = best or text
+        fields = text.split()
+        try:
+            ratio = int(fields[0]) / int(fields[1])
+        except (ValueError, IndexError):
+            continue
+        if best_ratio is None or ratio < best_ratio:
+            best, best_ratio = text, ratio
+    return best
+cpu_max = v2_cpu_max()
+if cpu_max is None:
     cpu_max = read("/sys/fs/cgroup/cpu.max")
-    cfs_quota_us = read("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")
-    cfs_period_us = read("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
-    return {"cpu_max": cpu_max, "cfs_quota_us": cfs_quota_us, "cfs_period_us": cfs_period_us}
 try:
     affinity = len(os.sched_getaffinity(0))
 except AttributeError:
     affinity = os.cpu_count()
 cpuinfo = read("/proc/cpuinfo") or ""
-cgroup_limits = resolve_cgroup_limits()
-print(json.dumps({**cgroup_limits, "affinity": affinity, "cpuinfo": cpuinfo.strip().split("\n\n")[0]}))
+print(json.dumps({"cpu_max": cpu_max, "cfs_quota_us": read("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"),
+                  "cfs_period_us": read("/sys/fs/cgroup/cpu/cpu.cfs_period_us"),
+                  "affinity": affinity, "cpuinfo": cpuinfo.strip().split("\n\n")[0]}))
 """
 
 

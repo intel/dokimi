@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -306,18 +308,53 @@ def test_run_refuses_a_bad_host_shape_before_any_agent(tmp_path, monkeypatch, ca
     assert "task fix_race: task.json host.cpu_flags must be a list of non-empty strings" in capsys.readouterr().err
     # Regression: validate host requirements immediately after load_tasks, before harness_version/isolation_probe.
     # The test confirms zero containers start before the host requirement error, not just zero agent containers.
-    assert len(runner.specs) == 0 or all("PROBE" in " ".join(s.argv) for s in runner.specs)
+    assert len(runner.specs) == 0
 
 
-def test_probe_resolves_limits_via_namespace_aware_cgroup_paths(tmp_path):
-    """Regression: probe must read /proc/self/cgroup and /proc/self/mountinfo to see container's own limits."""
-    # The probe script should resolve limits correctly even in a host cgroup namespace.
-    # This test verifies the PROBE script includes the namespace-aware resolution logic.
-    assert "resolve_cgroup_limits" in PROBE
-    assert "/proc/self/cgroup" in PROBE
-    assert "/proc/self/mountinfo" in PROBE
-    # Verify the fallback still works for systems without cgroup namespace features
-    assert "/sys/fs/cgroup/cpu" in PROBE
+def _run_probe(root: Path, cgroup: str, mountinfo: str, tree: dict[str, str]) -> dict:
+    """Run PROBE for real against a fake /proc and /sys under ``root``."""
+    files = {"proc/self/cgroup": cgroup, "proc/self/mountinfo": mountinfo,
+             "proc/cpuinfo": INTEL_CPUINFO, **tree}
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+    out = subprocess.run([sys.executable, "-c", PROBE], capture_output=True, text=True, check=True,
+                         env={**os.environ, "DOKIMI_PROBE_ROOT": str(root)})
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+V2_MOUNT = "35 25 0:30 / /sys/fs/cgroup rw,nosuid - cgroup2 cgroup2 rw\n"
+HOST_CPUS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+
+
+@pytest.mark.skipif(HOST_CPUS < 4, reason="needs 4 CPUs of affinity to show a 2 CPU quota")
+@pytest.mark.parametrize("cgroup, tree", [
+    # private cgroup namespace: the container's cgroup is the mount root
+    ("0::/\n", {"sys/fs/cgroup/cpu.max": "200000 100000\n"}),
+    # host namespace: unlimited root, the container's own limit one level down
+    ("0::/docker/eval\n", {"sys/fs/cgroup/cpu.max": "max 100000\n",
+                            "sys/fs/cgroup/docker/eval/cpu.max": "200000 100000\n"}),
+    # a visible ancestor limits, the container's own cgroup is unlimited
+    ("0::/docker/eval\n", {"sys/fs/cgroup/cpu.max": "max 100000\n",
+                            "sys/fs/cgroup/docker/cpu.max": "200000 100000\n",
+                            "sys/fs/cgroup/docker/eval/cpu.max": "max 100000\n"}),
+])
+def test_probe_resolves_the_containers_cgroup_v2_limit(tmp_path, cgroup, tree):
+    raw = _run_probe(tmp_path, cgroup, V2_MOUNT, tree)
+    assert host_facts(raw)["cpus"] == 2 and host_facts(raw)["cgroup_cpus"] == 2
+
+
+def test_probe_reads_the_v1_quota_without_a_cgroup2_mount(tmp_path):
+    raw = _run_probe(tmp_path, "4:cpu,cpuacct:/docker/eval\n", "",
+                     {"sys/fs/cgroup/cpu/cpu.cfs_quota_us": "300000\n",
+                      "sys/fs/cgroup/cpu/cpu.cfs_period_us": "100000\n"})
+    assert host_facts(raw)["cgroup_cpus"] == 3
+
+
+def test_a_host_with_exactly_min_cpus_is_supported():
+    facts = host_facts(_probe_out(affinity=4))
+    assert unmet(_task({"min_cpus": 4}), facts) == (None, None)
+    assert unmet(_task({"min_cpus": 5}), facts)[1] == "host"
 
 
 def test_probe_failure_is_marked_host_probe_never_hidden_by_allow_unsupported(tmp_path, monkeypatch, capsys):
@@ -336,17 +373,3 @@ def test_probe_failure_is_marked_host_probe_never_hidden_by_allow_unsupported(tm
     doc = json.loads((tmp_path / "a/check/check.json").read_text())
     race = next(t for t in doc["tasks"] if t["task"] == "fix_race")
     assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host-probe"
-
-
-def test_probe_cgroup_v2_split_bug_is_fixed(tmp_path):
-    """Regression: cgroup v2 line must split on at most 2 colons to handle paths like 0::/docker/eval."""
-    # The test verifies the PROBE script can parse this correctly
-    # Split on at most 2 colons means: "0::/docker/eval".split(":", 2) -> ["0", "", "/docker/eval"] (correct)
-    # whereas "0::/docker/eval".split("::") -> ["0", "/docker/eval"] (incorrect, loses the delimiter position)
-    parts_correct = "0::/docker/eval".split(":", 2)
-    assert len(parts_correct) == 3, f"Expected 3 parts, got {len(parts_correct)}: {parts_correct}"
-    assert parts_correct[2] == "/docker/eval", f"Path should be /docker/eval, got {parts_correct[2]}"
-
-    # Verify the PROBE script uses the correct approach
-    # The actual code is: parts = line.split(":", 2) which handles this correctly now
-    assert 'split(":", 2)' in PROBE, "PROBE must use split with maxsplit=2 for cgroup v2"
