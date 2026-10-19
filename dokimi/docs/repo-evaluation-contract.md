@@ -398,11 +398,12 @@ A built-in grader runs where `grade` and `oracle` run: in the grading
 container, with the same mounts, network and environment (§4.2). The
 framework's grader code is mounted read-only at `/eval/graders` (never into
 the agent's container) and runs as
-`python3 -I /eval/graders/main.py grade|oracle <name> <task dir> /eval/run`,
+`python3 -I -B /eval/graders/main.py grade|oracle <name> <task dir> /eval/run`,
 where `<task dir>` is the task's directory under `{eval_dir}`. It uses the
 standard library only and the image's `python3` (3.8 or newer). `-I` keeps
-`PYTHONPATH` from `image.env` and the workspace off `sys.path`. An image with
-no `python3` on `PATH` is a grader failure that says so.
+`PYTHONPATH` from `image.env` and the workspace off `sys.path`; `-B` prevents
+writing `.pyc` files to the read-only mount. An image with no `python3` on
+`PATH` is a grader failure that says so.
 
 - `grade` reads `task.json` and `answer.txt` from `{run_dir}` and the data
   files from the task's directory, and writes `grade.json` (§4.2): numbers,

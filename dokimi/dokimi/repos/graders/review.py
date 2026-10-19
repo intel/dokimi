@@ -89,7 +89,7 @@ def finding_fields(f):
     text = " ".join(str(f.get(k, "")) for k in ("rule", "message", "evidence"))
     try:
         line = int(f.get("line") or -99)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         line = -99
     return path, text, line
 

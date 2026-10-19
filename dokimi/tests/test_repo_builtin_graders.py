@@ -325,6 +325,12 @@ def test_an_image_without_python3_is_a_grader_failure_with_the_reason(tmp_path, 
             assert grade["status"] == "graded" and grade["success"] is False and grade["pass"] is False
             assert json.loads((cell / "grade.json").read_text())["metrics"]["parse_error"] is True
 
+    # Verify that NoPython runner was called with python3 command (the 127-exit-code path)
+    np_runner = runner
+    if isinstance(np_runner, NoPython):
+        assert any(s.argv[0] == "python3" for s in np_runner.specs), \
+            "Built-in grader must invoke python3 to trigger 127-exit detection"
+
 
 def test_run_entry_needs_the_task_inside_the_exported_eval_dir(tmp_path):
     ctx = EvalContext(manifest=parse_manifest(MANIFEST), git_dir=tmp_path, content_dir=tmp_path / "content",
