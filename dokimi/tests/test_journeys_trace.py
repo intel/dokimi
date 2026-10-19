@@ -314,3 +314,54 @@ def test_an_all_skipped_enforced_criterion_makes_the_session_inconclusive(pytest
     result, report = _session(pytester, monkeypatch, _enforced(UNIT),
                               "@pytest.mark.outcome('ev')\ndef test_x():\n    pytest.skip('no docker')\n")
     assert result.ret == 3 and report["verdict"] == "inconclusive"
+
+
+def test_an_enforced_surface_no_scenario_invokes_is_a_problem(tmp_path):
+    entry = _enforced(SCAN)
+    entry["AC-J04-001"]["surfaces"] = ["repo scan --fail-on-fail"]
+    report = _check(tmp_path, entry, results={"ev": ["passed"]},
+                    invocations={"ev": [["repo", "scan", "src@HEAD", "--out=r.json"]]})
+    assert report["verdict"] == "error"
+    assert any("no cli_scenario invokes the surface 'repo scan --fail-on-fail'" in p
+               for p in report["problems"])
+
+
+def test_an_enforced_surface_a_scenario_declares_passes(tmp_path):
+    entry = _enforced({**SCAN, "invokes": ["repo scan --out", "repo scan --fail-on-fail"]})
+    entry["AC-J04-001"]["surfaces"] = ["repo scan --fail-on-fail"]
+    report = _check(tmp_path, entry, results={"ev": ["passed"]},
+                    invocations={"ev": [["repo", "scan", "s", "--out=r.json"],
+                                        ["repo", "scan", "s", "--fail-on-fail"]]})
+    assert report["problems"] == [] and report["verdict"] == "pass"
+
+
+def test_evidence_a_session_cannot_produce_does_not_unverify_a_passing_criterion(tmp_path):
+    manual = {"id": "m1", "kind": "recorded_manual"}
+    report = _check(tmp_path, _enforced(UNIT, manual), results={"ev": ["passed"]})
+    row = _row(report, "AC-J04-001")
+    assert row["verdict"] == "pass"
+    assert [(e["id"], e["verdict"]) for e in row["evidence"]] == [("ev", "pass"), ("m1", "not_run")]
+    assert "AC-J04-001" not in report["unverified"]
+    assert next(j for j in report["journeys"] if j["id"] == "J4")["passed"] == 1
+
+
+@pytest.mark.parametrize("path, ok", [("j.json", True), ("sub/dir/j.json", True), ("report.md", False)])
+def test_the_journeys_report_must_be_json_and_its_directory_is_created(pytester, monkeypatch, path, ok):
+    criteria = _enforced(UNIT)
+    root = pytester.path
+    contracts = root / "contracts"
+    contracts.mkdir()
+    registry = _tree(root, criteria=criteria)
+    registry.rename(contracts / "journeys.yaml")
+    monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REPO_ROOT", root)
+    monkeypatch.setattr(plugin, "_results", {})
+    monkeypatch.setattr(plugin, "_invocations", {})
+    pytester.makepyfile("import pytest\n\n@pytest.mark.outcome('ev')\ndef test_x():\n    assert True\n")
+    result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes",
+                                "--outcomes-report=o.json", f"--journeys-report={path}")
+    if ok:
+        assert json.loads((root / path).read_text())["schema"] == "journey-coverage/1"
+        assert (root / path).with_suffix(".md").is_file()
+    else:
+        assert result.ret != 0 and "must be a .json path" in result.stderr.str() + result.stdout.str()

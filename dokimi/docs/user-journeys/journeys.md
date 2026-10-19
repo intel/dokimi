@@ -17,7 +17,7 @@ tests passed, is in the trace registry and the coverage report: see
 exists in the inspected tree; a capability with no command is called
 **proposed**, and its absence is part of the record, not an oversight.
 
-J2, J3, J4, J7, J10 and J14 are written out in full. The other journeys record
+J2, J3, J4, J7, J10, J11 and J14 are written out in full. The other journeys record
 the agreed intent and their criteria at the level of detail needed to keep that
 intent; they are not traced yet.
 

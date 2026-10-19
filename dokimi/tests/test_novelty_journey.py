@@ -218,7 +218,28 @@ def test_every_documented_novelty_command_parses():
 
 
 @pytest.mark.outcome("cjm-novelty-estimate")
-def test_documented_estimate_prices_the_bundle_it_will_run():
-    """The estimate must carry the flags of the run it prices, or it under-reports."""
+def test_the_estimate_prices_the_bundled_files_when_they_are_included(tmp_path, capsys):
+    skill = tmp_path / "s"
+    (skill / "references").mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: s\ndescription: d\n---\n\n# H\n\nUse the tool. See references/guide.md.\n",
+        encoding="utf-8")
+    (skill / "references" / "guide.md").write_text(
+        "\n\n".join(f"Fact {i}: the tool must set flag {i} before it runs." for i in range(30)),
+        encoding="utf-8")
+
+    def estimate(*extra):
+        args = build_parser().parse_args(
+            ["novelty", "analyze", "--artifact", f"skill:{skill / 'SKILL.md'}", "--estimate-only", *extra])
+        args.func(args)
+        return json.loads(capsys.readouterr().out)
+
+    base, bundled = estimate(), estimate("--include-resources")
+    assert bundled["spans"] > base["spans"]
+    assert bundled["estimate"]["total_calls"] > base["estimate"]["total_calls"]
+
+
+def test_documented_estimate_flags_match_the_run_it_prices():
+    """The walkthrough's estimate commands carry the flags of the run they price (doc reference)."""
     estimates = [c for c in _documented_novelty_commands() if "--estimate-only" in c]
     assert estimates and all("--include-resources" in c for c in estimates)

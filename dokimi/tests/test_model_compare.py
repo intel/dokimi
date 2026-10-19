@@ -108,7 +108,9 @@ def test_consistency_baseline_mismatch_raises():
 def test_consistency_hash_mismatch_warns():
     runs = [_run_pair("a", model="m1", q_hash="aaaa"), _run_pair("b", model="m2", q_hash="bbbb")]
     warns = check_run_consistency(runs, "g")
-    assert any("question_set_hash" in w for w in warns)
+    (warning,) = [w for w in warns if "question_set_hash" in w]
+    assert "a=aaaa" in warning and "b=bbbb" in warning  # the hashes that differ are named
+    assert "common-question intersection will still be used" in warning
 
 
 def test_consistency_identical_model_is_an_error_unless_pooling():

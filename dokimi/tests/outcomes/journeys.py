@@ -154,6 +154,13 @@ def surface_problem(root: argparse.ArgumentParser, surface: str) -> str | None:
     return f"unknown flag: {' '.join(path)} {' '.join(unknown)}" if unknown else None
 
 
+def _covers(root: argparse.ArgumentParser, invoke: str, surface: str) -> bool:
+    """Whether the declared *invoke* reaches *surface*'s command with all of its flags."""
+    target, _, want = resolve(root, shlex.split(surface))
+    parser, _, flags = resolve(root, shlex.split(invoke))
+    return parser is target and set(want) <= set(flags)
+
+
 def invoked(root: argparse.ArgumentParser, surface: str, calls: list[list[str]]) -> bool:
     """Whether one captured argv reached ``surface``'s command with all of its flags."""
     target, _, want = resolve(root, shlex.split(surface))
@@ -216,9 +223,15 @@ def static_problems(registry: dict, catalog: dict, repo_root: Path, contracts: d
             for surface in e.get("invokes") or []:
                 if problem := surface_problem(root, surface):
                     problems.append(f"{where}: evidence {e.get('id')}: {problem}")
+        scenario_invokes = [i for e in evidence if e.get("kind") == "cli_scenario"
+                            for i in e.get("invokes") or []]
         for surface in entry.get("surfaces") or []:
             if problem := surface_problem(root, surface):
                 problems.append(f"{where}: {problem}")
+            elif entry.get("enforce") and scenario_invokes and not any(
+                    _covers(root, i, surface) for i in scenario_invokes):
+                # Otherwise a surface is "verified" by tests that never pass its flags.
+                problems.append(f"{where}: no cli_scenario invokes the surface {surface!r}")
         for ref in entry.get("refs") or []:
             if problem := _ref_problem(repo_root, ref, anchors):
                 problems.append(f"{where}: {problem}")
@@ -272,7 +285,9 @@ def check(registry_path: Path, repo_root: Path, contracts: dict[str, dict],
             continue
         ev = [_evidence_row(e, evidence, invocations.get(e.get("id"), []), root)
               for e in entry.get("evidence") or [] if e.get("kind") in KINDS and e.get("id")]
-        verdicts = [e["verdict"] for e in ev]
+        # What a pytest session produced decides the row; evidence it cannot produce
+        # (live_agent, recorded_manual) is listed in the row, never mixed into the verdict.
+        verdicts = [e["verdict"] for e in ev if e["kind"] in SESSION_KINDS]
         if not entry.get("enforce"):
             # Planned work is reported, never gated: an unclaimed id of an unenforced
             # criterion means its test is not written yet.

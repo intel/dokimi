@@ -172,6 +172,9 @@ def pytest_sessionfinish(session, exitstatus):
                      if isinstance(c := json.loads(p.read_text(encoding="utf-8")), dict)}
         journeys = trace.check(registry, REPO_ROOT, contracts, _evidence, _invocations, _anchors)
         out = Path(config.getoption("journeys_report"))
+        if out.suffix != ".json":  # the markdown goes beside it with ".md": it must not replace it
+            raise pytest.UsageError(f"--journeys-report must be a .json path, got {out}")
+        out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(journeys, indent=2) + "\n", encoding="utf-8")
         out.with_suffix(".md").write_text(trace.markdown(journeys), encoding="utf-8")
         verdict = _worst([verdict, journeys["verdict"]])

@@ -559,6 +559,7 @@ def test_repo_reach_cli_dry_run_and_run(tmp_path, monkeypatch, capsys):
     assert stored["schema_version"] == "guidance_reach.v1" and len(stored["scenarios"]) == 3
 
 
+@pytest.mark.outcome("cjm-repo-reach")
 def test_repo_reach_dry_run_shows_the_run_budget_and_turns(tmp_path, capsys):
     args = build_parser().parse_args(["repo", "reach", str(_repo(tmp_path)), "--manifest", "evals/repo-eval.yaml",
                                       "--model", "m", "--dry-run", "--budget", "0.02", "--max-turns", "2"])

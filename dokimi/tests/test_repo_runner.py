@@ -320,6 +320,16 @@ def _broken_variant(tmp_path, grader_patch: str, task_extra=None):
     return root
 
 
+@pytest.mark.outcome("cjm-tasks-check-graders")
+def test_tasks_check_warm_runs_null_and_oracle_with_network(toy, monkeypatch):
+    runner = FakeRunner()
+    _cli(_check_argv(toy["root"], toy["tmp"] / "chk", "--warm"), monkeypatch, runner)
+    out = json.loads((toy["tmp"] / "chk/check/check.json").read_text())
+    assert out["warm"] is True
+    assert {t["task"]: (t["verdict"], t["warm"]) for t in out["tasks"]} == {
+        "fix_add": ("ok", True), "review_add": ("ok", True)}
+
+
 @pytest.mark.parametrize("patch, problem", [
     ('write_text("def add(a, b):\\n    return a + b\\n")|||write_text("def add(a, b):\\n    return a * b\\n")',
      "oracle: the reference solution does not pass the gate"),

@@ -76,13 +76,23 @@ def test_sequential_fails_an_inverted_judge_early():
 @pytest.mark.outcome("cjm-judge-cap-no-pass")
 def test_sequential_reports_the_cap_as_inconclusive():
     answers = _many_answers()
-    report = run_sequential(answers, lambda *_: 50.0, max_bases=20, variants=["truncate_20"])
+    calls = []
+
+    def at_the_gate(pair):  # right on 4 pairs of 5: SPRT never decides before the cap
+        calls.append(pair)
+        return (60.0, 50.0) if len(calls) % 5 else (50.0, 60.0)
+
+    report = run_sequential(answers, lambda *_: 0.0, max_bases=20, variants=["truncate_20"],
+                            pair_scorer=at_the_gate)
     s = report.summary()
-    # Ties are half a success: 0.5 sits below the gate, but 20 pairs at the
-    # FAIL boundary is not reached... and the pass rule must not flip it to PASS.
-    assert s["per_variant"]["truncate_20"]["sequential"]["decision"] in ("FAIL", "continue")
-    assert not s["passed"]
-    assert "RESULT: FAIL" in report.format_summary()
+    seq = s["per_variant"]["truncate_20"]["sequential"]
+    assert seq["decision"] == "continue" and seq["stopped_by"] == "cap"
+    assert seq["n"] == 20  # the cap was reached, not an early decision
+    # Above the gate but undecided is an inconclusive pass (exit 0 with a warning), never a
+    # conclusive one: the verdict is flagged inconclusive and the report says so.
+    assert s["conclusive"] is False
+    summary = report.format_summary()
+    assert "RESULT: PASS (inconclusive" in summary and "answer pool exhausted" not in summary
 
 
 def test_sequential_says_when_the_pool_ran_out_before_the_cap():
