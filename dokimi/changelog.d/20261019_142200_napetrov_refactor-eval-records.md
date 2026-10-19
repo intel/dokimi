@@ -47,9 +47,13 @@
   top/bottom delta tables, which raised `TypeError` on a bool aggregate.
 - **A binary record with `scores: null` keeps its scores** — it was read as an
   arms record with no arms.
+- **An explicit `null` score wins over a legacy inline score** — an arm whose
+  entry under `scores` is `null` no longer takes the legacy
+  `evaluation.aggregate_score` written inline for that arm. A failed arm stays
+  in the arms list: the arm judge writes it as an unscored row, and
+  `non_baseline_arms` still counts it as a treatment that produced nothing.
 - **`baseline save` refuses a malformed eval file before writing** — it no
   longer leaves a baseline file on disk with no manifest entry.
-
 - **Reports read the question of a panel eval file** — `eval panel-score` writes
   each question as `question`; `report generate` and `report eval` read only
   `question_text`, so their tables (and the `report eval` Q&A sidecar) showed
