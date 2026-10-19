@@ -38,7 +38,7 @@ from dokimi.repos.workspace import (
     prepare_workspace,
     source_git_dir,
 )
-from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo
+from tests.repo_eval_fixture import FakeRunner, fake_harness, git, make_repo
 
 
 @pytest.fixture
@@ -377,7 +377,7 @@ def test_workspace_drops_replaced_objects_that_were_packed(toy, monkeypatch):
 def test_trees_are_checked_out_without_host_config_or_export_attributes(tmp_path, monkeypatch):
     from dokimi.repos import parse_manifest
     from dokimi.repos.source import GitTree
-    from repo_eval_fixture import MANIFEST
+    from tests.repo_eval_fixture import MANIFEST
 
     root = tmp_path / "repo"
     files = {"a.txt": "x\n", "keep/t.py": "pass\n", "subst.txt": "$Format:%H$\n", ".agent-eval/g.py": "y\n",
@@ -501,7 +501,7 @@ def test_a_clone_that_needed_a_prompt_says_which_and_what_to_do(monkeypatch, whi
     tail, is what a PrepError must show, with a hint (clone and fetch never prompt)."""
     import dokimi.repos.workspace as workspace
     from dokimi import process
-    from test_process import GIT_PROMPT_FAILURES
+    from tests.test_process import GIT_PROMPT_FAILURES
 
     stderr, line, hint = GIT_PROMPT_FAILURES[which]
     monkeypatch.setattr(workspace.process, "run", process.FakeRunner(lambda call: process.reply(

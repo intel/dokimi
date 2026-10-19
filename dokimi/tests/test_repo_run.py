@@ -15,7 +15,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.repos.container import CONTENT_DIR, HARNESS_DIR, RUN_DIR, SOURCE_DIR, WORKSPACE
 from dokimi.repos.report import summarize, wilson
-from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo
+from tests.repo_eval_fixture import FakeRunner, fake_harness, git, make_repo
 
 
 @pytest.fixture

@@ -17,7 +17,7 @@ from dokimi.repos.cli_traces import shell_reads, unwrap_shell
 from dokimi.repos.events import convert
 from dokimi.repos.harness_profile import ProfileError, builtin_profiles, load_profile, parse_profile
 from dokimi.repos.reach import ReachError, probe_files
-from repo_eval_fixture import FakeRunner, make_repo, write
+from tests.repo_eval_fixture import FakeRunner, make_repo, write
 
 # --- profiles ----------------------------------------------------------------
 
@@ -282,7 +282,7 @@ def test_repo_run_grades_a_native_review_answer(tmp_path, monkeypatch):
 
 
 def _run_fake(tmp_path, monkeypatch, *, companion: bool):
-    from repo_eval_fixture import PROFILE, fake_harness
+    from tests.repo_eval_fixture import PROFILE, fake_harness
 
     root, _ = make_repo(tmp_path)
     exe, _ = fake_harness(tmp_path)
