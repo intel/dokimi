@@ -318,3 +318,33 @@ criteria:
   AC-J02-005:
     delivery: proposed
     gaps: ["before/after task runs exist separately (arms run, tasks run) but are not one step"]
+
+  # ---------------------------------------------------------------- J15
+  AC-J15-001:
+    delivery: proposed
+    gaps: ["no command drafts tasks from a chat transcript"]
+  AC-J15-002:
+    delivery: proposed
+    gaps: ["no report marks the task the skill was written from apart from the held-out tasks"]
+  AC-J15-003:
+    delivery: available
+    enforce: false
+    capability: novelty
+    surfaces: ["novelty analyze --artifact"]
+    gaps: ["covered for any skill by the J14 novelty criteria; no test runs it on a draft written from a transcript"]
+  AC-J15-004:
+    delivery: partial
+    enforce: false
+    capability: arms
+    surfaces: ["tasks run --harnesses --baseline-harness"]
+    gaps:
+      - "the three arms run in one tasks run, but no test or recorded run compares a user's skill with a self-generated one against no skill"
+      - needs Docker, BenchFlow and paid agent runs; not run to fill this row
+  AC-J15-005:
+    delivery: available
+    enforce: true
+    capability: arms
+    surfaces: ["tasks run --harnesses"]
+    evidence:
+      - {id: cjm-selfgen-named-creator, kind: unit, stubs: [bench (fake executable)]}
+    scope: the staged creator directory and the refusal are checked; BenchFlow itself is not run

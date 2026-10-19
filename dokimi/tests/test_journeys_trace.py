@@ -26,7 +26,7 @@ ROOT = build_parser()
 
 def _catalog_text(extra_criteria: str = "") -> str:
     parts = []
-    for n in range(1, 15):
+    for n in range(1, 16):
         parts.append(f"## J{n} — Journey {n}\n\n#### UC-J{n:02d}-001 Case\n\n- **AC-J{n:02d}-001** Criterion {n}.\n")
     return "\n".join(parts) + extra_criteria
 
@@ -78,7 +78,7 @@ def test_the_real_catalog_and_registry_have_no_problems():
     assert journeys.dangling_ids(pages, catalog) == []
 
 
-def test_the_real_catalog_keeps_the_fourteen_journeys_and_novelty_under_j14():
+def test_the_real_catalog_keeps_the_fifteen_journeys_and_novelty_under_j14():
     catalog, _ = journeys.parse_catalog(plugin.REPO_ROOT / journeys.CATALOG)
     assert list(catalog["journeys"]) == journeys.JOURNEYS
     assert not any("novelty" in j["title"].lower() for j in catalog["journeys"].values())
@@ -221,7 +221,7 @@ def test_an_unenforced_criterion_with_unwritten_tests_is_not_run_and_blocks_noth
 def test_untracked_criteria_are_listed_as_unverified(tmp_path):
     report = _check(tmp_path, {})
     assert report["verdict"] == "pass"
-    assert len(report["unverified"]) == 14 and not any(r["tracked"] for r in report["criteria"])
+    assert len(report["unverified"]) == 15 and not any(r["tracked"] for r in report["criteria"])
 
 
 def test_a_cli_scenario_that_never_parsed_its_command_does_not_pass(tmp_path):
@@ -254,7 +254,7 @@ def test_the_report_states_its_provenance_and_stubs(tmp_path):
     assert {"commit", "run_id", "date", "scope"} <= set(report["provenance"])
     text = journeys.markdown(report)
     assert "stubs: model client" in text and "not a completed real-user journey" in text
-    assert "13 of 14 documented criteria are not enforced or have no passing evidence" in text
+    assert "14 of 15 documented criteria are not enforced or have no passing evidence" in text
 
 
 # ------------------------------------------------------------------ through a real session

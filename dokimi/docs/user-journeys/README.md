@@ -14,7 +14,7 @@ CLI serves it, and which tests show it. It describes intent and current
 coverage. It is not a roadmap: plans, progress and design decisions are tracked
 in issues and pull requests.
 
-- [journeys.md](journeys.md): the catalog. All fourteen journeys, their use cases
+- [journeys.md](journeys.md): the catalog. All fifteen journeys, their use cases
   and acceptance criteria, each with a stable id.
 - [flow-map.md](flow-map.md): how the journeys connect, with today's and
   proposed transitions told apart.
@@ -87,10 +87,11 @@ never confused with a use-case or job id.
 | [J12](journeys.md#j12--prevent-regressions-in-pr-and-ci) | Prevent regressions in PR/CI | Repeatable, budgeted checks and configurable policy decisions, with evidence |
 | [J13](journeys.md#j13--reassess-after-a-change-of-time-model-or-environment) | Reassess after time, model or environment changes | Whether earlier conclusions still hold, and whether assistance should be kept, adapted, shortened or removed |
 | [J14](journeys.md#j14--invoke-one-capability-directly) | Invoke a specific capability in a narrow scope | Explicit inputs, settings and costs; reproducible structured output; stated limits; no mandatory full workflow |
+| [J15](journeys.md#j15--turn-a-solved-problem-into-a-skill) | Turn a problem solved in chat into a skill | Tasks from the solved problem with the source kept apart, the draft's novelty, and the skill measured against a skill-creator's and against none |
 
 Novelty ("what does this skill add over what the model already knows") is not a
 journey of its own. It is a J14 use case when asked for directly, and a
-diagnostic step inside J2, J5 and J13.
+diagnostic step inside J2, J5, J13 and J15.
 
 ## Entry points
 
@@ -101,7 +102,8 @@ them, can start from whatever they already have:
 - existing evals, a question set or a task tree (J6, J7, J10);
 - a finished or half-finished run, a report or a trace (J11, J14);
 - a prepared experiment: versions, tasks, variants, budget (J8, J9, J10);
-- one specific operation (J14).
+- one specific operation (J14);
+- a problem just solved in a chat, and no skill yet (J15).
 
 Journeys hand over to each other: J5 often continues as J6; J7 supports most
 journeys; J11 can interrupt and resume any measurement; J12 and J13 keep earlier

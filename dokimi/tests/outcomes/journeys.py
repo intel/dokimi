@@ -35,7 +35,7 @@ from typing import Callable
 import yaml
 
 CATALOG = "docs/user-journeys/journeys.md"
-JOURNEYS = [f"J{n}" for n in range(1, 15)]
+JOURNEYS = [f"J{n}" for n in range(1, 16)]
 DELIVERY = ("proposed", "partial", "available", "retired")
 KINDS = ("static_reference", "unit", "integration", "cli_scenario", "live_agent", "recorded_manual")
 # A pytest session can only produce these kinds; the others are recorded elsewhere.
@@ -97,7 +97,7 @@ def parse_catalog(path: Path) -> tuple[dict, list[str]]:
     if missing:
         problems.append(f"{path.name}: journeys not defined: {', '.join(missing)}")
     if extra:
-        problems.append(f"{path.name}: journeys outside J1-J14: {', '.join(extra)}")
+        problems.append(f"{path.name}: journeys outside J1-J15: {', '.join(extra)}")
     return {"journeys": journeys, "use_cases": use_cases, "criteria": criteria}, problems
 
 

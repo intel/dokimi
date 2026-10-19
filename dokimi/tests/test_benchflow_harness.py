@@ -205,6 +205,7 @@ def _staged_creator(seen: dict) -> Path:
     return Path(seen["cmd"][seen["cmd"].index("--skill-creator-dir") + 1])
 
 
+@pytest.mark.outcome("cjm-selfgen-named-creator")
 def test_named_creator_is_staged_alone_not_next_to_a_stock_one(tmp_path, monkeypatch):
     """BenchFlow prefers a `skill-creator` pack beside the one it is given."""
     task = load_task(_task(tmp_path))
@@ -418,6 +419,7 @@ def test_task_bundled_skills_without_packs_are_refused(tmp_path):
                                                 dry_run=True)
 
 
+@pytest.mark.outcome("cjm-selfgen-named-creator")
 def test_selfgen_refuses_a_creator_dir_benchflow_would_not_use(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
     bench = _fake_bench(monkeypatch, _RESULT)

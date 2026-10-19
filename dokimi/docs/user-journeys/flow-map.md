@@ -98,3 +98,21 @@ flowchart LR
     J14 --> judge[Judge calibration]
     out -.-> J2[Feeds J2, J5, J13]
 ```
+
+## From a solved chat to a skill
+
+```mermaid
+flowchart LR
+    chat([Problem solved in a chat, no skill]) --> J15[J15 make a skill]
+    J15 -. proposed: tasks from the transcript, source task kept apart .-> tasks[Source task + held-out tasks]
+    tasks --> J7[J7 self-check graders]
+    J15 -. proposed: draft the skill from the transcript .-> draft[Draft skill]
+    draft --> novelty[Novelty and routing of the draft]
+    novelty -->|adds nothing| stop[No skill: a valid outcome]
+    novelty --> arms[Arms: no skill, user's skill, skill-creator's skill]
+    J7 --> arms
+    arms --> pick{Which helps?}
+    pick -->|user's or merged| J2[J2 improve, then J12 protect]
+    pick -->|generated as good| gen[Keep the generated skill]
+    pick -->|neither| stop
+```

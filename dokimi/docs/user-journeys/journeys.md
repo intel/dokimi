@@ -17,7 +17,7 @@ tests passed, is in the trace registry and the coverage report: see
 exists in the inspected tree; a capability with no command is called
 **proposed**, and its absence is part of the record, not an oversight.
 
-J2, J3, J4, J7, J10, J11 and J14 are written out in full. The other journeys record
+J2, J3, J4, J7, J10, J11, J14 and J15 are written out in full. The other journeys record
 the agreed intent and their criteria at the level of detail needed to keep that
 intent; they are not traced yet.
 
@@ -765,3 +765,93 @@ task outcomes, and differences inside the judge band are not quoted.
 #### UC-J14-004 Re-render saved evidence
 
 - **AC-J14-007** Saved output re-renders to a report without model calls. *Partial: novelty and repository batches.*
+
+---
+
+## J15 — Turn a solved problem into a skill
+
+**Actor and intent.** Someone who just solved a problem with an agent in a chat
+and wants that know-how to be reusable. "Make a skill out of what we just did."
+"Is my skill better than what the standard skill-creator would write?"
+Trigger: a chat or session that ended with a working solution, and no skill.
+
+**Starting point and inputs.** The chat transcript (or a summary of it) and
+the solution; no skill, no tasks, no evals. The alternative the user weighs is
+the standard skill-creator (for example
+[anthropics/skills skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator)),
+or no skill at all. Questions: which models and harnesses the skill must work
+for; which other problems of the same kind it should help with; the budget.
+
+**Flow.**
+
+1. Turn the solved problem into a task with a grader, and draft a few
+   related tasks the skill should also help with. The solved problem is the
+   source of the skill, so it is kept apart from the held-out tasks
+   ([J7](#j7--create-or-improve-evals) for the graders and the self-check).
+2. Write the skill from the transcript: by hand, by the agent, or both.
+3. Check what the draft adds over what the model already knows
+   (`python cli.py novelty analyze --artifact skill:<path>`). Content the model
+   already knows is a reason to shorten, and a skill that adds nothing is a
+   reason to stop.
+4. Check the skill is selected for the requests it is for
+   (`python cli.py novelty routing`).
+5. Run three arms on the same tasks, model and repetitions: no skill
+   (`benchflow:<agent>`), the user's skill (`benchflow-skill:<agent>:<path>`),
+   and a skill the named skill-creator generates
+   (`benchflow-selfgen:<agent>:<creator-dir>`), with `python cli.py tasks run`
+   and `--baseline-harness` set to the no-skill arm.
+6. Keep the user's skill, keep the generated one, merge them, or keep none,
+   with the numbers; then continue in [J2](#j2--improve-my-skill).
+
+**Branches.**
+
+- *Only the source problem as a task.* A gain on it shows the skill restates
+  the solution, not that it generalizes; report it apart and say so.
+- *The skill adds nothing the model lacks.* Novelty is near zero: a skill may
+  still help with routing or procedure, but the task arms have to show it.
+- *The generated skill does as well.* That is a result: the hand-written skill
+  is not worth its upkeep, or the two are merged.
+- *No skill-creator available.* Compare the user's skill with no skill only,
+  and say the creator comparison was not run.
+- *Neither skill beats no skill.* Not shipping a skill is a valid outcome.
+
+**Outputs.** A skill (or a decision not to make one); a small task set with
+the source problem kept apart; the effect of the user's skill and of the
+generated one against no skill, with their uncertainty; the novelty of the
+draft on the target model.
+
+**Measurement scope.** The task set is small and drawn from one session, so an
+effect is about those tasks, that model and that harness. The generated skill
+depends on the creator version and its own model; both are recorded.
+
+**Today.** Steps 3–5 exist: novelty and routing for a skill directory, and the
+three BenchFlow arms in one `tasks run`, with a named skill-creator staged
+alone. Steps 1 and 2 are **proposed**: no command turns a transcript into tasks
+or drafts a skill from it, and nothing marks the source task apart from the
+held-out ones in a report.
+
+**Connections.** Uses J7 for tasks, J14 for novelty and routing, J10 for the
+arm comparison; continues as J2, and J12 protects the kept skill.
+
+**Example.** A developer fixed a flaky build in a chat and asks for a skill.
+They turn the fix into one task and write two related ones. Novelty shows half
+of the draft is general build advice the model already gives; they cut it.
+On the three tasks, their skill and the skill-creator's both solve the source
+task; only theirs solves one held-out task, with an interval too wide to call.
+They keep their skill, mark the result as indicative, and add tasks.
+
+### Use cases and acceptance
+
+#### UC-J15-001 Turn the solved problem into tasks
+
+- **AC-J15-001** Tasks drafted from a chat transcript are presented as hypotheses with their source, for the user to confirm. *Proposed.*
+- **AC-J15-002** The task built from the problem the skill was written from is reported apart from the held-out tasks, and an effect on it alone is not reported as the skill's effect. *Proposed.*
+
+#### UC-J15-002 Decide whether a skill is needed
+
+- **AC-J15-003** The novelty of a draft skill on the target model can be measured before any task run, and reports the parts the model already knows.
+
+#### UC-J15-003 Compare with the standard skill-creator
+
+- **AC-J15-004** The user's skill, a skill generated by a named skill-creator, and no skill run as arms on the same tasks, model and repetitions, and the report gives each skill's effect against no skill with its uncertainty.
+- **AC-J15-005** The skill-creator arm uses exactly the creator the user names: a stock creator next to it does not win, and a named directory with no skill-creator `SKILL.md` is refused rather than replaced by the host's.

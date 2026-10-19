@@ -31,7 +31,7 @@ it for a contract. A criterion can point at one of those contracts with
 
 ## Ids
 
-- Journeys are `J1`–`J14`. They are never renumbered; a retired journey keeps its
+- Journeys are `J1`–`J15`. They are never renumbered; a retired journey keeps its
   id and is marked retired.
 - Use cases are `UC-Jnn-nnn`, criteria `AC-Jnn-nnn`, with the journey number
   zero-padded. A use case sits under its journey's heading, a criterion under its
@@ -106,7 +106,7 @@ Some claims sound alike and are not:
 
 Always, for every entry:
 
-- Every `J`, `UC` and `AC` id is defined once, under the right parent; J1–J14
+- Every `J`, `UC` and `AC` id is defined once, under the right parent; J1–J15
   all exist; a registry key is a criterion the catalog defines.
 - Every `refs` path exists, and a `#anchor` is a heading of that markdown file.
 - Every surface and every `invokes` entry is a leaf command of

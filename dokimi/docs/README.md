@@ -217,8 +217,8 @@ code.
 ## User journeys
 
 - [user-journeys/README.md](user-journeys/README.md) — what users come to
-  Dokimi to get done: fourteen journeys (J1–J14) from "check this" to "invoke
-  one capability", who they are for, and where each one enters.
+  Dokimi to get done: fifteen journeys (J1–J15) from "check this" to "invoke
+  one capability" and "turn a solved chat into a skill", who they are for, and where each one enters.
 - [user-journeys/journeys.md](user-journeys/journeys.md) — the catalog: each
   journey's use cases and acceptance criteria, today's commands, and what is
   still proposed.
