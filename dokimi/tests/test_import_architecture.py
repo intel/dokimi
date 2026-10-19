@@ -332,19 +332,29 @@ def banned_imports(imports: Imports, banned=BANNED_IMPORTS) -> dict[tuple[str, s
 
 def spawn_sites(tree: ast.Module) -> list[int]:
     """Lines that start a child process without :mod:`dokimi.process`."""
-    aliases: dict[str, str] = {}
+    module_aliases: dict[str, str] = {}  # alias -> module name
+    name_aliases: dict[str, str] = {}  # alias -> callable name
     lines: list[int] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
                 if a.name in _SPAWNS:
-                    aliases[a.asname or a.name] = a.name
+                    module_aliases[a.asname or a.name] = a.name
         elif isinstance(node, ast.ImportFrom) and node.module in _SPAWNS and not node.level:
             lines += [node.lineno for a in node.names if a.name in _SPAWNS[node.module]]
+            # Track direct imports: from subprocess import run as execute
+            for a in node.names:
+                if a.name in _SPAWNS.get(node.module, ()):
+                    name_aliases[a.asname or a.name] = node.module
     for node in ast.walk(tree):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            # Count calls through directly imported names: execute(...)
+            if node.func.id in name_aliases:
+                lines.append(node.lineno)
+        elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                 and isinstance(node.func.value, ast.Name)
-                and node.func.attr in _SPAWNS.get(aliases.get(node.func.value.id, ""), ())):
+                and node.func.attr in _SPAWNS.get(module_aliases.get(node.func.value.id, ""), ())):
+            # Count attribute calls: subprocess.run(...) via alias
             lines.append(node.lineno)
     return sorted(lines)
 
@@ -491,3 +501,16 @@ def test_a_direct_spawn_outside_the_wrapper_fails(tmp_path):
     problems = spawn_problems(imports, {"dokimi.c": (2, "two sites once")})
     assert [p.split()[0] for p in problems] == ["dokimi.a", "dokimi.b", "dokimi.c"]
     assert "lower SPAWN_BASELINE" in problems[-1]
+
+
+def test_imported_callable_aliases_are_counted(tmp_path):
+    """Regression: two calls through one alias from a direct import exceed a one-site baseline."""
+    imports = _package(tmp_path, {
+        "dokimi/process.py": "def f():\n    pass\n",
+        "dokimi/a.py": "from subprocess import run as execute\nexecute(['x'])\nexecute(['y'])\n",
+    })
+    problems = spawn_problems(imports, {"dokimi.a": (1, "one site baseline")})
+    # The import at line 1 counts as a site, then the two execute() calls count as two more,
+    # exceeding the baseline of 1
+    assert "dokimi.a" in problems[0]
+    assert "3" in problems[0]  # Should have 3 sites: import line + 2 calls
