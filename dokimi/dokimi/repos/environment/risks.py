@@ -105,12 +105,18 @@ def _hook_entries(doc: Any) -> dict[str, list[str]]:
 
 def _declares_code(doc: dict[str, Any]) -> list[str]:
     """Manifest keys that bring hooks or MCP servers (inline, or a path such as ``./hooks/hooks.json``)."""
-    entries = [doc] + [p for p in doc.get("plugins", []) if isinstance(p, dict)] if isinstance(doc.get("plugins"), list) else [doc]
+    entries = [doc]
+    if isinstance(doc.get("plugins"), list):
+        entries.extend(p for p in doc["plugins"] if isinstance(p, dict))
     return [k for k in ("hooks", "mcpServers") if any(e.get(k) for e in entries)]
 
 
 def unreadable_plugin_manifests(scan: Scan) -> list[str]:
     return [p for p in PLUGIN_MANIFESTS if p in scan.file_set and not isinstance(_json(scan, p), dict)]
+
+
+def unreadable_claude_settings(scan: Scan) -> list[str]:
+    return [p for p in CLAUDE_SETTINGS if p in scan.file_set and not isinstance(_json(scan, p), dict)]
 
 
 def detect_capabilities(scan: Scan) -> list[Capability]:

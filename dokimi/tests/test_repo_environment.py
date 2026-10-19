@@ -1116,3 +1116,16 @@ def test_a_malformed_plugin_manifest_stays_high_and_is_not_observed(tmp_path, bo
     got, not_observed = _plugin_risk(tmp_path, body)
     assert got == "high"
     assert any(".claude-plugin/plugin.json" in n for n in not_observed)
+
+
+@pytest.mark.parametrize("body", ["{not json", "[1, 2]", ""])
+def test_unreadable_claude_settings_is_listed_as_not_observed(tmp_path, body):
+    _repo(tmp_path, {".claude/settings.json": body})
+    not_observed = inspect_repo(WorkTree(tmp_path))["not_observed"]
+    assert any(".claude/settings.json" in n for n in not_observed)
+
+
+def test_readable_claude_settings_adds_no_not_observed_line(tmp_path):
+    _repo(tmp_path, {".claude/settings.json": '{"hooks": {}}'})
+    not_observed = inspect_repo(WorkTree(tmp_path))["not_observed"]
+    assert not any(".claude/settings.json" in n for n in not_observed)

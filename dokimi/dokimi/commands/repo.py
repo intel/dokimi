@@ -8,8 +8,15 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
+
+
+def _normalize_whitespace(text: str, max_len: int = 100) -> str:
+    """Replace newlines and carriage returns with spaces, then truncate."""
+    normalized = re.sub(r'[\r\n]+', ' ', text).strip()
+    return normalized[:max_len]
 
 
 def cmd_repo_validate(args: argparse.Namespace) -> None:
@@ -137,7 +144,7 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
         for f in payload["findings"]:
             if f["severity"] != "info":
                 where = f" {f['path']}" if f["path"] else ""
-                print(f"  {f['severity'].upper()} {f['rule']}{where} -- {f['why'][:100]}")
+                print(f"  {f['severity'].upper()} {f['rule']}{where} -- {_normalize_whitespace(f['why'])}")
         print("  stages: " + ", ".join(f"{s['stage']} {s['status']}" for s in payload["stages"]))
         if args.out:
             print(f"wrote {args.out}")
@@ -331,7 +338,7 @@ def register(sub, positive_int) -> None:
         "inspect",
         help="Static inspection of what the tree offers an agent: instruction files and their scope, ways to "
         "build and check a change, launch risks (hooks, MCP, risky scripts), file inventory "
-        "(repo_environment.v1). No manifest, no LLM call, no repository command run.",
+        "(repo_environment.v1). No manifest, no LLM call, no repository build/test/script commands run.",
     )
     inspect_p.add_argument("source", help=source_help)
     inspect_p.add_argument("--large-bytes", type=positive_int, default=100_000, dest="large_bytes",
