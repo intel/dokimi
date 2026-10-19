@@ -70,9 +70,12 @@ def last_json(text):
 
 
 def norm_path(p):
-    """Repository-relative path of a finding: an absolute path into the run's ``repo/`` is cut at ``repo/``."""
+    """Repository-relative path of a finding: an absolute path into the run's ``repo/`` or workspace is cut there."""
     p = str(p or "").strip().replace("\\", "/")
-    if "/repo/" in p:
+    # Strip workspace prefix (/eval/run/workspace) first, then /repo/ for backwards compatibility
+    if "/eval/run/workspace/" in p:
+        p = p.rsplit("/eval/run/workspace/", 1)[1]
+    elif "/repo/" in p:
         p = p.rsplit("/repo/", 1)[1]
     while p.startswith("./"):
         p = p[2:]

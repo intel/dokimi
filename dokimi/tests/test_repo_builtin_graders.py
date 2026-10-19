@@ -60,7 +60,10 @@ def test_last_json_takes_the_last_parseable_fence():
     assert review.last_json("no fence") is None and review.last_json(None) is None
 
 
-def test_norm_path_cuts_at_repo_and_drops_leading_dots_and_slashes():
+def test_norm_path_cuts_at_workspace_and_repo_and_drops_leading_dots_and_slashes():
+    # workspace path (agent's working directory in container)
+    assert review.norm_path("/eval/run/workspace/src/calc.py") == "src/calc.py"
+    # /repo/ path (legacy, for backwards compatibility)
     assert review.norm_path("/runs/r1/repo/src/calc.py") == "src/calc.py"
     assert review.norm_path(" ./././src\\calc.py ") == "src/calc.py"
     assert review.norm_path(None) == ""
@@ -79,6 +82,30 @@ def test_seeds_keyword_line_fallback_decoys_and_recall_by_class(tmp_path):
     assert g == {"pass": None, "n_findings": 4, "n_severe": 2, "seeds_hit": ["s_op"], "decoys_flagged": ["d_add"],
                  "n_decoys": 1, "unmatched": 1, "recall": 0.5,
                  "recall_by_class": {"correctness": "1/1", "convention": "0/1"}}
+
+
+def test_seeds_with_workspace_paths(tmp_path):
+    """Regression: findings with workspace paths (/eval/run/workspace) must match seeds correctly."""
+    d = _task_dir(tmp_path, "seeds_mul")
+    findings = [
+        _f(5, file="/eval/run/workspace/src/calc.py", message="mul returns a + b"),  # keyword hit with workspace path
+        _f(4, file="/eval/run/workspace/src/calc.py", message="naming issue"),  # line fallback with workspace path
+    ]
+    g = review.grade_seeds({}, d, fence(findings))
+    assert g["seeds_hit"] == ["s_name", "s_op"], f"workspace paths should match seeds; got {g}"
+    assert g["recall"] == 1.0
+
+
+def test_replay_with_workspace_paths(tmp_path):
+    """Regression: findings with workspace paths (/eval/run/workspace) must match gold threads correctly."""
+    d = _task_dir(tmp_path, "replay_mul")
+    findings = [
+        _f(5, file="/eval/run/workspace/src/calc.py"),
+        _f(4, file="/eval/run/workspace/src/calc.py"),
+    ]
+    g = review.grade_replay({}, d, fence(findings))
+    assert g["threads_hit"] == ["t_doc", "t_op"], f"workspace paths should match threads; got {g}"
+    assert g["recall"] == 1.0
 
 
 def test_line_fallback_credits_only_the_nearest_seed_within_one_line(tmp_path):
