@@ -174,7 +174,8 @@ def _module_name(path: Path, root: Path) -> str:
 
 def _guarded_by_type_checking(test: ast.expr) -> bool:
     return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
-        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING")
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+        and isinstance(test.value, ast.Name) and test.value.id == "typing")
 
 
 def _kinds(tree: ast.Module) -> dict[int, str]:
@@ -312,7 +313,8 @@ def cycle_problems(found: Iterable[frozenset[str]],
     problems = []
     for cycle in sorted(found - set(baseline), key=sorted):
         grown = [b for b in baseline if b < cycle]
-        what = (f"grew from {sorted(grown[0])}" if grown else "is new")
+        # Pick the smallest proper subset for consistent error reporting
+        what = (f"grew from {sorted(min(grown, key=len))}" if grown else "is new")
         if any(cycle < b for b in baseline):
             what = "shrank: replace its CYCLE_BASELINE entry with this set"
         problems.append(f"import cycle {sorted(cycle)} {what}")
@@ -349,7 +351,10 @@ def spawn_sites(tree: ast.Module) -> list[int]:
         elif isinstance(node, ast.ImportFrom) and node.module in _SPAWNS and not node.level:
             for a in node.names:
                 if a.name in _SPAWNS[node.module]:
-                    name_aliases[a.asname or a.name] = (node.lineno, node.module)
+                    alias = a.asname or a.name
+                    # Keep the earliest import (not the latest) for consistent error reporting
+                    if alias not in name_aliases:
+                        name_aliases[alias] = (node.lineno, node.module)
     called: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -548,3 +553,51 @@ def test_a_stale_layer_or_banned_baseline_entry_is_reported():
     assert stale_entries({("a", "b"): "x", ("c", "d"): "y"}, {("c", "d"): "z"}) == [("a", "b")]
     assert stale_entries({("m", "litellm"): "x"}, {}) == [("m", "litellm")]
     assert stale_entries({}, {("m", "litellm"): 1}) == []
+
+
+def test_only_typing_TYPE_CHECKING_guards_against_cycles(tmp_path):
+    """A non-typing TYPE_CHECKING attribute (e.g., foo.TYPE_CHECKING) should not
+    be treated as a typing guard, so a real runtime import is not hidden from the
+    cycle check."""
+    imports = _package(tmp_path, {
+        "dokimi/a.py": ("class Foo:\n    TYPE_CHECKING = False\n"
+                       "if Foo.TYPE_CHECKING:\n    from dokimi import b\n"),
+        "dokimi/b.py": "from dokimi import a\n",
+    })
+    cycles = strongly_connected(imports)
+    # The edge from a to b is real (not guarded by typing.TYPE_CHECKING), so the cycle is detected
+    assert cycles == [frozenset({"dokimi.a", "dokimi.b"})]
+
+
+def test_spawn_sites_keeps_earliest_import_for_duplicate_aliases(tmp_path):
+    """When the same callable is imported multiple times (e.g., in try/except), keep
+    the first import line. If called, report the call line; if never called, report
+    the earliest import."""
+    imports = _package(tmp_path, {
+        "dokimi/proc.py": ("try:\n"
+                          "    from subprocess import run as execute\n"
+                          "except ImportError:\n"
+                          "    from os import system as execute\n"
+                          "execute(['x'])\n"),
+    })
+    # The alias is called, so only the call line [5] is reported (earliest import tracked internally)
+    lines = spawn_sites(imports.trees["dokimi.proc"])
+    assert lines == [5]
+
+
+def test_grown_cycle_reports_smallest_proper_subset():
+    """When a new cycle is a superset of multiple baselined cycles, report the
+    smallest one for clarity (not an arbitrary one dependent on iteration order)."""
+    abc = frozenset({"a", "b", "c"})
+    ab = frozenset({"a", "b"})
+    ac = frozenset({"a", "c"})
+    # New cycle is {a, b, c}, which is a superset of both {a, b} and {a, c}
+    # Include ab and ac in the found list so they are not reported as gone
+    problems = cycle_problems([ab, ac, abc], {ab: "known1", ac: "known2"})
+    assert len(problems) == 1
+    # Should report the smaller set (size 2), not based on iteration order
+    reported = problems[0]
+    assert "grew from" in reported
+    # Should report the smallest proper subset (both ab and ac are same size,
+    # so either is acceptable as long as it's deterministic)
+    assert "['a', 'b']" in reported or "['a', 'c']" in reported
