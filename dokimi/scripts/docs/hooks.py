@@ -110,7 +110,7 @@ _COMMONMARK = MarkdownIt("commonmark").enable("table")
 # YAML front matter (a page's `depends_on`): mkdocs drops it and GitHub shows it as
 # a table, so its list is neither side's list items. Supports optional UTF-8 BOM,
 # flexible line endings (LF/CRLF), and handles pages ending without a final newline.
-_FRONT_MATTER = re.compile(r"\A﻿?---[ \t]*\r?\n.*?\n---[ \t]*(?:\r?\n|$)", re.DOTALL)
+_FRONT_MATTER = re.compile(r"\A\ufeff?---[ \t]*\r?\n.*?\n---[ \t]*(?:\r?\n|$)", re.DOTALL)
 
 
 def list_mismatch(source: str, html: str) -> str | None:

@@ -94,3 +94,12 @@ def test_matching_lists_pass() -> None:
 def test_front_matter_list_is_not_a_page_list() -> None:
     src = "---\ndepends_on:\n  - a/b.py\n---\n<!-- header -->\n\n- a\n"
     assert hooks.list_mismatch(src, "<ul><li>a</li></ul>") is None
+
+@pytest.mark.parametrize("text", [
+    "---\r\ndepends_on:\r\n  - a/**\r\n---\r\n- a\r\n",
+    "\ufeff---\ndepends_on:\n  - a/**\n---\n- a\n",
+    "---\ndepends_on:\n  - a/**\n---\n- a",
+    "\ufeff---\r\ndepends_on:\r\n  - a/**\r\n---\r\n- a\r\n",
+])
+def test_front_matter_with_crlf_or_bom_is_not_a_page_list(text) -> None:
+    assert hooks.list_mismatch(text, "<ul><li>a</li></ul>") is None

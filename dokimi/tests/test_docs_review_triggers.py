@@ -147,4 +147,6 @@ def test_a_malformed_page_is_named_and_exits_1_not_a_traceback(tmp_path, monkeyp
     real = cdrt.load_pages
     monkeypatch.setattr(cdrt, "load_pages", lambda: real(tmp_path))
     assert cdrt.main([]) == 1
-    assert "::error file=dokimi/docs/bad.md" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "::error file=dokimi/docs/bad.md" in out
+    assert len(out.strip().splitlines()) == 1

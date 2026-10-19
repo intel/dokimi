@@ -80,7 +80,8 @@ def depends_on(text: str) -> list[str]:
     try:
         meta = yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError as e:
-        raise ValueError(f"front matter YAML is invalid: {e}") from e
+        # The full message spans lines; a workflow command ends at the first newline.
+        raise ValueError(f"front matter YAML is invalid: {getattr(e, 'problem', None) or 'unparseable'}") from e
     if not isinstance(meta, dict):
         raise ValueError("front matter is not a mapping")
     globs = meta.get("depends_on", [])
