@@ -254,7 +254,7 @@ def test_the_report_states_its_provenance_and_stubs(tmp_path):
     assert {"commit", "run_id", "date", "scope"} <= set(report["provenance"])
     text = journeys.markdown(report)
     assert "stubs: model client" in text and "not a completed real-user journey" in text
-    assert "13 of 14 documented criteria have no passing evidence" in text
+    assert "13 of 14 documented criteria are not enforced or have no passing evidence" in text
 
 
 # ------------------------------------------------------------------ through a real session
@@ -367,3 +367,126 @@ def test_the_journeys_report_must_be_json_and_its_directory_is_created(pytester,
         assert (root / path).with_suffix(".md").is_file()
     else:
         assert result.ret != 0 and "must be a .json path" in result.stderr.str() + result.stdout.str()
+
+
+# ------------------------------------------------------------------ options as argparse reads them
+
+
+def test_a_short_alias_counts_as_its_long_option():
+    assert journeys.invoked(ROOT, "repo run --jobs", [["repo", "run", "src", "-j", "2"]])
+    assert journeys.invoked(ROOT, "repo run -j", [["repo", "run", "src", "--jobs=2"]])
+
+
+def test_an_abbreviation_argparse_accepts_counts_as_its_option():
+    assert journeys.invoked(ROOT, "repo tasks check --task", [["repo", "tasks", "check", "src", "--ta", "x"]])
+
+
+def test_text_after_the_separator_is_not_an_option():
+    # argparse reads this as source='--fail-on-fail' with fail_on_fail=False.
+    assert not journeys.invoked(ROOT, "repo scan --fail-on-fail", [["repo", "scan", "--", "--fail-on-fail"]])
+    assert "not '--'" in journeys.surface_problem(ROOT, "repo scan -- --fail-on-fail")
+
+
+def test_options_sharing_a_dest_stay_two_options():
+    import argparse
+
+    root = argparse.ArgumentParser(prog="dokimi")
+    cmd = root.add_subparsers(dest="cmd").add_parser("c")
+    cmd.add_argument("--x", dest="v", action="store_true")
+    cmd.add_argument("--no-x", dest="v", action="store_false")
+    assert not journeys.invoked(root, "c --x", [["c", "--no-x"]])
+    assert journeys.invoked(root, "c --x", [["c", "--x"]])
+
+
+def test_help_and_unknown_options_are_still_reported():
+    assert journeys.surface_problem(ROOT, "repo scan --no-such-flag") == "unknown flag: repo scan --no-such-flag"
+    assert journeys.surface_problem(ROOT, "repo scan -h") is None
+    assert journeys.surface_problem(ROOT, "repo scan --fail-on") is None  # an unambiguous abbreviation
+
+
+# ------------------------------------------------------------------ verdict rules each mutation would break
+
+
+def test_an_enforced_criterion_with_one_unclaimed_id_is_an_error(tmp_path):
+    report = _check(tmp_path, _enforced(UNIT, {**UNIT, "id": "unwritten"}), results={"ev": ["passed"]})
+    assert _row(report, "AC-J04-001")["verdict"] == "error" and report["verdict"] == "error"
+
+
+def test_a_failing_unenforced_criterion_gates_nothing(tmp_path):
+    report = _check(tmp_path, {"AC-J04-001": {"delivery": "partial", "evidence": [UNIT]}}, results={"ev": ["failed"]})
+    assert _row(report, "AC-J04-001")["verdict"] == "fail"
+    assert report["verdict"] == "pass"
+
+
+def test_a_passing_unenforced_criterion_is_still_unverified(tmp_path):
+    report = _check(tmp_path, {"AC-J04-001": {"delivery": "partial", "evidence": [UNIT]}}, results={"ev": ["passed"]})
+    assert _row(report, "AC-J04-001")["verdict"] == "pass"
+    assert "AC-J04-001" in report["unverified"]
+    assert next(j for j in report["journeys"] if j["id"] == "J4")["passed"] == 0
+
+
+def test_a_cli_scenario_needs_every_declared_invoke(tmp_path):
+    both = {**SCAN, "invokes": ["repo scan --out", "repo reach --out"]}
+    report = _check(tmp_path, _enforced(both), results={"ev": ["passed"]},
+                    invocations={"ev": [["repo", "scan", "s", "--out=r.json"]]})
+    assert _row(report, "AC-J04-001")["verdict"] == "error"
+
+
+def test_a_missing_catalog_is_a_problem_and_the_report_is_still_built(tmp_path):
+    registry = _tree(tmp_path, criteria=_enforced(UNIT))
+    (tmp_path / journeys.CATALOG).unlink()
+    report = journeys.check(registry, tmp_path, {}, _evidence({"ev": ["passed"]}), {}, plugin._anchors)
+    assert report["verdict"] == "error"
+    assert any("cannot read" in p for p in report["problems"])
+    assert journeys.markdown(report).startswith("# Journey coverage")
+
+
+# ------------------------------------------------------------------ capture, through a real session
+
+
+def test_an_argv_parsed_on_a_worker_thread_is_recorded(pytester, monkeypatch):
+    result, report = _session(pytester, monkeypatch, _enforced(SCAN),
+                              "import threading\nfrom concurrent.futures import ThreadPoolExecutor\n\n"
+                              "@pytest.mark.outcome('ev')\ndef test_scan():\n"
+                              "    argv = ['repo', 'scan', 'x@HEAD', '--out', 'r.json']\n"
+                              "    with ThreadPoolExecutor(1) as ex:\n"
+                              "        ex.submit(build_parser().parse_args, argv).result()\n")
+    assert result.ret == 0 and report["verdict"] == "pass"
+
+
+def test_an_invocation_made_by_a_skipped_test_does_not_count(pytester, monkeypatch):
+    result, report = _session(pytester, monkeypatch, _enforced(SCAN),
+                              "@pytest.mark.outcome('ev')\ndef test_passes():\n    assert True\n\n"
+                              "@pytest.mark.outcome('ev')\ndef test_skips():\n"
+                              "    build_parser().parse_args(['repo', 'scan', 'x@HEAD', '--out', 'r.json'])\n"
+                              "    pytest.skip('no docker')\n")
+    assert result.ret == 2 and report["verdict"] == "error"
+
+
+def test_a_failure_outranks_an_all_skipped_criterion(pytester, monkeypatch):
+    criteria = {"AC-J04-001": _enforced(UNIT)["AC-J04-001"],
+                "AC-J05-001": {"delivery": "available", "enforce": True, "evidence": [{**UNIT, "id": "sk"}]}}
+    result, report = _session(pytester, monkeypatch, criteria,
+                              "@pytest.mark.outcome('ev')\ndef test_x():\n    assert False\n\n"
+                              "@pytest.mark.outcome('sk')\ndef test_y():\n    pytest.skip('no docker')\n")
+    assert report["verdict"] == "fail" and result.ret == 1
+
+
+def test_a_fixture_error_in_one_claimed_test_fails_the_evidence(pytester, monkeypatch):
+    result, report = _session(pytester, monkeypatch, _enforced(UNIT),
+                              "@pytest.fixture\ndef broken():\n    raise RuntimeError('setup')\n\n"
+                              "@pytest.mark.outcome('ev')\ndef test_ok():\n    assert True\n\n"
+                              "@pytest.mark.outcome('ev')\ndef test_bad(broken):\n    assert True\n")
+    assert _row(report, "AC-J04-001")["verdict"] == "fail" and result.ret == 1
+
+
+def test_a_journeys_report_that_is_not_json_fails_before_the_run(pytester):
+    pytester.makepyfile("def test_x():\n    raise AssertionError('should not run')\n")
+    result = pytester.runpytest("-p", "tests.outcomes.plugin", "--outcomes", "--journeys-report=j.txt")
+    assert result.ret == 4 and "must be a .json path" in result.stderr.str()
+    assert "should not run" not in result.stdout.str()
+
+
+def test_a_failure_outranks_inconclusive_when_contracts_and_journeys_combine():
+    assert plugin._worst(["inconclusive", "fail"]) == "fail"
+    assert plugin._worst(["pass", "inconclusive"]) == "inconclusive"

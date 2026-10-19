@@ -19,14 +19,15 @@ broken (a missing file, or a ``#anchor`` that is no heading of a markdown file),
 The same session checks the journey trace in ``journeys.yaml`` (see
 ``journeys.py``) and writes ``--journeys-report`` (JSON, plus a ``.md``
 beside it). For that, a marked test records every argv the ``dokimi`` root
-parser parsed while it ran: a criterion whose evidence declares a CLI
-invocation passes only if its tests made one.
+parser parsed while it ran, from any thread, and a test that did not pass
+contributes none: a criterion whose evidence declares a CLI invocation passes
+only if a passing claimed test made one. Tests in one process run one at a
+time, so a call is credited to the test that was running when it was made.
 """
 
 from __future__ import annotations
 
 import argparse
-import contextvars
 import json
 import re
 import sys
@@ -44,7 +45,9 @@ ROOT_PROG = "dokimi"  # build_parser()'s prog; subcommand parsers are "dokimi <c
 _results: dict[str, list[str]] = {}
 _invocations: dict[str, list[list[str]]] = {}
 _CALLS = pytest.StashKey[list]()
-_calls_contextvar: contextvars.ContextVar[list[list[str]] | None] = contextvars.ContextVar("_calls", default=None)
+# The argv list of the marked test now running, or None. A module global, not a
+# ContextVar: a worker thread the test starts must still record into it.
+_active_calls: list[list[str]] | None = None
 
 
 def pytest_addoption(parser):
@@ -57,6 +60,10 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "outcome(*ids): the test is evidence for these user-outcome ids")
+    out = Path(config.getoption("journeys_report"))
+    if config.getoption("outcomes") and out.suffix != ".json":
+        # Checked before the run, not after it: the markdown goes beside it with ".md".
+        raise pytest.UsageError(f"--journeys-report must be a .json path, got {out}")
 
 
 def pytest_runtest_logreport(report):
@@ -66,7 +73,9 @@ def pytest_runtest_logreport(report):
     ids = [i for key, value in report.user_properties if key == "outcome_ids" for i in value]
     for evidence_id in ids:
         _results.setdefault(evidence_id, []).append(report.outcome)
-    calls = [c for key, value in report.user_properties if key == "cli_invocations" for c in value]
+    # A skipped or failed test proves no invocation, even if it parsed one first.
+    calls = [c for key, value in report.user_properties if key == "cli_invocations" for c in value] \
+        if report.passed else []
     for evidence_id in ids:
         _invocations.setdefault(evidence_id, []).extend(calls)
 
@@ -76,24 +85,24 @@ def pytest_runtest_call(item):
     if not any(item.iter_markers("outcome")):
         yield
         return
+    global _active_calls
     calls: list[list[str]] = []
     item.stash[_CALLS] = calls
     original = argparse.ArgumentParser.parse_known_args
 
     def capture(self, args=None, namespace=None):
         parsed, leftover = original(self, args, namespace)
-        # Only append if this test's contextvar is active, avoiding cross-thread contamination.
-        active_calls = _calls_contextvar.get()
-        if active_calls is not None and self.prog == ROOT_PROG and not leftover:  # record only results with no leftover arguments
-            active_calls.append([str(a) for a in (sys.argv[1:] if args is None else args)])
+        # Leftovers mean parse_args() is about to reject the argv: nothing was invoked.
+        if _active_calls is not None and self.prog == ROOT_PROG and not leftover:
+            _active_calls.append([str(a) for a in (sys.argv[1:] if args is None else args)])
         return parsed, leftover
 
     argparse.ArgumentParser.parse_known_args = capture  # type: ignore[method-assign]
-    token = _calls_contextvar.set(calls)
+    _active_calls = calls
     try:
         yield
     finally:
-        _calls_contextvar.reset(token)
+        _active_calls = None
         argparse.ArgumentParser.parse_known_args = original  # type: ignore[method-assign]
 
 
@@ -178,8 +187,6 @@ def pytest_sessionfinish(session, exitstatus):
                      if isinstance(c := json.loads(p.read_text(encoding="utf-8")), dict)}
         journeys = trace.check(registry, REPO_ROOT, contracts, _evidence, _invocations, _anchors)
         out = Path(config.getoption("journeys_report"))
-        if out.suffix != ".json":  # the markdown goes beside it with ".md": it must not replace it
-            raise pytest.UsageError(f"--journeys-report must be a .json path, got {out}")
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(journeys, indent=2) + "\n", encoding="utf-8")
         out.with_suffix(".md").write_text(trace.markdown(journeys), encoding="utf-8")

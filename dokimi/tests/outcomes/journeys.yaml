@@ -105,11 +105,14 @@ criteria:
         stubs: [harness (fake executable behind a harness profile), model]
     scope: the fake harness reads files by rule; this shows the measurement and artifact, not any real harness's loading behaviour
   AC-J04-004:
-    delivery: available
-    enforce: true
+    delivery: partial
+    enforce: false
     capability: guidance-reach
     evidence:
       - {id: cjm-repo-reach-harness-failure, kind: integration, stubs: [harness (fake executable)]}
+    gaps:
+      - a failed harness is recorded as error; a refusal is not
+      - "a token-free refusal is classified not_loaded (repos/reach.py classify), the same as a file that was not reached; the refusal test asserts only the prose warning"
   AC-J04-006:
     delivery: partial
     enforce: false
@@ -192,12 +195,15 @@ criteria:
         stubs: [Docker (FakeRunner, with a simulated leaky image)]
     gaps: ["isolation is checked by name and mount, against a simulated image, not a real container escape"]
   AC-J07-005:
-    delivery: available
-    enforce: true
+    delivery: partial
+    enforce: false
     capability: judge-validity
     surfaces: ["eval judge-validity --sequential"]
+    # The test pins what happens today, which is not what the criterion asks for.
     evidence:
-      - {id: cjm-judge-cap-no-pass, kind: unit, stubs: [judge scores (fixed function)]}
+      - {id: cjm-judge-cap-inconclusive, kind: unit, stubs: [judge scores (fixed function)]}
+    gaps:
+      - "a capped, undecided run above the gate prints RESULT: PASS (inconclusive ...) and exits 0 with a warning; the criterion asks for no pass"
   AC-J07-006:
     delivery: proposed
   AC-J07-007:
@@ -217,9 +223,10 @@ criteria:
     delivery: partial
     enforce: false
     capability: judge-validity
-    # cjm-judge-cap-no-pass shows the cap is not a pass (AC-J07-005); it is not
-    # evidence for this criterion, which asks for an inconclusive verdict.
-    gaps: ["the sequential judge check reports a reached cap as FAIL, not as a distinct inconclusive verdict"]
+    evidence:
+      - {id: cjm-judge-cap-inconclusive, kind: unit, stubs: [judge scores (fixed function)]}
+    gaps:
+      - "a reached cap is flagged inconclusive (conclusive: false), but the verdict line still reads PASS (inconclusive ...) and the exit code is 0, so a script reading the result sees a pass"
   AC-J11-003:
     delivery: available
     enforce: true

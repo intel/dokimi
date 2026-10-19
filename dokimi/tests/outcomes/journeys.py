@@ -16,7 +16,8 @@ a reference to an id that is not defined, a surface ``build_parser()`` does not
 have, a path that does not resolve), and an ``enforce: true`` criterion whose
 evidence is missing, failed, all skipped, or did not invoke the CLI surface it
 declares. A criterion that is documented and not enforced is reported as
-unverified and fails nothing.
+unverified, even when its tests pass, and gates nothing at run time; a broken
+link in its entry is still an error.
 """
 
 from __future__ import annotations
@@ -121,35 +122,40 @@ def _subparsers(parser: argparse.ArgumentParser) -> dict:
     return {}
 
 
-def _flags(parser: argparse.ArgumentParser) -> set[str]:
-    """Canonical flag identities per action dest, avoiding alias collisions."""
-    return {action.dest for action in parser._actions if action.option_strings}
+def _option(parser: argparse.ArgumentParser, token: str) -> str:
+    """The option ``token`` names in ``parser``, as one identity per action.
 
-
-def _canonicalize_flags(parser: argparse.ArgumentParser, raw_flags: list[str]) -> list[str]:
-    """Map raw flag strings (e.g. "-o", "--out") to their canonical dest names.
-
-    Unknown flags are preserved as-is to ensure proper error reporting.
+    ``-o`` and ``--out`` of one action are the same option, and so is an
+    abbreviation argparse accepts (``--ta`` for ``--task``). The identity is the
+    action's first option string, not its ``dest``: ``--x`` and ``--no-x`` that
+    share a dest stay two options. A token no action owns is returned as is, so
+    it is reported as unknown.
     """
-    canonical = []
-    for flag in raw_flags:
-        if hasattr(parser, '_option_string_actions'):
-            action = parser._option_string_actions.get(flag)
-            if action:
-                canonical.append(action.dest)
-            else:
-                # Preserve unknown flags for error reporting
-                canonical.append(flag)
-        else:
-            canonical.append(flag)
-    return canonical
+    name = token.split("=", 1)[0]
+    actions = parser._option_string_actions
+    action = actions.get(name)
+    if action is None and parser.allow_abbrev and name.startswith("--"):
+        owners = {id(a): a for opt, a in actions.items() if opt.startswith(name)}
+        if len(owners) == 1:
+            action = next(iter(owners.values()))
+    return action.option_strings[0] if action is not None else name
+
+
+def _flags(parser: argparse.ArgumentParser) -> set[str]:
+    return {action.option_strings[0] for action in parser._actions if action.option_strings}
 
 
 def resolve(root: argparse.ArgumentParser, tokens: list[str]) -> tuple[argparse.ArgumentParser, list[str], list[str]]:
-    """The parser ``tokens`` lead to, the command path taken, and the flags passed (canonicalized)."""
-    parser, path, raw_flags = root, [], []
+    """The parser ``tokens`` lead to, the command path taken, and the options passed.
+
+    Each option is resolved by the parser it was passed to, and nothing after
+    ``--`` is an option: there argparse reads ``--fail-on-fail`` as a positional.
+    """
+    parser, path, flags = root, [], []
     walking = True
     for token in tokens:
+        if token == "--":
+            break
         subs = _subparsers(parser)
         if walking and subs and token in subs:
             parser = subs[token]
@@ -157,14 +163,15 @@ def resolve(root: argparse.ArgumentParser, tokens: list[str]) -> tuple[argparse.
             continue
         walking = walking and token.startswith("-")
         if token.startswith("-") and token != "-":
-            raw_flags.append(token.split("=", 1)[0])
-    flags = _canonicalize_flags(parser, raw_flags)
+            flags.append(_option(parser, token))
     return parser, path, flags
 
 
 def surface_problem(root: argparse.ArgumentParser, surface: str) -> str | None:
     """Why ``surface`` (``"repo tasks check --warm"``) is not in the parser, or None."""
     tokens = shlex.split(surface)
+    if "--" in tokens:
+        return f"a surface names options, not '--': {surface}"
     parser, path, flags = resolve(root, tokens)
     rest = [t for t in tokens[len(path):] if not t.startswith("-")]
     if not path or rest:
@@ -288,9 +295,21 @@ def check(registry_path: Path, repo_root: Path, contracts: dict[str, dict],
     from dokimi.cli import build_parser
 
     root = build_parser()
-    registry = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+    try:
+        registry = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        registry, problems = {}, [f"{registry_path.name}: cannot read: {exc}"]
+    else:
+        problems = [] if isinstance(registry, dict) else [f"{registry_path.name}: not a mapping"]
+        registry = registry if isinstance(registry, dict) else {}
     catalog_path = repo_root / registry.get("catalog", CATALOG)
-    catalog, problems = parse_catalog(catalog_path)
+    try:
+        catalog, catalog_problems = parse_catalog(catalog_path)
+    except OSError as exc:
+        # Reported like any other broken link, so the report is still written.
+        catalog = {"journeys": {}, "use_cases": {}, "criteria": {}}
+        catalog_problems = [f"{CATALOG}: cannot read: {exc}"]
+    problems += catalog_problems
     pages = sorted(catalog_path.parent.glob("*.md"))
     problems += dangling_ids(pages, catalog)
     problems += static_problems(registry, catalog, repo_root, contracts, anchors, root)
@@ -327,13 +346,16 @@ def check(registry_path: Path, repo_root: Path, contracts: dict[str, dict],
 
     gated = [GATE[r["verdict"]] for r in rows if r["enforce"]]
     verdict = "error" if problems else _worst(gated, ["pass", "inconclusive", "fail", "error"])
-    unverified = [r["id"] for r in rows if r["verdict"] != "pass"]
+    # Verified means enforced and passing: a passing test of an unenforced criterion
+    # is reported in its row, but nothing would fail if it stopped proving the criterion.
+    verified = {r["id"] for r in rows if r["enforce"] and r["verdict"] == "pass"}
+    unverified = [r["id"] for r in rows if r["id"] not in verified]
     journeys = [{
         "id": j, "title": catalog["journeys"][j]["title"],
         "use_cases": len(catalog["journeys"][j]["use_cases"]),
         "criteria": sum(1 for r in rows if r["journey"] == j),
         "enforced": sum(1 for r in rows if r["journey"] == j and r["enforce"]),
-        "passed": sum(1 for r in rows if r["journey"] == j and r["verdict"] == "pass"),
+        "passed": sum(1 for r in rows if r["journey"] == j and r["id"] in verified),
     } for j in JOURNEYS if j in catalog["journeys"]]
     return {"schema": "journey-coverage/1", "verdict": verdict, "provenance": provenance(repo_root),
             "problems": problems, "journeys": journeys, "criteria": rows, "unverified": unverified}
@@ -385,7 +407,7 @@ def markdown(report: dict) -> str:
         lines += ["", "## Stated gaps", "", *[f"- {i}: {g}" for i, g in gaps]]
     untracked = [r["id"] for r in report["criteria"] if not r["tracked"]]
     lines += ["", "## Unverified", "",
-              f"{len(report['unverified'])} of {len(report['criteria'])} documented criteria have no passing "
-              f"evidence in this run; {len(untracked)} of them have no trace entry yet.", "",
+              f"{len(report['unverified'])} of {len(report['criteria'])} documented criteria are not enforced "
+              f"or have no passing evidence in this run; {len(untracked)} of them have no trace entry yet.", "",
               ", ".join(report["unverified"]) or "none", ""]
     return "\n".join(lines)

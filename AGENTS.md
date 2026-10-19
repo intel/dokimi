@@ -34,7 +34,10 @@ also holds a PR to:
   network calls.
 - User outcomes (`tests/outcomes/*.json`, checked by `pytest --outcomes`): a
   test marked `@pytest.mark.outcome(...)` is evidence for a promise in the docs;
-  weaken or drop it only together with the doc and the contract.
+  weaken or drop it only together with the doc and the contract. The same
+  session checks the journey trace (`tests/outcomes/journeys.yaml` against
+  `docs/user-journeys/journeys.md`) and writes `journeys-result.json`; removing
+  a marked `cjm-*` test fails it even when `outcomes-result.json` says pass.
 
 ## Before changing a subsystem, read its doc
 

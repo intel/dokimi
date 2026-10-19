@@ -110,7 +110,9 @@ Always, for every entry:
   all exist; a registry key is a criterion the catalog defines.
 - Every `refs` path exists, and a `#anchor` is a heading of that markdown file.
 - Every surface and every `invokes` entry is a leaf command of
-  `build_parser()` with those flags.
+  `build_parser()` with those flags, and contains no `--`.
+- An enforced criterion with a `cli_scenario` has every surface covered by one
+  of its `invokes` entries (the same command and all its flags).
 - A `cli_scenario` names what it invokes; other kinds do not. Unit,
   integration and CLI evidence lists its stubs.
 - `outcome` names an existing contract, and the evidence ids belong to it.
@@ -122,16 +124,27 @@ For `enforce: true` entries:
 - Every evidence id is claimed by a test. An unclaimed id is an error.
 - A claimed test that failed fails the criterion; all claimed tests skipped is
   inconclusive. Neither passes.
-- A `cli_scenario` passes only if a claimed test parsed an argv with the
-  `dokimi` root parser that reaches each declared command with its flags. The
-  plugin records those argvs while marked tests run. A command written in a
+- A `cli_scenario` passes only if a passing claimed test parsed an argv with
+  the `dokimi` root parser that reaches each declared command with its flags.
+  "Invoked" means exactly that: the root parser accepted the argv with no
+  leftover arguments; the command's handler need not have run. The plugin
+  records those argvs while marked tests run, including from threads the test
+  starts; a skipped or failed test contributes none. Options are compared as
+  argparse reads them: `-j` counts as `--jobs`, an abbreviation argparse accepts
+  counts as its option, and nothing after `--` is an option. Two options that
+  share a `dest` (`--x`, `--no-x`) stay two options. A command written in a
   string, comment or docstring is not an invocation. The capture sees in-process
   parsing (`build_parser().parse_args(...)`, the way the suite drives the CLI); a
   subprocess running `cli.py` is not captured, so evidence of that shape is
   declared `integration`.
 
-Entries with `enforce: false`, and catalog criteria with no entry, fail nothing.
-They are listed in the report as unverified, with their gaps.
+Entries with `enforce: false`, and catalog criteria with no entry, gate nothing
+at run time: a failing or unclaimed test of theirs does not change the session
+verdict. A broken link in such an entry (the checks above) is still an error.
+They are listed in the report as unverified, with their gaps, even when their
+tests pass: nothing would fail if those tests stopped proving the criterion.
+A missing or unreadable catalog or registry is an error in the report, which is
+still written.
 
 The session exit code is the worst of the contract verdicts and the journey
 verdict: 0 pass, 1 fail, 2 error, 3 inconclusive.
@@ -142,11 +155,14 @@ verdict: 0 pass, 1 fail, 2 error, 3 inconclusive.
 pytest -n auto --outcomes --outcomes-report=outcomes-result.json --journeys-report=journeys-result.json
 ```
 
-This writes `journeys-result.json` and `journeys-result.md`. CI runs it in the
+This writes `journeys-result.json` and `journeys-result.md`.
+`--journeys-report` must end in `.json` (the markdown goes beside it); any other
+suffix is a usage error before the tests run, exit 4. A missing parent directory
+is created. CI runs it in the
 test job and uploads both with the coverage artifact. The report holds the
 inspected commit (`GITHUB_SHA` in CI, else `git rev-parse HEAD`), the run id,
 the date, one row per documented criterion with its evidence, kinds, stubs and
-verdicts, the stated gaps, and the list of criteria with no passing evidence.
+verdicts, the stated gaps, and the list of unverified criteria.
 Running a subset of the tests leaves enforced evidence unclaimed, so the
 journey verdict of a partial run is an error by design; the full suite is the
 run that counts.

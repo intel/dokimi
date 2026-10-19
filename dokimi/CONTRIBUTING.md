@@ -92,7 +92,11 @@ CI additionally holds a PR to:
   fails, fails the job; if every claimed test is skipped, the job is inconclusive.
   `outcomes-result.json` says which. Changing a promised behaviour means changing
   the doc, the test and the contract together. `pytest --outcomes -m outcome` runs
-  only the evidence.
+  only the evidence. The same session checks the journey trace: each criterion
+  in `tests/outcomes/journeys.yaml` with `enforce: true` needs its `cjm-*`
+  evidence ids claimed by passing tests. It writes `--journeys-report`
+  (default `journeys-result.json`, plus `.md`); see
+  [traceability](docs/user-journeys/traceability.md#what-the-check-enforces).
 - **Docs build** — `mkdocs build --strict`, from `dokimi/`. `make dev` already
   installs its packages and `make ci-local` runs it; by hand, install them with
   `pip install -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
