@@ -132,7 +132,7 @@ jobs:
             sha=$(git ls-remote --tags "https://github.com/$DOKIMI_REPO" \
                   | awk -v t="refs/tags/$REF" '$2 == t "^{}" { p = $1 } $2 == t { l = $1 } END { print (p != "" ? p : l) }')
           fi
-          if [ -z "${sha:-}" ]; then
+          if ! [[ "${sha:-}" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error title=dokimi-ref::dokimi-ref is neither a 40-digit commit SHA nor a tag of $DOKIMI_REPO"
             exit 1
           fi
@@ -172,7 +172,7 @@ jobs:
         id: select
         env:
           EVENT: ${{ github.event_name }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           BEFORE: ${{ github.event.before }}
           WORKFLOW_REF: ${{ github.workflow_ref }}
           REPOSITORY: ${{ github.repository }}
@@ -206,8 +206,9 @@ jobs:
           all_ids = sorted(p.parent.name for p in Path(tasks_dir).glob("*/task.json"))
 
           def changed_files():
-              if env["EVENT"] == "pull_request" and env["BASE_REF"]:
-                  rng = [f"origin/{env['BASE_REF']}...HEAD"]
+              # the base the PR was opened against, from the event: no reliance on a local origin/<base> ref
+              if env["EVENT"] == "pull_request" and env["BASE_SHA"]:
+                  rng = [f"{env['BASE_SHA']}...HEAD"]
               elif env["EVENT"] == "push" and env["BEFORE"].strip("0"):
                   rng = [env["BEFORE"], "HEAD"]
               else:
@@ -237,15 +238,17 @@ jobs:
                   manifest_normalized = posixpath.normpath(env["MANIFEST"])
 
                   def harness(f):
+                      if f.startswith(eval_dir) and f.endswith(".md"):
+                          return False  # Markdown in the eval dir, its tasks dir included, selects nothing
                       if f in (manifest_normalized, caller) or any(f.startswith(r) for r in roots):
                           return True
                       if f.startswith(prefix):
-                          # a file under prefix (tasks dir) whose first segment is not a task id
-                          # is a shared helper (e.g., tasks/common.py); treat as harness
+                          # a file under prefix (tasks dir) whose first segment is not an existing task id
+                          # is a shared helper (e.g., tasks/common.py) or a deleted task's file: harness
                           first_segment = f[len(prefix):].split("/", 1)[0]
                           if first_segment not in all_ids:
                               return True
-                      return f.startswith(eval_dir) and not f.startswith(prefix) and not f.endswith(".md")
+                      return f.startswith(eval_dir) and not f.startswith(prefix)
 
                   hits = [f for f in files if harness(f)]
                   if hits:

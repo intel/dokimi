@@ -79,8 +79,9 @@ def _select(repo: Path, tmp_path: Path, **overrides: str) -> list[str]:
         "id": "demo", "tasks": TASKS, "eval_dir": EVAL_DIR}}), encoding="utf-8")
     env = {
         **os.environ, "RUNNER_TEMP": str(temp), "GITHUB_OUTPUT": str(temp / "out"),
-        "GITHUB_STEP_SUMMARY": str(temp / "summary"), "EVENT": "pull_request", "BASE_REF": "main",
-        "BEFORE": "", "WORKFLOW_REF": "o/r/.github/workflows/ci.yml@refs/heads/x", "REPOSITORY": "o/r",
+        "GITHUB_STEP_SUMMARY": str(temp / "summary"), "EVENT": "pull_request",
+        "BEFORE": "", "BASE_SHA": "origin/main", "WORKFLOW_REF": "o/r/.github/workflows/ci.yml@refs/heads/x",
+        "REPOSITORY": "o/r",
         "MANIFEST": f"{EVAL_DIR}/repo-eval.yaml", "TASKS": "changed", "SMOKE_TASKS": "t1",
         "SMOKE_PATHS": "", "EXCLUDE_TASKS": "", **overrides,
     }
@@ -148,6 +149,31 @@ def test_the_manifest_is_compared_normalised(repo, tmp_path, manifest):
 def test_an_unrelated_file_selects_nothing(repo, tmp_path):
     _write(repo, "README.md", "changed\n")
     assert _select(repo, tmp_path) == []
+
+
+def test_markdown_in_the_tasks_dir_selects_nothing(repo, tmp_path):
+    _write(repo, f"{TASKS}/README.md", "changed\n")
+    assert _select(repo, tmp_path) == []
+
+
+def test_an_explicit_task_list_is_checked_as_given(repo, tmp_path):
+    _write(repo, "README.md", "changed\n")
+    assert _select(repo, tmp_path, TASKS="t1") == ["t1"]
+
+
+def test_all_minus_excluded_tasks(repo, tmp_path):
+    _write(repo, "README.md", "changed\n")
+    assert _select(repo, tmp_path, TASKS="all", EXCLUDE_TASKS="t1") == ["my task"]
+
+
+def test_a_push_diffs_against_the_previous_tip(repo, tmp_path):
+    _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
+    assert _select(repo, tmp_path, EVENT="push", BEFORE="origin/main") == ["my task"]
+
+
+def test_a_push_without_a_previous_tip_checks_every_task(repo, tmp_path):
+    _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
+    assert _select(repo, tmp_path, EVENT="push", BEFORE="0" * 40) == ["my task", "t1"]
 
 
 def test_the_check_results_artifact_keeps_the_stderr_files():
