@@ -8,9 +8,9 @@ SPDX-License-Identifier: Apache-2.0
 > **This is the whole project.** It evaluates whether a given skill / MCP doc
 > source / agent profile actually improves agent answers, and produces the
 > evidence (a scorecard) that decides whether the artifact is worth shipping.
-> See the [repository overview](../README.md) for the short version.
+> See the [repository overview](https://github.com/intel/dokimi/blob/main/README.md) for the short version.
 >
-> **Documentation: <https://intel.github.io/dokimi/>** (the [`docs/`](docs/README.md)
+> **Documentation: <https://intel.github.io/dokimi/>** (the [`docs/`](https://github.com/intel/dokimi/blob/main/dokimi/docs/README.md)
 > pages plus a generated CLI and API reference).
 
 `dokimi` measures whether a skill, MCP doc source, documentation set or
@@ -27,13 +27,13 @@ Evidence tracks:
 
 | Track | Question it answers | Guide |
 |---|---|---|
-| Context benchmark | Do answers to a fixed question set improve with the artifact? | [user-flow.md](docs/user-flow.md), [quickstart.md](docs/quickstart.md) |
-| Treatment arms | Which of several docs / MCP / skill / profile arms helps, and by how much? | [evaluating-treatments.md](docs/evaluating-treatments.md) |
-| Executable tasks | Does the agent produce code that builds and passes tests in Docker? | [coding-harnesses.md](docs/coding-harnesses.md) |
-| Exploration (ExploreBench) | Can the agent locate the right files and line ranges? | [external-content.md](docs/external-content.md) |
-| Content novelty | What does a skill *add* to a given model, and what can be cut? | [skill-novelty.md](docs/skill-novelty.md) |
-| Repository subjects | How well does an agent work inside a given repository? | [repo-evaluation-contract.md](docs/repo-evaluation-contract.md) |
-| Context window | What did the agent's context hold: start-up load, growth, compactions, tool-output weight? | [context-window.md](docs/context-window.md) |
+| Context benchmark | Do answers to a fixed question set improve with the artifact? | [user-flow.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/user-flow.md), [quickstart.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/quickstart.md) |
+| Treatment arms | Which of several docs / MCP / skill / profile arms helps, and by how much? | [evaluating-treatments.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/evaluating-treatments.md) |
+| Executable tasks | Does the agent produce code that builds and passes tests in Docker? | [coding-harnesses.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/coding-harnesses.md) |
+| Exploration (ExploreBench) | Can the agent locate the right files and line ranges? | [external-content.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/external-content.md) |
+| Content novelty | What does a skill *add* to a given model, and what can be cut? | [skill-novelty.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/skill-novelty.md) |
+| Repository subjects | How well does an agent work inside a given repository? | [repo-evaluation-contract.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/repo-evaluation-contract.md) |
+| Context window | What did the agent's context hold: start-up load, growth, compactions, tool-output weight? | [context-window.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/context-window.md) |
 | Static docs checks | Are the docs well-structured, fresh, readable, with runnable examples? | [Static benchmark metrics](#static-benchmark-metrics) |
 
 ### Three questions you can ask
@@ -49,8 +49,8 @@ the same material. Pick by what you are about to do with the answer:
 
 The first ships or cuts an artifact; the second edits one; the third measures a
 codebase instead of a document.
-[docs/README.md](docs/README.md) explains the three in full and
-[docs/architecture.md](docs/architecture.md) maps them to modules.
+[docs/README.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/README.md) explains the three in full and
+[docs/architecture.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/architecture.md) maps them to modules.
 
 The framework is content-agnostic: question sets, tasks, skills and products are
 passed in by path or registered in `products.yaml`. The bundled registry uses
@@ -77,7 +77,7 @@ pip install -r requirements.txt -r requirements-test.txt
 
 The examples below use `python cli.py …`; after `pip install -e .` the
 `dokimi …` command is equivalent. For what a run costs in API calls,
-see the [cost estimate](docs/quickstart.md#cost-estimate).
+see the [cost estimate](https://github.com/intel/dokimi/blob/main/dokimi/docs/quickstart.md#cost-estimate).
 
 ## Quick start
 
@@ -106,7 +106,7 @@ Run the test suite:
 python -m pytest -q
 ```
 
-For the LLM evaluation pipeline (answers, judging, dashboard), see [docs/quickstart.md](docs/quickstart.md). For benchmark invocation and comparison recipes, see [docs/benchmarking-and-comparison.md](docs/benchmarking-and-comparison.md). A high-level architecture map is in [docs/architecture.md](docs/architecture.md), and [docs/README.md](docs/README.md) is the documentation index.
+For the LLM evaluation pipeline (answers, judging, dashboard), see [docs/quickstart.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/quickstart.md). For benchmark invocation and comparison recipes, see [docs/benchmarking-and-comparison.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/benchmarking-and-comparison.md). A high-level architecture map is in [docs/architecture.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/architecture.md), and [docs/README.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/README.md) is the documentation index.
 
 ## Main CLI areas
 
@@ -157,7 +157,7 @@ python cli.py dashboard generate --help
 For end-to-end benchmark and comparison commands, including static snapshots,
 LLM context-arm vs baseline runs, fair multi-model comparisons, treatment arms,
 dashboards, and baselines, see
-[docs/benchmarking-and-comparison.md](docs/benchmarking-and-comparison.md).
+[docs/benchmarking-and-comparison.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/benchmarking-and-comparison.md).
 
 ## Product and intent registries
 
@@ -218,9 +218,9 @@ python cli.py benchmark run --target onedal --questions-from results/onedal_seed
 python cli.py benchmark run --target onedal --questions-from results/onedal_seed --model claude-opus-5-5 --provider anthropic
 ```
 
-Generated artifacts — answer runs, judge scores and benchmark snapshots — go under `results/`, `reports/`, `answers/`, `eval/` or `baselines/`; those paths are git-ignored and no captured run is committed. Curated, version-controlled *inputs* live under `data/` (`data/skills/fastcontext/`, `data/agent_profiles/`, `data/explore_tasks/`) — see [`data/README.md`](data/README.md). Product skills, question sets and personas are evaluation content: they come from a separate content repository and are passed in by path (`skill:<path>`, `--questions <path>`, `--questions-root <dir>`).
+Generated artifacts — answer runs, judge scores and benchmark snapshots — go under `results/`, `reports/`, `answers/`, `eval/` or `baselines/`; those paths are git-ignored and no captured run is committed. Curated, version-controlled *inputs* live under `data/` (`data/skills/fastcontext/`, `data/agent_profiles/`, `data/explore_tasks/`) — see [`data/README.md`](https://github.com/intel/dokimi/blob/main/dokimi/data/README.md). Product skills, question sets and personas are evaluation content: they come from a separate content repository and are passed in by path (`skill:<path>`, `--questions <path>`, `--questions-root <dir>`).
 
-See [docs/methodology.md](docs/methodology.md) for the detailed model roles, question types, difficulty levels, task workflow, and trust checks.
+See [docs/methodology.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/methodology.md) for the detailed model roles, question types, difficulty levels, task workflow, and trust checks.
 
 ## Executable tasks
 
@@ -233,7 +233,7 @@ python cli.py tasks run --tasks-root <checkout>/evaluation/harbor/tasks \
   --tasks <task-name> --harnesses docker-oracle --out-json results/runs.json
 ```
 
-The directory layout and `task.toml` fields a task must provide are specified in [docs/contributing-terminal-bench-task.md](docs/contributing-terminal-bench-task.md). CI runs a real external catalog through the same harness (see [CI](#ci) below) with network disabled at solve and verify time.
+The directory layout and `task.toml` fields a task must provide are specified in [docs/contributing-terminal-bench-task.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/contributing-terminal-bench-task.md). CI runs a real external catalog through the same harness (see [CI](#ci) below) with network disabled at solve and verify time.
 
 ## Repository layout
 
@@ -300,7 +300,7 @@ tests/                   Pytest suite
 ## CI
 
 Among the checks GitHub Actions runs on pull requests (more in
-[docs/architecture.md](docs/architecture.md#ci)):
+[docs/architecture.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/architecture.md#ci)):
 
 1. `test` — installs `requirements.lock.txt` and runs pytest offline; on a PR, 80% of the changed lines must be covered (coverage measured on Python 3.14 only).
 2. `benchmark` — runs the static agent-quality benchmark in strict mode (a gate or band failure fails the job) and uploads artifacts.
@@ -316,15 +316,15 @@ Status reports, phase plans, and other development-history notes do not belong i
 ## Contributing
 
 - Run `python -m pytest -q` before opening a PR.
-- See [docs/contributing-metric.md](docs/contributing-metric.md) and
-  [docs/contributing-terminal-bench-task.md](docs/contributing-terminal-bench-task.md)
+- See [docs/contributing-metric.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/contributing-metric.md) and
+  [docs/contributing-terminal-bench-task.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/contributing-terminal-bench-task.md)
   for the two main extension flows.
 - Keep generated artifacts under `reports/` or `results/` (both ignored).
   Only commit curated fixtures that are part of a reproducible benchmark.
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](../LICENSE). See [NOTICE](../NOTICE)
+Licensed under the [Apache License, Version 2.0](https://github.com/intel/dokimi/blob/main/LICENSE). See [NOTICE](https://github.com/intel/dokimi/blob/main/NOTICE)
 for attribution. Contributions are accepted under the same license — see
-[CONTRIBUTING.md](CONTRIBUTING.md). To report a security issue, see
-[SECURITY.md](SECURITY.md).
+[CONTRIBUTING.md](https://github.com/intel/dokimi/blob/main/dokimi/CONTRIBUTING.md). To report a security issue, see
+[SECURITY.md](https://github.com/intel/dokimi/blob/main/dokimi/SECURITY.md).
