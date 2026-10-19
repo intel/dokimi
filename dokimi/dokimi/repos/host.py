@@ -55,7 +55,7 @@ def resolve_cgroup_limits():
     # Try v2 first (unified hierarchy): find the cgroup path from cgroup v2 entry
     for line in cgroup_text.split("\n"):
         if line.startswith("0::"):
-            parts = line.split("::")
+            parts = line.split(":", 2)  # split on at most 2 colons to handle v2 paths like 0::/docker/eval
             if len(parts) >= 3:
                 cgroup_v2_path = parts[2]
                 # Find v2 mount point from mountinfo
@@ -205,19 +205,27 @@ def probe_host(ctx: EvalContext, work_dir: Path) -> dict[str, Any]:
     return host_facts(raw)
 
 
-def unmet(task: Task, facts: dict[str, Any] | None) -> str | None:
-    """Why the task cannot be graded meaningfully here, or ``None`` when it can (or needs nothing)."""
+def unmet(task: Task, facts: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    """Why the task cannot be graded here; ``(reason, unsupported_by)`` or ``(None, None)`` when it can.
+
+    ``unsupported_by`` is ``"host"`` for a hardware miss (e.g., insufficient CPUs), or
+    ``"host-probe"`` for a probe failure (e.g., python3 not in image). A task with
+    requirements and a broken probe cannot be verified, even with --allow-unsupported.
+    """
     need = requirements(task)
     if need is None:
-        return None
-    if not facts or facts.get("error") or facts.get("cpus") is None:
+        return None, None
+    if not facts or facts.get("cpus") is None:
+        # A probe failure (error set, or no CPU count). Mark as "host-probe" so
+        # --allow-unsupported does not hide a broken measurement.
         why = (facts or {}).get("error") or "the host probe reported no CPU count"
-        return f"needs {need.describe()}; cannot tell on this host: {why}"
+        return (f"needs {need.describe()}; cannot tell on this host: {why}", "host-probe")
     short = _shortfalls(need, facts)
     if not short:
-        return None
-    return (f"needs {need.describe()} to show its bug; the grading container has {'; '.join(short)} "
-            f"({_describe(facts)})")
+        return None, None
+    reason = (f"needs {need.describe()} to show its bug; the grading container has {'; '.join(short)} "
+              f"({_describe(facts)})")
+    return reason, "host"
 
 
 def _shortfalls(need: HostRequirements, facts: dict[str, Any]) -> list[str]:

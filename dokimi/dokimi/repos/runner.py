@@ -251,7 +251,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     _record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
-    unsupported = {t.id: why for t in tasks if (why := unmet(t, host))}
+    unsupported = {t.id: why for t in tasks if (why := unmet(t, host)[0])}
     for task_id, why in unsupported.items():
         log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
     lock = threading.Lock()

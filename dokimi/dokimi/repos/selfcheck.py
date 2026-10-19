@@ -69,9 +69,9 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     except ContainerError as exc:
         res.update(verdict="unsupported", unsupported_by="egress", problems=[str(exc)])
         return res
-    reason = _host_reason(ctx, task, work_dir, host)
+    reason, unsupported_by = _host_reason(ctx, task, work_dir, host)
     if reason:
-        res.update(verdict="unsupported", unsupported_by="host", problems=[f"host: {reason}"])
+        res.update(verdict="unsupported", unsupported_by=unsupported_by or "host", problems=[f"host: {reason}"])
         return res
     for kind in ("null", "oracle"):
         rd = work_dir / f"{task.id}__{kind}"
@@ -96,7 +96,8 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     return res
 
 
-def _host_reason(ctx: EvalContext, task: Task, work_dir: Path, host: dict[str, Any] | None) -> str | None:
+def _host_reason(ctx: EvalContext, task: Task, work_dir: Path, host: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    """Return (reason, unsupported_by) or (None, None)."""
     if host is None and task.raw.get("host") is not None:
         host = probe_host(ctx, work_dir / f"{task.id}__host")
     return unmet(task, host)

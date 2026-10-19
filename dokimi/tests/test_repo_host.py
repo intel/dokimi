@@ -111,8 +111,11 @@ def test_a_probe_that_cannot_run_is_recorded_and_leaves_requirements_undecided(t
                       runner=HostRunner(None))
     facts = probe_host(ctx, tmp_path / "w")
     assert facts["error"].startswith("host probe exited 127 in img:1") and "python3: not found" in facts["error"]
-    assert unmet(_task(None), facts) is None  # a task without requirements does not care
-    assert "cannot tell on this host: host probe exited 127" in unmet(_task({"min_cpus": 2}), facts)
+    reason, unsupported_by = unmet(_task(None), facts)
+    assert reason is None  # a task without requirements does not care
+    reason, unsupported_by = unmet(_task({"min_cpus": 2}), facts)
+    assert reason is not None and "cannot tell on this host: host probe exited 127" in reason
+    assert unsupported_by == "host-probe"  # marked as probe failure, not hardware miss
 
 
 # ------------------------------------------------------------------ requirements
@@ -144,14 +147,16 @@ def test_requirements_default_and_parse():
 
 def test_unmet_names_every_shortfall_and_what_the_container_saw():
     amd = host_facts(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
-    why = unmet(_task({"min_cpus": 4, "cpu_vendors": ["GenuineIntel"], "cpu_flags": ["avx512f", "avx2"]}), amd)
-    assert why is not None
+    why, unsupported_by = unmet(_task({"min_cpus": 4, "cpu_vendors": ["GenuineIntel"], "cpu_flags": ["avx512f", "avx2"]}), amd)
+    assert why is not None and unsupported_by == "host"
     assert "2 CPU(s) < min_cpus 4" in why and "vendor AuthenticAMD not in GenuineIntel" in why
     assert "missing cpu_flags avx512f" in why and "avx2," not in why.split("has")[1]
     assert "AMD EPYC 7763" in why and "affinity 2, cgroup quota none" in why
     intel = host_facts(_probe_out(affinity=8))
-    assert unmet(_task({"min_cpus": 4, "cpu_vendors": ["GenuineIntel"], "cpu_flags": ["avx512f"]}), intel) is None
-    assert unmet(_task({}), amd) is None
+    reason, _ = unmet(_task({"min_cpus": 4, "cpu_vendors": ["GenuineIntel"], "cpu_flags": ["avx512f"]}), intel)
+    assert reason is None
+    reason, _ = unmet(_task({}), amd)
+    assert reason is None
 
 
 # ------------------------------------------------------------------ tasks check, run, report
@@ -313,3 +318,35 @@ def test_probe_resolves_limits_via_namespace_aware_cgroup_paths(tmp_path):
     assert "/proc/self/mountinfo" in PROBE
     # Verify the fallback still works for systems without cgroup namespace features
     assert "/sys/fs/cgroup/cpu" in PROBE
+
+
+def test_probe_failure_is_marked_host_probe_never_hidden_by_allow_unsupported(tmp_path, monkeypatch, capsys):
+    """Regression: probe failure (unsupported_by='host-probe') must not be hidden by --allow-unsupported.
+
+    A broken probe is different from a real hardware miss. When python3 is not in the image,
+    --allow-unsupported should not hide the need to verify requirements.
+    """
+    root = _repo(tmp_path)
+    runner = HostRunner(None)  # Probe returns None (fails: python3 not found)
+    with pytest.raises(SystemExit) as exc:
+        _check(root, tmp_path / "a", runner, monkeypatch, "--allow-unsupported")
+    assert exc.value.code == 1  # Still fails even with --allow-unsupported
+    capsys.readouterr()  # consume output
+    # The task with host requirements should report unsupported_by="host-probe"
+    doc = json.loads((tmp_path / "a/check/check.json").read_text())
+    race = next(t for t in doc["tasks"] if t["task"] == "fix_race")
+    assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host-probe"
+
+
+def test_probe_cgroup_v2_split_bug_is_fixed(tmp_path):
+    """Regression: cgroup v2 line must split on at most 2 colons to handle paths like 0::/docker/eval."""
+    # The test verifies the PROBE script can parse this correctly
+    # Split on at most 2 colons means: "0::/docker/eval".split(":", 2) -> ["0", "", "/docker/eval"] (correct)
+    # whereas "0::/docker/eval".split("::") -> ["0", "/docker/eval"] (incorrect, loses the delimiter position)
+    parts_correct = "0::/docker/eval".split(":", 2)
+    assert len(parts_correct) == 3, f"Expected 3 parts, got {len(parts_correct)}: {parts_correct}"
+    assert parts_correct[2] == "/docker/eval", f"Path should be /docker/eval, got {parts_correct[2]}"
+
+    # Verify the PROBE script uses the correct approach
+    # The actual code is: parts = line.split(":", 2) which handles this correctly now
+    assert 'split(":", 2)' in PROBE, "PROBE must use split with maxsplit=2 for cgroup v2"
