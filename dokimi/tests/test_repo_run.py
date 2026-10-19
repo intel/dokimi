@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
 from dokimi.cli import build_parser
 from dokimi.repos.container import CONTENT_DIR, HARNESS_DIR, RUN_DIR, SOURCE_DIR, WORKSPACE
@@ -108,6 +109,35 @@ def test_already_graded_cells_are_skipped_unless_forced(setup, capsys):
     assert "0 ran, 1 already done" in capsys.readouterr().out
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--force")
     assert "1 ran, 0 already done" in capsys.readouterr().out
+
+
+def test_a_cell_is_reused_only_by_the_same_execution(setup, capsys):
+    raw = yaml.safe_load(setup["profile"].read_text())
+    raw["delegation"] = {"none": {"all": [*raw["tools"]["all"], "--no-agents"]}}
+    setup["profile"].write_text(yaml.safe_dump(raw))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    rd = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"
+    ran = json.loads((rd / "result.json").read_text())["execution"]
+    assert ran["delegation"] == "native" and ran["tools"] == "all"
+    assert json.loads((rd / "meta.json").read_text())["execution"] == ran
+    with pytest.raises(SystemExit):  # a crashed cell fails the run
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
+    out = capsys.readouterr()
+    assert "0 ran, 0 already done, 1 crashed" in out.out and "finished with another execution" in out.out
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none", "--force")
+    assert "1 ran" in capsys.readouterr().out
+    rec = json.loads((rd / "result.json").read_text())
+    assert rec["execution"]["delegation"] == "none" and rec["execution"]["id"] != ran["id"]
+    agent = [s for s in setup["runner"].specs if "-p" in s.argv][-1]
+    assert agent.argv[-1] == "--no-agents"
+
+
+def test_delegation_none_is_refused_before_anything_runs_when_the_profile_cannot(setup, capsys):
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
+    assert "declares no `delegation: none`" in capsys.readouterr().err
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
 
 
 @pytest.mark.outcome("cjm-repo-grader-crash")

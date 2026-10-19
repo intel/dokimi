@@ -621,6 +621,9 @@ tools:                               # what the "{tools}" element expands to
   none: ["--tools", ""]
   read: ["--tools", "Read"]
   all:  ["--disallowedTools", "WebFetch", "WebSearch"]
+delegation:                          # --delegation none: these replace the tool mode's arguments
+  none:
+    all: ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task"]
 config_dir_env: CLAUDE_CONFIG_DIR    # a fresh directory per run
 env_allow: [PATH, HOME, AWS_REGION, AWS_BEARER_TOKEN_BEDROCK, ANTHROPIC_API_KEY,
             CLAUDE_CODE_USE_BEDROCK, https_proxy, no_proxy, ...]
@@ -649,6 +652,12 @@ bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
   directory, with `{config_dir}` and `{support_dir}` (the framework's helper
   scripts) as the agent's container sees them. The built-in `claude-code`
   profile uses them for a hook that refuses backgrounded shell commands.
+- Optional `delegation.none` maps a tool mode to the arguments `repo run
+  --delegation none` uses instead, so the agent cannot start a subagent. A
+  tool mode it leaves out is taken to start none already (`none` and `read`
+  above). A profile without `delegation.none` refuses `--delegation none`
+  before anything runs. The default, `--delegation native`, runs the tool mode
+  as written: under `all`, Claude Code may start subagents.
 
 Profiles for other harnesses (Codex, Gemini CLI, Copilot CLI, Cursor agent,
 Aider, OpenCode, in-house agents) follow the same shape. Their `guidance`
@@ -975,7 +984,13 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
 - Each cell holds the §4 inputs plus `agent.stdout` (the raw trace) and
   `result.json`, the framework's verdict. A cell with `result.json` is skipped
   on a rerun unless `--force`; a cell without one is reported as missing, not
-  failed, and the next run of the batch fills it. A batch stays on the eval
+  failed, and the next run of the batch fills it. `meta.json` and
+  `result.json` record `execution`: the tool mode, the delegation mode and an
+  `id` hashing the profile's `invoke`, tool arguments, `env_set`,
+  `config_files` and `prompt_suffix`. A rerun whose `id` differs (another
+  `--tools`, `--delegation` or profile) does not reuse the cell: the cell is
+  reported as crashed, and `--force` or another `--batch` runs it. A result
+  from before `execution` was recorded counts as `--delegation native`. A batch stays on the eval
   tree it started with: its revision, or for a working tree the digests of
   its `eval_dir` and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.

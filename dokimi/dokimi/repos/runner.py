@@ -82,6 +82,7 @@ class AgentOptions:
     agent_network: str | None = None  # explicit opt-in while the egress proxy is missing
     harness_version: str | None = None
     tools: str = "all"
+    delegation: str = "native"     # DELEGATION_MODES; "none" runs the profile's no-subagent tool arguments
     timeout_s: float = 2700
     max_turns: int = 200
     budget_usd: float = 2.0
@@ -93,6 +94,16 @@ def slug(text: str) -> str:
 
 def cell_name(task: str, arm: str, model: str, rep: int) -> str:
     return f"{task}__{slug(arm.replace(':', '-'))}__{slug(model)}__r{rep}"
+
+
+def execution_record(opts: AgentOptions) -> dict[str, str]:
+    """How the cell's agent was started, as ``meta.json`` and ``result.json`` record it."""
+    return {"id": opts.profile.execution_id(opts.tools, opts.delegation), "tools": opts.tools,
+            "delegation": opts.delegation}
+
+
+class ExecutionMismatch(PrepError):
+    """A finished cell of the batch ran with another execution than the one asked for."""
 
 
 def agent_network(opts: AgentOptions, ctx: EvalContext, task: Task) -> str:
@@ -153,8 +164,18 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
 
     ``host`` (the probed facts of :func:`.host.probe_host`) is recorded in ``meta.json``."""
     rd = batch_dir / cell_name(task.id, arm, opts.model, rep)
+    execution = execution_record(opts)
     if (rd / "result.json").is_file() and not force:
-        return {**json.loads((rd / "result.json").read_text(encoding="utf-8")), "skipped": True}
+        done = json.loads((rd / "result.json").read_text(encoding="utf-8"))
+        ran = done.get("execution") or {}
+        # A result from before execution ids carries none: it can only have run with native delegation.
+        if ran.get("id", execution["id"]) != execution["id"] or (
+                not ran and execution["delegation"] != "native"):
+            raise ExecutionMismatch(
+                f"the cell finished with another execution ({ran.get('id', 'unrecorded')}, delegation "
+                f"{ran.get('delegation', 'native')}) than this run ({execution['id']}, delegation "
+                f"{execution['delegation']}); use another --batch, or --force to replace it")
+        return {**done, "skipped": True}
     network = agent_network(opts, ctx, task)
     grade_network = docker_network(ctx.manifest.image.network if ctx.manifest.image else "none", task.egress)
     caps = task_caps(task, opts)
@@ -163,7 +184,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     rd.mkdir(parents=True)
     meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile)
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
-                batch=batch_dir.name, agent_network=network, egress_proxy=False, host=host)
+                batch=batch_dir.name, agent_network=network, egress_proxy=False, execution=execution, host=host)
     _write_json(rd / "meta.json", meta)
 
     mounts, env = agent_layout(ctx, rd, task)
@@ -178,7 +199,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     env["DOKIMI_HOOK_LOG"] = f"{CONFIG_DIR}/hook.log"
     opts.profile.write_config(rd / "config", {"config_dir": CONFIG_DIR, "support_dir": SUPPORT_DIR})
     argv = opts.profile.argv(prompt=opts.profile.prompt(str(task.raw["prompt"])), model=opts.model,
-                             tools=opts.tools, max_turns=int(caps["max_turns"]), budget_usd=caps["budget_usd"],
+                             tools=opts.tools, delegation=opts.delegation, max_turns=int(caps["max_turns"]), budget_usd=caps["budget_usd"],
                              bin_path=bin_in)
     spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts, env=env, pass_env=passed,
                          network=network, name=container_name(rd.name, "agent"))
@@ -226,7 +247,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     record: dict[str, Any] = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model,
                               "model_resolved": meta.get("model_resolved"), "rep": rep,
                               "harness": opts.profile.name, "harness_version": meta["harness_version"],
-                              "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "grade": grade}
+                              "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
+                              "agent": agent, "grade": grade}
     if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
         record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
     try:

@@ -193,6 +193,24 @@ def test_builtin_claude_code_profile_builds_argv_without_a_shell(tmp_path):
         profile.argv(prompt="p", model="m", tools="everything")
 
 
+def test_delegation_none_drops_the_subagent_tools_and_changes_the_execution_id():
+    profile = load_profile("claude-code")
+    native = profile.argv(prompt="p", model="m", tools="all")
+    solo = profile.argv(prompt="p", model="m", tools="all", delegation="none")
+    assert native[-3:] == ["--disallowedTools", "WebFetch", "WebSearch"]
+    assert solo[-5:] == ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task"]
+    assert profile.argv(prompt="p", model="m", tools="read", delegation="none")[-2:] == ["--tools", "Read"]
+    ids = {profile.execution_id("all"), profile.execution_id("all", "none"), profile.execution_id("read")}
+    assert len(ids) == 3 and profile.execution_id("all") == load_profile("claude-code").execution_id("all")
+    with pytest.raises(ProfileError, match="unknown delegation"):
+        profile.tool_args("all", "fork")
+
+
+def test_a_profile_without_delegation_cannot_run_without_subagents(tmp_path):
+    with pytest.raises(ProfileError, match="declares no `delegation: none`"):
+        load_profile(_profile(tmp_path)).tool_args("read", "none")
+
+
 def test_profile_env_is_allow_listed_and_isolated(tmp_path):
     profile = load_profile("claude-code")
     env = profile.env(tmp_path / "cfg").resolve({"PATH": "/bin", "AWS_REGION": "us-east-1",
