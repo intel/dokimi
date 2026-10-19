@@ -110,4 +110,4 @@ conda-forge packages are built by a feedstock repository under
 
 Every runtime dependency in `pyproject.toml` is on conda-forge (checked for
 0.1.0), including versions inside the current upper bounds. An optional extra
-(`ocr`, `mcp`, `embeddings`, `typed-scorer`) is not part of the conda package.
+(`ragas`, `ocr`, `mcp`, `embeddings`, `typed-scorer`) is not part of the conda package.

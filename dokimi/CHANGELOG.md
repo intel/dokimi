@@ -53,6 +53,7 @@ First release on PyPI. Requires Python 3.11 to 3.14.
 - `harmful_atoms` reports `measured: false` when the conflict check did not cover every atom pair.
 - `command:`, Harbor, BenchFlow and explorer timeouts kill the whole process tree.
 - Bundled registries and the spec schema ship inside the package.
+- RAGAS is an optional extra: `eval ragas` and `answers generate --ragas` need `pip install 'dokimi[ragas]'`, and exit 1 before any model call without it.
 - `beautifulsoup4` and `anthropic` are no longer direct dependencies.
 
 ### Removed
