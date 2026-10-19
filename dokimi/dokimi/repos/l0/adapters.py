@@ -20,7 +20,7 @@ from typing import Callable, Iterator
 
 import yaml
 
-from .core import Scan, dynamic
+from .core import Scan, ancestors, dynamic
 from .markdown import Fence
 
 ADAPTERS = ("bazel", "make", "cmake", "pytest", "pre-commit")
@@ -205,9 +205,7 @@ def check_label(scan: Scan, file: str, line: int, label: str, ctx: str) -> None:
     repo, pkg, target = m.groups()
     if not repo and pkg in ("conditions", "visibility"):  # //conditions:default, //visibility:public
         return
-    facts = _bazel_facts(scan)
-    if repo and repo.lstrip("@") not in ("", facts["module"]):
-        scan.add(file, line, "bazel_label", label, "unresolved", f"external repository {repo}", ctx)
+    if repo and _other_repository(scan, file, line, label, (repo.lstrip("@"), pkg, target), ctx):
         return
     if pkg == "..." or pkg.endswith("/..."):
         base = pkg[:-3].rstrip("/") or "."
@@ -232,10 +230,62 @@ def check_label(scan: Scan, file: str, line: int, label: str, ctx: str) -> None:
         scan.add(file, line, "bazel_label", label, "fail", f'no target "{name}" in {build}', ctx)
 
 
+def _other_repository(scan: Scan, file: str, line: int, label: str, parts: tuple[str, str, str | None],
+                      ctx: str) -> bool:
+    """Claim a label whose repository part matters, and say so: another repository's label, or this module named
+    alone (``@onedal//``, the prefix of its own labels)."""
+    repo, pkg, target = parts
+    if repo not in ("", _bazel_facts(scan)["module"]):
+        _check_external(scan, file, line, label, parts, ctx)
+        return True
+    if not pkg and not target:
+        scan.add(file, line, "bazel_label", label, "ok", f"@{repo} is this module", ctx)
+        return True
+    return False
+
+
+def _check_external(scan: Scan, file: str, line: int, label: str, parts: tuple[str, str, str | None], ctx: str) -> None:
+    """A label in another repository: checked when this tree holds that repository's BUILD file (see
+    :func:`_external_builds`), else ``unresolved``. A target that may be a file (``x.h``) is never ``fail``."""
+    repo, pkg, target = parts
+    builds = _external_builds(scan, repo) if not pkg and target and "/" not in target else []
+    if not builds or target is None:
+        scan.add(file, line, "bazel_label", label, "unresolved", f"external repository @{repo}", ctx)
+        return
+    names: set[str] = set()
+    computed = False
+    for build in builds:
+        found, comp = scan.cached(f"bazel_build:{build}", lambda b=build: _build_names(scan.text(b)))
+        names |= found
+        computed = computed or comp
+    where = ", ".join(builds)
+    if target in names:
+        scan.add(file, line, "bazel_label", label, "ok", f'name = "{target}" in {where}, the BUILD file of @{repo}', ctx)
+    elif computed or "." in target:
+        scan.add(file, line, "bazel_label", label, "unresolved",
+                 f'no literal name = "{target}" in {where}; it may be computed there or be a file of @{repo}', ctx)
+    else:
+        scan.add(file, line, "bazel_label", label, "fail", f'no target "{target}" in {where}, the BUILD file of @{repo}',
+                 ctx)
+
+
+def _external_builds(scan: Scan, repo: str) -> list[str]:
+    """Tracked BUILD files of the external repository ``repo``: named for it (``repo.BUILD``, ``BUILD.repo``,
+    ``repo.tpl.BUILD``, ``repo_win.BUILD.bazel``) and named in turn by a ``.bzl`` file, ``MODULE.bazel`` or
+    ``WORKSPACE``, as a ``build_file`` or a template is."""
+    def make() -> list[str]:
+        refs = scan.cached("bazel_refs", lambda: "\n".join(
+            scan.text(f) for f in scan.files if f.endswith(".bzl") or f in ("MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel")))
+        r = re.escape(repo)
+        named = re.compile(rf"^(?:BUILD\.{r}(?:\.bazel)?|{r}(?:[._][\w.-]*?)?\.BUILD(?:\.bazel)?)$")
+        return [f for f in scan.files if named.match(posixpath.basename(f)) and posixpath.basename(f) in refs]
+    return scan.cached(f"bazel_external:{repo}", make)
+
+
 def label_claims(scan: Scan, file: str, line: int, text: str) -> bool:
     """Check every Bazel label in ``text``; ``True`` if it held any."""
     labels = [m.group() for m in _LABEL_RE.finditer(text)
-              if _is_label(m.group()) and text[m.end():m.end() + 1] not in ("$", "`")]  # `//:t_$X` names no target
+              if _is_label(m.group()) and text[m.end():m.end() + 1] not in ("$", "`", "<", "{")]  # `//:t_$X`, `//a/<b>`
     if labels and "bazel" in scan.adapters:
         for label in labels:
             check_label(scan, file, line, label, text)
@@ -243,12 +293,12 @@ def label_claims(scan: Scan, file: str, line: int, text: str) -> bool:
 
 
 def _is_label(label: str) -> bool:
-    """A package or a target, and no host name (`//github.com/x` is a protocol-relative URL)."""
+    """A package, a target or a repository, and no host name (`//github.com/x` is a protocol-relative URL)."""
     m = _LABEL_PARTS.match(label.lstrip("-"))
     if not m:
         return False
-    _, pkg, target = m.groups()
-    return bool(pkg or target) and "." not in pkg.split("/", 1)[0]
+    repo, pkg, target = m.groups()
+    return bool(pkg or target or (repo or "").strip("@")) and "." not in pkg.split("/", 1)[0]
 
 
 def _bazel(scan: Scan, file: str, line: int, toks: list[str], text: str) -> None:
@@ -275,6 +325,25 @@ def _bazel(scan: Scan, file: str, line: int, toks: list[str], text: str) -> None
             check_label(scan, file, line, t, text)
 
 
+_LOAD_LABEL = re.compile(r"""^load\(\s*["'](?:@|//|:)""", re.M)
+
+
+def reads_as_build(scan: Scan, fence: Fence) -> bool:
+    """A fence in another language (Python) holds BUILD code: it loads a label, or a line starts a call to a
+    native rule only Bazel has (``cc_library``, ``http_archive``) or a ``name =`` call to a macro of a tracked
+    ``.bzl`` file."""
+    code = "\n".join(text for _, text in fence.lines)
+    if _LOAD_LABEL.search(code):
+        return True
+    defs = _bazel_facts(scan)["defs"]
+    for m in re.finditer(r"^(\w+)\(", code, re.M):
+        name = m.group(1)
+        if (name in BAZEL_NATIVE and "_" in name) or (
+                name in defs and re.search(r"^\s*name\s*=", _call_body(code, m.end() - 1), re.M)):
+            return True
+    return False
+
+
 def check_starlark(scan: Scan, file: str, fence: Fence) -> None:
     code = "\n".join(text for _, text in fence.lines)
     facts = _bazel_facts(scan)
@@ -282,6 +351,9 @@ def check_starlark(scan: Scan, file: str, fence: Fence) -> None:
         name = m.group(1)
         line = fence.lines[code[:m.start()].count("\n")][0]
         snippet = code[m.start():m.start() + 80]
+        if name == "load":
+            _check_load(scan, file, line, code[m.end():], snippet)
+            continue
         if name in BAZEL_NATIVE:
             continue
         if name not in facts["defs"]:
@@ -299,6 +371,37 @@ def check_starlark(scan: Scan, file: str, fence: Fence) -> None:
     for n, text in fence.lines:
         for label in re.findall(r'"((?:@@?[\w.~+-]*)?//[^"]*)"', text):
             check_label(scan, file, n, label, text)
+
+
+def _check_load(scan: Scan, file: str, line: int, args: str, snippet: str) -> None:
+    """``load("//pkg:x.bzl", "a", b = "c")``: each symbol is a public top-level name (a ``def`` or an assignment)
+    of ``x.bzl``, when the label is absolute, in this repository and in the tree. A missing file is the label's
+    own claim; a name ``x.bzl`` itself loads is not exported by it."""
+    strs = _load_strings(args)
+    m = _LABEL_PARTS.match(strs[0]) if strs else None
+    if not m or (m.group(1) or "@").lstrip("@") not in ("", _bazel_facts(scan)["module"]):
+        return  # relative to a package the snippet does not name, or in another repository
+    path = posixpath.join(m.group(2), m.group(3) or "")
+    if path not in scan.file_set:
+        return
+    public = scan.cached(f"bzl_public:{path}", lambda: {a or b for a, b in re.findall(
+        r"^def\s+([A-Za-z]\w*)\s*\(|^([A-Za-z]\w*)\s*=(?!=)", scan.text(path), re.M)})
+    for sym in strs[1:]:
+        ok = sym in public
+        scan.add(file, line, "starlark_load", f"{sym} from {strs[0]}", "ok" if ok else "fail",
+                 f"defined in {path}" if ok else f"no public top-level {sym} in {path}", snippet)
+
+
+def _load_strings(args: str) -> list[str]:
+    """The strings of a ``load(`` call whose arguments start ``args``: the label, then each symbol (the loaded name
+    of ``alias = "name"``)."""
+    out = []
+    for kind, val, _ in _tokens(args):
+        if kind == "op" and val == ")":
+            break
+        if kind == "str":
+            out.append(val)
+    return out
 
 
 def _call_body(code: str, open_paren: int) -> str:
@@ -371,7 +474,7 @@ def _make(scan: Scan, file: str, line: int, toks: list[str], text: str) -> None:
 _CMAKE_BUILTIN = re.compile(r"^(CMAKE_|CTEST_|CPACK_|Python3?_|BUILD_SHARED_LIBS$|BUILD_TESTING$)|_(DIR|ROOT)$")
 
 
-def _cmake(scan: Scan, file: str, line: int, toks: list[str], text: str) -> None:
+def _cmake_facts(scan: Scan) -> dict:
     def make() -> dict:
         files = [f for f in scan.files if posixpath.basename(f) == "CMakeLists.txt" or f.endswith((".cmake", ".cmake.in"))]
         scan.preload(files)
@@ -385,19 +488,17 @@ def _cmake(scan: Scan, file: str, line: int, toks: list[str], text: str) -> None
                 if key.endswith("Presets") and isinstance(value, list):
                     presets |= {p["name"] for p in value if isinstance(p, dict) and isinstance(p.get("name"), str)}
         return {"sources": "\n".join(scan.text(f) for f in files), "presets": presets}
-    facts = scan.cached("cmake", make)
+    return scan.cached("cmake", make)
+
+
+def _cmake(scan: Scan, file: str, line: int, toks: list[str], text: str) -> None:
+    facts = _cmake_facts(scan)
     for i, t in enumerate(toks):
         nxt = toks[i + 1] if i + 1 < len(toks) else ""
         if t.startswith("-D"):
-            var = (t[2:] or nxt).split("=")[0].split(":")[0]
-            if not var or dynamic(var):
-                continue
-            if _CMAKE_BUILTIN.search(var):
-                scan.add(file, line, "cmake_var", var, "ok", "CMake built-in or package variable", text)
-            else:
-                ok = re.search(rf"\b{re.escape(var)}\b", facts["sources"]) is not None
-                scan.add(file, line, "cmake_var", var, "ok" if ok else "fail",
-                         "used in the CMake sources" if ok else "appears in no CMakeLists.txt or .cmake file", text)
+            _cmake_var(scan, file, line, (t[2:] or nxt).split("=")[0].split(":")[0], text)
+        elif t.startswith("-S"):
+            _cmake_source(scan, file, line, t[2:] or nxt, text)
         elif t == "--preset" and nxt or t.startswith("--preset="):
             name = t.split("=", 1)[1] if "=" in t else nxt
             if dynamic(name):
@@ -405,6 +506,39 @@ def _cmake(scan: Scan, file: str, line: int, toks: list[str], text: str) -> None
             ok = name in facts["presets"]
             scan.add(file, line, "cmake_preset", name, "ok" if ok else "fail",
                      "preset in CMakePresets.json" if ok else "no such preset in CMake(User)Presets.json", text)
+
+
+def _cmake_var(scan: Scan, file: str, line: int, var: str, text: str) -> None:
+    if not var or dynamic(var):
+        return
+    if _CMAKE_BUILTIN.search(var):
+        scan.add(file, line, "cmake_var", var, "ok", "CMake built-in or package variable", text)
+    else:
+        ok = re.search(rf"\b{re.escape(var)}\b", _cmake_facts(scan)["sources"]) is not None
+        scan.add(file, line, "cmake_var", var, "ok" if ok else "fail",
+                 "used in the CMake sources" if ok else "appears in no CMakeLists.txt or .cmake file", text)
+
+
+def _cmake_source(scan: Scan, file: str, line: int, src: str, text: str) -> None:
+    """``-S <dir>`` names a directory with a ``CMakeLists.txt``. Where the command runs is known only after a
+    literal ``cd``; without one the directory is tried at the guidance file's directory and its ancestors, and a
+    miss is ``unresolved``, since the text may say elsewhere where to run it."""
+    if not src or dynamic(src) or src.startswith(("/", "~", "-")):
+        return
+    cd = scan.cd_dirs
+    if cd == []:
+        scan.add(file, line, "cmake_src", src, "unresolved", "after a `cd` this tree cannot follow", text)
+        return
+    dirs = [d for d in dict.fromkeys(posixpath.normpath(posixpath.join(b, src)) for b in (cd or ancestors(file)))
+            if not d.startswith("..")]
+    hit = next((d for d in dirs if posixpath.normpath(posixpath.join(d, "CMakeLists.txt")) in scan.file_set), None)
+    if hit is not None:
+        scan.add(file, line, "cmake_src", src, "ok", f"{posixpath.normpath(posixpath.join(hit, 'CMakeLists.txt'))} exists", text)
+    elif cd is None:
+        scan.add(file, line, "cmake_src", src, "unresolved",
+                 f"no CMakeLists.txt in {', '.join(dirs) or src}; it depends on where the command runs", text)
+    else:
+        scan.add(file, line, "cmake_src", src, "fail", f"no CMakeLists.txt in {', '.join(dirs)} after the `cd`", text)
 
 
 # ---------------------------------------------------------------- pytest

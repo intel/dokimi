@@ -552,15 +552,37 @@ in one request.
 | Check | Claims |
 |---|---|
 | generic | Markdown links (inline and reference definitions, `<angle-bracket>` targets; relative, and blob/tree links to `source.url`), paths and globs in code spans (see below), identifiers (a word in some tracked file that is not prose; a missing ALL_CAPS name is `unresolved`, since a tool outside the tree may read it), `python <script>` paths, a command wrapped in backticks inside a shell fence |
-| `bazel` | `--config` values against `.bazelrc` and its imports, flag aliases, labels against the target and output names (`name`, `outs`) that the package's `BUILD.bazel`, else `BUILD`, spells out in either quote style (a package that calls a macro or computes a name, `"t_" + s` or a comprehension, gives `unresolved`, not `fail`), macros and keyword arguments in Starlark fences against tracked `.bzl` files |
+| `bazel` | `--config` values against `.bazelrc` and its imports, flag aliases, labels against the target and output names (`name`, `outs`) that the package's `BUILD.bazel`, else `BUILD`, spells out in either quote style (a package that calls a macro or computes a name, `"t_" + s` or a comprehension, gives `unresolved`, not `fail`), macros and keyword arguments in Starlark fences against tracked `.bzl` files, `load()` symbols against the public top-level names (a `def` or an assignment) of the in-tree `.bzl` an absolute label names, labels of an external repository against its BUILD file when the tree holds one (see below), and `@<module>//` alone as this repository |
 | `make` | targets against the rules of every makefile (a `%:` catch-all or a rule named by a variable gives `unresolved`), `VAR=value` against the makefiles |
-| `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json` |
+| `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json`, `-S <dir>` against a `CMakeLists.txt` in that directory (`fail` only after a literal `cd`; without one the directory the command runs in is not known, so a miss is `unresolved`) |
 | `pytest` | path arguments and `::test` nodes |
 | `pre-commit` | `pre-commit run <hook>` against hook ids and aliases |
 
 `build_systems` picks the adapters. Without it they are detected from the
 files at the root (any `conftest.py` or a pytest section also selects
 `pytest`), and the report says so.
+
+Starlark is a Python dialect, so guidance often fences a BUILD snippet as
+`python`. With the `bazel` adapter on, such a fence is checked as Starlark when
+it reads as BUILD code: it loads a label, or a line starts a call to a native
+rule only Bazel has (`cc_library`, `http_archive`) or a `name =` call to a
+macro of a tracked `.bzl` file. Any other `python` fence is not checked. An
+external repository's BUILD file is in the tree when a tracked file is named
+for the repository (`zlib.BUILD`, `BUILD.zlib`, `mkl.tpl.BUILD`,
+`mkl_win.tpl.BUILD`, with an optional `.bazel`) and a `.bzl` file,
+`MODULE.bazel` or `WORKSPACE` names that file, as a `build_file` or a
+template. A label in the root package of such a repository is `ok` when one of
+those files spells the name out, `fail` when none does, and `unresolved` when
+one computes names or the target may be a file (`x.h`). Labels of any other
+external repository stay `unresolved`.
+
+Rules that are one repository's policy stay in its `static` entry point. For
+oneDAL these are `bazel test` and `bazel run` without `--config`, the refusal
+of `//...` and of bare `cc_library`/`cc_test`, a Starlark call to anything not
+defined in its three `.bzl` files, `PLAT=`/`COMPILER=` values from its
+`dev/make` tree, and a label or make target that the build files do not spell
+out literally, which L0 reports `unresolved` because a macro or a computed rule
+name may make it.
 
 `--static <file>` merges the output of the repository's `static` entry point
 (§4.4). A repository claim replaces the framework claim on the same file, line
@@ -575,7 +597,9 @@ line ends a continuation, and the body of a heredoc is not a command. A word
 that holds an expansion (`$VAR`, `${VAR}`, `$(cmd)`, a backtick substitution)
 is never looked up: not as a make target, a `-D` variable, a preset, a
 `--config` value, a hook id, a path or a label. The literal key of
-`VAR=$(cmd)` is still checked.
+`VAR=$(cmd)` is still checked. A `<placeholder>` inside a word
+(`//pkg/<algo>:tests`, `make <target>`) is one too, not a pair of
+redirections.
 A literal `cd dir` moves the relative paths of the later commands in the same
 fence or span, and a subshell ends at its closing parenthesis. After a `cd` to a
 directory the tree lacks or to a non-literal one, after `pushd`/`popd`, and
