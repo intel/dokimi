@@ -217,7 +217,7 @@ belongs to the repository's grader and is passed through unread.
 
 | Key | Required | Read by | Meaning |
 |---|---|---|---|
-| `id` | yes | framework | equals the directory name |
+| `id` | yes | framework | equals the directory name, and contains no whitespace: the workflow's `tasks`, `smoke-tasks` and `exclude-tasks` inputs are whitespace-separated lists of ids, so `repo validate` refuses an id with whitespace |
 | `family` | yes | framework (reporting) | free string; common values: `build`, `fix`, `feature`, `test`, `review` |
 | `base` | yes | framework | commit to snapshot: a hex SHA, optionally followed by `^` (the parent, the usual form for a mined fix). Branch names, tags and `HEAD` are refused, because repetitions of one task must get one snapshot. Use the full 40-character SHA; a shorter one is accepted with a warning. It must resolve in the source. `meta.json` records it as `base_rev` and the resolved full SHA as `base_sha` |
 | `prompt` | yes | framework | what the agent is told |

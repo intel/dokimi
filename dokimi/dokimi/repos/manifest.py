@@ -416,6 +416,12 @@ def _glob_regex(pattern: str) -> re.Pattern[str]:
 def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     name = PurePosixPath(task_dir).name
     where = f"{task_dir}/task.json"
+    if re.search(r"\s", name):
+        # tasks, smoke-tasks and exclude-tasks are whitespace-separated lists of ids, so an id with
+        # whitespace could never be named there
+        report.errors.append(f"{where}: task id {name!r} contains whitespace; task ids are "
+                             "whitespace-separated in the workflow's tasks, smoke-tasks and exclude-tasks inputs")
+        return
     try:
         raw = json.loads(tree.read_text(where))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:

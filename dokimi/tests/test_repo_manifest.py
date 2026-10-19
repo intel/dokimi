@@ -187,6 +187,17 @@ def test_bad_task_is_reported(tmp_path, task_extra, needle):
     assert "bad" not in [t.id for t in report.tasks]
 
 
+@pytest.mark.parametrize("task_id", ["my task", "tab\tid"])
+def test_task_id_with_whitespace_is_refused(tmp_path, task_id):
+    # the workflow names tasks in whitespace-separated lists, so such an id could never be selected
+    root = _repo(tmp_path)
+    _task(root, task_id)
+    report = check_repo(WorkTree(root), load_manifest(WorkTree(root), "dev/evals/repo-eval.yaml"))
+    assert not report.ok
+    assert any(f"task id {task_id!r} contains whitespace" in e for e in report.errors), report.errors
+    assert task_id not in [t.id for t in report.tasks]
+
+
 def test_task_gate_score_and_short_base(tmp_path):
     root = _repo(tmp_path)
     _task(root, "rev", family="review", base="cf0c0a0b^", gate=[{"metric": "recall", "min": 0.75}, "format_ok"],
