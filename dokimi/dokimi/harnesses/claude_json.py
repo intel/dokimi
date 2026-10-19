@@ -77,7 +77,7 @@ def token_counts(obj: dict) -> Optional[tuple[str, tuple[int, int, int, int]]]:
         i, o, r, w = (sum(n(m, k) for m in per_model) for k in keys)
         return "tree", (i, o, r, w)
     usage = obj.get("usage")
-    if not isinstance(usage, dict):
+    if not isinstance(usage, dict) or not usage:
         return None
     return "main", (n(usage, "input_tokens"), n(usage, "output_tokens"), n(usage, "cache_read_input_tokens"),
                     n(usage, "cache_creation_input_tokens"))

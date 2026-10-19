@@ -316,6 +316,27 @@ def test_tokens_without_model_usage_are_the_parents_only():
     assert convert("claude-stream-json", json.dumps({"type": "result", "result": "ok"})).usage_scope is None
 
 
+def test_empty_usage_object_returns_none_not_zeros():
+    # Empty usage object should not report measured zeros (means no measurement).
+    t = convert("claude-stream-json", json.dumps({"type": "result", "result": "ok", "usage": {}}))
+    assert t.usage_scope is None
+    assert (t.input_tokens, t.output_tokens, t.cache_read_tokens, t.cache_write_tokens) == (None, None, None, None)
+
+
+def test_tokens_include_task_tool_and_cache_fields():
+    # Verify Task tool is counted in _AGENT_TOOLS and cache fields on main path.
+    lines = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Task", "input": {"prompt": "do work"}}]}},
+        {"type": "result", "result": "ok",
+         "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100,
+                   "cache_creation_input_tokens": 50}},
+    ]
+    t = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
+    assert (t.input_tokens, t.output_tokens, t.cache_read_tokens, t.cache_write_tokens) == (10, 5, 100, 50)
+    assert t.usage_scope == "main" and t.subagent_calls == 1
+
+
 @pytest.mark.parametrize("line", [
     {"type": "assistant", "message": "hi"},
     {"type": "result", "result": "x", "usage": "n/a"},

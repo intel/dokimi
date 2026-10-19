@@ -31,8 +31,6 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
-from dokimi.harnesses.claude_json import token_counts
-
 TRACE_FORMATS = ("claude-stream-json", "text")
 OUTPUT_LIMIT = 8192
 OUTPUT_KEEP = 4096
@@ -152,6 +150,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
         out.result_subtype = rec.get("subtype")
         if not isinstance(rec.get("usage") or {}, dict):
             raise TypeError("usage is not an object")
+        from dokimi.harnesses.claude_json import token_counts
         counts = token_counts(rec)
         if counts is not None:
             out.usage_scope, (out.input_tokens, out.output_tokens, out.cache_read_tokens,

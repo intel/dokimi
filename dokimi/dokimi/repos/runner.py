@@ -183,8 +183,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         # A killed harness reports no cost; the batch budget counts the cell's cap instead of $0.
         "charged_usd": caps["budget_usd"], "num_turns": None, "is_error": None, "result_subtype": None,
         "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
-        "cache_write_tokens": None, "usage_scope": None, "subagent_calls": None, "plugins": [], "over_budget": False, "caps": caps,
-        "network": network, "trace_errors": []}
+        "cache_write_tokens": None, "usage_scope": None, "subagent_calls": None,
+        "plugins": [], "over_budget": False, "caps": caps, "network": network, "trace_errors": []}
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
