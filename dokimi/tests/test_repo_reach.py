@@ -291,6 +291,21 @@ def test_claude_stream_json_to_events():
         convert("xml", "")
 
 
+def test_claude_stream_json_names_the_models_that_answered():
+    def reply(model, **kw):
+        return {"type": "assistant", "message": {"model": model, "content": []}, **kw}
+
+    init = {"type": "system", "subtype": "init", "model": "us.anthropic.claude-x"}
+    lines = [init, reply("claude-x"), reply("claude-y", parent_tool_use_id="t1"), reply("<synthetic>")]
+    trace = "\n".join(json.dumps(x) for x in lines)
+    assert convert("claude-stream-json", trace).model_resolved() == "claude-x"  # not the subagent's
+    assert convert("claude-stream-json", trace + "\n" + json.dumps(reply("claude-old"))).model_resolved() == [
+        "claude-old", "claude-x"]
+    assert convert("claude-stream-json", json.dumps(init)).model_resolved() == "us.anthropic.claude-x"  # no reply
+    assert convert("claude-stream-json", json.dumps(reply(None))).model_resolved() is None
+    assert convert("text", "hi").model_resolved() is None
+
+
 @pytest.mark.parametrize("line", [
     {"type": "assistant", "message": "hi"},
     {"type": "result", "result": "x", "usage": "n/a"},

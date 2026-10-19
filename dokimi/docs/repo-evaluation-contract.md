@@ -281,7 +281,7 @@ base commit date against the model's cutoff where the cutoff is known.
 | `task.json` | copy of the task |
 | `answer.txt` | the agent's final message |
 | `events.jsonl` | normalized trace, one JSON object per line, harness-independent (§4.1) |
-| `meta.json` | `arm`, `harness`, `harness_version`, `model`, `rep`; `base_rev` (as written in `task.json`), `base_sha` (resolved, 40 characters), `base_date` (committer date, ISO 8601); `patches` (SHA of each applied patch); `start_sha` (workspace `HEAD` the agent started from, §3) |
+| `meta.json` | `arm`, `harness`, `harness_version`, `model`, `model_resolved` (the model(s) the trace says answered: a name, a sorted list, or `null` when the trace format cannot tell), `rep`; `base_rev` (as written in `task.json`), `base_sha` (resolved, 40 characters), `base_date` (committer date, ISO 8601); `patches` (SHA of each applied patch); `start_sha` (workspace `HEAD` the agent started from, §3) |
 
 Graders must not parse a harness-specific trace. A grader that needs "did the
 agent run `bazel`?" reads the `command` events in `events.jsonl`. A grader

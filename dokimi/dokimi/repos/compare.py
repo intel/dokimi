@@ -33,10 +33,12 @@ to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
 cells. A warning is printed, not an error, when a bare ``ARM`` pools cells of
 several batches, when a batch of a comparison has no stamp to compare, or when
 the two arms of a comparison ran from different ``eval_dir`` or ``image``
-stamps or harness versions: the deltas then mix the treatment with whatever
-else changed between the batches. An image ``repo run`` tagged from the tree's
-own revision follows the tree, so it is compared only against an ``--image``
-given explicitly.
+stamps or harness versions, or their cells of one model were answered by
+different models (``model_resolved``): the deltas then mix the treatment with
+whatever else changed between the batches. A cell answered by another model
+than it asked for is warned about as in ``repo report``. An image ``repo run``
+tagged from the tree's own revision follows the tree, so it is compared only
+against an ``--image`` given explicitly.
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ from typing import Any
 
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
-from .report import load_cells
+from .report import load_cells, mismatch_warnings, model_mismatch, resolved_models
 
 #: Largest number of non-zero deltas whose sign-flip distribution is enumerated (2**16 patterns).
 EXACT_MAX = 16
@@ -151,7 +153,8 @@ def _provenance(batch_dirs: list[Path], cells: list[dict[str, Any]], baseline: s
     """``sources`` (each selector's batches), ``stamps`` (each batch's pin and harness versions), ``warnings``."""
     names = [d.resolve().name for d in batch_dirs]
     stamps = {name: {**batch_stamp(d), "harness_versions": sorted({str(c.get("harness_version"))
-                                                                   for c in cells if c["batch"] == name})}
+                                                                   for c in cells if c["batch"] == name}),
+                     "model_resolved": sorted({m for c in cells if c["batch"] == name for m in resolved_models(c)})}
               for d, name in zip(batch_dirs, names, strict=True)}
     sources = {text: sorted({c["batch"] for c in cells if selector_matches(parse_selector(text), c)})
                for text in [baseline, *treatments]}
@@ -182,7 +185,14 @@ def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments:
                     if selector_matches(parse_selector(sel), c)}
         if len(versions) > 1:
             out.append(f"{text} vs {baseline}: cells ran on different harness versions ({', '.join(sorted(versions))})")
-    return out
+        arms = [[c for c in cells if selector_matches(parse_selector(sel), c)] for sel in (baseline, text)]
+        for model in sorted({c["model"] for c in arms[0]} & {c["model"] for c in arms[1]}):
+            base, treat = ({m for c in arm if c["model"] == model for m in resolved_models(c)} for arm in arms)
+            if base and treat and base != treat:
+                out.append(f"{text} vs {baseline}: model {model} was answered by {', '.join(sorted(base))} in "
+                           f"baseline, {', '.join(sorted(treat))} in treatment")
+    compared = [c for c in cells if any(selector_matches(parse_selector(sel), c) for sel in (baseline, *treatments))]
+    return out + mismatch_warnings(model_mismatch(compared))
 
 
 def _built_from_tree(stamp: dict[str, Any]) -> bool:

@@ -72,7 +72,8 @@ assert os.environ.get("FAKE_CONFIG_DIR"), "config dir not set"
 assert "SECRET_NOT_ALLOWED" not in os.environ, "environment not scrubbed"
 action = os.environ.get("FAKE_ACTION", "fix")
 cwd = Path.cwd()
-lines = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3", "cwd": str(cwd)}]
+model = args[args.index("--model") + 1]
+lines = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3", "cwd": str(cwd), "model": model}]
 if action == "sleep":
     time.sleep(60)
 if action == "fix":
@@ -92,7 +93,7 @@ if action == "tamper":  # leave state for the grader: a .pth in HOME, and an fsm
     hook.chmod(0o755)
     with open(cwd / ".git" / "config", "a") as f:
         f.write("[core]\n\tfsmonitor = " + str(hook) + "\n")
-lines.append({"type": "assistant", "message": {"content": [
+lines.append({"type": "assistant", "message": {"model": model, "content": [
     {"type": "tool_use", "id": "t1", "name": "Edit",
      "input": {"file_path": os.environ.get("FAKE_CONTAINER_CWD", str(cwd)) + "/src/calc.py"}}]}})
 lines.append({"type": "result", "subtype": "success", "result": "done: src/calc.py", "total_cost_usd": 0.01,
