@@ -28,7 +28,7 @@ from dokimi.eval.arm_summary import (
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
-from dokimi.eval.records import Record, RecordLike, records as as_records
+from dokimi.eval.records import Record, RecordLike, arm_answers, records as as_records
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import SOURCE_STORED
 from dokimi.eval.judge_context import stamp_for as judge_context_stamp
@@ -448,7 +448,7 @@ class ArmRunner:
         def _score(rec: Record) -> Dict[str, Any]:
             scores: Dict[str, Any] = {}
             gt = rec.ground_truth
-            for arm_name in rec.conditions:
+            for arm_name in arm_answers(rec):
                 answer = rec.answer(arm_name)
                 if answer is None or not answer.text:
                     scores[arm_name] = None
