@@ -249,12 +249,13 @@ next release.
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
   unreadable files (non-UTF-8, dangling or out-of-tree link), and on imports past the harness's
   hop limit, each of which also trips
-  `--fail-on-warning`. `start` is not an upper bound: `.claude/rules/*.md` files are not
-  counted, only `@path.md` imports are followed (`@notes.txt` adds nothing), skills are read
-  only from real `.claude/skills/*/SKILL.md` directories at the root (a skill behind a linked
-  directory is not seen), and imports stop at the profile's `guidance.import_max_depth` (four hops for Claude Code), with a warning naming what was skipped. Nor is it
-  a lower bound: the skill listing is charged in full, and the harness cuts it past its listing
-  budget.
+  `--fail-on-warning`. `start` is not an upper bound: it is too low by what it does not count
+  (`.claude/rules/*.md` files; only `@path.md` imports are followed, so `@notes.txt` adds nothing;
+  skills are read only from real `.claude/skills/*/SKILL.md` directories at the root, so a skill
+  behind a linked directory is not seen; and imports past the profile's `guidance.import_max_depth`,
+  four hops for Claude Code, which warn naming what was skipped). It is too high by whatever the
+  harness cuts from the skill listing: the listing is charged in full, and the harness cuts it past
+  its listing budget.
 - `dokimi/repos/static.py` — the `repo_static.v1` schema: what the
   repository's own `static` entry point writes, so its checks can be merged
   into L0.

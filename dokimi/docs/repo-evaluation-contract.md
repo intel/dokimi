@@ -36,8 +36,10 @@ SPDX-License-Identifier: Apache-2.0
 > `repo budget` sizes what the tree puts into an agent's context (no manifest,
 > no LLM call): root CLAUDE.md files and their `@` imports plus the skill listing at
 > start, nested guidance lazily, skill bodies on demand, and AGENTS.md files a
-> root CLAUDE.md turns off. The `start` total is an upper bound on what a harness shows the agent:
-> `.claude/rules/*.md` files are not counted, and imports stop at the profile's `guidance.import_max_depth` (four hops for Claude Code), with a warning naming what was skipped.
+> root CLAUDE.md turns off. The `start` total is not an upper bound: it is too low by what it does
+> not count (`.claude/rules/*.md` files, non-`.md` imports, skills behind a linked directory, and
+> imports past the profile's `guidance.import_max_depth`, four hops for Claude Code, which warns
+> naming what was skipped), and too high by whatever the harness cuts from the skill listing.
 > Usage:
 >
 > ```bash

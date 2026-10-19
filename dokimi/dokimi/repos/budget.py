@@ -208,6 +208,9 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> 
     as ``(importing file, target)`` pairs.
     """
     seen: set[str] = set()
+    # Also by the file a path resolves to: an alias (CLAUDE.md -> .) names the same file under
+    # ever longer paths, which a path-string check never recognises as a cycle.
+    reached = {_target(tree, r) for r in roots}
     level = list(roots)
     cut: list[tuple[str, str]] = []
     depth = 0
@@ -223,12 +226,13 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> 
                 if target.startswith("/"):
                     continue  # an absolute path names the host filesystem, not a file of the tree
                 path = _normalize(here + target)
-                if not path or path in seen:
+                if not path or path in seen or _target(tree, path) in reached:
                     continue
                 if max_depth is not None and depth >= max_depth:
                     cut.append((f, path))
                     continue
                 seen.add(path)
+                reached.add(_target(tree, path))
                 nxt.append(path)
         level = nxt
         depth += 1

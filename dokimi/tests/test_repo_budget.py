@@ -814,6 +814,31 @@ def test_a_cut_import_that_another_chain_loaded_is_not_warned(tmp_path):
     assert budget(_tree(tmp_path, files), NAMES, import_max_depth=4)["warnings"] == []
 
 
+def test_a_cut_import_that_a_nested_chain_loaded_is_not_warned(tmp_path):
+    files = {"CLAUDE.md": "@c1.md\n", "c1.md": "@c2.md\n", "c2.md": "@c3.md\n",
+             "c3.md": "@c4.md\n", "c4.md": "@x.md\n", "x.md": "end\n",
+             "sub/CLAUDE.md": "@../x.md\n"}
+    got = budget(_tree(tmp_path, files), NAMES, import_max_depth=4)
+    entries = _by_path(got)
+    assert entries[("x.md", "import")]["when"] == "lazy"
+    assert not any("hop" in w for w in got["warnings"]), got["warnings"]
+
+
+def test_an_alias_cycle_in_an_import_terminates(tmp_path):
+    """CLAUDE.md -> alias/CLAUDE.md, alias -> '.': the same file under ever longer paths."""
+    tree = _tree(tmp_path, {"CLAUDE.md": "@alias/CLAUDE.md\n"})
+    _link(tmp_path / "alias", ".")
+    got = budget(tree, NAMES)
+    assert [e["path"] for e in got["entries"] if e["kind"] == "guidance"] == ["CLAUDE.md"]
+    assert not any(e["kind"] == "import" for e in got["entries"])
+
+
+def test_an_alias_cycle_in_a_git_tree_terminates(tmp_path):
+    tree = _linked_repo(tmp_path, {"CLAUDE.md": "@alias/CLAUDE.md\n"}, {"alias": "."})
+    got = budget(tree, NAMES)
+    assert [e["path"] for e in got["entries"] if e["kind"] == "guidance"] == ["CLAUDE.md"]
+
+
 @pytest.mark.parametrize("link_text", ["../outside", "/etc"])
 def test_a_git_import_through_an_escaping_directory_link_is_refused(tmp_path, link_text):
     tree = _linked_repo(tmp_path, {"CLAUDE.md": "@docs/a.md"}, {"docs": link_text})
