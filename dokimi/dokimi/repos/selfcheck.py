@@ -58,7 +58,9 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
                guidance_names: tuple[str, ...] = ANCESTOR_NAMES,
                host: dict[str, Any] | None = None) -> dict[str, Any]:
     """Null, oracle and isolation checks for one task; ``verdict`` is ok, broken or unsupported.
-    An unsupported result says why in ``unsupported_by``: ``egress`` or ``host``.
+    An unsupported result says why in ``unsupported_by``: ``egress``, ``host`` (a hardware miss, which
+    ``--allow-unsupported`` may pass) or ``host-probe`` (the probe could not run or gave no CPU count,
+    which it never passes).
 
     ``host`` is :func:`.host.probe_host`'s facts, probed once per check; without it a task with
     ``host`` requirements probes for itself."""

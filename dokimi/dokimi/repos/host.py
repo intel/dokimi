@@ -77,16 +77,47 @@ def v2_cpu_max():
         if best_ratio is None or ratio < best_ratio:
             best, best_ratio = text, ratio
     return best
+def v1_cfs():
+    # The same walk for cgroup v1: the cpu controller, possibly combined ("cpu,cpuacct"), under its
+    # cgroup mount. Returns the (quota, period) texts of the tightest limit, or None.
+    own = None
+    for line in (read("/proc/self/cgroup") or "").splitlines():
+        fields = line.split(":", 2)
+        if len(fields) == 3 and "cpu" in fields[1].split(","):
+            own = fields[2]
+    mounts = []
+    for line in (read("/proc/self/mountinfo") or "").splitlines():
+        fields = line.split()
+        if "-" in fields and len(fields) > 4:
+            sep = fields.index("-")
+            if fields[sep + 1] == "cgroup" and "cpu" in (fields[sep + 3] if len(fields) > sep + 3 else "").split(","):
+                mounts.append(fields[4])
+    if own is None or not mounts:
+        return None
+    parts = [p for p in own.split("/") if p]
+    best = None
+    for depth in range(len(parts), -1, -1):
+        base = mounts[0] + "".join("/" + p for p in parts[:depth])
+        quota, period = read(base + "/cpu.cfs_quota_us"), read(base + "/cpu.cfs_period_us")
+        if quota is None or period is None:
+            continue
+        try:
+            q, p = int(quota), int(period)
+        except ValueError:
+            continue
+        if q > 0 and p > 0 and (best is None or q / p < best[0] / best[1]):
+            best = (q, p, quota, period)  # -1 (unlimited) is neither a limit nor a candidate
+    return (best[2], best[3]) if best else None
 cpu_max = v2_cpu_max()
 if cpu_max is None:
     cpu_max = read("/sys/fs/cgroup/cpu.max")
+cfs = v1_cfs() or (read("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"), read("/sys/fs/cgroup/cpu/cpu.cfs_period_us"))
 try:
     affinity = len(os.sched_getaffinity(0))
 except AttributeError:
     affinity = os.cpu_count()
 cpuinfo = read("/proc/cpuinfo") or ""
-print(json.dumps({"cpu_max": cpu_max, "cfs_quota_us": read("/sys/fs/cgroup/cpu/cpu.cfs_quota_us"),
-                  "cfs_period_us": read("/sys/fs/cgroup/cpu/cpu.cfs_period_us"),
+print(json.dumps({"cpu_max": cpu_max, "cfs_quota_us": cfs[0], "cfs_period_us": cfs[1],
                   "affinity": affinity, "cpuinfo": cpuinfo.strip().split("\n\n")[0]}))
 """
 
@@ -111,7 +142,8 @@ class HostRequirements:
 
 
 def requirements(task: Task) -> HostRequirements | None:
-    """The task's ``host`` requirements, or ``None`` without any; :class:`HostSpecError` on a bad shape."""
+    """The task's ``host`` requirements, or ``None`` without any (an empty object is none too);
+    :class:`HostSpecError` on a bad shape."""
     raw = task.raw.get("host")
     if raw is None:
         return None
@@ -126,7 +158,8 @@ def requirements(task: Task) -> HostRequirements | None:
     min_cpus = raw.get("min_cpus", 1)
     if isinstance(min_cpus, bool) or not isinstance(min_cpus, int) or min_cpus < 1:
         raise HostSpecError(f"{where}.min_cpus must be an integer >= 1, got {min_cpus!r}")
-    return HostRequirements(min_cpus, _names(raw, "cpu_vendors", where), _names(raw, "cpu_flags", where))
+    need = HostRequirements(min_cpus, _names(raw, "cpu_vendors", where), _names(raw, "cpu_flags", where))
+    return None if need == HostRequirements() else need  # no constraint: a probe failure cannot unsupport it
 
 
 def _names(raw: dict[str, Any], key: str, where: str) -> tuple[str, ...]:

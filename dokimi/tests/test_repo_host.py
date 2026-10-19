@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -30,7 +31,8 @@ from dokimi.repos.host import (
     unmet,
 )
 from dokimi.repos.manifest import parse_manifest
-from dokimi.repos.report import format_report, load_cells, summarize
+from dokimi.repos.report import format_report, load_cells, load_unsupported, summarize
+from dokimi.repos.runner import UNSUPPORTED_FILE, _mark_unsupported, run_batch
 from dokimi.repos.workspace import Task
 from repo_eval_fixture import MANIFEST, FakeRunner, fake_harness, make_repo
 
@@ -142,7 +144,8 @@ def test_a_bad_host_shape_is_a_clear_error(host, problem):
 
 def test_requirements_default_and_parse():
     assert requirements(_task(None)) is None
-    assert requirements(_task({})) == HostRequirements()
+    assert requirements(_task({})) is None  # an empty object asks for nothing
+    assert requirements(_task({"min_cpus": 1})) is None
     assert requirements(_task({"min_cpus": 3, "cpu_vendors": ["GenuineIntel"], "cpu_flags": ["avx512f"]})) == \
         HostRequirements(3, ("GenuineIntel",), ("avx512f",))
 
@@ -351,6 +354,25 @@ def test_probe_reads_the_v1_quota_without_a_cgroup2_mount(tmp_path):
     assert host_facts(raw)["cgroup_cpus"] == 3
 
 
+V1_CPU_MOUNT = "31 25 0:27 / /sys/fs/cgroup/cpu,cpuacct rw,nosuid,nodev - cgroup cgroup rw,cpu,cpuacct\n"
+
+
+@pytest.mark.parametrize("tree, cpus", [
+    # combined controller, the container's own quota one level down in the host namespace
+    ({"sys/fs/cgroup/cpu,cpuacct/cpu.cfs_quota_us": "-1\n", "sys/fs/cgroup/cpu,cpuacct/cpu.cfs_period_us": "100000\n",
+      "sys/fs/cgroup/cpu,cpuacct/docker/eval/cpu.cfs_quota_us": "200000\n",
+      "sys/fs/cgroup/cpu,cpuacct/docker/eval/cpu.cfs_period_us": "100000\n"}, 2),
+    # a visible ancestor limits, the container's own cgroup is unlimited
+    ({"sys/fs/cgroup/cpu,cpuacct/docker/cpu.cfs_quota_us": "150000\n",
+      "sys/fs/cgroup/cpu,cpuacct/docker/cpu.cfs_period_us": "100000\n",
+      "sys/fs/cgroup/cpu,cpuacct/docker/eval/cpu.cfs_quota_us": "-1\n",
+      "sys/fs/cgroup/cpu,cpuacct/docker/eval/cpu.cfs_period_us": "100000\n"}, 2),
+])
+def test_probe_resolves_a_combined_v1_cpu_controller_and_its_ancestors(tmp_path, tree, cpus):
+    raw = _run_probe(tmp_path, "4:cpu,cpuacct:/docker/eval\n", V1_CPU_MOUNT, tree)
+    assert host_facts(raw)["cgroup_cpus"] == cpus
+
+
 def test_a_host_with_exactly_min_cpus_is_supported():
     facts = host_facts(_probe_out(affinity=4))
     assert unmet(_task({"min_cpus": 4}), facts) == (None, None)
@@ -373,3 +395,35 @@ def test_probe_failure_is_marked_host_probe_never_hidden_by_allow_unsupported(tm
     doc = json.loads((tmp_path / "a/check/check.json").read_text())
     race = next(t for t in doc["tasks"] if t["task"] == "fix_race")
     assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host-probe"
+
+
+def test_a_probe_failure_never_unsupports_a_task_with_no_constraint():
+    assert unmet(_task({}), {"error": "host probe did not start"}) == (None, None)
+
+
+def test_run_batch_refuses_a_bad_host_value_before_probing_or_running(tmp_path):
+    runner = HostRunner(_probe_out())
+    ctx = EvalContext(manifest=parse_manifest(MANIFEST), git_dir=tmp_path, content_dir=tmp_path, image="img:1",
+                      runner=runner)
+    with pytest.raises(HostSpecError, match="min_cpus must be an integer"):
+        run_batch(ctx, [_task({"min_cpus": 0})], ["guidance:none"], [], 1, tmp_path / "batch")
+    assert runner.specs == [] and runner.probes == []
+
+
+def test_marking_a_cell_unsupported_clears_what_an_unfinished_run_left(tmp_path):
+    cell_dir = tmp_path / "t__arm__m__r1"
+    (cell_dir / "agent").mkdir(parents=True)
+    (cell_dir / "agent" / "stale.txt").write_text("from an earlier run", encoding="utf-8")
+    opts = SimpleNamespace(model="m", profile=SimpleNamespace(name="p"))
+    _mark_unsupported(cell_dir, (_task(None), "arm", opts, 1), "needs 4 CPUs", {"cpus": 2})
+    assert sorted(p.name for p in cell_dir.iterdir()) == [UNSUPPORTED_FILE]
+
+
+def test_load_unsupported_skips_a_cell_that_has_a_result(tmp_path):
+    for name, has_result in (("done__arm__m__r1", True), ("open__arm__m__r1", False)):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / UNSUPPORTED_FILE).write_text(
+            json.dumps({"task": "t", "arm": "arm", "model": "m", "reason": "r"}), encoding="utf-8")
+        if has_result:
+            (tmp_path / name / "result.json").write_text("{}", encoding="utf-8")
+    assert [c["cell"] for c in load_unsupported(tmp_path)] == ["open__arm__m__r1"]
