@@ -227,8 +227,6 @@ def _stored_basis(value: Any) -> str:
     Any other value is kept as written, so a stamp this version does not know -- an empty
     string, a number -- is reported as unknown rather than read on the legacy basis.
     """
-    if value is None:
-        return LEGACY_COVERAGE_BASIS
     return value if isinstance(value, str) else repr(value)
 
 
@@ -280,7 +278,7 @@ class Coverage:
             named_excluded_files=len(named_exclusions(rows)[0]),
             gap_files=len(excluded_of(rows, "gap")),
             decision_files=len(decisions),
-            basis=_stored_basis(record.get("coverage_basis")),
+            basis=_stored_basis(record.get("coverage_basis", LEGACY_COVERAGE_BASIS)),
         )
 
     @property
