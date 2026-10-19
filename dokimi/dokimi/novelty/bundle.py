@@ -152,14 +152,14 @@ def excluded_of(rows: list[dict] | None, cls: str) -> list[dict]:
 
 
 def named_exclusions(rows: list[dict] | None) -> tuple[list[dict], int]:
-    """The ``excluded`` rows the gate's message and the report name, and the rest's count.
+    """The ``excluded`` rows the report names, and the rest's count.
 
     Every row is named, in record order, except a non-text file, which is only counted:
     39 OOXML schemas in one skill would otherwise bury the two references that matter.
-    Gaps, role decisions, undecodable files and symlinks are named alike. That is the
-    grouping these two surfaces have always shown, kept so that no count they print
-    changes while the record's rules move here; naming gaps and decisions separately is
-    a change to the printed counts and lands on its own.
+    Gaps, role decisions, undecodable files and symlinks are named alike. The report has
+    always grouped them this way, and so does the gate's message for a record without
+    ``coverage_basis``; on the ``readable`` basis the gate counts gaps and role decisions
+    separately instead.
     """
     rows = rows or []
     named = [row for row in rows if exclusion_kind(row) != "not_text"]
@@ -177,17 +177,20 @@ COVERAGE_FIELDS = ("entry_point_words", "resource_words_on_disk", "resource_word
 #:   the role decisions (a skill's own ``evals/``) left out. The analyzer's warnings, the
 #:   CLI note and the report quote shares on this basis (``measurable_outside_share``).
 #: * ``all_bundled_words`` -- the entry point plus every bundled word on disk, role
-#:   decisions included. ``outside_share`` describes the tree on this basis, and the
-#:   gate's ``artifact_coverage`` has always judged its unmeasured share on it.
+#:   decisions included. ``outside_share`` describes the tree on this basis, and it is
+#:   the basis the gate's ``artifact_coverage`` judged before records were stamped.
 #:
 #: The two disagree whenever a skill has role decisions: an entry-point run of 400 entry
 #: words, a 500-word reference and 1,000 words of evals is 56% unmeasured on the readable
-#: basis and 26% on all bundled words. This module keeps each surface on the basis it has
-#: always used, so no stored figure moves; moving the gate to ``readable`` changes its
-#: numbers, so it is a separate change that also stamps the basis into the record.
+#: basis and 26% on all bundled words. The gate judges the basis the record is stamped
+#: with (``coverage_basis``), so a stored artifact keeps the value it was gated at.
 COVERAGE_BASES = ("readable", "all_bundled_words")
-#: The basis the gate judges, until that change lands.
-GATE_COVERAGE_BASIS = "all_bundled_words"
+#: The basis every record is now written with: the gate judges the figure the analyzer
+#: warns about.
+CURRENT_COVERAGE_BASIS = "readable"
+#: How a record without ``coverage_basis`` is read: it was written when the gate judged
+#: all bundled words, and re-reading it on another basis would move its stored value.
+LEGACY_COVERAGE_BASIS = "all_bundled_words"
 
 
 def _share(part: int, whole: int) -> float:
@@ -218,6 +221,17 @@ def _stored_count(value: Any) -> int | None:
         return None
 
 
+def _stored_basis(value: Any) -> str:
+    """A record's ``coverage_basis``: :data:`LEGACY_COVERAGE_BASIS` only when it is absent.
+
+    Any other value is kept as written, so a stamp this version does not know -- an empty
+    string, a number -- is reported as unknown rather than read on the legacy basis.
+    """
+    if value is None:
+        return LEGACY_COVERAGE_BASIS
+    return value if isinstance(value, str) else repr(value)
+
+
 @dataclass(frozen=True)
 class Coverage:
     """How much of an artifact one run read, from a live bundle or a stored record.
@@ -235,8 +249,12 @@ class Coverage:
     #: Words in ``decision`` rows: on disk, not a gap, outside the ``readable`` basis.
     policy_excluded_words: int
     unreadable_files: int
-    #: How many ``excluded`` rows the gate names (:func:`named_exclusions`).
+    #: How many ``excluded`` rows the gate names on the legacy basis (:func:`named_exclusions`).
     named_excluded_files: int
+    gap_files: int
+    decision_files: int
+    #: The record's ``coverage_basis``; :data:`LEGACY_COVERAGE_BASIS` when it has none.
+    basis: str = LEGACY_COVERAGE_BASIS
 
     @classmethod
     def from_record(cls, record: dict | None) -> "Coverage | None":
@@ -260,6 +278,9 @@ class Coverage:
             unreadable_files=(
                 unreadable if unreadable is not None else len(excluded_of(rows, "unknown"))),
             named_excluded_files=len(named_exclusions(rows)[0]),
+            gap_files=len(excluded_of(rows, "gap")),
+            decision_files=len(decisions),
+            basis=_stored_basis(record.get("coverage_basis")),
         )
 
     @property
@@ -419,7 +440,7 @@ class Bundle:
         out: list[str] = []
         # The readable basis, not the on-disk one: a skill whose resources are all its own
         # evals has nothing a bundle run would add, so pointing at the flag would be advice
-        # that cannot be followed. (The gate judges `GATE_COVERAGE_BASIS`; see there.)
+        # that cannot be followed. The gate judges the same basis (`CURRENT_COVERAGE_BASIS`).
         share = coverage.outside_share_on("readable")
         if not self.include_resources and share >= 0.5:
             out.append(
@@ -462,6 +483,9 @@ class Bundle:
             "policy_excluded_words": sum(
                 int(row.get("words") or 0) for row in excluded_of(self.excluded, "decision")),
             "excluded": self.excluded,
+            # What the gate's share is a share of. Written so that a later change of basis
+            # cannot re-read this record on another one (see `LEGACY_COVERAGE_BASIS`).
+            "coverage_basis": CURRENT_COVERAGE_BASIS,
         }
 
     def summary(self) -> dict:

@@ -1,15 +1,16 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""No coverage figure the gate, the analyzer or the report prints differs from ``main``.
+"""An unstamped record reads exactly as on ``main``; a stamped one is gated on readable words.
 
-Moving the bundle record's rules into ``novelty/bundle.py`` is a refactor, and a refactor
-changes no number (#4). Each case below builds a skill, runs the real ``analyze`` over it
-with scripted clients, gates the artifact and renders the report; the coverage figures of
-all three are compared with ``tests/fixtures/novelty_coverage_main.json``, which is this
-module's ``_capture`` output on ``main`` at d223029. The module uses only interfaces that
-exist on ``main``, so it runs there unchanged; to recapture, from a ``main`` checkout's
-``dokimi/`` with this file and the JSON copied in::
+Every bundle record is now written with ``coverage_basis: "readable"``, and the gate judges
+the basis the record names. A record without the field -- every artifact stored before it --
+must keep every coverage figure it had: each case below builds a skill, runs the real
+``analyze`` over it with scripted clients, removes the stamp, gates the artifact and renders
+the report, and compares all three with ``tests/fixtures/novelty_coverage_main.json``, this
+module's ``_capture`` output on ``main`` at d223029. The same cases with the stamp kept are
+the change itself, pinned in ``READABLE``. To recapture the golden file, from a ``main``
+checkout's ``dokimi/`` with this file and the JSON copied in::
 
     python -m tests.test_novelty_coverage_parity --write
 
@@ -150,8 +151,12 @@ def _gate(artifact: dict) -> dict:
             "measured": check.measured, "message": check.message}
 
 
-def _capture(name: str, tmp_path: Path) -> dict:
-    """Every coverage figure the three surfaces print for one case."""
+def _capture(name: str, tmp_path: Path, *, stamped: bool = False) -> dict:
+    """Every coverage figure the three surfaces print for one case.
+
+    ``stamped=False`` gates the record as an artifact stored before ``coverage_basis``
+    existed: the stamp removed, nothing else changed.
+    """
     if name in STORED:
         artifact = _artifact(bundle=STORED[name])
         return {"gate": _gate(artifact), "report": "\n".join(_render_bundle(artifact))}
@@ -164,6 +169,8 @@ def _capture(name: str, tmp_path: Path) -> dict:
     extractor, answerer, judge = _clients_that_cite_real_spans()
     artifact = analyze(bundle.text, config, extractor=extractor, answerer=answerer,
                        judge=judge, artifact_bundle=bundle).artifact
+    if not stamped:
+        artifact["bundle"].pop("coverage_basis", None)
     return {
         "record": {key: artifact["bundle"].get(key) for key in RECORD_FIELDS},
         "gate": _gate(artifact),
@@ -173,9 +180,40 @@ def _capture(name: str, tmp_path: Path) -> dict:
 
 
 @pytest.mark.parametrize("name", [*LIVE, *STORED])
-def test_no_coverage_figure_differs_from_main(name, tmp_path):
+def test_an_unstamped_record_reads_exactly_as_on_main(name, tmp_path):
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
     assert _capture(name, tmp_path) == golden[name]
+
+
+#: The gate's (passed, value) on a stamped record. Only the cases with role decisions move
+#: (evals, or the role filter), all of them up; the rest equal the golden values.
+READABLE = {
+    "demo/entry": (False, 0.5556),          # main: (True, 0.2632) -- 500 / 900, not / 1,900
+    "demo/bundle": (False, 0.8475),         # main: (False, 0.7246)
+    "demo/entry+big": (False, 0.9322),      # main: (False, 0.7971)
+    "evals-only/entry": (True, 0.0),
+    "evals-only/bundle": (True, 0.0),
+    "mixed/entry": (True, 0.479),           # main: (True, 0.3239)
+    "mixed/bundle": (True, 0.2994),         # main: (True, 0.2024)
+    "mixed/bundle-roles": (True, 0.0),
+    "unreadable/entry": (True, None),
+    "unreadable/bundle": (True, None),
+    "boundary/entry": (False, 0.5),
+    "plain/entry": (True, 0.0),
+}
+
+
+@pytest.mark.parametrize("name", list(LIVE))
+def test_a_stamped_record_is_gated_on_readable_words(name, tmp_path):
+    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))[name]
+    captured = _capture(name, tmp_path, stamped=True)
+    assert (captured["gate"]["passed"], captured["gate"]["value"]) == READABLE[name]
+    # The stamp moves the gate and nothing else: the record's counts, the analyzer's
+    # warnings and the report already used readable words.
+    assert {key: captured[key] for key in ("record", "analyzer_warnings", "report")} == {
+        key: golden[key] for key in ("record", "analyzer_warnings", "report")}
+    # A measured figure names its basis in the message, so a reader can tell the two apart.
+    assert ("readable" in captured["gate"]["message"]) == captured["gate"]["measured"]
 
 
 def test_the_golden_cases_are_the_ones_this_module_runs():
