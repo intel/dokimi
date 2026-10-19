@@ -135,3 +135,44 @@ def test_path_defaults_and_const_are_compared(old, new, expected):
         p.add_argument("--opt", **kw)
         return cs._command(p, "dokimi")
     assert any(expected in line for line in cs.diff_surfaces(surface(old), surface(new)))
+
+
+def _mutually_exclusive_parser(group_required: bool = True) -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="dokimi")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    run_p = sub.add_parser("run")
+    group = run_p.add_mutually_exclusive_group(required=group_required)
+    group.add_argument("--tasks", default="", help="Task names")
+    group.add_argument("--all", action="store_true", help="All tasks")
+    return p
+
+
+def test_mutually_exclusive_group_membership_is_captured():
+    surface = cs._command(_mutually_exclusive_parser(), "dokimi")
+    run_cmd = surface["subcommands"]["run"]
+    params_by_key = {p["key"]: p for p in run_cmd["params"]}
+    assert params_by_key["--tasks"]["group_key"] == "group_0"
+    assert params_by_key["--tasks"]["group_required"] is True
+    assert params_by_key["--all"]["group_key"] == "group_0"
+    assert params_by_key["--all"]["group_required"] is True
+
+
+def test_mutually_exclusive_group_required_change_is_reported():
+    a = cs._command(_mutually_exclusive_parser(group_required=True), "dokimi")
+    b = cs._command(_mutually_exclusive_parser(group_required=False), "dokimi")
+    lines = cs.diff_surfaces(a, b)
+    assert any("group_required: True -> False" in line for line in lines)
+
+
+def test_mutually_exclusive_group_membership_removal_is_reported():
+    p_with_group = _mutually_exclusive_parser()
+    p_without = argparse.ArgumentParser(prog="dokimi")
+    sub = p_without.add_subparsers(dest="cmd", required=True)
+    run_p = sub.add_parser("run")
+    run_p.add_argument("--tasks", default="")
+    run_p.add_argument("--all", action="store_true")
+
+    a = cs._command(p_with_group, "dokimi")
+    b = cs._command(p_without, "dokimi")
+    lines = cs.diff_surfaces(a, b)
+    assert any("group_key" in line for line in lines)

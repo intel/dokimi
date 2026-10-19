@@ -31,7 +31,7 @@ from typing import Any
 
 # The attributes of an option or argument compared between base and head.
 FIELDS = ("required", "is_flag", "nargs", "default", "type", "choices", "hidden", "action",
-          "position", "const")
+          "position", "const", "group_key", "group_required")
 
 
 def _value(value: Any) -> Any:
@@ -48,7 +48,8 @@ def _value(value: Any) -> Any:
     return name if isinstance(name, str) else type(value).__name__
 
 
-def _param(action: argparse.Action, position: int | None) -> dict[str, Any]:
+def _param(action: argparse.Action, position: int | None, group_key: str | None = None,
+           group_required: bool | None = None) -> dict[str, Any]:
     is_option = bool(action.option_strings)
     return {
         "position": position,  # a positional's index: swapping two is a change
@@ -63,6 +64,8 @@ def _param(action: argparse.Action, position: int | None) -> dict[str, Any]:
         "choices": sorted(str(c) for c in action.choices) if action.choices else None,
         "hidden": action.help == argparse.SUPPRESS,
         "action": type(action).__name__,
+        "group_key": group_key,
+        "group_required": group_required,
     }
 
 
@@ -70,6 +73,13 @@ def _command(parser: argparse.ArgumentParser, path: str) -> dict[str, Any]:
     node: dict[str, Any] = {"path": path, "params": [], "subcommands": {},
                             "subcommand_required": None}
     position = 0
+
+    # Build a map from action to its mutually exclusive group (if any).
+    action_to_group: dict[argparse.Action, tuple[int, bool]] = {}  # action -> (group_id, required)
+    for group_id, group in enumerate(parser._mutually_exclusive_groups):
+        for action in group._group_actions:
+            action_to_group[action] = (group_id, group.required)
+
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             node["subcommand_required"] = bool(action.required)
@@ -77,7 +87,11 @@ def _command(parser: argparse.ArgumentParser, path: str) -> dict[str, Any]:
                 node["subcommands"][name] = _command(sub, f"{path} {name}")
         elif not isinstance(action, argparse._HelpAction):
             # --version is kept (its version string is not dumped, so a release is no change)
-            node["params"].append(_param(action, None if action.option_strings else position))
+            group_info = action_to_group.get(action)
+            group_key = f"group_{group_info[0]}" if group_info else None
+            group_required = group_info[1] if group_info else None
+            node["params"].append(_param(action, None if action.option_strings else position,
+                                         group_key, group_required))
             position += 0 if action.option_strings else 1
     node["params"].sort(key=lambda p: (p["kind"], p["key"]))
     return node
