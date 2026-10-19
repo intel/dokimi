@@ -321,10 +321,11 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
         elif readable:
             decided = (f", {coverage.decision_files} not measured by role"
                        if coverage.decision_files else "")
+            gap_label = "file" if coverage.gap_files == 1 else "files"
             mode = (f"the bundle was measured ({coverage.n_files} files, "
                     f"{coverage.resource_words_measured} of "
                     f"{coverage.measurable_resource_words} readable bundled words, "
-                    f"{coverage.gap_files} files excluded by the word budgets{decided})")
+                    f"{coverage.gap_files} {gap_label} excluded by the word budgets{decided})")
         else:
             mode = (f"the bundle was measured ({coverage.n_files} files, "
                     f"{coverage.resource_words_measured} of {coverage.resource_words_on_disk} "
