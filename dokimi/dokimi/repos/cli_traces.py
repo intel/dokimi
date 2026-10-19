@@ -20,6 +20,7 @@ counts the cell's cap.
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 import shlex
 from typing import Any
@@ -51,15 +52,19 @@ def shell_reads(script: str) -> list[str]:
     """Files a command only prints: ``cat a b``, ``head -n 5 a``, ``sed -n '1,80p' a``, ``nl -ba a``.
 
     A pipeline or a redirect is not a read of its arguments (``cat a > b`` writes b), so it gives nothing;
-    each ``&&`` / ``;`` part is read on its own. Working directory changes via ``cd`` are tracked
-    to resolve subsequent reads to the correct path.
+    each ``&&`` / ``;`` / ``||`` part is read on its own. Working directory changes via ``cd`` are tracked
+    to resolve subsequent reads to the correct path. After ``||`` the cwd resets to unknown (command may have failed).
+    Paths are normalized to remove ``.`` and ``..`` components.
     """
     out: list[str] = []
     # Split only on unquoted shell operators to preserve quoted arguments.
     parts = _split_at_unquoted_operators(script)
-    cwd = ""  # current working directory relative to script root
+    cwd = ""  # current working directory relative to script root, empty if unknown
     for part in parts:
         if not part or re.search(r"[|<>`$]", part):
+            # After ||, reset cwd since the previous command may have failed
+            if "||" in part:
+                cwd = ""
             continue
         try:
             words = shlex.split(part)
@@ -67,17 +72,52 @@ def shell_reads(script: str) -> list[str]:
             continue
         if not words:
             continue
-        # Track directory changes from cd commands
-        if words[0] == "cd" and len(words) > 1:
-            cwd = words[1]
+        # Track directory changes from cd commands, skip cd options like -, -L, -P
+        if words[0] == "cd":
+            if len(words) > 1:
+                # Skip option flags (-, -L, -P, etc.) to find the actual directory
+                target_idx = 1
+                while target_idx < len(words) and words[target_idx].startswith("-"):
+                    target_idx += 1
+                if target_idx < len(words):
+                    target = words[target_idx]
+                    # Handle special case of "cd -" (previous directory); keep cwd as-is or mark unknown
+                    if target == "-":
+                        cwd = ""  # We don't track the previous directory
+                    else:
+                        # Join with current cwd and normalize
+                        new_cwd = target if target.startswith("/") else posixpath.normpath(f"{cwd}/{target}" if cwd else target)
+                        cwd = new_cwd
             continue
         if words[0] not in _PRINTERS:
             continue
         args = words[1:]
         if words[0] == "sed":
-            if "-n" not in args or "-i" in args:
+            # Reject if in-place edit (-i or --in-place)
+            if any(a.startswith("-i") or a.startswith("--in-place") for a in args):
                 continue
-            args = [a for a in args if a != "-n"][1:]  # the first non-flag is the script
+            if "-n" not in args:
+                continue
+            # Handle -e, -f, --expression, --file properly; they take the next arg or are combined
+            filtered_args = []
+            skip_next = False
+            for i, a in enumerate(args):
+                if skip_next:
+                    skip_next = False
+                    continue
+                if a in ("-e", "-f", "--expression", "--file"):
+                    skip_next = True
+                    continue
+                if a == "-n":
+                    continue
+                if a.startswith("-E") or a.startswith("--regexp-extended"):
+                    continue
+                if a.startswith("-s") or a.startswith("--separate"):
+                    continue
+                if not a.startswith("-"):
+                    filtered_args.append(a)
+            # First non-flag arg is the script, rest are files
+            args = filtered_args[1:] if len(filtered_args) > 0 else []
         files, skip = [], False
         for a in args:
             if skip:
@@ -86,9 +126,12 @@ def shell_reads(script: str) -> list[str]:
                 skip = True
             elif not a.startswith("-"):
                 files.append(a)
-        # Apply cwd prefix to each file, if cwd is known
+        # Apply cwd prefix to each file, normalize paths
         if cwd:
-            files = [f"{cwd}/{f}" if not f.startswith("/") else f for f in files]
+            files = [posixpath.normpath(f"{cwd}/{f}") if not f.startswith("/") else f for f in files]
+        else:
+            # Even without cwd, normalize paths to remove . and .. for better matching
+            files = [posixpath.normpath(f) if not f.startswith("/") else f for f in files]
         out.extend(files)
     return out
 
@@ -177,7 +220,9 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
         out.input_tokens = (out.input_tokens or 0) + int(usage.get("input_tokens") or 0)
         out.output_tokens = (out.output_tokens or 0) + int(usage.get("output_tokens") or 0)
     elif kind == "turn.failed" or (kind == "error" and not str(rec.get("message", "")).startswith("Reconnecting")):
-        out.is_error = kind == "turn.failed"
+        # Only set is_error=True for turn.failed; a bare error after it should not override
+        if kind == "turn.failed":
+            out.is_error = True
         msg = rec.get("message") or (rec.get("error") or {}).get("message")
         out.errors.append(f"{kind}: {str(msg)[:200]}")
     elif kind == "item.started":
@@ -186,8 +231,9 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
         itype = item.get("type")
         if itype == "command_execution":
             script = unwrap_shell(str(item.get("command") or ""))
-            # Use command text as key to correlate with item.completed
-            item_key = f"command:{script}"
+            # Use item.id if available (handles overlapping commands with same text), fallback to text
+            item_id = item.get("id")
+            item_key = item_id if item_id else ("command_text", script)
             for path in shell_reads(script):
                 out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
             event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None}
@@ -200,8 +246,9 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
             messages.append(str(item.get("text") or ""))
         elif itype == "command_execution":
             script = unwrap_shell(str(item.get("command") or ""))
-            # Use command text as key to correlate with item.started
-            item_key = f"command:{script}"
+            # Use item.id if available (handles overlapping commands with same text), fallback to text
+            item_id = item.get("id")
+            item_key = item_id if item_id else ("command_text", script)
             if item_key in by_id:
                 # Update the event from item.started with completion data
                 event = by_id[item_key]
@@ -213,10 +260,10 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
                 # Fallback for item.completed without item.started
                 for path in shell_reads(script):
                     out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
-                fallback: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
+                event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
                 if item.get("aggregated_output"):
-                    fallback["output"], fallback["output_truncated"] = clip_output(str(item["aggregated_output"]))
-                out.events.append(fallback)
+                    event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
+                out.events.append(event)
         elif itype == "file_change":
             for change in item.get("changes") or []:
                 if isinstance(change, dict) and change.get("path"):
