@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 [![docs](https://github.com/intel/dokimi/actions/workflows/docs.yml/badge.svg?branch=main)](https://intel.github.io/dokimi/)
 [![codecov](https://codecov.io/gh/intel/dokimi/graph/badge.svg?branch=main)](https://codecov.io/gh/intel/dokimi)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/intel/dokimi/badge)](https://scorecard.dev/viewer/?uri=github.com/intel/dokimi)
 
 **Documentation: <https://intel.github.io/dokimi/>** — guides, plus a
 [CLI reference](https://intel.github.io/dokimi/reference/cli/) and an

@@ -102,12 +102,14 @@ jobs:
           mode: check
       # The hooks in .pre-commit-config.yaml, so they stay green on main: a change
       # that fails one fails here, not on the next contributor's commit. ruff-check
-      # and zizmor are skipped: the steps above run the same versions.
+      # and zizmor are skipped: the steps above run the same versions. gitleaks
+      # checks staged changes only, so it has nothing to do here; gitleaks.yml
+      # scans the PR's commits.
       - name: pre-commit
         if: ${{ !cancelled() }}
         working-directory: .
         env:
-          SKIP: ruff-check,zizmor
+          SKIP: ruff-check,zizmor,gitleaks
         run: pre-commit run --all-files --show-diff-on-failure --color always
       # bandit and pip-audit hold the baseline SECURITY.md describes: no
       # Medium/High Bandit finding, and no dependency advisory beyond the ones it

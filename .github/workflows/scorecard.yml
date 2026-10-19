@@ -1,0 +1,61 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: scorecard
+
+# OpenSSF Scorecard (https://scorecard.dev): repository security practices
+# (pinned dependencies, token permissions, branch protection, ...), scored 0-10.
+# The findings go to code scanning (Security tab); publish_results makes the
+# score public at api.scorecard.dev, which is what the README badge reads.
+# Not a PR check: Scorecard grades the default branch and its settings.
+#
+# With publish_results, the results API rejects the run unless the workflow
+# keeps its rules (https://github.com/ossf/scorecard-action#workflow-restrictions):
+# no workflow-level env, defaults or write permissions; id-token: write in this
+# job only; a GitHub-hosted Ubuntu runner (so ubuntu-latest, not the Intel
+# pool ci.yml uses); and only checkout, upload-artifact, upload-sarif,
+# scorecard-action and harden-runner as steps.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '41 3 * * 1'
+  # A change to the branch protection rules changes the Branch-Protection score.
+  branch_protection_rule:
+
+permissions: {}
+
+# One run at a time; a newer pending run replaces an older one, since only the
+# latest result is published.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read          # to read the code (archive mode)
+      security-events: write  # to upload the SARIF to code scanning
+      id-token: write         # OIDC token the results API verifies (publish_results)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      # v2.5.0 or later: older releases pull the image from gcr.io, which the
+      # Scorecard project has retired (Scorecard v5.6.0 release notes).
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e  # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: scorecard-sarif
+          path: results.sarif
+          retention-days: 5
+      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d  # v4.38.3
+        with:
+          sarif_file: results.sarif
+          category: scorecard
