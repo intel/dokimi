@@ -137,7 +137,8 @@ def test_caching_skips_second_fetch(tmp_path):
     url = "https://example.com/docs"
     client = URLClient(url, cache_dir=tmp_path)
     with patch("httpx.get", return_value=_mock_response(SAMPLE_PLAIN, content_type="text/plain")) as mock_get:
-        client.get_library_docs(url, "parallel")
-        client.get_library_docs(url, "parallel")
-    # Second call should use cache, not hit network
+        first = client.get_library_docs(url, "parallel")
+        second = client.get_library_docs(url, "parallel")
+    # Second call should use cache, not hit network, and return the same docs
     assert mock_get.call_count == 1
+    assert second == first and "parallel_for" in first[0]["content"]

@@ -28,6 +28,9 @@ also holds a PR to:
 - 80% coverage of changed lines (when 20+ are measurable): add tests with the change.
 - mypy on the whole package; the `[[tool.mypy.overrides]]` list in
   `pyproject.toml` only shrinks.
+- Tests that check behaviour: `tests/test_audit_test_quality.py` fails a test that only
+  checks types, echoes its input, only checks a mock was called, asserts nothing or
+  repeats another (`python scripts/audit_test_quality.py` lists them).
 - Docs that name a command, flag, path or module must match the tree
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and

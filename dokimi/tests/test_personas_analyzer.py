@@ -84,11 +84,6 @@ class TestPersonaAnalyzer:
         assert analyzer.github_token is None
         assert analyzer._github_client is None
     
-    def test_init_with_github_token(self):
-        """Test initialization with GitHub token."""
-        analyzer = PersonaAnalyzer(github_token="ghp_test123")
-        assert analyzer.github_token == "ghp_test123"
-    
     def test_github_unavailable(self):
         """Test behavior when PyGithub is not available."""
         with patch('dokimi.personas.analyzer.GITHUB_AVAILABLE', False):
@@ -236,8 +231,8 @@ tbb::task_arena arena;
         
         patterns = analyzer._extract_api_patterns(mock_github_repo)
         
-        assert len(patterns) > 0
-        # Should extract lines with :: or . from code blocks
+        # Code-block lines with :: or . are kept; the comment and the closing brace are not.
+        assert patterns == ["tbb::parallel_for(range, [](int i) {", "tbb::task_arena arena;"]
     
     def test_empty_analysis(self):
         """Test empty analysis structure."""

@@ -88,7 +88,9 @@ class TestAnswererInit:
         with patch('dokimi.eval.answerer.ChatAnthropic', mock_cls, create=True), \
              patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
             answerer = Answerer(model="claude-opus", provider="anthropic", api_key="test")
-            assert answerer.model == "claude-opus"
+            # The anthropic client is the one built, with the caller's model and key.
+            mock_cls.assert_called_once_with(model="claude-opus", api_key="test")
+            assert answerer.llm is mock_cls.return_value
             assert answerer.provider == "anthropic"
 
     def test_init_unsupported_provider(self):

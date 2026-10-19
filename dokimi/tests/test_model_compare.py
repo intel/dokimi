@@ -603,7 +603,10 @@ def test_significance_test_reports_t_stat_for_varying_deltas():
     from dokimi.report.model_compare import significance_test
 
     jittered = [w + (1 if i % 2 else -1) for i, w in enumerate(WITH)]
-    assert significance_test(jittered, WITHOUT)["t_stat"] is not None
+    sig = significance_test(jittered, WITHOUT)
+    # deltas 9, 11, 9, 11, 9, 11: mean 10, sample std 1.095, t = 10 / (1.095 / sqrt(6))
+    assert sig["t_stat"] == pytest.approx(22.361, abs=1e-3)
+    assert sig["significant"] is True
 
 
 def test_significance_test_requires_min_pairs():

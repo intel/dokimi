@@ -60,9 +60,13 @@ def test_helper_names_the_index_when_the_record_has_no_id():
 
 def test_helper_skips_a_record_with_nothing_to_judge():
     """An answer-error record has no answer, so no judge sees it: it is not refused."""
-    require_question_texts([{"question_id": "q2", "question_text": "", "error": "timeout",
-                             "with_docs": None, "without_docs": None},
-                            {"question_id": "q3", "arms": {"baseline": {"answer": ""}}}])
+    unanswered = [{"question_id": "q2", "question_text": "", "error": "timeout",
+                   "with_docs": None, "without_docs": None},
+                  {"question_id": "q3", "arms": {"baseline": {"answer": ""}}}]
+    assert require_question_texts(unanswered) is None
+    # The same records with an answer are refused, so the skip above is the answer check.
+    with pytest.raises(EmptyQuestionError, match="'q2'"):
+        require_question_texts([{**unanswered[0], "with_docs": {"answer": ANSWER}}])
 
 
 def test_helper_accepts_the_question_set_spellings():

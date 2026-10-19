@@ -1123,8 +1123,12 @@ def test_sweep_stops_once_when_preflight_fails(tmp_path, monkeypatch):
 
 def test_dry_run_skips_the_preflight(tmp_path, monkeypatch):
     nothing = FakeRunner(lambda call: pytest.fail(f"a dry run ran {call.argv}"))
-    TaskSuiteRunner(tasks=[load_task(_task(tmp_path))], harnesses=["benchflow:oracle"],
-                    output_root=tmp_path / "runs", dry_run=True, runner=nothing).run()
+    out = TaskSuiteRunner(tasks=[load_task(_task(tmp_path))], harnesses=["benchflow:oracle"],
+                          output_root=tmp_path / "runs", dry_run=True, runner=nothing).run()
+    # A preflight would have spawned `bench --version` before the cell; the cell is a dry run.
+    assert nothing.calls == []
+    assert [(r["harness"], r["metrics"]["dry_run"]) for r in out["results"]] == [
+        ("benchflow:oracle", True)]
 
 
 def test_cli_prints_a_failed_preflight_as_one_line(tmp_path, monkeypatch):
