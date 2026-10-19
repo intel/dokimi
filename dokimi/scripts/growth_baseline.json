@@ -16,7 +16,6 @@
     "tests/test_task_formats.py": {"lines": 1015}
   },
   "functions": {
-    "dokimi/commands/answers.py::cmd_answers_generate": {"complexity": 11},
     "dokimi/commands/arms.py::_build_arms_output": {"complexity": 13},
     "dokimi/commands/arms.py::_validate_expected_skills": {"complexity": 11},
     "dokimi/commands/baseline.py::cmd_baseline_compare": {"complexity": 18},
