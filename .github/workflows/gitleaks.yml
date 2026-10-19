@@ -27,7 +27,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 # intel-ubuntu-latest: see ci.yml.
 jobs:
@@ -63,7 +63,7 @@ jobs:
       - name: Scan commits
         env:
           EVENT: ${{ github.event_name }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           range=()
           if [ "$EVENT" = pull_request ]; then range=(--log-opts="-m origin/$BASE_REF..HEAD"); else range=(--log-opts="-m"); fi
