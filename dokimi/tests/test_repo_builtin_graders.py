@@ -309,7 +309,8 @@ def test_an_image_without_python3_is_a_grader_failure_with_the_reason(tmp_path, 
 
     exe, profile = fake_harness(tmp_path)
     monkeypatch.setenv("FAKE_ACTION", "fix")
-    for runner, check in ((NoPython(), "none on PATH"), (FakeRunner(), None)):
+    no_python_runner = NoPython()  # capture for verification after loop
+    for runner, check in ((no_python_runner, "none on PATH"), (FakeRunner(), None)):
         out = tmp_path / ("runs-np" if check else "runs")
         monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, r=runner, **k: r)
         args = build_parser().parse_args([
@@ -326,10 +327,29 @@ def test_an_image_without_python3_is_a_grader_failure_with_the_reason(tmp_path, 
             assert json.loads((cell / "grade.json").read_text())["metrics"]["parse_error"] is True
 
     # Verify that NoPython runner was called with python3 command (the 127-exit-code path)
-    np_runner = runner
-    if isinstance(np_runner, NoPython):
-        assert any(s.argv[0] == "python3" for s in np_runner.specs), \
-            "Built-in grader must invoke python3 to trigger 127-exit detection"
+    assert any(s.argv[0] == "python3" for s in no_python_runner.specs), \
+        "Built-in grader must invoke python3 to trigger 127-exit detection"
+
+
+def test_builtin_grader_stderr_validation_for_127_exit(tmp_path):
+    """Only treat 127 exit as python3-not-found if stderr has expected signature."""
+    from dokimi.repos.grading import _python3_not_found_in_stderr
+
+    # Write stderr with python3 exec failure signature
+    (tmp_path / "grade.err").write_text("exec python3 failed: No such file or directory")
+    assert _python3_not_found_in_stderr(tmp_path, "grade")
+
+    # Write stderr with alternate signature
+    (tmp_path / "grade.err").write_text("python3: not found")
+    assert _python3_not_found_in_stderr(tmp_path, "grade")
+
+    # Write stderr without signature (127 exit from grader itself)
+    (tmp_path / "grade.err").write_text("Grader exit 127 for other reason\n")
+    assert not _python3_not_found_in_stderr(tmp_path, "grade")
+
+    # No stderr file (missing error logs)
+    (tmp_path / "grade.err").unlink()
+    assert not _python3_not_found_in_stderr(tmp_path, "grade")
 
 
 def test_run_entry_needs_the_task_inside_the_exported_eval_dir(tmp_path):

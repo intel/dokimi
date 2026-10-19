@@ -62,6 +62,7 @@ _GRADER_GIT_CONFIG = (("core.fsmonitor", "false"), ("core.hooksPath", "/dev/null
 _PLAIN_GIT_CONFIG = "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n"
 # Run-dir files the framework reads or writes after a grader had the run dir read-write.
 _NOT_FOUND_EXIT = 127  # docker run: the command (here the image's python3) is not on PATH
+_PYTHON3_NOT_FOUND_SIGS = ("exec python3 failed", "python3: not found")  # stderr signatures of python3 exec failure
 HOST_FILES = ("meta.json", "task.json", "answer.txt", "events.jsonl", "result.json", "grade.log", "grade.err")
 
 
@@ -110,6 +111,21 @@ def render_entry(template: str, task: Task) -> list[str]:
     return [substitute(word, {**CONTAINER_PATHS, "task": task.id}) for word in shlex.split(template)]
 
 
+def _python3_not_found_in_stderr(run_dir: Path, kind: str) -> bool:
+    """Whether stderr indicates python3 exec failed (not just any 127 exit).
+
+    Exit 127 can mean other things; only treat it as \"python3 missing\" if stderr
+    contains the known exec failure signature."""
+    err_file = run_dir / f"{kind}.err"
+    if not err_file.exists():
+        return False
+    try:
+        stderr = err_file.read_text(encoding="utf-8", errors="replace")
+        return any(sig in stderr for sig in _PYTHON3_NOT_FOUND_SIGS)
+    except Exception:
+        return False
+
+
 def run_entry(ctx: EvalContext, kind: str, task: Task, run_dir: Path, network: str,
               name: str | None = None) -> ContainerResult:
     """Run entry point ``kind`` (grade, oracle) for the run in ``run_dir``; logs go to ``<kind>.log``.
@@ -131,7 +147,7 @@ def run_entry(ctx: EvalContext, kind: str, task: Task, run_dir: Path, network: s
                          env=ctx.grade_env(task), network=network, name=name)
     result = ctx.runner.run(spec, stdout=run_dir / f"{kind}.log", stderr=run_dir / f"{kind}.err",
                             timeout_s=ctx.entry_timeout_s)
-    if builtin is not None and result.returncode == _NOT_FOUND_EXIT:
+    if builtin is not None and result.returncode == _NOT_FOUND_EXIT and _python3_not_found_in_stderr(run_dir, kind):
         raise ContainerError(f"{task.raw['grader']} runs on the image's python3, and the image has none on PATH "
                              f"(`{kind}` exited {_NOT_FOUND_EXIT}; see {run_dir / f'{kind}.err'})")
     return result
