@@ -5,9 +5,9 @@
 
 Each adapter checks the commands and labels the guidance names against the
 build files of the same snapshot. ``repo-eval.yaml`` ``build_systems`` picks
-the adapters; without it they are detected from the files. Rules that are one
-repository's policy (oneDAL refuses ``//...``, for example) stay in that
-repository's ``static`` entry point.
+the adapters; without it they are detected from the files. A rule that is one
+repository's policy (refusing ``//...``, for example) is not checked here; the
+repository adds it through its own ``static`` entry point.
 """
 
 from __future__ import annotations

@@ -576,13 +576,15 @@ those files spells the name out, `fail` when none does, and `unresolved` when
 one computes names or the target may be a file (`x.h`). Labels of any other
 external repository stay `unresolved`.
 
-Rules that are one repository's policy stay in its `static` entry point. For
-oneDAL these are `bazel test` and `bazel run` without `--config`, the refusal
-of `//...` and of bare `cc_library`/`cc_test`, a Starlark call to anything not
-defined in its three `.bzl` files, `PLAT=`/`COMPILER=` values from its
-`dev/make` tree, and a label or make target that the build files do not spell
-out literally, which L0 reports `unresolved` because a macro or a computed rule
-name may make it.
+L0 checks only what holds for any repository. The rules of oneDAL's own
+checker that are repository policy were not ported, and oneDAL dropped them
+along with that checker: `bazel test` and `bazel run` without `--config`, the
+refusal of `//...` and of bare `cc_library`/`cc_test`, a Starlark call to
+anything not defined in its three `.bzl` files, `PLAT=`/`COMPILER=` values
+from its `dev/make` tree, and a label or make target that the build files do
+not spell out literally (L0 reports that one `unresolved`, because a macro or a
+computed rule name may make it). A repository that wants rules like these adds
+them through its own `static` entry point (§4.4), merged as described below.
 
 `--static <file>` merges the output of the repository's `static` entry point
 (§4.4). A repository claim replaces the framework claim on the same file, line
