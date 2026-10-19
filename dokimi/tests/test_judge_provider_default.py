@@ -107,3 +107,18 @@ def test_the_placeholder_reads_as_the_default_judge_without_parse_args():
     assert JUDGE_MODEL_FOR_PROVIDER == DEFAULT_JUDGE_MODEL
     assert default_judge_model("openai") == DEFAULT_GENERATOR_MODEL
     assert default_judge_model("google") is None
+
+
+def test_the_legacy_cli_shim_exports_the_resolving_parse_args():
+    import importlib.util
+    from pathlib import Path
+
+    shim_path = Path(__file__).resolve().parents[1] / "cli.py"
+    spec = importlib.util.spec_from_file_location("dokimi_legacy_cli_shim", shim_path)
+    assert spec is not None and spec.loader is not None
+    shim = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(shim)
+    assert "parse_args" in shim.__all__
+    assert shim.parse_args is parse_args
+    args = shim.parse_args([*COMMANDS["eval score"], "--judge-provider", "openai"])
+    assert args.judge_model == DEFAULT_GENERATOR_MODEL

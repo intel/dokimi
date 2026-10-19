@@ -1,3 +1,7 @@
 ### Fixed
 
 - **`--judge-provider` alone picks a judge model that runs there** — on `benchmark run`, `benchmark preflight`, `benchmark batch`, `evaluate`, `eval score`, `eval judge-validity`, `eval checklist`, `eval judge-wording`, `eval pairwise`, `arms run`, `arms matrix-run` and `subjects run`, a `--judge-provider` without `--judge-model` was paired with `claude-sonnet-5-5`, so `--judge-provider openai` sent `openai/claude-sonnet-5-5` and failed at the first judge call. The judge model is now the default judge for that provider: `claude-sonnet-5-5` on `anthropic` and `amazon-bedrock` (as before), `gpt-6.1-sol` on `openai`. On `google`, `google-vertex` and `openrouter` the command exits before any model call and asks for `--judge-model`. With the default answer model, `--judge-provider openai` alone makes the judge the answering model, which the commands that check judge independence warn about. `novelty` already chose its judge this way.
+
+### Added
+
+- **`parse_args` on the legacy `cli.py` shim** — `from cli import parse_args` gives the same parse as `dokimi.cli.parse_args`, with the `--judge-model` default resolved for `--judge-provider`. `build_parser().parse_args()` still leaves the placeholder, which reads as `claude-sonnet-5-5`.
