@@ -133,13 +133,19 @@ A compiler-resolved call graph exposed as tools (who calls, callees, subclasses,
 files that change together, likely tests) paid off for questions that enumerate
 code. On "who calls X" questions with many callers or ambiguous names:
 
-| Model | Without | With tool and guidance line |
+| Model | F1 of the caller-file set, without | F1 of the caller-file set, with tool and guidance line |
 |---|---|---|
-| Sonnet 5.5 | 0.906 | 0.968, at half the cost per run |
-| Haiku 5.5 | 0.874 | 0.951 |
+| Sonnet 5.5 | 0.906 | 0.968, at about half the cost per run ($0.136 to $0.074) |
+| Haiku 5.5 | 0.874 | 0.951 (cost $0.0121 to $0.0081 per run) |
 
-On the fix and review tasks measured, with Sonnet 5, agents did not call it and
-results did not change; this was not repeated on the 5.5 models. Offer it when
+Each cell is 24 runs per arm (12 questions, 2 repetitions). F1 is computed on
+the set of files that call the function, from precision and recall.
+
+On the fix and review tasks measured with Sonnet 5, the guidance line was
+present and the tool was called in 0 of 20 runs; results did not change. The
+tasks were five replays of real review PRs (`review_replay`), one seeded
+missed-caller review (`review_seeded_fc`) and four fix or feature tasks. This
+was not repeated on the 5.5 models. Offer it when
 the repository has many cross-module call sites or shared names, and measure on
 your own tasks.
 
@@ -156,8 +162,10 @@ Recurring review comments are review knowledge a repository already has.
   harness you use loads that file (§7).
 - **Expect help on recurring defects, not one-offs.**
     - On review tasks with seeded recurring defects, rules raised the recall of
-      Codex with a small OpenAI model (gpt-6-luna) from 0.68 to 0.875.
-    - Current Claude models were already near that level without them.
+      Codex with a small OpenAI model (`gpt-6-luna`) from 0.68 to 0.875.
+    - Current Claude models were already near that level without them: recall
+      0.844 without rules for Haiku 5.5 (0.875 with), and 0.875 with and without
+      for Sonnet 5.5.
     - On replays of real PRs, whose comments were almost all specific to that PR,
       the rules matched 1 to 2 of 44 comments and changed nothing.
 - **Linters on the changed lines** (clang-tidy, cppcheck) given to the reviewer as
@@ -175,13 +183,18 @@ Put a `CLAUDE.md` containing `@AGENTS.md` next to each `AGENTS.md`, including in
 subdirectories; Claude Code reads no `AGENTS.md` beside a `CLAUDE.md`. Gemini CLI
 reads `GEMINI.md` unless `context.fileName` in its settings lists `AGENTS.md`. The
 `guidance:bridge` arm (for profiles with a bridge key) writes a `CLAUDE.md`
-containing `@AGENTS.md` where no `CLAUDE.md` exists yet, and can measure this
-setup's effect.
+containing `@AGENTS.md` next to each matched `AGENTS.md` (per the manifest's
+`guidance.globs`) where no `CLAUDE.md` exists yet, and can measure this setup's
+effect. Targets skipped because a `CLAUDE.md` already exists are listed as
+`bridge_skipped` in `meta.json`; `repo report` does not show them.
 
 Loading changes between versions. Run `dokimi repo reach` for the harness and
 version you use instead of relying on this table. Only the `claude-code` profile is
 built in; for Codex or Copilot, pass a `harness_profile.v1` file with `--harness`
-([contract](repo-evaluation-contract.md)). For Claude Code it requires the `claude`
+([contract](repo-evaluation-contract.md)). Tool-use counts need a trace the profile
+can convert, which today means `claude-stream-json`; a `text` trace gives no
+events, turns or cost, so for such a harness `repo reach` can report a file as
+loaded but never as fetched by the agent. For Claude Code it requires the `claude`
 CLI, credentials and a mandatory `--model` flag; `repo --help` notes it costs one
 cheap-model call per scenario.
 
@@ -211,7 +224,10 @@ Treat each item above as a hypothesis for your repository.
    prompt, same graders, distinct ids), or in their `base` commit (see
    [workspace preparation](repo-evaluation-contract.md#workspace-preparation-done-by-the-framework)).
    Run both under `guidance:raw` so that the patch is not removed, and compare
-   their rows in `dokimi repo report`. A patch or a second `base` changes only the
+   their rows in `dokimi repo report`. `repo compare` pairs the same task across
+   arms, so it cannot pair these two tasks. With 8 cells per row, 5/8 against
+   7/8 is within noise (p = 0.569, §1): treat a gap as real only when the two
+   Wilson intervals in `repo report` do not overlap, or raise the cell count. A patch or a second `base` changes only the
    workspace tree: one image serves every task, so a tool or binary (a pinned
    formatter, a navigation server) has to be in the image already. With the
    `claude-code` profile, which passes `--strict-mcp-config` with no
