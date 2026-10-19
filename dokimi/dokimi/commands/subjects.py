@@ -14,8 +14,9 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
-    DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
+    JUDGE_MODEL_FOR_PROVIDER,
+    JUDGE_MODEL_HELP,
 )
 
 
@@ -209,7 +210,8 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--harness", default="arms-runner", help=argparse.SUPPRESS)
     run_p.add_argument("--context7-id", default=None, dest="context7_id")
     run_p.add_argument("--judge", action="store_true")
-    run_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
+                       help=JUDGE_MODEL_HELP)
     run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                        choices=JUDGE_PROVIDERS)
     run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k")
