@@ -6,11 +6,18 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from pathlib import Path
 
-from dokimi.defaults import DEFAULT_CONCURRENCY, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.defaults import (
+    DEFAULT_CONCURRENCY,
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_PROVIDER,
+    JUDGE_MODEL_FOR_PROVIDER,
+    JUDGE_MODEL_HELP,
+)
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 from dokimi.utils import normalize_model_ref
@@ -46,15 +53,16 @@ def _load_answers(path: str):
         sys.exit(1)
 
 
+def _require_ragas() -> None:
+    """Exit before any model call when the ragas extra is not installed."""
+    if importlib.util.find_spec("ragas") is None:
+        sys.exit("RAGAS meta-evaluation needs the ragas extra: pip install 'dokimi[ragas]'")
+
+
 def _run_ragas_eval(answers, output_path, args) -> None:
     """Run RAGAS meta-evaluation and save results alongside answers."""
     from dokimi.eval.question_text import EmptyQuestionError
-
-    try:
-        from dokimi.eval.ragas_eval import RagasEvaluator
-    except ImportError as e:
-        print(f"\n⚠️  RAGAS not available ({e}). Skipping meta-evaluation.")
-        return
+    from dokimi.eval.ragas_eval import RagasEvaluator
 
     ragas_model = getattr(args, "ragas_model", DEFAULT_JUDGE_MODEL)
     ragas_provider = getattr(args, "ragas_provider", DEFAULT_JUDGE_PROVIDER)
@@ -78,6 +86,8 @@ def _run_ragas_eval(answers, output_path, args) -> None:
 
     except EmptyQuestionError:
         raise  # a bad input record is a refusal, not a RAGAS failure: cli.main reports it (exit 2)
+    except ImportError as exc:
+        sys.exit(f"RAGAS meta-evaluation was requested but cannot run: {exc}")
     except Exception as exc:
         print(f"\n⚠️  RAGAS evaluation failed: {exc}")
 
@@ -219,6 +229,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
 
 def cmd_eval_ragas(args: argparse.Namespace) -> None:
     """Run standalone RAGAS meta-evaluation on an answers JSON."""
+    _require_ragas()
     answers = list(_load_answers(args.answers).records)
     print(f"Loaded {len(answers)} answers from {args.answers}")
 
@@ -433,7 +444,7 @@ def register(sub, positive_int) -> None:
     score_p.add_argument("--run-id", default=None, dest="run_id",
                          help="Run tag (e.g. gpt4o). Sets output to results/{product}_{run_id}/eval/{product}.json")
     score_p.add_argument("--output", default=None, help="Output file (default: eval/{product}.json)")
-    score_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="LLM model for judging")
+    score_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     score_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     score_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, help="Parallel judge calls (default: 5)")
     score_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
@@ -493,7 +504,7 @@ def register(sub, positive_int) -> None:
                             help="Also escalate pairs called TIE in both orders (default: only order-inconsistent)")
     validity_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY,
                             help=f"Parallel judge calls (default: {DEFAULT_CONCURRENCY})")
-    validity_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="LLM model for judging")
+    validity_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     validity_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     validity_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                             help="Judge sampling temperature; match arms run --judge-temperature to certify the same judge")

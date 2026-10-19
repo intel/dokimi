@@ -262,6 +262,16 @@
         }
       }
     },
+    "conflict_coverage": {
+      "type": "object",
+      "description": "How much of the atom-pair space the conflict check compared. pairs_compared counts pairs that shared an answered call; pairs_total is every pair among the extracted atoms, which is the capped sample when spans.capped_atom_set is true. pairs_compared <= pairs_total is not expressible here and is enforced by the gate. A run that left pairs_compared below pairs_total, or capped the atom set, does not clear harmful_atoms at a count of 0.",
+      "additionalProperties": false,
+      "required": ["pairs_compared", "pairs_total"],
+      "properties": {
+        "pairs_compared": {"type": "integer", "minimum": 0},
+        "pairs_total": {"type": "integer", "minimum": 0}
+      }
+    },
     "spans": {
       "type": "object",
       "required": ["n", "tokens"],

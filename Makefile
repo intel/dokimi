@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# Top-level Makefile for the agent measurement framework.
+# Top-level Makefile for dokimi, A/B testing for agent context.
 #
 # The whole runnable project lives in dokimi/; every target here
 # delegates into it. Run `make help` for the current target list.
@@ -11,7 +11,7 @@ BENCH_DIR := dokimi
 .PHONY: help test benchmark-run benchmark-compare validate-benchmark-spec dev ci-local hooks
 
 help:
-	@echo "Agent measurement framework — top-level targets:"
+	@echo "dokimi (A/B testing for agent context) — top-level targets:"
 	@echo "  make test                    Run the dokimi test suite"
 	@echo "  make benchmark-run           Run the static agent-quality benchmark"
 	@echo "  make benchmark-compare       Compare benchmark snapshots (BASE=<your snapshot>)"
