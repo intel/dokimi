@@ -57,8 +57,9 @@ def cli_reference() -> None:
     nav = mkdocs_gen_files.Nav()
     with mkdocs_gen_files.open("reference/cli/index.md", "w") as fd:
         fd.write("# CLI reference\n\n")
-        fd.write("Generated from the argument parser; `python cli.py <command> --help` "
-                 "prints the same text.\n\n")
+        fd.write("Generated from the argument parser; `dokimi <command> --help` "
+                 "(`python cli.py <command> --help` in a source checkout) prints the "
+                 "same text.\n\n")
         fd.write(f"```text\n{root.format_help()}```\n")
     nav["dokimi"] = "index.md"
     for name, sub in _subcommands(root).items():
