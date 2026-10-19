@@ -6,7 +6,7 @@
 import json
 
 import pytest
-from tests.conftest import DEMO_SKILL_MARKER
+from conftest import DEMO_SKILL_MARKER
 
 import dokimi.eval.agent_runner as ar_mod
 from dokimi.eval.agent_runner import run_agent_loop
