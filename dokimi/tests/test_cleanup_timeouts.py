@@ -76,6 +76,14 @@ def test_stop_proxy_timeout_retried_in_close(tmp_path):
     rm_calls = [c for c in cli.calls if c.argv[1] == "rm" and "egress" in " ".join(c.argv)]
     assert len(rm_calls) == 3, f"Should attempt sidecar removal 3 times (open + stop_proxy + close), got {len(rm_calls)}"
 
+    # close() goes on past the timed-out sidecar removal: the egress record is saved
+    # and the network is removed after the sidecar's last removal attempt.
+    assert (tmp_path / "out" / "egress.jsonl").exists(), "close() should still save egress.jsonl"
+    last_sidecar_rm = max(i for i, c in enumerate(cli.calls)
+                          if c.argv[1] == "rm" and "egress" in " ".join(c.argv))
+    network_rm = [i for i, c in enumerate(cli.calls) if list(c.argv[1:3]) == ["network", "rm"]]
+    assert network_rm and network_rm[-1] > last_sidecar_rm, "close() should remove the network after the sidecar"
+
 
 def test_reap_timeout_aborts_cell(tmp_path):
     """If pre-verifier reap times out, abort the cell before verification.
@@ -87,7 +95,7 @@ def test_reap_timeout_aborts_cell(tmp_path):
 
     # Mock docker to timeout on the kill command (reap)
     cli = _pipeline(reward=1.0, answer=lambda call: reply(timed_out=True) if (
-        call.argv[1] == "exec" and "kill" in call.argv[-1]) else None)
+        call.argv[1] == "exec" and "kill -9" in call.argv[-1]) else None)
 
     result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
 
@@ -108,6 +116,22 @@ def test_reap_timeout_aborts_cell(tmp_path):
     assert any(c.argv[1] == "cp" and ":/app/." in c.argv[2] for c in cli.calls)
     assert any(c.argv[1] == "exec" and "-rf" in c.argv and "files" in c.argv[-1] for c in cli.calls)
     assert (tmp_path / "out" / "solver.jsonl").is_file()
+
+
+def test_workdir_inspect_timeout_refuses_the_cell(tmp_path):
+    """A timed-out ``docker inspect`` of the image WORKDIR must not fall back to /app.
+
+    /app is only a guess; the agent would run in a tree the image never declared.
+    """
+    task = load_task(_fixture_task(tmp_path))
+    cli = _pipeline(reward=1.0, answer=lambda call: reply(timed_out=True) if (
+        call.argv[1] == "inspect") else None)
+
+    result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
+
+    assert result.returncode == 124, "Should time out when the WORKDIR inspect times out"
+    assert result.reward == 0.0
+    assert not [c for c in cli.calls if c.argv[1] == "exec" and "test.sh" in " ".join(c.argv)]
 
 
 def test_recompile_timeout_aborts_cell(tmp_path):

@@ -754,6 +754,8 @@ def _task_workdir(task: TaskSpec, container: str, log, docker: "Docker") -> str:
         # WORKDIR of "/": a snapshot would `docker cp` the whole filesystem.
         return declared
     proc = docker(["inspect", "-f", "{{.Config.WorkingDir}}", container], log, check=False)
+    if proc.timed_out:  # an unknown WORKDIR is not /app: the cell is refused, not billed on a guess
+        raise subprocess.TimeoutExpired(proc.argv, _DOCKER_STEP_TIMEOUT)
     found = (proc.stdout or "").strip()
     if proc.returncode != 0 or not found.startswith("/"):
         return "/app"
