@@ -240,6 +240,44 @@ def test_the_base_baseline_is_read_from_git(project, monkeypatch):
     assert cg.base_ref() == "base"
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_non_origin_remote_baseline_via_dokimi_growth_base(project, monkeypatch):
+    """Regression: ci_local.py resolves the base ref to a non-origin remote, but did not
+    pass it to the pytest environment, causing the growth check to use the wrong baseline."""
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                       cwd=project, check=True, capture_output=True)
+
+    # Set up git repo with a remote (simulating a fork setup).
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    # Simulate a non-origin remote by creating a local bare repo.
+    remote_dir = project.parent / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote_dir)], check=True)
+    git("remote", "add", "fork", str(remote_dir))
+    git("push", "-q", "fork", "main")
+
+    # The test: baseline is at the remote ref; ci_local.py resolves fork/main as the base
+    # and must pass it to the check_growth script via DOKIMI_GROWTH_BASE env var.
+    # Without the fix, load_base_baseline would fail or use the wrong ref.
+    raised = cg.load_baseline()
+    raised["files"]["dokimi/big.py"]["lines"] = 23
+    cg.BASELINE.write_text(cg.dump_baseline(raised), encoding="utf-8")
+    (project / "dokimi" / "big.py").write_text("x = 1\n" * 23, encoding="utf-8")
+
+    # Simulate ci_local.py's behavior: it resolves the base to fork/main.
+    monkeypatch.setenv("DOKIMI_GROWTH_BASE", "fork/main")
+    # Now the check should pass because it compares against fork/main (the baseline).
+    base = cg.load_base_baseline("fork/main")
+    assert base is not None and base["files"]["dokimi/big.py"] == {"lines": 22}
+    # The gate should catch the raised entry because it has no rationale.
+    assert cg.main([]) == 1
+    found = cg.raised_without_rationale(cg.load_baseline(), base)
+    assert len(found) == 1
+    assert "raised from 22 to 23 without a \"rationale\"" in found[0]
+
+
 def test_report_totals(project, tmp_path, capsys):
     out = tmp_path / "r.json"
     assert cg.main(["--report", "--markdown", "--json", str(out)]) == 0

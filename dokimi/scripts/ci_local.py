@@ -280,7 +280,7 @@ def run(args: argparse.Namespace) -> int:
         summary = tmp / "step-summary.md"
         base_env = dict(os.environ, RUNNER_TEMP=str(tmp), GITHUB_STEP_SUMMARY=str(summary),
                         GITHUB_OUTPUT=str(tmp / "github-output"), GITHUB_WORKSPACE=str(REPO),
-                        CI="true")
+                        CI="true", DOKIMI_GROWTH_BASE=base_ref)
         for wf_name, wf in workflows:
             default_wd = wf.get("defaults", {}).get("run", {}).get("working-directory", ".")
             for job_id, job in wf["jobs"].items():
