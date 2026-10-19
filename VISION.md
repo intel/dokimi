@@ -22,7 +22,7 @@ their `AGENTS.md` does, and marketplaces rank by installs.
   skill's real job shows up in exact values and qualifiers
   ([evidence](dokimi/docs/skill-novelty-evidence.md)).
 - **Models believe their context, even when it is wrong.** A plausible wrong
-  value planted in a skill is repeated 94% of the time
+  value planted in a skill is repeated 85–94% of the time in a small study
   ([evidence](dokimi/docs/skill-novelty-evidence.md)).
 - **Popularity is not evidence.** Stars and installs bury niche expert
   tooling, such as HPC and numerical libraries.
@@ -59,9 +59,9 @@ popularity signals are weakest and correctness matters most.
   tool preference and whatever comes next are ways to get sharper or cheaper
   answers to the same question.
 - **Beat a placebo, not just nothing.** Off-topic text of the same length
-  made two of five measured models worse, so a gain should beat a control of
+  made three of five measured models much worse, so a gain should beat a control of
   comparable length. Today that control is opt-in
-  (`dokimi novelty analyze --arms no_artifact,full,placebo --placebo-text FILE`).
+  (`dokimi novelty analyze --artifact FILE --arms no_artifact,full,placebo --placebo-text FILE2`).
 - **"Not measured" is never shown as "pass".**
 - **Cheap first, costly only when needed.** Static and LLM-free checks run
   first. Expensive runs (agents, Docker, panels) are only for what the cheap
