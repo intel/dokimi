@@ -76,8 +76,9 @@ CI additionally holds a PR to:
   Python 3.14 leg), where `<remote>` is the remote pointing at `intel/dokimi`
   (`origin` in CI). `make ci-local` finds that remote by URL and prints the ref
   it compares against; pick another with `CI_LOCAL_ARGS='--remote <name>'`.
-- **mypy on the whole package.** Modules listed under `[[tool.mypy.overrides]]` in
-  `pyproject.toml` are exempt until fixed; do not add to that list.
+- **mypy on the whole package.** No module is exempt: fix the type errors rather
+  than adding an `ignore_errors` override to `pyproject.toml` (`tests/test_mypy_config.py`
+  fails on one).
 - **Tests that fail loudly.** `pytest` fails a test that runs over 60 s
   (`@pytest.mark.timeout(N)` allows more), turns a warning into an error, and
   shuffles the test order (pytest-randomly). The header prints

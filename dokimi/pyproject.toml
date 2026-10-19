@@ -209,13 +209,6 @@ strict_equality = true
 extra_checks = true
 files = ["dokimi"]
 
-[[tool.mypy.overrides]]
-module = [
-  "dokimi.commands.catalog",
-  "dokimi.personas.analyzer",
-]
-ignore_errors = true
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # The suite runs offline: a test that connects to anything but loopback fails

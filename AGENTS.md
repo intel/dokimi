@@ -26,8 +26,8 @@ timeout, and run the test files you touched first. Beyond lint and tests, CI
 also holds a PR to:
 
 - 80% coverage of changed lines (when 20+ are measurable): add tests with the change.
-- mypy on the whole package; the `[[tool.mypy.overrides]]` list in
-  `pyproject.toml` only shrinks.
+- mypy on the whole package, no module exempt: fix a type error rather than
+  adding an `ignore_errors` override to `pyproject.toml`.
 - Docs that name a command, flag, path or module must match the tree
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
