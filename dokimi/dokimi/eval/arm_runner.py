@@ -27,6 +27,9 @@ from dokimi.eval.arm_summary import (
     cost_summary, summarize_agentic_usage, summarize_skill_selection,
 )
 from dokimi.eval.cells import Cell
+from dokimi.eval.question_text import (
+    has_answer_to_judge, question_text_of, require_question_text, require_question_texts,
+)
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import SOURCE_STORED
 from dokimi.eval.judge_context import stamp_for as judge_context_stamp
@@ -220,7 +223,9 @@ class ArmRunner:
     def _answer_question(
         self, library_name: str, library_id: Optional[str], q: Dict[str, Any]
     ) -> Dict[str, Any]:
-        question_text = q.get("question") or q.get("text") or q.get("question_text", "")
+        # Same key order and blank handling as the judge's check, so a record that passes
+        # the up-front check is answered with the text the judge will see.
+        question_text = question_text_of(q)
         qid = question_id(q)
         if qid is None:
             qid = "unknown_q"
@@ -444,6 +449,9 @@ class ArmRunner:
         def _score(rec: Dict[str, Any]) -> Dict[str, Any]:
             scores: Dict[str, Any] = {}
             gt = rec.get("ground_truth_chunk")
+            # One read for the judge call and the row (a ``question``-only record must not
+            # pass the check and then fail on ``rec["question_text"]`` after paid calls).
+            text = require_question_text(rec) if has_answer_to_judge(rec) else question_text_of(rec)
             for arm_name, arm in rec.get("arms", {}).items():
                 if not arm or not arm.get("answer"):
                     scores[arm_name] = None
@@ -454,7 +462,7 @@ class ArmRunner:
                 try:
                     score = judge.score_answer(
                         library_name=library_name,
-                        question=rec["question_text"],
+                        question=text,
                         answer=arm["answer"],
                         context=context,
                         ground_truth=gt,
@@ -481,13 +489,14 @@ class ArmRunner:
 
             return {
                 "question_id": rec["question_id"],
-                "question_text": rec["question_text"],
+                "question_text": text,
                 "category": rec.get("category"),
                 "difficulty": rec.get("difficulty"),
                 "scores": scores,
                 "deltas_vs_baseline": deltas,
             }
 
+        require_question_texts(records)  # before any judge call: refuse, do not grade against ""
         n = len(records)
         out: Dict[int, Dict[str, Any]] = {}
         with ThreadPoolExecutor(max_workers=concurrency) as pool:

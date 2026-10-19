@@ -47,6 +47,7 @@ import re
 from decimal import Context, Decimal
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+from dokimi.eval.question_text import question_text_of, require_question_text
 from dokimi.utils import question_id
 
 #: Minimum answer length (characters) worth degrading. Short answers have too
@@ -592,13 +593,14 @@ def _answer_pool(answers: Iterable[object]) -> List[Dict[str, Any]]:
     legacy two-condition shape (``with_docs``/``without_docs``).
     """
     pool: List[Dict[str, Any]] = []
-    for item in answers:
+    for i, item in enumerate(answers):
         if not isinstance(item, dict):
             continue
         qid = question_id(item)
-        qtext = item.get("question_text") or item.get("question")
-        if qid is None or not qtext:
-            continue
+        if qid is None:
+            continue  # no id: never paired, so skipped (not refused)
+        # Checked by build_pairs for the rows that can become a pair; the others are never judged.
+        qtext = question_text_of(item)
         arms = item.get("arms")
         candidates: List[tuple[str, Any]] = []
         if isinstance(arms, dict):
@@ -610,7 +612,8 @@ def _answer_pool(answers: Iterable[object]) -> List[Dict[str, Any]]:
         for arm, payload in candidates:
             text = (payload or {}).get("answer") if isinstance(payload, dict) else payload
             if isinstance(text, str) and text.strip():
-                pool.append({"question_id": qid, "question_text": qtext, "arm": arm, "answer": text})
+                pool.append({"question_id": qid, "question_text": qtext, "arm": arm, "answer": text,
+                             "_record": (item, i)})
     return pool
 
 
@@ -636,7 +639,13 @@ def build_pairs(
     pool = _answer_pool(answers)
     rng = random.Random(seed)
     rng.shuffle(pool)
-    bases = [row for row in pool if len(row["answer"]) > min_chars][:n_bases]
+    usable = [row for row in pool if len(row["answer"]) > min_chars]
+    # Refused, not skipped: a pair built without its question is graded against nothing. Every
+    # usable row is checked (not only the drawn bases), so the outcome does not depend on the seed.
+    for row in usable:
+        if not row["question_text"].strip():
+            require_question_text(*row["_record"])
+    bases = usable[:n_bases]
 
     pairs: List[Dict[str, Any]] = []
     for base in bases:

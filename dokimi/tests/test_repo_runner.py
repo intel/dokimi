@@ -459,6 +459,11 @@ def test_docker_build_and_inspect_are_bounded(tmp_path, monkeypatch):
     build, inspect = fake.calls
     assert container.BUILD_TIMEOUT_S == 3 * 3600 and container.DOCKER_CALL_TIMEOUT_S == 60
     assert build.timeout == 3 * 3600 and inspect.timeout == 60
+    # a longer build is the caller's choice (--build-timeout), and the error names the flag
+    fake = process.FakeRunner(lambda call: process.reply(timed_out=True))
+    with pytest.raises(ContainerError, match=r"timed out after 36000s \(--build-timeout\)"):
+        DockerRunner(runner=fake).build(tmp_path, tmp_path / "Dockerfile", "img:t", timeout_s=36000)
+    assert fake.calls[0].timeout == 36000
     # Both inherit the caller's environment (registry credentials, DOCKER_HOST, proxies).
     monkeypatch.setenv("DOKIMI_TEST_ONLY_DOCKER", "kept")
     fake = process.FakeRunner()
