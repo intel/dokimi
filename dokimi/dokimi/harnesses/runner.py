@@ -387,6 +387,8 @@ def _withheld_pair_record(
         "paired_pass_rate_delta": round((gained - lost) / n, 4),
         "ci_lo": None,
         "ci_hi": None,
+        # No interval is computed, so no confidence level applies to it.
+        "ci_confidence": None,
         "p_exact": None,
         "significant": None,
         # Filled by the family correction, which leaves a null p null.
@@ -452,7 +454,12 @@ def _correct_across_harnesses(
     twice — once as ``method=`` and once as a literal in the artifact — lets the
     two drift, so a reader could be told "holm" while BH was applied.
     """
-    tested = [h for h, cr in comparisons.items() if cr.get("mcnemar")]
+    # A withheld record (p_exact None) tested nothing, so it is not in the family.
+    tested = [
+        h
+        for h, cr in comparisons.items()
+        if cr.get("mcnemar") and cr["mcnemar"].get("p_exact") is not None
+    ]
     raw = [comparisons[h]["mcnemar"]["p_exact"] for h in tested]
     adjusted = adjust_pvalues(raw, method=correction)
     # The decision uses the unrounded adjusted p; the rounded one is recorded.

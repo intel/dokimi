@@ -414,6 +414,54 @@ def test_one_shared_cell_keeps_exclusions_when_the_test_cannot_run():
     assert "—" in rendered
 
 
+def _tested_plus_withheld_rows():
+    """``skill`` gets a real McNemar test; ``thin`` shares one cell, so it is withheld."""
+    rows = []
+    for i in range(6):
+        rows += [_row(f"t{i}", "noskill", False), _row(f"t{i}", "skill", True)]
+    rows.append(_row("t0", "thin", True))
+    rows.append(_row("t1", "thin", False, error="RuntimeError: docker build failed"))
+    return rows
+
+
+def test_a_withheld_comparison_is_not_counted_in_the_correction_family():
+    """A withheld record tested nothing: it must not inflate the Holm multiplier."""
+    comparisons = summarize_task_results(
+        _tested_plus_withheld_rows(), baseline_harness="noskill"
+    )["comparisons"]
+    tested = comparisons["skill"]["mcnemar"]
+    withheld = comparisons["thin"]["mcnemar"]
+    assert tested["family_size"] == 1
+    assert tested["correction"] == "holm"
+    assert withheld["p_exact"] is None
+    assert withheld["p_adjusted"] is None
+    assert "correction" not in withheld
+    assert "family_size" not in withheld
+    assert set(withheld) >= set(tested) - {"correction", "correction_family", "family_size"}
+
+
+def test_a_run_with_a_withheld_comparison_validates():
+    rows = _tested_plus_withheld_rows()
+    artifact = {
+        "schema_version": "task_runs.v1",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "model": "haiku",
+        "baseline_harness": "noskill",
+        "harnesses": ["noskill", "skill", "thin"],
+        "repeats": 1,
+        "tasks": [
+            {"name": f"t{i}", "path": f"tasks/t{i}", "metadata": {"difficulty": "easy"},
+             "verifier": {}, "agent": {}, "environment": {}}
+            for i in range(6)
+        ],
+        "results": [{**r, "operations": []} for r in rows],
+        "summary": summarize_task_results(rows, baseline_harness="noskill"),
+    }
+    withheld = artifact["summary"]["comparisons"]["thin"]["mcnemar"]
+    assert withheld["ci_lo"] is None and withheld["ci_confidence"] is None
+    validate_artifact("task_runs", artifact)
+
+
 def test_cells_that_errored_on_both_sides_are_counted_as_excluded():
     """The loss is largest exactly where the old count reported zero.
 
