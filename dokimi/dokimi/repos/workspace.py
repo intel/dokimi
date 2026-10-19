@@ -119,24 +119,31 @@ def parse_arm(spec: str) -> Arm:
             raise PrepError(f"arm {spec!r}: the patch is empty")
         # one "_" at most in a row: cell names join their parts with "__"
         name = re.sub(r"[^A-Za-z0-9.-]+", "_", path.name).strip("_") or "patch"
+        # Cap the name to prevent filesystem errors (ENAMETOOLONG). The digest keeps it unique.
+        name = name[:40]
         digest = hashlib.sha256(data).hexdigest()
         return Arm(f"{PATCH_ARM}{name}@{digest[:12]}", spec=spec, patch=data, patch_path=str(path.resolve()))
     raise PrepError(f"unknown arm {spec!r} (known: {', '.join(ARM_FORMS)})")
 
 
-def pin_arm(arm: Arm, git_dir: Path, fetch: bool = False) -> Arm:
+def pin_arm(arm: Arm, git_dir: Path, fetch: bool = False, worktree_dir: Path | None = None) -> Arm:
     """``guidance:rev:<rev>`` renamed ``guidance:rev:<full sha>``; any other arm as it is.
 
     ``fetch`` is for a remote source's cached clone: a branch or tag is fetched first, so it
     names the remote's commit of now and not the one of the clone's last fetch, and a SHA the
     clone lacks is fetched. A local repository is only read.
+
+    If ``worktree_dir`` is provided and the rev is HEAD (or a worktree-specific ref), it is
+    resolved in that worktree, not the main worktree.
     """
     if arm.rev is None or arm.rev_sha is not None:
         return arm
     if fetch and not (_FULL_SHA_RE.match(arm.rev) and _has_commit(git_dir, arm.rev)):
         refs = [arm.rev] if _FULL_SHA_RE.match(arm.rev) else ["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"]
         _run(["git", "-C", str(git_dir), "fetch", "origin", "--", *refs])
-    proc = process.git("-C", str(git_dir), "rev-parse", "--verify", "--quiet", f"{arm.rev}^{{commit}}",
+    # For refs like HEAD that differ per worktree, use the worktree dir if available
+    work_dir = worktree_dir or git_dir
+    proc = process.git("-C", str(work_dir), "rev-parse", "--verify", "--quiet", f"{arm.rev}^{{commit}}",
                        timeout=_GIT_TIMEOUT_S)
     if proc.timed_out:
         raise PrepError(f"git rev-parse: timed out after {_GIT_TIMEOUT_S} seconds")
@@ -359,10 +366,25 @@ def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
     files = [p for p in written if p not in links]
     if files:  # checked out as files, as in step 1: no object of the source is copied
         _checkout_tree(git_dir, arm.rev_sha, ws, paths=files)
-    for rel, target in links.items():  # the target's text at the link's path; the base's own copy of it stays
-        (ws / rel).parent.mkdir(parents=True, exist_ok=True)
-        (ws / rel).write_text(_run(["git", "-C", str(git_dir), "cat-file", "blob", f"{arm.rev_sha}:{target}"],
-                                   env=_git_env(SNAPSHOT_AUTHOR)), encoding="utf-8")
+    for rel, target in links.items():  # the target's blob as bytes at the link's path; the base's own copy of it stays
+        dest_path = ws / rel
+        # Reject symlinked destination components to prevent escaping the workspace
+        for p in dest_path.parents:
+            if p == ws:
+                break
+            if p.is_symlink():
+                raise PrepError(f"arm {arm}: guidance {rel} at {arm.rev_sha[:12]} would write through symlink {p}")
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        # Check again in case a parent component was created as a symlink
+        if dest_path.is_symlink():
+            raise PrepError(f"arm {arm}: guidance {rel} at {arm.rev_sha[:12]} exists as a symlink in base")
+        # Get the blob and write it as raw bytes (not decoded text) to preserve line endings and encoding
+        proc = process.run(["git", "-C", str(git_dir), "cat-file", "blob", f"{arm.rev_sha}:{target}"],
+                          env=process.Env.only((), {**_git_env(SNAPSHOT_AUTHOR), "GIT_TERMINAL_PROMPT": "0"}),
+                          timeout=_GIT_TIMEOUT_S, capture_limit=None)
+        if proc.returncode != 0:
+            raise PrepError(f"arm {arm}: cannot read target {target}: {proc.stdout}")
+        dest_path.write_bytes(proc.stdout_bytes)
     return written, {"arm_rev": {"rev": arm.rev, "sha": arm.rev_sha, "removed": sorted(set(removed) - set(written))}}
 
 
@@ -407,10 +429,18 @@ def _guidance_at(git_dir: Path, manifest: RepoManifest, sha: str) -> tuple[list[
                 raise PrepError(f"guidance {path} at {sha[:12]} links out of the tree ({dest})")
             if _is_within(target, eval_dir):
                 raise PrepError(f"guidance {path} at {sha[:12]} links into eval_dir {eval_dir}")
-        if target != path:
-            if entries.get(target, ("",))[0] in ("", "120000"):
-                raise PrepError(f"guidance {path} at {sha[:12]} links to {target}, which is not a file there")
-            links[path] = target
+        # Always validate the final entry's mode, even if target == path (cyclic link)
+        final_mode = entries.get(target, ("",))[0]
+        if final_mode not in ("", "120000"):
+            # Normal case: target is a file (mode is a file blob mode)
+            if target != path:
+                links[path] = target
+        elif final_mode == "120000":
+            # Cyclic link: target is still a symlink after loop
+            raise PrepError(f"guidance {path} at {sha[:12]} links to {target}, which is not a file there")
+        else:
+            # Target doesn't exist
+            raise PrepError(f"guidance {path} at {sha[:12]} links to {target}, which is not a file there")
     return found, links
 
 
