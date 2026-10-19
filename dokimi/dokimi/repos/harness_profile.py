@@ -112,18 +112,19 @@ class HarnessProfile:
                                "kept from starting subagents")
         return self.delegation[delegation].get(tools, self.tools[tools])
 
-    def execution_id(self, tools: str, delegation: str = "native", harness_bin: str | None = None,
+    def execution_id(self, tools: str, delegation: str = "native", harness_sha256: str | None = None,
                      harness_version: str | None = None) -> str:
         """Short hash of how the agent is started: the ``invoke`` template with its tool arguments.
 
         Two runs with the same id ran the same command line up to the per-cell values (prompt, model,
         caps); ``repo run`` reuses a finished cell only when its id matches. Includes the harness
-        binary name and version to detect changes to the effective harness executable.
+        executable's digest and version to detect changes to the effective harness, wherever it lives.
         """
         key = {"profile": self.name, "invoke": list(self.invoke), "tools": list(self.tool_args(tools, delegation)),
                "env_set": dict(sorted(self.env_set.items())), "env_allow": list(self.env_allow),
                "config_dir_env": self.config_dir_env, "config_files": dict(sorted(self.config_files.items())),
-               "prompt_suffix": self.prompt_suffix, "harness_bin": harness_bin, "harness_version": harness_version}
+               "prompt_suffix": self.prompt_suffix, "harness_sha256": harness_sha256,
+               "harness_version": harness_version}
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
     def prompt(self, task_prompt: str) -> str:

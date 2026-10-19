@@ -133,16 +133,41 @@ def test_a_cell_is_reused_only_by_the_same_execution(setup, capsys):
     assert "--no-agents" in agent.argv
 
 
-def test_a_changed_harness_binary_crashes_on_resume(setup, capsys, tmp_path):
-    """Verify execution_id includes harness binary path, so reuse fails on binary change."""
+def test_a_result_from_before_execution_ids_counts_as_native(setup, capsys):
+    raw = yaml.safe_load(setup["profile"].read_text())
+    raw["delegation"] = {"none": {"all": [*raw["tools"]["all"], "--no-agents"]}}
+    setup["profile"].write_text(yaml.safe_dump(raw))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    rd = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"
+    rec = json.loads((rd / "result.json").read_text())
+    del rec["execution"]  # written by an earlier version
+    (rd / "result.json").write_text(json.dumps(rec))
+    capsys.readouterr()
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert "1 already done" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
+    assert "finished with another execution" in capsys.readouterr().out
+
+
+def test_the_same_harness_bytes_resume_from_any_path(setup, capsys, tmp_path):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     capsys.readouterr()
-    # Move the harness binary and symlink a different one in its place
-    new_exe = tmp_path / "other-harness"
-    new_exe.write_text(setup["exe"].read_text())
-    new_exe.chmod(0o755)
+    moved = tmp_path / "elsewhere" / "fake-harness"
+    moved.parent.mkdir()
+    moved.write_bytes(setup["exe"].read_bytes())
+    moved.chmod(0o755)
     setup["exe"].unlink()
-    setup["exe"].symlink_to(new_exe)
+    setup["exe"].symlink_to(moved)
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert "1 already done" in capsys.readouterr().out
+
+
+def test_a_changed_harness_binary_crashes_on_resume(setup, capsys):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    # Same name, same reported version, other bytes: the id is the executable's digest
+    setup["exe"].write_text(setup["exe"].read_text() + "\n# upgraded in place\n")
     with pytest.raises(SystemExit):  # a crashed cell fails the run
         _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     out = capsys.readouterr()

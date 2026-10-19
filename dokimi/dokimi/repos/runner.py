@@ -31,6 +31,7 @@ recorded in ``meta.json`` and flagged by the report.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import math
 import os
@@ -96,10 +97,19 @@ def cell_name(task: str, arm: str, model: str, rep: int) -> str:
     return f"{task}__{slug(arm.replace(':', '-'))}__{slug(model)}__r{rep}"
 
 
+def harness_sha256(path: Path) -> str:
+    """Digest of the harness executable's bytes: the same file gives the same id wherever it lives."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def execution_record(opts: AgentOptions) -> dict[str, str]:
     """How the cell's agent was started, as ``meta.json`` and ``result.json`` record it."""
-    return {"id": opts.profile.execution_id(opts.tools, opts.delegation,
-                                             str(opts.harness_bin.resolve()), opts.harness_version),
+    return {"id": opts.profile.execution_id(opts.tools, opts.delegation, harness_sha256(opts.harness_bin),
+                                             opts.harness_version),
             "tools": opts.tools, "delegation": opts.delegation}
 
 

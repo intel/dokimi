@@ -987,7 +987,7 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   failed, and the next run of the batch fills it. `meta.json` and
   `result.json` record `execution`: the tool mode, the delegation mode and an
   `id` hashing the profile's `invoke`, tool arguments, `env_set`,
-  `config_files`, `prompt_suffix`, harness binary name (`--bin` file name) and harness version.
+  `config_files`, `prompt_suffix`, the SHA-256 of the harness executable (`--bin`) and harness version.
   A rerun whose `id` differs (another `--tools`, `--delegation`, profile, harness binary or
   harness version) does not reuse the cell: the cell is reported as crashed, and
   `--force` or another `--batch` runs it. A result from before `execution` was
