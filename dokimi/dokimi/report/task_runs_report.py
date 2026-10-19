@@ -139,7 +139,7 @@ def _mcnemar_lines(cmp: dict[str, Any], baseline: str | None) -> list[str]:
 
 
 def _fmt_rate(v: Any) -> str:
-    return f"{v*100:.0f}%" if isinstance(v, (int, float)) else "—"
+    return f"{v*100:.0f}%" if isinstance(v, (int, float)) and not isinstance(v, bool) else "—"
 
 
 def _discovery_lines(data: dict[str, Any]) -> list[str]:
@@ -161,7 +161,12 @@ def _discovery_lines(data: dict[str, Any]) -> list[str]:
     ]
     for h, g in gaps.items():
         gap = g.get("gap")
-        gap_s = f"{gap*100:+.2f} pp" if isinstance(gap, (int, float)) else "— (arms lost different cells)"
+        if isinstance(gap, (int, float)):
+            gap_s = f"{gap*100:+.2f} pp"
+        elif g.get("with_skill_pass_rate") is None or g.get("discover_pass_rate") is None:
+            gap_s = "— (no scored cells)"
+        else:
+            gap_s = "— (arms lost different cells)"
         lines.append(f"| `{h}` | {_fmt_rate(g.get('with_skill_pass_rate'))} | "
                      f"{_fmt_rate(g.get('discover_pass_rate'))} | {gap_s} | "
                      f"{_fmt_rate(g.get('with_skill_invocation_rate'))} | "

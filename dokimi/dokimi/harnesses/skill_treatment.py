@@ -227,6 +227,10 @@ def skill_listing(skill_dir: Path) -> dict[str, Any]:
     by. The run offers this one plugin skill and ``doctor``, so the listing's
     default budget (:data:`LISTING_BUDGET_CHARS`) is not reached; a description
     over :data:`LISTING_MAX_DESC_CHARS` is cut, and ``truncated`` says so.
+
+    The returned dict includes ``description_chars`` (the length of the listing
+    entry text before truncation: description plus optional when_to_use with
+    ' - ' separator).
     """
     path = skill_dir / "SKILL.md"
     meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))

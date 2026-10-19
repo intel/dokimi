@@ -188,7 +188,7 @@
                   "description_chars": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "Number of characters in the skill description."
+                    "description": "Number of characters in the skill listing entry text shown to the model before truncation (description plus optional when_to_use with ' - ' separator)."
                   },
                   "max_desc_chars": {
                     "type": "integer",
