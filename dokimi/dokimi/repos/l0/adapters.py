@@ -167,14 +167,16 @@ def _build_names(text: str) -> tuple[set[str], bool]:
     exports = False  # inside the top-level `exports_files(...)` call positional argument
     exports_depth = 0  # depth of nested parens/brackets in exports_files call
     exports_computed = False  # exports_files argument contains computed values
+    skip_exports_paren = False  # skip counting the opening paren of exports_files( call
     for i, (kind, val, first) in enumerate(toks):
         prev = toks[i - 1] if i else ("", "", False)
         nxt = toks[i + 1] if i + 1 < len(toks) else ("", "", False)
         if kind == "op" and val in "([{":
             comp = comp or (not stack and first and val in "[{")
             stack.append(val)
-            if exports:
+            if exports and not skip_exports_paren:
                 exports_depth += 1
+            skip_exports_paren = False
         elif kind == "op" and val in ")]}":
             if stack:
                 stack.pop()
@@ -198,6 +200,7 @@ def _build_names(text: str) -> tuple[set[str], bool]:
             exports = True
             exports_depth = 0
             exports_computed = False
+            skip_exports_paren = True
         elif kind == "id" and nxt[1] == "(" and nxt[0] == "op" and prev[1] != ".":
             if ((not stack and first) or comp) and val not in BAZEL_NATIVE and val not in STARLARK_BUILTINS:
                 computed = True
