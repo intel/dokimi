@@ -54,6 +54,7 @@ def test_an_uncapped_client_ignores_missing_prices():
     assert LLMClient(model="m", transport=transport).text("a") == "ok"
 
 
+@pytest.mark.outcome("cjm-novelty-spend-cap")
 def test_every_role_shares_one_cap():
     args = _parse("novelty", "analyze", "--artifact", "skill:x", "--max-usd", "2")
     caps = {id(client.cap) for client in novelty_cmd._clients(args)}
@@ -81,6 +82,7 @@ def test_every_command_that_calls_a_model_takes_the_flag(sub):
     assert args.max_usd == 3.0
 
 
+@pytest.mark.outcome("cjm-novelty-spend-cap")
 def test_the_cap_gets_through_a_stage_that_absorbs_failed_calls(tmp_path, monkeypatch):
     """The faithfulness check treats a failed call as a missing verdict; the cap must not be one."""
     skill = tmp_path / "s" / "SKILL.md"

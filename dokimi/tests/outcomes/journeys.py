@@ -222,6 +222,9 @@ def _ref_problem(repo_root: Path, ref: str, anchors: Callable[[Path], set[str]])
 def _normalize(registry: dict) -> list[str]:
     """Drop the nested shapes the checks cannot read, in place, and say what was dropped."""
     problems = []
+    if not isinstance(registry.get("catalog", CATALOG), str):
+        problems.append("journeys.yaml: catalog must be a path")
+        registry["catalog"] = CATALOG
     if not isinstance(registry.get("criteria") or {}, dict):
         problems.append("journeys.yaml: criteria must be a mapping")
         registry["criteria"] = {}
@@ -238,10 +241,25 @@ def _normalize(registry: dict) -> list[str]:
         if any(not isinstance(e, dict) for e in evidence):
             problems.append(f"journeys.yaml {ac}: every evidence entry must be a mapping")
         entry["evidence"] = [e for e in evidence if isinstance(e, dict)]
-        for key in ("surfaces", "refs"):
-            if not isinstance(entry.get(key) or [], list):
-                problems.append(f"journeys.yaml {ac}: {key} must be a list")
-                entry[key] = []
+        problems += _strings(entry, ("surfaces", "refs", "gaps"), ("decision_ref", "outcome"), f"journeys.yaml {ac}")
+        for e in entry["evidence"]:
+            problems += _strings(e, ("invokes", "stubs"), ("id", "kind"), f"journeys.yaml {ac}: evidence")
+    return problems
+
+
+def _strings(mapping: dict, lists: tuple[str, ...], scalars: tuple[str, ...], where: str) -> list[str]:
+    """Replace a key of the wrong shape: a list of strings, or one string; say which."""
+    problems = []
+    for key in lists:
+        value = mapping.get(key)
+        if value is not None and not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
+            problems.append(f"{where}: {key} must be a list of strings")
+            mapping[key] = []
+    for key in scalars:
+        value = mapping.get(key)
+        if value is not None and not isinstance(value, str):
+            problems.append(f"{where}: {key} must be a string")
+            mapping[key] = None
     return problems
 
 

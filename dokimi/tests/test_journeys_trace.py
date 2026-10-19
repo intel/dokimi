@@ -136,6 +136,15 @@ def test_an_id_a_page_mentions_but_the_catalog_lacks_is_dangling(tmp_path):
     ({"AC-J04-001": {"delivery": "available", "evidence": {"id": "e"}}}, "evidence must be a list"),
     ({"AC-J04-001": {"delivery": "available", "evidence": ["e"]}}, "every evidence entry must be a mapping"),
     ({"AC-J04-001": {"delivery": "available", "surfaces": "repo scan"}}, "surfaces must be a list"),
+    ({"AC-J04-001": {"delivery": "available", "surfaces": [5]}}, "surfaces must be a list of strings"),
+    ({"AC-J04-001": {"delivery": "available", "refs": [5]}}, "refs must be a list of strings"),
+    ({"AC-J04-001": {"delivery": "available", "gaps": 5}}, "gaps must be a list of strings"),
+    ({"AC-J04-001": {"delivery": "available", "decision_ref": 5}}, "decision_ref must be a string"),
+    ({"AC-J04-001": {"delivery": "available", "outcome": ["C"]}}, "outcome must be a string"),
+    ({"AC-J04-001": {"delivery": "available", "evidence": [dict(SCAN, invokes=5)]}}, "invokes must be a list of strings"),
+    ({"AC-J04-001": {"delivery": "available", "evidence": [dict(SCAN, invokes=[5])]}}, "invokes must be a list of strings"),
+    ({"AC-J04-001": {"delivery": "available", "evidence": [dict(SCAN, stubs=5)]}}, "stubs must be a list of strings"),
+    ({"AC-J04-001": {"delivery": "available", "evidence": [dict(SCAN, stubs=[1])]}}, "stubs must be a list of strings"),
 ])
 def test_a_malformed_registry_shape_is_a_problem_not_a_crash(tmp_path, criteria, problem):
     registry = _tree(tmp_path)
@@ -143,6 +152,28 @@ def test_a_malformed_registry_shape_is_a_problem_not_a_crash(tmp_path, criteria,
     report = journeys.check(registry, tmp_path, {}, _evidence({}), {}, plugin._anchors)
     assert report["verdict"] == "error"
     assert any(problem in p for p in report["problems"]), report["problems"]
+    journeys.markdown(report)
+
+
+def test_a_catalog_path_that_is_not_a_string_is_a_problem(tmp_path):
+    registry = _tree(tmp_path)
+    registry.write_text(yaml.safe_dump({"schema": 1, "catalog": 5, "criteria": {}}), encoding="utf-8")
+    report = journeys.check(registry, tmp_path, {}, _evidence({}), {}, plugin._anchors)
+    assert "journeys.yaml: catalog must be a path" in report["problems"]
+
+
+def test_a_wrong_schema_is_a_problem(tmp_path):
+    registry = _tree(tmp_path)
+    registry.write_text(yaml.safe_dump({"schema": 2, "criteria": {}}), encoding="utf-8")
+    report = journeys.check(registry, tmp_path, {}, _evidence({}), {}, plugin._anchors)
+    assert "journeys.yaml: schema must be 1" in report["problems"]
+
+
+@pytest.mark.parametrize("url", ["https://github.com/intel/dokimi/issues/95",
+                                 "https://github.com/intel/dokimi/pull/102"])
+def test_an_issue_or_pr_decision_ref_is_accepted(tmp_path, url):
+    report = _check(tmp_path, {"AC-J04-001": {"delivery": "available", "decision_ref": url}})
+    assert not any("decision_ref" in p for p in report["problems"]), report["problems"]
 
 
 def test_an_id_inside_a_code_fence_is_not_dangling(tmp_path):
@@ -551,3 +582,17 @@ def test_a_missing_registry_is_an_error_not_a_skipped_check(pytester, monkeypatc
     assert report["verdict"] == "error"
     assert any("journeys.yaml: cannot read" in p for p in report["problems"])
     assert result.ret == 2
+
+
+@pytest.mark.parametrize("source", [
+    "@pytest.mark.skipif(True, reason='no docker')\n@pytest.mark.outcome('ev')\ndef test_x():\n    pass\n",
+    "@pytest.fixture\ndef docker():\n    pytest.skip('no docker')\n\n"
+    "@pytest.mark.outcome('ev')\ndef test_x(docker):\n    pass\n",
+])
+def test_a_test_skipped_in_setup_is_inconclusive_and_unverified(pytester, monkeypatch, source):
+    result, report = _session(pytester, monkeypatch, _enforced(UNIT), source)
+    row = _row(report, "AC-J04-001")
+    assert row["verdict"] == "inconclusive", row
+    assert result.ret == 3
+    assert "AC-J04-001" in report["unverified"]
+    assert next(j for j in report["journeys"] if j["id"] == "J4")["passed"] == 0

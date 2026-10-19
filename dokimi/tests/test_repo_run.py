@@ -107,6 +107,7 @@ def test_a_grader_crash_is_a_failure_not_an_exclusion(setup, monkeypatch, capsys
     assert row["n"] == 2 and row["successes"] == 0 and row["grader_failures"] == 2
 
 
+@pytest.mark.outcome("cjm-repo-run-resume")
 def test_score_only_task_and_missing_cells(setup, monkeypatch, capsys):
     _run(setup, "--arm", "guidance:raw", "--reps", "3")
     batch = setup["out"] / "b1"

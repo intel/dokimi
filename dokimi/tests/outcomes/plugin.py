@@ -19,7 +19,7 @@ broken (a missing file, or a ``#anchor`` that is no heading of a markdown file),
 The same session checks the journey trace in ``journeys.yaml`` (see
 ``journeys.py``) and writes ``--journeys-report`` (JSON, plus a ``.md``
 beside it). For that, a marked test records every argv the ``dokimi`` root
-parser parsed while it ran, from any thread, and a test that did not pass
+parser parsed in its setup or call, from any thread, and a test that did not pass
 contributes none: a criterion whose evidence declares a CLI invocation passes
 only if a passing claimed test made one. Tests in one process run one at a
 time, so a call is credited to the test that was running when it was made.
@@ -81,7 +81,8 @@ def pytest_configure(config):
 
 def pytest_runtest_logreport(report):
     # A failed setup or teardown counts as a failure of the evidence; otherwise only the call phase.
-    if report.when != "call" and not report.failed:
+    # A skip in setup (skipif, or a fixture that skips) is a skipped test.
+    if report.when != "call" and not (report.failed or report.skipped):
         return
     ids = [i for key, value in report.user_properties if key == "outcome_ids" for i in value]
     for evidence_id in ids:
@@ -95,7 +96,8 @@ def pytest_runtest_logreport(report):
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_protocol(item, nextitem):
-    # Around setup, call and teardown: a fixture that runs the CLI counts too.
+    # Around setup and call: a fixture that runs the CLI before its yield counts too.
+    # The argv list is attached to the call report, so a parse in teardown is never credited.
     if not any(item.iter_markers("outcome")):
         yield
         return
