@@ -187,12 +187,7 @@ ignore = [
   "PLW3301",  # nested min/max: style
 ]
 
-# Type checking covers the whole package. The modules listed in the override
-# below carried type errors when the gate was widened from a hand-picked file
-# list; they are exempt until fixed. The list can only shrink:
-# tests/test_mypy_config.py fails on an entry that is not in its frozen
-# baseline, so a new module is checked from its first commit. Fix the types
-# and remove the entry (from both places) to shrink it.
+# Type checking covers the whole package. All modules are subject to mypy checks.
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
