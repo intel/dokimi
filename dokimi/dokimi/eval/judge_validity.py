@@ -505,6 +505,19 @@ def run_validity(
     report.context = "stored" if store is not None else "none"
     report.n_without_context = dropped[0]
     report.by_arm = by_arm
+    # In fixed mode, refuse if an arm with kept material has no rows scored.
+    if store is not None:
+        arms_with_rows = {r.arm for r in report.rows}
+        starved = []
+        for arm, counts in by_arm.items():
+            kept = counts.pop("_kept_count", 0)
+            if kept > 0 and arm not in arms_with_rows:
+                starved.append(arm)
+        if starved:
+            raise NoUsablePairs(
+                f"Arm(s) {sorted(starved)} have verified judge material but no base was scored, "
+                "so the gate would not cover them: raise --bases / --max-bases or drop those arms"
+            )
     return report
 
 
@@ -560,13 +573,11 @@ def _build(answers, noop, *, n_bases, seed, variants, library, store=None, dropp
                 "not cover them: repair the artifact's judge_materials or drop those arms"
             )
         # --bases samples the pooled shuffle, so an arm with a few kept answers can
-        # get no base at all; the gate would then not cover it either.
-        starved = sorted(a for a, c in arms.items() if c["kept"] and not c.get("sampled"))
-        if starved:
-            raise NoUsablePairs(
-                f"Arm(s) {starved} have verified judge material but no base was sampled, so the "
-                "gate would not cover them: raise --bases / --max-bases or drop those arms"
-            )
+        # get no base at all, or a variant can be a no-op for all its bases; the gate
+        # would then not cover it either. The check must happen after pairs are scored,
+        # so defer it and store the kept counts.
+        for _arm, counts in arms.items():
+            counts["_kept_count"] = counts.get("kept", 0)
         pairs = attach_stored_context(pairs, store)
         if dropped is not None:
             dropped[0] = dropped_from_pairs.get("total", 0)

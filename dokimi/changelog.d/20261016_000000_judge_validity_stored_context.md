@@ -13,8 +13,7 @@
 - **`eval judge-validity` exits 2 when no pair is usable, in every mode** — a
   file with no answer longer than the minimum (or where every degradation is a
   no-op) now prints an `Error:` line and exits 2 instead of a `ValueError`
-  traceback (exit 1), with or without `--context`. `--scorer` with an unknown
-  name exits 2 naming the scorer.
+  traceback (exit 1), with or without `--context`.
 
 - **`cross-judge --validity` matches a PASS by judge and context** — a passing
   report validates a measure only when both the judge label and the context

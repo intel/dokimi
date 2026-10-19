@@ -189,5 +189,6 @@ def run_sequential(
     # per arm the bases that were actually scored, not the pool that was built.
     for arm, counts in by_arm.items():
         counts["scored"] = sum(1 for _, a in scored_bases if a == arm)
+        counts.pop("_kept_count", None)  # Clean up temporary field from _build
     report.wall_seconds = time.time() - started
     return report

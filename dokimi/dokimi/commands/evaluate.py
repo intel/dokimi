@@ -301,9 +301,6 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         judge = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature)
         scorer = judge_scorer(judge)
         label = f"{args.judge_provider}/{args.judge_model}"
-    elif args.scorer != "typed" and not args.scorer.startswith("typed:"):
-        print(f"Error: unknown --scorer {args.scorer!r}; use 'judge' or 'typed:<backend>'", file=sys.stderr)
-        sys.exit(2)
     elif args.mode == "pairwise":
         # _score_pairs gives pair_scorer precedence, so the pairwise judge would grade
         # the pairs and the report would carry the typed arm's label.
