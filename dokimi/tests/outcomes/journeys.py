@@ -200,6 +200,8 @@ def static_problems(registry: dict, catalog: dict, repo_root: Path, contracts: d
             if outcome not in contracts:
                 problems.append(f"{where}: no outcome contract {outcome}")
         for e in evidence:
+            if not e.get("id"):
+                problems.append(f"{where}: evidence entry must have a non-empty id")
             if e.get("kind") not in KINDS:
                 problems.append(f"{where}: evidence {e.get('id')}: kind must be one of {', '.join(KINDS)}")
             if outcome in contracts and e.get("kind") in SESSION_KINDS \

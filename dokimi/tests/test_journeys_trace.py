@@ -143,6 +143,8 @@ def test_an_id_a_page_mentions_but_the_catalog_lacks_is_dangling(tmp_path):
      "only a cli_scenario declares invokes"),
     ({"delivery": "available", "evidence": [{"id": "e", "kind": "integration"}]}, "state its stubs"),
     ({"delivery": "available", "evidence": [{"id": "e", "kind": "e2e", "stubs": []}]}, "kind must be one of"),
+    ({"delivery": "available", "evidence": [{"kind": "unit", "stubs": []}]}, "must have a non-empty id"),
+    ({"delivery": "available", "evidence": [{"id": "", "kind": "unit", "stubs": []}]}, "must have a non-empty id"),
     ({"delivery": "available", "refs": ["missing.py"]}, "missing path: missing.py"),
     ({"delivery": "available", "refs": ["doc.md#renamed"]}, "missing anchor: doc.md#renamed"),
     ({"delivery": "available", "outcome": "OUTCOME-NONE"}, "no outcome contract OUTCOME-NONE"),
@@ -166,6 +168,18 @@ def test_evidence_outside_the_named_outcome_contract_is_an_error(tmp_path):
     report = journeys.check(registry, tmp_path, {"C": {"evidence_ids": ["ev"]}}, _evidence({"other": ["passed"]}),
                             {}, plugin._anchors)
     assert any("other is not an evidence id of C" in p for p in report["problems"])
+
+
+def test_evidence_with_missing_id_is_rejected_even_without_outcome_contract(tmp_path):
+    """Missing ID in evidence should be caught during validation, not silently discarded."""
+    registry = _tree(tmp_path, criteria={"AC-J04-001": {
+        "delivery": "available", "evidence": [
+            {"id": "valid", "kind": "unit", "stubs": []},
+            {"kind": "unit", "stubs": []}  # missing id
+        ]}})
+    report = journeys.check(registry, tmp_path, {}, _evidence({"valid": ["passed"]}), {}, plugin._anchors)
+    assert report["verdict"] == "error"
+    assert any("must have a non-empty id" in p for p in report["problems"])
 
 
 def test_a_real_anchor_and_surface_resolve(tmp_path):
@@ -283,6 +297,17 @@ def test_an_argv_the_parser_rejects_is_not_an_invocation(pytester, monkeypatch):
                               "    with pytest.raises(SystemExit):\n"
                               "        build_parser().parse_args(['repo', 'scan', '--out', 'r', '--bogus'])\n")
     assert result.ret == 2 and report["verdict"] == "error"
+
+
+def test_an_argv_with_unknown_arguments_after_required_args_is_not_an_invocation(pytester, monkeypatch):
+    """parse_known_args succeeds even with unknown args; parse_args later rejects them."""
+    result, report = _session(pytester, monkeypatch, _enforced(SCAN),
+                              "@pytest.mark.outcome('ev')\ndef test_scan():\n"
+                              "    with pytest.raises(SystemExit):\n"
+                              "        build_parser().parse_args(['repo', 'scan', 'x@HEAD', '--out', 'r.json', '--bogus'])\n")
+    assert result.ret == 2 and report["verdict"] == "error"
+    # The argv should not be recorded even though parse_known_args succeeded
+    assert "repo" not in str(report.get("cli_invocations", []))
 
 
 def test_an_all_skipped_enforced_criterion_makes_the_session_inconclusive(pytester, monkeypatch):

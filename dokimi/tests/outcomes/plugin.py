@@ -79,10 +79,10 @@ def pytest_runtest_call(item):
     original = argparse.ArgumentParser.parse_known_args
 
     def capture(self, args=None, namespace=None):
-        parsed = original(self, args, namespace)
-        if self.prog == ROOT_PROG:  # recorded once parsing succeeded: a rejected argv invoked nothing
+        parsed, leftover = original(self, args, namespace)
+        if self.prog == ROOT_PROG and not leftover:  # record only results with no leftover arguments
             calls.append([str(a) for a in (sys.argv[1:] if args is None else args)])
-        return parsed
+        return parsed, leftover
 
     argparse.ArgumentParser.parse_known_args = capture  # type: ignore[method-assign]
     try:
