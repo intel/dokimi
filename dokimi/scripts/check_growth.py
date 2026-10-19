@@ -251,16 +251,19 @@ def violations(m: Measurement, baseline: dict[str, dict[str, dict[str, Any]]]) -
 def raised_without_rationale(baseline: dict[str, dict[str, dict[str, Any]]],
                              base: dict[str, dict[str, dict[str, Any]]]) -> list[str]:
     """Entries added or raised relative to ``base`` (the base branch's baseline)
-    that carry no rationale."""
+    that carry no new rationale: an entry already explained at the old value needs
+    its rationale rewritten to cover the raise."""
     found = []
     for section in (FILES, FUNCTIONS):
         metric = METRIC[section]
         for key, entry in sorted(baseline[section].items()):
-            before = base[section].get(key, {}).get(metric)
+            old = base[section].get(key, {})
+            before = old.get(metric)
             value = entry.get(metric)
             if before is not None and isinstance(value, int) and value <= before:
                 continue
-            if not str(entry.get("rationale", "")).strip():
+            rationale = str(entry.get("rationale", "")).strip()
+            if not rationale or (before is not None and rationale == str(old.get("rationale", "")).strip()):
                 change = "added" if before is None else f"raised from {before} to {value}"
                 found.append(f"{key}: {change} without a \"rationale\" (at most "
                              f"{RATIONALE_MAX} characters: why it cannot be split now)")

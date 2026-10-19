@@ -70,6 +70,12 @@ def _cx(src: str) -> dict[str, int]:
     ("while a:\n    pass", 2),
     ("try:\n    pass\nexcept A:\n    pass\nexcept B:\n    pass\nelse:\n    pass", 4),
     ("with a:\n    if b:\n        pass", 2),
+    ("for x in y:\n    pass\nelse:\n    if a:\n        pass", 3),   # a decision in a loop else
+    ("while a:\n    pass\nelse:\n    if b:\n        pass", 3),
+    ("try:\n    pass\nexcept A:\n    pass\nelse:\n    if a:\n        pass", 4),
+    ("match a:\n    case 1:\n        pass\n    case _ if g:\n        pass", 3),  # guarded: counts
+    ("match a:\n    case 1:\n        pass\n    case y:\n        pass", 2),       # capture = else
+    ("match a:\n    case 1:\n        pass\n    case 2 | _:\n        pass", 2),   # or-pattern with _
     ("return a and b or c", 1),                        # boolean operators score nothing
     ("return [x for x in y if x]", 1),                 # nor do comprehensions
     ("match a:\n    case 1:\n        pass\n    case 2:\n        pass", 3),
@@ -214,6 +220,16 @@ def test_raised_or_added_entries_need_a_rationale():
     assert len(cg.raised_without_rationale(head, base)) == 2
     head["files"]["a.py"]["rationale"] = "one release; split tracked in #N"
     head["functions"]["a.py::g"]["rationale"] = "dispatch table, split next"
+    assert cg.raised_without_rationale(head, base) == []
+
+
+def test_a_raised_entry_keeping_its_old_rationale_still_fails():
+    base = {"files": {"a.py": {"lines": 900, "rationale": "legacy"}}, "functions": {}}
+    head = {"files": {"a.py": {"lines": 1500, "rationale": "legacy"}}, "functions": {}}
+    assert len(cg.raised_without_rationale(head, base)) == 1
+    head["files"]["a.py"]["rationale"] = "grew for the new probe; split in #N"
+    assert cg.raised_without_rationale(head, base) == []
+    head["files"]["a.py"] = {"lines": 900, "rationale": "legacy"}  # unchanged: no new rationale needed
     assert cg.raised_without_rationale(head, base) == []
 
 
