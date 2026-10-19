@@ -313,8 +313,13 @@ def _raises_block(node: ast.AST) -> bool:
     )
 
 
-def _asserting_helpers(tree: ast.Module) -> frozenset[str]:
-    """Same-file functions that assert, directly or through each other (a fixed point)."""
+def _asserting_helpers(tree: ast.Module, *, behavioral: bool = False) -> frozenset[str]:
+    """Same-file functions that assert, directly or through each other (a fixed point).
+
+    With *behavioral*, a function counts only if it has an assertion that is not
+    shape-only (``isinstance``, ``is not None``, ...): a helper that only checks a
+    type must not hide a ``type_only`` test.
+    """
     defs: dict[str, list[_FuncDef]] = collections.defaultdict(list)
     for node in ast.walk(tree):
         if isinstance(node, _FuncDef):
@@ -322,7 +327,7 @@ def _asserting_helpers(tree: ast.Module) -> frozenset[str]:
 
     def direct(fn: _FuncDef) -> bool:
         return any(
-            isinstance(n, ast.Assert) or _raises_block(n)
+            (isinstance(n, ast.Assert) and not (behavioral and _is_weak(n.test))) or _raises_block(n)
             or (isinstance(n, ast.Call) and _has_hint(_call_name(n)))
             for n in _own_nodes(fn.body)
         )
@@ -374,12 +379,14 @@ def _all_value_asserts(t: _Facts, pred: Callable[[ast.expr], bool]) -> bool:
     return all(pred(a.test) for a in t.value_asserts)
 
 
-def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str]) -> set[str]:
+def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str],
+                 value_helpers: frozenset[str]) -> set[str]:
     t = _collect(fn)
     inputs = _constructor_inputs(t.nodes)
     checks = bool(t.asserts or t.raises or t.assert_calls)
-    # A test that calls an asserting helper has behavioral checks even if its direct asserts are weak
-    helper_checks = any(_call_name(c) in helpers for c in t.calls)
+    # A test that calls a helper with a behavioral assert has behavioral checks even if its
+    # direct asserts are weak; a helper that only checks a shape does not count.
+    helper_checks = any(_call_name(c) in value_helpers for c in t.calls)
     flags = {
         "type_only": bool(t.asserts) and not (t.value_asserts or t.raises or t.assert_calls or helper_checks),
         "mock_echo": (
@@ -443,12 +450,13 @@ def audit_source(source: str, file: str = "<source>") -> list[Audit]:
     tree = ast.parse(source, filename=file)
     names = _package_names(tree)
     helpers = _asserting_helpers(tree)
+    value_helpers = _asserting_helpers(tree, behavioral=True)
     lines = source.splitlines()
     tests = _test_functions(tree)
     duplicates = _duplicates(tests)
     audits = []
     for qualname, fn in tests:
-        found = _shape_flags(fn, names, helpers)
+        found = _shape_flags(fn, names, helpers, value_helpers)
         if qualname in duplicates:
             found.add("duplicate")
         flags = tuple(f for f in FLAGS if f in found)

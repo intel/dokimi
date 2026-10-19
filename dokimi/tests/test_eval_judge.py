@@ -84,9 +84,10 @@ class TestJudgeInit:
         mock_cls = Mock()
         with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
-            judge = Judge(model="claude-sonnet", provider="anthropic", api_key="test")
+            judge = Judge(model="claude-sonnet", provider="anthropic", api_key="test",
+                          temperature=0.0, seed=7)
             mock_cls.assert_called_once_with(model="claude-sonnet", api_key="test",
-                                             temperature=None, seed=None)
+                                             temperature=0.0, seed=7)
             assert judge.llm is mock_cls.return_value
             assert judge.provider == "anthropic"
     

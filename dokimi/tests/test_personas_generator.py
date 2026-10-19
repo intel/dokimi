@@ -164,7 +164,11 @@ class TestPersonaGenerator:
         assert "typical_questions" in personas[0]
     
     def test_generate_personas_clamps_count(self, sample_analysis, sample_llm_response, caplog):
-        """Test that persona count is clamped to 5-8 range."""
+        """The clamped count (5-8) is what generate_personas logs it is generating.
+
+        ``target_count`` reaches only that log line today, not the LLM prompt, so the
+        log is the one place the clamp can be observed.
+        """
         mock_llm = Mock()
         mock_response = Mock()
         mock_response.content = json.dumps(sample_llm_response)

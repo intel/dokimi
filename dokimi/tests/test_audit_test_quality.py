@@ -287,3 +287,53 @@ def test_different_defaults_do_not_duplicate():
             assert transform(x) == x * 10
         """)
     assert flags == {"test_a": (), "test_b": ()}
+
+
+def test_a_helper_that_only_checks_a_shape_does_not_hide_type_only():
+    flags = _flags("""
+        def _shape(out):
+            assert isinstance(out, dict)
+        def _value(out):
+            assert out == {"a": 1}
+        def test_inline_shape():
+            out = run()
+            assert out is not None
+            assert isinstance(out, dict)
+        def test_shape_through_a_helper():
+            out = run()
+            assert out is not None
+            _shape(out)
+        def test_value_through_a_helper():
+            out = run()
+            assert out is not None
+            _value(out)
+        """)
+    assert "type_only" in flags["test_inline_shape"]
+    assert "type_only" in flags["test_shape_through_a_helper"]
+    assert flags["test_value_through_a_helper"] == ()
+
+
+@pytest.mark.parametrize("patching", [
+    "@patch('mod.send')\ndef test_x(send):\n    run()\n    send.assert_called_once()",
+    "def test_x():\n    with patch.object(mod, 'send') as send:\n        run()\n    send.assert_called_once()",
+    "def test_x():\n    with patch.dict(os.environ, {}) as send:\n        run()\n    send.assert_called_once()",
+    "def test_x(monkeypatch):\n    send = Mock()\n    monkeypatch.setattr(mod, 'send', send)\n"
+    "    run()\n    send.assert_called_once()",
+])
+def test_every_spelling_of_patching_makes_a_call_check_a_mock_echo(patching):
+    assert "mock_echo" in _flags(patching)["test_x"]
+
+
+def test_a_mock_call_check_without_patching_is_not_a_mock_echo():
+    assert "mock_echo" not in _flags("""
+        def test_x():
+            send = make_spy()
+            run(send)
+            send.assert_called_once()
+        """)["test_x"]
+
+
+@pytest.mark.parametrize("check", ["len(out) > 0", "0 < len(out)", "len(out) >= 1", "len(out) != 0"])
+def test_a_length_check_alone_is_type_only(check):
+    flags = _flags(f"def test_x():\n    out = run()\n    assert {check}\n")
+    assert "type_only" in flags["test_x"]
