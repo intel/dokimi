@@ -63,6 +63,7 @@ the same checks CI runs are:
 ```bash
 ruff check .                              # lint
 mypy                                      # type check (config in pyproject.toml)
+deptry .                                  # declared deps match the imports ([tool.deptry])
 python -m dokimi.schema_check benchmarks/spec.v1.yaml     # validate the benchmark spec
 python -m dokimi.config_check             # registry drift check
 pytest                                    # tests (offline: connecting off loopback fails the test)
@@ -103,6 +104,13 @@ CI additionally holds a PR to:
   a list). A new page goes in two places: the `docs/README.md` index
   (`tests/test_docs_links.py` checks it) and `nav:` in `mkdocs.yml` (the
   build fails on a page missing from it). `mkdocs serve` previews the site.
+- **Dependencies match the imports** — `deptry .` (config in `[tool.deptry]` of
+  `pyproject.toml`). A third-party module the package, `cli.py` or `scripts/`
+  imports is declared in `[project.dependencies]` and `requirements.txt` (or an
+  extra), even when another dependency already pulls it in; a runtime dependency
+  nothing imports is dropped; the `dev` extra's tools are never imported by the
+  package. A dependency that is declared only to cap a transitive version gets a
+  `per_rule_ignores` entry with the reason.
 - **Workflow lint** — `zizmor --offline --min-severity medium .github/workflows` when you
   edit a workflow.
 - **Changelog fragment** — a PR that changes the package (`dokimi/`) adds one to
