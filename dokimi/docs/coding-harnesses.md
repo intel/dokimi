@@ -238,7 +238,11 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
     - **Logging.** Every proxy decision is saved as `egress.jsonl` (an allowed
       one before the connect, so a pending CONNECT is logged too), and
       `metrics.egress` carries the `allowed`, `denied` and `errors` host sets
-      and `denied_entries` (`host:port`).
+      and `denied_entries` (`host:port`), and a tri-state `status`: `violated`
+      (a request was denied), `ok` (the log was read and nothing was denied), or
+      `unknown` (the sidecar's log timed out or failed at teardown). An
+      `unknown` cell is not a clean one: its host sets are empty for lack of
+      data, and `scripts/check_smoke_runs.py` fails the run on it.
 - **`network_mode = "public"`.** It applies to the verifier only. The
   container joins the default bridge after the agent exits. Every
   uxlfoundation/skills task declares it, and none of their solutions or tests

@@ -359,9 +359,34 @@ def test_container_solve_lifecycle(tmp_path, cli, docker_calls, monkeypatch):
     assert result.metrics["isolation"]["agent_location"] == "container"
     network = result.metrics["isolation"]["network"]
     assert {"pypi.org:443"} <= set(network.removeprefix("internal; egress proxy to ").split(","))
-    assert result.metrics["egress"] == {"allowed": [], "denied": ["evil.example"], "errors": [],
-                                        "denied_entries": ["evil.example:443"]}
+    assert result.metrics["egress"] == {"status": "violated", "allowed": [], "denied": ["evil.example"],
+                                        "errors": [], "denied_entries": ["evil.example:443"]}
     assert json.loads((out / "egress.jsonl").read_text(encoding="utf-8"))["host"] == "evil.example"
+
+
+def test_a_timed_out_sidecar_log_is_unknown_egress_not_none(tmp_path, cli, docker_calls, monkeypatch):
+    """A teardown ``docker logs`` that times out leaves an empty log. The cell still
+    passes (close() swallows it by design), but the egress record must say unknown,
+    not an empty summary that reads as "no requests"."""
+    _fake_claude(cli, {})
+    logs_calls = []
+
+    def answer(call):
+        if call.argv[:2] == ("docker", "logs"):
+            logs_calls.append(call)
+            # The first logs is the start-up readiness poll; the second is stop_proxy's.
+            if len(logs_calls) == 2:
+                return reply(timed_out=True)
+        return None
+
+    cli.answer = answer
+    result = create_harness("docker-claude", runner=cli).run(
+        load_task(_task(tmp_path, egress="pypi.org")), model="haiku", output_dir=tmp_path / "out")
+
+    assert len(logs_calls) == 2
+    assert result.reward == 1.0 and result.returncode == 0
+    assert result.metrics["egress"]["status"] == "unknown"
+    assert "egress is unknown" in (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
 
 
 def test_container_skill_arm_installs_a_plugin_outside_app(tmp_path, cli, docker_calls, monkeypatch):

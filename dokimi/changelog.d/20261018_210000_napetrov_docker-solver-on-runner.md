@@ -26,3 +26,7 @@
   `runner` (`create_harness(..., runner=)` now passes it to the `docker-*`
   harnesses too). `solver_stream.run_solver` takes keyword-only `timeout`, `env`,
   `cwd` and `runner`, and returns a `process.Completed`.
+- **`metrics.egress` is tri-state** — it carries `status`: `violated` (the proxy
+  denied a request), `ok`, or `unknown` when the sidecar's log timed out or failed
+  at teardown. An `unknown` cell keeps its verdict, but it is not a clean egress
+  record: `scripts/check_smoke_runs.py` fails on it.

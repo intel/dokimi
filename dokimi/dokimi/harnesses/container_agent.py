@@ -129,6 +129,9 @@ class ContainerSandbox:
     # there (SkillsBench lean4-proof's /app/baseline), which a chown would hand over.
     workdir: str = "/app"
     _stopped: bool = False
+    # False when the sidecar's log could not be read at teardown (timed out or failed):
+    # the empty ``log`` then means "unknown", not "no requests".
+    log_known: bool = True
     _scratch: Optional[Path] = None
     runner: process.Runner = field(default=process.run, repr=False)  # starts the probe's docker exec
 
@@ -322,6 +325,9 @@ class ContainerSandbox:
             return
         logs = docker(["logs", self.proxy_name], log, check=False)
         self.log = parse_log(getattr(logs, "stdout", "") or "")
+        self.log_known = not logs.timed_out and logs.returncode == 0
+        if not self.log_known and log is not None:
+            log.write(f"\n[sidecar logs] {self.proxy_name} could not be read; egress is unknown\n")
         removed = docker(["rm", "-f", self.proxy_name], log, check=False)
         if removed.timed_out:  # still running, with the credentials: not stopped, close() retries
             raise subprocess.TimeoutExpired(removed.argv, DOCKER_STEP_TIMEOUT)
@@ -342,13 +348,22 @@ class ContainerSandbox:
         if self._scratch is not None:
             shutil.rmtree(self._scratch, ignore_errors=True)
 
-    def egress_summary(self) -> dict[str, list[str]]:
+    def egress_summary(self) -> dict[str, object]:
+        """What the sidecar decided, as ``status``: ``violated`` when it denied a request,
+        ``unknown`` when its log could not be read (the host sets are then empty and say
+        nothing), else ``ok``. Only ``ok`` shows that the agent stayed inside its allowlist."""
         def hosts(decision: str) -> list[str]:
             return sorted({r["host"] for r in self.log if r["decision"] == decision})
 
         denied_entries = sorted({f"{r['host']}:{r['port']}" for r in self.log if r["decision"] == "denied"})
-        return {"allowed": hosts("allowed"), "denied": hosts("denied"), "errors": hosts("error"),
-                "denied_entries": denied_entries}
+        if not self.log_known:
+            status = "unknown"
+        elif denied_entries:
+            status = "violated"
+        else:
+            status = "ok"
+        return {"status": status, "allowed": hosts("allowed"), "denied": hosts("denied"),
+                "errors": hosts("error"), "denied_entries": denied_entries}
 
 
 def preflight(env: dict[str, str]) -> None:
