@@ -94,12 +94,15 @@ jobs:
       # Every tracked file carries the SPDX license header; scope and exceptions
       # are in .github/.licenserc.yaml. A `uses:` step, so `make ci-local` skips
       # it (the config's header comment has the docker command for a local run).
+      # The released image, not the apache/skywalking-eyes/header action, which
+      # installs Go and builds license-eye on every run. Log level error: the
+      # pattern-only config makes info level warn once per file type about a
+      # missing license template; invalid files are still listed at error.
       - name: License header check
         if: ${{ !cancelled() }}
-        uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4  # v0.9.0
+        uses: docker://apache/skywalking-eyes@sha256:cd89ccbbcba2e87d3fb0e34b156b1da208d6c5ac1ada4e2d335e920022c765b8  # 0.9.0
         with:
-          config: .github/.licenserc.yaml
-          mode: check
+          args: -v error -c .github/.licenserc.yaml header check
       # The hooks in .pre-commit-config.yaml, so they stay green on main: a change
       # that fails one fails here, not on the next contributor's commit. ruff-check
       # and zizmor are skipped: the steps above run the same versions.
