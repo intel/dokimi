@@ -50,9 +50,8 @@ from dokimi.utils import retry_writable
 from .events import Transcript, convert
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, check_repo
+from .runner import SUPPORT_HOST
 from .source import RepoTree, SourceError
-
-SUPPORT_HOST = Path(__file__).resolve().parent / "support"  # the framework's helper scripts, as repo run mounts them
 
 TOKEN_RE = re.compile(r"\bRC[0-9A-F]{6}\b")
 PROBE_FILE = "REACH_PROBE.txt"

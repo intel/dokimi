@@ -22,7 +22,7 @@ SPDX-License-Identifier: Apache-2.0
 > Slice S3 adds harness profiles (§6) and the reach probe (§7):
 >
 > ```bash
-> python cli.py repo reach <source> --manifest <path> --model <id> [--harness claude-code|codex|copilot|<profile.yaml>]
+> python cli.py repo reach <source> --manifest <path> --model <id> [--harness claude-code|codex|copilot|copilot-review|<profile.yaml>]
 >     [--bin <cli>] [--scenarios root,cwd,read] [--only <scenario>] [--dry-run]
 > ```
 >

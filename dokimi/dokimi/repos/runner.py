@@ -347,8 +347,8 @@ def harness_mounts(opts: AgentOptions) -> list[Mount]:
     for name in opts.profile.bin_companions:
         companion = real.parent / name
         if not companion.is_file():
-            raise ContainerError(f"{opts.profile.name} needs {name} beside its executable, and {real.parent} "
-                                 f"has none: pass the --bin of a complete install")
+            raise ContainerError(f"{opts.profile.name} needs {name} beside its executable: missing {companion}; "
+                                 "pass the --bin of a complete install")
         mounts.append(Mount(companion, f"{HARNESS_DIR}/{name}", read_only=True))
     return mounts
 

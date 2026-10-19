@@ -169,9 +169,10 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
             raise ProfileError(f"{path}: config_files/{name} uses unknown placeholder(s) {sorted(unknown)}")
     passes_prompt = any("{prompt}" in element for element in raw["invoke"])
     if raw.get("native_prompt"):
-        if passes_prompt or raw.get("prompt_suffix"):
-            raise ProfileError(f"{path}: native_prompt runs the harness's own prompt; invoke cannot pass "
-                               "{prompt} and there is no prompt_suffix to add")
+        if passes_prompt:
+            raise ProfileError(f"{path}: native_prompt runs the harness's own prompt; invoke cannot pass {{prompt}}")
+        if raw.get("prompt_suffix"):
+            raise ProfileError(f"{path}: native_prompt runs the harness's own prompt; prompt_suffix cannot be added")
     elif not passes_prompt:
         raise ProfileError(f"{path}: invoke never passes {{prompt}} (set native_prompt for a harness that "
                            "uses its own)")

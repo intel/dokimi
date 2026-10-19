@@ -158,7 +158,7 @@ def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> 
         event.update(kind="command", text=str(args.get("command", "")), rc=None)
     elif name in _READ_TOOLS | _EDIT_TOOLS:
         path = args.get("file_path") or args.get("notebook_path") or ""
-        event.update(kind="read" if name in _READ_TOOLS else "edit", path=_relative(str(path), workdir))
+        event.update(kind="read" if name in _READ_TOOLS else "edit", path=relative_path(str(path), workdir))
     else:
         event.update(kind="tool", name=name)
     return event
@@ -185,7 +185,7 @@ def _result_text(content: Any) -> str | None:
     return None
 
 
-def _relative(path: str, workdir: str | None) -> str:
+def relative_path(path: str, workdir: str | None) -> str:
     """``path`` relative to ``workdir`` in POSIX form; POSIX and Windows paths both work."""
     if not workdir:
         return path

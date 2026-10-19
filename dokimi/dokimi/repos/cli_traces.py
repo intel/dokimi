@@ -25,7 +25,7 @@ import re
 import shlex
 from typing import Any
 
-from .events import Transcript, _parse_time, _relative, clip_output
+from .events import Transcript, _parse_time, relative_path, clip_output
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
@@ -33,6 +33,10 @@ _COPILOT_SHELL = {"bash", "powershell"}
 _COPILOT_READ = {"view"}
 _COPILOT_EDIT = {"edit", "create", "str_replace_editor", "write"}
 _PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.M)
+_CONTINUATION = re.compile(r"\\\n")
+_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
+# a redirect that writes nowhere a read could be confused with: 2>&1, 2>/dev/null, &>/dev/null
+_HARMLESS_REDIRECT = re.compile(r"\d*>&\d+|&>>?\s*/dev/null|\d*>>?\s*/dev/null")
 
 
 def unwrap_shell(command: str) -> str:
@@ -44,7 +48,7 @@ def unwrap_shell(command: str) -> str:
         parts = shlex.split(m.group(1))
     except ValueError:
         return command
-    return parts[0] if len(parts) == 1 else command
+    return parts[0] if len(parts) == 1 else m.group(1)
 
 
 def shell_reads(script: str, cwd: str = "") -> list[str]:
@@ -61,10 +65,14 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     here: str | None = posixpath.normpath(cwd) if cwd else ""
     moved = False  # a cd was seen: after ||, the directory is not known
     previous = ""
+    script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub(" ", script))  # a heredoc body is input, not commands
     for part, after in _split_script(script):
         op, previous = previous, after
         if op == "||" and moved:
             here = None
+        if part.startswith("(") or part.endswith(")"):  # a subshell: its reads are not tracked
+            continue
+        part = _HARMLESS_REDIRECT.sub(" ", part)
         try:
             words = shlex.split(part) if not _computed(part) else None
         except ValueError:
@@ -81,7 +89,7 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
                 continue
             here = _cd(here, words[1:])
             continue
-        if words[0] not in _PRINTERS :
+        if words[0] not in _PRINTERS:
             continue
         files = _sed_files(words[1:]) if words[0] == "sed" else _print_files(words[0], words[1:])
         for f in files:
@@ -116,6 +124,8 @@ def _computed(part: str) -> bool:
 
 
 def _print_files(cmd: str, args: list[str]) -> list[str]:
+    """Operands of ``cat`` / ``head`` / ``tail`` / ``nl``, not the values of their options (``-n 5``, ``-ba``, ``-w 3``)."""
+    takes = {"head": "nc", "tail": "nc", "nl": "bdfhilnsvw"}.get(cmd, "")  # short options that take a value
     files, skip, ended = [], False, False
     for a in args:
         if skip:
@@ -124,8 +134,13 @@ def _print_files(cmd: str, args: list[str]) -> list[str]:
             files.append(a)
         elif a == "--":
             ended = True
-        elif a in ("-n", "-c") and cmd in ("head", "tail"):
-            skip = True
+        elif a.startswith("--"):
+            skip = a in ("--lines", "--bytes") and cmd in ("head", "tail")  # the value is the next word
+        else:
+            for i, c in enumerate(a[1:], 1):
+                if c in takes:  # the value is the next word unless it is attached (-n5, -ba)
+                    skip = i == len(a) - 1
+                    break
     return files
 
 
@@ -255,7 +270,7 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
             item_id = item.get("id")
             item_key = str(item_id) if item_id else f"text:{script}"
             for path in shell_reads(script, cwd):
-                out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
+                out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
             event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None}
             by_id[item_key] = event
             out.events.append(event)
@@ -279,7 +294,7 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
             else:
                 # Fallback for item.completed without item.started
                 for path in shell_reads(script, cwd):
-                    out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
+                    out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
                 event = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
                 if item.get("aggregated_output"):
                     event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
@@ -287,7 +302,7 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
         elif itype == "file_change":
             for change in item.get("changes") or []:
                 if isinstance(change, dict) and change.get("path"):
-                    out.events.append({"t": None, "kind": "edit", "path": _relative(str(change["path"]), workdir)})
+                    out.events.append({"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)})
         elif itype in ("mcp_tool_call", "web_search"):
             name = f"{item.get('server')}.{item.get('tool')}" if itype == "mcp_tool_call" else "web_search"
             out.events.append({"t": None, "kind": "tool", "name": name})
@@ -344,14 +359,14 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
     args = data.get("arguments")
     if name in _COPILOT_SHELL:
         command = str((args or {}).get("command", "")) if isinstance(args, dict) else ""
-        reads = [{"t": t, "kind": "read", "path": _relative(p, workdir)} for p in shell_reads(command, cwd)]
+        reads = [{"t": t, "kind": "read", "path": relative_path(p, workdir)} for p in shell_reads(command, cwd)]
         return [*reads, {"t": t, "kind": "command", "text": command, "rc": None}]
     if name in _COPILOT_READ | _COPILOT_EDIT and isinstance(args, dict):
         path = str(args.get("path") or args.get("file_path") or "")
-        return [{"t": t, "kind": "read" if name in _COPILOT_READ else "edit", "path": _relative(path, workdir)}]
+        return [{"t": t, "kind": "read" if name in _COPILOT_READ else "edit", "path": relative_path(path, workdir)}]
     if name == "apply_patch":
         text = args if isinstance(args, str) else str((args or {}).get("input", ""))
-        return [{"t": t, "kind": "edit", "path": _relative(p.strip(), workdir)} for p in _PATCH_FILE.findall(text)]
+        return [{"t": t, "kind": "edit", "path": relative_path(p.strip(), workdir)} for p in _PATCH_FILE.findall(text)]
     return [{"t": t, "kind": "tool", "name": name}]
 
 

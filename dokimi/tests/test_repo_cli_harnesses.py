@@ -107,7 +107,23 @@ def test_reach_refuses_a_native_prompt_profile(tmp_path):
     ("cd $D && cat X", []),
     ("cat a || cat b", ["a", "b"]),                       # no cd: the directory is known
     ("cat a & cat b", ["a", "b"]),                        # a single & separates commands
-    ("cat a 2>&1", []),                                   # ... but not in a redirect
+    ("cat a >> b", []),
+    ("cat a < b", []),
+    ("cat a 2>&1", ["a"]),                                # a fd dup or a /dev/null redirect is not a write
+    ("cat a 2>/dev/null", ["a"]),
+    ("sed -n '1,5p' a 2>/dev/null", ["a"]),
+    ("cat a &>/dev/null", ["a"]),
+    ("cat a 2> /dev/null", ["a"]),
+    ("cat a\\\n b", ["a", "b"]),                          # a line continuation joins the command
+    ("cat <<'EOF'\ncat secret\nEOF", []),                 # a heredoc body is input, not commands
+    ("cat > f <<'EOF'\nhead other\nEOF", []),
+    ("cat a <<EOF\nx\nEOF\ncat b", ["a", "b"]),
+    ("(cd x && cat f)", []),                              # a subshell is not tracked
+    ("head --lines 5 a", ["a"]),                          # option values are not files
+    ("head -qn 5 a", ["a"]),
+    ("head -n5 a", ["a"]),
+    ("nl -w 3 a", ["a"]),
+    ("nl -ba a", ["a"]),
     ("sed -n -e '1p' f", ["f"]),
     ("sed -n -E '1,3p' f", ["f"]),
     ("sed -n -i.bak 1p f", []),                           # in-place edit
@@ -286,6 +302,12 @@ def test_codex_review_findings_titles_with_dashes_and_trailing_prose():
          "rule": "Leaks \u2014 secrets", "message": "body one"}]
     last = "- [P2] T \u2014 a.c:1\n  body\nOverall: bad."  # a non-indented line ends the body too
     assert codex_review_findings(last)[0]["message"] == "body"
+
+
+def test_convert_answer_leaves_an_empty_answer_empty():
+    # a failed or timed-out run must not read as a clean review (an empty findings block)
+    assert convert_answer("codex-review", "") == ""
+    assert convert_answer("codex-review", "  \n") == "  \n"
 
 
 def test_convert_answer_maps_every_severity_and_separates_the_block(caplog):

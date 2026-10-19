@@ -22,7 +22,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from .events import _relative
+from .events import relative_path
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def codex_review_findings(text: str, workdir: str | None = None) -> list[dict[st
             body_lines.append(line.strip())
         body = " ".join(body_lines)
         first = int(m.group(4))
-        out.append({"file": _relative(m.group(3), workdir), "line": first,
+        out.append({"file": relative_path(m.group(3), workdir), "line": first,
                     "end_line": int(m.group(5)) if m.group(5) else first,
                     "severity": _SEVERITY.get(m.group(1), "minor"), "priority": m.group(1),
                     "rule": m.group(2).strip(), "message": body})
@@ -60,7 +60,7 @@ _CONVERTERS: dict[str, Callable[[str, str | None], list[dict[str, Any]]]] = {
 
 def convert_answer(fmt: str | None, answer: str, workdir: str | None = None) -> str:
     """``answer`` with the findings block of ``fmt`` appended; unchanged when ``fmt`` is ``None``."""
-    if fmt is None:
+    if fmt is None or not answer.strip():  # an empty answer is a failed or missing run, not a clean review
         return answer
     if fmt not in _CONVERTERS:
         raise ValueError(f"unknown answer format {fmt!r} (known: {', '.join(ANSWER_FORMATS)})")
