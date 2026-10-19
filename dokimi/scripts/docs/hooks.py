@@ -36,9 +36,6 @@ from markdown_it import MarkdownIt
 log = logging.getLogger("mkdocs.hooks.dokimi")
 
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
-_HTML_ATTR = re.compile(
-    r"""(?is)\b(?P<attr>href|src)\s*=\s*(?:(["'])(?P<quoted>.*?)\2|(?P<bare>[^\s"'=<>`]+))"""
-)
 # Set in on_page_markdown, read by the treeprocessor during the following convert.
 # MkDocs renders one page at a time, after that hook returns.
 _page = None
@@ -80,26 +77,28 @@ def rewrite_tree(root, page, config) -> None:
                                    page_uri=page_uri))
 
 
-def _html_fragments(source: str):
-    for tok in _COMMONMARK.parse(source):
-        if tok.type in ("html_block", "html_inline"):
-            yield tok.content
-        elif tok.type == "inline":
-            for child in tok.children or []:
-                if child.type in ("html_block", "html_inline"):
-                    yield child.content
+class _RawHtmlLinks(HTMLParser):
+    """The relative ``href``/``src`` targets in the start tags of an HTML fragment."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found: list[tuple[str, str]] = []
+
+    def handle_starttag(self, tag, attrs):
+        for name, value in attrs:
+            if name in ("href", "src") and value:
+                if not value.startswith(("#", "/")) and not _SCHEME.match(value):
+                    self.found.append((name, value))
 
 
-def _warn_raw_html(source: str, page) -> None:
-    for fragment in _html_fragments(source):
-        for match in _HTML_ATTR.finditer(fragment):
-            quoted = match.group("quoted")
-            url = quoted if quoted is not None else match.group("bare")
-            if not url or url.startswith(("#", "/")) or _SCHEME.match(url):
-                continue
+def _warn_raw_html(fragments, page) -> None:
+    for fragment in fragments:
+        parser = _RawHtmlLinks()
+        parser.feed(fragment)
+        for attr, url in parser.found:
             log.warning(
                 "Doc file '%s' has a relative %s in raw HTML (%r); the site does not rewrite it",
-                page.file.src_uri, match.group("attr").lower(), url,
+                page.file.src_uri, attr, url,
             )
 
 
@@ -116,6 +115,7 @@ def on_config(config, **kwargs):
         def run(self, root):
             if _page is not None and _config is not None:
                 rewrite_tree(root, _page, _config)
+                _warn_raw_html(self.md.htmlStash.rawHtmlBlocks, _page)
 
     class _GithubLinksExtension(Extension):
         dokimi_github_links = True
@@ -132,7 +132,6 @@ def on_config(config, **kwargs):
 def on_page_markdown(markdown, page, config, files):
     global _page, _config
     _page, _config = page, config
-    _warn_raw_html(markdown, page)
     return markdown
 
 

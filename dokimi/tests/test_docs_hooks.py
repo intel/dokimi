@@ -53,9 +53,19 @@ def _render(tree: Path, markdown: str, page: str = "a.md") -> str:
     return hooks.on_page_markdown(markdown, _page(page), _config(tree), None)
 
 
+def _convert(tree: Path, markdown: str, page: str = "a.md") -> str:
+    """Render ``markdown`` the way the site does: the hook's extension plus the configured ones."""
+    md_lib = pytest.importorskip("markdown")
+    config = _config(tree)
+    config["markdown_extensions"].append("admonition")
+    hooks.on_config(config)
+    hooks.on_page_markdown(markdown, _page(page), config, None)
+    return md_lib.Markdown(extensions=list(config["markdown_extensions"])).convert(markdown)
+
+
 def _element(tree: Path, tag: str, attr: str, target: str, page: str = "a.md"):
     # Literal fixture built in this test, not parsed untrusted XML.
-    root = ET.fromstring(f'<div><{tag} {attr}="{target}">x</{tag}></div>')
+    root = ET.fromstring(f'<div><{tag} {attr}="{target}">x</{tag}></div>')  # nosec B314
     hooks.rewrite_tree(root, _page(page), _config(tree))
     return root.find(tag)
 
@@ -87,7 +97,7 @@ def test_links_out_of_docs_point_at_github(
 
 def test_a_title_on_a_link_is_kept(tree: Path) -> None:
     # Literal fixture, not parsed untrusted XML.
-    root = ET.fromstring('<div><a href="../pkg/m.py" title="title">x</a></div>')
+    root = ET.fromstring('<div><a href="../pkg/m.py" title="title">x</a></div>')  # nosec B314
     hooks.rewrite_tree(root, _page(), _config(tree))
     link = root.find("a")
     assert link is not None
@@ -102,7 +112,7 @@ def test_a_link_to_a_missing_file_is_left_for_mkdocs_to_report(tree: Path) -> No
 
 def test_a_link_out_of_the_repository_warns_with_the_page(
         tree: Path, caplog: pytest.LogCaptureFixture) -> None:
-    root = ET.fromstring('<div><a href="../../../../other.md">x</a></div>')
+    root = ET.fromstring('<div><a href="../../../../other.md">x</a></div>')  # nosec B314
     with caplog.at_level(logging.WARNING):
         hooks.rewrite_tree(root, _page("sub/b.md"), _config(tree))
     link = root.find("a")
@@ -179,8 +189,29 @@ def test_a_linked_image_uses_raw_for_the_image_and_blob_for_the_link(tree: Path)
 def test_a_relative_link_in_raw_html_warns(
         tree: Path, caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING):
-        _render(tree, '<a href="../pkg/m.py">x</a>\n')
+        _convert(tree, '<a href="../pkg/m.py">x</a>\n')
     assert "raw HTML" in caplog.text and "'a.md'" in caplog.text
+
+
+def test_a_relative_link_in_raw_html_inside_an_admonition_warns(
+        tree: Path, caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING):
+        _convert(tree, '!!! note\n    <a href="../pkg/m.py">x</a>\n')
+    assert "raw HTML" in caplog.text
+
+
+@pytest.mark.parametrize("src", [
+    '<span data-src="example">x</span>\n',
+    '<span title="href=example">x</span>\n',
+    '<!-- <a href="../pkg/m.py">x</a> -->\n',
+    '<a href="https://example.com/x">x</a>\n',
+    '<a href="#anchor">x</a>\n',
+])
+def test_markup_that_is_not_a_relative_link_does_not_warn(
+        tree: Path, caplog: pytest.LogCaptureFixture, src: str) -> None:
+    with caplog.at_level(logging.WARNING):
+        _convert(tree, src)
+    assert "raw HTML" not in caplog.text
 
 
 def test_the_rewriter_is_registered_above_mkdocs_relpath(tree: Path) -> None:
@@ -197,5 +228,5 @@ def test_raw_html_inside_a_fence_does_not_warn(
         tree: Path, caplog: pytest.LogCaptureFixture) -> None:
     src = "```\n<a href=\"../pkg/m.py\">x</a>\n```\n"
     with caplog.at_level(logging.WARNING):
-        assert _render(tree, src) == src
+        _convert(tree, src)
     assert "raw HTML" not in caplog.text
