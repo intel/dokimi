@@ -87,20 +87,27 @@ class Run:
 
 # --- reading -----------------------------------------------------------------------------------
 
-def read_run(path: Path) -> Run:
+def read_run(path: Path, shell: str = "split") -> Run:
     try:
         raw = path.read_text(encoding="utf-8-sig", errors="replace")
     except OSError as exc:
         raise TraceError(f"cannot read {path}: {exc}") from exc
-    run = parse_run(raw, str(path))
+    run = parse_run(raw, str(path), shell)
     if not run.events and run.num_turns is None:
         raise TraceError(f"{path}: no tool call and no result event; is it a "
                          "`claude -p --output-format stream-json --verbose` trace?")
     return run
 
 
-def parse_run(raw: str, name: str = "") -> Run:
-    """The main thread's tool calls in order, their failures, and the result event."""
+def parse_run(raw: str, name: str = "", shell: str = "split") -> Run:
+    """The main thread's steps in order, their failures, and the result event.
+
+    ``shell="split"`` turns one ``Bash`` call into one step per command it chains (``a && b; c``),
+    and a command that writes a file (``sed -i``, ``>``, ``tee``) carries that file as
+    ``file_path``, so an edit made through the shell is an edit. ``shell="call"`` keeps one step
+    per tool call. A Stop hook that blocked the stop is a failed ``Hook:Stop`` step; a hook that
+    passed leaves nothing in the trace.
+    """
     run = Run(name)
     by_id: dict[str, Event] = {}
     seen_messages: dict[str, int] = {}
@@ -127,10 +134,12 @@ def parse_run(raw: str, name: str = "") -> Run:
                 continue
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
-                    ev = _event(str(block.get("name") or ""), block.get("input"))
-                    run.events.append(ev)
-                    by_id[str(block.get("id") or "")] = ev
+                    evs = _events(str(block.get("name") or ""), block.get("input"), shell)
+                    run.events.extend(evs)
+                    by_id[str(block.get("id") or "")] = evs[-1]  # the shell's status is its last command's
         elif kind == "user":
+            if main and any(_text(b).startswith("Stop hook feedback") for b in content):
+                run.events.append(Event("Hook", "Hook:Stop", "Hook:Stop", {}, failed=True))
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error"):
                     hit = by_id.get(str(block.get("tool_use_id") or ""))
@@ -143,20 +152,83 @@ def parse_run(raw: str, name: str = "") -> Run:
     return run
 
 
-def _event(tool: str, args: Any) -> Event:
+def _text(block: Any) -> str:
+    return str(block.get("text") or "") if isinstance(block, dict) and block.get("type") == "text" else ""
+
+
+def _events(tool: str, args: Any, shell: str = "split") -> list[Event]:
     args = args if isinstance(args, dict) else {}
-    kind, target = tool, ""
     if tool == "Bash":
-        program = _program(str(args.get("command") or ""))
+        command = str(args.get("command") or "")
+        if shell == "split":
+            out = []
+            for seg in _segments(command):
+                program = _program(seg)
+                if not program:
+                    continue
+                written = _written(seg)
+                ev_input = {**args, "command": seg, **({"file_path": written} if written else {})}
+                target = Path(written).name if written else seg.strip()
+                out.append(Event(tool, f"Bash:{program}", f"Bash:{program}({target})", ev_input))
+            if out:
+                return out
+        program = _program(command)
         kind = f"Bash:{program}" if program else "Bash"
-        target = str(args.get("command") or "").strip()
-    else:
-        for key in _TARGET_KEYS:
-            if args.get(key):
-                value = str(args[key])
-                target = Path(value).name if key.endswith("path") else value
-                break
-    return Event(tool, kind, f"{kind}({target})" if target else kind, args)
+        return [Event(tool, kind, f"{kind}({command.strip()})" if command.strip() else kind, args)]
+    kind, target = tool, ""
+    for key in _TARGET_KEYS:
+        if args.get(key):
+            value = str(args[key])
+            target = Path(value).name if key.endswith("path") else value
+            break
+    return [Event(tool, kind, f"{kind}({target})" if target else kind, args)]
+
+
+def _segments(command: str) -> list[str]:
+    """The commands a shell line chains (``&&``, ``||``, ``;``, newline outside quotes), heredoc
+    bodies and comment lines dropped: their lines are data, not commands."""
+    command = re.sub(r"<<-?\s*['\"]?(\w+)['\"]?([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", r"<<\1\2", command, flags=re.S)
+    out, cur, quote, i = [], [], "", 0
+    while i < len(command):
+        ch = command[i]
+        if quote:
+            if ch == "\\" and quote == '"' and i + 1 < len(command):
+                cur.append(command[i:i + 2])
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "\\" and command[i + 1:i + 2] == "\n":  # a continued line
+            i += 2
+            continue
+        elif ch in ";\n" or command[i:i + 2] in ("&&", "||"):
+            out.append("".join(cur))
+            cur = []
+            i += 1 if ch in ";\n" else 2
+            continue
+        cur.append(ch)
+        i += 1
+    out.append("".join(cur))
+    return [seg.strip() for seg in out if seg.strip() and not seg.strip().startswith("#")]
+
+
+def _written(segment: str) -> str:
+    """The file a shell command writes, if it is one of the plain ways to write one."""
+    try:
+        words = shlex.split(segment)
+    except ValueError:
+        words = segment.split()
+    if words and Path(words[0]).name in ("sed", "perl") and any(re.match(r"^-\w*i", w) for w in words[1:]):
+        files = [w for w in words[1:] if not w.startswith("-")]
+        if len(files) >= 2:
+            return files[-1]
+    m = re.search(r"(?<![0-9&>])>>?\s*([^\s&|;<>]+)", segment)
+    if m and m.group(1) != "/dev/null":
+        return m.group(1)
+    m = re.search(r"\btee\s+(?:-a\s+)?([^\s&|;<>]+)", segment)
+    return m.group(1) if m else ""
 
 
 def _program(command: str) -> str:

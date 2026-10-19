@@ -18,9 +18,19 @@ python cli.py context consistency \
 | Path | Do the runs take the same steps? | `mix_jsd` (same tools in same amounts), `order_distance` (same order), `action_distance` (same files and commands), CV of tool calls, turns, output tokens |
 | Contract | Did each run keep the required process? | `conformance_rate`, violations per rule, `passed_but_nonconforming` |
 
-The path is the main thread's tool calls. `Bash` calls are named by program
-(`Bash:pytest`, `Bash:git`), so a shell-heavy run is not one undifferentiated
-step. Subagent calls are left out; a `Task` call is one step.
+The path is the main thread's steps. By default (`--shell split`) one `Bash`
+call is one step per command it chains (`&&`, `||`, `;`, newline outside
+quotes; heredoc bodies and comments dropped), each named by program
+(`Bash:pytest`, `Bash:sed`), and a command that writes a file (`sed -i`, `>`,
+`>>`, `tee`) carries it as `file_path`. Without this a model that does
+`sed -i … pricing.py; sed -i … CHANGELOG.md; sh finish.sh` in one call shows as
+one step, its path looks perfectly stable and a contract sees no edit and no
+check. `--shell call` keeps one step per tool call. Subagent calls are left
+out; a `Task` call is one step.
+
+A Stop hook that blocked the stop is a failed `Hook:Stop` step. A hook that
+passed leaves nothing in the trace, so a check the harness enforces is not
+visible as a step; count it from the harness configuration.
 
 ## Where the outcome comes from
 
@@ -66,6 +76,10 @@ rules:
   - requires: test
 ```
 
+Name every equivalent way to do a step: `make check`, `sh tools/check.sh` and
+the skill's `finish.sh` are one check. A contract that knows only `make check`
+reports agents that ran the script behind it as never checking.
+
 `passed_but_nonconforming` counts runs the verifier passed that broke a rule:
 what a result-only score hides, such as a change that happened to be right but
 was never tested.
@@ -80,6 +94,10 @@ nothing.
 | Repeat | nothing; the workspace reset each run | the agent's own variance |
 | Paraphrase | the wording, not the task | robustness to the prompt |
 | Fault | injected tool errors, timeouts | recovery |
+
+A fault measures recovery only in runs that reach the faulted step. Put it on a
+step the procedure requires and report how many runs reached it; an arm whose
+agents never run the check is not robust to a check failure, it is untested.
 
 Compare arms (no skill, prose skill, skill with scripts, skill with executable
 checks) within one series. The useful finding is which uncertainty a skill
