@@ -280,7 +280,7 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
                 # Fallback for item.completed without item.started
                 for path in shell_reads(script, cwd):
                     out.events.append({"t": None, "kind": "read", "path": _relative(path, workdir)})
-                event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
+                event = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
                 if item.get("aggregated_output"):
                     event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
                 out.events.append(event)
