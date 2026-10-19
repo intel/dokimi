@@ -337,3 +337,76 @@ def test_a_mock_call_check_without_patching_is_not_a_mock_echo():
 def test_a_length_check_alone_is_type_only(check):
     flags = _flags(f"def test_x():\n    out = run()\n    assert {check}\n")
     assert "type_only" in flags["test_x"]
+
+
+@pytest.mark.parametrize("mutation", [
+    "c.n += 1",  # AugAssign
+    "c.n: int = 5",  # AnnAssign with value
+    "c.n, y = 5, 6",  # Tuple targets
+    "setattr(c, 'n', 7)",  # setattr() call
+])
+def test_mutation_patterns_invalidate_echo(mutation):
+    """All mutation patterns invalidate the constructor echo check."""
+    flags = _flags(f"""
+        def test_mutation():
+            c = Config(n=3)
+            {mutation}
+            assert c.n == 3
+        """)
+    assert "set_then_read" not in flags["test_mutation"]
+
+
+def test_and_or_splits_in_mock_echo():
+    """Both and/or expressions are judged element-wise in mock_echo."""
+    # Both are mock-only when split
+    flags = _flags("""
+        from unittest.mock import patch
+        def test_and_split():
+            with patch("mod.send") as send:
+                run()
+            assert send.call_count == 1 and send.called
+        """)
+    assert "mock_echo" in flags["test_and_split"]
+
+    flags = _flags("""
+        from unittest.mock import patch
+        def test_or_split():
+            with patch("mod.send") as send:
+                run()
+            assert send.call_count == 1 or send.called
+        """)
+    assert "mock_echo" in flags["test_or_split"]
+
+
+def test_tuple_with_any_value_is_not_mock_echo():
+    """A tuple comparison with any value element is not mock-only."""
+    # Even though send.call_count and send.called are mock attrs,
+    # the tuple structure checks that both values match, making it a behavior check.
+    flags = _flags("""
+        from unittest.mock import patch
+        def test_tuple_with_value():
+            with patch("mod.send") as send:
+                out = run()
+            assert (send.call_count, out) == (1, 42)
+        """)
+    assert "mock_echo" not in flags["test_tuple_with_value"]
+
+
+@pytest.mark.parametrize("check,expected_no_assert", [
+    ("verify_result(run())", False),  # Bare hinted call: not no_assert
+    ("v.verify_result(run())", True),  # Method call: still no_assert
+    ("_check_output(run())", False),  # Bare helper call: not no_assert
+    ("v.validate(run())", True),  # Method call to helper name: still no_assert
+])
+def test_no_assert_only_suppressed_by_bare_calls(check, expected_no_assert):
+    """Only bare function calls with hint words suppress no_assert, not method calls."""
+    flags = _flags(f"""
+        def _check_output(x):
+            pass
+        def test_x():
+            {check}
+        """)
+    if expected_no_assert:
+        assert "no_assert" in flags["test_x"]
+    else:
+        assert "no_assert" not in flags["test_x"]

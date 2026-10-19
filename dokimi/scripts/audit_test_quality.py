@@ -222,10 +222,29 @@ def _constructor_inputs(nodes: list[ast.AST]) -> dict[str, set[tuple[str, object
             call = node.value
             if isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name):
                 mutated.add(call.func.value.id)
+            # Track setattr() calls
+            elif _call_name(call) == "setattr" and len(call.args) >= 1 and isinstance(call.args[0], ast.Name):
+                mutated.add(call.args[0].id)
         elif isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
                     mutated.add(target.value.id)
+                # Track tuple targets
+                elif isinstance(target, ast.Tuple):
+                    for elt in target.elts:
+                        if isinstance(elt, ast.Name):
+                            seen[elt.id] += 1
+                        elif isinstance(elt, ast.Attribute) and isinstance(elt.value, ast.Name):
+                            # Mark the object as mutated if an attribute is assigned in a tuple
+                            mutated.add(elt.value.id)
+        elif isinstance(node, ast.AugAssign):
+            # Track augmented assignments (+=, -=, etc.)
+            if isinstance(node.target, ast.Attribute) and isinstance(node.target.value, ast.Name):
+                mutated.add(node.target.value.id)
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            # Track annotated assignments with values
+            if isinstance(node.target, ast.Attribute) and isinstance(node.target.value, ast.Name):
+                mutated.add(node.target.value.id)
 
         if not isinstance(node, ast.Assign | ast.AnnAssign):
             continue
@@ -282,19 +301,31 @@ def _is_mock_verify(test: ast.expr) -> bool:
     """An assert that only reads whether a mock was called.
 
     ``assert m.call_count == 2 and vote.aggregate == 70.0`` also checks a value,
-    so each operand of an ``and`` is judged on its own.
+    so each operand of an ``and`` is judged on its own. Similarly for ``or``.
 
     Tuple comparisons like ``assert (m.call_count, out) == (1, 42)`` check both
-    the mock call and the output, so they are not mock-only.
+    the mock call and the output, so they are not mock-only. But
+    ``assert (m.call_count, m.called) == (1, True)`` is mock-only.
     """
-    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
-        return all(map(_is_mock_verify, test.values))
-    # If this is a comparison with tuples, check if any element is not a mock attribute
-    if isinstance(test, ast.Compare):
-        for comp in ast.walk(test):
-            if isinstance(comp, ast.Tuple):
-                # A tuple in a comparison likely checks multiple values; not mock-only
-                return False
+    if isinstance(test, ast.BoolOp):
+        if isinstance(test.op, ast.And):
+            return all(map(_is_mock_verify, test.values))
+        elif isinstance(test.op, ast.Or):
+            return all(map(_is_mock_verify, test.values))
+    # If this is a comparison with tuples, check if all tuple elements are mock attributes
+    if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq):
+        left_tuple = isinstance(test.left, ast.Tuple)
+        right_tuple = isinstance(test.comparators[0], ast.Tuple) if test.comparators else False
+        if left_tuple or right_tuple:
+            # If either side is a tuple, all elements in any tuple must be mock attributes
+            for operand in (test.left, *test.comparators):
+                if isinstance(operand, ast.Tuple):
+                    for elt in operand.elts:
+                        if not (isinstance(elt, ast.Attribute) and elt.attr in _MOCK_VERIFY_ATTRS):
+                            # Found a non-mock element in a tuple comparison
+                            return False
+            # All tuple elements are mock attributes
+            return True
     return any(isinstance(n, ast.Attribute) and n.attr in _MOCK_VERIFY_ATTRS
                for n in ast.walk(test))
 
@@ -387,6 +418,12 @@ def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str],
     # A test that calls a helper with a behavioral assert has behavioral checks even if its
     # direct asserts are weak; a helper that only checks a shape does not count.
     helper_checks = any(_call_name(c) in value_helpers for c in t.calls)
+    # For no_assert: bare calls with hint words or same-file helpers count.
+    # Method calls (e.g., v.validate) do not suppress no_assert.
+    has_hinted_bare_call = any(
+        _has_hint(_call_name(c)) and isinstance(c.func, ast.Name) for c in t.calls
+    )
+    has_helper_call = any(_call_name(c) in helpers and isinstance(c.func, ast.Name) for c in t.calls)
     flags = {
         "type_only": bool(t.asserts) and not (t.value_asserts or t.raises or t.assert_calls or helper_checks),
         "mock_echo": (
@@ -396,9 +433,7 @@ def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str],
         ),
         "set_then_read": _all_value_asserts(t, lambda e: _echoes_input(e, inputs)),
         "constant_mirror": _all_value_asserts(t, lambda e: _is_constant_mirror(e, names)),
-        "no_assert": not checks and not any(
-            _has_hint(_call_name(c)) or _call_name(c) in helpers for c in t.calls
-        ),
+        "no_assert": not checks and not (has_hinted_bare_call or has_helper_call),
     }
     found = {flag for flag, hit in flags.items() if hit}
     if found & set(_SHAPE_FLAGS) and _statement_count(fn.body) <= _TRIVIAL_MAX_STATEMENTS:
