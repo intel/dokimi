@@ -167,18 +167,17 @@ def _models_equivalent(base_models: set[str], treat_models: set[str]) -> bool:
 
     Two resolved model sets are equivalent if they differ only by provider prefixes or
     version suffixes that model_matches() considers equivalent. For each base model,
-    there must be a matching treatment model (where one matches the other under model_matches).
+    there must be a matching treatment model and the reverse; the set sizes may differ, since one arm can
+    hold several spellings of the same model across repetitions.
     """
     if base_models == treat_models:
         return True
-    if len(base_models) != len(treat_models):
-        return False
     # Check if each base model has an equivalent in treatment models
     for base_model in base_models:
         if not any(model_matches(base_model, treat_model) or model_matches(treat_model, base_model)
                    for treat_model in treat_models):
             return False
-    # Check the reverse to ensure bijection
+    # Check the reverse: every treatment model matches some base model
     for treat_model in treat_models:
         if not any(model_matches(treat_model, base_model) or model_matches(base_model, treat_model)
                    for base_model in base_models):

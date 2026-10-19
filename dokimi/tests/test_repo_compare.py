@@ -615,6 +615,16 @@ def test_model_matches_equivalence_does_not_warn(tmp_path):
     assert s["stamps"]["b1"]["model_resolved"] == ["anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5-20251001"]
 
 
+def test_mixed_spellings_across_repetitions_do_not_warn(tmp_path):
+    b = tmp_path / "b1"
+    m = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    _cell(b, "fix_a", "guidance:none", 1, model=m, model_resolved=m)
+    _cell(b, "fix_a", "guidance:none", 2, model=m, model_resolved="claude-haiku-4-5-20251001")
+    _cell(b, "fix_a", "guidance:raw", 1, model=m, model_resolved="claude-haiku-4-5-20251001")
+    _cell(b, "fix_a", "guidance:raw", 2, model=m, model_resolved="claude-haiku-4-5-20251001")
+    assert [w for w in compare([b], "guidance:none")["warnings"] if "was answered by" in w] == []
+
+
 def test_an_unreadable_batch_stamp_is_no_stamp(tmp_path):
     b = tmp_path / "b1"
     (b / "_eval").mkdir(parents=True)
