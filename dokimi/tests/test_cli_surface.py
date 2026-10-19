@@ -151,9 +151,11 @@ def test_mutually_exclusive_group_membership_is_captured():
     surface = cs._command(_mutually_exclusive_parser(), "dokimi")
     run_cmd = surface["subcommands"]["run"]
     params_by_key = {p["key"]: p for p in run_cmd["params"]}
-    assert params_by_key["--tasks"]["group_key"] == "group_0"
+    # Group key is stable across reordering: based on sorted member keys, not creation order
+    group_key = "--all|--tasks"  # sorted pair of the group members
+    assert params_by_key["--tasks"]["group_key"] == group_key
     assert params_by_key["--tasks"]["group_required"] is True
-    assert params_by_key["--all"]["group_key"] == "group_0"
+    assert params_by_key["--all"]["group_key"] == group_key
     assert params_by_key["--all"]["group_required"] is True
 
 
@@ -175,4 +177,5 @@ def test_mutually_exclusive_group_membership_removal_is_reported():
     a = cs._command(p_with_group, "dokimi")
     b = cs._command(p_without, "dokimi")
     lines = cs.diff_surfaces(a, b)
-    assert any("group_key" in line for line in lines)
+    group_key = "--all|--tasks"
+    assert any(f"group_key: '{group_key}' -> None" in line for line in lines)

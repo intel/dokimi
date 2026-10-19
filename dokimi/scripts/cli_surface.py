@@ -75,10 +75,19 @@ def _command(parser: argparse.ArgumentParser, path: str) -> dict[str, Any]:
     position = 0
 
     # Build a map from action to its mutually exclusive group (if any).
-    action_to_group: dict[argparse.Action, tuple[int, bool]] = {}  # action -> (group_id, required)
-    for group_id, group in enumerate(parser._mutually_exclusive_groups):
+    action_to_group: dict[argparse.Action, tuple[str, bool]] = {}  # action -> (group_key, required)
+    for group in parser._mutually_exclusive_groups:
+        # Key the group by its members' keys, not creation order, so reordering groups
+        # does not report unchanged options as changed.
+        member_keys = []
         for action in group._group_actions:
-            action_to_group[action] = (group_id, group.required)
+            if action.option_strings:
+                member_keys.append("/".join(sorted(action.option_strings)))
+            else:
+                member_keys.append(action.dest)
+        group_key = "|".join(sorted(member_keys))
+        for action in group._group_actions:
+            action_to_group[action] = (group_key, group.required)
 
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
@@ -88,7 +97,7 @@ def _command(parser: argparse.ArgumentParser, path: str) -> dict[str, Any]:
         elif not isinstance(action, argparse._HelpAction):
             # --version is kept (its version string is not dumped, so a release is no change)
             group_info = action_to_group.get(action)
-            group_key = f"group_{group_info[0]}" if group_info else None
+            group_key = group_info[0] if group_info else None
             group_required = group_info[1] if group_info else None
             node["params"].append(_param(action, None if action.option_strings else position,
                                          group_key, group_required))
