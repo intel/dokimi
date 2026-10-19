@@ -159,6 +159,42 @@ def test_non_baseline_arms_empty_when_nothing_but_baseline():
     assert non_baseline_arms({"baseline_arm": "baseline", "arms": ["baseline"]}) == set()
 
 
+def _binary_run(run_id, **meta) -> dict:
+    """Build a minimal binary artifact (no treatment arms, just with_docs/without_docs)."""
+    answers = [
+        {
+            "question_id": "q1",
+            "question_text": "Question?",
+            "with_docs": {"answer": "with context"},
+            "without_docs": {"answer": "without context"},
+        }
+    ]
+    return {
+        "model": meta.get("model", "model-x"),
+        "provider": meta.get("provider", "prov"),
+        "answers": answers,
+        **meta,
+    }
+
+
+def test_non_baseline_arms_ignores_binary_file_conditions():
+    """Binary files have with_docs/without_docs conditions, not treatment arms.
+
+    check_run_consistency should treat two binary files as the same (no arms)
+    rather than reporting them as measuring different treatments."""
+    # Two identical binary files with different models
+    run_a = _binary_run("a", model="model-a")
+    run_b = _binary_run("b", model="model-b")
+
+    # Before the fix, this would raise:
+    # "runs are scored on 2 different treatment arms (a=with_docs/without_docs, b=with_docs/without_docs)"
+    # After the fix, non_baseline_arms returns set() for both, so consistency passes.
+    warnings = check_run_consistency([("a", run_a), ("b", run_b)], "regular")
+    # Both runs have no treatment arms, so they're compatible.
+    # We may get warnings about no scored arms, which is fine.
+    assert not any("different treatment arms" in w for w in warnings)
+
+
 def test_prompt_digests_collects_the_stamped_prompt_hashes():
     data = _profile_run("run", digest="sha256:aaaa")
     assert prompt_digests(data, "profile:p") == {"sha256:aaaa"}
