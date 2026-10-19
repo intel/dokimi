@@ -69,6 +69,7 @@ def _cx(src: str) -> dict[str, int]:
     ("for x in y:\n    pass\nelse:\n    pass", 2),
     ("while a:\n    pass", 2),
     ("try:\n    pass\nexcept A:\n    pass\nexcept B:\n    pass\nelse:\n    pass", 4),
+    ("try:\n    pass\nexcept* A:\n    pass\nexcept* B:\n    pass", 3),   # try-star counts like try
     ("with a:\n    if b:\n        pass", 2),
     ("for x in y:\n    pass\nelse:\n    if a:\n        pass", 3),   # a decision in a loop else
     ("while a:\n    pass\nelse:\n    if b:\n        pass", 3),
