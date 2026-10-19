@@ -347,6 +347,9 @@ label.
    dependency ranges (Python 3.11 and 3.13) and exercises the console and
    module entry points.
 
+   **windows-smoke** (a PR check on `windows-latest`) builds the wheel, installs
+   it, runs the installed-package smoke test and a few fast tests.
+
 **`agent-quality.yml`** — task and benchmark checks:
 
 5. **external-catalog-smoke** — clones a pinned external content catalog, runs

@@ -16,7 +16,7 @@ Differences from CI, all printed as notices:
 - `uses:` steps (checkout, setup-python, upload-artifact) are skipped, and so
   are `pip install` steps: the tools come from the venv `make dev` builds,
   which installs exactly what those steps install (`tools` subcommand below).
-  Jobs that install the package itself (package-smoke) run in a throwaway venv
+  Jobs that install the package itself (package-smoke, windows-smoke) run in a throwaway venv
   on a copy of the tracked tree instead, so the dev venv stays as CI's.
 - Every step runs even when an earlier one fails, so one failure does not hide
   the next (CI stops a job's checks at its first failing step, except

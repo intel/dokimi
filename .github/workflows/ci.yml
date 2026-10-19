@@ -334,7 +334,4 @@ jobs:
       - name: Install test deps
         run: python -m pip install -r requirements.lock.txt
       - name: Run a few fast tests
-        run: |
-          test_dir="$PWD/tests"
-          cd "$RUNNER_TEMP"
-          pytest -q "$test_dir/test_cli_help.py" "$test_dir/test_console_encoding.py"
+        run: pytest -q tests/test_cli_help.py tests/test_console_encoding.py

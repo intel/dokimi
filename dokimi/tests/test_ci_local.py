@@ -362,12 +362,13 @@ def test_isolated_job_ids_match_real_jobs() -> None:
         )
 
 
-def test_windows_smoke_is_registered_as_isolated() -> None:
-    """The windows-smoke job that installs packages must be in ISOLATED to avoid
-    expanding $RUNNER_TEMP/dist/*.whl as a literal path in ci_local."""
-    # The bug this test guards against: tool_specs() returns the literal
-    # $RUNNER_TEMP/dist/*.whl string if windows-smoke is not registered.
-    specs = cl.tool_specs()
-    assert "$RUNNER_TEMP" not in "".join(specs), (
-        "tool_specs() contains $RUNNER_TEMP; windows-smoke may not be registered in ISOLATED"
-    )
+def test_tool_specs_carry_no_unexpanded_shell_syntax() -> None:
+    """A job that installs a wheel from $RUNNER_TEMP must be in ISOLATED. Otherwise tool_specs()
+    hands `make dev` a literal `$RUNNER_TEMP/dist/*.whl`, which nothing expands."""
+    bad = [spec for spec in cl.tool_specs() if "$" in spec or "*" in spec]
+    assert not bad, f"tool_specs() has unexpanded shell syntax; register the job in ISOLATED: {bad}"
+
+
+def test_isolated_jobs_also_need_network() -> None:
+    """An isolated job installs from the package index, so it is skipped offline like the other network jobs."""
+    assert cl.ISOLATED <= cl.NEEDS_NETWORK
