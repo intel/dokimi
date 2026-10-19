@@ -1,0 +1,230 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""Harbor-backed cells are graded from Harbor's own result.json files.
+
+The fixtures under ``tests/fixtures/harbor/`` are trimmed copies of what
+``harbor run --jobs-dir <dir>`` (Harbor 0.24.0, agent ``claude-code``) wrote:
+``<dir>/<job>/result.json`` and ``<dir>/<job>/<trial>/result.json``.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+from pathlib import Path
+
+import pytest
+
+from dokimi.artifacts import validate_artifact
+from dokimi.harnesses import TaskSuiteRunner, discover_tasks, load_task
+from dokimi.harnesses.command import harbor_usage, read_harbor_job
+from dokimi.harnesses.registry import create_harness
+from dokimi.process import FakeRunner, reply
+from tests.test_task_harnesses import _fixture_task
+
+FIXTURES = Path(__file__).parent / "fixtures" / "harbor"
+JOB = "2026-10-06__14-39-30"
+PASS_TRIAL = FIXTURES / "pass" / JOB / "onetbb-transpose__4LraMVa" / "result.json"
+
+# Harbor 0.24's end-of-run tables on stdout (a 6-trial job's); the stdout
+# scrape `command:` keeps reads "Reward ... 1.0" off the second one.
+HARBOR_SUMMARY = (
+    "tasks • claude-code • m\n"
+    "┃ Trials ┃ Exceptions ┃  Mean ┃ Pass@2 ┃\n"
+    "│      6 │          0 │ 0.333 │  0.667 │\n"
+    "┃ Reward ┃ Count ┃\n"
+    "┡━━━━━━━━╇━━━━━━━┩\n"
+    "│ 1.0    │     2 │\n"
+    "│ 0.0    │     4 │\n"
+)
+
+
+def _harbor_writes(case: str | None, *, edit=None, stdout: str = HARBOR_SUMMARY, returncode: int = 0):
+    """A fake ``harbor run`` that leaves fixture *case*'s job under ``--jobs-dir``
+    (nothing for None) and exits *returncode*, 0 by default as Harbor does."""
+
+    def handler(call):
+        jobs_dir = Path(call.argv[call.argv.index("--jobs-dir") + 1])
+        if case is not None:
+            shutil.copytree(FIXTURES / case, jobs_dir, dirs_exist_ok=True)
+            if edit:
+                for trial in jobs_dir.glob("*/*/result.json"):
+                    data = json.loads(trial.read_text(encoding="utf-8"))
+                    edit(data)
+                    trial.write_text(json.dumps(data), encoding="utf-8")
+        return reply(stdout, returncode=returncode)
+
+    return FakeRunner(handler)
+
+
+def _run(tmp_path, runner, harness_id="claude-code"):
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+    return create_harness(harness_id, runner=runner).run(task, model="m", output_dir=tmp_path / "cell")
+
+
+def test_a_passing_trial_is_a_pass_with_its_tokens_and_cost(tmp_path):
+    result = _run(tmp_path, _harbor_writes("pass"))
+
+    assert (result.passed, result.reward) == (True, 1.0)
+    assert "error" not in result.metrics
+    m = result.metrics
+    assert (m["prompt_tokens"], m["completion_tokens"], m["cache_read_tokens"]) == (234573, 2335, 231270)
+    assert m["total_tokens"] == 234573 + 2335
+    assert m["cost_usd"] == pytest.approx(0.038918)
+    assert m["n_trials"] == 1
+    assert m["result_json"] == str(tmp_path / "cell" / JOB / "onetbb-transpose__4LraMVa" / "result.json")
+
+
+def test_a_failing_trial_is_a_scored_fail(tmp_path):
+    result = _run(tmp_path, _harbor_writes("fail"))
+
+    assert (result.passed, result.reward) == (False, 0.0)
+    assert "error" not in result.metrics
+    assert result.metrics["cost_usd"] == pytest.approx(0.03092655)
+
+
+@pytest.mark.parametrize("harness_id", ["codex", "claude-code", "terminal-bench:aider"])
+def test_a_trial_that_raised_is_errored_though_harbor_exits_0(tmp_path, harness_id):
+    """Measured with Harbor 0.24.0: the agent install failed, Harbor exited 0
+    and printed its summary table, and the cell read as PASS 1/1."""
+    result = _run(tmp_path, _harbor_writes("exception"), harness_id)
+
+    assert result.returncode == 0
+    assert (result.passed, result.reward) == (False, None)
+    assert result.metrics["harbor_exception"] == "NonZeroAgentExitCodeError"
+    assert result.metrics["error"] == (
+        "harbor: NonZeroAgentExitCodeError: Command failed (exit 100): "
+        "apt-get update && apt-get install -y curl nodejs npm"
+    )
+    # agent_result is null for a trial that never ran the agent: no usage, not zeros.
+    assert "cost_usd" not in result.metrics and "prompt_tokens" not in result.metrics
+
+
+def test_a_reward_beside_an_exception_is_kept_aside_not_scored(tmp_path):
+    def timed_out_then_verified(trial):
+        trial["exception_info"] = {"exception_type": "AgentTimeoutError", "exception_message": ""}
+
+    result = _run(tmp_path, _harbor_writes("pass", edit=timed_out_then_verified))
+
+    assert (result.passed, result.reward) == (False, None)
+    assert result.metrics["error"] == "harbor: AgentTimeoutError"
+    assert result.metrics["reward_after_exception"] == 1.0
+
+
+@pytest.mark.parametrize("verifier_result", [None, {}, {"rewards": {}}, {"rewards": {"reward": True}},
+                                             {"rewards": {"reward": "1.0"}}])
+def test_a_trial_without_a_numeric_reward_is_errored(tmp_path, verifier_result):
+    def drop_reward(trial):
+        trial["verifier_result"] = verifier_result
+
+    result = _run(tmp_path, _harbor_writes("pass", edit=drop_reward))
+
+    assert (result.passed, result.reward) == (False, None)
+    assert result.metrics["error"] == "harbor: trial result.json has no verifier_result.rewards.reward"
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_no_result_json_is_errored_never_the_exit_code(tmp_path, returncode):
+    # Harbor's own summary on stdout, and a stray reward file: neither is a verdict.
+    def handler(call):
+        jobs_dir = Path(call.argv[call.argv.index("--jobs-dir") + 1])
+        (jobs_dir / "reward.txt").write_text("1.0", encoding="utf-8")
+        return reply("reward: 1.0\n" + HARBOR_SUMMARY, returncode=returncode)
+
+    result = _run(tmp_path, FakeRunner(handler))
+
+    assert (result.passed, result.reward) == (False, None)
+    assert result.metrics["error"] == f"harbor: no Harbor result.json (exit {returncode})"
+    assert result.metrics["n_trials"] == 0
+
+
+def test_a_job_summary_without_its_trial_file_is_errored(tmp_path):
+    def handler(call):
+        jobs_dir = Path(call.argv[call.argv.index("--jobs-dir") + 1])
+        (jobs_dir / JOB).mkdir()
+        shutil.copy(FIXTURES / "pass" / JOB / "result.json", jobs_dir / JOB / "result.json")
+        return reply(HARBOR_SUMMARY)
+
+    result = _run(tmp_path, FakeRunner(handler))
+
+    assert result.reward is None
+    assert result.metrics["error"] == "harbor: a job result.json but no trial result.json (exit 0)"
+
+
+def test_more_than_one_trial_in_a_cell_is_errored(tmp_path):
+    def handler(call):
+        jobs_dir = Path(call.argv[call.argv.index("--jobs-dir") + 1])
+        shutil.copytree(FIXTURES / "pass", jobs_dir, dirs_exist_ok=True)
+        shutil.copytree(FIXTURES / "fail", jobs_dir, dirs_exist_ok=True)
+        return reply(HARBOR_SUMMARY)
+
+    result = _run(tmp_path, FakeRunner(handler))
+
+    assert result.reward is None
+    assert result.metrics["error"] == "harbor: 2 trials in one cell (expected 1)"
+    assert result.metrics["n_trials"] == 2
+
+
+@pytest.mark.parametrize("content", ["{not json", "[1, 2]"])
+def test_an_unreadable_trial_file_is_errored(tmp_path, content):
+    trial = tmp_path / "jobs" / JOB / "t" / "result.json"
+    trial.parent.mkdir(parents=True)
+    trial.write_text(content, encoding="utf-8")
+
+    reward, metrics = read_harbor_job(tmp_path / "jobs", 0)
+
+    assert reward is None
+    assert metrics["error"] == "harbor: trial result.json is not a JSON object"
+
+
+def test_without_an_output_dir_there_is_nothing_to_grade(tmp_path):
+    reward, metrics = read_harbor_job(None, 0)
+    assert reward is None and "no output dir" in metrics["error"]
+
+
+def test_harbor_usage_maps_to_the_shared_metric_keys():
+    assert harbor_usage({"n_input_tokens": 10, "n_cache_tokens": 4, "n_output_tokens": 3,
+                         "cost_usd": 0.5}) == {
+        "prompt_tokens": 10, "completion_tokens": 3, "cache_read_tokens": 4,
+        "total_tokens": 13, "cost_usd": 0.5,
+    }
+    # Unknown stays unknown: a null count (Harbor's oracle agent) is not a 0.
+    assert harbor_usage({"n_input_tokens": None, "n_cache_tokens": None, "n_output_tokens": None,
+                         "cost_usd": None}) == {}
+    assert harbor_usage({"n_input_tokens": 10, "n_output_tokens": True}) == {"prompt_tokens": 10}
+    assert harbor_usage(None) == {}
+
+
+def test_an_errored_harbor_cell_is_out_of_the_pass_rate_and_cost_counts(tmp_path):
+    """Through the runner: the trial that raised is errored, not a pass, and the
+    passing trial's cost reaches per_harness.cost."""
+    root = tmp_path / "tasks"
+    _fixture_task(root).rename(root / "a-task")
+    _fixture_task(root).rename(root / "b-task")
+
+    def handler(call):
+        jobs_dir = Path(call.argv[call.argv.index("--jobs-dir") + 1])
+        case = "exception" if "a-task" in call.argv[call.argv.index("-p") + 1] else "pass"
+        shutil.copytree(FIXTURES / case, jobs_dir, dirs_exist_ok=True)
+        return reply(HARBOR_SUMMARY)
+
+    output = TaskSuiteRunner(tasks=discover_tasks(root), harnesses=["claude-code"], model="m",
+                             output_root=tmp_path / "runs", runner=FakeRunner(handler)).run()
+
+    validate_artifact("task_runs", output)
+    stats = output["summary"]["per_harness"]["claude-code"]
+    assert (stats["errored"], stats["scored"], stats["passed"]) == (1, 1, 1)
+    assert stats["pass_rate"] == 1.0
+    assert stats["cost"]["total_cost_usd"] == pytest.approx(0.038918)
+
+
+def test_a_command_template_keeps_its_exit_code_fallback(tmp_path):
+    """Only kind="harbor" reads result.json: a custom template that prints no
+    reward and exits 0 still passes, as before."""
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+    result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner()).run(
+        task, output_dir=tmp_path / "cell")
+
+    assert (result.passed, result.reward) == (True, None)
+    assert "error" not in result.metrics

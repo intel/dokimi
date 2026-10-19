@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 import shutil
@@ -138,21 +139,31 @@ class CommandHarness:
             stderr += f"\nTIMEOUT: {command[0]} killed after {timeout:g}s\n"
         elapsed = time.time() - start
         operations.extend(load_operations(output_dir, stdout, stderr))
+        harbor_metrics: dict[str, Any] = {}
         if timed_out:
             reward: float | None = 0.0
             passed = False
+        elif self.kind == "harbor":
+            # Harbor exits 0 for a trial that errored, so neither its exit code
+            # nor its printed summary is a verdict: its trial result.json is.
+            reward, harbor_metrics = read_harbor_job(output_dir, returncode)
+            if "result_json" in harbor_metrics and given_dir and output_dir:
+                harbor_metrics["result_json"] = str(
+                    given_dir / Path(harbor_metrics["result_json"]).relative_to(output_dir))
+            passed = reward is not None and reward >= 1.0
         else:
             reward = _find_reward(output_dir, stdout, stderr)
             passed = reward is not None and reward >= 1.0
             if reward is None:
                 passed = returncode == 0
 
-        metrics = {
+        metrics: dict[str, Any] = {
             "dry_run": False,
             "timeout_sec": timeout,
             "stdout_bytes": len(stdout.encode("utf-8")),
             "stderr_bytes": len(stderr.encode("utf-8")),
         }
+        metrics.update(harbor_metrics)
         if timed_out:
             metrics["timed_out"] = True
         return HarnessResult(
@@ -218,6 +229,99 @@ def clear_run_dir(path: Path) -> None:
             "Delete it by hand (check the owner and permissions of what is left, "
             "or on Windows whether another process holds a file open) and rerun."
         )
+
+
+def read_harbor_job(jobs_dir: Path | None, returncode: int) -> tuple[float | None, dict[str, Any]]:
+    """``(reward, metrics)`` for one Harbor cell, from the ``result.json`` files
+    ``harbor run --jobs-dir <jobs_dir>`` wrote.
+
+    Harbor writes ``<jobs_dir>/<job>/result.json`` (the job summary) and
+    ``<jobs_dir>/<job>/<trial>/result.json`` per trial; the trial's file is the
+    authoritative one. The reward is its ``verifier_result.rewards.reward``. A
+    trial with ``exception_info`` (agent install, environment start, agent
+    timeout), a trial with no reward, a cell with no trial file at all, or with
+    more than one trial, has no verdict: ``metrics.error`` is set and the
+    reward is None, so the runner counts the cell as errored, never as a pass
+    because ``harbor`` exited 0.
+    """
+    if jobs_dir is None:
+        return None, {"error": "harbor: no output dir, so no Harbor result.json to read"}
+    trials = sorted(jobs_dir.glob("*/*/result.json"))
+    metrics: dict[str, Any] = {"n_trials": len(trials)}
+    if not trials:
+        found = "a job result.json but no trial result.json" if any(jobs_dir.glob("*/result.json")) \
+            else "no Harbor result.json"
+        metrics["error"] = f"harbor: {found} (exit {returncode})"
+        return None, metrics
+    if len(trials) > 1:
+        metrics["error"] = f"harbor: {len(trials)} trials in one cell (expected 1)"
+        return None, metrics
+    metrics["result_json"] = str(trials[0])
+    trial = _load_json(trials[0])
+    if trial is None:
+        metrics["error"] = "harbor: trial result.json is not a JSON object"
+        return None, metrics
+    metrics.update(harbor_usage(trial.get("agent_result")))
+    reward = _harbor_reward(trial)
+    exception = trial.get("exception_info")
+    if exception:
+        info = exception if isinstance(exception, dict) else {}
+        kind = str(info.get("exception_type") or "unknown")
+        message = str(info.get("exception_message") or "").strip().splitlines()
+        metrics["harbor_exception"] = kind
+        metrics["error"] = f"harbor: {kind}" + (f": {message[0][:200]}" if message else "")
+        if reward is not None:
+            metrics["reward_after_exception"] = reward
+        return None, metrics
+    if reward is None:
+        metrics["error"] = "harbor: trial result.json has no verifier_result.rewards.reward"
+        return None, metrics
+    return reward, metrics
+
+
+def harbor_usage(agent_result: Any) -> dict[str, Any]:
+    """Token and cost metrics from a Harbor trial's ``agent_result``, under the
+    keys the other harnesses use. A null count is unknown and left out, not 0.
+
+    Harbor's ``n_input_tokens`` includes the cached prompt (``n_cache_tokens``),
+    as BenchFlow's does, unlike docker-claude's uncached ``prompt_tokens``.
+    """
+    if not isinstance(agent_result, dict):
+        return {}
+    prompt = _number(agent_result.get("n_input_tokens"))
+    completion = _number(agent_result.get("n_output_tokens"))
+    metrics: dict[str, Any] = {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "cache_read_tokens": _number(agent_result.get("n_cache_tokens")),
+        "total_tokens": prompt + completion if prompt is not None and completion is not None else None,
+    }
+    metrics = {k: int(v) for k, v in metrics.items() if v is not None}
+    cost = _number(agent_result.get("cost_usd"))
+    if cost is not None:
+        metrics["cost_usd"] = float(cost)
+    return metrics
+
+
+def _harbor_reward(trial: dict[str, Any]) -> float | None:
+    verifier = trial.get("verifier_result")
+    rewards = verifier.get("rewards") if isinstance(verifier, dict) else None
+    value = rewards.get("reward") if isinstance(rewards, dict) else None
+    number = _number(value)
+    return float(number) if number is not None else None
+
+
+def _number(value: Any) -> int | float | None:
+    # bool is an int subclass: True is not a token count or a reward.
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _load_json(path: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _render_template(template: str, context: dict[str, Any]) -> str:

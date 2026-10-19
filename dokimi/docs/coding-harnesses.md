@@ -402,26 +402,50 @@ The Harbor adapter command is:
 harbor run -p <task-path> -a <agent> -m <model> --jobs-dir <run-dir>
 ```
 
-Harbor writes job/trial results under the jobs directory. If a local Harbor
-version uses different flags, pass `--command-template` and keep the same output
-contract. When Harbor is not installed, prefer the `docker-*` harnesses — they
-build, solve, and verify against local Docker directly and record telemetry.
+Harbor writes `<run-dir>/<job>/result.json` (the job summary) and
+`<run-dir>/<job>/<trial>/result.json` per trial. If a local Harbor version uses
+different flags, pass `--command-template`; a template is graded as a
+`command:` harness (below), not from these files. When Harbor is not installed,
+prefer the `docker-*` harnesses — they build, solve, and verify against local
+Docker directly and record telemetry.
 
-This contract was written against Harbor 0.22.0; CI no longer installs or runs
-Harbor, so treat that as the version the notes below were observed on rather
-than a validated pin. Harbor does not propagate a non-zero process exit code
-for errored/cancelled trials, and this repo's CI runner has hit Harbor
-environment-start failures: a Docker Compose v2 gap, and a `network_mode`
-rejection. The latter is Harbor behaving correctly — a task declaring
-`allow_internet = false` becomes `network_mode='no-network'`, which the docker
-provider only accepts when the host kernel supports egress control, so on a
-runner without it Harbor refuses the task instead of running it with the
-internet the task forbade. A `harbor run` invocation exiting 0 is therefore
-**not** sufficient evidence the trial actually passed — parse its `result.json`
-(`stats.n_errored_trials`, `stats.evals.<id>.metrics[].mean`) before trusting
-a Harbor-backed harness result. The `docker-*` harnesses don't have this gap:
-`tasks run`'s own `task_runs.v1` artifact (`summary.per_harness.<h>.pass_rate`)
-is the reliable pass/fail signal for those.
+**A Harbor cell is graded from its trial's `result.json`, never from
+`harbor`'s exit code or output.** Harbor exits 0 for a trial that errored (an
+agent install that failed, an environment that did not start, an agent
+timeout), and its summary table on stdout has a `Reward` column, so neither is
+a verdict. The rules mirror intel/skills' `tools/check_harbor_job.py`:
+
+| Trial `result.json` | Cell |
+|---|---|
+| `verifier_result.rewards.reward` is a number, no `exception_info` | scored: that reward, a pass at 1.0 |
+| `exception_info` set | errored: `metrics.error` is `harbor: <exception_type>: <first line>`, `metrics.harbor_exception` the type; a reward the verifier still wrote is kept as `metrics.reward_after_exception`, not scored |
+| no `exception_info`, no numeric reward | errored |
+| no trial file (with or without the job's), more than one trial, or not a JSON object | errored |
+
+An errored cell is out of the pass-rate denominator and the paired test, as
+for `docker-*` and BenchFlow. `metrics.n_trials` counts the trial files and
+`metrics.result_json` names the one read. A `harbor` that `dokimi` kills at
+the task budget is a failed cell (reward 0, returncode 124), as above.
+
+Usage comes from the trial's `agent_result`: `n_input_tokens` →
+`prompt_tokens` (Harbor's count includes the cached prompt, as BenchFlow's
+does), `n_output_tokens` → `completion_tokens`, `n_cache_tokens` →
+`cache_read_tokens`, their sum → `total_tokens`, and `cost_usd`; these feed
+`summary.per_harness.<h>.cost`. A null count (the `oracle` agent, a trial that
+never ran its agent) is unknown and left out, not recorded as 0.
+
+These rules were checked against Harbor 0.24.0's files; CI does not install or
+run Harbor. This repo's CI runner has also hit Harbor environment-start
+failures: a Docker Compose v2 gap, and a `network_mode` rejection. The latter
+is Harbor behaving correctly — a task declaring `allow_internet = false`
+becomes `network_mode='no-network'`, which the docker provider only accepts
+when the host kernel supports egress control, so on a runner without it Harbor
+refuses the task instead of running it with the internet the task forbade.
+Both now land as errored cells.
+
+A `command:` harness (including a `--command-template` that wraps `harbor`)
+keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else a
+`reward: x` on its output, else exit code 0 is a pass.
 
 ## BenchFlow Cells
 
