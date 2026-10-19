@@ -46,7 +46,7 @@
     "dokimi/eval/plugin_delta.py::_validate_pair": {"complexity": 14},
     "dokimi/eval/ragas_eval.py::RagasEvaluator.evaluate": {"complexity": 17},
     "dokimi/eval/validity_scoring.py::_score_pairs": {"complexity": 13},
-    "dokimi/gate/novelty_gate.py::evaluate_novelty": {"complexity": 17},
+    "dokimi/gate/novelty_gate.py::evaluate_novelty": {"complexity": 26, "rationale": "grew on main in #72 before the ratchet landed; split it in its own PR"},
     "dokimi/harnesses/benchflow.py::BenchflowHarness.run": {"complexity": 19},
     "dokimi/harnesses/benchflow.py::skill_loads": {"complexity": 12},
     "dokimi/harnesses/command.py::CommandHarness.run": {"complexity": 13},
