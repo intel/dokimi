@@ -139,6 +139,7 @@ def _command(parser: argparse.ArgumentParser, path: str) -> dict[str, Any]:
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             node["subcommand_required"] = bool(action.required)
+            position += 1  # the subcommand takes a positional slot too
             for name, sub in sorted(action.choices.items()):
                 node["subcommands"][name] = _command(sub, f"{path} {name}")
         elif not isinstance(action, argparse._HelpAction):

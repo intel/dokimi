@@ -400,3 +400,17 @@ def test_a_validator_is_compared_by_code_not_by_its_docstring_or_comments(tmp_pa
 def test_empty_choices_are_not_unrestricted():
     # choices=[] rejects every value; None accepts any
     assert any("choices: None -> []" in line for line in cs.diff_surfaces(_one(), _one(choices=[])))
+
+
+def test_moving_a_positional_across_the_subcommand_is_a_change():
+    def parser(before: bool) -> argparse.ArgumentParser:
+        p = argparse.ArgumentParser(prog="dokimi")
+        if before:
+            p.add_argument("workspace")
+        p.add_subparsers(dest="cmd", required=True).add_parser("run")
+        if not before:
+            p.add_argument("workspace")
+        return p
+    # `dokimi WS run` becomes `dokimi run WS`
+    lines = cs.diff_surfaces(cs._command(parser(True), "dokimi"), cs._command(parser(False), "dokimi"))
+    assert any("position: 0 -> 1" in line for line in lines), lines
