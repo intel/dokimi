@@ -47,8 +47,8 @@ import re
 from decimal import Context, Decimal
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Sequence
 
-from dokimi.eval.question_text import question_text_of, require_question_text
-from dokimi.utils import question_id
+from dokimi.eval.question_text import require_question_text
+from dokimi.records import RecordLike, records
 
 if TYPE_CHECKING:
     from dokimi.eval.judge_context import JudgeContextStore
@@ -589,39 +589,25 @@ def degrade(
     return DEGRADATIONS[variant](answer, rng=random.Random(seed), other=other)
 
 
-def _answer_pool(answers: Iterable[object]) -> List[Dict[str, Any]]:
+def _answer_pool(answers: Iterable[RecordLike]) -> List[Dict[str, Any]]:
     """Flatten a run's answers into (question_id, question_text, arm, answer) rows.
 
-    Accepts both the arm-runner shape (``arms: {name: {answer: ...}}``) and the
-    legacy two-condition shape (``with_docs``/``without_docs``).
+    Any answers shape :mod:`dokimi.records` reads: arms
+    (``arms: {name: {answer: ...}}``) or binary (``with_docs``/``without_docs``).
+    A question with no text is kept here; :func:`build_pairs` refuses it when
+    the row could become a pair (the others are never judged).
     """
     pool: List[Dict[str, Any]] = []
-    for i, item in enumerate(answers):
-        if not isinstance(item, dict):
-            continue
-        qid = question_id(item)
-        if qid is None:
-            continue  # no id: never paired, so skipped (not refused)
-        # Checked by build_pairs for the rows that can become a pair; the others are never judged.
-        qtext = question_text_of(item)
-        arms = item.get("arms")
-        candidates: List[tuple[str, Any]] = []
-        if isinstance(arms, dict):
-            candidates = list(arms.items())
-        else:
-            for legacy in ("with_docs", "without_docs"):
-                if legacy in item:
-                    candidates.append((legacy, item[legacy]))
-        for arm, payload in candidates:
-            text = (payload or {}).get("answer") if isinstance(payload, dict) else payload
-            if isinstance(text, str) and text.strip():
-                pool.append({"question_id": qid, "question_text": qtext, "arm": arm, "answer": text,
-                             "_record": (item, i)})
+    for i, rec in enumerate(records(answers, source="answers", kind="answers")):
+        for arm, a in rec.answers.items():
+            if a.text and a.text.strip():
+                pool.append({"question_id": rec.question_id, "question_text": rec.question_text,
+                             "arm": arm, "answer": a.text, "_record": (rec.raw, i)})
     return pool
 
 
 def build_pairs(
-    answers: Iterable[Dict[str, Any]],
+    answers: Iterable[RecordLike],
     *,
     n_bases: int = 20,
     seed: int = 0,

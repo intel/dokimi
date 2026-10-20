@@ -3,6 +3,9 @@
 
 """Tests for the executable task-run Markdown report renderer."""
 
+import pytest
+
+from dokimi.harnesses.runner import summarize_task_results
 from dokimi.report.task_runs_report import _md_cell, render_task_runs_report
 
 
@@ -265,3 +268,237 @@ def test_pseudo_replication_is_disclosed_when_repeats_are_paired_as_cells():
     assert "anti-conservative" in md
     # The n=n_units case must stay silent rather than warn on every single run.
     assert "anti-conservative" not in render_task_runs_report(_with_mcnemar())
+
+
+def test_report_puts_the_discovery_arm_beside_no_skill_and_with_skill():
+    arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
+    rows = []
+    for harness, passed, invoked in zip(arms, (False, True, False), (None, 1, 0), strict=True):
+        metrics = {"operation_count": 0, "operations_by_type": {}}
+        if invoked is not None:
+            metrics.update(n_skill_invocations=invoked, skill_notice=harness == arms[1],
+                           skill_listing={"truncated": harness == arms[2]})
+        rows.append({"task": "t1", "harness": harness, "passed": passed, "reward": float(passed),
+                     "returncode": 0, "output_dir": None, "metrics": metrics,
+                     "operations": []})
+    data = {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+            "baseline_harness": arms[0], "harnesses": arms, "results": rows,
+            "tasks": [{"name": "t1", "path": "p", "metadata": {"difficulty": "easy"},
+                       "verifier": {}, "agent": {}, "environment": {}}],
+            "summary": summarize_task_results(rows, baseline_harness=arms[0])}
+    from dokimi.artifacts import validate_artifact
+    validate_artifact("task_runs", data)
+    md = render_task_runs_report(data)
+    assert all(f"| `{h}` | " in md.split("## Difficulty rollup")[0] for h in arms)
+    assert "## Skill discovery" in md
+    assert "| `docker-claude-skill-discover:s` | 100% | 0% | +100.00 pp | 100% | 0% |" in md
+    assert "1 discovery row(s) ran with a description longer" in md
+    # An artifact from before the two match flags gets the combined reading.
+    entry = data["summary"]["discovery_gaps"][arms[2]]
+    entry["gap"] = None
+    for key in ("attempted_cells_match", "errored_cells_match"):
+        del entry[key]
+    assert "— (arms ran or lost different cells)" in render_task_runs_report(data)
+    del data["summary"]["discovery_gaps"]
+    assert "## Skill discovery" not in render_task_runs_report(data)
+
+
+@pytest.mark.parametrize("notice, truncated, n_cut", [(False, True, 1), (True, True, 0),
+                                                       (False, False, 0)])
+def test_truncated_discovery_row_is_noted_without_its_pair(notice, truncated, n_cut):
+    """A discovery arm run against the baseline only still says its description was cut."""
+    arms = ["docker-claude", "docker-claude-skill-discover:s"]
+    listing = {"description_chars": 2000, "max_desc_chars": 1536, "budget_chars": 8000,
+               "truncated": truncated}
+    rows = [{"task": "t1", "harness": h, "passed": False, "reward": 0.0, "returncode": 0,
+             "output_dir": None, "operations": [],
+             "metrics": {"operation_count": 0, "operations_by_type": {}, **extra}}
+            for h, extra in zip(arms, ({}, {"n_skill_invocations": 0, "skill_notice": notice,
+                                            "skill_listing": listing}), strict=True)]
+    data = {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+            "baseline_harness": arms[0], "harnesses": arms, "results": rows,
+            "tasks": [{"name": "t1", "path": "p", "metadata": {"difficulty": "easy"},
+                       "verifier": {}, "agent": {}, "environment": {}}],
+            "summary": summarize_task_results(rows, baseline_harness=arms[0])}
+    md = render_task_runs_report(data)
+    assert "## Skill discovery" not in md
+    assert ("discovery row(s) ran with a description longer" in md) is bool(n_cut)
+
+
+def test_discovery_gap_withheld_when_arms_attempted_different_cells():
+    """Gap is None when discovery arm ran fewer tasks than the with-skill arm."""
+    arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
+    rows = []
+    # Discovery arm: runs 1 task (killed run or different --tasks selection)
+    # With-skill arm: runs 2 tasks
+    for harness in arms:
+        for task_idx in (0, 1):
+            if harness == arms[2] and task_idx == 1:
+                # Discovery arm only ran the first task (index 0)
+                continue
+            passed = (harness == arms[1])  # Only skill arm passes
+            metrics = {"operation_count": 0, "operations_by_type": {}}
+            if harness != arms[0]:
+                metrics.update(n_skill_invocations=(1 if harness == arms[1] else 0),
+                              skill_notice=harness == arms[1])
+            task_name = f"t{task_idx}"
+            rows.append({"task": task_name, "harness": harness, "passed": passed,
+                        "reward": float(passed), "returncode": 0, "output_dir": None,
+                        "metrics": metrics, "operations": []})
+
+    tasks = [{"name": f"t{i}", "path": "p", "metadata": {"difficulty": "easy"},
+             "verifier": {}, "agent": {}, "environment": {}} for i in range(2)]
+    data = {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+            "baseline_harness": arms[0], "harnesses": arms, "results": rows, "tasks": tasks,
+            "summary": summarize_task_results(rows, baseline_harness=arms[0])}
+
+    # Gap should be None because attempted cells differ, and nothing errored
+    entry = data["summary"]["discovery_gaps"][arms[2]]
+    assert entry["gap"] is None
+    assert entry["attempted_cells_match"] is False and entry["errored_cells_match"] is True
+    assert "— (arms ran different cells)" in render_task_runs_report(data)
+    assert "lost different cells" not in render_task_runs_report(data)
+
+
+def _gap_data(disc_tasks, skill_errored, disc_errored):
+    """Three arms over tasks t0 and t1; each arm runs the listed tasks and errors on the listed ones."""
+    arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
+    errored = {arms[1]: skill_errored, arms[2]: disc_errored}
+    rows = []
+    for harness in arms:
+        for task_idx in (0, 1):
+            if harness == arms[2] and task_idx not in disc_tasks:
+                continue
+            metrics = {"operation_count": 0, "operations_by_type": {}}
+            if harness != arms[0]:
+                metrics.update(n_skill_invocations=(1 if harness == arms[1] else 0),
+                               skill_notice=harness == arms[1])
+            if task_idx in errored.get(harness, ()):
+                metrics["error"] = "boom"
+            passed = harness == arms[1] and task_idx not in errored.get(harness, ())
+            rows.append({"task": f"t{task_idx}", "harness": harness, "passed": passed,
+                         "reward": float(passed), "returncode": 0, "output_dir": None,
+                         "metrics": metrics, "operations": []})
+    tasks = [{"name": f"t{i}", "path": "p", "metadata": {"difficulty": "easy"},
+              "verifier": {}, "agent": {}, "environment": {}} for i in range(2)]
+    return {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+            "baseline_harness": arms[0], "harnesses": arms, "results": rows, "tasks": tasks,
+            "summary": summarize_task_results(rows, baseline_harness=arms[0])}
+
+
+@pytest.mark.parametrize("disc_tasks, skill_errored, disc_errored, attempted_match, errored_match, label", [
+    # The discovery arm ran fewer cells, and lost none.
+    ((0,), (), (), False, True, "— (arms ran different cells)"),
+    # Both arms ran the same cells, and the discovery arm lost one.
+    ((0, 1), (), (1,), True, False, "— (arms lost different cells)"),
+    # The arms ran different cells and lost different ones.
+    ((0,), (1,), (), False, False, "— (arms ran and lost different cells)"),
+])
+def test_discovery_gap_labels_run_and_loss_differences_apart(
+        disc_tasks, skill_errored, disc_errored, attempted_match, errored_match, label):
+    data = _gap_data(disc_tasks, skill_errored, disc_errored)
+    entry = data["summary"]["discovery_gaps"]["docker-claude-skill-discover:s"]
+    assert entry["gap"] is None
+    assert entry["attempted_cells_match"] is attempted_match
+    assert entry["errored_cells_match"] is errored_match
+    assert label in render_task_runs_report(data)
+
+
+@pytest.mark.parametrize("disc_errored, skill_errored", [
+    # The discovery arm has no scored cell; the with-skill arm passes.
+    ((0, 1), ()),
+    # The with-skill arm has no scored cell; the discovery arm does not pass.
+    ((), (0, 1)),
+])
+def test_discovery_gap_no_scored_cells_when_only_one_arm_is_unscored(disc_errored, skill_errored):
+    data = _gap_data((0, 1), skill_errored, disc_errored)
+    entry = data["summary"]["discovery_gaps"]["docker-claude-skill-discover:s"]
+    assert entry["gap"] is None
+    assert (entry["with_skill_pass_rate"] is None) != (entry["discover_pass_rate"] is None)
+    assert "— (no scored cells)" in render_task_runs_report(data)
+
+
+def test_discovery_gap_both_arms_fully_errored():
+    """Gap is None when both arms have no pass_rate (all errored), and no crash."""
+    arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
+    rows = []
+    for harness in arms:
+        metrics = {"error": "rejected credentials" if harness != arms[0] else "no api key"}
+        if harness != arms[0]:
+            metrics["n_skill_invocations"] = 0
+            metrics["skill_notice"] = harness == arms[1]
+        rows.append({"task": "t1", "harness": harness, "passed": False, "reward": 0.0,
+                    "returncode": 1, "output_dir": None, "metrics": metrics, "operations": []})
+
+    data = {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+            "baseline_harness": arms[0], "harnesses": arms, "results": rows,
+            "tasks": [{"name": "t1", "path": "p", "metadata": {"difficulty": "easy"},
+                      "verifier": {}, "agent": {}, "environment": {}}],
+            "summary": summarize_task_results(rows, baseline_harness=arms[0])}
+
+    # Gap should be None because pass_rate is None for both arms
+    assert data["summary"]["discovery_gaps"][arms[2]]["gap"] is None
+    assert data["summary"]["discovery_gaps"][arms[2]]["discover_pass_rate"] is None
+    assert data["summary"]["discovery_gaps"][arms[2]]["with_skill_pass_rate"] is None
+
+
+def test_fmt_rate_rejects_bools():
+    """bool is a subclass of int, so _fmt_rate(True) must not render as 100%."""
+    from dokimi.report.task_runs_report import _fmt_rate
+
+    assert _fmt_rate(0.5) == "50%"
+    assert _fmt_rate(1.0) == "100%"
+    assert _fmt_rate(0.0) == "0%"
+    assert _fmt_rate(True) == "—"
+    assert _fmt_rate(False) == "—"
+    assert _fmt_rate(None) == "—"
+
+
+def test_discovery_gap_no_scored_cells_differs_from_different_attempted():
+    """When gap is None, distinguish between no scored cells vs arms attempted different cells."""
+    arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
+    rows = []
+    for harness in arms:
+        for task_idx in (0, 1):
+            if harness == arms[2] and task_idx == 1:
+                continue
+            passed = (harness == arms[1])
+            metrics = {"operation_count": 0, "operations_by_type": {}}
+            if harness != arms[0]:
+                metrics.update(n_skill_invocations=(1 if harness == arms[1] else 0),
+                              skill_notice=harness == arms[1])
+            rows.append({"task": f"t{task_idx}", "harness": harness, "passed": passed,
+                        "reward": float(passed), "returncode": 0, "output_dir": None,
+                        "metrics": metrics, "operations": []})
+
+    data = {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+            "baseline_harness": arms[0], "harnesses": arms, "results": rows,
+            "tasks": [{"name": f"t{i}", "path": "p", "metadata": {"difficulty": "easy"},
+                      "verifier": {}, "agent": {}, "environment": {}} for i in range(2)],
+            "summary": summarize_task_results(rows, baseline_harness=arms[0])}
+
+    # The discovery arm ran one task fewer, so the label says it ran different cells
+    md = render_task_runs_report(data)
+    assert "— (arms ran different cells)" in md
+    assert "— (no scored cells)" not in md
+
+    # When both arms fully errored, should say "no scored cells"
+    rows_all_err = []
+    for harness in arms:
+        metrics = {"error": "rejected credentials" if harness != arms[0] else "no api key"}
+        if harness != arms[0]:
+            metrics["n_skill_invocations"] = 0
+            metrics["skill_notice"] = harness == arms[1]
+        rows_all_err.append({"task": "t1", "harness": harness, "passed": False, "reward": 0.0,
+                            "returncode": 1, "output_dir": None, "metrics": metrics,
+                            "operations": []})
+
+    data_err = {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+                "baseline_harness": arms[0], "harnesses": arms, "results": rows_all_err,
+                "tasks": [{"name": "t1", "path": "p", "metadata": {"difficulty": "easy"},
+                          "verifier": {}, "agent": {}, "environment": {}}],
+                "summary": summarize_task_results(rows_all_err, baseline_harness=arms[0])}
+
+    md_err = render_task_runs_report(data_err)
+    assert "— (no scored cells)" in md_err
+    assert "— (arms ran or lost different cells)" not in md_err

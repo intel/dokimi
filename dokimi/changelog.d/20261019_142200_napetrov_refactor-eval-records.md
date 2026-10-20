@@ -1,0 +1,73 @@
+### Changed
+
+- **A malformed answers, eval or arms record is an error that names it** —
+  every command and report that reads these files now reads them through one
+  module (`dokimi.records`), and a record it cannot read stops the command
+  with a `RecordError` naming the file and the record (`answers.json
+  answers[3]: missing question_id`); `dashboard` leaves such a file out with a
+  warning. Before, a record with no `question_id` was skipped
+  (`report model-compare`, `eval judge-validity`, `eval checklist`), judged
+  under a made-up id (`eval panel-score`) or crashed `eval score` part-way
+  through a paid run; a condition or arm payload that is neither an object nor
+  `null` (which the schemas do not allow), or an `expected_skill` that is not a
+  name, a list of names or `null`, was skipped.
+  A `question_id` that is present but neither a string nor an integer is
+  reported as such (`question_id must be a string or an integer, got 1.5`);
+  where a record carries both `question_id` and `id`, `question_id` is read.
+  `eval score` now checks every record, including that it has a
+  `question_text`, before the first judge call, and exits 2 naming the record;
+  `arms run` refuses such an id in the questions file before the first call.
+  `report eval` leaves a malformed answers record out of its Q&A sidecar with a
+  warning, keeping the others. Files written by dokimi carry these fields; no
+  score changes for them. Arms files written with the runner's `unknown_q`
+  fallback id still read in `eval cross-judge`'s stored scores.
+  `eval score`, `eval panel-score`, `eval ragas`, `eval grounding`,
+  `eval judge-validity`, `eval checklist`, `eval pairwise`, `eval judge-wording`,
+  `eval cross-judge` and `baseline compare` exit 2 on a `RecordError`, naming
+  the record on stderr, so exit 1 stays the verdict of the gates. `report
+  generate`, `report eval`, `baseline save`, `report model-compare` and
+  `questions panel-review` exit 1 on one, as on their other input errors.
+- **`eval cross-judge --judges` refuses a binary answers file** — like
+  `eval checklist` and `eval pairwise`, which already exited 2 on a file with
+  no `arms` (`answers generate` output), it now exits 2 naming the file
+  before any judge call, where it printed an empty table. No command sends a
+  binary file's `with_docs`/`without_docs` answers to a judge as two arms, and
+  `eval cross-judge` still takes its stored scores from `evaluations` only,
+  not from a legacy inline `arms[name].evaluation`.
+- **A non-numeric aggregate is unscored** — an aggregate written as a string
+  (`"80"`) or a bool counts as no score in every reader; `dashboard` used to
+  parse `"80"`. No dokimi writer writes one.
+- **`baseline compare` matches question ids as strings** — an int `1` in one
+  file and a string `"1"` in the other are now the same question.
+- **`diagnose(context_answer, delta)`** takes the context `Answer` and the
+  delta instead of two dicts; `diagnoser.retrieval_hit` moved to
+  `dokimi.records` (`Record.retrieval_hit`).
+
+### Fixed
+
+- **An unscored arm stays out of `baseline save` and `report generate`** — a
+  question whose context or baseline aggregate is `null` or non-numeric is left
+  out of the baseline summary (as in the trust gate) and of the report's
+  top/bottom delta tables, which raised `TypeError` on a bool aggregate.
+- **A binary record with `scores: null` keeps its scores** — it was read as an
+  arms record with no arms.
+- **An explicit `null` score wins over a legacy inline score** — an arm whose
+  entry under `scores` is `null` no longer takes the legacy
+  `evaluation.aggregate_score` written inline for that arm. A failed arm stays
+  in the arms list: the arm judge writes it as an unscored row, and
+  `non_baseline_arms` still counts it as a treatment that produced nothing.
+- **`baseline save` refuses a malformed eval file before writing** — it no
+  longer leaves a baseline file on disk with no manifest entry.
+- **Reports read the question of a panel eval file** — `eval panel-score` writes
+  each question as `question`; `report generate` and `report eval` read only
+  `question_text`, so their tables (and the `report eval` Q&A sidecar) showed
+  blank questions for a panel run.
+- **`report generate` reads a panel run with a fully failed question** — when
+  every panel vote of a question failed, the panel writes `aggregate: null` and
+  the report raised `TypeError`; the question is now left out of that arm's
+  figures, as the other reports already did.
+- **`questions panel-review` reads an answers file** — it read `question`/`text`,
+  but answers records carry `question_text`, so it reviewed no questions.
+- **`report model-compare` reads a legacy arms file with a failed arm** — an arm
+  payload of `null` raised `AttributeError`; that question is now skipped, as
+  one with a missing score already was.

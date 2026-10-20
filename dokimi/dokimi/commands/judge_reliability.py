@@ -11,15 +11,42 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from dokimi.defaults import DEFAULT_CONCURRENCY, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.defaults import (
+    DEFAULT_CONCURRENCY,
+    DEFAULT_JUDGE_PROVIDER,
+    JUDGE_MODEL_FOR_PROVIDER,
+    JUDGE_MODEL_HELP,
+)
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 
 
 def _load_answers(path: str):
+    """The parsed file and its answers records (dokimi/records.py), or a clean exit."""
+    from dokimi.records import RecordError, read
+
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    answers = data.get("answers", data) if isinstance(data, dict) else data
+    try:
+        answers = list(read(data, source=path, section="answers").records)
+    except RecordError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)  # 1 is the verdict code of judge-validity and the --strict gates
     return data, answers
+
+
+def _require_arms(path: str, records, command: str) -> None:
+    """Exit 2, before any judge call, when no answers record holds ``arms``.
+
+    The arm judges read an arms run; a binary answers file's ``with_docs`` and
+    ``without_docs`` are not arms to them, so such a file would judge nothing.
+    """
+    from dokimi.records import has_arms
+
+    if not has_arms(records):
+        print(f"Error: {path} has no arms answers (no record has an `arms` field); "
+              f"eval {command} reads an arms run (arms run --out-json), not a binary "
+              "with_docs/without_docs answers file", file=sys.stderr)
+        sys.exit(2)
 
 
 def _progress(label: str = ""):
@@ -84,6 +111,7 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
+    _require_arms(args.answers, records, "pairwise")
     pairwise_jobs(records, baseline_arm=baseline, arms=arms)  # refuse a blank question before the probe call
     judge, label = pairwise_judge(args)
     print(f"Pairwise comparison: {label}, {len(records)} questions, baseline `{baseline}`")
@@ -118,6 +146,7 @@ def cmd_eval_checklist(args: argparse.Namespace) -> None:
     points = load_points(args.questions)
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
+    _require_arms(args.answers, records, "checklist")
     checklist_jobs(records, points, arms=arms)  # refuse a blank question before the probe call
     _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
     llm = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature).llm
@@ -231,7 +260,15 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         JudgeContextStore.from_artifact(data) if args.judges and isinstance(data, dict) else None
     )
 
-    if not args.no_stored and isinstance(data, dict) and (m := stored_measure(data)):
+    from dokimi.records import RecordError
+
+    try:
+        stored = None if args.no_stored or not isinstance(data, dict) else stored_measure(data)
+        pair_unrepro = unreproducible_arms(data) if stored and (args.pairwise or args.checklist) else []
+    except RecordError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)  # bad input, not a failed gate
+    if (m := stored):
         # Re-scored judges get the file's judge_materials; pairwise and checklist
         # judges see the answers alone. Each path sees different input, so we refuse
         # the comparison to prevent mixing a change of judge with a change of input.
@@ -243,7 +280,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
 
         # Pairwise and checklist judges see only answers, so stored material makes them incompatible
         if args.pairwise or args.checklist:
-            unrepro.update(unreproducible_arms(data))
+            unrepro.update(pair_unrepro)
         elif materials is not None:
             # The loop below is the whole --judges gate: it compares each stored score's
             # digest with what the reader serves, for the questions score_measure scores.
@@ -296,6 +333,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
 
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     if specs:
+        _require_arms(args.answers, records, "cross-judge --judges")
         scored_answers(records)  # refuse a blank question before the probe call
     _check_judge_temperature([(m, p) for p, _, m in (s.partition("/") for s in specs) if m and p in JUDGE_PROVIDERS],
                              args.judge_temperature)
@@ -357,7 +395,7 @@ def register(eval_sub, positive_int) -> None:
     ck.add_argument("--baseline-arm", default=None, dest="baseline_arm",
                     help="Arm the others are compared to (default: the run's baseline_arm)")
     ck.add_argument("--arms", default=None, help="Comma-separated arms to check (default: all)")
-    ck.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    ck.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     ck.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     ck.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
@@ -381,7 +419,7 @@ def register(eval_sub, positive_int) -> None:
     jw.add_argument("--seed", type=int, default=0)
     jw.add_argument("--min-accuracy", type=float, default=DEFAULT_MIN_ACCURACY, dest="min_accuracy")
     jw.add_argument("--strict", action="store_true", help="Exit 1 when any variant is FRAGILE")
-    jw.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    jw.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     jw.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     jw.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
@@ -431,7 +469,7 @@ def register(eval_sub, positive_int) -> None:
     pw.add_argument("--product", default=None, help="Library name (default: read from answers file)")
     pw.add_argument("--baseline-arm", default=None, dest="baseline_arm")
     pw.add_argument("--arms", default=None, help="Comma-separated arms to compare (default: all)")
-    pw.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    pw.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     pw.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     pw.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")

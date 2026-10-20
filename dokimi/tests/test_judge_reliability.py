@@ -1014,8 +1014,13 @@ def test_cross_judge_judges_refuses_one_damaged_question_among_eight(
         data["evaluations"][5]["question_id"] = None
     code, seen = _cross_judge(tmp_path, monkeypatch, data)
     err = capsys.readouterr().err
+    if damage == "null_qid":
+        # A record with no id is malformed (dokimi.records): refused, naming it.
+        assert code == 2 and not seen  # a RecordError: bad input
+        assert "evaluations[5]: missing question_id" in err
+        return
     assert code == 2 and not seen
-    assert "skill" in err and ("None" in err if damage == "null_qid" else "'Q5'" in err)
+    assert "skill" in err and "'Q5'" in err
     assert "'Q4'" not in err and "'Q6'" not in err
 
 
@@ -1083,14 +1088,14 @@ def test_cross_judge_judges_accepts_a_snippet_fallback_score(tmp_path, monkeypat
     assert seen.count(BODY) == 8
 
 
-def test_cross_judge_judges_exits_2_for_an_unhashable_question_id(tmp_path, monkeypatch, capsys):
-    """origin/main exits 2 here; the gate loop must not raise TypeError."""
+def test_cross_judge_judges_refuses_an_unhashable_question_id(tmp_path, monkeypatch, capsys):
+    """A malformed id is refused by the records reader, naming it, before any judge call."""
     data = _material_run()
     data["evaluations"][0] = {"question_id": ["a"],
                               "scores": {"skill": {"error": "x", "judge_context_source": "stored"}}}
     code, seen = _cross_judge(tmp_path, monkeypatch, data)
-    assert code == 2 and not seen
-    assert "['a']" in capsys.readouterr().err
+    assert code == 2 and not seen  # a RecordError: bad input
+    assert "question_id must be a string or an integer, got ['a']" in capsys.readouterr().err
 
 
 def test_cross_judge_judges_on_an_answers_only_file_hands_the_judge_the_material(tmp_path, monkeypatch):
@@ -1659,3 +1664,12 @@ def test_a_stored_measure_mixing_stored_and_snippet_scores_is_mixed_and_no_pass_
     report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[m])
     report.apply_validity([{"judge": "amazon-bedrock/haiku", "passed": False, "context": "stored"}])
     assert m.gate == "FAIL"
+
+
+def test_a_pass_in_one_context_never_names_the_context_of_a_grounded_measure():
+    # A PASS validates only aggregate/pairwise measures: a grounded measure in another
+    # context must not turn the PASS into an "its measures are ..." note.
+    grounded = cj.Measure(name="p/j", kind="grounded", context="none")
+    report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[grounded])
+    assert report.apply_validity([{"judge": "p/j", "context": "stored", "passed": True}]) == ["p/j"]
+    assert grounded.gate is None

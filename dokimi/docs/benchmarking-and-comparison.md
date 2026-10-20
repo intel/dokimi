@@ -102,7 +102,12 @@ longer follows `--provider`: with no judge flags it runs on `anthropic`, so a
 Bedrock-only run passes `--judge-provider amazon-bedrock` (and `atoms`/`shorten`
 `--provider amazon-bedrock`). `--judge-provider` alone takes the default judge that
 runs there; when none does (measuring `claude-sonnet-5-5` on Bedrock) the run exits
-and asks for `--judge-model`.
+and asks for `--judge-model`. The other commands with a judge (`benchmark`, `eval`,
+`evaluate`, `arms` and `subjects`) do the same with `--judge-provider` alone:
+`claude-sonnet-5-5` on `anthropic` and `amazon-bedrock`, `gpt-6.1-sol` on `openai`
+(the default answer model, so the judge-independence warning fires where it is
+checked), and on any other provider they exit before the first call and ask for
+`--judge-model`.
 
 **Defaults changed on 2026-10-13: results are not comparable with older baselines;
 re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and
@@ -710,7 +715,8 @@ instead. A baseline saved before a default-model change is such a baseline. A pa
 artifact (`eval panel-score`) is compared by its set of judge models. A role either
 side does not record (an older artifact, or answers with no model) is named on
 stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
-vouch for that role.
+vouch for that role. A malformed record in either file (no `question_id`) exits 2,
+naming the record on stderr, so it never reads as a failed `--strict` check.
 
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.

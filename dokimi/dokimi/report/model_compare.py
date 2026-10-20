@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from dokimi.utils import question_id
+from dokimi.records import Record, RecordError, arm_answers, arm_names, arm_scores, records
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import stats as arm_stats
 
@@ -64,13 +64,20 @@ def load_run(path: str) -> dict[str, Any]:
     """Load a judged arms JSON file.  Raises SystemExit with a clear message on failure."""
     try:
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
     except FileNotFoundError as exc:
         raise SystemExit(f"Error: File not found: {path}") from exc
     except PermissionError as exc:
         raise SystemExit(f"Error: Permission denied reading {path}") from exc
     except json.JSONDecodeError as exc:
         raise SystemExit(f"Error: Invalid JSON in {path}: {exc}") from exc
+    if isinstance(data, dict):
+        for section in ("answers", "evaluations"):
+            try:
+                records(data.get(section) or [], source=f"{path} {section}", kind=section)
+            except RecordError as exc:
+                raise SystemExit(f"Error: {exc}") from exc
+    return data
 
 
 def normalize_difficulty(difficulty: Any) -> str:
@@ -95,6 +102,14 @@ def normalize_difficulty(difficulty: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _section(run_data: dict, section: str) -> list[Record]:
+    """The ``answers`` or ``evaluations`` records of *run_data*, or a clean exit."""
+    try:
+        return records(run_data.get(section) or [], source=section, kind=section)
+    except RecordError as exc:
+        raise SystemExit(f"Error: {exc}") from exc
+
+
 def non_baseline_arms(run_data: dict) -> set[str]:
     """Arm names in *run_data* other than its baseline, for both artifact formats.
 
@@ -108,15 +123,10 @@ def non_baseline_arms(run_data: dict) -> set[str]:
     arms = run_data.get("arms")
     if isinstance(arms, list) and arms:
         return {a for a in arms if isinstance(a, str) and a != baseline_arm}
-    found: set[str] = set()
-    for records, key in (
-        (run_data.get("evaluations"), "scores"),
-        (run_data.get("answers"), "arms"),
-    ):
-        for record in records or []:
-            if isinstance(record, dict) and isinstance(record.get(key), dict):
-                found |= {a for a in record[key] if a != baseline_arm}
-    return found
+    return {
+        a for section in ("evaluations", "answers") for r in _section(run_data, section)
+        for a in arm_names(r) if a != baseline_arm
+    }
 
 
 def scored_arms(run_data: dict) -> set[str]:
@@ -130,19 +140,10 @@ def scored_arms(run_data: dict) -> set[str]:
     instead made a run like that look ambiguous and switched the check off for the group.
     """
     baseline_arm = run_data.get("baseline_arm")
-    found: set[str] = set()
-    for records, key in (
-        (run_data.get("evaluations"), "scores"),
-        (run_data.get("answers"), "arms"),
-    ):
-        for record in records or []:
-            if not isinstance(record, dict) or not isinstance(record.get(key), dict):
-                continue
-            found |= {
-                arm for arm, value in record[key].items()
-                if arm != baseline_arm and isinstance(value, dict)
-            }
-    return found
+    return {
+        arm for section in ("evaluations", "answers") for r in _section(run_data, section)
+        for arm in (*arm_answers(r), *arm_scores(r)) if arm != baseline_arm
+    }
 
 
 def prompt_digests(run_data: dict, arm: str) -> set[str]:
@@ -158,11 +159,11 @@ def prompt_digests(run_data: dict, arm: str) -> set[str]:
     nothing to compare and reports the arm as consistent.
     """
     digests: set[str] = set()
-    for answer in run_data.get("answers") or []:
-        record = (answer.get("arms") or {}).get(arm)
-        if not isinstance(record, dict):
+    for r in _section(run_data, "answers"):
+        answer = r.answer(arm)
+        if answer is None:
             continue
-        metadata = record.get("metadata") or {}
+        metadata = answer.raw.get("metadata") or {}
         candidates = [metadata]
         candidates += [t for t in (metadata.get("treatments") or []) if isinstance(t, dict)]
         for candidate in candidates:
@@ -475,36 +476,21 @@ def extract_scores(
         if not isinstance(baseline_arm, str) or not baseline_arm:
             return []
 
-        for evaluation in run_data["evaluations"]:
-            qid = question_id(evaluation)
-            if qid is None:
-                continue
-            eval_scores = evaluation.get("scores", {})
-
-            if not isinstance(eval_scores, dict) or not eval_scores:
-                continue
-            if baseline_arm not in eval_scores:
+        for evaluation in _section(run_data, "evaluations"):
+            qid = evaluation.question_id
+            if not evaluation.conditions or baseline_arm not in evaluation.conditions:
                 continue
 
-            baseline_data = eval_scores.get(baseline_arm, {})
-            # Handle both dict (normal) and None (model failed)
-            if isinstance(baseline_data, dict):
-                baseline_score = baseline_data.get("aggregate")
-            elif baseline_data is None:
-                baseline_score = None  # Model failed to answer
-            else:
-                continue  # Unexpected format
+            # None when the baseline's payload is null (the model failed to answer)
+            baseline_score = evaluation.score(baseline_arm)
 
-            treatment_arms = [
-                arm for arm in eval_scores
-                if arm != baseline_arm and isinstance(eval_scores[arm], dict)
-            ]
+            treatment_arms = [arm for arm in evaluation.scores if arm != baseline_arm]
 
             if force_treatment_arm is not None:
-                if force_treatment_arm not in eval_scores:
+                if force_treatment_arm not in evaluation.conditions:
                     raise SystemExit(
                         f"Error: --treatment-arm '{force_treatment_arm}' not found in "
-                        f"question '{qid}'. Available arms: {list(eval_scores.keys())}"
+                        f"question '{qid}'. Available arms: {list(evaluation.conditions)}"
                     )
                 target_arm: str | None = force_treatment_arm
             else:
@@ -515,8 +501,8 @@ def extract_scores(
                     )
                 target_arm = treatment_arms[0] if treatment_arms else None
 
-            if target_arm is not None and isinstance(eval_scores.get(target_arm), dict):
-                treatment_score = eval_scores[target_arm].get("aggregate")
+            if target_arm is not None and target_arm in evaluation.scores:
+                treatment_score = evaluation.score(target_arm)
                 treatment_arm = target_arm
             else:
                 treatment_score = None
@@ -533,19 +519,8 @@ def extract_scores(
                 if treatment_score is not None and baseline_score is not None
                 else None
             )
-            scores.append(
-                {
-                    "question_id": qid,
-                    "question_text": evaluation.get("question_text", ""),
-                    "category": evaluation.get("category", ""),
-                    "difficulty": normalize_difficulty(evaluation.get("difficulty", "unknown")),
-                    "persona": evaluation.get("persona", ""),
-                    "without_docs": baseline_score,
-                    "with_docs": treatment_score,
-                    "delta": paired_delta,
-                    "treatment_arm": treatment_arm,
-                }
-            )
+            scores.append(_score_row(evaluation, baseline_score, treatment_score, paired_delta,
+                                     treatment_arm))
 
     # Legacy format: scores live inside per-answer "arms"
     else:
@@ -553,22 +528,19 @@ def extract_scores(
         if not isinstance(baseline_arm, str) or not baseline_arm:
             return []
 
-        for answer in run_data.get("answers", []):
-            qid = question_id(answer)
-            if qid is None:
-                continue
-            arms = answer.get("arms", {})
-            if not isinstance(arms, dict) or baseline_arm not in arms or len(arms) < 2:
+        for answer in _section(run_data, "answers"):
+            qid = answer.question_id
+            arms = answer.conditions
+            if baseline_arm not in arms or len(arms) < 2:
                 continue
 
-            baseline_eval = arms.get(baseline_arm, {}).get("evaluation", {})
             treatment_arms = [a for a in arms if a != baseline_arm]
 
             if force_treatment_arm is not None:
                 if force_treatment_arm not in arms:
                     raise SystemExit(
                         f"Error: --treatment-arm '{force_treatment_arm}' not found in "
-                        f"question '{qid}'. Available arms: {list(arms.keys())}"
+                        f"question '{qid}'. Available arms: {list(arms)}"
                     )
                 treatment_arm = force_treatment_arm
             else:
@@ -579,29 +551,36 @@ def extract_scores(
                     )
                 treatment_arm = treatment_arms[0] if treatment_arms else None
 
-            treatment_eval = (
-                arms.get(treatment_arm, {}).get("evaluation", {}) if treatment_arm else {}
-            )
-
-            baseline_score = baseline_eval.get("aggregate_score")
-            treatment_score = treatment_eval.get("aggregate_score")
+            # The inline ``evaluation.aggregate_score`` of each arm (records.py).
+            baseline_score = answer.score(baseline_arm)
+            treatment_score = answer.score(treatment_arm) if treatment_arm else None
 
             if baseline_score is not None and treatment_score is not None:
-                scores.append(
-                    {
-                        "question_id": qid,
-                        "question_text": answer.get("question_text", ""),
-                        "category": answer.get("category", ""),
-                        "difficulty": normalize_difficulty(answer.get("difficulty", "unknown")),
-                        "persona": answer.get("persona", ""),
-                        "without_docs": baseline_score,
-                        "with_docs": treatment_score,
-                        "delta": treatment_score - baseline_score,
-                        "treatment_arm": treatment_arm,
-                    }
-                )
+                scores.append(_score_row(answer, baseline_score, treatment_score,
+                                         treatment_score - baseline_score, treatment_arm))
 
     return scores
+
+
+def _score_row(
+    rec: Record,
+    baseline_score: float | None,
+    treatment_score: float | None,
+    delta: float | None,
+    treatment_arm: str | None,
+) -> dict:
+    """One question's row of :func:`extract_scores`, under the binary score names."""
+    return {
+        "question_id": rec.question_id,
+        "question_text": rec.raw.get("question_text", ""),
+        "category": rec.raw.get("category", ""),
+        "difficulty": normalize_difficulty(rec.raw.get("difficulty", "unknown")),
+        "persona": rec.raw.get("persona", ""),
+        "without_docs": baseline_score,
+        "with_docs": treatment_score,
+        "delta": delta,
+        "treatment_arm": treatment_arm,
+    }
 
 
 # ---------------------------------------------------------------------------

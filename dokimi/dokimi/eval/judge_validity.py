@@ -58,6 +58,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from dokimi.records import RecordLike
 from dokimi.eval.degrade import DEGRADATIONS, NEUTRAL_VARIANTS, build_pairs
 from dokimi.eval.validity_scoring import (  # noqa: F401  (re-exported)
     NEUTRAL_TOLERANCE,
@@ -488,20 +489,30 @@ def require_context_scorer(scorer: Callable[..., Any]) -> None:
 
 def refuse_unpaired_arms(
     pairs: Sequence[Dict[str, Any]], by_arm: Dict[str, Dict[str, int]], flag: str,
+    variants: Optional[Sequence[str]] = None,
 ) -> None:
     """Refuse before scoring if an arm with kept material has no pair left: the
     sample can leave it out, or every one of its variants can be a no-op."""
     paired_arms = {p.get("arm", "") for p in pairs}
     starved = sorted(a for a, c in by_arm.items() if c.get("kept", 0) > 0 and a not in paired_arms)
-    if starved:
+    if not starved:
+        return
+    # A larger sample only helps an arm whose kept bases were not all drawn yet.
+    unsampled = [a for a in starved if by_arm[a].get("sampled", 0) < by_arm[a]["kept"]]
+    if unsampled:
         raise NoUsablePairs(
-            f"Arm(s) {starved} have verified judge material but no base was scored, "
+            f"Arm(s) {unsampled} have verified judge material but no base was scored, "
             f"so the gate would not cover them: raise {flag}, or remove those arms from the answers file"
         )
+    raise NoUsablePairs(
+        f"Arm(s) {starved} have every kept base sampled, and every requested variant "
+        f"({', '.join(variants) if variants else 'all'}) left its text unchanged: a higher {flag} "
+        "cannot help; use other degradations, or remove those arms from the answers file"
+    )
 
 
 def run_validity(
-    answers: Sequence[Dict[str, Any]],
+    answers: Sequence[RecordLike],
     scorer: Scorer,
     *,
     judge: str = "unknown",
@@ -529,7 +540,7 @@ def run_validity(
                    store=store, by_arm=by_arm)
     pairs = built.pairs
     if store is not None:
-        refuse_unpaired_arms(pairs, by_arm, "--bases")
+        refuse_unpaired_arms(pairs, by_arm, "--bases", variants)
     report = evaluate_pairs(
         scorer, pairs, judge=judge, min_accuracy=min_accuracy, seed=seed, progress=progress,
         concurrency=concurrency, pair_scorer=pair_scorer,

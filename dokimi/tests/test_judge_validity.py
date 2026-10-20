@@ -2033,3 +2033,22 @@ def test_sequential_refuses_an_arm_with_material_left_out_of_the_pool():
     with pytest.raises(NoUsablePairs, match=r"\['skill'\].*raise --max-bases"):
         run_sequential(data["answers"], scorer, max_bases=20, seed=1, variants=["truncate_20"], store=store)
     assert calls == []
+
+
+def test_refusal_does_not_say_raise_the_sample_when_every_kept_base_was_sampled():
+    from dokimi.eval.judge_validity import NoUsablePairs, refuse_unpaired_arms
+
+    by_arm = {"skill": {"kept": 2, "dropped": 0, "sampled": 2}}
+    with pytest.raises(NoUsablePairs) as exc:
+        refuse_unpaired_arms([], by_arm, "--bases")
+    message = str(exc.value)
+    assert "cannot help" in message
+    assert "raise --bases" not in message
+
+
+def test_refusal_still_says_raise_the_sample_when_a_kept_base_was_not_drawn():
+    from dokimi.eval.judge_validity import NoUsablePairs, refuse_unpaired_arms
+
+    by_arm = {"skill": {"kept": 3, "dropped": 0, "sampled": 1}}
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*raise --bases"):
+        refuse_unpaired_arms([], by_arm, "--bases")
