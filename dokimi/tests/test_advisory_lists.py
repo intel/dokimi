@@ -41,6 +41,12 @@ def test_ci_and_security_name_the_osv_config():
     assert "osv-scanner.toml" in SECURITY.read_text(encoding="utf-8")
 
 
+def test_security_documents_every_ignored_id():
+    security = SECURITY.read_text(encoding="utf-8")
+    undocumented = sorted(i for i in _osv_ids() if i not in security)
+    assert not undocumented, f"SECURITY.md does not explain these ignored advisories: {undocumented}"
+
+
 def test_hypothesis_example_database_is_git_ignored():
     git = shutil.which("git")
     if git is None or not (REPO / ".git").exists():
