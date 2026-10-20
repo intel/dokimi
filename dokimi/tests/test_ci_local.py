@@ -387,15 +387,23 @@ def test_gitleaks_scan_reports_each_line_once_under_its_own_commit(tmp_path: Pat
     commit("c.txt", "RESOLVED\n")
     (tmp_path / "gitleaks").mkdir()
     stub = tmp_path / "gitleaks" / "gitleaks"
+    # Exits 0 even when git log fails, as gitleaks does.
     stub.write_bytes(b'#!/bin/sh\nprintf "%s\\n" "$@" > "$OUT.argv"\n'
                      b'for a; do case $a in --log-opts=*) opts=${a#--log-opts=};; esac; done\n'
-                     b'git log -p -U0 $opts > "$OUT"\n')
+                     b'git log -p -U0 $opts > "$OUT" 2>/dev/null\nexit 0\n')
     stub.chmod(0o755)
+
+    def run_step(event: str, base: str = "main") -> int:
+        """The step's exit code, with its own env: mapping expanded as GitHub would."""
+        ctx = cl.Context(base, PYV, tmp_path)
+        ctx.values["github.event_name"] = event
+        step_env = {k: ctx.expand(str(v)) for k, v in step["env"].items()}
+        return subprocess.run(["bash", "-c", str(step["run"])], env={**env, **step_env}, cwd=repo,
+                              check=False).returncode
 
     def scan(event: str) -> list[tuple[str, str]]:
         """(commit, added line) pairs gitleaks would scan."""
-        subprocess.run(["bash", "-c", str(step["run"])], env={**env, "EVENT": event, "BASE_REF": "main"},
-                       cwd=repo, check=True)
+        assert run_step(event) == 0
         assert "--redact" in (tmp_path / "out.argv").read_text(encoding="utf-8").splitlines()
         pairs, sha = [], ""
         for line in (tmp_path / "out").read_text(encoding="utf-8").splitlines():
@@ -411,3 +419,9 @@ def test_gitleaks_scan_reports_each_line_once_under_its_own_commit(tmp_path: Pat
     push = scan("push")
     assert "RESOLVED" in {line for _, line in push}, push
     assert [sha for sha, line in push if line == "MAIN_ONLY"] == [main_sha], push
+    # A base that is not fetched fails the step instead of scanning nothing.
+    (tmp_path / "out").unlink()
+    assert run_step("pull_request", base="nomain") != 0
+    assert not (tmp_path / "out").exists()
+    checkout = next(s for s in wf["jobs"]["gitleaks"]["steps"] if "checkout" in str(s.get("uses")))
+    assert checkout["with"]["fetch-depth"] == 0  # the PR range needs the base branch's history

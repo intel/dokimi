@@ -70,5 +70,11 @@ jobs:
           # --full-history --all to cover every ref, not only HEAD's history. A merge shows
           # only what it adds over the automatic merge (a conflict resolution), so a line
           # from a parent is reported once, under its own commit, as .gitleaksignore expects.
-          if [ "$EVENT" = pull_request ]; then range=(--log-opts="--diff-merges=remerge origin/$BASE_REF..HEAD"); else range=(--log-opts="--diff-merges=remerge --full-history --all"); fi
+          # gitleaks scans 0 commits and passes when the range does not resolve.
+          if [ "$EVENT" = pull_request ]; then
+            git rev-parse --verify --quiet "origin/$BASE_REF^{commit}" >/dev/null || { echo "::error::origin/$BASE_REF is not fetched"; exit 1; }
+            range=(--log-opts="--diff-merges=remerge origin/$BASE_REF..HEAD")
+          else
+            range=(--log-opts="--diff-merges=remerge --full-history --all")
+          fi
           "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --verbose --no-banner "${range[@]}" .
