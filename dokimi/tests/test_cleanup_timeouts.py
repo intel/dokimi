@@ -134,6 +134,24 @@ def test_workdir_inspect_timeout_refuses_the_cell(tmp_path):
     assert not [c for c in cli.calls if c.argv[1] == "exec" and "test.sh" in " ".join(c.argv)]
 
 
+def test_state_inspect_timeout_errors_the_cell(tmp_path):
+    """A timed-out ``{{.State.Running}}`` inspect at verify time is no answer, not "stopped".
+
+    The verifier failed with no reward file, so the container's state decides between an
+    errored cell and a scored failure. A timeout must error the cell rather than fall
+    through to the verifier's exit code.
+    """
+    task = load_task(_fixture_task(tmp_path))
+    cli = _pipeline(reward=None, answer=lambda call: (
+        reply(returncode=1) if call.argv[1] == "exec" and "test.sh" in " ".join(call.argv) else
+        reply(timed_out=True) if call.argv[1] == "inspect" and "{{.State.Running}}" in call.argv else None))
+
+    result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
+
+    assert result.reward is None and result.passed is False
+    assert "state inspect timed out" in result.metrics["error"]
+
+
 def test_workdir_presence_timeout_errors_the_cell(tmp_path):
     """A timed-out ``test -d`` of the WORKDIR is no answer: the cell is errored before any agent runs.
 
