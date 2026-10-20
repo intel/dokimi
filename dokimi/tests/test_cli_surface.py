@@ -420,3 +420,10 @@ def test_removing_the_help_option_is_a_change():
     def surface(**kw: bool) -> dict:
         return cs._command(argparse.ArgumentParser(prog="dokimi", **kw), "dokimi")
     assert "    - removed option `--help/-h`" in cs.diff_surfaces(surface(), surface(add_help=False))
+
+
+def test_allow_abbrev_change_is_reported():
+    def surface(abbrev: bool) -> dict:
+        return cs._command(argparse.ArgumentParser(prog="dokimi", allow_abbrev=abbrev), "dokimi")
+    assert cs.diff_surfaces(surface(True), surface(False)) == [
+        "~ `dokimi` option abbreviations allowed: True -> False"]

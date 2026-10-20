@@ -118,7 +118,7 @@ def _param(action: argparse.Action, position: int | None, group_key: str | None 
 
 def _command(parser: argparse.ArgumentParser, path: str) -> dict[str, Any]:
     node: dict[str, Any] = {"path": path, "params": [], "subcommands": {},
-                            "subcommand_required": None}
+                            "subcommand_required": None, "allow_abbrev": parser.allow_abbrev}
     position = 0
 
     # Build a map from action to its mutually exclusive group (if any).
@@ -196,6 +196,10 @@ def diff_surfaces(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
             lines.append(f"~ `{path}` subcommand required: "
                          f"{old[path].get('subcommand_required')!r} -> "
                          f"{new[path].get('subcommand_required')!r}")
+        if old[path].get("allow_abbrev") != new[path].get("allow_abbrev"):
+            # with it, `--ver` is accepted for `--version`
+            lines.append(f"~ `{path}` option abbreviations allowed: "
+                         f"{old[path].get('allow_abbrev')!r} -> {new[path].get('allow_abbrev')!r}")
         param_lines = _diff_params(old[path]["params"], new[path]["params"])
         if param_lines:
             lines.append(f"~ `{path}` parameters changed:")
