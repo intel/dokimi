@@ -9,16 +9,17 @@ into, so ``import dokimi`` cannot pick up the source tree:
 
     cd "$RUNNER_TEMP" && python /path/to/dokimi/scripts/smoke_installed.py [--expect-version X.Y.Z]
 
-Checks the version, the console and module entry points, and every data file
-the package reads by default (the files a wheel silently drops if
-package-data misses them). The CI package-smoke job and the release workflow
-run it.
+Checks the version, the console and module entry points, a command on a
+cp1252 stdout, and every data file the package reads by default (the files a
+wheel silently drops if package-data misses them). The CI package-smoke and
+windows-smoke jobs and the release workflow run it.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -58,6 +59,11 @@ def main(argv: list[str] | None = None) -> int:
     _check(out.strip() == f"dokimi {installed}", f"`dokimi --version` prints {out.strip()!r}")
     subprocess.run([sys.executable, "-m", "dokimi", "--help"], capture_output=True, check=True)
     _check(True, "`python -m dokimi --help`")
+    # A Windows console is cp1252, and the rule `library list` prints is not: the
+    # command crashes there unless the CLI tolerates the console encoding.
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    listed = subprocess.run([str(exe), "library", "list"], capture_output=True, env=env, check=False)
+    _check(listed.returncode == 0, "`dokimi library list` on a cp1252 stdout")
 
     products = ProductRegistry()
     _check(bool(products.keys()), f"bundled products.yaml: {len(products.keys())} products")
