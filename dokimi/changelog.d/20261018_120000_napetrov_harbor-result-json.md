@@ -12,8 +12,8 @@
   nothing else: that trial is a scored 0 (`metrics.verifier_timeout`) that stays
   in `pass_rate`, since a verifier that overran its timeout is a failure, not
   missing data. The reward otherwise comes from that file only, never from
-  Harbor's printed `Reward` table. Pass rates of earlier Harbor-backed runs that had errored
-  trials were too high; rerun to compare.
+  Harbor's printed `Reward` table. Pass rates of earlier Harbor-backed runs
+  that had errored trials were too high; rerun to compare.
 
 ### Added
 

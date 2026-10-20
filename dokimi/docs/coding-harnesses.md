@@ -909,9 +909,11 @@ An errored cell is one whose harness raised (`metrics.error`: a docker build
 failure or timeout, an exec failure, or a previous run's files in the cell's
 dir that could not be deleted), or whose solver CLI made no attempt
 (`metrics.solver_error`). It produced no verdict, so it is
-missing data, not a 0. An agent that exceeds its timeout, or a verifier that
-does, is a failure (reward 0, returncode 124), not an error: otherwise an arm
-that hangs would score above one that fails fast.
+missing data, not a 0. Under the command harness, an agent that exceeds its
+timeout, or a verifier that does, is a failure (reward 0, returncode 124), not
+an error: otherwise an arm that hangs would score above one that fails fast.
+A Harbor trial that raised, an agent timeout included, is errored
+(`metrics.error`); only a lone verifier timeout is scored 0.
 
 - `per_harness.<h>` carries `errored` and `scored = n - errored`, and
   `pass_rate = passed / scored`. `per_task` carries `errored` too.

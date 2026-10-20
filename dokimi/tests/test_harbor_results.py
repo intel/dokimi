@@ -399,6 +399,15 @@ def test_a_verifier_timeout_does_not_hide_a_real_exception(tmp_path, trial):
     assert "verifier_timeout" not in metrics
 
 
+def test_a_trial_exception_is_labelled_before_a_step_exception(tmp_path):
+    trial = {"exception_info": {"exception_type": "RuntimeError", "exception_message": "boom"},
+             "step_results": [{"exception_info": AT}]}
+    reward, metrics = _read_trial(tmp_path, trial)
+
+    assert reward is None
+    assert metrics["harbor_exception"] == "RuntimeError"
+
+
 def test_a_verifier_timeout_on_a_step_alone_is_a_zero(tmp_path):
     reward, metrics = _read_trial(tmp_path, {"step_results": [{"exception_info": VT}]})
 
@@ -454,6 +463,21 @@ def test_a_non_string_exception_field_is_stringified(tmp_path, info, error):
 
     assert reward is None
     assert metrics["error"] == error
+
+
+def test_a_non_string_exception_type_is_kept_as_text_in_the_label(tmp_path):
+    reward, metrics = _read_trial(tmp_path, {"exception_info": {"exception_type": 42, "exception_message": "boom"}})
+
+    assert metrics["harbor_exception"] == "42"
+
+
+def test_a_step_without_an_agent_result_does_not_erase_the_other_steps_usage(tmp_path):
+    steps = [{"exception_info": None, "agent_result": {"n_input_tokens": 100, "n_output_tokens": 1}},
+             {"exception_info": None, "agent_result": None}]
+    reward, metrics = _read_trial(tmp_path, {"verifier_result": {"rewards": PASS_REWARDS}, "step_results": steps})
+
+    assert reward == 1.0
+    assert metrics["prompt_tokens"] == 100
 
 
 def test_an_exception_with_no_reward_keeps_no_reward_after_exception(tmp_path):
