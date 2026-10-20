@@ -30,7 +30,7 @@ def _load_answers(path: str):
         answers = list(read(data, source=path, section="answers").records)
     except RecordError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)  # 1 is the verdict code of judge-validity and the --strict gates
     return data, answers
 
 
@@ -267,7 +267,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         pair_unrepro = unreproducible_arms(data) if stored and (args.pairwise or args.checklist) else []
     except RecordError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)  # bad input, not a failed gate
     if (m := stored):
         # Re-scored judges get the file's judge_materials; pairwise and checklist
         # judges see the answers alone. Each path sees different input, so we refuse

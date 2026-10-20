@@ -355,3 +355,9 @@ def test_arm_names_lists_null_arms_and_skips_binary_conditions():
     assert records.arm_names(arms) == ("baseline", "docs")
     binary = records.record({"question_id": "q1", "with_docs": {"answer": "w"}, "without_docs": None})
     assert records.arm_names(binary) == ()
+
+
+def test_a_whitespace_question_text_falls_back_to_question():
+    """A blank question_text is no text, as the judge guard reads it; ``question`` is used."""
+    rec = records.record({"question_id": "q1", "question_text": "   ", "question": "How do I X?"})
+    assert rec.question_text == "How do I X?"

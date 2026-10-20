@@ -516,7 +516,7 @@ def _question_text(item: Mapping[str, Any]) -> str:
     # output writes `question`, a question record `text`.
     for key in ("question_text", "question", "text"):
         value = item.get(key)
-        if isinstance(value, str) and value:
+        if isinstance(value, str) and value.strip():
             return value
     return ""
 

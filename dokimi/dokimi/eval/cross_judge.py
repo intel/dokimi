@@ -151,16 +151,19 @@ def stored_label(data: Union[Run, Dict[str, Any]]) -> str:
     return f"{provider}/{model}{STORED}" if provider and model else "stored judge"
 
 
-def _unjoined(data: Union[Run, Dict[str, Any]], key: str, *, skip_malformed: bool = False) -> Sequence[Record]:
+def _unjoined(data: Dict[str, Any], key: str, *, skip_malformed: bool = False) -> Sequence[Record]:
     """The *key* (``answers`` or ``evaluations``) records of an arms run, not joined.
 
     Neither caller needs a join, and a join refuses repeated question ids, which
     older arms files hold (the runner's ``unknown_q`` fallback id). With
     *skip_malformed*, a record that does not parse is skipped instead of raised
     on (the reproducibility gate only looks for stored-material stamps).
+
+    Takes the file's dict only: a :class:`Run` does not say which list it was
+    loaded from, so reading ``key`` from it would silently return the wrong records.
     """
-    if isinstance(data, Run):
-        return data.records
+    if not isinstance(data, dict):
+        raise TypeError(f"expected an arms file's dict, got {type(data).__name__}")
     items = data.get(key)
     if not isinstance(items, list):
         return []
@@ -175,7 +178,7 @@ def _unjoined(data: Union[Run, Dict[str, Any]], key: str, *, skip_malformed: boo
     return out
 
 
-def unreproducible_arms(data: Union[Run, Dict[str, Any]]) -> List[str]:
+def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
     """Arms whose stored scores saw treatment material the other measures will not.
 
     This is the gate for pairwise and checklist judges, which are shown the answers
@@ -202,7 +205,7 @@ def unreproducible_arms(data: Union[Run, Dict[str, Any]]) -> List[str]:
     })
 
 
-def stored_measure(data: Union[Run, Dict[str, Any]], name: Optional[str] = None) -> Optional[Measure]:
+def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional[Measure]:
     """The aggregate the arms run itself recorded in its ``evaluations``, if it was judged.
 
     Only ``evaluations[].scores``: a legacy inline ``arms[name].evaluation`` and a

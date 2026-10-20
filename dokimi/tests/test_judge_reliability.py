@@ -972,7 +972,7 @@ def test_cross_judge_judges_refuses_one_damaged_question_among_eight(
     err = capsys.readouterr().err
     if damage == "null_qid":
         # A record with no id is malformed (dokimi.records): refused, naming it.
-        assert code == 1 and not seen
+        assert code == 2 and not seen  # a RecordError: bad input
         assert "evaluations[5]: missing question_id" in err
         return
     assert code == 2 and not seen
@@ -1050,7 +1050,7 @@ def test_cross_judge_judges_refuses_an_unhashable_question_id(tmp_path, monkeypa
     data["evaluations"][0] = {"question_id": ["a"],
                               "scores": {"skill": {"error": "x", "judge_context_source": "stored"}}}
     code, seen = _cross_judge(tmp_path, monkeypatch, data)
-    assert code == 1 and not seen
+    assert code == 2 and not seen  # a RecordError: bad input
     assert "question_id must be a string or an integer, got ['a']" in capsys.readouterr().err
 
 

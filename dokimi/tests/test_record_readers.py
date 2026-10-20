@@ -261,7 +261,7 @@ def test_eval_score_exits_cleanly_on_a_record_without_question_text(tmp_path, ca
                               output=str(tmp_path / "eval.json"), product="lib", concurrency=1, run_id=None)
     with patch("dokimi.eval.Judge", StubJudge), pytest.raises(SystemExit) as exit_:
         cmd_eval_score(args)
-    assert exit_.value.code == 1
+    assert exit_.value.code == 2  # bad input, as every RecordError
     assert "answers[2]: question 'q2' has no question_text" in capsys.readouterr().err
 
 
@@ -483,3 +483,26 @@ def test_cross_judge_on_a_legacy_inline_score_run_has_nothing_to_compare(tmp_pat
         args.func(args)
     assert exc.value.code == 2
     assert "nothing to compare" in capsys.readouterr().err
+
+
+def test_stored_readers_refuse_a_run_because_it_does_not_say_which_list_it_holds():
+    from dokimi import records
+    from dokimi.eval.cross_judge import stored_measure, unreproducible_arms
+
+    run = records.read([{"question_id": "q1", "scores": {"skill": {"aggregate": 70}}}])
+    with pytest.raises(TypeError, match="arms file's dict"):
+        stored_measure(run)
+    with pytest.raises(TypeError, match="arms file's dict"):
+        unreproducible_arms(run)
+
+
+def test_cross_judge_exits_2_on_a_malformed_arms_file(tmp_path, monkeypatch, capsys):
+    from dokimi import cli
+
+    answers = tmp_path / "arms.json"
+    answers.write_text(json.dumps({"answers": [{"arms": {"skill": {"answer": "s"}}}]}), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(answers)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2  # bad input; 1 is the verdict code of the gates
+    assert "missing question_id" in capsys.readouterr().err

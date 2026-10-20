@@ -50,7 +50,7 @@ def _load_answers(path: str):
         return load(path, section="answers")
     except RecordError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
 
 
 def _require_ragas() -> None:
@@ -221,7 +221,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
                                              concurrency=args.concurrency)
     except RecordError as exc:
         print(f"Error: {args.answers}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
 
     judge.save_evaluations(evaluations, output_path)
     print(f"\n✅ Saved evaluations to {output_path}")
