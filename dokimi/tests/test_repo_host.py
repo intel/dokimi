@@ -339,10 +339,8 @@ def _run_probe(root: Path, cgroup: str, mountinfo: str, tree: dict[str, str]) ->
 
 
 V2_MOUNT = "35 25 0:30 / /sys/fs/cgroup rw,nosuid - cgroup2 cgroup2 rw\n"
-HOST_CPUS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
 
 
-@pytest.mark.skipif(HOST_CPUS < 4, reason="needs 4 CPUs of affinity to show a 2 CPU quota")
 @pytest.mark.parametrize("cgroup, tree", [
     # private cgroup namespace: the container's cgroup is the mount root
     ("0::/\n", {"sys/fs/cgroup/cpu.max": "200000 100000\n"}),
@@ -360,7 +358,25 @@ HOST_CPUS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") els
 ])
 def test_probe_resolves_the_containers_cgroup_v2_limit(tmp_path, cgroup, tree):
     raw = _run_probe(tmp_path, cgroup, V2_MOUNT, tree)
-    assert host_facts(raw)["cpus"] == 2 and host_facts(raw)["cgroup_cpus"] == 2
+    assert host_facts(raw)["cgroup_cpus"] == 2
+
+
+def test_probe_walks_from_the_mount_root_when_the_mount_shows_only_a_subtree(tmp_path):
+    # mountinfo field 4 is /kubepods: the container's /kubepods/pod1 is the mount's /pod1
+    mount = "35 25 0:30 /kubepods /sys/fs/cgroup rw,nosuid - cgroup2 cgroup2 rw\n"
+    raw = _run_probe(tmp_path, "0::/kubepods/pod1\n", mount,
+                     {"sys/fs/cgroup/pod1/cpu.max": "200000 100000\n", "sys/fs/cgroup/cpu.max": "max 100000\n"})
+    assert host_facts(raw)["cgroup_cpus"] == 2
+
+
+def test_probe_walks_from_the_v1_mount_root_when_the_mount_shows_only_a_subtree(tmp_path):
+    mount = "31 25 0:27 /kubepods /sys/fs/cgroup/cpu,cpuacct rw,nosuid,nodev - cgroup cgroup rw,cpu,cpuacct\n"
+    raw = _run_probe(tmp_path, "4:cpu,cpuacct:/kubepods/pod1\n", mount,
+                     {"sys/fs/cgroup/cpu,cpuacct/pod1/cpu.cfs_quota_us": "200000\n",
+                      "sys/fs/cgroup/cpu,cpuacct/pod1/cpu.cfs_period_us": "100000\n",
+                      "sys/fs/cgroup/cpu,cpuacct/cpu.cfs_quota_us": "-1\n",
+                      "sys/fs/cgroup/cpu,cpuacct/cpu.cfs_period_us": "100000\n"})
+    assert host_facts(raw)["cgroup_cpus"] == 2
 
 
 def test_probe_reads_the_v1_quota_without_a_cgroup2_mount(tmp_path):
@@ -394,6 +410,30 @@ def test_probe_resolves_a_combined_v1_cpu_controller_and_its_ancestors(tmp_path,
     assert host_facts(raw)["cgroup_cpus"] == cpus
 
 
+V1_CPU_TREE = {"sys/fs/cgroup/cpu,cpuacct/docker/cpu.cfs_quota_us": "200000\n",
+               "sys/fs/cgroup/cpu,cpuacct/docker/cpu.cfs_period_us": "100000\n",
+               "sys/fs/cgroup/cpu,cpuacct/docker/eval/cpu.cfs_quota_us": "-1\n",
+               "sys/fs/cgroup/cpu,cpuacct/docker/eval/cpu.cfs_period_us": "100000\n"}
+
+
+def test_probe_takes_the_cpu_mount_not_an_earlier_cpuset_mount(tmp_path):
+    cpuset = "30 25 0:26 / /sys/fs/cgroup/cpuset rw - cgroup cgroup rw,cpuset\n"
+    raw = _run_probe(tmp_path, "3:cpuset:/docker/eval\n4:cpu,cpuacct:/docker/eval\n", cpuset + V1_CPU_MOUNT,
+                     {**V1_CPU_TREE, "sys/fs/cgroup/cpuset/docker/eval/cpuset.cpus": "0-1\n"})
+    assert host_facts(raw)["cgroup_cpus"] == 2
+
+
+def test_probe_takes_the_cpu_cgroup_line_not_a_later_cpuset_line(tmp_path):
+    raw = _run_probe(tmp_path, "4:cpu,cpuacct:/docker/eval\n3:cpuset:/other\n", V1_CPU_MOUNT, V1_CPU_TREE)
+    assert host_facts(raw)["cgroup_cpus"] == 2
+
+
+def test_probe_reports_the_first_cpuinfo_block_of_a_multi_cpu_host(tmp_path):
+    raw = _run_probe(tmp_path, "0::/\n", V2_MOUNT,
+                     {"sys/fs/cgroup/cpu.max": "200000 100000\n", "proc/cpuinfo": INTEL_CPUINFO + "\n" + AMD_CPUINFO})
+    assert host_facts(raw)["cpu_vendor"] == "GenuineIntel"
+
+
 def test_a_host_with_exactly_min_cpus_is_supported():
     facts = host_facts(_probe_out(affinity=4))
     assert unmet(_task({"min_cpus": 4}), facts) == (None, None)
@@ -404,6 +444,10 @@ def test_cpu_flags_match_regardless_of_case():
     facts = host_facts(_probe_out())
     assert unmet(_task({"cpu_flags": ["AVX512F"]}), facts) == (None, None)
     assert unmet(_task({"cpu_flags": ["AVX512_VNNI"]}), facts)[1] == "host"
+    # the host's flags may come in any case too; a required flag in upper case still matches them
+    upper = {"cpus": 8, "cpu_vendor": "GenuineIntel", "cpu_flags": ["AVX512F"]}
+    assert unmet(_task({"cpu_flags": ["avx512f"]}), upper) == (None, None)
+    assert unmet(_task({"cpu_flags": ["AVX512F"]}), upper) == (None, None)
 
 
 def test_probe_failure_is_marked_host_probe_never_hidden_by_allow_unsupported(tmp_path, monkeypatch, capsys):
@@ -434,6 +478,19 @@ def test_run_exits_1_when_the_probe_failed_and_still_runs_unconstrained_tasks(tm
     assert "2 ran, 0 already done, 0 crashed" in logged.out
     assert "the host probe failed, so these tasks were not run: fix_race" in logged.err
     assert [u["task"] for u in summarize(out / "b1")["unsupported"]] == ["fix_race", "fix_race"]
+
+
+def test_a_complete_batch_rerun_on_a_failed_probe_exits_0(tmp_path, monkeypatch, capsys):
+    """Regression: cells that already have a result are not left unrun, so a re-run of a finished
+    batch with a failing probe is not a failure (the same as a hardware miss)."""
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_add", "--task", "fix_race")
+    capsys.readouterr()
+    _run(root, out, HostRunner(None), monkeypatch, "--task", "fix_add", "--task", "fix_race")  # no SystemExit
+    logged = capsys.readouterr()
+    assert "0 ran, 4 already done, 0 crashed" in logged.out and "host probe failed" not in logged.err
+    assert summarize(out / "b1")["unsupported"] == [] and summarize(out / "b1")["missing"] == []
 
 
 def test_a_probe_failure_never_unsupports_a_task_with_no_constraint():

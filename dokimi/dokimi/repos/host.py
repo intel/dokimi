@@ -48,6 +48,13 @@ def read(path):
             return f.read()
     except OSError:
         return None
+def inside(own, root):
+    # The container's cgroup path as seen under a mount whose root (mountinfo field 4) is `root`:
+    # a mount of /kubepods shows /kubepods/pod1 as /pod1.
+    prefix = root.rstrip("/")
+    if own == prefix or own.startswith(prefix + "/"):
+        return own[len(prefix):]
+    return own
 def v2_cpu_max():
     # The container's own cgroup (/proc/self/cgroup, "0::<path>") under the cgroup2 mount
     # (/proc/self/mountinfo); every visible ancestor's cpu.max too. The tightest quota wins.
@@ -59,13 +66,14 @@ def v2_cpu_max():
     for line in (read("/proc/self/mountinfo") or "").splitlines():
         fields = line.split()
         if "-" in fields and len(fields) > 4 and fields[fields.index("-") + 1] == "cgroup2":
-            mounts.append(fields[4])
+            mounts.append((fields[3], fields[4]))
     if own is None or not mounts:
         return None
-    parts = [p for p in own.split("/") if p]
+    root, mount = mounts[0]
+    parts = [p for p in inside(own, root).split("/") if p]
     best, best_ratio = None, None
     for depth in range(len(parts), -1, -1):
-        text = read(mounts[0] + "".join("/" + p for p in parts[:depth]) + "/cpu.max")
+        text = read(mount + "".join("/" + p for p in parts[:depth]) + "/cpu.max")
         if text is None:
             continue
         best = best or text
@@ -91,13 +99,14 @@ def v1_cfs():
         if "-" in fields and len(fields) > 4:
             sep = fields.index("-")
             if fields[sep + 1] == "cgroup" and "cpu" in (fields[sep + 3] if len(fields) > sep + 3 else "").split(","):
-                mounts.append(fields[4])
+                mounts.append((fields[3], fields[4]))
     if own is None or not mounts:
         return None
-    parts = [p for p in own.split("/") if p]
+    root, mount = mounts[0]
+    parts = [p for p in inside(own, root).split("/") if p]
     best = None
     for depth in range(len(parts), -1, -1):
-        base = mounts[0] + "".join("/" + p for p in parts[:depth])
+        base = mount + "".join("/" + p for p in parts[:depth])
         quota, period = read(base + "/cpu.cfs_quota_us"), read(base + "/cpu.cfs_period_us")
         if quota is None or period is None:
             continue

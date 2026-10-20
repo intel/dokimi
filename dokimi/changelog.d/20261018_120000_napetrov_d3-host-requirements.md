@@ -12,5 +12,5 @@
   and `repo report` lists them apart, neither failed nor missing; if the probe itself
   failed, `repo run` exits 1. A later run on a host that
   meets the requirements runs them. The probed facts are recorded in `check.json` `host`, in
-  the batch's `_eval/host.json` and in every cell's `meta.json` `host`. A `host` value of the
+  the batch's `_eval/host.json` and in every cell's `meta.json` `host` (or its `unsupported.json` `host` when the cell is not run). A `host` value of the
   wrong shape is refused before any container starts.
