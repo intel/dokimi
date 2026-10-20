@@ -89,6 +89,17 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert raw["model_resolved"] == ["m-1"] and summary["model_mismatch"] == {}
 
 
+def test_a_run_answered_by_another_model_is_recorded_and_reported(setup, monkeypatch, capsys):
+    # The record must carry what the harness reported, not the request, or the mismatch warning never fires.
+    monkeypatch.setenv("FAKE_ANSWER_MODEL", "m-0")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
+    assert rec["model_resolved"] == "m-0"
+    summary = _report(setup)
+    assert summary["rows"][0]["model_resolved"] == ["m-0"]
+    assert summary["model_mismatch"] == {"m-1": ["m-0"]}
+
+
 def test_already_graded_cells_are_skipped_unless_forced(setup, capsys):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     assert "1 ran, 0 already done" in capsys.readouterr().out

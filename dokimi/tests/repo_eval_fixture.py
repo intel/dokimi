@@ -78,7 +78,8 @@ try:
     model = args[model_idx + 1] if model_idx + 1 < len(args) else "unknown"
 except (ValueError, IndexError):
     model = "unknown"
-lines = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3", "cwd": str(cwd), "model": model}]
+answered = os.environ.get("FAKE_ANSWER_MODEL") or model  # a different model may answer the request
+lines = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3", "cwd": str(cwd), "model": answered}]
 if action == "sleep":
     time.sleep(60)
 if action == "fix":
@@ -98,7 +99,7 @@ if action == "tamper":  # leave state for the grader: a .pth in HOME, and an fsm
     hook.chmod(0o755)
     with open(cwd / ".git" / "config", "a") as f:
         f.write("[core]\n\tfsmonitor = " + str(hook) + "\n")
-lines.append({"type": "assistant", "message": {"model": model, "content": [
+lines.append({"type": "assistant", "message": {"model": answered, "content": [
     {"type": "tool_use", "id": "t1", "name": "Edit",
      "input": {"file_path": os.environ.get("FAKE_CONTAINER_CWD", str(cwd)) + "/src/calc.py"}}]}})
 lines.append({"type": "result", "subtype": "success", "result": "done: src/calc.py", "total_cost_usd": 0.01,
@@ -112,7 +113,7 @@ PROFILE = {
     "invoke": ["{bin}", "-p", "{prompt}", "--model", "{model}", "--max-turns", "{max_turns}",
                "--max-budget-usd", "{budget}", "{tools}"],
     "tools": {"none": ["--tools", ""], "read": ["--tools", "Read"], "all": []},
-    "config_dir_env": "FAKE_CONFIG_DIR", "env_allow": ["FAKE_ACTION", "FAKE_MARKER", "PATH"],
+    "config_dir_env": "FAKE_CONFIG_DIR", "env_allow": ["FAKE_ACTION", "FAKE_ANSWER_MODEL", "FAKE_MARKER", "PATH"],
     "egress": ["api.example.com"], "trace": "claude-stream-json",
     "prompt_suffix": "Stay in the foreground.",
     "config_files": {"settings.json": '{"hook": "python3 {support_dir}/no_background.py"}'},
