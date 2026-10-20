@@ -32,7 +32,9 @@ BASELINE: dict[str, frozenset[str]] = {}
 
 @pytest.fixture(scope="module")
 def findings() -> dict[str, set[str]]:
-    flagged, _ = atq.audit_tree()
+    flagged, total = atq.audit_tree()
+    # A scan that finds nothing would pass every check below.
+    assert total > 0, f"no test functions found under {atq.TESTS}"
     return atq.gated_findings(flagged)
 
 
