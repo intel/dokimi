@@ -510,6 +510,21 @@ def test_callable_form_raises_is_a_check():
     assert "no_assert" in flags["test_unused_raises_context_stays_flagged"]
 
 
+def test_an_inline_pytest_fail_is_a_check():
+    flags = _flags("""
+        import pytest
+        def test_fail_only():
+            if run() != 1:
+                pytest.fail("wrong")
+        def test_shape_and_fail():
+            out = run()
+            assert isinstance(out, dict)
+            if out != {"a": 1}:
+                pytest.fail("wrong")
+        """)
+    assert flags == {"test_fail_only": (), "test_shape_and_fail": ()}
+
+
 def test_self_helper_that_asserts_counts_as_a_check():
     flags = _flags("""
         def _check_output(out):

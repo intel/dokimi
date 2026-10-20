@@ -430,10 +430,11 @@ def _collect(fn: _FuncDef) -> _Facts:
         nodes=nodes,
         asserts=asserts,
         value_asserts=[a for a in asserts if not _is_weak(a.test)],
-        # Context-manager form, or callable form: pytest.raises(ValueError, int, "bad").
+        # Context-manager form, callable form (pytest.raises(ValueError, int, "bad")), or an
+        # explicit `if out != 42: pytest.fail(...)`.
         raises=any(map(_raises_block, nodes)) or any(
-            isinstance(n, ast.Call) and _call_name(n) in _RAISES_CALLS and len(n.args) >= 2
-            for n in nodes),
+            (_call_name(n) in _RAISES_CALLS and len(n.args) >= 2) or _dotted(n.func) == "pytest.fail"
+            for n in calls),
         calls=calls,
         assert_calls=[c for c in calls if _call_name(c).startswith("assert")],
         patching=any(map(_is_patching_call, itertools.chain(calls, decorator_calls))),
