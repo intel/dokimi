@@ -14,11 +14,15 @@
   ``host`` requirements (``unsupported.json``, with the reason). They are
   neither failures nor missing.
 - cost and turns are means over finished cells, as the harness reported them.
+
+A warning is printed when the trace says a model other than the requested one
+answered a cell (``model_resolved``): a harness alias can pin an older model.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -84,7 +88,8 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
                                "cost_usd": _mean([r["agent"]["cost_usd"] for r in recs]),
                                "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in recs), 6),
                                "turns": _mean([r["agent"]["num_turns"] for r in recs]),
-                               "networks": sorted({str(r["agent"].get("network")) for r in recs})}
+                               "networks": sorted({str(r["agent"].get("network")) for r in recs}),
+                               "model_resolved": sorted({m for r in recs for m in resolved_models(r)})}
         if score_only:
             scores = [0.0 if r["grade"]["status"] == "grader_failure" else r["grade"]["score"] for r in recs]
             row.update(kind="score", score=_mean([0.0 if s is None else s for s in scores]))
@@ -95,7 +100,8 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
     return {"batch": str(batch_dir), "cells": len(cells), "missing": missing, "rows": rows,
             "unsupported": load_unsupported(batch_dir),
             "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in cells), 6),
-            "unproxied_network": sorted({str(r["agent"].get("network")) for r in cells} - {"none"})}
+            "unproxied_network": sorted({str(r["agent"].get("network")) for r in cells} - {"none"}),
+            "model_mismatch": model_mismatch(cells)}
 
 
 def format_report(summary: dict[str, Any]) -> str:
@@ -129,6 +135,7 @@ def format_report(summary: dict[str, Any]) -> str:
     if summary["unproxied_network"]:
         lines.append("warning: agents ran with network " + ", ".join(summary["unproxied_network"])
                      + " instead of the egress proxy (not implemented); their commands could reach any host")
+    lines += [f"warning: {w}" for w in mismatch_warnings(summary["model_mismatch"])]
     return "\n".join(lines)
 
 
@@ -138,6 +145,61 @@ def _unsupported_lines(cells: list[dict[str, Any]]) -> list[str]:
         by_task[(str(u["task"]), str(u["reason"]))] += 1
     return [f"unsupported (not run, not failed): {task}, {n} cell(s): {reason}"
             for (task, reason), n in sorted(by_task.items())]
+
+
+def resolved_models(rec: dict[str, Any]) -> list[str]:
+    """The models a cell's trace says answered it (``model_resolved``); empty when the trace could not tell."""
+    found = rec.get("model_resolved")
+    return [found] if isinstance(found, str) else [str(m) for m in found] if isinstance(found, list) else []
+
+
+def _normalize_model_id(model_id: str) -> str:
+    """Strip Bedrock's revision suffix: any ``-vN:M`` (``-v1:0``, ``-v2:0``) counts as the same model.
+    A bare ``-v2`` is part of the id: deepseek-v2 is not v3."""
+    return re.sub(r"-v\d+:\d+$", "", model_id)
+
+
+# Bedrock cross-region inference profile prefixes: the same model served from another region.
+_REGION_PREFIXES = ("us-gov.", "global.", "apac.", "us.", "eu.", "jp.", "au.", "ca.")
+
+
+def _strip_region(model_id: str) -> str:
+    for prefix in _REGION_PREFIXES:
+        if model_id.startswith(prefix):
+            return model_id[len(prefix):]
+    return model_id
+
+
+def _model_prefix_matches(base: str, candidate: str) -> bool:
+    """Check if candidate is base optionally preceded by provider prefix (., /)."""
+    # base could be the suffix of candidate, with optional prefix
+    if base == candidate:
+        return True
+    # Check if candidate ends with . + base or / + base
+    return candidate.endswith(("." + base, "/" + base))
+
+
+def model_matches(requested: str, resolved: str) -> bool:
+    """Whether ``resolved`` is the ``requested`` model: the same id, that id pinned to a snapshot
+    date, or either behind a provider prefix (Bedrock's ``us.anthropic.claude-x`` answers as
+    ``claude-x``, with any ``-vN:M`` revision too)."""
+    # Vertex's @20250929 is the same snapshot as -20250929; an undated side matches any snapshot of it
+    req, res = (re.sub(r"@(?=\d{8}$)", "-", _strip_region(_normalize_model_id(m))) for m in (requested, resolved))
+    pairs = [(req, res), (re.sub(r"-\d{8}$", "", req), res), (req, re.sub(r"-\d{8}$", "", res))]
+    return any(_model_prefix_matches(a, b) or _model_prefix_matches(b, a) for a, b in pairs)
+
+
+def model_mismatch(cells: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Requested model -> the other models that answered its cells."""
+    out: dict[str, set[str]] = defaultdict(set)
+    for rec in cells:
+        out[rec["model"]] |= {m for m in resolved_models(rec) if not model_matches(rec["model"], m)}
+    return {k: sorted(v) for k, v in sorted(out.items()) if v}
+
+
+def mismatch_warnings(mismatch: dict[str, list[str]]) -> list[str]:
+    return [f"cells run with model {model} were answered by {', '.join(found)}; check the harness's model aliases"
+            for model, found in mismatch.items()]
 
 
 def _cell_arm(arm: str) -> str:

@@ -199,6 +199,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         (rd / "answer.txt").write_text(transcript.answer, encoding="utf-8")
         _write_json(rd / "task.json", task.raw)
         meta["harness_version"] = transcript.harness_version or opts.harness_version
+        meta["model_resolved"] = transcript.model_resolved()  # an alias can map `model` to another one
         _write_json(rd / "meta.json", meta)
         cost = transcript.cost_usd
         agent.update(
@@ -216,7 +217,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         # Excluding the run would favour arms that break workspaces (contract §4.2): it fails the task.
         what = "grade run failed" if isinstance(exc, ContainerError) else f"host error after the agent ran ({type(exc).__name__})"
         grade = failed_outcome(f"{what}: {str(exc)[:300]}")
-    record = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model, "rep": rep,
+    record = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model,
+              "model_resolved": meta.get("model_resolved"), "rep": rep,
               "harness": opts.profile.name, "harness_version": meta["harness_version"],
               "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "grade": grade}
     try:

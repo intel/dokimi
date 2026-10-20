@@ -336,7 +336,7 @@ base commit date against the model's cutoff where the cutoff is known.
 | `task.json` | copy of the task |
 | `answer.txt` | the agent's final message |
 | `events.jsonl` | normalized trace, one JSON object per line, harness-independent (§4.1) |
-| `meta.json` | `arm`, `harness`, `harness_version`, `model`, `rep`; `base_rev` (as written in `task.json`), `base_sha` (resolved, 40 characters), `base_date` (committer date, ISO 8601); `patches` (SHA of each applied patch); `start_sha` (workspace `HEAD` the agent started from, §3) |
+| `meta.json` | `arm`, `harness`, `harness_version`, `model`, `model_resolved` (the model(s) the trace says answered: a name, a sorted list, or `null` when the trace format cannot tell), `rep`; `base_rev` (as written in `task.json`), `base_sha` (resolved, 40 characters), `base_date` (committer date, ISO 8601); `patches` (SHA of each applied patch); `start_sha` (workspace `HEAD` the agent started from, §3) |
 
 Graders must not parse a harness-specific trace. A grader that needs "did the
 agent run `bazel`?" reads the `command` events in `events.jsonl`. A grader
@@ -864,4 +864,9 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   batch of a comparison has no pin, or when the two arms ran from different
   `eval_dir` or `image` pins or harness versions. An image `repo run` tagged
   from the tree (`dokimi/<id>:<sha>`) follows the tree, so two revisions are
-  not warned about it; an `--image` of its own is compared.
+  not warned about it; an `--image` of its own is compared. `repo report` warns
+  (`model_mismatch` in its summary) when a cell's `model_resolved` is another
+  model than the one requested; a snapshot of the requested id (`-20250929`,
+  `@20250929`) or its provider-prefixed form is the same model, `-v2` against
+  `-v3` is not. `repo compare` warns the same way when the two arms of a
+  comparison were answered by different models.

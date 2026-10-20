@@ -61,6 +61,16 @@ class Transcript:
     result_subtype: str | None = None
     plugins: list[str] = field(default_factory=list)  # loaders the harness reported at start-up
     errors: list[str] = field(default_factory=list)
+    init_model: str | None = None  # the model the harness says it starts with (``system``/``init``)
+    answered_by: set[str] = field(default_factory=set)  # ``message.model`` of the main thread's replies
+
+    def model_resolved(self) -> str | list[str] | None:
+        """The model that answered: one name, a sorted list when several did, ``None`` when the trace cannot tell.
+
+        The replies' own ``message.model`` wins; the harness's ``init`` model stands in for a run with no reply.
+        """
+        found = sorted(self.answered_by) or ([self.init_model] if self.init_model else [])
+        return (found[0] if len(found) == 1 else found) if found else None
 
     def reads(self) -> set[str]:
         return {e["path"] for e in self.events if e["kind"] == "read" and e.get("path")}
@@ -109,6 +119,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
     kind = rec.get("type")
     if kind == "system" and rec.get("subtype") == "init":
         out.harness_version = rec.get("claude_code_version")
+        out.init_model = str(rec["model"]) if rec.get("model") else None
         # Claude Code loads AGENTS.md through a built-in plugin (cc-plugin-agents-md) on some versions
         out.plugins = sorted(str(p.get("name")) for p in rec.get("plugins") or []
                              if isinstance(p, dict) and p.get("name"))
@@ -123,6 +134,10 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
                 out.events.append(event)
                 if block.get("id"):
                     by_id[block["id"]] = event
+        model = (rec.get("message") or {}).get("model")
+        # A subagent's model is its definition's, not the run's; "<synthetic>" marks a reply Claude Code wrote itself.
+        if model and model != "<synthetic>" and rec.get("parent_tool_use_id") is None:
+            out.answered_by.add(str(model))
     elif kind == "user":
         for block in _content(rec):
             if block.get("type") == "tool_result":
