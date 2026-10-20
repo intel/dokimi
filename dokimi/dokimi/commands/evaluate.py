@@ -42,6 +42,17 @@ def _warn_judge_independence(
     return same
 
 
+def _load_answers(path: str):
+    """The answers artifact at ``path`` (read by dokimi/records.py), or a clean exit."""
+    from dokimi.records import RecordError, load
+
+    try:
+        return load(path, section="answers")
+    except RecordError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
 def _require_ragas() -> None:
     """Exit before any model call when the ragas extra is not installed."""
     if importlib.util.find_spec("ragas") is None:
@@ -115,18 +126,11 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
 
     panel = JudgePanel(judges=judges, concurrency=args.concurrency)
 
-    try:
-        answers_data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        print(f"Error: answers file not found: {args.answers}", file=sys.stderr)
-        sys.exit(1)
-    answers = answers_data.get("answers", answers_data) if isinstance(answers_data, dict) else answers_data
-    if not isinstance(answers, list):
-        print(f"Error: expected a list of answers in {args.answers}", file=sys.stderr)
-        sys.exit(1)
+    run = _load_answers(args.answers)
+    answers = list(run.records)
 
-    answer_model = answers_data.get("model", "unknown") if isinstance(answers_data, dict) else "unknown"
-    answer_provider = answers_data.get("provider", "unknown") if isinstance(answers_data, dict) else "unknown"
+    answer_model = run.meta.get("model", "unknown")
+    answer_provider = run.meta.get("provider", "unknown")
     if answer_model != "unknown" and answer_provider != "unknown":
         for cfg in judges:
             _warn_judge_independence(
@@ -148,12 +152,14 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
                                      run_metadata={"answer_model": answer_model,
                                                    "answer_provider": answer_provider})
 
-    # Summary
-    valid = [r for r in results if r.get("with_docs") and r["with_docs"].get("aggregate") is not None]
+    # Summary: the context arm's own quality, not a comparison.
+    from dokimi.records import CONTEXT, records
+
+    valid = [r.scores[CONTEXT] for r in records(results, kind="evaluations") if r.score(CONTEXT) is not None]
     if valid:
-        mean_score = sum(r["with_docs"]["aggregate"] for r in valid) / len(valid)
-        mean_agree = sum(r["with_docs"].get("agreement_score", 1) for r in valid) / len(valid)
-        flagged = sum(1 for r in valid if r["with_docs"].get("disagreement_flag", False))
+        mean_score = sum(s.aggregate or 0 for s in valid) / len(valid)
+        mean_agree = sum(s.raw.get("agreement_score", 1) for s in valid) / len(valid)
+        flagged = sum(1 for s in valid if s.raw.get("disagreement_flag", False))
         print(f"\n{'─'*50}")
         print(f"Panel score (context arm): {mean_score:.1f}/100")
         print(f"Mean agreement score:     {mean_agree:.3f}  (1.0 = perfect)")
@@ -167,23 +173,12 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
     from dokimi.eval import Judge
 
     # Load answers
-    try:
-        answers_data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        print(f"Error: answers file not found: {args.answers}", file=sys.stderr)
-        sys.exit(1)
-    except json.JSONDecodeError as exc:
-        print(f"Error: invalid JSON in {args.answers}: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    answers = answers_data.get("answers", answers_data) if isinstance(answers_data, dict) else answers_data
-    if not isinstance(answers, list):
-        print(f"Error: expected a list of answers in {args.answers}", file=sys.stderr)
-        sys.exit(1)
+    run = _load_answers(args.answers)
+    answers = list(run.records)
     print(f"Loaded {len(answers)} answers from {args.answers}")
 
-    answer_model = answers_data.get("model", "unknown") if isinstance(answers_data, dict) else "unknown"
-    answer_provider = answers_data.get("provider", "unknown") if isinstance(answers_data, dict) else "unknown"
+    answer_model = run.meta.get("model", "unknown")
+    answer_provider = run.meta.get("provider", "unknown")
     same_model_warning = False
     if answer_model != "unknown" and answer_provider != "unknown":
         same_model_warning = _warn_judge_independence(
@@ -202,8 +197,8 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
         provider=args.judge_provider,
         temperature=args.judge_temperature,
         run_metadata={
-            "question_model": answers_data.get("question_model", "unknown") if isinstance(answers_data, dict) else "unknown",
-            "question_provider": answers_data.get("question_provider", "unknown") if isinstance(answers_data, dict) else "unknown",
+            "question_model": run.meta.get("question_model", "unknown"),
+            "question_provider": run.meta.get("question_provider", "unknown"),
             "answer_model": answer_model,
             "answer_provider": answer_provider,
             "judge_model": args.judge_model,
@@ -219,7 +214,14 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
     else:
         output_path = Path(f"eval/{args.product}.json")
 
-    evaluations = judge.evaluate_answers(args.product, answers, output_path=output_path, concurrency=args.concurrency)
+    from dokimi.records import RecordError
+
+    try:
+        evaluations = judge.evaluate_answers(args.product, answers, output_path=output_path,
+                                             concurrency=args.concurrency)
+    except RecordError as exc:
+        print(f"Error: {args.answers}: {exc}", file=sys.stderr)
+        sys.exit(2)
 
     judge.save_evaluations(evaluations, output_path)
     print(f"\n✅ Saved evaluations to {output_path}")
@@ -228,8 +230,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
 def cmd_eval_ragas(args: argparse.Namespace) -> None:
     """Run standalone RAGAS meta-evaluation on an answers JSON."""
     _require_ragas()
-    answers_data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-    answers = answers_data.get("answers", answers_data)
+    answers = list(_load_answers(args.answers).records)
     print(f"Loaded {len(answers)} answers from {args.answers}")
 
     class _Args:
@@ -247,8 +248,7 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
 
     from dokimi.eval.grounding import evaluate_grounding
 
-    data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-    answers = data.get("answers", data) if isinstance(data, dict) else data
+    answers = _load_answers(args.answers).records
     result = evaluate_grounding(answers, threshold=args.threshold)
 
     summary = result["summary"]
@@ -283,9 +283,9 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     from dokimi.eval.judge import Judge
     from dokimi.eval.judge_validity import judge_scorer, run_validity
 
-    data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-    answers = data.get("answers", data) if isinstance(data, dict) else data
-    library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
+    run = _load_answers(args.answers)
+    answers = list(run.records)
+    library = args.product or run.meta.get("library_name") or "the library"
 
     variants = [v.strip() for v in args.variants.split(",")] if args.variants else list(DEGRADATIONS)
     unknown = sorted(set(variants) - set(DEGRADATIONS))
@@ -384,7 +384,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         result = {**report.to_dict(), "judge_temperature": args.judge_temperature}
         # Which answers the gate was measured on: a judge that passes on one
         # answer model's output is not thereby validated on another's.
-        result["summary"]["answers_model"] = data.get("model") if isinstance(data, dict) else None
+        result["summary"]["answers_model"] = run.meta.get("model")
         if typed is not None:
             result["summary"]["typed_arm"] = typed.report_fields()
         out.write_text(json.dumps(result, indent=2), encoding="utf-8")

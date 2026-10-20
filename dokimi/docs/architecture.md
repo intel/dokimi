@@ -85,7 +85,11 @@ Lives under `dokimi/{personas,questions,mcp,eval,report,dashboard,orchestrator}`
    custom registered client — see
    [adding-doc-source.md](adding-doc-source.md)).
 4. `eval/` runs answer generation (`llm.py`), single-judge scoring, the
-   multi-judge panel, and RAGAS meta-evaluation.
+   multi-judge panel, and RAGAS meta-evaluation. Every consumer of an
+   `answers.v1`/`eval.v1`/`arms.v1` record (judge, panel, RAGAS, grounding,
+   reports, gates) reads it through `dokimi/records.py`, the one module that
+   knows the binary (`with_docs`/`without_docs`) and N-arm (`arms`/`scores`)
+   shapes.
 5. `report/eval_report.py` produces the per-product Markdown analysis.
 6. `dashboard/` aggregates per-library results into a cross-library view
    (`DASHBOARD.md`, `dashboard.json`).
@@ -351,6 +355,9 @@ label.
 4. **package-smoke** — builds/installs the package with a fresh resolve of its
    dependency ranges (Python 3.11 and 3.13) and exercises the console and
    module entry points.
+
+   **windows-smoke** (a PR check on `windows-latest`) builds the wheel, installs
+   it, runs the installed-package smoke test and a few fast tests.
 
 **`agent-quality.yml`** — task and benchmark checks:
 

@@ -16,7 +16,7 @@ Differences from CI, all printed as notices:
 - `uses:` steps (checkout, setup-python, upload-artifact) are skipped, and so
   are `pip install` steps: the tools come from the venv `make dev` builds,
   which installs exactly what those steps install (`tools` subcommand below).
-  Jobs that install the package itself (package-smoke) run in a throwaway venv
+  Jobs that install the package itself (package-smoke, windows-smoke) run in a throwaway venv
   on a copy of the tracked tree instead, so the dev venv stays as CI's.
 - Every step runs even when an earlier one fails, so one failure does not hide
   the next (CI stops a job's checks at its first failing step, except
@@ -64,10 +64,10 @@ WORKFLOWS = REPO / ".github" / "workflows"
 
 # Jobs or steps that cannot run offline. Keyed by job id, or (job id, step name).
 # pre-commit clones its hook repositories on first use.
-NEEDS_NETWORK = {"package-smoke", ("static", "pre-commit"), ("static", "pip-audit")}
+NEEDS_NETWORK = {"package-smoke", "windows-smoke", ("static", "pre-commit"), ("static", "pip-audit")}
 NEEDS_DOCKER = {"external-catalog-smoke"}
 # Jobs that `pip install .`: run on a copy of the tree in a throwaway venv.
-ISOLATED = {"package-smoke"}
+ISOLATED = {"package-smoke", "windows-smoke"}
 PIP_INSTALL = re.compile(r"^\s*(python -m )?pip install\b")
 # pip options that take a value, by spelling, mapped to the short form `tools` emits.
 PAIRED = {"-r": "-r", "--requirement": "-r", "-c": "-c", "--constraint": "-c",
