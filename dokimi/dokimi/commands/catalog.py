@@ -28,35 +28,35 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
 
     if args.kind in ("skills", "all"):
         try:
-            entries = read_skill_manifest(root)
+            skills = read_skill_manifest(root)
         except ValueError as exc:
             raise SystemExit(f"skills.yaml: {exc}") from exc
-        print(f"# skills ({len(entries)} declared under {root})")
-        for entry in entries:
-            state = "ok" if entry.loaded else f"ERROR: {entry.error}"
-            status = entry.status or "-"
-            print(f"{entry.name}\t{status}\t{entry.path}\t{state}")
-            if not entry.loaded:
+        print(f"# skills ({len(skills)} declared under {root})")
+        for skill in skills:
+            state = "ok" if skill.loaded else f"ERROR: {skill.error}"
+            status = skill.status or "-"
+            print(f"{skill.name}\t{status}\t{skill.path}\t{state}")
+            if not skill.loaded:
                 any_failure = True
         print()
 
     if args.kind in ("tasks", "all"):
         try:
-            entries = read_task_manifest(root, tasks_subdir=args.tasks_subdir)
+            tasks = read_task_manifest(root, tasks_subdir=args.tasks_subdir)
         except ValueError as exc:
             raise SystemExit(f"suites.json: {exc}") from exc
-        print(f"# tasks ({len(entries)} declared under {root})")
-        for entry in entries:
-            if entry.loaded:
+        print(f"# tasks ({len(tasks)} declared under {root})")
+        for task in tasks:
+            if task.loaded:
                 state = "ok"
-            elif entry.skipped:
-                state = f"skipped: {entry.reason}"
+            elif task.skipped:
+                state = f"skipped: {task.reason}"
             else:
-                state = f"ERROR: {entry.reason}"
+                state = f"ERROR: {task.reason}"
                 any_failure = True
-            track = entry.track or "-"
-            status = entry.status or "-"
-            print(f"{entry.name}\t{status}\t{track}\t{state}")
+            track = task.track or "-"
+            status = task.status or "-"
+            print(f"{task.name}\t{status}\t{track}\t{state}")
 
     if any_failure:
         raise SystemExit(1)

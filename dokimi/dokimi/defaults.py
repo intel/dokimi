@@ -58,6 +58,36 @@ def bedrock_profile(model: str) -> str | None:
     return profile
 
 
+
+def default_judge_model(provider: str) -> str | None:
+    """The default judge model that runs on ``provider``; ``None`` when none does.
+
+    The default judge runs on its own provider and, by its inference profile, on
+    ``amazon-bedrock``; on the default generator's provider the generator is the pick.
+    Pairing a provider with another provider's model (``openai/claude-sonnet-5-5``)
+    fails at the first call, so a command with no default here asks for ``--judge-model``.
+    """
+    if provider == DEFAULT_JUDGE_PROVIDER or (provider == "amazon-bedrock"
+                                              and DEFAULT_JUDGE_MODEL in BEDROCK_MODEL_IDS):
+        return DEFAULT_JUDGE_MODEL
+    if provider == DEFAULT_GENERATOR_PROVIDER:
+        return DEFAULT_GENERATOR_MODEL
+    return None
+
+
+class _JudgeModelForProvider(str):
+    """``--judge-model`` left out: ``dokimi.cli.parse_args`` puts the provider's default in its place."""
+
+
+#: The ``--judge-model`` default of every command that also takes ``--judge-provider``
+#: (``novelty`` picks its own). Code that builds its arguments without
+#: ``dokimi.cli.parse_args`` reads it as ``DEFAULT_JUDGE_MODEL``.
+JUDGE_MODEL_FOR_PROVIDER = _JudgeModelForProvider(DEFAULT_JUDGE_MODEL)
+JUDGE_MODEL_HELP = (f"Judge model (default: the default judge for --judge-provider: "
+                    f"{DEFAULT_JUDGE_MODEL} on {DEFAULT_JUDGE_PROVIDER} and amazon-bedrock, "
+                    f"{DEFAULT_GENERATOR_MODEL} on {DEFAULT_GENERATOR_PROVIDER}; other providers "
+                    f"need this flag)")
+
 # Decision (2026-03-04): one fixed semantic retrieval config.
 DEFAULT_RETRIEVAL_TOP_K = 3
 DEFAULT_MAX_TOKENS_PER_QUESTION = 4000

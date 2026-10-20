@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from dokimi.records import RecordLike, records
 from dokimi.eval.stats import (
-    _aggregate_of,
     _apply_correction,
     _describe_deltas,
     _finalize,
@@ -56,7 +56,7 @@ def detect_factorial_cells(arms: Sequence[str]) -> List[Tuple[str, str, str]]:
 
 
 def _interaction_contrast(
-    evaluations: Iterable[Dict[str, Any]],
+    evaluations: Iterable[RecordLike],
     *,
     arm_a: str,
     arm_b: str,
@@ -71,14 +71,11 @@ def _interaction_contrast(
     family before display rounding; see :func:`dokimi.eval.stats.adjust_pvalues`.
     """
     rows: List[Tuple[float, float, float, float]] = []
-    for ev in evaluations:
-        scores = ev.get("scores", {}) or {}
-        vals = [
-            _aggregate_of(scores.get(name))
-            for name in (combined_arm, arm_a, arm_b, baseline_arm)
-        ]
-        if all(v is not None for v in vals):
-            rows.append(tuple(vals))  # type: ignore[arg-type]
+    for ev in records(evaluations, source="evaluations", kind="evaluations"):
+        vals = [ev.score(name) for name in (combined_arm, arm_a, arm_b, baseline_arm)]
+        ab, a, b, base = vals
+        if ab is not None and a is not None and b is not None and base is not None:
+            rows.append((float(ab), float(a), float(b), float(base)))
 
     if len(rows) < 2:
         return None
@@ -102,7 +99,7 @@ def _interaction_contrast(
 
 
 def interaction_test(
-    evaluations: Iterable[Dict[str, Any]],
+    evaluations: Iterable[RecordLike],
     *,
     arm_a: str,
     arm_b: str,
@@ -144,7 +141,7 @@ def interaction_test(
 
 
 def interaction_significance(
-    evaluations: Iterable[Dict[str, Any]],
+    evaluations: Iterable[RecordLike],
     arms: Sequence[str],
     baseline_arm: str,
     *,
@@ -161,7 +158,7 @@ def interaction_significance(
     the two families instead would inflate the multiplier on both, since the
     contrasts answer a different question than the main effects.
     """
-    evaluations = list(evaluations)
+    evaluations = records(evaluations, source="evaluations", kind="evaluations")
     results: List[Dict[str, Any]] = []
     for arm_a, arm_b, combined in detect_factorial_cells(arms):
         res = _interaction_contrast(

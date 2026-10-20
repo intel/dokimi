@@ -435,6 +435,68 @@ def test_container_skill_arm_counts_the_treatment_and_flags_one_not_offered(
     assert "n_skill_invocations" not in base.metrics and "treatment" not in base.metrics
 
 
+def test_container_discover_arm_is_the_skill_arm_without_the_notice(
+        tmp_path, docker_calls, monkeypatch):
+    skill = _demo_skill(tmp_path)
+    task = load_task(_task(tmp_path))
+    runs = {}
+    for arm in ("skill", "skill-discover"):
+        seen: dict = {"stream": _stream("demo-skill")}
+        _fake_claude(monkeypatch, seen)
+        result = create_harness(f"docker-claude-{arm}:{skill}").run(
+            task, model="haiku", output_dir=tmp_path / f"out-{arm}")
+        runs[arm] = (seen["argv"], result.metrics)
+    (skill_argv, skill_m), (disc_argv, disc_m) = runs["skill"], runs["skill-discover"]
+    prompt = disc_argv[disc_argv.index("-p") + 1]
+    assert prompt.startswith("Solve this coding task.") and "demo-skill" not in prompt
+    # Same claude argv otherwise: plugin dir, tools, settings; only the prompt differs.
+
+    def claude_argv(argv):
+        argv = argv[argv.index("/opt/dokimi-agent/claude"):]
+        return argv[:argv.index("-p") + 1] + argv[argv.index("-p") + 2:]
+
+    assert claude_argv(skill_argv) == claude_argv(disc_argv)
+    assert disc_argv[disc_argv.index("--plugin-dir") + 1] == "/opt/abskill"
+    assert skill_m["skill_notice"] is True and disc_m["skill_notice"] is False
+    assert disc_m["treatment"] == skill_m["treatment"]
+    assert disc_m["n_skill_invocations"] == 1 and "solver_error" not in disc_m
+    assert disc_m["skill_listing"] == {"description_chars": len("Use for demo things."),
+                                       "max_desc_chars": 1536, "budget_chars": 8000,
+                                       "truncated": False}
+    seen = {"stream": _stream()}  # the plugin did not load: no discovery to measure
+    _fake_claude(monkeypatch, seen)
+    bad = create_harness(f"docker-claude-skill-discover:{skill}").run(
+        task, model="haiku", output_dir=tmp_path / "bad")
+    assert bad.metrics["solver_error"].startswith("treatment not offered")
+
+
+def test_a_discover_arm_warns_when_the_listing_cuts_the_description(
+        tmp_path, docker_calls, monkeypatch):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        f"---\nname: demo-skill\ndescription: {'x' * 1500}\nwhen_to_use: {'y' * 100}\n---\n# D\n",
+        encoding="utf-8")
+    _fake_claude(monkeypatch, {"stream": _stream("demo-skill")})
+    out = tmp_path / "out"
+    result = create_harness(f"docker-claude-skill-discover:{skill}").run(
+        load_task(_task(tmp_path)), model="haiku", output_dir=out)
+    listing = result.metrics["skill_listing"]
+    assert listing["truncated"] is True and listing["description_chars"] == 1500 + 3 + 100
+    assert "first 1536" in (out / "run.log").read_text(encoding="utf-8")
+
+
+def test_a_discover_arm_does_not_warn_when_the_listing_shows_the_whole_description(
+        tmp_path, docker_calls, monkeypatch):
+    skill = _demo_skill(tmp_path)
+    _fake_claude(monkeypatch, {"stream": _stream("demo-skill")})
+    out = tmp_path / "out"
+    result = create_harness(f"docker-claude-skill-discover:{skill}").run(
+        load_task(_task(tmp_path)), model="haiku", output_dir=out)
+    assert result.metrics["skill_listing"]["truncated"] is False
+    assert "WARNING" not in (out / "run.log").read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize("make", ["missing", "readme", "outside-link", "fork", "link-loop"])
 def test_a_bad_skill_fails_before_any_docker_step(tmp_path, docker_calls, monkeypatch, make):
     skill = _demo_skill(tmp_path, extra="context: fork\n" if make == "fork" else "")
@@ -1174,3 +1236,21 @@ def test_the_plugin_modes_are_reset_not_widened(tmp_path, monkeypatch):
     chmod = next(c for c in calls if "chmod" in c)
     # a+rX would keep a setuid or world-writable file from the source as it is.
     assert chmod == ["exec", "-u", "root", "c1", "chmod", "-R", "u=rwX,go=rX", "/opt/abskill"]
+
+
+def test_an_announced_arm_does_not_warn_and_the_notice_is_on_by_default(
+        tmp_path, docker_calls, monkeypatch):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(f"---\nname: demo-skill\ndescription: {'x' * 1600}\n---\n# D\n",
+                                    encoding="utf-8")
+    task = load_task(_task(tmp_path))
+    for name, harness in (("skill", create_harness(f"docker-claude-skill:{skill}")),
+                          ("direct", DockerSolverHarness(harness_id="d", skill_path=str(skill)))):
+        seen: dict = {"stream": _stream("demo-skill")}
+        _fake_claude(monkeypatch, seen)
+        result = harness.run(task, model="haiku", output_dir=tmp_path / f"out-{name}")
+        assert result.metrics["skill_listing"]["truncated"] is True
+        assert result.metrics["skill_notice"] is True
+        assert "demo-skill" in seen["argv"][seen["argv"].index("-p") + 1]
+        assert "WARNING" not in (tmp_path / f"out-{name}" / "run.log").read_text(encoding="utf-8")

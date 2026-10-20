@@ -401,6 +401,68 @@ def test_non_object_arguments_are_malformed(monkeypatch):
     assert "not list" in result["transcript"][0]["result_preview"]
 
 
+def test_already_parsed_arguments_run_the_tool(monkeypatch):
+    # Some providers hand back a dict, not a JSON string. That must run, not raise.
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, sent = _run_with_one_call(
+        monkeypatch, tool, "search_documentation", {"query": "reduce"})
+    assert tool.calls == ["reduce"]
+    assert "error" not in result["transcript"][0]
+    assert result["transcript"][0]["arguments"] == {"query": "reduce"}
+    assistant = [m for m in sent[1] if m["role"] == "assistant"][0]
+    assert assistant["tool_calls"][0]["function"]["arguments"] == '{"query": "reduce"}'
+
+
+def test_a_non_string_non_object_does_not_crash_the_loop(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    result, _ = _run_with_one_call(monkeypatch, tool, "search_documentation", ["reduce"])
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "malformed_args"
+    assert result["tool_call_count"] == 0
+
+
+def test_a_null_function_on_a_dict_call_does_not_crash_the_loop(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    steps = [
+        _FakeMessage(tool_calls=[{"id": "c1", "function": None}]),
+        _FakeMessage(content="ok"),
+    ]
+    fake, _ = _scripted_completion(steps)
+    seen = []
+
+    def spy(messages, *a, **kw):
+        seen.append([dict(m) for m in messages])
+        return fake(messages, *a, **kw)
+
+    monkeypatch.setattr(ar_mod, "chat_completion", spy)
+    result = run_agent_loop("q", [tool], model="m")
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "unknown_tool"
+    replayed = seen[-1][-2]["tool_calls"][0]["function"]["name"]
+    assert replayed == "unknown"
+
+
+def test_a_null_function_on_an_object_call_does_not_crash_the_loop(monkeypatch):
+    tool = DocQueryTool(_FakeDocClient(), "lib/x")
+    call = _FakeToolCall("c1", "search_documentation", "{}")
+    call.function = None
+    steps = [_FakeMessage(tool_calls=[call]), _FakeMessage(content="ok")]
+    fake, _ = _scripted_completion(steps)
+    seen = []
+
+    def spy(messages, *a, **kw):
+        seen.append([dict(m) for m in messages])
+        return fake(messages, *a, **kw)
+
+    monkeypatch.setattr(ar_mod, "chat_completion", spy)
+    result = run_agent_loop("q", [tool], model="m")
+    assert tool.calls == []
+    assert result["transcript"][0]["error"] == "unknown_tool"
+    assert result["transcript"][0]["tool"] is None
+    replayed = seen[-1][-2]["tool_calls"][0]
+    assert replayed["id"] == "c1"
+    assert replayed["function"] == {"name": "unknown", "arguments": "{}"}
+
 def test_tool_exception_is_recorded_as_tool_error(monkeypatch):
     class _Boom(DocQueryTool):
         def call(self, **kw):
@@ -450,7 +512,7 @@ def test_factory_builds_agentic_specs(demo_skill):
 
 # ── tool-count stamp ────────────────────────────────────────────────────
 def _agentic_record(**tool_usage):
-    return {"arms": {"agent": {"agentic": True, "tool_call_count": 1, "iterations": 1,
+    return {"question_id": "q1", "arms": {"agent": {"agentic": True, "tool_call_count": 1, "iterations": 1,
                                **({"tool_usage": tool_usage} if tool_usage else {})}}}
 
 

@@ -436,3 +436,38 @@ def test_gitleaks_scan_reports_each_line_once_under_its_own_commit(tmp_path: Pat
     assert not (tmp_path / "out").exists()
     checkout = next(s for s in wf["jobs"]["gitleaks"]["steps"] if "checkout" in str(s.get("uses")))
     assert checkout["with"]["fetch-depth"] == 0  # the PR range needs the base branch's history
+
+
+def test_isolated_job_ids_match_real_jobs() -> None:
+    """Every job id in ISOLATED names a real job that pip-installs the built wheel."""
+    workflows = cl.load_workflows()
+    job_ids = {job_id for _, wf in workflows for job_id in wf["jobs"]}
+
+    for job_id in cl.ISOLATED:
+        assert job_id in job_ids, f"ISOLATED job id '{job_id}' does not exist in workflows"
+        # A `pip install` of a wheel: `pip install ... dist/*.whl`. A step that only
+        # installs requirements (`pip install -r requirements.lock.txt`) does not count.
+        found_wheel_install = False
+        for _, wf in workflows:
+            if job_id in wf["jobs"]:
+                job = wf["jobs"][job_id]
+                for step in job.get("steps", []):
+                    run = str(step.get("run", ""))
+                    if "pip install" in run and ".whl" in run:
+                        found_wheel_install = True
+                        break
+        assert found_wheel_install, (
+            f"ISOLATED job id '{job_id}' does not contain a pip install of a wheel"
+        )
+
+
+def test_tool_specs_carry_no_unexpanded_shell_syntax() -> None:
+    """A job that installs a wheel from $RUNNER_TEMP must be in ISOLATED. Otherwise tool_specs()
+    hands `make dev` a literal `$RUNNER_TEMP/dist/*.whl`, which nothing expands."""
+    bad = [spec for spec in cl.tool_specs() if "$" in spec or "*" in spec]
+    assert not bad, f"tool_specs() has unexpanded shell syntax; register the job in ISOLATED: {bad}"
+
+
+def test_isolated_jobs_also_need_network() -> None:
+    """An isolated job installs from the package index, so it is skipped offline like the other network jobs."""
+    assert cl.ISOLATED <= cl.NEEDS_NETWORK

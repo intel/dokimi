@@ -131,6 +131,8 @@ def test_agent_timeout_is_killed_and_still_graded(setup, monkeypatch, capsys):
     rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
     assert rec["agent"]["timed_out"] is True and rec["agent"]["rc"] is None and rec["agent"]["wall_s"] < 30
     assert rec["grade"]["status"] == "graded" and rec["grade"]["success"] is False  # the bug is still there
+    unmeasured = {k: rec["agent"][k] for k in ("input_tokens", "cache_read_tokens", "usage_scope", "subagent_calls")}
+    assert unmeasured == {k: None for k in unmeasured}
 
 
 def test_run_refuses_to_open_the_network_silently(setup, capsys):
@@ -408,6 +410,15 @@ def _only_cell(setup):
     return json.loads(path.read_text())
 
 
+def test_result_json_carries_the_token_fields_of_the_whole_tree(setup, monkeypatch, capsys):
+    monkeypatch.setenv("FAKE_USAGE", "1")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    agent = _only_cell(setup)["agent"]
+    assert (agent["input_tokens"], agent["output_tokens"], agent["cache_read_tokens"],
+            agent["cache_write_tokens"]) == (37, 11, 100, 5)
+    assert agent["usage_scope"] == "tree" and agent["subagent_calls"] == 1
+
+
 def test_a_host_error_after_the_agent_is_a_charged_grader_failure(setup, monkeypatch, capsys):
     def boom(*a, **kw):
         raise PermissionError(13, "Permission denied", "workspace/.git/config")
@@ -432,6 +443,7 @@ def test_a_trace_that_cannot_be_converted_charges_the_cell_cap(setup, monkeypatc
     rec = _only_cell(setup)
     assert rec["grade"]["status"] == "grader_failure" and "unreadable trace" in rec["grade"]["reasons"][0]
     assert rec["agent"]["cost_usd"] is None and rec["agent"]["charged_usd"] == 0.5
+    assert all(rec["agent"][k] is None for k in ("input_tokens", "usage_scope", "subagent_calls"))
     assert "1 ran" in (out := capsys.readouterr().out) and "$0.5000" in out
 
 
