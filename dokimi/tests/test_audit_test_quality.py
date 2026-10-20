@@ -410,6 +410,29 @@ def test_an_or_with_one_check_that_cannot_fail_is_flagged(check, flag):
     assert flag in flags["test_x"]
 
 
+@pytest.mark.parametrize("call_check", ["send.assert_called_once()", "assert send.called"])
+def test_a_call_only_mock_check_does_not_hide_type_only(call_check):
+    flags = _flags(f"""
+        from unittest.mock import patch
+        def test_x():
+            with patch("mod.send") as send:
+                out = run()
+            assert isinstance(out, str)
+            {call_check}
+        """)
+    assert "type_only" in flags["test_x"]
+
+
+def test_a_skip_check_next_to_a_weak_assert_is_not_type_only():
+    flags = _flags("""
+        def test_x(llm):
+            out = run(llm, gaps=0)
+            assert isinstance(out, list)
+            llm.assert_not_called()
+        """)
+    assert flags["test_x"] == ()
+
+
 def test_tuple_of_mock_attrs_and_literals_is_mock_echo():
     """A tuple of mock attributes against literal expectations only reads the mock."""
     flags = _flags("""

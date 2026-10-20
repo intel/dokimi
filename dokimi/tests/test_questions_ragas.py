@@ -231,9 +231,10 @@ class TestFetchDocs:
     def test_calls_mcp_client(self, mock_mcp_client):
         e = RagasSeedExtractor(mcp_client=mock_mcp_client)
         result = e._fetch_docs("uxlfoundation/oneTBB", "oneTBB", max_tokens=1000)
-        assert isinstance(result, str)
-        assert len(result) > 0
-        mock_mcp_client.get_library_docs.assert_called_once()
+        assert result == mock_mcp_client.get_library_docs.return_value[0]["content"]
+        mock_mcp_client.get_library_docs.assert_called_once_with(
+            "uxlfoundation/oneTBB", query="oneTBB API overview concepts", max_tokens=1000
+        )
 
     def test_no_client_returns_empty(self):
         e = RagasSeedExtractor()

@@ -79,6 +79,8 @@ _MOCK_VERIFY_METHODS = frozenset(
     {"assert_called", "assert_called_once", "assert_not_called", "assert_awaited",
      "assert_awaited_once", "assert_not_awaited"}
 )
+# "It was called" checks no outcome; "it was not called" is an absence, which is one.
+_CALL_ONLY_METHODS = _MOCK_VERIFY_METHODS - {"assert_not_called", "assert_not_awaited"}
 # len(x) > 0 and its spellings only say "x is non-empty".
 _NONEMPTY_LEN = frozenset({(ast.Gt, 0), (ast.GtE, 1), (ast.NotEq, 0)})
 _NONEMPTY_LEN_REVERSED = frozenset({(ast.Lt, 0), (ast.LtE, 1), (ast.NotEq, 0)})
@@ -460,8 +462,12 @@ def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str],
         _call_name(c) in helpers and (isinstance(c.func, ast.Name) or _is_self_call(c))
         for c in t.calls
     )
+    # A call-only mock check next to weak asserts still checks no outcome.
+    outcome_asserts = [a for a in t.value_asserts if not (t.patching and _is_mock_verify(a.test))]
+    outcome_calls = [c for c in t.assert_calls if _call_name(c) not in _CALL_ONLY_METHODS]
     flags = {
-        "type_only": bool(t.asserts) and not (t.value_asserts or t.raises or t.assert_calls or helper_checks),
+        "type_only": any(_is_weak(a.test) for a in t.asserts)
+        and not (outcome_asserts or t.raises or outcome_calls or helper_checks),
         "mock_echo": (
             t.patching and not t.raises and bool(t.asserts or t.assert_calls)
             and all(_is_mock_verify(a.test) for a in t.asserts)
