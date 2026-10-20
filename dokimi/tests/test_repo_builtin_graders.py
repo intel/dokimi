@@ -178,6 +178,25 @@ def test_replay_is_one_to_one_nearest_first_within_the_window(tmp_path):
                                                   "recall_addressed": 0.0}
 
 
+def test_matching_rules_as_the_contract_states_them(tmp_path):
+    """§4.5: same file only, kw case-insensitive, replay within ``window`` (default 5) inclusive."""
+    seeds, replay = _task_dir(tmp_path, "seeds_mul"), _task_dir(tmp_path, "replay_mul")
+    other = "src/other.py"
+    assert review.grade_seeds({}, seeds, fence([_f(40, file=other, message="mul returns a + b")]))["seeds_hit"] == []
+    assert review.grade_seeds({}, seeds, fence([_f(40, message="MUL RETURNS A + B")]))["seeds_hit"] == ["s_op"]
+    assert review.grade_seeds({}, seeds, fence([_f(1, file=other, message="add() is unused")]))["decoys_flagged"] == []
+    assert review.grade_seeds({}, seeds, fence([_f(30, message="ADD() IS UNUSED")]))["decoys_flagged"] == ["d_add"]
+    assert review.grade_replay({}, replay, fence([_f(5, file=other)]))["threads_hit"] == []
+    assert review.grade_replay({"window": 2}, replay, fence([_f(7)]))["threads_hit"] == ["t_op"]
+    assert review.grade_replay({}, replay, fence([_f(10)]))["threads_hit"] == ["t_op"]
+    assert review.grade_replay({}, replay, fence([_f(11)]))["threads_hit"] == []
+    empty = {"id": "e", "class": "c", "file": "src/calc.py", "lines": [], "kw": "zzz"}
+    write(tmp_path / "e", "manifest.json", json.dumps({"seeds": [empty]}))
+    assert review.grade_seeds({}, tmp_path / "e", fence([_f(5)]))["seeds_hit"] == []
+    write(tmp_path / "c", "gold.json", json.dumps([{"id": "c", "file": "a.py", "line": 1, "comment": "x" * 300}]))
+    assert review.last_json(review.oracle_replay({}, tmp_path / "c"))[0]["message"] == "x" * 200
+
+
 def test_oracles_reach_full_recall(tmp_path):
     for task_id, grade, oracle in (("seeds_mul", review.grade_seeds, review.oracle_seeds),
                                    ("replay_mul", review.grade_replay, review.oracle_replay)):
