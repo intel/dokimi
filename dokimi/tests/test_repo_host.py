@@ -353,6 +353,10 @@ HOST_CPUS = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") els
     ("0::/docker/eval\n", {"sys/fs/cgroup/cpu.max": "max 100000\n",
                             "sys/fs/cgroup/docker/cpu.max": "200000 100000\n",
                             "sys/fs/cgroup/docker/eval/cpu.max": "max 100000\n"}),
+    # two limits: the tighter ancestor wins over the container's looser one
+    ("0::/docker/eval\n", {"sys/fs/cgroup/cpu.max": "max 100000\n",
+                            "sys/fs/cgroup/docker/cpu.max": "200000 100000\n",
+                            "sys/fs/cgroup/docker/eval/cpu.max": "400000 100000\n"}),
 ])
 def test_probe_resolves_the_containers_cgroup_v2_limit(tmp_path, cgroup, tree):
     raw = _run_probe(tmp_path, cgroup, V2_MOUNT, tree)
@@ -378,6 +382,11 @@ V1_CPU_MOUNT = "31 25 0:27 / /sys/fs/cgroup/cpu,cpuacct rw,nosuid,nodev - cgroup
     ({"sys/fs/cgroup/cpu,cpuacct/docker/cpu.cfs_quota_us": "150000\n",
       "sys/fs/cgroup/cpu,cpuacct/docker/cpu.cfs_period_us": "100000\n",
       "sys/fs/cgroup/cpu,cpuacct/docker/eval/cpu.cfs_quota_us": "-1\n",
+      "sys/fs/cgroup/cpu,cpuacct/docker/eval/cpu.cfs_period_us": "100000\n"}, 2),
+    # two limits: the tighter ancestor wins over the container's looser one
+    ({"sys/fs/cgroup/cpu,cpuacct/docker/cpu.cfs_quota_us": "200000\n",
+      "sys/fs/cgroup/cpu,cpuacct/docker/cpu.cfs_period_us": "100000\n",
+      "sys/fs/cgroup/cpu,cpuacct/docker/eval/cpu.cfs_quota_us": "400000\n",
       "sys/fs/cgroup/cpu,cpuacct/docker/eval/cpu.cfs_period_us": "100000\n"}, 2),
 ])
 def test_probe_resolves_a_combined_v1_cpu_controller_and_its_ancestors(tmp_path, tree, cpus):
