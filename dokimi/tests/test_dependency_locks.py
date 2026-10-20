@@ -22,6 +22,11 @@ STACKED_LOCKS = (
     ("requirements-ci.lock.txt", "requirements-docs.lock.txt"),
 )
 PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;\\]+)")
+HASHED_LOCKS = ("requirements.lock.txt", "requirements-ci.lock.txt", "requirements-docs.lock.txt")
+
+
+def canonical(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def header_command(name: str) -> list[str]:
@@ -34,7 +39,7 @@ def pins(name: str) -> dict[str, set[str]]:
     found: dict[str, set[str]] = {}
     for line in (ROOT / name).read_text(encoding="utf-8").splitlines():
         if m := PIN.match(line):
-            found.setdefault(re.sub(r"[-_.]+", "-", m[1]).lower(), set()).add(m[2])
+            found.setdefault(canonical(m[1]), set()).add(m[2])
     return found
 
 
@@ -51,6 +56,46 @@ def test_lock_header_options_are_long_with_equals(name: str) -> None:
             # space-separated option would be read as one.
             assert (ROOT / arg).is_file(), f"{name}: {arg} is not a file"
             assert not arg.endswith(".lock.txt"), f"{name}: write {arg} as --opt={arg}"
+
+
+@pytest.mark.parametrize("name", HASHED_LOCKS)
+def test_lock_is_compiled_with_hashes(name: str) -> None:
+    """Every install is `--require-hashes`, so each lock must have been compiled with hashes."""
+    header = [
+        line
+        for line in (ROOT / name).read_text(encoding="utf-8").splitlines()
+        if line.startswith("#")
+    ]
+    assert "--generate-hashes" in "\n".join(header), name
+
+
+def test_tools_lock_is_constrained_to_main_lock() -> None:
+    """The tools lock is compiled against the main lock, so shared pins cannot drift."""
+    assert "--constraint=requirements.lock.txt" in header_command("requirements-ci.lock.txt")
+
+
+@pytest.mark.parametrize("name", HASHED_LOCKS)
+def test_every_pin_has_hashes(name: str) -> None:
+    lines = (ROOT / name).read_text(encoding="utf-8").splitlines()
+    unhashed = [
+        line
+        for i, line in enumerate(lines)
+        if PIN.match(line)
+        and "--hash=" not in line
+        and not (i + 1 < len(lines) and lines[i + 1].lstrip().startswith("--hash="))
+    ]
+    assert not unhashed, f"{name}: pins without a --hash= line: {unhashed}"
+
+
+def test_tools_lock_has_every_requested_pin() -> None:
+    """An exact pin in requirements-ci.txt (ruff, zizmor, ...) must be the version the tools lock resolves."""
+    locked = pins("requirements-ci.lock.txt")
+    for line in (ROOT / "requirements-ci.txt").read_text(encoding="utf-8").splitlines():
+        if m := PIN.match(line):
+            assert m[2] in locked.get(canonical(m[1]), set()), (
+                f"requirements-ci.txt pins {m[1]}=={m[2]} but requirements-ci.lock.txt has "
+                f"{sorted(locked.get(canonical(m[1]), set()))}"
+            )
 
 
 @pytest.mark.parametrize(("base", "name"), STACKED_LOCKS)
