@@ -145,8 +145,13 @@ def _fmt_rate(v: Any) -> str:
 def _discovery_lines(data: dict[str, Any]) -> list[str]:
     """The ``-skill-discover`` arms beside their with-skill pair (``summary.discovery_gaps``)."""
     gaps = data.get("summary", {}).get("discovery_gaps") or {}
+    # Counted over every discovery row (notice off), paired or not, as run.log warns.
+    cut = sum(1 for r in data.get("results", []) if r.get("metrics", {}).get("skill_notice") is False
+              and (r.get("metrics", {}).get("skill_listing") or {}).get("truncated"))
+    note = ([f"_⚠️ {cut} discovery row(s) ran with a description longer than the "
+             "skill listing shows; the agent saw only its start._", ""] if cut else [])
     if not gaps:
-        return []
+        return note
     lines = [
         "## Skill discovery",
         "",
@@ -180,13 +185,8 @@ def _discovery_lines(data: dict[str, Any]) -> list[str]:
                      f"{_fmt_rate(g.get('discover_pass_rate'))} | {gap_s} | "
                      f"{_fmt_rate(g.get('with_skill_invocation_rate'))} | "
                      f"{_fmt_rate(g.get('discover_invocation_rate'))} |")
-    cut = sum(1 for r in data.get("results", []) if r.get("harness") in gaps
-              and (r.get("metrics", {}).get("skill_listing") or {}).get("truncated"))
-    if cut:
-        lines += ["", f"_⚠️ {cut} discovery row(s) ran with a description longer than the "
-                  "skill listing shows; the agent saw only its start._"]
     lines.append("")
-    return lines
+    return lines + note
 
 
 def render_task_runs_report(data: dict[str, Any]) -> str:

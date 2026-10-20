@@ -303,6 +303,27 @@ def test_report_puts_the_discovery_arm_beside_no_skill_and_with_skill():
     assert "## Skill discovery" not in render_task_runs_report(data)
 
 
+@pytest.mark.parametrize("notice, n_cut", [(False, 1), (True, 0)])
+def test_truncated_discovery_row_is_noted_without_its_pair(notice, n_cut):
+    """A discovery arm run against the baseline only still says its description was cut."""
+    arms = ["docker-claude", "docker-claude-skill-discover:s"]
+    listing = {"description_chars": 2000, "max_desc_chars": 1536, "budget_chars": 8000,
+               "truncated": True}
+    rows = [{"task": "t1", "harness": h, "passed": False, "reward": 0.0, "returncode": 0,
+             "output_dir": None, "operations": [],
+             "metrics": {"operation_count": 0, "operations_by_type": {}, **extra}}
+            for h, extra in zip(arms, ({}, {"n_skill_invocations": 0, "skill_notice": notice,
+                                            "skill_listing": listing}), strict=True)]
+    data = {"schema_version": "task_runs.v1", "model": "m", "repeats": 1,
+            "baseline_harness": arms[0], "harnesses": arms, "results": rows,
+            "tasks": [{"name": "t1", "path": "p", "metadata": {"difficulty": "easy"},
+                       "verifier": {}, "agent": {}, "environment": {}}],
+            "summary": summarize_task_results(rows, baseline_harness=arms[0])}
+    md = render_task_runs_report(data)
+    assert "## Skill discovery" not in md
+    assert ("discovery row(s) ran with a description longer" in md) is bool(n_cut)
+
+
 def test_discovery_gap_withheld_when_arms_attempted_different_cells():
     """Gap is None when discovery arm ran fewer tasks than the with-skill arm."""
     arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
