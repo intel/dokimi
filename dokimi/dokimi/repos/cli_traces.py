@@ -37,6 +37,11 @@ _CONTINUATION = re.compile(r"\\\n")
 _HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
 # a redirect that writes nowhere a read could be confused with: 2>&1, 2>/dev/null, &>/dev/null
 _HARMLESS_REDIRECT = re.compile(r"(?:\d*>&\d+|&>>?\s*/dev/null|\d*>>?\s*/dev/null)(?=\s|$|[;&|])")
+_KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!"}
+_DIR_STACK = {"pushd", "popd"}
+_PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
+_GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
+_GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
 # the values of long options that take a separate word (``head --lines 5``), by command
 _LONG_VALUE = {
     "head": {"--lines", "--bytes"},
@@ -65,21 +70,37 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     A pipeline or a redirect is not a read of its arguments (``cat a > b`` writes b), so it gives nothing;
     each ``&&`` / ``;`` / ``||`` / ``&`` / newline part is read on its own. ``cwd`` is the directory the
     script starts in, relative to the workspace root. ``cd`` moves it for the parts that follow: a
-    relative path is joined to it and normalised (no ``.`` or ``..``), and after ``cd -``, a bare
-    ``cd``, a ``cd`` to a computed path, or a ``||`` that follows a ``cd`` (the next part may run in
-    either directory) it is unknown, so a relative read is not recorded. Absolute paths are kept.
+    relative path is joined to it and normalised (no ``.`` or ``..``). The directory is unknown (a
+    relative read is not recorded) after ``cd -``, a bare ``cd``, a ``cd`` to a computed path, a
+    ``pushd`` / ``popd``, a ``cd`` after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), or a
+    ``||`` that follows a ``cd``. A subshell ``( ... )`` is not tracked. A brace group that is
+    backgrounded or piped runs in a subshell, so the directory is restored after it. Absolute paths
+    are kept.
     """
     out: list[str] = []
     here: str | None = posixpath.normpath(cwd) if cwd else ""
     moved = False  # a cd was seen: after ||, the directory is not known
     previous = ""
+    groups: list[tuple[str | None, bool]] = []  # open brace groups: (directory before it, in a pipeline)
     script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub(" ", script))  # a heredoc body is input, not commands
-    for part, after in _split_script(script):
+    for part, after, in_subshell in _split_script(script):
         op, previous = previous, after
         if op == "||" and moved:
             here = None
-        if part.startswith("(") or part.endswith(")"):  # a subshell: its reads are not tracked
+        if in_subshell:  # a subshell: its reads are not tracked
             continue
+        bare = _bare(part)
+        opened = _GROUP_OPEN.search(bare)
+        if opened:
+            piped = bool(_PIPE.search(bare[:opened.start()]))
+            groups.append((here, piped))
+            if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
+                here = None
+        closed = _GROUP_CLOSE.search(bare)
+        if closed and groups:
+            before, piped = groups.pop()
+            if piped or after == "&" or _PIPE.search(bare[closed.start():]):  # the group ran in a subshell
+                here = before
         part = _HARMLESS_REDIRECT.sub(" ", part)
         try:
             words = shlex.split(part) if not _computed(part) else None
@@ -91,7 +112,13 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
             continue
         if words[:1] == ["{"]:  # a brace group runs in this shell: its cd and reads count
             words = words[1:]
+        conditional = False
+        while words and words[0] in _KEYWORDS:  # ``then cd x``: the cd may not run
+            words, conditional = words[1:], True
         if not words:
+            continue
+        if words[0] in _DIR_STACK or (conditional and words[0] == "cd"):
+            here, moved = None, True
             continue
         if words[0] == "cd":
             moved = True
@@ -190,12 +217,21 @@ def _sed_files(args: list[str]) -> list[str]:
     return positional if scripted else positional[1:]
 
 
-def _split_script(script: str) -> list[tuple[str, str]]:
-    """``(part, operator after it)`` for each part of ``script`` split at unquoted ``&&``, ``||``,
-    ``;``, ``&`` and newlines (the operator is ``""`` after the last part)."""
-    parts: list[tuple[str, str]] = []
+def _bare(part: str) -> str:
+    """``part`` with the text inside quotes emptied, so only shell syntax is left to match."""
+    return re.sub(r"'[^']*'", "''", re.sub(r'"[^"]*"', '""', part))
+
+
+def _split_script(script: str) -> list[tuple[str, str, bool]]:
+    """``(part, operator after it, in a subshell)`` for each part of ``script`` split at unquoted ``&&``,
+    ``||``, ``;``, ``&`` and newlines (the operator is ``""`` after the last part). A ``#`` that starts a
+    word begins a comment, which runs to the end of the line and is dropped. A part inside ``( ... )``,
+    or holding a parenthesis, is in a subshell."""
+    parts: list[tuple[str, str, bool]] = []
     cur: list[str] = []
     quote = ""
+    depth = 0  # open parentheses
+    paren = False  # the part being built holds a parenthesis
     i = 0
     while i < len(script):
         c = script[i]
@@ -213,6 +249,14 @@ def _split_script(script: str) -> list[tuple[str, str]]:
         elif c == "\\" and i + 1 < len(script):
             cur.append(c + script[i + 1])
             i += 1
+        elif c == "#" and (i == 0 or script[i - 1] in " \t\n;&|()"):
+            end = script.find("\n", i)  # the comment ends at the newline, which still splits
+            i = len(script) if end < 0 else end
+            continue
+        elif c in "()":
+            paren = True
+            depth = max(0, depth + (1 if c == "(" else -1))
+            cur.append(c)
         else:
             op = two if two in ("&&", "||") else c if c in ";\n" else ""
             if c == "&" and not op and script[i - 1:i] not in (">", "<") and script[i + 1:i + 2] != ">":
@@ -222,13 +266,14 @@ def _split_script(script: str) -> list[tuple[str, str]]:
             else:
                 text = "".join(cur).strip()
                 if text:
-                    parts.append((text, op if op != "\n" else ";"))
+                    parts.append((text, op if op != "\n" else ";", paren or depth > 0))
                 cur = []
+                paren = depth > 0
                 i += len(op) - 1
         i += 1
     text = "".join(cur).strip()
     if text:
-        parts.append((text, ""))
+        parts.append((text, "", paren or depth > 0))
     return parts
 
 
@@ -262,8 +307,10 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
     if kind == "turn.completed":
         usage = rec.get("usage") or {}
         out.num_turns = (out.num_turns or 0) + 1
-        out.input_tokens = (out.input_tokens or 0) + int(usage.get("input_tokens") or 0)
-        out.output_tokens = (out.output_tokens or 0) + int(usage.get("output_tokens") or 0)
+        fresh, produced = int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
+        if fresh or produced:  # a missing or all-zero usage is not a measured zero: the counts stay None
+            out.input_tokens = (out.input_tokens or 0) + fresh
+            out.output_tokens = (out.output_tokens or 0) + produced
     elif kind == "turn.failed" or (kind == "error" and not str(rec.get("message", "")).startswith("Reconnecting")):
         # Only set is_error=True for turn.failed; a bare error after it should not override
         if kind == "turn.failed":

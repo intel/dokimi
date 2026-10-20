@@ -13,7 +13,7 @@ import yaml
 
 from dokimi.cli import build_parser
 from dokimi.repos.answers import codex_review_findings, convert_answer
-from dokimi.repos.cli_traces import shell_reads, unwrap_shell
+from dokimi.repos.cli_traces import _LONG_VALUE, shell_reads, unwrap_shell
 from dokimi.repos.events import convert
 from dokimi.repos.harness_profile import ProfileError, builtin_profiles, load_profile, parse_profile
 from dokimi.repos.reach import ReachError, probe_files
@@ -163,9 +163,28 @@ def test_reach_refuses_a_native_prompt_profile(tmp_path):
     ("nl -ba -v 2 a", ["a"]),
     ("nl --number-format ln a", ["a"]),
     ("nl --number-format=ln a", ["a"]),
+    ("{ cd x; } & cat f", ["f"]),                         # a backgrounded group runs in a subshell
+    ("{ cd x; } 2>&1 | cat; cat f", ["f"]),               # so does a piped one
+    ("{ cd x; cat f; } & cat g", ["x/f", "g"]),
+    ("cat a | { cd x; cat b; }", []),                     # a group in a pipeline: directory unknown after it
+    ("if true; then cd sub; fi; cat AGENTS.md", []),      # a conditional cd may not run
+    ("for d in sub; do cd sub; done; cat AGENTS.md", []),
+    ("pushd sub; cat AGENTS.md", []),
+    ("popd; cat AGENTS.md", []),
+    ("(cd sub && cat a && cat b && cat c)", []),          # every part of a subshell is skipped
+    ("(cd sub; cat a; cat b)", []),
+    ("cat other.txt # see CLAUDE.md", ["other.txt"]),     # a comment is not an operand
+    ("true # ; cat AGENTS.md", []),                       # a comment hides the operators in it
+    ("cat 'x # y'", ["x # y"]),                           # a # inside quotes is text
+    ("cat a#b", ["a#b"]),                                 # a # inside a word is not a comment
 ])
 def test_shell_reads(command, reads):
     assert shell_reads(command) == reads
+
+
+@pytest.mark.parametrize("cmd,option", [(c, o) for c, opts in _LONG_VALUE.items() for o in sorted(opts)])
+def test_shell_reads_skips_the_value_of_every_long_option(cmd, option):
+    assert shell_reads(f"{cmd} {option} 5 a") == ["a"]
 
 
 def test_shell_reads_start_in_the_given_directory():
@@ -223,6 +242,17 @@ def test_codex_json_to_events():
         {"t": None, "kind": "tool", "name": "gh.search"},
     ]
     assert t.errors == ["line 11: not JSON"] and not t.is_error  # a reconnect is not an error
+
+
+def test_codex_usage_is_summed_and_a_missing_or_zero_usage_is_not_a_measured_zero():
+    two = _jsonl({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 7}},
+                 {"type": "turn.completed", "usage": {"input_tokens": 20, "output_tokens": 3}})
+    t = convert("codex-json", two, None)
+    assert (t.input_tokens, t.output_tokens, t.num_turns) == (120, 10, 2)
+    for raw in (_jsonl({"type": "turn.completed"}),
+                _jsonl({"type": "turn.completed", "usage": {"input_tokens": 0, "output_tokens": 0}})):
+        t = convert("codex-json", raw, None)
+        assert (t.input_tokens, t.output_tokens) == (None, None)
 
 
 def test_codex_turn_failure_is_an_error_result():
@@ -336,6 +366,8 @@ def test_codex_review_findings_titles_with_dashes_and_trailing_prose():
          "rule": "Leaks \u2014 secrets", "message": "body one"}]
     last = "- [P2] T \u2014 a.c:1\n  body\nOverall: bad."  # a non-indented line ends the body too
     assert codex_review_findings(last)[0]["message"] == "body"
+    paragraphs = "- [P1] T \u2014 a.c:1\n  first\n\n  second\n\nOverall: bad."  # a body spans blank lines
+    assert codex_review_findings(paragraphs)[0]["message"] == "first second"
 
 
 def test_convert_answer_leaves_a_failed_run_as_is():
@@ -355,10 +387,11 @@ def test_convert_answer_maps_every_severity_and_separates_the_block(caplog):
     out = convert_answer("codex-review", text)
     head, block = out.split("\n\n```json\n")
     assert head == text and block.endswith("\n```\n")
-    assert [f["severity"] for f in json.loads(block.split("\n```")[0])] == ["blocker", "major", "minor", "minor", "minor"]
-    assert not caplog.records
+    assert [f["severity"] for f in json.loads(block.split("\n```")[0])] == ["blocker", "major", "minor", "minor", None]
+    assert "unknown priority P9" in caplog.text and caplog.text.count("WARNING") == 1
+    drift = "- [p1] lowercase \u2014 a.c:1\n  b\n- [P1] hyphen - a.c:2\n"
     with caplog.at_level("WARNING"):
-        convert_answer("codex-review", "- [p1] lowercase \u2014 a.c:1\n  b\n- [P1] hyphen - a.c:2\n")
+        assert convert_answer("codex-review", drift) == drift  # no block: not a clean review
     assert "2 finding marker(s)" in caplog.text and "0 parsed" in caplog.text
 
 

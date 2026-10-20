@@ -10,8 +10,8 @@ reads the native findings; nothing is dropped from what the agent said.
 
 Findings are ``{file, line, end_line, severity, priority, rule, message}``:
 ``file`` relative to the workspace, ``line`` the first line of the range,
-``severity`` ``blocker`` (P0), ``major`` (P1) or ``minor`` (P2, P3), ``rule``
-the finding's title and ``message`` its body.
+``severity`` ``blocker`` (P0), ``major`` (P1) or ``minor`` (P2, P3) and ``None`` for a
+priority this module does not know, ``rule`` the finding's title and ``message`` its body.
 """
 
 from __future__ import annotations
@@ -41,14 +41,18 @@ def codex_review_findings(text: str, workdir: str | None = None) -> list[dict[st
         end = found[i + 1].start() if i + 1 < len(found) else len(text)
         body_lines = []
         for line in text[m.end():end].splitlines()[1:]:  # [0] is the rest of the header line
-            if not line.strip() or not line[0].isspace():  # the body: the indented lines up to a blank or other line
+            if not line.strip():  # a blank line may separate paragraphs of the body
+                continue
+            if not line[0].isspace():  # the body is indented; a flush line is prose after the findings
                 break
             body_lines.append(line.strip())
         body = " ".join(body_lines)
         first = int(m.group(4))
+        if m.group(1) not in _SEVERITY:
+            log.warning("unknown priority %s in a review finding; its severity is left unset", m.group(1))
         out.append({"file": relative_path(m.group(3), workdir), "line": first,
                     "end_line": int(m.group(5)) if m.group(5) else first,
-                    "severity": _SEVERITY.get(m.group(1), "minor"), "priority": m.group(1),
+                    "severity": _SEVERITY.get(m.group(1)), "priority": m.group(1),
                     "rule": m.group(2).strip(), "message": body})
     return out
 
@@ -61,7 +65,9 @@ _CONVERTERS: dict[str, Callable[[str, str | None], list[dict[str, Any]]]] = {
 def convert_answer(fmt: str | None, answer: str, workdir: str | None = None, *, failed: bool = False) -> str:
     """``answer`` with the findings block of ``fmt`` appended; unchanged when ``fmt`` is ``None``.
 
-    A ``failed`` run or an empty answer stays as it is: a missing review, not a clean one.
+    A ``failed`` run or an empty answer stays as it is: a missing review, not a clean one. So does
+    an answer with more finding markers than findings parsed: no block is appended, so a grader
+    does not read a review that reported a problem as a clean one.
     """
     if fmt is None or failed or not answer.strip():
         return answer
@@ -70,5 +76,7 @@ def convert_answer(fmt: str | None, answer: str, workdir: str | None = None, *, 
     findings = _CONVERTERS[fmt](answer, workdir)
     marked = len(_FINDING_MARK.findall(answer))
     if marked > len(findings):  # format drift must not read as a clean review
-        log.warning("%s: %d finding marker(s) in the answer but %d parsed", fmt, marked, len(findings))
+        log.warning("%s: %d finding marker(s) in the answer but %d parsed; no findings block", fmt, marked,
+                    len(findings))
+        return answer
     return f"{answer}\n\n```json\n{json.dumps(findings, indent=1)}\n```\n"
