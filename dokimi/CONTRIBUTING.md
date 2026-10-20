@@ -49,8 +49,9 @@ The package exposes a console entry point:
 dokimi --help           # equivalent to `python -m dokimi`
 ```
 
-Optional feature sets are available as extras: `ocr` (Docling ingestion),
-`mcp`, and `embeddings`. Install what you need, e.g. `pip install -e ".[dev,ocr]"`.
+Optional feature sets are available as extras: `ragas` (`eval ragas`, which
+`dev` includes), `ocr` (Docling ingestion), `mcp`, and `embeddings`. Install
+what you need, e.g. `pip install -e ".[dev,ocr]"`.
 
 ## Before you open a PR
 
@@ -63,6 +64,7 @@ the same checks CI runs are:
 ```bash
 ruff check .                              # lint
 mypy                                      # type check (config in pyproject.toml)
+deptry .                                  # declared deps match the imports ([tool.deptry])
 python -m dokimi.schema_check benchmarks/spec.v1.yaml     # validate the benchmark spec
 python -m dokimi.config_check             # registry drift check
 pytest                                    # tests (offline: connecting off loopback fails the test)
@@ -76,8 +78,13 @@ CI additionally holds a PR to:
   Python 3.14 leg), where `<remote>` is the remote pointing at `intel/dokimi`
   (`origin` in CI). `make ci-local` finds that remote by URL and prints the ref
   it compares against; pick another with `CI_LOCAL_ARGS='--remote <name>'`.
-- **mypy on the whole package.** Modules listed under `[[tool.mypy.overrides]]` in
-  `pyproject.toml` are exempt until fixed; do not add to that list.
+- **mypy on the whole package.** No module is exempt: fix the type errors rather
+  than adding an `ignore_errors` override to `pyproject.toml` (`tests/test_mypy_config.py`
+  fails on one).
+- **The import contract.** `tests/test_import_architecture.py` holds the layers
+  (front end → tracks → evaluation → components → foundation; nothing imports `cli` or
+  `commands`), fails a new import cycle, and keeps provider SDKs behind `dokimi.llm` and
+  child processes behind `dokimi.process`. Its baselines only shrink.
 - **Tests that fail loudly.** `pytest` fails a test that runs over 60 s
   (`@pytest.mark.timeout(N)` allows more), turns a warning into an error, and
   shuffles the test order (pytest-randomly). The header prints
@@ -103,6 +110,13 @@ CI additionally holds a PR to:
   a list). A new page goes in two places: the `docs/README.md` index
   (`tests/test_docs_links.py` checks it) and `nav:` in `mkdocs.yml` (the
   build fails on a page missing from it). `mkdocs serve` previews the site.
+- **Dependencies match the imports** — `deptry .` (config in `[tool.deptry]` of
+  `pyproject.toml`). A third-party module the package, `cli.py` or `scripts/`
+  imports is declared in `[project.dependencies]` and `requirements.txt` (or an
+  extra), even when another dependency already pulls it in; a runtime dependency
+  nothing imports is dropped; the `dev` extra's tools are never imported by the
+  package. A dependency that is declared only to cap a transitive version gets a
+  `per_rule_ignores` entry with the reason.
 - **Workflow lint** — `zizmor --offline --min-severity medium .github/workflows` when you
   edit a workflow.
 - **Changelog fragment** — a PR that changes the package (`dokimi/`) adds one to

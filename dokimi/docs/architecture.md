@@ -188,7 +188,8 @@ summarizes pass-rate deltas against a baseline harness. Entry point:
 - `harnesses/agent_sandbox.py` is the host launch for the `-host` variants,
   and holds the `docker-probe` isolation probe that measures both launches.
 - `harnesses/skill_treatment.py` installs the `docker-claude-skill:` arm's
-  skill as a plugin and reads skill reach from the agent's stream;
+  skill as a plugin (the `-skill-discover:` arm's too, without the notice) and
+  reads skill reach from the agent's stream;
   `harnesses/solver_stream.py` runs the solver and records that stream.
 - `harnesses/benchflow.py` hands a cell to BenchFlow's `bench eval run` (the
   `benchflow*:<agent>` harnesses, the only ones that run `task.md` tasks) and
@@ -248,6 +249,10 @@ next release.
 - `dokimi/repos/l0/` — `repo scan` (L0): checks the links, paths,
   identifiers, commands and build labels the guidance names against the same
   tree (`repo_readiness.v1`), with no LLM call.
+- `dokimi/repos/environment/` — `repo inspect`: instruction files and their
+  scope, check surfaces per project root, launch risks (hooks, MCP, risky
+  scripts) and the file inventory (`repo_environment.v1`), read from the tree
+  alone.
 - `dokimi/repos/workspace.py` — loads `task.json` files, exports the
   eval dir and the image build context (tasks removed), and prepares a cell's
   workspace: snapshot at `base`, setup patches, the guidance arm, and no

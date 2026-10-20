@@ -9,7 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from dokimi.commands.evaluate import _run_ragas_eval
+from dokimi.commands.evaluate import _require_ragas, _run_ragas_eval
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -23,6 +23,8 @@ from dokimi.defaults import (
 
 def cmd_answers_generate(args: argparse.Namespace) -> None:
     """Generate context-arm and baseline answers for questions."""
+    if getattr(args, "ragas", False):
+        _require_ragas()
     import yaml
     from dokimi.eval import Answerer
     from dokimi.mcp.factory import (
