@@ -542,10 +542,13 @@ def audit_source(source: str, file: str = "<source>") -> list[Audit]:
 
 
 def audit_tree(tests_dir: pathlib.Path = TESTS) -> tuple[list[Audit], int]:
-    """``(flagged audits, test functions seen)`` for every ``test_*.py`` under *tests_dir*."""
+    """``(flagged audits, test functions seen)`` for every test file under *tests_dir*.
+
+    Both of pytest's default file patterns, ``test_*.py`` and ``*_test.py``.
+    """
     flagged: list[Audit] = []
     total = 0
-    for path in sorted(tests_dir.rglob("test_*.py")):
+    for path in sorted({*tests_dir.rglob("test_*.py"), *tests_dir.rglob("*_test.py")}):
         try:
             rel = path.resolve().relative_to(PROJECT).as_posix()
         except ValueError:

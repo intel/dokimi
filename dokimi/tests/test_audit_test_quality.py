@@ -241,6 +241,13 @@ def test_the_report_and_json_list_every_flagged_test(tmp_path, capsys):
         ("test_mod.py", "test_x", ["no_assert"], False)]
 
 
+def test_every_file_pytest_collects_is_audited(tmp_path):
+    for name in ("test_a.py", "b_test.py"):
+        (tmp_path / name).write_text(textwrap.dedent(FLAGGED["no_assert"]), encoding="utf-8")
+    flagged, total = atq.audit_tree(tmp_path)
+    assert (sorted(Path(a.file).name for a in flagged), total) == (["b_test.py", "test_a.py"], 2)
+
+
 def test_constructor_tracking_invalidates_after_mutation():
     """A mutation after construction invalidates the echo check."""
     flags = _flags("""
