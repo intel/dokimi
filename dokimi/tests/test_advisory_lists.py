@@ -41,10 +41,23 @@ def test_ci_and_security_name_the_osv_config():
     assert "osv-scanner.toml" in SECURITY.read_text(encoding="utf-8")
 
 
+def _names_id(text: str, advisory: str) -> bool:
+    """Whole-ID match, so PYSEC-2026-24470 does not document PYSEC-2026-2447."""
+    return re.search(rf"(?<![\w-]){re.escape(advisory)}(?![\w-])", text) is not None
+
+
+def test_id_match_respects_boundaries():
+    assert _names_id("see `PYSEC-2026-2447`.", "PYSEC-2026-2447")
+    assert not _names_id("see PYSEC-2026-24470", "PYSEC-2026-2447")
+    assert not _names_id("see XPYSEC-2026-2447", "PYSEC-2026-2447")
+
+
 def test_security_documents_every_ignored_id():
     security = SECURITY.read_text(encoding="utf-8")
-    undocumented = sorted(i for i in _osv_ids() if i not in security)
-    assert not undocumented, f"SECURITY.md does not explain these ignored advisories: {undocumented}"
+    undocumented = sorted(i for i in _osv_ids() if not _names_id(security, i))
+    assert not undocumented, (
+        f"SECURITY.md does not explain these ignored advisories: {undocumented}"
+    )
 
 
 def test_hypothesis_example_database_is_git_ignored():
