@@ -18,6 +18,7 @@ REPO = PROJECT.parent
 OSV_CONFIG = PROJECT / "osv-scanner.toml"
 CI_WORKFLOW = REPO / ".github" / "workflows" / "ci.yml"
 SECURITY = PROJECT / "SECURITY.md"
+CHANGELOG_FRAGMENT = PROJECT / "changelog.d" / "20261019_210000_napetrov_scorecard-vulns.md"
 
 
 def _osv_ids() -> set[str]:
@@ -39,6 +40,13 @@ def test_ci_and_security_name_the_osv_config():
     """A removed advisory must be dropped from all three lists, so each names the file."""
     assert "dokimi/osv-scanner.toml" in CI_WORKFLOW.read_text(encoding="utf-8")
     assert "osv-scanner.toml" in SECURITY.read_text(encoding="utf-8")
+
+
+def test_changelog_baseline_claim_names_no_resolve():
+    """osv-scanner without --no-resolve reports extra packages; the note must not claim parity."""
+    fragment = CHANGELOG_FRAGMENT.read_text(encoding="utf-8")
+    assert "osv-scanner and OpenSSF Scorecard report" not in fragment
+    assert "osv-scanner --no-resolve" in fragment
 
 
 def test_hypothesis_example_database_is_git_ignored():
