@@ -309,9 +309,6 @@ class TestJudgeAnswer:
         (["x: dubious, entirely wrong"], 95, 40),
         (["8 ms: dubious, entirely wrong"], 95, 40),
         (["x: dubious, completely wrong"], 95, 40),
-        # A negated intensified "correct" is wrong: negation resolves before the intensifier.
-        (["x: dubious, not entirely correct"], 95, 40),
-        (["x: dubious, not partially correct"], 95, 40),
         # An intensified "correct" is right, so it does not cap.
         (["x: dubious, entirely correct"], 95, 95),
         (["x \u2013 misleading/wrong"], 95, 40),
@@ -381,8 +378,10 @@ class TestJudgeAnswer:
         "x - not wrong",
         "x — not wrong",
         "x \u2013 not wrong",
-        # _VERDICT's `right` branch, with text after the verdict.
+        # _VERDICT's `right` and `correct` branches, with text after the verdict.
         "64 B: right (expected 64)",
+        "x: correct, see note",
+        "x - correct (see note)",
     ])
     def test_a_qualified_or_negated_verdict_is_read(self, mock_llm, claim):
         """Qualified and negated verdicts: slash-separated qualifiers, trailing commas, and `not` all read correctly."""
@@ -418,6 +417,15 @@ class TestJudgeAnswer:
         "x: unverified, right/wrong",
         "x: unverified, right, wrong",
         "x: dubious, hardly wrong",
+        # A negated intensifier hedges in both directions.
+        "x: dubious, not entirely correct",
+        "x: dubious, not partially correct",
+        "x: dubious, not mostly correct",
+        "x: dubious, not completely wrong",
+        "x: dubious, not mostly wrong",
+        "x: dubious, not partially wrong",
+        "x: dubious, not largely wrong",
+        "x: dubious, not totally wrong",
         "x: unverified, wrong/right",
         "x: unverified, wrong, right",
         "x: unverified, correct/wrong",

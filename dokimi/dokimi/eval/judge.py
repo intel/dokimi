@@ -438,8 +438,9 @@ class Judge:
         r"(?::|\s[-\u2013\u2014]|\()\s*(?:[a-z]+ly\s+)?(wrong|incorrect|right|correct)\b", re.I
     )
     #: Gate for the fallback: the claim must contain a ``:``, a dash after whitespace (``-``,
-    #: en or em dash) or ``(`` somewhere (it may be inside the figure). The fallback searches the whole claim; its end-anchor, not a start
-    #: offset, is what keeps a ``/`` or ``,`` in the figure from being read as the verdict.
+    #: en or em dash) or ``(`` somewhere (it may be inside the figure). The fallback searches
+    #: the whole claim; its end-anchor, not a start offset, is what keeps a ``/`` or ``,`` in
+    #: the figure from being read as the verdict.
     _VERDICT_PART = re.compile(r":|\s[-\u2013\u2014]|\(")
     #: Fallback for a claim ``_VERDICT`` cannot read. The verdict word must end the claim (only
     #: whitespace, ``.`` and ``)`` may follow) and come after a separator or a ``,``, either
@@ -452,9 +453,9 @@ class Judge:
     #: is an alternative, not a verdict, so the claim stays unread; ``(?<!correct)`` also
     #: covers ``incorrect``. Only the intensifiers in ``_INTENSIFIERS`` may qualify the word
     #: here; any other ``-ly`` adverb (``hardly``, ``possibly``, ``formerly``) hedges or
-    #: dates the verdict and leaves the claim unread. A negation is resolved before the
-    #: intensifier: ``not entirely correct`` is wrong, but ``not entirely wrong`` hedges and
-    #: stays unread. A verdict word with no separator in front stays unread on
+    #: dates the verdict and leaves the claim unread. A negated intensifier hedges in both
+    #: directions (``not entirely correct``, ``not entirely wrong``) and stays unread, while a
+    #: bare ``not correct`` is wrong. A verdict word with no separator in front stays unread on
     #: purpose: ``correctly marked as WRONG to claim`` says the answer flagged a bad claim,
     #: not that its figure is wrong.
     _QUALIFIED_VERDICT = re.compile(
@@ -464,7 +465,9 @@ class Judge:
         re.I,
     )
     #: Adverbs that strengthen a fallback verdict instead of hedging it.
-    _INTENSIFIERS = frozenset({"partially", "mostly", "largely", "completely", "totally", "entirely"})
+    _INTENSIFIERS = frozenset({
+        "partially", "mostly", "largely", "completely", "totally", "entirely",
+    })
 
     @classmethod
     def _is_wrong_figure(cls, claim: Any) -> Optional[bool]:
@@ -482,10 +485,10 @@ class Judge:
         if adverb and adverb.lower() not in cls._INTENSIFIERS:
             return None
         is_wrong_word = word.lower() in ("wrong", "incorrect")
-        if adverb and negated and is_wrong_word:
-            return None  # "not entirely wrong" hedges: partly right, or wrong
+        if adverb and negated:
+            return None  # "not entirely correct" and "not entirely wrong" both hedge
         if negated:
-            return not is_wrong_word  # "not correct" is wrong; "not entirely correct" too
+            return not is_wrong_word
         return is_wrong_word
 
     @classmethod
