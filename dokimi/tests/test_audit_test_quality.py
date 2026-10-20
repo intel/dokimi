@@ -360,6 +360,19 @@ def test_mutation_patterns_invalidate_echo(mutation):
     assert "set_then_read" not in flags["test_mutation"]
 
 
+@pytest.mark.parametrize("weak", [
+    "assert hasattr(c, 'n')", "assert isinstance(c, object)", "assert callable(c)", "print(c)",
+])
+def test_a_read_only_builtin_does_not_count_as_a_mutation(weak):
+    flags = _flags(f"""
+        def test_x():
+            c = Config(n=3)
+            {weak}
+            assert c.n == 3
+        """)
+    assert "set_then_read" in flags["test_x"]
+
+
 def test_and_or_splits_in_mock_echo():
     """Both and/or expressions are judged element-wise in mock_echo."""
     # Both are mock-only when split

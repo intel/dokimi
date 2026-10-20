@@ -85,6 +85,11 @@ _NONEMPTY_LEN_REVERSED = frozenset({(ast.Lt, 0), (ast.LtE, 1), (ast.NotEq, 0)})
 # A call whose name holds one of these (check_x, verify_y, _expect_z) counts as a check.
 _ASSERTION_HINTS = ("assert", "check", "verify", "expect", "validate", "ensure", "raises",
                     "warns", "fail")
+# Builtins that read an object without changing it: passing it to one is not a mutation.
+_READ_ONLY_BUILTINS = frozenset(
+    {"callable", "hasattr", "getattr", "isinstance", "issubclass", "len", "repr", "str", "print",
+     "type", "id"}
+)
 _SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 _FuncDef = ast.FunctionDef | ast.AsyncFunctionDef
 
@@ -230,7 +235,8 @@ def _constructor_inputs(nodes: list[ast.AST]) -> dict[str, set[tuple[str, object
                 root = root.value
             if isinstance(node.func, ast.Attribute) and isinstance(root, ast.Name):
                 mutated.add(root.id)
-            mutated.update(a.id for a in node.args if isinstance(a, ast.Name))
+            if _call_name(node) not in _READ_ONLY_BUILTINS:
+                mutated.update(a.id for a in node.args if isinstance(a, ast.Name))
         elif isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
             seen[node.target.id] += 1  # a walrus rebind: which binding an assert reads is unknown
         elif isinstance(node, ast.Assign):
