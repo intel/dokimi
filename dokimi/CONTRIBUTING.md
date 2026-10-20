@@ -144,8 +144,9 @@ from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
 keeps the current pins). The command's `--exclude-newer=P7D` skips releases
 less than 7 days old; if a security fix is newer than that, its vulnerability PR
 fails to resolve, so regenerate the lock by hand without the flag. The docs lock
-is constrained to the main one, so regenerate it (command in its header) after
-the main lock changes too.
+and the tools lock (`requirements-ci.lock.txt`) are constrained to the main one,
+so regenerate them (command in each header) after the main lock changes too;
+`tests/test_dependency_locks.py` fails while a pin they share differs.
 
 Renovate (`.github/renovate.json5`) proposes updates on Mondays for releases at
 least 7 days old: one grouped PR for all minor and patch updates, one PR per
