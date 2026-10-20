@@ -171,6 +171,23 @@ def test_a_file_that_is_not_utf8_is_a_problem_not_a_crash(tmp_path, name):
     assert any("cannot read" in p for p in report["problems"]), report["problems"]
 
 
+def test_a_registry_nested_too_deep_for_the_loader_is_a_problem_not_a_crash(tmp_path):
+    registry = _tree(tmp_path)
+    registry.write_text("schema: 1\ncriteria: {}\nfoo: " + "[" * 600 + "]" * 600 + "\n", encoding="utf-8")
+    report = journeys.check(registry, tmp_path, {}, _evidence({}), {}, plugin._anchors)
+    assert report["verdict"] == "error"
+    assert any("cannot read" in p for p in report["problems"]), report["problems"]
+    journeys.markdown(report)
+
+
+def test_a_ref_too_long_for_a_file_name_is_a_problem_not_a_crash(tmp_path):
+    criteria = {"AC-J04-001": {"delivery": "available", "refs": ["x" * 5000]}}
+    report = _check(tmp_path, criteria)
+    assert report["verdict"] == "error"
+    assert any("missing path" in p for p in report["problems"]), report["problems"]
+    journeys.markdown(report)
+
+
 def test_a_criterion_given_twice_in_the_registry_is_a_problem(tmp_path):
     """A second entry further down would otherwise replace an enforced one, unseen in the diff."""
     registry = _tree(tmp_path)

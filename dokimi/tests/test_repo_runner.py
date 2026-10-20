@@ -400,6 +400,9 @@ def test_the_isolation_probe_script_reports_what_it_names(tmp_path):
     content.mkdir()
     visible = probe("no-such-task-dokimi-probe", content=content)
     assert visible.returncode == 1 and "visible to the agent" in visible.stdout, visible.stdout
+    (image / "usr/bin/fix_pip_extra").write_text("", encoding="utf-8")  # contains a task name, is not one
+    substring = probe("fix_pip")
+    assert substring.returncode == 0 and substring.stdout == "", substring.stdout
     (image / "usr/bin/fix_pip").write_text("", encoding="utf-8")  # a task's name left in the image
     named = probe("fix_pip")
     assert named.returncode == 1 and "named like a task" in named.stdout, named.stdout

@@ -193,7 +193,8 @@ criteria:
         kind: cli_scenario
         invokes: ["repo tasks check --task"]
         stubs: [Docker (FakeRunner, with a simulated leaky image)]
-    gaps: ["isolation is checked by name and mount, against a simulated image, not a real container escape"]
+    gaps: ["isolation is checked by name and mount, against a simulated image, not a real container escape",
+           "the probe's find root (/), its /proc /sys /dev prune and the source mount are not exercised: the shim searches a small tree"]
   AC-J07-005:
     delivery: partial
     enforce: false

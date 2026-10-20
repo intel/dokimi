@@ -217,7 +217,11 @@ def invoked(root: argparse.ArgumentParser, surface: str, calls: list[list[str]])
 def _ref_problem(repo_root: Path, ref: str, anchors: Callable[[Path], set[str]]) -> str | None:
     name, _, anchor = ref.partition("#")
     target = repo_root / name
-    if not target.exists():
+    try:
+        exists = target.exists()
+    except OSError:  # a name the file system refuses (too long, NUL) is a missing path
+        exists = False
+    if not exists:
         return f"missing path: {ref}"
     if anchor and (target.suffix != ".md" or anchor not in anchors(target)):
         return f"missing anchor: {ref}"
@@ -409,7 +413,7 @@ def check(registry_path: Path, repo_root: Path, contracts: dict[str, dict],
     try:
         text = registry_path.read_text(encoding="utf-8")
         registry = yaml.safe_load(text) or {}
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+    except (OSError, UnicodeDecodeError, yaml.YAMLError, RecursionError) as exc:
         registry, problems = {}, [f"{registry_path.name}: cannot read: {exc}"]
     else:
         problems = [] if isinstance(registry, dict) else [f"{registry_path.name}: not a mapping"]
