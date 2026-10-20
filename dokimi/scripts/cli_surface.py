@@ -142,8 +142,8 @@ def _command(parser: argparse.ArgumentParser, path: str) -> dict[str, Any]:
             position += 1  # the subcommand takes a positional slot too
             for name, sub in sorted(action.choices.items()):
                 node["subcommands"][name] = _command(sub, f"{path} {name}")
-        elif not isinstance(action, argparse._HelpAction):
-            # --version is kept (its version string is not dumped, so a release is no change)
+        else:
+            # -h/--help and --version are kept (help text and the version string are not dumped)
             group_info = action_to_group.get(action)
             group_key = group_info[0] if group_info else None
             group_required = group_info[1] if group_info else None

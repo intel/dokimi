@@ -51,7 +51,7 @@ def test_dump_of_the_real_cli_is_json_and_deterministic():
 def test_nested_subcommands_and_hidden_options_are_walked():
     flat = cs._flatten(_surface(), {})
     assert set(flat) == {"dokimi", "dokimi run", "dokimi repo", "dokimi repo scan"}
-    (hidden,) = flat["dokimi repo scan"]["params"]
+    (hidden,) = [p for p in flat["dokimi repo scan"]["params"] if p["key"] == "--hidden"]
     assert hidden["hidden"] is True
 
 
@@ -414,3 +414,9 @@ def test_moving_a_positional_across_the_subcommand_is_a_change():
     # `dokimi WS run` becomes `dokimi run WS`
     lines = cs.diff_surfaces(cs._command(parser(True), "dokimi"), cs._command(parser(False), "dokimi"))
     assert any("position: 0 -> 1" in line for line in lines), lines
+
+
+def test_removing_the_help_option_is_a_change():
+    def surface(**kw: bool) -> dict:
+        return cs._command(argparse.ArgumentParser(prog="dokimi", **kw), "dokimi")
+    assert "    - removed option `--help/-h`" in cs.diff_surfaces(surface(), surface(add_help=False))
