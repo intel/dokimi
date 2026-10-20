@@ -67,6 +67,17 @@ def test_compare_strict_refuses_a_model_mismatch(compare, capsys):
     assert "Avg delta" not in out
 
 
+def test_compare_strict_exits_2_on_a_malformed_record(compare, capsys):
+    """Exit 1 is the --strict verdict; a record with no question_id is an input error."""
+    current = _eval()
+    del current["evaluations"][0]["question_id"]
+    with pytest.raises(SystemExit) as exc:
+        compare(_eval(), current, "--strict")
+    assert exc.value.code == 2
+    out, err = capsys.readouterr()
+    assert "missing question_id" in err and "missing question_id" not in out
+
+
 def test_compare_is_silent_when_the_models_match(compare, capsys):
     compare(_eval(delta=1.0), _eval(), "--strict")
     out, err = capsys.readouterr()

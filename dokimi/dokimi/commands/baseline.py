@@ -222,8 +222,8 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
                                                     source=entry["path"], kind="evaluations")}
         current_evals = records(eval_data.get("evaluations", []), source=str(eval_path), kind="evaluations")
     except RecordError as exc:
-        print(f"❌ {exc}")
-        raise SystemExit(1) from exc
+        print(f"❌ {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc  # 1 is the --strict verdict
 
     print(f"Comparing against baseline: {entry['name']} (saved {entry.get('saved_at', '?')})\n")
 

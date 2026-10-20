@@ -21,9 +21,10 @@
   warning, keeping the others. Files written by dokimi carry these fields; no
   score changes for them. Arms files written with the runner's `unknown_q`
   fallback id still read in `eval cross-judge`'s stored scores.
-  Every command that reads these files exits 2 on a `RecordError`, naming the
-  record (`eval score`, `eval cross-judge`, `eval judge-validity`, `eval
-  checklist`, `eval pairwise`), so exit 1 stays the verdict of the gates.
+  `eval score`, `eval cross-judge`, `eval judge-validity`, `eval checklist`,
+  `eval pairwise` and `baseline compare` exit 2 on a `RecordError`, naming the
+  record on stderr, so exit 1 stays the verdict of the gates; the other
+  commands that stop on one exit 1, as on their other input errors.
 - **`eval cross-judge --judges` refuses a binary answers file** — like
   `eval checklist` and `eval pairwise`, which already exited 2 on a file with
   no `arms` (`answers generate` output), it now exits 2 naming the file
