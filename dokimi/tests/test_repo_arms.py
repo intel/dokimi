@@ -16,6 +16,8 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.repos import RepoSource, load_manifest, open_source
 from dokimi.repos.compare import compare, parse_selector
+from dokimi.repos.report import summarize
+from dokimi.repos.runner import cell_name
 from dokimi.repos.workspace import PrepError, _apply_rev, load_tasks, parse_arm, pin_arm, prepare_workspace, source_git_dir
 from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo, write
 
@@ -190,6 +192,23 @@ def test_arm_names_are_compare_selectors_and_cell_name_parts(toy):
         assert "/" not in arm and "," not in arm and "__" not in arm
         assert parse_selector(f"b1/{arm}") == ("b1", str(arm)) and parse_selector(str(arm)) == (None, str(arm))
     assert parse_arm(f"patch:{patch}").startswith("patch:v2_with_odd_name.diff@")
+
+
+@pytest.mark.parametrize("file_name", ["a" * 39 + "_more.diff", "fix (1)"])
+def test_report_counts_the_missing_cells_of_a_patch_arm_whatever_its_file_name(tmp_path, file_name):
+    patch = tmp_path / file_name
+    patch.write_text(TOOLING_PATCH)
+    arm = str(parse_arm(f"patch:{patch}"))
+    batch = tmp_path / "b1"
+    cells = [cell_name("t", arm, "m", rep) for rep in (1, 2)]
+    (batch / "_eval").mkdir(parents=True)
+    (batch / "_eval" / "plan.json").write_text(json.dumps({"cells": cells}))
+    (batch / cells[0]).mkdir()
+    agent = {"timed_out": False, "is_error": False, "over_budget": False, "cost_usd": 0.0, "num_turns": 1}
+    (batch / cells[0] / "result.json").write_text(json.dumps({
+        "task": "t", "arm": arm, "model": "m", "agent": agent,
+        "grade": {"success": True, "status": "graded", "score_only": False}}))
+    assert [row["missing"] for row in summarize(batch)["rows"]] == [1]
 
 
 @pytest.fixture

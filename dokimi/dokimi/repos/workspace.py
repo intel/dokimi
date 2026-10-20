@@ -120,7 +120,7 @@ def parse_arm(spec: str) -> Arm:
         # one "_" at most in a row: cell names join their parts with "__"
         name = re.sub(r"[^A-Za-z0-9.-]+", "_", path.name).strip("_") or "patch"
         # Cap the name to prevent filesystem errors (ENAMETOOLONG). The digest keeps it unique.
-        name = name[:40]
+        name = name[:40].rstrip("_") or "patch"  # a cut ending in "_" would put "__" in the cell name
         digest = hashlib.sha256(data).hexdigest()
         return Arm(f"{PATCH_ARM}{name}@{digest[:12]}", spec=spec, patch=data, patch_path=str(path.resolve()))
     raise PrepError(f"unknown arm {spec!r} (known: {', '.join(ARM_FORMS)})")
