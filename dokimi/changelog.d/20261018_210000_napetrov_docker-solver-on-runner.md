@@ -17,13 +17,13 @@
   `reward.txt`. The agent's tree, the solve's stream and its cost are still saved.
   A *completed* failing compile still only fills `recompile_failed`. These
   are scored reward 0 (they stay in pass-rate denominators), not recorded as errors.
-  A killed step's partial output is now in `run.log`.
+  A killed `docker` step's partial output is now in `run.log`.
 - **`docker-claude-host` is contained** — the host `claude` starts through the
   process runner. A timeout kills its whole process tree, so a tool process the
   agent started no longer outlives its cell. `claude`'s output is read as UTF-8,
   whatever the locale. The in-container agent, the in-container probe and the
   docker CLI go through the same runner, each with the environment it had before.
-  `solver.jsonl` and `run.log` still keep the whole stream.
+  `solver.jsonl` keeps the whole stream.
 - **Library API** — `DockerSolverHarness` and `ContainerSandbox.open` take a
   `runner` (`create_harness(..., runner=)` now passes it to the `docker-*`
   harnesses too). `solver_stream.run_solver` takes keyword-only `timeout`, `env`,
