@@ -264,6 +264,15 @@ def test_repo_run_refuses_an_unreadable_patch_before_building_anything(setup, ca
     assert not (setup["out"] / "b1").exists()
 
 
+def test_repo_run_refuses_a_misspelled_revision_before_building_anything(setup, capsys, monkeypatch):
+    runner = FakeRunner()
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    with pytest.raises(SystemExit):
+        _run(setup, "guidance:raw,guidance:rev:mian")
+    assert "no commit 'mian'" in capsys.readouterr().err
+    assert runner.builds == [] and not (setup["out"] / "b1").exists()
+
+
 def test_patch_arm_rejects_a_file_gitignore_hides_inside_eval_dir(toy):
     patch = toy["tmp"] / "ignored.diff"
     patch.write_text("diff --git a/.gitignore b/.gitignore\nnew file mode 100644\n--- /dev/null\n+++ b/.gitignore\n"

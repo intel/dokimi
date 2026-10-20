@@ -164,20 +164,25 @@ def cmd_repo_run(args: argparse.Namespace) -> None:
 
 
 def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock: contextlib.ExitStack) -> None:
+    from dokimi.repos import RepoSource, open_source
     from dokimi.repos.container import docker_network
     from dokimi.repos.harness_profile import load_profile
     from dokimi.repos.runner import (
         AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps)
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
-    from dokimi.repos.workspace import load_tasks, parse_arm
+    from dokimi.repos.workspace import load_tasks, parse_arm, source_git_dir
+
+    from .repo import _cache_dir
 
     try:
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
         harness_bin = _harness_bin(args.bin or profile.bin)
+        source = RepoSource.parse(args.source)  # a misspelled revision fails before the build and the pin too
+        arms = _pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
+                         args.source)
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, pin=True)
-        arms = _pin_arms(parsed, ctx.git_dir, args.source)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, timeout_s=args.timeout, max_turns=args.max_turns,
