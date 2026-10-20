@@ -365,3 +365,33 @@ def test_workflow_ignores_base_branch_changes_made_after_the_merge_commit(tmp_pa
     # main gained --main-opt after the merge commit was made: that is not this PR's change
     assert "changed=0" in _run_diff_step(tmp_path, pr_adds=False)
     assert "changed=1" in _run_diff_step(tmp_path / "b", pr_adds=True)
+
+
+_VALIDATOR = '''def positive_int(text):
+    """Reject non-positive integers."""
+    value = int(text)
+    if value < 1:  # zero is not positive
+        raise ValueError(text)
+    return value
+'''
+
+
+def _file_validator(tmp_path: Path, name: str, source: str):
+    """`positive_int` from a module file `validators.py`: same module and qualname every time."""
+    path = tmp_path / name / "validators.py"
+    path.parent.mkdir()
+    path.write_text(source, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("validators", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.positive_int
+
+
+def test_a_validator_is_compared_by_code_not_by_its_docstring_or_comments(tmp_path):
+    base = _one(type=_file_validator(tmp_path, "base", _VALIDATOR))
+    reworded = _VALIDATOR.replace("Reject non-positive", "Reject zero and negative").replace(
+        "# zero is not positive", "# 0 is rejected too").replace("    return value", "\n    return value")
+    assert cs.diff_surfaces(base, _one(type=_file_validator(tmp_path, "reworded", reworded))) == []
+    loosened = _one(type=_file_validator(tmp_path, "loosened", _VALIDATOR.replace("< 1", "< 0")))
+    assert any("type:" in line for line in cs.diff_surfaces(base, loosened))

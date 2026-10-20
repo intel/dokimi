@@ -24,12 +24,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import enum
 import hashlib
 import inspect
 import json
 import re
 import sys
+import textwrap
 from pathlib import Path, PurePath
 from typing import Any
 
@@ -44,6 +46,24 @@ def _filled(cell: Any) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _code(fn: Any) -> str:
+    """A function's code without docstrings, comments or layout: rewording them is no CLI change."""
+    try:
+        src = textwrap.dedent(inspect.getsource(fn))
+    except (OSError, TypeError):
+        return "nosource"
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:  # e.g. a lambda, whose source is the whole line around it
+        return src
+    for node in ast.walk(tree):
+        if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.body
+                and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)
+                and isinstance(node.body[0].value.value, str)):
+            node.body = node.body[1:] or [ast.Pass()]
+    return ast.dump(tree)
 
 
 def _value(value: Any) -> Any:
@@ -61,11 +81,8 @@ def _value(value: Any) -> Any:
     if isinstance(value, enum.Enum):
         return repr(value)
     if inspect.isfunction(value):
-        # A validator's name alone hides a loosened body: add a hash of its source.
-        try:
-            src = inspect.getsource(value)
-        except (OSError, TypeError):
-            src = "nosource"
+        # A validator's name alone hides a loosened body: add a hash of its code.
+        src = _code(value)
         # Captured values and defaults (a factory's `lo`) change what the function accepts too.
         cells = [c.cell_contents for c in (value.__closure__ or ()) if _filled(c)]
         src += repr([_value(c) for c in cells]) + repr(_value(value.__defaults__))
