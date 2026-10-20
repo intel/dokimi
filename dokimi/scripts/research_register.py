@@ -153,6 +153,8 @@ def matches(record: Record, where: list[str], ref: str | None, kind: str | None)
     for clause in where:
         field, _, wanted = clause.partition("=")
         value = record.fields.get(field)
+        if value is None:
+            return False  # a missing field matches no value, not the string "None"
         values = [str(v) for v in value] if isinstance(value, list) else [str(value)]
         if not set(values) & set(wanted.split(",")):
             return False
@@ -216,6 +218,12 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(errors), file=sys.stderr)
         return 1
     if args.command == "query":
+        fields = {p for d in schema["$defs"].values() for p in d.get("properties", {})}
+        bad = [c for c in args.where if "=" not in c or c.partition("=")[0] not in fields]
+        if bad:
+            print(f"--where needs FIELD=VALUE with a schema field: {', '.join(bad)}",
+                  file=sys.stderr)
+            return 2
         for record in sorted(records.values(), key=lambda r: r.id):
             if matches(record, args.where, args.ref, args.type):
                 extra = record.fields.get("outcome") or record.fields.get("state") or \

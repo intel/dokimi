@@ -167,3 +167,29 @@ def test_export_tree(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert theme["ideas"][0]["experiments"] == [
         {"id": "X001", "outcome": "refuted"}, {"id": "X002", "outcome": "supported"}]
     assert next(r for r in data["records"] if r["id"] == "X001")["body"] == "## Result\nworse"
+
+
+def test_export_ignores_decision_pointing_at_idea(root: Path,
+                                                  capsys: pytest.CaptureFixture[str]) -> None:
+    _write(root, "decision", "D002", "title: Uses idea\nfindings: [F001]\nideas: [I001]\n"
+                                     "state: accepted\n")
+    assert rr.main(["--root", str(root), "export"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    theme = next(t for t in data["themes"] if t["id"] == "O")
+    assert theme["ideas"][0]["experiments"] == [
+        {"id": "X001", "outcome": "refuted"}, {"id": "X002", "outcome": "supported"}]
+
+
+@pytest.mark.parametrize("clause", ["outcom=refuted", "noequals", "bogus=None"])
+def test_query_rejects_bad_where_clause(root: Path, capsys: pytest.CaptureFixture[str],
+                                        clause: str) -> None:
+    assert rr.main(["--root", str(root), "query", "--where", clause]) == 2
+    captured = capsys.readouterr()
+    assert clause in captured.err
+    assert captured.out == ""
+
+
+def test_query_missing_field_matches_no_value(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert rr.main(["--root", str(root), "query", "--type", "experiment",
+                    "--where", "retracted=None"]) == 0
+    assert capsys.readouterr().out == ""
