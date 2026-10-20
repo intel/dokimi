@@ -15,7 +15,7 @@ from dokimi.eval import binary_stats
 from dokimi.eval.stats import adjust_pvalues
 
 from .models import HarnessResult, OperationRecord, TaskRunResult
-from .registry import create_harness, with_skill_counterpart
+from .registry import create_harness, find_with_skill_arm
 from .tasks import TaskSpec
 
 
@@ -294,8 +294,8 @@ def _discovery_gaps(rows: list[dict[str, Any]],
     outcomes, attempted = _outcomes_by_cell(rows)
     gaps: dict[str, dict[str, Any]] = {}
     for harness, stats in per_harness.items():
-        pair = with_skill_counterpart(harness)
-        if pair is None or pair not in per_harness:
+        pair = find_with_skill_arm(harness, per_harness)
+        if pair is None:
             continue
         with_rate, discover_rate = per_harness[pair]["pass_rate"], stats["pass_rate"]
         # Two arms with the same discovered gap are comparable only if they attempted

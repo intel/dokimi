@@ -317,6 +317,24 @@ def test_summary_reports_the_discovery_gap_per_pair():
     assert "discovery_gaps" not in summarize_task_results(rows[:2])
 
 
+@pytest.mark.parametrize("skill, disc", [("s/SKILL.md", "s"), ("s", "./s/"),
+                                         ("s", "{cwd}/s"), ("s/", "s/SKILL.md")])
+def test_discovery_gap_pairs_spellings_of_one_skill(tmp_path, monkeypatch, skill, disc):
+    monkeypatch.chdir(tmp_path)
+    skill = f"docker-claude-skill:{skill}"
+    disc = f"docker-claude-skill-discover:{disc.format(cwd=tmp_path)}"
+    rows = [_arm_row("a", "docker-claude", False), _arm_row("a", skill, True, invoked=1),
+            _arm_row("a", disc, False, invoked=0),
+            _arm_row("a", "docker-claude-host-skill:s", True, invoked=1),
+            _arm_row("a", "docker-claude-skill:t", True, invoked=1)]
+    gap = summarize_task_results(rows, baseline_harness="docker-claude")["discovery_gaps"][disc]
+    assert (gap["with_skill_harness"], gap["gap"]) == (skill, 1.0)
+    # Another launch or another skill is not its pair, and an empty path pairs with nothing.
+    assert "discovery_gaps" not in summarize_task_results(rows[:1] + rows[2:])
+    empty = [_arm_row("a", "docker-claude", False), _arm_row("a", "docker-claude-skill-discover:", False)]
+    assert "discovery_gaps" not in summarize_task_results(empty)
+
+
 def test_docker_claude_skill_requires_a_path():
     import pytest
 

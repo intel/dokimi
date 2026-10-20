@@ -793,7 +793,7 @@ python cli.py tasks run --tasks-root <content-checkout>/evaluation/harbor/tasks 
   that never loaded the skill through the `Skill` tool; it may still have `Read`
   the `SKILL.md` under the plugin directory, which this does not count.
 - **Discovery gap.** When a discovery arm runs next to the skill arm with the
-  same path and launch, `summary.discovery_gaps` holds both pass rates, the
+  same skill directory and launch (`s`, `./s/` and `s/SKILL.md` pair), `summary.discovery_gaps` holds both pass rates, the
   gap (with-skill − discovery) and both skill-invocation rates. The report
   shows them in a *Skill discovery* table. The gap is withheld when the two arms
   ran different cells (`attempted_cells_match` is false: one arm attempted a cell the other

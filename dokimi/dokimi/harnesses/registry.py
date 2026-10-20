@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Collection
 from dataclasses import fields, replace
 from pathlib import Path
 
@@ -121,6 +123,29 @@ def with_skill_counterpart(harness: str) -> str | None:
         if harness.startswith(discover):
             return f"{prefix}-skill:{harness[len(discover):]}"
     return None
+
+
+def find_with_skill_arm(harness: str, harnesses: Collection[str]) -> str | None:
+    """The arm in ``harnesses`` that :func:`with_skill_counterpart` names, however it is spelled.
+
+    ``s``, ``s/``, ``./s`` and ``s/SKILL.md`` install one skill, so they pair on
+    launch plus skill directory (relative to the cwd, as the harness resolves it).
+    """
+    want = with_skill_counterpart(harness)
+    if want is None:
+        return None
+    if want in harnesses:
+        return want
+    key = _skill_arm_key(want)
+    return next((h for h in harnesses if key and _skill_arm_key(h) == key), None)
+
+
+def _skill_arm_key(harness: str) -> tuple[str, str] | None:
+    prefix, _, skill = harness.partition(":")
+    if prefix not in ("docker-claude-skill", "docker-claude-host-skill") or not skill:
+        return None
+    path = os.path.normpath(os.path.abspath(skill))
+    return prefix, os.path.dirname(path) if os.path.basename(path) == "SKILL.md" else path
 
 
 def _skill_arg(harness: str, prefix: str) -> str:
