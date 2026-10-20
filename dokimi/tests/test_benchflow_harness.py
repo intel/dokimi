@@ -1702,3 +1702,10 @@ def test_preflight_docker_and_bench_checks_inherit_the_environment(monkeypatch):
         pass
     assert fake.calls and all(c.env.get("DOCKER_HOST") == "unix:///x.sock" for c in fake.calls)
 
+
+
+def test_a_result_with_an_overlong_integer_is_unreadable_not_a_crash(tmp_path):
+    """json.loads raises a plain ValueError past the int-string limit, not JSONDecodeError."""
+    path = tmp_path / "result.json"
+    path.write_text('{"n": ' + "9" * 5000 + "}", encoding="utf-8")
+    assert _bf._load_json(path) is None
