@@ -12,9 +12,11 @@ bin_companions: [codex-code-mode-host]
 # the workspace HEAD). `--commit` refuses a custom prompt, so the task prompt is not
 # passed (native_prompt) and the answer is Codex's review text, which answer_format
 # turns into the findings block a review grader reads. Use it on review tasks only.
+# The tool mode goes before `review`: --sandbox is an `exec` option that review rejects.
 invoke:
   - "{bin}"
   - "exec"
+  - "{tools}"
   - "review"
   - "--commit"
   - "HEAD"
@@ -23,7 +25,6 @@ invoke:
   - "--ephemeral"
   - "--skip-git-repo-check"
   - "--json"
-  - "{tools}"
 native_prompt: true
 answer_format: codex-review
 tools:

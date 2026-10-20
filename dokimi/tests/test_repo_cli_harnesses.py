@@ -38,11 +38,15 @@ def test_builtin_cli_profiles_load_and_build_argv_without_a_shell():
     assert "copilot-instructions.md" in copilot.guidance_names
 
 
-def test_codex_review_runs_its_own_prompt():
+@pytest.mark.parametrize("tools", ["none", "read", "all"])
+def test_codex_review_runs_its_own_prompt(tools):
     profile = load_profile("codex-review")
     assert profile.native_prompt and profile.answer_format == "codex-review" and profile.trace == "codex-json"
-    argv = profile.argv(prompt="Review HEAD as a maintainer", model="gpt-x", tools="all")
-    assert argv[1:5] == ["exec", "review", "--commit", "HEAD"]
+    argv = profile.argv(prompt="Review HEAD as a maintainer", model="gpt-x", tools=tools)
+    review = argv.index("review")
+    assert argv[1] == "exec" and argv[review:review + 3] == ["review", "--commit", "HEAD"]
+    # `codex exec review` rejects --sandbox (0.160, 0.163): the tool mode is an `exec` option
+    assert argv[2:review] == list(profile.tools[tools]) and "--sandbox" not in argv[review:]
     assert not any("Review HEAD as" in a for a in argv)  # `--commit` refuses a custom prompt
 
 
@@ -337,7 +341,9 @@ import json, os, sys
 args = sys.argv[1:]
 if args == ["--version"]:
     print("codex-cli 0.160.0"); sys.exit(0)
-assert args[:4] == ["exec", "review", "--commit", "HEAD"], args
+review = args.index("review")
+assert args[0] == "exec" and args[review:review + 3] == ["review", "--commit", "HEAD"], args
+assert "--sandbox" not in args[review:], "error: unexpected argument '--sandbox' found"
 text = ("One bug.\n\nReview comment:\n\n- [P1] add() subtracts — " + os.environ["FAKE_CONTAINER_CWD"]
         + "/src/calc.py:2-2\n  The change turns a + b into a - b.")
 print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": text}}))
@@ -345,7 +351,8 @@ print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 0, "output
 '''
 
 
-def test_repo_run_grades_a_native_review_answer(tmp_path, monkeypatch):
+@pytest.mark.parametrize("tools", ["read", "all"])
+def test_repo_run_grades_a_native_review_answer(tmp_path, monkeypatch, tools):
     root, _ = make_repo(tmp_path)
     exe = tmp_path / "bin" / "codex"
     write(exe.parent, exe.name, FAKE_CODEX_REVIEW)
@@ -362,7 +369,7 @@ def test_repo_run_grades_a_native_review_answer(tmp_path, monkeypatch):
         "repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
         "--bin", str(exe), "--model", "gpt-x", "--batch", "b1", "--out", str(out),
         "--cache-root", str(out / "caches"), "--agent-network", "host", "--task", "review_add",
-        "--arm", "guidance:raw"])
+        "--arm", "guidance:raw", "--tools", tools])
     args.func(args)
     rd = next((out / "b1").glob("review_add__*/"))
     answer = (rd / "answer.txt").read_text()
