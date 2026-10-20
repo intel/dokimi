@@ -417,9 +417,9 @@ a verdict. The rules mirror intel/skills' `tools/check_harbor_job.py`:
 
 | Trial `result.json` | Cell |
 |---|---|
-| `verifier_result.rewards.reward` is a number, no `exception_info` | scored: that reward, a pass at 1.0 |
+| `verifier_result.rewards.reward` is a finite number in [0, 1], no `exception_info` | scored: that reward, a pass at 1.0 |
 | `exception_info` set, at the top or on a `step_results[]` entry (a multi-step task) | errored: `metrics.error` is `harbor: <exception_type>: <first line>`, `metrics.harbor_exception` the type; a reward the verifier still wrote is kept as `metrics.reward_after_exception`, not scored |
-| no `exception_info`, no numeric reward | errored |
+| no `exception_info`, no numeric reward or one outside [0, 1] | errored |
 | no trial file (with or without the job's), more than one trial, or not a JSON object | errored |
 
 An errored cell is out of the pass-rate denominator and the paired test, as
@@ -838,7 +838,9 @@ python cli.py tasks run --tasks <task-name> \
 - `results[].passed`: verifier pass/fail. If a reward file is present, its
   number is `results[].reward`: `1.0` passes, and anything lower, including
   partial credit such as `0.75`, is kept as the reward and counts as a fail. If
-  no reward is found, the adapter's exit code is used as the fallback.
+  no reward is found, the adapter's exit code is used as the fallback, except
+  for a Harbor-backed cell, which is then errored (see the Harbor grading
+  table above).
 - `results[].metrics`: for LLM harnesses (`docker-claude*`), the per-run
   `UsageRecord` fields — `cost_usd`, `prompt_tokens`, `completion_tokens`,
   `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `latency_sec`,
@@ -851,7 +853,9 @@ python cli.py tasks run --tasks <task-name> \
   also carry `isolation` (`agent_location`, `work_tree`, `operator_config`,
   `env`, `tools`, `host_filesystem`, `network`, and `memory` for the
   container launch); container rows carry `egress`, probe rows
-  `isolation_probe`.
+  `isolation_probe`. Harbor-backed rows carry `prompt_tokens`,
+  `completion_tokens`, `cache_read_tokens`, `total_tokens` and `cost_usd` when
+  Harbor's trial file records them, plus `n_trials` and `result_json`.
 - `summary.per_harness`: pass rate with a `pass_rate_ci{}` interval, elapsed
   time, operation totals, `skill_invocation_rate` / `skill_invocation_n`, a
   rolled-up `cost{}` block (`total_cost_usd` is `null` when no call was priced;
