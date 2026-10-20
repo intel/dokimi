@@ -128,6 +128,7 @@ class Scan:
         for x in sorted(self.file_set | (self.dir_set - {"."})):
             self.by_name.setdefault(posixpath.basename(x), []).append(x)
         self._texts: dict[str, str] = {}
+        self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
         self._words: set[str] | None = None
         self._cache: dict[str, Any] = {}  # adapter facts
         self.submodules = self._submodules()
@@ -140,12 +141,19 @@ class Scan:
     def preload(self, paths: list[str], skipped: dict[str, str] | None = None) -> None:
         missing = [p for p in paths if p not in self._texts and p in self.file_set]
         if missing:
-            self._texts.update(self.tree.read_many(missing, skipped=skipped))
+            skip = {} if skipped is None else skipped
+            self._texts.update(self.tree.read_many(missing, skipped=skip))
+            self.unread.update(skip)
 
     def text(self, path: str) -> str:
         if path not in self._texts and path in self.file_set:
             self.preload([path])
         return self._texts.get(path, "")
+
+    def unread_reason(self, path: str) -> str | None:
+        """Why ``path`` is in the tree but its text was not read; None when it was read (or never was)."""
+        self.text(path)
+        return self.unread.get(path)
 
     def words(self) -> set[str]:
         """Every word in tracked non-doc text files, for identifier claims."""

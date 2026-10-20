@@ -252,12 +252,14 @@ def check_label(scan: Scan, file: str, line: int, label: str, ctx: str) -> None:
         return
     name = target or posixpath.basename(pkg)
     names, computed = scan.cached(f"bazel_build:{build}", lambda: _build_names(scan.text(build)))
+    why = scan.unread_reason(build)
     if name in names or name in ("all", "*", "all-targets"):
         scan.add(file, line, "bazel_label", label, "ok", f'name = "{name}" in {build}', ctx)
     elif posixpath.join(pkg, name) in scan.file_set:
         scan.add(file, line, "bazel_label", label, "ok", f"file in package {pkg}", ctx)
-    elif computed:
+    elif computed or why:
         scan.add(file, line, "bazel_label", label, "unresolved",
+                 f"{build} was not read ({why})" if why else
                  f"no literal name = \"{name}\" in {build}; a macro or a computed name there may generate it", ctx)
     else:
         scan.add(file, line, "bazel_label", label, "fail", f'no target "{name}" in {build}', ctx)
@@ -288,6 +290,7 @@ def _check_external(scan: Scan, file: str, line: int, label: str, parts: tuple[s
         return
     names: set[str] = set()
     computed = False
+    unread = {b: why for b in builds if (why := scan.unread_reason(b))}
     for build in builds:
         found, comp = scan.cached(f"bazel_build:{build}", lambda b=build: _build_names(scan.text(b)))
         names |= found
@@ -295,9 +298,10 @@ def _check_external(scan: Scan, file: str, line: int, label: str, parts: tuple[s
     where = ", ".join(builds)
     if target in names or target in ("all", "*", "all-targets"):
         scan.add(file, line, "bazel_label", label, "ok", f'name = "{target}" in {where}, the BUILD file of @{repo}', ctx)
-    elif computed or "." in target or target in scan.cached(
+    elif unread or computed or "." in target or target in scan.cached(
             f"bazel_strs:{where}", lambda: {v for b in builds for k, v, _ in _tokens(scan.text(b)) if k == "str"}):
         scan.add(file, line, "bazel_label", label, "unresolved",
+                 "; ".join(f"{b} was not read ({w})" for b, w in unread.items()) if unread else
                  f'no literal name = "{target}" in {where}; it may be computed there or be a file of @{repo}', ctx)
     else:
         scan.add(file, line, "bazel_label", label, "fail", f'no target "{target}" in {where}, the BUILD file of @{repo}',
@@ -463,8 +467,13 @@ def _check_load(scan: Scan, file: str, line: int, args: str, snippet: str) -> No
     if path not in scan.file_set:
         return
     public, other = scan.cached(f"bzl_public:{path}", lambda: _bzl_public(scan.text(path)))
+    why = scan.unread_reason(path)
     for sym in strs[1:]:
         ok = sym in public
+        if why and not ok:  # the names of a file that was not read are not known
+            scan.add(file, line, "starlark_load", f"{sym} from {strs[0]}", "unresolved", f"{path} was not read ({why})",
+                     snippet)
+            continue
         status = "ok" if ok else "unresolved" if other else "fail"
         scan.add(file, line, "starlark_load", f"{sym} from {strs[0]}", status,
                  f"defined in {path}" if ok else f"no public top-level {sym} in {path}"

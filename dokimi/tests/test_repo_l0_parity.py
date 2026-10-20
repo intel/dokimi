@@ -289,6 +289,17 @@ def test_starlark_load_claims_carry_the_load_line(tmp_path):
     assert {(c["kind"], c["line"]) for c in claims} == {("starlark_load", 4), ("starlark_macro", 6)}
 
 
+def test_unreadable_bzl_or_external_build_is_unresolved_with_the_reason(tmp_path):
+    agents = _fence("starlark", 'load("//:defs.bzl", "m")') + "\n`@zlib//:zlib`\n"
+    files = {**_EXTERNAL, "defs.bzl": "def m(name):\n    pass\n\0",  # a NUL byte: read as binary, so not read
+             "third_party/zlib.BUILD": 'cc_library(name = "zlib")\n\0'}
+    claims = {(c["kind"], c["claim"]): c for c in _scan(tmp_path, agents, files)["claims"]}
+    load = claims[("starlark_load", "m from //:defs.bzl")]
+    assert load["status"] == "unresolved" and "not read" in load["why"], load
+    label = claims[("bazel_label", "@zlib//:zlib")]
+    assert label["status"] == "unresolved" and "not read" in label["why"], label
+
+
 @pytest.mark.parametrize("cmd", [
     "cd nocm && cmake -S <path/to/src> -B b",
     "cd nocm && cmake -S <source dir> -B b",
