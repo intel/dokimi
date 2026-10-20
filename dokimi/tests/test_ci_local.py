@@ -374,10 +374,13 @@ def test_gitleaks_scan_reports_each_line_once_under_its_own_commit(tmp_path: Pat
         return git("rev-parse", "HEAD")
 
     git("init", "-q", "-b", "main")
-    commit("c.txt", "base\n")
+    base_sha = commit("c.txt", "base\n")
     git("checkout", "-q", "-b", "feat")
     commit("pr.txt", "PR_OWN\n")
     commit("c.txt", "feat\n")
+    # A ref HEAD does not reach: only the push scan's --all covers it.
+    git("checkout", "-q", "-b", "other", base_sha)
+    commit("only.txt", "ONLY_ON_OTHER\n")
     git("checkout", "-q", "main")
     main_sha = commit("main.txt", "MAIN_ONLY\n")
     commit("c.txt", "main\n")
@@ -415,10 +418,13 @@ def test_gitleaks_scan_reports_each_line_once_under_its_own_commit(tmp_path: Pat
 
     pr = scan("pull_request")
     assert {"PR_OWN", "RESOLVED"} <= {line for _, line in pr}, pr
+    assert len([sha for sha, line in pr if line == "PR_OWN"]) == 1, pr  # once, under its own commit
     assert [sha for sha, line in pr if line == "MAIN_ONLY"] == [], pr
+    assert "ONLY_ON_OTHER" not in {line for _, line in pr}, pr
     push = scan("push")
     assert "RESOLVED" in {line for _, line in push}, push
     assert [sha for sha, line in push if line == "MAIN_ONLY"] == [main_sha], push
+    assert "ONLY_ON_OTHER" in {line for _, line in push}, push  # the push scan's --all
     # A base that is not fetched fails the step instead of scanning nothing.
     (tmp_path / "out").unlink()
     assert run_step("pull_request", base="nomain") != 0

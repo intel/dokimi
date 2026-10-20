@@ -13,8 +13,10 @@ name: gitleaks
 # test fixture, a placeholder key): append `gitleaks:allow` in a comment on the
 # line, or allowlist it in a `.gitleaks.toml` at the repo root (gitleaks reads
 # it on its own; start it with `[extend] useDefault = true`), path plus rule or
-# regex, with the reason. A finding in a commit already on main goes in
-# `.gitleaksignore` by its fingerprint (printed with each finding).
+# regex, with the reason. A finding in a merge commit (a conflict resolution)
+# is reported under `b/<path>`, so a path entry must match that (`^(b/)?f\.txt$`).
+# A finding in a commit already on main goes in `.gitleaksignore` by its
+# fingerprint (printed with each finding); copy the fingerprint as printed.
 # A real secret: revoke it first; deleting it from the tree does not remove it
 # from history or from the copies forks and clones already have.
 on:
