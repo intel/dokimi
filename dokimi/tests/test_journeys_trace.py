@@ -105,12 +105,15 @@ def test_a_missing_journey_is_a_problem(tmp_path):
     assert any("journeys not defined: J7" in p for p in problems)
 
 
-def test_a_duplicate_or_misplaced_criterion_is_a_problem(tmp_path):
-    text = _catalog_text("\n- **AC-J14-001** Again.\n- **AC-J03-009** Under J14.\n")
+def test_a_duplicate_or_misplaced_criterion_or_use_case_is_a_problem(tmp_path):
+    text = _catalog_text("\n- **AC-J14-001** Again.\n- **AC-J03-009** Under J14.\n"
+                         "\n#### UC-J14-001 Again\n\n#### UC-J02-002 Under J15\n")
     (tmp_path / "j.md").write_text(text, encoding="utf-8")
     _, problems = journeys.parse_catalog(tmp_path / "j.md")
     assert any("AC-J14-001 defined twice" in p for p in problems)
     assert any("AC-J03-009 is not under a use case of J3" in p for p in problems)
+    assert any("UC-J14-001 defined twice" in p for p in problems)
+    assert any("UC-J02-002 is not under the ## J2 heading" in p for p in problems)
 
 
 def test_a_criterion_inside_a_code_fence_is_not_defined(tmp_path):
@@ -370,6 +373,23 @@ def test_a_session_records_the_argv_a_marked_test_parsed(pytester, monkeypatch):
     assert (pytester.path / "j.md").read_text().startswith("# Journey coverage")
 
 
+def test_an_argv_read_from_sys_argv_is_recorded(pytester, monkeypatch):
+    result, report = _session(pytester, monkeypatch, _enforced(SCAN),
+                              "import sys\n\n@pytest.mark.outcome('ev')\ndef test_scan(monkeypatch):\n"
+                              "    monkeypatch.setattr(sys, 'argv', ['dokimi', 'repo', 'scan', 'x@HEAD', '--out', 'r.json'])\n"
+                              "    build_parser().parse_args()\n")
+    assert result.ret == 0 and report["verdict"] == "pass"
+
+
+def test_an_argv_another_parser_accepted_is_not_an_invocation(pytester, monkeypatch):
+    result, report = _session(pytester, monkeypatch, _enforced(SCAN),
+                              "import argparse\n\n@pytest.mark.outcome('ev')\ndef test_scan():\n"
+                              "    wrapper = argparse.ArgumentParser(prog='wrapper')\n"
+                              "    wrapper.add_argument('rest', nargs=argparse.REMAINDER)\n"
+                              "    wrapper.parse_args(['repo', 'scan', 'x@HEAD', '--out', 'r.json'])\n")
+    assert result.ret == 2 and report["verdict"] == "error"
+
+
 def test_a_command_named_only_in_a_string_is_not_an_invocation(pytester, monkeypatch):
     result, report = _session(pytester, monkeypatch, _enforced(SCAN),
                               "@pytest.mark.outcome('ev')\ndef test_scan():\n"
@@ -410,6 +430,15 @@ def test_an_enforced_surface_no_scenario_invokes_is_a_problem(tmp_path):
     assert report["verdict"] == "error"
     assert any("no cli_scenario invokes the surface 'repo scan --fail-on-fail'" in p
                for p in report["problems"])
+
+
+def test_an_invoke_of_another_command_with_the_same_flag_does_not_cover_a_surface(tmp_path):
+    entry = _enforced({**SCAN, "invokes": ["repo reach --out"]})
+    entry["AC-J04-001"]["surfaces"] = ["repo scan --out"]
+    report = _check(tmp_path, entry, results={"ev": ["passed"]},
+                    invocations={"ev": [["repo", "reach", "src", "--out", "r.json"]]})
+    assert report["verdict"] == "error"
+    assert any("no cli_scenario invokes the surface 'repo scan --out'" in p for p in report["problems"])
 
 
 def test_an_enforced_surface_a_scenario_declares_passes(tmp_path):
