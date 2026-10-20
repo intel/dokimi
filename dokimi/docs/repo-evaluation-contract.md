@@ -732,10 +732,13 @@ that runs the no-LLM checks on the caller's checkout and needs no secret.
   manifest's Dockerfile), and uploads `check.json` and the grade logs.
 - `tasks: changed` (the default, also for an empty value) checks, on a pull request, the tasks whose
   directories it touches, plus `smoke-tasks` (empty: every task) when it changes
-  the eval directory outside its tasks (Markdown anywhere in it excepted), the manifest, the
-  calling workflow file or a path under `smoke-paths`. A file in the tasks directory that is
-  not under an existing task (a shared helper, or the files of a deleted task) does too. On a push it diffs against
-  the previous tip, on any other event it checks every task. `all` or a list of
+  the eval directory outside its tasks (Markdown there is excepted, unless it is the manifest,
+  the calling workflow file or under a `smoke-paths` entry), the manifest, the calling workflow
+  file or a path under `smoke-paths` (entries are space- or comma-separated prefixes,
+  normalised like the manifest path; keep the trailing slash for a directory). A file in
+  the tasks directory that is not under an existing task (a shared helper, or the files of
+  a deleted task) does too. On a push it diffs against the previous tip, on any other event
+  it checks every task. `all` or a list of
   task ids selects directly; `exclude-tasks` always drops tasks.
 - Pin dokimi by a commit SHA or a release tag, the same one in `uses:` and in
   `dokimi-ref` (a branch is refused). It installs

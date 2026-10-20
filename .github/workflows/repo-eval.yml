@@ -237,7 +237,8 @@ jobs:
                   # the calling workflow: owner/repo/.github/workflows/x.yml@ref
                   caller = env["WORKFLOW_REF"].split("@", 1)[0].removeprefix(env["REPOSITORY"] + "/")
                   eval_dir = m["eval_dir"].rstrip("/") + "/"
-                  roots = [p for p in env["SMOKE_PATHS"].split() if p]
+                  # the same separators as ids(); normalised like the manifest, a trailing slash kept
+                  roots = [posixpath.normpath(p) + ("/" if p.endswith("/") and p != "/" else "") for p in ids(env["SMOKE_PATHS"])]
                   manifest_normalized = posixpath.normpath(env["MANIFEST"])
 
                   def harness(f):

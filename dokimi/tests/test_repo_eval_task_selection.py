@@ -69,8 +69,8 @@ def repo(tmp_path: Path) -> Path:
     return root
 
 
-def _select(repo: Path, tmp_path: Path, *, commit: bool = True, manifest_tasks: str | None = TASKS,
-            **overrides: str) -> list[str]:
+def _run_step(repo: Path, tmp_path: Path, *, commit: bool = True, manifest_tasks: str | None = TASKS,
+              **overrides: str) -> tuple[subprocess.CompletedProcess, Path]:
     """Commit the working tree (unless ``commit`` is false) and run the step on HEAD."""
     if commit:
         _git(repo, "add", "-A")
@@ -90,6 +90,11 @@ def _select(repo: Path, tmp_path: Path, *, commit: bool = True, manifest_tasks: 
     (temp / "out").write_text("", encoding="utf-8")
     result = subprocess.run([sys.executable, "-c", _select_script()], cwd=repo, env=env,
                             capture_output=True, text=True, check=False)
+    return result, temp
+
+
+def _select(repo: Path, tmp_path: Path, **overrides: str) -> list[str]:
+    result, temp = _run_step(repo, tmp_path, **overrides)
     assert result.returncode == 0, result.stdout + result.stderr
     line = next(ln for ln in (temp / "out").read_text(encoding="utf-8").splitlines() if ln.startswith("tasks="))
     return json.loads(line.removeprefix("tasks="))
@@ -214,6 +219,38 @@ def test_a_merge_commit_ignores_what_the_base_gained_after_the_pr_opened(repo, t
     _git(repo, "commit", "-q", "-m", "main moves on")
     _git(repo, "merge", "-q", "--no-ff", "--no-edit", "pr")
     assert _select(repo, tmp_path, commit=False, BASE_SHA=fork, SMOKE_TASKS="my task") == ["t1"]
+
+
+def test_a_change_to_the_calling_workflow_runs_the_smoke_set(repo, tmp_path):
+    _write(repo, ".github/workflows/ci.yml", "changed\n")
+    assert _select(repo, tmp_path) == ["t1"]
+
+
+@pytest.mark.parametrize("smoke_paths", ["./vendor/", "vendor/,other/", "other/ vendor/"])
+def test_smoke_paths_are_normalised_and_split_like_ids(repo, tmp_path, smoke_paths):
+    _write(repo, "vendor/grader/lib.py", "changed\n")
+    assert _select(repo, tmp_path, SMOKE_PATHS=smoke_paths) == ["t1"]
+
+
+def test_a_smoke_directory_without_its_slash_is_a_prefix_as_given(repo, tmp_path):
+    _write(repo, "vendor-old/x.py", "changed\n")
+    assert _select(repo, tmp_path, SMOKE_PATHS="vendor/") == []
+
+
+def test_an_unknown_explicit_task_fails_the_run(repo, tmp_path):
+    result, _ = _run_step(repo, tmp_path, TASKS="nope")
+    assert result.returncode != 0 and "no such task(s): nope" in result.stdout + result.stderr
+
+
+def test_an_unknown_smoke_task_fails_the_run(repo, tmp_path):
+    _write(repo, f"{EVAL_DIR}/Dockerfile")
+    result, _ = _run_step(repo, tmp_path, SMOKE_TASKS="nope")
+    assert result.returncode != 0 and "no such task(s): nope" in result.stdout + result.stderr
+
+
+def test_an_unreadable_previous_tip_checks_every_task(repo, tmp_path):
+    _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
+    assert _select(repo, tmp_path, EVENT="push", BEFORE="1" * 40) == ["my task", "t1"]
 
 
 def test_the_check_results_artifact_keeps_the_stderr_files():
