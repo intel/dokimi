@@ -425,6 +425,11 @@ def test_gitleaks_scan_reports_each_line_once_under_its_own_commit(tmp_path: Pat
     assert "RESOLVED" in {line for _, line in push}, push
     assert [sha for sha, line in push if line == "MAIN_ONLY"] == [main_sha], push
     assert "ONLY_ON_OTHER" in {line for _, line in push}, push  # the push scan's --all
+    assert len([sha for sha, line in push if line == "PR_OWN"]) == 1, push  # remerge: not repeated
+    # A PR cut before main's newer commits: only its own commit is in the `..` range.
+    git("checkout", "-q", "-b", "early", base_sha)
+    commit("early.txt", "EARLY_OWN\n")
+    assert {line for _, line in scan("pull_request")} == {"EARLY_OWN"}
     # A base that is not fetched fails the step instead of scanning nothing.
     (tmp_path / "out").unlink()
     assert run_step("pull_request", base="nomain") != 0
