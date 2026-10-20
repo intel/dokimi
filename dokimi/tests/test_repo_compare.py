@@ -311,6 +311,21 @@ def test_headroom_on_mixed_tops_and_grader_failures(pairs, tops, failed, expecte
     assert compare_mod.headroom(pairs, tops, failed) == expected
 
 
+@pytest.mark.parametrize("baseline,expected", [
+    ((80.0,) * 8, None),  # a gain past score.max on every task: an effect, not a ceiling
+    ((70.0,) + (80.0,) * 7, None),  # nor near_ceiling
+    ((90.0,) * 8, "ceiling"),  # both past score.max and tied: no movement
+])
+def test_a_score_past_score_max_is_at_the_top_only_when_the_arms_tie(tmp_path, baseline, expected):
+    b = tmp_path / "b1"
+    for i, was in enumerate(baseline):
+        _cell(b, f"cov_{i}", "guidance:none", 1, score=was, score_max=80.0)
+        _cell(b, f"cov_{i}", "guidance:raw", 1, score=90.0, score_max=80.0)
+    s = compare([b], "guidance:none")
+    assert _row(s, "score")["headroom"] == expected
+    assert ("ceiling" in format_compare(s)) == (expected is not None)
+
+
 @pytest.mark.parametrize("score_max", [0.0, -1.0])
 def test_a_grader_failure_is_not_ceiling_when_score_max_is_not_above_zero(tmp_path, score_max):
     b = tmp_path / "b1"

@@ -325,7 +325,9 @@ def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float |
     def at_top(value: float, top: float | None) -> bool:
         return top is not None and value >= top - EPS
 
-    base_top = [at_top(p["baseline"], b) for p, (b, _) in zip(pairs, tops, strict=True)]
+    # score.max is what the oracle must reach, not a bound: a pair that moved past it is an effect, not a top
+    base_top = [at_top(p["baseline"], b) and abs(p["treatment"] - p["baseline"]) <= EPS
+                for p, (b, _) in zip(pairs, tops, strict=True)]
     if all(base_top) and all(at_top(p["treatment"], t) for p, (_, t) in zip(pairs, tops, strict=True)):
         return "ceiling"
     if all(abs(p["baseline"]) <= EPS and abs(p["treatment"]) <= EPS for p in pairs):
