@@ -558,7 +558,7 @@ def test_report_warns_when_another_model_answered(setup, capsys):
     ("claude-sonnet-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", True),
     ("claude-sonnet-4-5@20250929", "claude-sonnet-4-5-20241022", False),
     ("us.anthropic.claude-x", "eu.anthropic.claude-x", True), ("apac.anthropic.claude-x-v1:0", "us-gov.anthropic.claude-x", True),
-    ("gpt-4.1", "gpt-4.2", False), ("us.anthropic.claude-x", "eu.anthropic.claude-y", False),
+    ("m-v1:0", "m-v3:0", True), ("gpt-4.1", "gpt-4.2", False), ("us.anthropic.claude-x", "eu.anthropic.claude-y", False),
     ("vertex_ai/claude-x", "claude-x", True), ("claude-sonnet-4-5", "claude-sonnet-4-5-1", False)])
 def test_a_provider_prefix_is_not_another_model(requested, resolved, same):
     assert model_matches(requested, resolved) is same

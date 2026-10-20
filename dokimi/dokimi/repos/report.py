@@ -128,7 +128,8 @@ def resolved_models(rec: dict[str, Any]) -> list[str]:
 
 
 def _normalize_model_id(model_id: str) -> str:
-    """Strip Bedrock's transport suffix (``-v1:0``). A bare ``-v2`` is part of the id: deepseek-v2 is not v3."""
+    """Strip Bedrock's revision suffix: any ``-vN:M`` (``-v1:0``, ``-v2:0``) counts as the same model.
+    A bare ``-v2`` is part of the id: deepseek-v2 is not v3."""
     return re.sub(r"-v\d+:\d+$", "", model_id)
 
 
@@ -155,7 +156,7 @@ def _model_prefix_matches(base: str, candidate: str) -> bool:
 def model_matches(requested: str, resolved: str) -> bool:
     """Whether ``resolved`` is the ``requested`` model: the same id, that id pinned to a snapshot
     date, or either behind a provider prefix (Bedrock's ``us.anthropic.claude-x`` answers as
-    ``claude-x``, with its ``-v1:0`` too)."""
+    ``claude-x``, with any ``-vN:M`` revision too)."""
     # Vertex's @20250929 is the same snapshot as -20250929; an undated side matches any snapshot of it
     req, res = (re.sub(r"@(?=\d{8}$)", "-", _strip_region(_normalize_model_id(m))) for m in (requested, resolved))
     pairs = [(req, res), (re.sub(r"-\d{8}$", "", req), res), (req, re.sub(r"-\d{8}$", "", res))]
