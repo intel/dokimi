@@ -515,3 +515,36 @@ def test_a_replay_window_that_is_not_a_positive_number_is_an_authoring_error(tmp
         args.func(args)
     errors = json.loads(capsys.readouterr().out)["errors"]
     assert any("replay_mul" in e and "window must be a positive number" in e for e in errors), errors
+
+
+def test_a_finding_without_a_file_never_matches_an_empty_seed_path(tmp_path):
+    # same_file must not treat "no file" and an empty/root seed path as the same file
+    seeds = {"seeds": [{"id": "e", "class": "c", "file": "", "lines": [5], "kw": "zzz"},
+                       {"id": "r", "class": "c", "file": "/", "lines": [7], "kw": "zzz"}]}
+    write(tmp_path / "t", "manifest.json", json.dumps(seeds))
+    d = tmp_path / "t"
+    no_file = {"line": 5, "severity": "minor", "rule": "", "message": "nothing"}
+    assert review.grade_seeds({}, d, fence([no_file]))["seeds_hit"] == []
+    assert review.grade_seeds({}, d, fence([_f(5, file="", message="nothing")]))["seeds_hit"] == []
+    assert review.grade_seeds({}, d, fence([_f(7, file="/", message="nothing")]))["seeds_hit"] == []
+
+
+def test_a_replay_window_is_checked_only_for_replay_and_defaults_to_five(tmp_path, capsys):
+    root = _repo(tmp_path, {"replay_nowin": {**REVIEW, "grader": "dokimi:review_replay"},
+                            "replay_win3": {**REVIEW, "grader": "dokimi:review_replay", "window": 3},
+                            "seeds_strwin": {**REVIEW, "grader": "dokimi:review_seeds", "window": "x"}})
+    for task_id in ("replay_nowin", "replay_win3", "seeds_strwin"):
+        write(root, f".agent-eval/tasks/{task_id}/gold.json" if task_id.startswith("replay")
+              else f".agent-eval/tasks/{task_id}/manifest.json",
+              json.dumps(GOLD if task_id.startswith("replay") else {"seeds": [], "decoys": []}))
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "window cases")
+    args = build_parser().parse_args(["repo", "validate", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
+                                      "--cache-dir", str(tmp_path / "caches"), "--json"])
+    try:
+        args.func(args)
+    except SystemExit:
+        pass
+    out = capsys.readouterr().out
+    errors = json.loads(out).get("errors", []) if out.strip() else []
+    assert not any(t in e for e in errors for t in ("replay_nowin", "replay_win3", "seeds_strwin")), errors
