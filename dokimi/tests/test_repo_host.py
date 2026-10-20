@@ -379,6 +379,24 @@ def test_probe_walks_from_the_v1_mount_root_when_the_mount_shows_only_a_subtree(
     assert host_facts(raw)["cgroup_cpus"] == 2
 
 
+# The mount root /kube is a string prefix of /kubepods but not a path prefix: the walk must not strip it.
+def test_probe_does_not_strip_a_mount_root_that_is_only_a_string_prefix_of_the_cgroup(tmp_path):
+    mount = "35 25 0:30 /kube /sys/fs/cgroup rw,nosuid - cgroup2 cgroup2 rw\n"
+    raw = _run_probe(tmp_path, "0::/kubepods/p\n", mount,
+                     {"sys/fs/cgroup/kubepods/p/cpu.max": "200000 100000\n", "sys/fs/cgroup/cpu.max": "max 100000\n"})
+    assert host_facts(raw)["cgroup_cpus"] == 2
+
+
+def test_probe_does_not_strip_a_v1_mount_root_that_is_only_a_string_prefix_of_the_cgroup(tmp_path):
+    mount = "31 25 0:27 /kube /sys/fs/cgroup/cpu,cpuacct rw,nosuid,nodev - cgroup cgroup rw,cpu,cpuacct\n"
+    raw = _run_probe(tmp_path, "4:cpu,cpuacct:/kubepods/p\n", mount,
+                     {"sys/fs/cgroup/cpu,cpuacct/kubepods/p/cpu.cfs_quota_us": "200000\n",
+                      "sys/fs/cgroup/cpu,cpuacct/kubepods/p/cpu.cfs_period_us": "100000\n",
+                      "sys/fs/cgroup/cpu,cpuacct/cpu.cfs_quota_us": "-1\n",
+                      "sys/fs/cgroup/cpu,cpuacct/cpu.cfs_period_us": "100000\n"})
+    assert host_facts(raw)["cgroup_cpus"] == 2
+
+
 def test_probe_reads_the_v1_quota_without_a_cgroup2_mount(tmp_path):
     raw = _run_probe(tmp_path, "4:cpu,cpuacct:/docker/eval\n", "",
                      {"sys/fs/cgroup/cpu/cpu.cfs_quota_us": "300000\n",
@@ -476,7 +494,7 @@ def test_run_exits_1_when_the_probe_failed_and_still_runs_unconstrained_tasks(tm
     assert exc.value.code == 1  # not a green run with the constrained task never graded
     logged = capsys.readouterr()
     assert "2 ran, 0 already done, 0 crashed" in logged.out
-    assert "the host probe failed, so these tasks were not run: fix_race" in logged.err
+    assert "the host probe failed, so these tasks have cells that were not run: fix_race" in logged.err
     assert [u["task"] for u in summarize(out / "b1")["unsupported"]] == ["fix_race", "fix_race"]
 
 
@@ -491,6 +509,22 @@ def test_a_complete_batch_rerun_on_a_failed_probe_exits_0(tmp_path, monkeypatch,
     logged = capsys.readouterr()
     assert "0 ran, 4 already done, 0 crashed" in logged.out and "host probe failed" not in logged.err
     assert summarize(out / "b1")["unsupported"] == [] and summarize(out / "b1")["missing"] == []
+
+
+def test_a_partly_finished_batch_rerun_on_a_failed_probe_exits_1(tmp_path, monkeypatch, capsys):
+    """The unfinished cell of a task still makes the re-run fail, even though its other cell is done."""
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_add", "--task", "fix_race")
+    capsys.readouterr()
+    race_cells = sorted((out / "b1").glob("fix_race__*/result.json"))
+    assert len(race_cells) == 2
+    race_cells[0].unlink()  # one fix_race cell is left unfinished
+    with pytest.raises(SystemExit) as exc:
+        _run(root, out, HostRunner(None), monkeypatch, "--task", "fix_add", "--task", "fix_race")
+    assert exc.value.code == 1
+    assert "host probe failed" in capsys.readouterr().err
+    assert race_cells[1].is_file()  # the finished cell keeps its result
 
 
 def test_a_probe_failure_never_unsupports_a_task_with_no_constraint():
