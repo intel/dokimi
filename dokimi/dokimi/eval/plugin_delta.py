@@ -228,7 +228,7 @@ def _answer_metrics(artifact: Dict[str, Any], arms: list[str]) -> dict[str, dict
             metrics = arm_row.get("metrics") or {}
             for field in ("raw_answer_chars", "final_answer_chars"):
                 val = metrics.get(field)
-                if isinstance(val, (int, float)):
+                if isinstance(val, (int, float)) and not isinstance(val, bool):
                     values[arm][field].append(float(val))
     out: dict[str, dict[str, float | None]] = {}
     for arm, fields in values.items():
@@ -240,6 +240,9 @@ def _answer_metrics(artifact: Dict[str, Any], arms: list[str]) -> dict[str, dict
 
 
 def _num_delta(a: Any, b: Any) -> float | None:
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+    if (
+        isinstance(a, (int, float)) and not isinstance(a, bool)
+        and isinstance(b, (int, float)) and not isinstance(b, bool)
+    ):
         return round(float(b) - float(a), 6)
     return None

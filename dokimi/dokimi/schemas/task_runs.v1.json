@@ -505,7 +505,10 @@
                     ]
                   },
                   "ci_confidence": {
-                    "type": "number"
+                    "type": [
+                      "number",
+                      "null"
+                    ]
                   },
                   "p_exact": {
                     "type": [
