@@ -661,6 +661,17 @@ def test_compare_models_equivalent_pins_symmetric_coverage(tmp_path):
     assert [w for w in compare([b2], "guidance:none")["warnings"] if "was answered by" in w]
 
 
+def test_a_snapshot_only_the_baseline_got_warns(tmp_path):
+    b = tmp_path / "b1"
+    m = "claude-3-5-sonnet"
+    _cell(b, "fix_a", "guidance:none", 1, model=m, model_resolved=f"{m}-20240620")
+    _cell(b, "fix_a", "guidance:none", 2, model=m, model_resolved=f"{m}-20241022")
+    _cell(b, "fix_a", "guidance:raw", 1, model=m, model_resolved=f"{m}-20241022")
+    _cell(b, "fix_a", "guidance:raw", 2, model=m, model_resolved=f"{m}-20241022")
+    assert compare([b], "guidance:none")["warnings"] == [
+        f"guidance:raw vs guidance:none: model {m} was answered by {m}-20240620, {m}-20241022 in baseline, "
+        f"{m}-20241022 in treatment"]
+
 def test_an_unreadable_batch_stamp_is_no_stamp(tmp_path):
     b = tmp_path / "b1"
     (b / "_eval").mkdir(parents=True)
