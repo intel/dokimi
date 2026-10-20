@@ -325,6 +325,10 @@ class TestJudgeAnswer:
         (["x: v1.2/wrong"], 95, 40),
         (["x (wrong, expected 128)"], 95, 40),
         (["x: partially wrong (expected 128)"], 95, 40),
+        # _VERDICT's dash and `incorrect` branches, each with text after the verdict.
+        (["64 B - wrong (expected 128)"], 95, 40),
+        (["64 B \u2014 incorrect, expected 128"], 95, 40),
+        (["64 B: incorrect (expected 128)"], 95, 40),
         # Negated incorrect: flips to right, does not cap.
         (["x: dubious, not incorrect"], 95, 95),
         # Case insensitivity on intensifiers and multi-char-class qualifiers.
@@ -377,6 +381,8 @@ class TestJudgeAnswer:
         "x - not wrong",
         "x — not wrong",
         "x \u2013 not wrong",
+        # _VERDICT's `right` branch, with text after the verdict.
+        "64 B: right (expected 64)",
     ])
     def test_a_qualified_or_negated_verdict_is_read(self, mock_llm, claim):
         """Qualified and negated verdicts: slash-separated qualifiers, trailing commas, and `not` all read correctly."""
