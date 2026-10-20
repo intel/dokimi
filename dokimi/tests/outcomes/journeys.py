@@ -107,7 +107,12 @@ def dangling_ids(docs: list[Path], catalog: dict) -> list[str]:
     found = []
     for doc in docs:
         fenced = False
-        for n, line in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1):
+        try:
+            text = doc.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            found.append(f"{doc.name}: cannot read: {exc}")
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
             if line.lstrip().startswith(("```", "~~~")):
                 fenced = not fenced
             if fenced:
@@ -261,8 +266,25 @@ def _normalize(registry: dict) -> list[str]:
             problems.append(f"journeys.yaml {ac}: every evidence entry must be a mapping")
         entry["evidence"] = [e for e in evidence if isinstance(e, dict)]
         problems += _strings(entry, ("surfaces", "refs", "gaps"), ("decision_ref", "outcome"), f"journeys.yaml {ac}")
+        problems += _unsplittable(entry, "surfaces", f"journeys.yaml {ac}")
         for e in entry["evidence"]:
             problems += _strings(e, ("invokes", "stubs"), ("id", "kind"), f"journeys.yaml {ac}: evidence")
+            problems += _unsplittable(e, "invokes", f"journeys.yaml {ac}: evidence")
+    return problems
+
+
+def _unsplittable(mapping: dict, key: str, where: str) -> list[str]:
+    """Drop the commands under ``key`` that shlex cannot split (an unbalanced quote); say which."""
+    problems, kept = [], []
+    for command in mapping.get(key) or []:
+        try:
+            shlex.split(command)
+        except ValueError as exc:
+            problems.append(f"{where}: {key} {command!r}: {exc}")
+        else:
+            kept.append(command)
+    if problems:
+        mapping[key] = kept
     return problems
 
 
@@ -368,7 +390,7 @@ def check(registry_path: Path, repo_root: Path, contracts: dict[str, dict],
     try:
         text = registry_path.read_text(encoding="utf-8")
         registry = yaml.safe_load(text) or {}
-    except (OSError, yaml.YAMLError) as exc:
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         registry, problems = {}, [f"{registry_path.name}: cannot read: {exc}"]
     else:
         problems = [] if isinstance(registry, dict) else [f"{registry_path.name}: not a mapping"]
@@ -378,7 +400,7 @@ def check(registry_path: Path, repo_root: Path, contracts: dict[str, dict],
     catalog_path = repo_root / registry.get("catalog", CATALOG)
     try:
         catalog, catalog_problems = parse_catalog(catalog_path)
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         # Reported like any other broken link, so the report is still written.
         catalog = {"journeys": {}, "use_cases": {}, "criteria": {}}
         catalog_problems = [f"{CATALOG}: cannot read: {exc}"]

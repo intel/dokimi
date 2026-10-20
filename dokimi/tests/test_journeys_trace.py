@@ -145,6 +145,9 @@ def test_an_id_a_page_mentions_but_the_catalog_lacks_is_dangling(tmp_path):
     ({"AC-J04-001": {"delivery": "available", "evidence": [dict(SCAN, invokes=[5])]}}, "invokes must be a list of strings"),
     ({"AC-J04-001": {"delivery": "available", "evidence": [dict(SCAN, stubs=5)]}}, "stubs must be a list of strings"),
     ({"AC-J04-001": {"delivery": "available", "evidence": [dict(SCAN, stubs=[1])]}}, "stubs must be a list of strings"),
+    ({"AC-J04-001": {"delivery": "available", "surfaces": ["repo scan '"]}}, "No closing quotation"),
+    ({"AC-J04-001": {"delivery": "available", "evidence": [dict(SCAN, invokes=["repo scan '"])]}},
+     "No closing quotation"),
 ])
 def test_a_malformed_registry_shape_is_a_problem_not_a_crash(tmp_path, criteria, problem):
     registry = _tree(tmp_path)
@@ -153,6 +156,16 @@ def test_a_malformed_registry_shape_is_a_problem_not_a_crash(tmp_path, criteria,
     assert report["verdict"] == "error"
     assert any(problem in p for p in report["problems"]), report["problems"]
     journeys.markdown(report)
+
+
+@pytest.mark.parametrize("name", ["journeys.yaml", "docs/user-journeys/journeys.md", "docs/user-journeys/other.md"])
+def test_a_file_that_is_not_utf8_is_a_problem_not_a_crash(tmp_path, name):
+    registry = _tree(tmp_path)
+    path = tmp_path / name
+    path.write_bytes((path.read_bytes() if path.exists() else b"") + b"# caf\xe9\n")
+    report = journeys.check(registry, tmp_path, {}, _evidence({}), {}, plugin._anchors)
+    assert report["verdict"] == "error"
+    assert any("cannot read" in p for p in report["problems"]), report["problems"]
 
 
 def test_a_criterion_given_twice_in_the_registry_is_a_problem(tmp_path):
