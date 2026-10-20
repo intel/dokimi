@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -139,23 +140,25 @@ def summarize_task_results(
         stats["passed"] += 1 if passed else 0
         stats["errored"] += 1 if errored else 0
         reward = row.get("reward")
-        if isinstance(reward, (int, float)) and not errored:
-            stats["reward_sum"] += float(reward)
+        # bool is an int subclass: reward=True is not a score of 1.
+        reward = _num(reward)
+        if reward is not None and not errored:
+            stats["reward_sum"] += reward
             stats["reward_n"] += 1
         stats["elapsed_sec"] += float(row.get("elapsed_sec") or 0.0)
         metrics = row.get("metrics", {})
-        stats["operation_count"] += int(metrics.get("operation_count") or 0)
+        stats["operation_count"] += _count(metrics.get("operation_count")) or 0
         for op_type, count in metrics.get("operations_by_type", {}).items():
             stats["operations_by_type"][op_type] = stats["operations_by_type"].get(op_type, 0) + count
         # Cost/token telemetry (present when an LLM harness emitted a UsageRecord).
-        cost = metrics.get("cost_usd")
         # bool is an int subclass: cost_usd=True is not a price.
-        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
-            stats["_cost_sum"] += float(cost)
+        cost = _num(metrics.get("cost_usd"))
+        if cost is not None:
+            stats["_cost_sum"] += cost
             stats["_cost_known"] += 1
         for key in stats["_tokens"]:
-            val = metrics.get(key)
-            if isinstance(val, (int, float)):
+            val = _num(metrics.get(key))
+            if val is not None:
                 stats["_tokens"][key] += int(val)
                 stats["_tokens_known"][key] += 1
         # Skill use, for harnesses that write metrics.n_skill_invocations;
@@ -329,6 +332,15 @@ def _is_control_harness(harness: str) -> bool:
     return prefix in _BENCHFLOW_PREFIXES and rest.split(":", 1)[0] == "oracle"
 
 
+def _num(value: Any) -> float | None:
+    """A finite number as float, else ``None``. A bool is a flag, not a
+    number (bool is an int subclass); nan / inf are not values."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
 def _count(value: Any) -> int | None:
     """A non-negative whole count, else ``None``. A bool is a flag, not a
     count (bool is an int subclass); ``1.0`` from a JSON round-trip is 1."""
@@ -348,6 +360,55 @@ def _exact_rate(passed: int, scored: int) -> float | None:
     return passed / scored if scored else None
 
 
+def _withheld_pair_record(
+    shared: list[tuple],
+    arm_cells: dict[tuple, bool],
+    base_cells: dict[tuple, bool],
+    n_excluded: int,
+) -> dict[str, Any]:
+    """Counts for a pairing too small for McNemar, with the exclusions kept.
+
+    ``mcnemar_test`` returns None below two pairs. Dropping the whole record
+    with it hid ``n_excluded``: one shared cell plus cells each harness
+    attempted alone looked like no comparison, not a withheld one.
+    """
+    gained = lost = both_passed = both_failed = 0
+    for key in shared:
+        treatment, control = bool(arm_cells[key]), bool(base_cells[key])
+        if treatment and not control:
+            gained += 1
+        elif control and not treatment:
+            lost += 1
+        elif treatment:
+            both_passed += 1
+        else:
+            both_failed += 1
+    n = len(shared)
+    n_units = len({task for task, _repeat in shared})
+    return {
+        "test": "mcnemar_exact",
+        "n": n,
+        "n_units": n_units,
+        "pseudo_replicated": n_units < n,
+        "n_gained": gained,
+        "n_lost": lost,
+        "n_both_passed": both_passed,
+        "n_both_failed": both_failed,
+        "n_discordant": gained + lost,
+        "n_excluded": n_excluded,
+        "paired_pass_rate_delta": round((gained - lost) / n, 4),
+        "ci_lo": None,
+        "ci_hi": None,
+        # No interval is computed, so no confidence level applies to it.
+        "ci_confidence": None,
+        "p_exact": None,
+        "significant": None,
+        # Filled by the family correction, which leaves a null p null.
+        "p_adjusted": None,
+        "significant_adjusted": None,
+    }
+
+
 def _paired_binary_test(
     outcomes: dict[str, dict[tuple, bool]],
     attempted: dict[str, set[tuple]],
@@ -360,12 +421,18 @@ def _paired_binary_test(
     lining repeats up by index is arbitrary between harnesses but keeps every
     comparison within one task, which is what the pairing is for. Cells missing
     on either side are excluded rather than treated as failures.
+
+    ``None`` only when no cell is shared. A shared cell below the test's
+    minimum still returns a record: the p-value stays null, and ``n_excluded``
+    stays visible.
     """
     arm_cells = outcomes.get(harness, {})
     base_cells = outcomes.get(baseline, {})
     shared = sorted(set(arm_cells) & set(base_cells))
     if not shared:
         return None
+    universe = attempted.get(harness, set()) | attempted.get(baseline, set())
+    n_excluded = len(universe) - len(shared)
     res = binary_stats.mcnemar_test(
         [arm_cells[k] for k in shared],
         [base_cells[k] for k in shared],
@@ -374,15 +441,15 @@ def _paired_binary_test(
         # records that rather than letting n stand in for the sample size.
         units=[task for task, _repeat in shared],
     )
-    if res is not None:
-        # How much was thrown away, so a shrunken n is visible in the artifact
-        # instead of silently making the comparison look cleaner than it is.
-        # Measured against the cells *attempted*, not the ones that survived:
-        # counting only surviving cells missed every cell that errored on both
-        # sides — the docker-is-broken case, where the loss is largest and the
-        # artifact reported zero exclusions.
-        universe = attempted.get(harness, set()) | attempted.get(baseline, set())
-        res["n_excluded"] = len(universe) - len(shared)
+    if res is None:
+        return _withheld_pair_record(shared, arm_cells, base_cells, n_excluded)
+    # How much was thrown away, so a shrunken n is visible in the artifact
+    # instead of silently making the comparison look cleaner than it is.
+    # Measured against the cells *attempted*, not the ones that survived:
+    # counting only surviving cells missed every cell that errored on both
+    # sides — the docker-is-broken case, where the loss is largest and the
+    # artifact reported zero exclusions.
+    res["n_excluded"] = n_excluded
     return res
 
 
@@ -399,7 +466,12 @@ def _correct_across_harnesses(
     twice — once as ``method=`` and once as a literal in the artifact — lets the
     two drift, so a reader could be told "holm" while BH was applied.
     """
-    tested = [h for h, cr in comparisons.items() if cr.get("mcnemar")]
+    # A withheld record (p_exact None) tested nothing, so it is not in the family.
+    tested = [
+        h
+        for h, cr in comparisons.items()
+        if cr.get("mcnemar") and cr["mcnemar"].get("p_exact") is not None
+    ]
     raw = [comparisons[h]["mcnemar"]["p_exact"] for h in tested]
     adjusted = adjust_pvalues(raw, method=correction)
     # The decision uses the unrounded adjusted p; the rounded one is recorded.
