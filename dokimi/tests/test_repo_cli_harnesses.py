@@ -317,6 +317,12 @@ def test_codex_review_findings_titles_with_dashes_and_trailing_prose():
     assert codex_review_findings(last)[0]["message"] == "body"
 
 
+def test_convert_answer_leaves_a_failed_run_as_is():
+    assert convert_answer("codex-review", "I will inspect the commit first.", failed=True) == (
+        "I will inspect the commit first.")
+    assert convert_answer("codex-review", "No issues.").endswith("```json\n[]\n```\n")
+
+
 def test_convert_answer_leaves_an_empty_answer_empty():
     # a failed or timed-out run must not read as a clean review (an empty findings block)
     assert convert_answer("codex-review", "") == ""
@@ -360,11 +366,22 @@ print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 0, "output
 '''
 
 
-@pytest.mark.parametrize("tools", ["read", "all"])
-def test_repo_run_grades_a_native_review_answer(tmp_path, monkeypatch, tools):
+# What codex 0.163 `exec review` prints when the turn fails: its own message, then turn.failed.
+FAKE_CODEX_REVIEW_FAILED = r'''#!/usr/bin/env python3
+import json, sys
+if sys.argv[1:] == ["--version"]:
+    print("codex-cli 0.163.0"); sys.exit(0)
+text = "Review was interrupted. Please re-run /review and wait for it to complete."
+print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": text}}))
+print(json.dumps({"type": "turn.failed", "error": {"message": "unexpected status 401 Unauthorized"}}))
+sys.exit(1)
+'''
+
+
+def _run_codex_review(tmp_path, monkeypatch, fake, tools="all"):
     root, _ = make_repo(tmp_path)
     exe = tmp_path / "bin" / "codex"
-    write(exe.parent, exe.name, FAKE_CODEX_REVIEW)
+    write(exe.parent, exe.name, fake)
     exe.chmod(0o755)
     write(exe.parent, "codex-code-mode-host", "")  # the profile's bin_companions
     raw = yaml.safe_load(Path(load_profile("codex-review").path).read_text())
@@ -380,7 +397,18 @@ def test_repo_run_grades_a_native_review_answer(tmp_path, monkeypatch, tools):
         "--cache-root", str(out / "caches"), "--agent-network", "host", "--task", "review_add",
         "--arm", "guidance:raw", "--tools", tools])
     args.func(args)
-    rd = next((out / "b1").glob("review_add__*/"))
+    return next((out / "b1").glob("review_add__*/")), runner
+
+
+def test_repo_run_keeps_a_failed_native_review_without_a_findings_block(tmp_path, monkeypatch):
+    rd, _ = _run_codex_review(tmp_path, monkeypatch, FAKE_CODEX_REVIEW_FAILED)
+    assert (rd / "answer.txt").read_text() == "Review was interrupted. Please re-run /review and wait for it to complete."
+    assert json.loads((rd / "result.json").read_text())["agent"]["is_error"] is True
+
+
+@pytest.mark.parametrize("tools", ["read", "all"])
+def test_repo_run_grades_a_native_review_answer(tmp_path, monkeypatch, tools):
+    rd, runner = _run_codex_review(tmp_path, monkeypatch, FAKE_CODEX_REVIEW, tools)
     answer = (rd / "answer.txt").read_text()
     findings = json.loads(answer.rsplit("```json\n", 1)[1].split("\n```", 1)[0])
     assert findings[0]["file"] == "src/calc.py" and findings[0]["severity"] == "major"

@@ -58,9 +58,12 @@ _CONVERTERS: dict[str, Callable[[str, str | None], list[dict[str, Any]]]] = {
 }
 
 
-def convert_answer(fmt: str | None, answer: str, workdir: str | None = None) -> str:
-    """``answer`` with the findings block of ``fmt`` appended; unchanged when ``fmt`` is ``None``."""
-    if fmt is None or not answer.strip():  # an empty answer is a failed or missing run, not a clean review
+def convert_answer(fmt: str | None, answer: str, workdir: str | None = None, *, failed: bool = False) -> str:
+    """``answer`` with the findings block of ``fmt`` appended; unchanged when ``fmt`` is ``None``.
+
+    A ``failed`` run or an empty answer stays as it is: a missing review, not a clean one.
+    """
+    if fmt is None or failed or not answer.strip():
         return answer
     if fmt not in _CONVERTERS:
         raise ValueError(f"unknown answer format {fmt!r} (known: {', '.join(ANSWER_FORMATS)})")

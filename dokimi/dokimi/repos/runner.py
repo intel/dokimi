@@ -188,7 +188,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
         (rd / "events.jsonl").write_text(transcript.events_jsonl(), encoding="utf-8")
-        answer = convert_answer(opts.profile.answer_format, transcript.answer, WORKSPACE)
+        failed = transcript.is_error or not result.ok  # a crashed review is missing, not clean
+        answer = convert_answer(opts.profile.answer_format, transcript.answer, WORKSPACE, failed=failed)
         (rd / "answer.txt").write_text(answer, encoding="utf-8")
         _write_json(rd / "task.json", task.raw)
         meta["harness_version"] = transcript.harness_version or opts.harness_version
