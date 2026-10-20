@@ -193,6 +193,13 @@ def test_builtin_claude_code_profile_builds_argv_without_a_shell(tmp_path):
         profile.argv(prompt="p", model="m", tools="everything")
 
 
+def test_claude_code_profile_passes_mcp_config_only_when_the_workspace_has_one():
+    profile = load_profile("claude-code")
+    assert "--mcp-config" not in profile.argv(prompt="p", model="m")
+    argv = profile.argv(prompt="p", model="m", present=frozenset({".mcp.json", "other"}))
+    assert argv[-4:] == ["--tools", "", "--mcp-config", ".mcp.json"]
+
+
 def test_profile_env_is_allow_listed_and_isolated(tmp_path):
     profile = load_profile("claude-code")
     env = profile.env(tmp_path / "cfg").resolve({"PATH": "/bin", "AWS_REGION": "us-east-1",

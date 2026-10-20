@@ -43,6 +43,11 @@
       }
     },
     "prompt_suffix": {"type": "string", "description": "Appended to every task prompt after a blank line, for what the harness needs the agent to know about running headless (for example that background commands are refused)."},
+    "args_if_present": {
+      "type": "object",
+      "description": "Workspace file name -> arguments appended after the tool-mode arguments when that file exists in the run's workspace (for example --mcp-config .mcp.json, so a repo's MCP servers start only when it ships them).",
+      "additionalProperties": {"type": "array", "items": {"type": "string"}}
+    },
     "config_files": {
       "type": "object",
       "description": "Files written into the per-run config directory before the agent starts, name -> content. Placeholders: {config_dir} and {support_dir} (the framework's read-only helper scripts, such as the no-background hook), both as the agent's container sees them.",

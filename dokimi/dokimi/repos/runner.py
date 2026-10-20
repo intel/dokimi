@@ -173,7 +173,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     opts.profile.write_config(rd / "config", {"config_dir": CONFIG_DIR, "support_dir": SUPPORT_DIR})
     argv = opts.profile.argv(prompt=opts.profile.prompt(str(task.raw["prompt"])), model=opts.model,
                              tools=opts.tools, max_turns=int(caps["max_turns"]), budget_usd=caps["budget_usd"],
-                             bin_path=bin_in)
+                             bin_path=bin_in, present=frozenset(
+                                 n for n in opts.profile.args_if_present if (rd / "workspace" / n).exists()))
     spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts, env=env, pass_env=passed,
                          network=network, name=container_name(rd.name, "agent"))
     result = ctx.runner.run(spec, stdout=rd / "agent.stdout", stderr=rd / "agent.stderr",

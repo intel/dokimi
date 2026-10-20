@@ -29,6 +29,9 @@ tools:
   none: ["--tools", ""]
   read: ["--tools", "Read"]
   all: ["--disallowedTools", "WebFetch", "WebSearch"]
+# --strict-mcp-config alone starts no MCP server; a repo that ships .mcp.json gets its servers.
+args_if_present:
+  .mcp.json: ["--mcp-config", ".mcp.json"]
 config_dir_env: CLAUDE_CONFIG_DIR
 env_allow:
   - PATH

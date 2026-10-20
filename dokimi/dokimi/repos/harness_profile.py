@@ -6,7 +6,8 @@
 A profile is data, not code. ``invoke`` is an argv template, and every element
 becomes exactly one argument after placeholder substitution, so a prompt with
 quotes or spaces never passes through a shell. The element ``"{tools}"`` is
-replaced by the argument list of the selected tool mode. The child process
+replaced by the argument list of the selected tool mode, followed by the
+``args_if_present`` arguments of each named workspace file that exists. The child process
 gets a scrubbed environment: only ``env_allow`` names are inherited, then
 ``env_set`` is applied, then ``config_dir_env`` points at a per-run directory
 so the user's own settings and memory cannot leak into a run.
@@ -52,6 +53,7 @@ class HarnessProfile:
     bridge: dict[str, str] | None = None
     prompt_suffix: str = ""
     config_files: dict[str, str] = field(default_factory=dict)
+    args_if_present: dict[str, tuple[str, ...]] = field(default_factory=dict)
     path: str = "<profile>"
 
     @property
@@ -68,8 +70,9 @@ class HarnessProfile:
         max_turns: int = 4,
         budget_usd: float = 0.25,
         bin_path: str | None = None,
+        present: frozenset[str] = frozenset(),
     ) -> list[str]:
-        """The command line for one run, without a shell."""
+        """The command line for one run, without a shell; ``present`` names the workspace files that exist."""
         if tools not in self.tools:
             raise ProfileError(f"{self.path}: tool mode {tools!r} is not defined "
                                f"(have: {', '.join(sorted(self.tools))})")
@@ -84,6 +87,8 @@ class HarnessProfile:
         for element in self.invoke:
             if element == TOOLS_ELEMENT:
                 out.extend(self.tools[tools])
+                for name in sorted(present & self.args_if_present.keys()):
+                    out.extend(self.args_if_present[name])
             else:
                 out.append(_substitute(element, values))
         return out
@@ -184,6 +189,7 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
         bridge=raw.get("bridge"),
         prompt_suffix=raw.get("prompt_suffix") or "",
         config_files=dict(raw.get("config_files") or {}),
+        args_if_present={name: tuple(args) for name, args in (raw.get("args_if_present") or {}).items()},
         path=path,
     )
 
