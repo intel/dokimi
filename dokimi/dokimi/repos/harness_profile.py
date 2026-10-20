@@ -114,7 +114,8 @@ class HarnessProfile:
 
     def execution_id(self, tools: str, delegation: str = "native", harness_sha256: str | None = None,
                      harness_version: str | None = None) -> str:
-        """Short hash of how the agent is started: the ``invoke`` template with its tool arguments.
+        """Short hash of how the agent is started: the profile's ``invoke`` template with its tool arguments,
+        environment, config, prompt suffix, egress and bridge.
 
         Two runs with the same id ran the same command line up to the per-cell values (prompt, model,
         caps); ``repo run`` reuses a finished cell only when its id matches. Includes the harness

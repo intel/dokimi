@@ -12,9 +12,12 @@
 
 - **A `repo run` cell is reused only by the same execution.** `meta.json` and
   `result.json` gain `execution` (`id`, `tools`, `delegation`); the `id`
-  hashes the profile's command template, tool arguments, the SHA-256 of the
-  harness executable and harness version (the executable's content, not its path). Rerunning a batch with another `--tools`, `--delegation`,
-  edited profile, harness binary, or harness upgrade no longer counts cells from
+  hashes the profile's name, command template, tool arguments, environment
+  (`env_set`, `env_allow`), config (`config_dir_env`, `config_files`), prompt
+  suffix, `egress`, `bridge`, the SHA-256 of the harness executable and harness
+  version (the executable's content, not its path). Rerunning a batch with
+  another `--tools`, `--delegation`, edited profile, harness binary, or harness
+  upgrade no longer counts cells from
   the old one as done: those cells are reported as crashed, and `--force` or a
   new `--batch` runs them. Results from earlier versions count as
   `--delegation native`.

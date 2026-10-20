@@ -986,10 +986,11 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   on a rerun unless `--force`; a cell without one is reported as missing, not
   failed, and the next run of the batch fills it. `meta.json` and
   `result.json` record `execution`: the tool mode, the delegation mode and an
-  `id` hashing the profile's `invoke`, tool arguments, `env_set`,
-  `config_files`, `prompt_suffix`, the SHA-256 of the harness executable (`--bin`) and harness version.
+  `id` hashing the profile's name, `invoke`, tool arguments, `env_set`,
+  `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`,
+  `bridge`, the SHA-256 of the harness executable (`--bin`) and harness version.
   A rerun whose `id` differs (another `--tools`, `--delegation`, profile, harness binary or
-  harness version) does not reuse the cell: the cell is reported as crashed, and
+  harness version, or an edited `env_allow`, `egress`, `bridge` or similar profile field) does not reuse the cell: the cell is reported as crashed, and
   `--force` or another `--batch` runs it. A result from before `execution` was
   recorded counts as `--delegation native`. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
