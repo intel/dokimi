@@ -3,6 +3,10 @@ depends_on:
   - dokimi/dokimi/eval/judge.py
   - dokimi/dokimi/eval/panel.py
   - dokimi/dokimi/gate/trust_gate.py
+  - dokimi/dokimi/defaults.py
+  - dokimi/dokimi/commands/benchmark.py
+  - dokimi/dokimi/questions/artifact.py
+  - dokimi/dokimi/schemas/questions.v*.json
 ---
 <!--
 Copyright (C) 2026 Intel Corporation

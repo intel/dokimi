@@ -88,6 +88,22 @@ def test_every_depends_on_glob_matches_a_tracked_file():
     assert cdrt.stale_globs(pages, _tracked_files()) == []
 
 
+@pytest.mark.parametrize(("path", "page"), [
+    ("dokimi/dokimi/defaults.py", "methodology.md"),
+    ("dokimi/dokimi/commands/benchmark.py", "methodology.md"),
+    ("dokimi/dokimi/questions/artifact.py", "methodology.md"),
+    ("dokimi/dokimi/schemas/questions.v2.json", "methodology.md"),
+    ("dokimi/dokimi/skills/loader.py", "evaluating-treatments.md"),
+    ("dokimi/dokimi/agent_profiles/loader.py", "evaluating-treatments.md"),
+    ("dokimi/dokimi/eval/agent_runner.py", "evaluating-treatments.md"),
+    ("dokimi/dokimi/mcp/factory.py", "evaluating-treatments.md"),
+    ("dokimi/scripts/sync_skilltext_profile.py", "evaluating-treatments.md"),
+])
+def test_code_a_page_names_flags_that_page(path, page):
+    """The page names each file as the code it documents, so a change to it prompts the page."""
+    assert f"dokimi/docs/{page}" in cdrt.triggers(cdrt.load_pages(), [path])
+
+
 @pytest.mark.parametrize("text", [
     "---\r\ndepends_on:\r\n  - a/**\r\n---\r\nx\r\n",
     "\ufeff---\ndepends_on:\n  - a/**\n---\nx\n",
