@@ -81,6 +81,8 @@ def _cx(src: str) -> dict[str, int]:
     ("return [x for x in y if x]", 1),                 # nor do comprehensions
     ("match a:\n    case 1:\n        pass\n    case 2:\n        pass", 3),
     ("match a:\n    case 1:\n        pass\n    case _:\n        pass", 2),  # wildcard = else
+    ("match a:\n    case 1:\n        if b:\n            pass\n    case 2:\n        pass", 4),  # a decision in a case body
+    ("match a:\n    case 1:\n        pass\n    case (2 as z):\n        pass", 3),  # refutable as-pattern last: counts
     ("def inner():\n    if a:\n        pass", 3),        # a nested def counts in its parent
 ])
 def test_complexity_counts_like_ruff_c901(body, expected):
@@ -336,6 +338,37 @@ def test_the_base_baseline_is_read_from_git(project, monkeypatch):
     assert cg.main(["--base", "base"]) == 1     # raised from 22 to 23 with no rationale
     monkeypatch.setenv("DOKIMI_GROWTH_BASE", "base")
     assert cg.base_ref() == "base"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_the_base_baseline_is_read_when_the_project_is_a_subdirectory(tmp_path, monkeypatch):
+    # The real layout: the git root holds the project in a subdirectory. The baseline path
+    # is then only found through the "./" prefix, relative to the project.
+    proj = tmp_path / "proj"
+    monkeypatch.setattr(cg, "PROJECT", proj)
+    monkeypatch.setattr(cg, "BASELINE", proj / "scripts" / "growth_baseline.json")
+    (proj / "dokimi").mkdir(parents=True)
+    (proj / "scripts").mkdir()
+    (proj / "dokimi" / "big.py").write_text("x = 1\n" * 22, encoding="utf-8")
+    cg.BASELINE.write_text(cg.dump_baseline({cg.FILES: {"dokimi/big.py": {"lines": 22}},
+                                             cg.FUNCTIONS: {}}), encoding="utf-8")
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                       cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    git("branch", "base")
+
+    base = cg.load_base_baseline("base")
+    assert base is not None and base[cg.FILES]["dokimi/big.py"] == {"lines": 22}
+
+    cg.BASELINE.write_text(cg.dump_baseline({cg.FILES: {"dokimi/big.py": {"lines": 23}},
+                                             cg.FUNCTIONS: {}}), encoding="utf-8")
+    (proj / "dokimi" / "big.py").write_text("x = 1\n" * 23, encoding="utf-8")
+    assert cg.main(["--base", "base"]) == 1     # raised from 22 to 23 with no rationale
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")

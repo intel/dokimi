@@ -19,6 +19,7 @@ import dokimi.eval
 import dokimi.mcp.factory
 import dokimi.questions.artifact
 from dokimi.commands import answers
+from dokimi.defaults import DEFAULT_RETRIEVAL_TOP_K
 
 
 def _args(**overrides) -> argparse.Namespace:
@@ -89,8 +90,19 @@ def test_output_path_precedence():
     assert answers._output_path(_args()) == Path("answers/Lib.json")
 
 
-def test_generate_writes_answers_to_output_path(tmp_path, monkeypatch, capsys):
-    _point_config(monkeypatch, tmp_path / "absent.yaml")
+@pytest.mark.parametrize("top_k, config_text, expected_top_k", [
+    (3, None, 3),                                   # the flag wins
+    (None, "retrieval:\n  top_k: 7\n", 7),          # else the config's retrieval.top_k
+    (None, None, DEFAULT_RETRIEVAL_TOP_K),          # else the built-in default
+])
+def test_generate_writes_answers_to_output_path(tmp_path, monkeypatch, capsys,
+                                                top_k, config_text, expected_top_k):
+    if config_text is None:
+        _point_config(monkeypatch, tmp_path / "absent.yaml")
+    else:
+        path = tmp_path / "products.yaml"
+        path.write_text(config_text, encoding="utf-8")
+        _point_config(monkeypatch, path)
     monkeypatch.setattr(dokimi.questions.artifact, "load_questions",
                         lambda path: SimpleNamespace(questions=["q1", "q2"]))
     monkeypatch.setattr(dokimi.mcp.factory, "create_doc_source_client", lambda source: "client")
@@ -112,9 +124,9 @@ def test_generate_writes_answers_to_output_path(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(dokimi.eval, "Answerer", FakeAnswerer)
     out = tmp_path / "out.json"
 
-    answers.cmd_answers_generate(_args(output=str(out), top_k=3))
+    answers.cmd_answers_generate(_args(output=str(out), top_k=top_k))
 
-    assert calls["init"]["top_k"] == 3
+    assert calls["init"]["top_k"] == expected_top_k
     assert calls["generate"]["questions"] == ["q1", "q2"]
     assert calls["generate"]["library_id"] == "/lib/id"
     assert calls["generate"]["output_path"] == out
