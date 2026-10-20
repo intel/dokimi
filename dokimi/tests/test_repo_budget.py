@@ -875,6 +875,15 @@ def test_a_cut_import_that_a_nested_chain_loaded_is_not_warned(tmp_path):
     assert not any("hop" in w for w in got["warnings"]), got["warnings"]
 
 
+@pytest.mark.parametrize("target", ["CLAUDE.md", "sub/CLAUDE.md"])
+def test_a_cut_import_of_a_counted_guidance_file_is_not_warned(tmp_path, target):
+    """A guidance file is an entry of its own, not an import, so a cut import of it is already loaded."""
+    files = {"CLAUDE.md": "@c1.md\n", "c1.md": "@c2.md\n", "c2.md": "@c3.md\n", "c3.md": "@c4.md\n",
+             "c4.md": f"@{target}\n", "sub/CLAUDE.md": "nested\n"}
+    got = budget(_tree(tmp_path, files), NAMES, import_max_depth=4)
+    assert got["warnings"] == [], got["warnings"]
+
+
 def test_an_alias_cycle_in_an_import_terminates(tmp_path):
     """CLAUDE.md -> alias/CLAUDE.md, alias -> '.': the same file under ever longer paths."""
     tree = _tree(tmp_path, {"CLAUDE.md": "@alias/CLAUDE.md\n"})

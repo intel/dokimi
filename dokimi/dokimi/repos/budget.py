@@ -133,7 +133,9 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
 
     totals = {w: sum(e["chars"] for e in entries if e["when"] == w) for w in ("start", "lazy", "on demand", "off")}
     warnings = unreadable_warnings[:]
-    loaded = {_target(tree, p) for p in at_start | lazy_all}
+    # A guidance file is an entry of its own, so a cut import of it is already loaded (not an import).
+    loaded = {_target(tree, p) for p in at_start | lazy_all} | {
+        _target(tree, e["path"]) for e in entries if e["kind"] == "guidance" and e["when"] != "off"}
     for f, target in sorted(set(cut_start + cut_lazy)):
         if _target(tree, target) in loaded:
             continue  # another chain did load it, possibly through a link
