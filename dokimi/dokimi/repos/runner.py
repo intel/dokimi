@@ -189,8 +189,9 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         "rc": result.returncode, "timed_out": result.timed_out, "wall_s": result.wall_s, "cost_usd": None,
         # A killed harness reports no cost; the batch budget counts the cell's cap instead of $0.
         "charged_usd": caps["budget_usd"], "num_turns": None, "is_error": None, "result_subtype": None,
-        "input_tokens": None, "output_tokens": None, "plugins": [], "over_budget": False, "caps": caps,
-        "network": network, "trace_errors": []}
+        "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
+        "cache_write_tokens": None, "usage_scope": None, "subagent_calls": None,
+        "plugins": [], "over_budget": False, "caps": caps, "network": network, "trace_errors": []}
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
@@ -204,7 +205,9 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             cost_usd=cost, charged_usd=cost if cost is not None else caps["budget_usd"],
             num_turns=transcript.num_turns, is_error=transcript.is_error,
             result_subtype=transcript.result_subtype, input_tokens=transcript.input_tokens,
-            output_tokens=transcript.output_tokens, plugins=transcript.plugins,
+            output_tokens=transcript.output_tokens, cache_read_tokens=transcript.cache_read_tokens,
+            cache_write_tokens=transcript.cache_write_tokens, usage_scope=transcript.usage_scope,
+            subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
         grade = outcome(task, rd, graded)

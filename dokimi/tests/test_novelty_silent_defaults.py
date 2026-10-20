@@ -219,7 +219,7 @@ def test_a_failed_conflict_batch_is_reported_unchecked():
     warnings = report.warnings(len(atoms))
     assert any(w.startswith("4 of 4 atoms were not checked for conflicts (4 in calls that "
                             "failed (last error: RuntimeError: throttled)") for w in warnings)
-    assert any("0 of 6 atom pairs shared a call" in w for w in warnings)
+    assert any("compared 0 of 6 atom pairs" in w for w in warnings)
 
 
 def test_a_conflict_row_names_the_atoms_of_its_own_chunk():

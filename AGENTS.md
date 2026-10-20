@@ -1,6 +1,6 @@
 # Agent guide
 
-This repo is a measurement framework: it measures whether documentation, a
+This repo is dokimi, A/B testing for agent context: it measures whether documentation, a
 skill, an MCP doc source, or an agent persona prompt improves a coding agent's
 answers and task outcomes. The content it measures (skills, executable tasks,
 golden question sets) lives in content repositories and is passed in by path:
@@ -26,8 +26,11 @@ timeout, and run the test files you touched first. Beyond lint and tests, CI
 also holds a PR to:
 
 - 80% coverage of changed lines (when 20+ are measurable): add tests with the change.
-- mypy on the whole package; the `[[tool.mypy.overrides]]` list in
-  `pyproject.toml` only shrinks.
+- mypy on the whole package, no module exempt: fix a type error rather than
+  adding an `ignore_errors` override to `pyproject.toml`.
+- Imports follow the layers in `dokimi/tests/test_import_architecture.py`: no
+  upward import, no new cycle, LLM SDKs only in `dokimi.llm`, spawns only in
+  `dokimi.process`. Its baselines only shrink.
 - Docs that name a command, flag, path or module must match the tree
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
@@ -71,6 +74,10 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
   `without_docs`, and every stored run uses them: writers, readers, schemas
   and data files keep those keys. Text people read (report headings, console
   output) may label the conditions however it reads best.
+- Code that reads answers, eval or arms records goes through
+  `dokimi/dokimi/records.py` (`read`/`load`/`records`), not
+  `.get("with_docs")` on the dict: it is the one place that knows the keys
+  the writers write.
 
 ## What goes in the tree
 

@@ -49,11 +49,14 @@ from __future__ import annotations
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
 from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
 from dokimi.eval.question_text import require_question_text
+from dokimi.records import Answer, Record, RecordError, RecordLike, Run, arm_answers, arm_scores
+from dokimi.records import record as as_record
+from dokimi.records import records as as_records
 from dokimi.eval.stats import adjust_pvalues, mean_ci
 
 ALPHA = 0.05
@@ -68,7 +71,7 @@ class Measure:
 
     name: str
     kind: str  # "aggregate" | "grounded" | "pairwise" | "coverage"
-    scores: Dict[Tuple[str, str], Optional[float]] = field(default_factory=dict)
+    scores: Dict[Tuple[Union[str, int], str], Optional[float]] = field(default_factory=dict)
     #: "PASS" / "FAIL" from this judge's own judge-validity run; None = not validated.
     gate: Optional[str] = None
 
@@ -138,13 +141,41 @@ def label(rows: Sequence[Dict[str, Any]], *, require_validated: bool = False) ->
     return f"{'CONSISTENT' if same else 'LEANING'} {arrow}" + (" (one judge)" if single else "")
 
 
-def stored_label(data: Dict[str, Any]) -> str:
+def stored_label(data: Union[Run, Dict[str, Any]]) -> str:
     """``provider/model (stored)`` from the file's judge fields, as ``--judges`` and
     ``judge-validity`` label the same judge; ``stored judge`` when the file does not
     say. Named that way, a validity report for the judge reaches its stored scores
     and a stored-plus-re-scored verdict from one judge reads "(one judge)"."""
-    provider, model = data.get("judge_provider"), data.get("judge_model")
+    meta = data.meta if isinstance(data, Run) else data
+    provider, model = meta.get("judge_provider"), meta.get("judge_model")
     return f"{provider}/{model}{STORED}" if provider and model else "stored judge"
+
+
+def _unjoined(data: Dict[str, Any], key: str, *, skip_malformed: bool = False) -> Sequence[Record]:
+    """The *key* (``answers`` or ``evaluations``) records of an arms run, not joined.
+
+    Neither caller needs a join, and a join refuses repeated question ids, which
+    older arms files hold (the runner's ``unknown_q`` fallback id). With
+    *skip_malformed*, a record that does not parse is skipped instead of raised
+    on (the reproducibility gate only looks for stored-material stamps).
+
+    Takes the file's dict only: a :class:`Run` does not say which list it was
+    loaded from, so reading ``key`` from it would silently return the wrong records.
+    """
+    if not isinstance(data, dict):
+        raise TypeError(f"expected an arms file's dict, got {type(data).__name__}")
+    items = data.get(key)
+    if not isinstance(items, list):
+        return []
+    if not skip_malformed:
+        return as_records(items, source=f"arms run {key}", kind=key)
+    out: List[Record] = []
+    for i, item in enumerate(items):
+        try:
+            out.append(as_record(item, source=f"arms run {key}", index=i, kind=key))
+        except RecordError:
+            continue
+    return out
 
 
 def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
@@ -163,38 +194,28 @@ def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
     (p 0.65) with the 28-char snippet. A baseline arm has no material, so all judges
     see the same thing.
     """
-    kinds = {}
-    for r in data.get("answers") or []:
-        if not isinstance(r, dict):
-            continue
-        arms = r.get("arms")
-        if not isinstance(arms, dict):
-            continue
-        for arm, body in arms.items():
-            if isinstance(body, dict):
-                kinds[arm] = (body.get("metadata") or {}).get("arm_kind")
-    unreproducible = set()
-    for ev in data.get("evaluations") or []:
-        if not isinstance(ev, dict):
-            continue
-        scores = ev.get("scores")
-        if not isinstance(scores, dict):
-            continue
-        for arm, s in scores.items():
-            if not (isinstance(s, dict) and s.get("judge_context_source") == SOURCE_STORED
-                    and kinds.get(arm) != "baseline"):
-                continue
-            unreproducible.add(arm)
-    return sorted(unreproducible)
+    kinds = {
+        arm: (a.raw.get("metadata") or {}).get("arm_kind")
+        for r in _unjoined(data, "answers", skip_malformed=True) for arm, a in arm_answers(r).items()
+    }
+    return sorted({
+        arm for r in _unjoined(data, "evaluations", skip_malformed=True) for arm, s in arm_scores(r).items()
+        if s.raw.get("judge_context_source") == SOURCE_STORED
+        and kinds.get(arm) != "baseline"
+    })
 
 
 def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional[Measure]:
-    """The aggregate the arms run itself recorded, if it was judged."""
+    """The aggregate the arms run itself recorded in its ``evaluations``, if it was judged.
+
+    Only ``evaluations[].scores``: a legacy inline ``arms[name].evaluation`` and a
+    binary file's condition scores are not this measure.
+    """
     m = Measure(name=name or stored_label(data), kind="aggregate")
-    for ev in data.get("evaluations") or []:
-        for arm, s in (ev.get("scores") or {}).items():
-            if isinstance(s, dict) and s.get("aggregate") is not None:
-                m.scores[(ev["question_id"], arm)] = float(s["aggregate"])
+    for r in _unjoined(data, "evaluations"):
+        for arm, s in arm_scores(r).items():
+            if s.aggregate is not None:
+                m.scores[(r.question_id, arm)] = float(s.aggregate)
     return m if m.scores else None
 
 
@@ -217,23 +238,24 @@ def pairwise_measure(pairwise: Dict[str, Any], name: str, baseline_arm: str) -> 
 
 
 def scored_answers(
-    records: Sequence[Dict[str, Any]], arms: Optional[Sequence[str]] = None,
-) -> List[Tuple[Dict[str, Any], str, Dict[str, Any], str]]:
-    """The (record, arm, arm body, question) answers :func:`score_measure` sends to a judge.
+    records: Sequence[RecordLike], arms: Optional[Sequence[str]] = None,
+) -> List[Tuple[Record, str, Answer, str]]:
+    """The (record, arm, answer, question) answers :func:`score_measure` sends to a judge.
 
     Pure: no judge call. Raises :class:`EmptyQuestionError` for a record with an
     answer to score and no question text; a record with only empty answers is
     skipped, not refused.
     """
     return [
-        (r, arm, body, require_question_text(r))
-        for r in records for arm, body in (r.get("arms") or {}).items()
-        if isinstance(body, dict) and body.get("answer") and (arms is None or arm in arms)
+        (r, arm, a, require_question_text(r.raw, i))
+        for i, r in enumerate(as_records(records, source="answers", kind="answers"))
+        for arm, a in arm_answers(r).items()
+        if a.text and (arms is None or arm in arms)
     ]
 
 
 def score_measure(
-    records: Sequence[Dict[str, Any]], scorer: Scorer, *, name: str, library: str,
+    records: Sequence[RecordLike], scorer: Scorer, *, name: str, library: str,
     arms: Optional[Sequence[str]] = None, concurrency: int = 1,
     progress: Optional[Callable[[int, int], None]] = None,
     ground_truth: Optional[Dict[str, str]] = None,
@@ -255,9 +277,9 @@ def score_measure(
     """
     store = store if store is not None else JudgeContextStore()
     jobs = [
-        (r["question_id"], arm, question, body["answer"],
-         store.resolve_with_source(r["question_id"], arm, body)[0])
-        for r, arm, body, question in scored_answers(records, arms)
+        (r.question_id, arm, question, a.text,
+         store.resolve_with_source(r.question_id, arm, dict(a.raw))[0])
+        for r, arm, a, question in scored_answers(records, arms)
     ]
 
     def one(job):

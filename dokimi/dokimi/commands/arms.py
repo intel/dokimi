@@ -16,8 +16,9 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
-    DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
+    JUDGE_MODEL_FOR_PROVIDER,
+    JUDGE_MODEL_HELP,
 )
 
 # Run-configuration fields the arms commands read off parsed args, shared with
@@ -176,11 +177,15 @@ def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
     """Compare paired no-plugin/plugin arms artifacts."""
     from dokimi.artifacts import load_artifact, save_artifact
     from dokimi.eval.plugin_delta import PluginDeltaError, compare_plugin_runs
+    from dokimi.records import records
     from dokimi.report.plugin_delta_report import render_plugin_delta_report
 
     try:
         baseline = load_artifact("arms", Path(args.baseline_json))
         plugin = load_artifact("arms", Path(args.plugin_json))
+        for path, artifact in ((args.baseline_json, baseline), (args.plugin_json, plugin)):
+            for section in ("answers", "evaluations"):
+                records(artifact.get(section) or [], source=f"{path} {section}", kind=section)
         output = compare_plugin_runs(baseline, plugin)
     except (PluginDeltaError, ValueError, FileNotFoundError) as exc:
         print(f"Error computing plugin delta: {exc}", file=sys.stderr)
@@ -251,7 +256,8 @@ def register(sub, positive_int) -> None:
                                  "discovery rate)")
     arms_run_p.add_argument("--judge", action="store_true",
                             help="Also score each arm with the LLM-as-judge")
-    arms_run_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    arms_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
+                            help=JUDGE_MODEL_HELP)
     arms_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                             choices=JUDGE_PROVIDERS)
     arms_run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
@@ -390,7 +396,8 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
                              "or 'bh' (Benjamini-Hochberg, controls false discovery rate)")
     parser.add_argument("--judge", action="store_true",
                         help="Also score each arm with the LLM-as-judge")
-    parser.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    parser.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
+                        help=JUDGE_MODEL_HELP)
     parser.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                         choices=JUDGE_PROVIDERS)
     parser.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
@@ -444,7 +451,12 @@ def _load_questions(path: str) -> list[dict]:
     from dokimi.questions.artifact import load_questions
 
     questions = load_questions(path).questions
-    _refuse_duplicate_ids([question_id(q) for q in questions], path)
+    ids = [question_id(q) for q in questions]
+    for i, qid in enumerate(ids):
+        # The records reader refuses any other id, so a run with one would be paid for and lost.
+        if qid is not None and (isinstance(qid, bool) or not isinstance(qid, (str, int))):
+            raise ValueError(f"{path}: questions[{i}]: id must be a string or an integer, got {qid!r}")
+    _refuse_duplicate_ids(ids, path)
     print(f"Loaded {len(questions)} questions from {path}")
     return questions
 

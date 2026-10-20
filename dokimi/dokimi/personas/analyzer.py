@@ -40,13 +40,13 @@ class PersonaAnalyzer:
         """
         self.github_token = github_token
         self.runner = runner
-        self._github_client = None
+        self._github_client: Optional["Github"] = None
         
         if not GITHUB_AVAILABLE:
             logger.debug("PyGithub not available. GitHub analysis will be limited.")
     
     @property
-    def github_client(self):
+    def github_client(self) -> Optional["Github"]:
         """Lazy-load GitHub client."""
         if self._github_client is None and GITHUB_AVAILABLE:
             if self.github_token:
@@ -66,8 +66,9 @@ class PersonaAnalyzer:
             Dictionary with analysis results
         """
         # Try PyGithub first, fall back to gh CLI
-        if GITHUB_AVAILABLE and self.github_client:
-            return self._analyze_with_pygithub(repo_name)
+        client = self.github_client if GITHUB_AVAILABLE else None
+        if client:
+            return self._analyze_with_pygithub(client, repo_name)
         else:
             logger.info("PyGithub not available, using gh CLI fallback")
             return self._analyze_with_gh_cli(repo_name)
@@ -103,22 +104,25 @@ class PersonaAnalyzer:
             "topics": [],
         }
 
-    def _analyze_with_pygithub(self, repo_name: str) -> Dict[str, Any]:
+    def _analyze_with_pygithub(self, client: "Github", repo_name: str) -> Dict[str, Any]:
         try:
             logger.info(f"Analyzing repository: {repo_name}")
-            repo = self.github_client.get_repo(repo_name)
+            repo = client.get_repo(repo_name)
             
+            readme_content = self._get_readme(repo)
+            use_cases = self._extract_use_cases(repo)
+            issues_analysis = self._analyze_issues(repo)
             analysis = {
-                "readme_content": self._get_readme(repo),
-                "use_cases": self._extract_use_cases(repo),
-                "issues_analysis": self._analyze_issues(repo),
+                "readme_content": readme_content,
+                "use_cases": use_cases,
+                "issues_analysis": issues_analysis,
                 "api_patterns": self._extract_api_patterns(repo),
                 "description": repo.description or "",
                 "topics": repo.get_topics()
             }
             
-            logger.info(f"Analysis complete: {len(analysis['use_cases'])} use cases, "
-                       f"{len(analysis['issues_analysis']['sample_issues'])} sample issues")
+            logger.info(f"Analysis complete: {len(use_cases)} use cases, "
+                       f"{len(issues_analysis['sample_issues'])} sample issues")
             
             return analysis
             
@@ -226,7 +230,7 @@ class PersonaAnalyzer:
         - Applications
         - Examples
         """
-        use_cases = []
+        use_cases: List[str] = []
         readme = self._get_readme(repo)
         
         if not readme:
@@ -285,7 +289,7 @@ class PersonaAnalyzer:
                 })
             
             # Get common labels
-            label_counts = {}
+            label_counts: Dict[str, int] = {}
             for issue in issues_to_analyze:
                 for label in issue.labels:
                     label_counts[label.name] = label_counts.get(label.name, 0) + 1

@@ -17,8 +17,9 @@ artifact so a partial run is never quoted as a full sweep.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 from . import atoms as atoms_mod
 from . import attribute, bundle as bundle_mod
@@ -26,6 +27,7 @@ from . import classify, items as items_mod
 from . import measure, needs, probes, report, retention, shorten, spans
 from .client import LLMClient, roll_up_cost
 from .retention import RetentionOracle
+from .tiers import DEFAULT_SETTINGS, RunSettings
 
 
 @dataclass
@@ -37,21 +39,21 @@ class AnalyzeConfig:
     name: str = ""
     description: str = ""
     frontmatter: str = ""
-    max_atoms: int | None = 120
-    paraphrases: int = 1
-    reversals: bool = True
+    max_atoms: int | None = DEFAULT_SETTINGS["max_atoms"]
+    paraphrases: int = DEFAULT_SETTINGS["paraphrases"]
+    reversals: bool = DEFAULT_SETTINGS["reversals"]
     arms: tuple[str, ...] = (measure.BASELINE_ARM, "full")
     budgets: tuple[float, ...] = (0.75, 0.5)
     concurrency: int = 5
     allow_self_judge: bool = False
-    verify_faithfulness: bool = True
-    classify_content: bool = True
-    shorten_artifact: bool = True
+    verify_faithfulness: bool = DEFAULT_SETTINGS["verify_faithfulness"]
+    classify_content: bool = DEFAULT_SETTINGS["classify_content"]
+    shorten_artifact: bool = DEFAULT_SETTINGS["shorten_artifact"]
     # Check each atom against the span the extractor cited for it. Cheap (one cached oracle
     # verdict per cited pair, mostly resolved lexically) and it decides whether the span
     # views may assert a colour: 0.19 of atoms in the study were unrecoverable from their
     # cited file, so a run that skips this must not present attribution as confirmed.
-    confirm_carriers: bool = True
+    confirm_carriers: bool = DEFAULT_SETTINGS["confirm_carriers"]
     placebo_text: str | None = None
     cache_dir: Path | None = None
     seed: int = 0
@@ -60,6 +62,12 @@ class AnalyzeConfig:
     # flag is recorded in `run_config` because the two modes are not comparable cells.
     include_resources: bool = False
     resource_roles: tuple[str, ...] | None = None
+    # The named cost tier these settings came from, and the flags that overrode it
+    # (`tiers.resolve_settings` fills both via `RunSettings.config_fields`). Recorded in
+    # `run_config.tier`, with the forfeits that follow from the settings above, and in the
+    # artifact's warnings, so a cheap run cannot be quoted as a sweep.
+    tier: str | None = None
+    tier_overrides: dict[str, Any] = field(default_factory=dict)
 
 
 def _prompts_sha256() -> str:
@@ -147,9 +155,10 @@ def analyze(
         ref_digest: Content digest of the artifact, so a stored result can be tied to the
             exact bytes it was measured on. Defaults to the bundle's ``measured_digest``
             when ``artifact_bundle`` is given.
-        tier: The resolved cost tier and the claims it forfeits, recorded in
-            ``run_config`` and appended to the artifact's warnings so a cheap run cannot be
-            quoted as a sweep.
+        tier: The older spelling of ``config.tier`` and ``config.tier_overrides``: a
+            ``{"name", "overrides"}`` record. When supplied, it replaces both the config's
+            tier and overrides entirely (no merge): a tier-passed run records only the
+            overrides in the tier record, not combined with ``config.tier_overrides``.
         artifact_bundle: The resolved bundle ``text`` was rendered from. Supplying it adds
             per-file provenance: every span, atom and outcome can then be traced to the
             file it came from, which is the cut an author needs to decide what belongs in
@@ -162,32 +171,13 @@ def analyze(
         span_list, client=extractor, cap=config.max_atoms, report=extraction
     )
     warnings.extend(extraction.warnings(len(span_list)))
+    settings = RunSettings.of(config)
     if tier:
-        # From what this run did, not the tier's text: an override or an atom set under
-        # the cap changes which claims are forfeit.
-        from .tiers import forfeits
-
-        tier = dict(tier, forfeits=forfeits(
-            {name: getattr(config, name) for name in (
-                "max_atoms", "paraphrases", "reversals", "verify_faithfulness",
-                "classify_content", "shorten_artifact", "confirm_carriers")},
-            n_atoms=len(atom_list)))
-        for forfeit in tier["forfeits"]:
-            warnings.append(f"tier `{tier['name']}` forfeits: {forfeit}")
-        if tier.get("overrides"):
-            warnings.append(
-                f"tier `{tier['name']}` was overridden by flags "
-                f"({', '.join(sorted(tier['overrides']))}); the forfeits above follow the "
-                "settings this run used"
-            )
-    else:
-        from .tiers import FORFEITS
-
-        # A tier states these through its forfeits; the same flags typed alone did not.
-        if not config.paraphrases:
-            warnings.extend(FORFEITS["paraphrases"])
-        if not config.reversals:
-            warnings.extend(FORFEITS["reversals"])
+        settings = replace(settings, tier=tier["name"],
+                           overrides=dict(tier.get("overrides") or {}))
+    # From what this run did, not the tier's text: an override or an atom set under the
+    # cap changes which claims are forfeit.
+    warnings.extend(settings.warnings(n_atoms=len(atom_list)))
     sampling = (
         f"cap-per-artifact:{config.max_atoms}" if config.max_atoms is not None else "full"
     )
@@ -265,15 +255,26 @@ def analyze(
 
     categories: dict[str, str] = {}
     conflicts: list[dict] = []
+    conflict_coverage = None
     if config.classify_content and atom_list:
         judged = classify.ClassifyReport()
         verdicts = classify.judge_value(
             atom_list, client=extractor, task=graph.task_statement(), report=judged
         )
-        conflicts = classify.detect_conflicts(atom_list, client=extractor, report=judged)
+        # One call over the whole (capped) atom set compares every pair; the default batch of
+        # 40 under a cap of 120 compared about a third of them. The prompt sends the same
+        # statements once and the answer lists only conflicts, so the token cost is similar.
+        conflicts = classify.detect_conflicts(
+            atom_list, client=extractor, report=judged,
+            batch=max(config.max_atoms or len(atom_list), 2),
+        )
         classify.apply_conflicts(verdicts, conflicts)
         categories = classify.categorize(atom_list, verdicts, outcomes)
         warnings.extend(judged.warnings(len(atom_list)))
+        conflict_coverage = {
+            "pairs_compared": judged.pairs_compared,
+            "pairs_total": judged.pairs_total,
+        }
     elif not config.classify_content:
         warnings.append("content categories were not judged (--no-classify)")
 
@@ -379,12 +380,13 @@ def analyze(
         sole_carriers=attribute.sole_carriers(attributions),
         topics=attribute.topic_rollup(attributions),
         conflicts=conflicts,
+        conflict_coverage=conflict_coverage,
         extraction=extraction.as_dict(),
         cost=roll_up_cost([extractor, answerer, judge]),
         warnings=warnings,
     )
     payload["run_config"] = _run_config(config)
-    payload["run_config"]["tier"] = tier or None
+    payload["run_config"]["tier"] = settings.tier_record(n_atoms=len(atom_list))
     return AnalyzeResult(
         artifact=payload,
         attributions=attributions,
