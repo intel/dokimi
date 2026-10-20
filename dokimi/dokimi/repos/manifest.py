@@ -24,13 +24,14 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any, Callable
 
 import yaml
 
 from dokimi.artifacts import schema_errors
 
+from .host_spec import HostSpecError, parse_host
 from .source import RepoTree
 
 SCHEMA_VERSION = "repo_manifest.v1"
@@ -477,11 +478,8 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
         if value is not None and not _positive(value):
             problems.append(f"{key} must be a positive, finite number")
 
-    from .host import HostSpecError, requirements  # host imports workspace, which imports this module
-    from .workspace import Task
-
     try:
-        requirements(Task(name, raw, Path(task_dir)))
+        parse_host(raw.get("host"), name)
     except HostSpecError as exc:
         problems.append(str(exc).split("task.json ", 1)[-1])
     report.errors.extend(f"{where}: {p}" for p in problems)

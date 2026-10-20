@@ -48,6 +48,7 @@ from typing import Any
 
 from dokimi import process
 
+from .errors import PrepError
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
@@ -64,10 +65,6 @@ _GIT_TIMEOUT_S = 1800
 # (origin/main), as the arm is renamed to the SHA it resolves to.
 _ARM_REV_RE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/^~-]*$")
 _FULL_SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
-
-
-class PrepError(RuntimeError):
-    """A workspace could not be prepared (a patch does not apply, a base is missing, ...)."""
 
 
 class Arm(str):
