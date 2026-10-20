@@ -415,6 +415,14 @@ def test_the_replay_oracle_survives_an_empty_comment_and_a_missing_kind(tmp_path
     assert ans[1]["rule"] == "docs"
 
 
+def test_the_replay_oracle_reaches_full_recall_on_a_suggestion_comment(tmp_path):
+    write(tmp_path / "t", "gold.json", json.dumps([{"id": "s", "file": "src/calc.py", "line": 5, "kind": "k",
+                                                    "comment": "```suggestion\n    return a * b\n```"}]))
+    oracle = review.oracle_replay({}, tmp_path / "t")
+    assert review.grade_replay({}, tmp_path / "t", oracle)["recall"] == 1.0
+    assert review.last_json(oracle)[0]["message"] == "```suggestion"
+
+
 def test_wildcard_seeds_and_absolute_paths_match_as_pinned(tmp_path):
     seeds = {"seeds": [{"id": "w", "class": "c", "file": "*", "lines": [5], "kw": "zzz"},
                        {"id": "s", "class": "c", "file": "src/calc.py", "lines": [9], "kw": "mul"}]}

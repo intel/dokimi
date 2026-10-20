@@ -225,7 +225,8 @@ def oracle_replay(task, task_dir):
     gold = _read_json(task_dir, task.get("gold", "gold.json"))
     ans = [{"file": g["file"], "line": g["line"], "severity": "minor", "rule": g.get("kind", ""),
             "message": ((g.get("comment") or "").splitlines() or [""])[0][:200]} for g in gold]
-    return "```json\n" + json.dumps(ans, indent=1) + "\n```"
+    # a comment's ``` (a GitHub suggestion) would close the fence: JSON-escape it, same decoded text
+    return "```json\n" + json.dumps(ans, indent=1).replace("```", "\\u0060\\u0060\\u0060") + "\n```"
 
 
 GRADERS = {"review_seeds": grade_seeds, "review_replay": grade_replay}
