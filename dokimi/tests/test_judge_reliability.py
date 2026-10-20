@@ -73,6 +73,15 @@ def test_sequential_fails_an_inverted_judge_early():
     assert s["per_variant"]["truncate_20"]["n"] == SPRT_BATCH
 
 
+def test_sequential_fails_a_judge_that_always_ties():
+    report = run_sequential(_many_answers(), lambda *_: 50.0, max_bases=20, variants=["truncate_20"])
+    s = report.summary()
+    # A tie is half a success, below the gate: the pass rule must not flip it to PASS.
+    assert s["per_variant"]["truncate_20"]["sequential"]["decision"] == "FAIL"
+    assert not s["passed"]
+    assert "RESULT: FAIL" in report.format_summary()
+
+
 @pytest.mark.outcome("cjm-judge-cap-inconclusive")
 def test_sequential_reports_the_cap_as_inconclusive():
     answers = _many_answers()
