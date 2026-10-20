@@ -364,6 +364,47 @@ def test_tasks_check_refuses_egress_and_flags_a_leaky_image(tmp_path, monkeypatc
     assert res["verdict"] == "broken" and "isolation: named like a task" in res["problems"][0]
 
 
+@pytest.mark.outcome("cjm-tasks-check-isolation")
+def test_the_isolation_probe_script_reports_what_it_names(tmp_path):
+    """FakeRunner answers the probe, so run the real script with plain sh, outside a container.
+
+    The script searches from ``/``; a `find` shim on PATH searches a small tree instead,
+    so the test controls what the image holds.
+    """
+    import shutil
+
+    from dokimi.repos.selfcheck import ANCESTOR_NAMES, _ISOLATION_SH
+
+    image = tmp_path / "image"
+    (image / "usr/bin").mkdir(parents=True)
+    run = tmp_path / "run"
+    run.mkdir()
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    (shim / "find").write_text(f'#!/bin/sh\nshift\nexec {shutil.which("find")} {image} "$@"\n', encoding="utf-8")
+    (shim / "find").chmod(0o755)
+
+    def probe(tasks: str, content: Path = tmp_path / "no-content") -> subprocess.CompletedProcess:
+        env = {"PATH": f"{shim}:{os.environ['PATH']}", "EVAL_CONTENT": str(content),
+               "EVAL_SOURCE": str(tmp_path / "no-src"), "EVAL_RUN": str(run), "EVAL_TASKS": tasks}
+        return subprocess.run(["sh", "-c", _ISOLATION_SH, "probe", *ANCESTOR_NAMES], env=env,
+                              capture_output=True, text=True)
+
+    clean = probe("no-such-task-dokimi-probe")
+    assert clean.returncode == 0 and clean.stdout == "", clean.stdout
+    (run / "AGENTS.md").write_text("guidance\n", encoding="utf-8")
+    leaked = probe("no-such-task-dokimi-probe")
+    assert leaked.returncode == 1 and "guidance above the workspace" in leaked.stdout, leaked.stdout
+    (run / "AGENTS.md").unlink()
+    content = tmp_path / "content"
+    content.mkdir()
+    visible = probe("no-such-task-dokimi-probe", content=content)
+    assert visible.returncode == 1 and "visible to the agent" in visible.stdout, visible.stdout
+    (image / "usr/bin/fix_pip").write_text("", encoding="utf-8")  # a task's name left in the image
+    named = probe("fix_pip")
+    assert named.returncode == 1 and "named like a task" in named.stdout, named.stdout
+
+
 # ------------------------------------------------------------------ review of #82, round 4
 
 

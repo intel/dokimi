@@ -184,6 +184,28 @@ def test_a_criterion_given_twice_in_the_registry_is_a_problem(tmp_path):
     assert any("AC-J04-001 given twice" in p for p in report["problems"]), report["problems"]
 
 
+@pytest.mark.parametrize("text", [
+    "schema: 1\nfoo: &a [*a]\ncriteria: {}\n",  # a sequence holding itself
+    "schema: 1\ncriteria: &a {x: *a}\n",  # the criteria mapping holding itself
+])
+def test_a_registry_that_refers_to_itself_is_a_problem_not_a_hang(tmp_path, text):
+    registry = _tree(tmp_path)
+    registry.write_text(text, encoding="utf-8")
+    report = journeys.check(registry, tmp_path, {}, _evidence({}), {}, plugin._anchors)
+    assert report["verdict"] == "error"
+    assert any("refers to itself" in p for p in report["problems"]), report["problems"]
+    journeys.markdown(report)
+
+
+def test_a_catalog_path_with_a_nul_byte_is_a_problem_not_a_crash(tmp_path):
+    registry = _tree(tmp_path)
+    registry.write_text('schema: 1\ncatalog: "a\\0b"\ncriteria: {}\n', encoding="utf-8")
+    report = journeys.check(registry, tmp_path, {}, _evidence({}), {}, plugin._anchors)
+    assert report["verdict"] == "error"
+    assert any("cannot read" in p for p in report["problems"]), report["problems"]
+    journeys.markdown(report)
+
+
 def test_a_catalog_path_that_is_not_a_string_is_a_problem(tmp_path):
     registry = _tree(tmp_path)
     registry.write_text(yaml.safe_dump({"schema": 1, "catalog": 5, "criteria": {}}), encoding="utf-8")

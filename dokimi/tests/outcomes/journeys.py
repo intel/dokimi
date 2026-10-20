@@ -224,6 +224,25 @@ def _ref_problem(repo_root: Path, ref: str, anchors: Callable[[Path], set[str]])
     return None
 
 
+def _refers_to_itself(value) -> bool:
+    """Whether a loaded YAML value contains itself through an anchor (a cycle)."""
+    state: dict[int, int] = {}  # 1: on the walk now, 2: finished without a cycle
+
+    def visit(node) -> bool:
+        if not isinstance(node, (dict, list)):
+            return False
+        if state.get(id(node)) == 1:
+            return True
+        if state.get(id(node)) == 2:
+            return False
+        state[id(node)] = 1
+        found = any(visit(child) for child in (node.values() if isinstance(node, dict) else node))
+        state[id(node)] = 2
+        return found
+
+    return visit(value)
+
+
 def _repeated_keys(text: str, name: str) -> list[str]:
     """Keys given twice in one mapping: safe_load keeps the last copy without a word."""
     problems: list[str] = []
@@ -394,13 +413,18 @@ def check(registry_path: Path, repo_root: Path, contracts: dict[str, dict],
         registry, problems = {}, [f"{registry_path.name}: cannot read: {exc}"]
     else:
         problems = [] if isinstance(registry, dict) else [f"{registry_path.name}: not a mapping"]
-        problems += _repeated_keys(text, registry_path.name)
+        if _refers_to_itself(registry):
+            # Checks and normalizing would mutate the cycle; the registry is not usable.
+            problems.append(f"{registry_path.name}: refers to itself through a YAML anchor")
+            registry = {}
+        else:
+            problems += _repeated_keys(text, registry_path.name)
         registry = registry if isinstance(registry, dict) else {}
     problems += _normalize(registry)
     catalog_path = repo_root / registry.get("catalog", CATALOG)
     try:
         catalog, catalog_problems = parse_catalog(catalog_path)
-    except (OSError, UnicodeDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
         # Reported like any other broken link, so the report is still written.
         catalog = {"journeys": {}, "use_cases": {}, "criteria": {}}
         catalog_problems = [f"{CATALOG}: cannot read: {exc}"]

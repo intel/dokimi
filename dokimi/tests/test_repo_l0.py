@@ -242,6 +242,28 @@ def test_scan_command_writes_a_valid_artifact(toy, tmp_path, capsys):
     assert exc.value.code == 1
 
 
+@pytest.mark.outcome("cjm-repo-scan")
+@pytest.mark.parametrize("files, exits", [
+    # every claim passes and the guidance is there: the gate passes
+    ({"AGENTS.md": "# Clean\n\nNothing here to check.\n", "CONTRIBUTING.md": "Read first.\n"}, False),
+    # no guidance file: nothing is checked, so the gate fails with zero failed claims
+    ({"README.md": "Read first.\n"}, True),
+])
+def test_fail_on_fail_follows_the_result_not_the_flag(tmp_path, files, exits):
+    root = tmp_path / "clean"
+    sha = _repo(root, files)
+    manifest_file = tmp_path / "m.json"
+    manifest_file.write_text(json.dumps(MANIFEST), encoding="utf-8")
+    args = build_parser().parse_args(["repo", "scan", f"{root}@{sha}", "--manifest-file", str(manifest_file),
+                                      "--fail-on-fail"])
+    if exits:
+        with pytest.raises(SystemExit) as exc:
+            args.func(args)
+        assert exc.value.code == 1
+    else:
+        args.func(args)
+
+
 def test_read_many_fetches_missing_blobs_of_a_partial_clone(toy, tmp_path):
     root, sha = toy
     subprocess.run(["git", "-C", str(root), "config", "uploadpack.allowFilter", "true"], check=True)
