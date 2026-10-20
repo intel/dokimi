@@ -168,6 +168,13 @@ def test_markdown_in_the_tasks_dir_selects_nothing(repo, tmp_path):
     assert _select(repo, tmp_path) == []
 
 
+@pytest.mark.parametrize("smoke_path", [f"{EVAL_DIR}/rubric.md", f"{EVAL_DIR}/prompts/"])
+def test_a_markdown_file_named_in_smoke_paths_runs_the_smoke_set(repo, tmp_path, smoke_path):
+    _write(repo, f"{EVAL_DIR}/prompts/p.md", "changed\n")
+    _write(repo, f"{EVAL_DIR}/rubric.md", "changed\n")
+    assert _select(repo, tmp_path, SMOKE_PATHS=smoke_path) == ["t1"]
+
+
 def test_an_explicit_task_list_is_checked_as_given(repo, tmp_path):
     _write(repo, "README.md", "changed\n")
     assert _select(repo, tmp_path, TASKS="t1") == ["t1"]

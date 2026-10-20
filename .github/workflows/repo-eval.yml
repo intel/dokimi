@@ -241,10 +241,10 @@ jobs:
                   manifest_normalized = posixpath.normpath(env["MANIFEST"])
 
                   def harness(f):
+                      if f in (manifest_normalized, caller) or any(f.startswith(r) for r in roots):
+                          return True  # an explicit smoke path wins over the Markdown exemption below
                       if f.startswith(eval_dir) and f.endswith(".md"):
                           return False  # Markdown in the eval dir, its tasks dir included, selects nothing
-                      if f in (manifest_normalized, caller) or any(f.startswith(r) for r in roots):
-                          return True
                       if f.startswith(prefix):
                           # a file under prefix (tasks dir) whose first segment is not an existing task id
                           # is a shared helper (e.g., tasks/common.py) or a deleted task's file: harness
