@@ -491,7 +491,7 @@ Built-in profiles besides `claude-code`:
 |---|---|---|---|
 | `codex` | `codex exec --json … -- {prompt}` | `codex-json` | `CODEX_HOME` is the per-run config dir; no turn or spend flag, the timeout bounds a run; `none`/`read` get Codex's read-only sandbox, which needs unprivileged user namespaces |
 | `codex-review` | `codex exec review --commit HEAD --json` | `codex-json` | `native_prompt`, `answer_format: codex-review`; review tasks only (the change under review is HEAD) |
-| `copilot` | `copilot -p {prompt} --output-format json --allow-all-tools …` | `copilot-json` | `COPILOT_HOME` per run; GitHub token, or BYOK through the `COPILOT_PROVIDER_*` variables; `none` names a tool that does not exist, because an empty `--available-tools` leaves every tool on |
+| `copilot` | `copilot --prompt={prompt} --output-format json --allow-all-tools …` | `copilot-json` | `COPILOT_HOME` per run; GitHub token, or BYOK through the `COPILOT_PROVIDER_*` variables; `none` names a tool that does not exist, because an empty `--available-tools` leaves every tool on |
 | `copilot-review` | as `copilot`, with the prompt `/review {prompt}` | `copilot-json` | Copilot CLI's code-review agent; the task prompt still asks for its answer format |
 
 npm installs `codex` and `copilot` as Node launchers. A run mounts one file as

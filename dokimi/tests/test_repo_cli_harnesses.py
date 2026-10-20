@@ -29,6 +29,8 @@ def test_builtin_cli_profiles_load_and_build_argv_without_a_shell():
     assert codex[:2] == ["/opt/codex", "exec"] and codex[-2:] == ["--", prompt]  # after --, never a flag
     assert "--json" in codex and "--dangerously-bypass-approvals-and-sandbox" in codex
     copilot = load_profile("copilot")
+    # one element: a separate -p value starting with "-" makes Copilot 1.0.100 exit 1 before any model call
+    assert copilot.argv(prompt=prompt, model="m", tools="all")[1] == f"--prompt={prompt}"
     assert copilot.argv(prompt=prompt, model="m", tools="read")[-4:] == ["--available-tools", "view", "grep", "glob"]
     # an empty --available-tools list would leave every tool on
     assert copilot.argv(prompt=prompt, model="m", tools="none")[-2:] == ["--available-tools", "__none__"]

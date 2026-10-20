@@ -7,11 +7,11 @@ bin: copilot  # npm's copilot is a node launcher; mount the native one (@github/
 version_cmd: ["{bin}", "--version"]
 # `copilot -p` is the non-interactive mode; --output-format json prints one event per
 # line. {max_turns} and {budget} have no flag and are not passed. The tool mode comes
-# last because --available-tools takes every argument after it.
+# last because --available-tools takes every argument after it. The prompt is one
+# `--prompt=` element: after a separate -p, a prompt starting with "-" is parsed as options.
 invoke:
   - "{bin}"
-  - "-p"
-  - "{prompt}"
+  - "--prompt={prompt}"
   - "--model"
   - "{model}"
   - "--output-format"
