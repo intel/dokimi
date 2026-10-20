@@ -530,7 +530,10 @@ def test_report_warns_when_another_model_answered(setup, capsys):
     ("claude-sonnet-4-5", "claude-sonnet-4-5-20250929", True), ("claude-sonnet-4-5", "claude-sonnet-4-5@20250929", True),
     ("claude-sonnet-4-5-20250929", "claude-sonnet-4-5", True),
     ("claude-3-5-sonnet-20240620", "claude-3-5-sonnet-20241022", False),
-    ("deepseek-v2", "deepseek-v3", False), ("x.claude-haiku", "haiku", False)])
+    ("deepseek-v2", "deepseek-v3", False), ("x.claude-haiku", "haiku", False),
+    ("claude-sonnet-4-5@20250929", "claude-sonnet-4-5-20250929", True),
+    ("claude-sonnet-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", True),
+    ("claude-sonnet-4-5@20250929", "claude-sonnet-4-5-20241022", False)])
 def test_a_provider_prefix_is_not_another_model(requested, resolved, same):
     assert model_matches(requested, resolved) is same
 

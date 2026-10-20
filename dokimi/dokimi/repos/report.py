@@ -132,12 +132,6 @@ def _normalize_model_id(model_id: str) -> str:
     return re.sub(r"-v\d+:\d+$", "", model_id)
 
 
-def _snapshot_of(dated: str, undated: str) -> bool:
-    """Whether ``dated`` is ``undated`` pinned to a snapshot date (``-20250929`` or Vertex's ``@20250929``)."""
-    base = re.sub(r"[-@]\d{8}$", "", dated)
-    return base != dated and _model_prefix_matches(base, undated)
-
-
 def _model_prefix_matches(base: str, candidate: str) -> bool:
     """Check if candidate is base optionally preceded by provider prefix (., /)."""
     # base could be the suffix of candidate, with optional prefix
@@ -148,13 +142,13 @@ def _model_prefix_matches(base: str, candidate: str) -> bool:
 
 
 def model_matches(requested: str, resolved: str) -> bool:
-    """Whether ``resolved`` is the ``requested`` model: the same id, or that id behind a provider prefix
-    (Bedrock's ``us.anthropic.claude-x`` answers as ``claude-x``, with its ``-v1:0`` too)."""
-    # Normalize both by stripping version suffixes, then check prefix equivalence both ways
-    req_norm = _normalize_model_id(requested)
-    res_norm = _normalize_model_id(resolved)
-    return (_model_prefix_matches(res_norm, req_norm) or _model_prefix_matches(req_norm, res_norm)
-            or _snapshot_of(res_norm, req_norm) or _snapshot_of(req_norm, res_norm))
+    """Whether ``resolved`` is the ``requested`` model: the same id, that id pinned to a snapshot
+    date, or either behind a provider prefix (Bedrock's ``us.anthropic.claude-x`` answers as
+    ``claude-x``, with its ``-v1:0`` too)."""
+    # Vertex's @20250929 is the same snapshot as -20250929; an undated side matches any snapshot of it
+    req, res = (re.sub(r"@(?=\d{8}$)", "-", _normalize_model_id(m)) for m in (requested, resolved))
+    pairs = [(req, res), (re.sub(r"-\d{8}$", "", req), res), (req, re.sub(r"-\d{8}$", "", res))]
+    return any(_model_prefix_matches(a, b) or _model_prefix_matches(b, a) for a, b in pairs)
 
 
 def model_mismatch(cells: list[dict[str, Any]]) -> dict[str, list[str]]:
