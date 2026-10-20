@@ -44,8 +44,9 @@ deterministic), so ``pass`` is null: humans miss problems and raise
 non-defects, and neither recall nor precision is a verdict.
 ``precision_proxy`` is the share of findings within the window of any thread,
 a lower bound on precision. ``recall`` equals ``recall_all`` and
-``decoys_flagged`` is ``[]``, so a seeds-style gate or report applies
-unchanged. The oracle answer is one finding per thread, at its anchor.
+``decoys_flagged`` is ``[]``, so a seeds-style report applies unchanged.
+``pass`` is null, so these tasks are scored (``score``), not gated.
+The oracle answer is one finding per thread, at its anchor.
 
 Ported from oneDAL ``dev/agent_evals/graders/review.py`` and ``replay.py``
 with the same results for the same inputs. Standard library only: this file
@@ -123,7 +124,12 @@ def _seed_hits(seeds, path, text, line):
     near = [(min(abs(line - x) for x in s["lines"]), s["id"]) for s in seeds
             if same_file(s, path) and s["file"] != "*" and s["lines"]]
     near = [n for n in near if n[0] <= 1]
-    return [min(near)[1]] if near else []
+    return [min(near, key=lambda n: (n[0], str(n[1])))[1]] if near else []
+
+
+def _ids(ids):
+    """Ids in a stable order; a manifest may mix int and str ids, which do not compare."""
+    return sorted(ids, key=str)
 
 
 def _per_group(entries, key, hit):
@@ -157,8 +163,8 @@ def grade_seeds(task, task_dir, answer):
         else:
             other += 1
     severe = n_severe(findings)
-    out = {"pass": None, "n_findings": len(findings), "n_severe": severe, "seeds_hit": sorted(hit),
-           "decoys_flagged": sorted(fp), "n_decoys": len(decoys), "unmatched": other,
+    out = {"pass": None, "n_findings": len(findings), "n_severe": severe, "seeds_hit": _ids(hit),
+           "decoys_flagged": _ids(fp), "n_decoys": len(decoys), "unmatched": other,
            "recall": round(len(hit) / len(seeds), 3) if seeds else None,
            "recall_by_class": _per_group(seeds, "class", hit)}
     if not seeds:  # clean-diff control: pass = nothing blocking reported
@@ -199,14 +205,15 @@ def grade_replay(task, task_dir, answer):
                 "recall_addressed": _ratio(0, sum(bool(g.get("addressed")) for g in gold))}
     pairs, near = _replay_pairs(gold, findings, task.get("window", 5))
     hit, used = set(), set()
-    for _, i, gid in sorted(pairs):  # nearest first: one finding per thread, one thread per finding
+    # nearest first: one finding per thread, one thread per finding; str ids, as ints and strs do not compare
+    for _, i, gid in sorted(pairs, key=lambda p: (p[0], p[1], str(p[2]))):
         if i not in used and gid not in hit:
             used.add(i)
             hit.add(gid)
     addressed = [g for g in gold if g.get("addressed")]
     recall_all = _ratio(len(hit), len(gold))
     return {"pass": None, "n_findings": len(findings), "n_severe": n_severe(findings),
-            "threads_hit": sorted(hit), "n_threads": len(gold),
+            "threads_hit": _ids(hit), "n_threads": len(gold),
             "recall_all": recall_all, "recall": recall_all,
             "recall_addressed": _ratio(sum(g["id"] in hit for g in addressed), len(addressed)),
             "recall_by_kind": _per_group(gold, "kind", hit),
@@ -216,8 +223,8 @@ def grade_replay(task, task_dir, answer):
 def oracle_replay(task, task_dir):
     """The reference answer: one finding per gold thread, at its anchor."""
     gold = _read_json(task_dir, task.get("gold", "gold.json"))
-    ans = [{"file": g["file"], "line": g["line"], "severity": "minor", "rule": g["kind"],
-            "message": g["comment"].splitlines()[0][:200]} for g in gold]
+    ans = [{"file": g["file"], "line": g["line"], "severity": "minor", "rule": g.get("kind", ""),
+            "message": ((g.get("comment") or "").splitlines() or [""])[0][:200]} for g in gold]
     return "```json\n" + json.dumps(ans, indent=1) + "\n```"
 
 

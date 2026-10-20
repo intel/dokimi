@@ -61,9 +61,9 @@ AGENT_GIT = "agent-git"    # where the workspace's own .git/config and hooks are
 _GRADER_GIT_CONFIG = (("core.fsmonitor", "false"), ("core.hooksPath", "/dev/null"))
 _PLAIN_GIT_CONFIG = "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n"
 # Run-dir files the framework reads or writes after a grader had the run dir read-write.
-_NOT_FOUND_EXIT = 127  # docker run: the command (here the image's python3) is not on PATH
-_PYTHON3_NOT_FOUND_SIGS = ("exec python3 failed", "python3: not found")  # stderr signatures of python3 exec failure
 HOST_FILES = ("meta.json", "task.json", "answer.txt", "events.jsonl", "result.json", "grade.log", "grade.err")
+_NOT_FOUND_EXIT = 127  # docker run: the command (here the image's python3) is not on PATH
+_PYTHON3_NOT_FOUND_SIG = "exec python3 failed"  # tini's message under --init, which every container runs with
 
 
 @dataclass
@@ -120,9 +120,8 @@ def _python3_not_found_in_stderr(run_dir: Path, kind: str) -> bool:
     if not err_file.exists():
         return False
     try:
-        stderr = err_file.read_text(encoding="utf-8", errors="replace")
-        return any(sig in stderr for sig in _PYTHON3_NOT_FOUND_SIGS)
-    except Exception:
+        return _PYTHON3_NOT_FOUND_SIG in err_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
         return False
 
 

@@ -289,6 +289,18 @@ def test_tasks_check_runs_builtin_graders_not_the_repository_grade(tmp_path, mon
     assert all(GRADERS_DIR not in {m.container for m in s.mounts} for s in repo)
 
 
+def test_repo_validate_finds_a_builtin_task_without_its_data_file_or_a_wrong_name(tmp_path, capsys):
+    root = _repo(tmp_path, {"nodata": {**REVIEW, "grader": "dokimi:review_seeds"},  # no manifest.json
+                            "typo": {**REVIEW, "grader": "dokimi:review_seed"}})
+    args = build_parser().parse_args(["repo", "validate", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
+                                      "--cache-dir", str(tmp_path / "caches"), "--json"])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    errors = json.loads(capsys.readouterr().out)["errors"]
+    assert any("manifest file does not exist: manifest.json" in e and "nodata" in e for e in errors), errors
+    assert any("unknown built-in grader 'dokimi:review_seed'" in e for e in errors), errors
+
+
 def test_an_unknown_builtin_grader_is_refused_not_given_to_the_repository(tmp_path, monkeypatch):
     root = _repo(tmp_path, {"typo": {**REVIEW, "grader": "dokimi:review_seed"}})
     res = _check(root, tmp_path / "chk", FakeRunner(), monkeypatch, "typo")
@@ -347,9 +359,9 @@ def test_builtin_grader_stderr_validation_for_127_exit(tmp_path):
     (tmp_path / "grade.err").write_text("exec python3 failed: No such file or directory")
     assert _python3_not_found_in_stderr(tmp_path, "grade")
 
-    # Write stderr with alternate signature
+    # the container runs with --init, so tini's message is the only one a missing python3 produces
     (tmp_path / "grade.err").write_text("python3: not found")
-    assert _python3_not_found_in_stderr(tmp_path, "grade")
+    assert not _python3_not_found_in_stderr(tmp_path, "grade")
 
     # Write stderr without signature (127 exit from grader itself)
     (tmp_path / "grade.err").write_text("Grader exit 127 for other reason\n")
@@ -367,3 +379,51 @@ def test_run_entry_needs_the_task_inside_the_exported_eval_dir(tmp_path):
     task = Task(id="t", raw={"grader": "dokimi:review_seeds"}, dir=tmp_path / "elsewhere" / "t")
     with pytest.raises(ContainerError, match="not in the exported eval dir"):
         run_entry(ctx, "grade", task, tmp_path / "rd", "none")
+
+
+# ------------------------------------------------------------------ review of 243c6a4
+
+
+def test_mixed_int_and_str_ids_do_not_crash_the_graders(tmp_path):
+    seeds = {"seeds": [{"id": 1, "class": "c", "file": "src/calc.py", "lines": [5], "kw": "mul"},
+                       {"id": "b", "class": "c", "file": "src/calc.py", "lines": [5], "kw": "mul"}]}
+    gold = [{"id": 1, "file": "src/calc.py", "line": 5, "kind": "k", "comment": "c"},
+            {"id": "b", "file": "src/calc.py", "line": 5, "kind": "k", "comment": "c"}]
+    write(tmp_path / "t", "manifest.json", json.dumps(seeds))
+    write(tmp_path / "t", "gold.json", json.dumps(gold))
+    assert review.grade_seeds({}, tmp_path / "t", fence([_f(5, message="mul")]))["seeds_hit"] == [1, "b"]
+    # no keyword: the line fallback credits the nearest seed, and both are one line away
+    assert review.grade_seeds({}, tmp_path / "t", fence([_f(6)]))["seeds_hit"] == [1]
+    assert review.grade_replay({}, tmp_path / "t", fence([_f(5)]))["threads_hit"] == [1]
+
+
+def test_the_replay_oracle_survives_an_empty_comment_and_a_missing_kind(tmp_path):
+    write(tmp_path / "t", "gold.json", json.dumps([{"id": "e", "file": "src/calc.py", "line": 5, "comment": ""},
+                                                   {"id": "k", "file": "src/calc.py", "line": 7, "kind": "docs"}]))
+    ans = review.last_json(review.oracle_replay({}, tmp_path / "t"))
+    assert ans[0] == {"file": "src/calc.py", "line": 5, "severity": "minor", "rule": "", "message": ""}
+    assert ans[1]["rule"] == "docs"
+
+
+def test_wildcard_seeds_and_absolute_paths_match_as_pinned(tmp_path):
+    seeds = {"seeds": [{"id": "w", "class": "c", "file": "*", "lines": [5], "kw": "zzz"},
+                       {"id": "s", "class": "c", "file": "src/calc.py", "lines": [9], "kw": "mul"}]}
+    write(tmp_path / "t", "manifest.json", json.dumps(seeds))
+    d = tmp_path / "t"
+    # a "*" seed takes a keyword hit only: a line alone does not credit it
+    assert review.grade_seeds({}, d, fence([_f(5, message="nothing")]))["seeds_hit"] == []
+    assert review.grade_seeds({}, d, fence([_f(5, file="other.py", message="zzz")]))["seeds_hit"] == ["w"]
+    # a leading slash is not part of the repository-relative path
+    assert review.grade_seeds({}, d, fence([_f(9, file="/src/calc.py", message="x")]))["seeds_hit"] == ["s"]
+
+
+def test_a_repository_grader_exiting_127_is_not_the_python3_failure(tmp_path):
+    """Only a built-in grader's 127 is reported as a missing python3; a repository's grade stays a plain exit."""
+    ctx = EvalContext(manifest=parse_manifest(MANIFEST), git_dir=tmp_path, content_dir=tmp_path / "content",
+                      image="img", runner=NoPython(), caches={"build-cache": tmp_path})
+    (tmp_path / "content").mkdir()
+    rd = tmp_path / "rd"
+    rd.mkdir()
+    task = Task(id="t", raw={"grader": "repo_review"}, dir=tmp_path / "content" / "t")
+    result = run_entry(ctx, "grade", task, rd, "none")
+    assert result.returncode == 127 and ctx.runner.specs[0].argv[0] == "python3"

@@ -96,7 +96,7 @@ outside every workspace and passes its absolute path to entry points as
   `answer.txt` are written to `{run_dir}` after the agent's container exits.
 - `grade` and `oracle` run in a separate container from the same image, after
   the agent's container has exited. That container mounts `{eval_dir}` and
-  `{source_dir}` read-only and `{run_dir}` read-write. It gets a `HOME` of its
+  `{source_dir}` read-only and `{run_dir}` read-write (and, for a built-in grader (§4.5), the framework's grader code at `/eval/graders`, read-only). It gets a `HOME` of its
   own (`{run_dir}/grade-home`, made empty before each run; the agent never had
   it), `PYTHONNOUSERSITE=1`, and git configuration overrides that disable
   `core.fsmonitor` and hooks (`core.hooksPath=/dev/null`); the workspace's
@@ -213,7 +213,7 @@ Rules:
 ## 3. `task.json`
 
 The framework interprets the **core** and **workspace** keys. Every other key
-belongs to the repository's grader and is passed through unread.
+belongs to the repository's grader and is passed through unread, except `grader`, which the framework reads to tell a `dokimi:` name (§4.5) from a repository's.
 
 | Key | Required | Read by | Meaning |
 |---|---|---|---|
@@ -221,7 +221,7 @@ belongs to the repository's grader and is passed through unread.
 | `family` | yes | framework (reporting) | free string; common values: `build`, `fix`, `feature`, `test`, `review` |
 | `base` | yes | framework | commit to snapshot: a hex SHA, optionally followed by `^` (the parent, the usual form for a mined fix). Branch names, tags and `HEAD` are refused, because repetitions of one task must get one snapshot. Use the full 40-character SHA; a shorter one is accepted with a warning. It must resolve in the source. `meta.json` records it as `base_rev` and the resolved full SHA as `base_sha` |
 | `prompt` | yes | framework | what the agent is told |
-| `grader` | yes | repository | grader name, interpreted by the `grade` entry point |
+| `grader` | yes | framework for `dokimi:<name>` (§4.5); repository otherwise | grader name; any other name is interpreted by the `grade` entry point |
 | `setup_patches` | no | framework | applied after the snapshot, before the arm (for example an injected bug) |
 | `review_patch` | no | framework | applied with `git am` as the HEAD commit under review |
 | `gate` | no | framework | what counts as success; default `["pass"]`. Each entry is a boolean metric name, which must be `true`, or `{"metric": <name>, "min": <number>}` for a numeric metric |
@@ -404,7 +404,7 @@ standard library only and the image's `python3` (3.8 or newer). `-I` keeps
 `PYTHONPATH` from `image.env` and the workspace off `sys.path`; `-B` prevents
 writing `.pyc` files to the read-only mount. An image with no `python3` on
 `PATH` is a grader failure that says so: the grader exits 127 and its
-`<kind>.err` file shows `exec python3 failed` or `python3: not found`. Any
+`<kind>.err` file shows `exec python3 failed`. Any
 other exit 127 is reported as a plain `grade exited 127`.
 
 - `grade` reads `task.json` and `answer.txt` from `{run_dir}` and the data
@@ -415,6 +415,13 @@ other exit 127 is reported as a plain `grade exited 127`.
   did not produce is `null`.
 - `oracle` writes the reference answer to `answer.txt` and leaves the
   workspace alone.
+
+A review task with `pass: null` is scored, not gated: give it `score`. A `gate`
+on its metrics is not applied (`success` is null), and without `score` the run
+is a grader failure. A clean-diff control (no seeds) has `recall: null`, so it
+takes no `score`; its gate is the default `["pass"]`. The manifest's
+`entry_points.grade` is still required (`repo_manifest.v1`), even when every
+task uses a built-in grader.
 
 Both review graders read the answer the same way. Its last parseable
 ` ```json ` fence must be an array of findings
@@ -463,21 +470,19 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
 
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
 
-oneDAL drops its standalone mode: the generic parts of its harness move into
-dokimi (#41), and `dev/agent_evals` keeps only its tasks, its image and the
-graders that know oneDAL. These changes make that content runnable by the
-framework.
+The harness stays in oneDAL and keeps working standalone. These changes make
+the same content runnable by the framework.
 
 | Today | Change |
 |---|---|
 | guidance globs in `config.py` | move to `repo-eval.yaml` `guidance.globs` |
-| `task.json` keys | already match the core keys. Add `gate: ["strict_pass"]` to fix tasks, so a hidden-test pass that breaks a regression suite is not counted as success. Add `score: {metric: recall, max: 1.0}` to review tasks |
+| `task.json` keys | already match the core keys. Add `gate: ["strict_pass"]` to fix tasks, so a hidden-test pass that breaks a regression suite is not counted as success. Add `score: {metric: recall, max: 1.0}` to review tasks with seeds or threads, not to clean-diff controls (§4.5) |
 | `base` is a 8–12 character SHA | expand to the full 40-character SHA (keep a trailing `^`) |
 | entry points call `dev/agent_evals/run.py` | call `{eval_dir}/run.py`; the graders must not assume they sit inside the workspace (§1.1) |
-| `prep()` in `common.py` | goes: the framework prepares every workspace (§3) |
+| `prep()` in `common.py` | unchanged for standalone use; under the framework the same steps run framework-side (§3) |
 | arms `none` / `main-raw` | become `guidance:none` / `guidance:raw`. `guidance:bridge` is framework-only (§3); oneDAL keeps no bridge arm |
-| graders read history from `ONEDAL_EVAL_SRC` | read `{source_dir}`, the only full-history source; the variable goes |
-| `contract.py` derives the base when `meta.json` has none | diff from `meta.json` `start_sha`, and read `base_sha` / `base_rev` for the upstream commit (§4); nothing derives it |
+| graders read history from `ONEDAL_EVAL_SRC` | read `{source_dir}` under the framework; the variable stays for standalone runs |
+| `contract.py` derives the base when `meta.json` has none | diff from `meta.json` `start_sha`, and read `base_sha` / `base_rev` for the upstream commit (§4); derive only standalone |
 | `build_make_gnu` pip-installs MKL and TBB | install them in the image, or give the task `egress: [pypi.org, files.pythonhosted.org]` |
 | Bazel install base in the container's `HOME` | put it on a declared cache (`bin/bazel --output_user_root`) |
 | `static_check.py --out` writes `files` / `counts` / `claims` | add `"schema": "repo_static.v1"`; the claim fields already fit §4.4 |
