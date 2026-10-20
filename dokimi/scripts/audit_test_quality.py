@@ -246,12 +246,16 @@ def _root_name(node: ast.expr) -> str | None:
 
 
 def _passed_names(call: ast.Call) -> set[str]:
-    """Names handed to a call directly, as a keyword value, or inside a list/tuple/set argument."""
+    """Names handed to a call directly, as a keyword value, or inside a list/tuple/set/dict argument."""
     names: set[str] = set()
     for arg in [*call.args, *(kw.value for kw in call.keywords)]:
-        for elt in arg.elts if isinstance(arg, ast.List | ast.Tuple | ast.Set) else [arg]:
-            if isinstance(elt, ast.Name):
-                names.add(elt.id)
+        if isinstance(arg, ast.List | ast.Tuple | ast.Set):
+            elts: list[ast.expr] = arg.elts
+        elif isinstance(arg, ast.Dict):
+            elts = arg.values  # `**{"k": c}` arrives as a keyword whose value is this dict
+        else:
+            elts = [arg]
+        names.update(elt.id for elt in elts if isinstance(elt, ast.Name))
     return names
 
 

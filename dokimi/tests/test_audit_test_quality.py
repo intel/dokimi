@@ -378,6 +378,8 @@ def test_a_length_check_alone_is_type_only(check):
     "mutate(c)",  # object passed as an argument
     "mutate(target=c)",  # object passed as a keyword value
     "mutate([c])",  # object inside a list argument
+    "mutate({'k': c})",  # object inside a dict argument
+    "mutate(**{'k': c})",  # object inside a dict unpacked as keywords
     "c.d['a'] = 3",  # subscript store on the object
     "for c in items(): pass",  # for-loop rebind
     "with open_c() as c: pass",  # with-statement rebind
@@ -499,7 +501,9 @@ def test_no_assert_only_suppressed_by_bare_calls(check, expected_no_assert):
 
 
 @pytest.mark.parametrize("check", [
-    "assert True", "assert out == 42 or True", "assert send.assert_called_once_with",
+    "assert True", "assert out == 42 or True",
+    "assert send.assert_called_once_with", "assert send.assert_called_with",
+    "assert send.assert_any_call", "assert send.assert_has_calls",
     "assert (out == 5, 'msg')",  # the message inside the parens: a non-empty tuple never fails
 ])
 def test_an_assert_that_is_always_true_is_no_check(check):
@@ -511,6 +515,16 @@ def test_an_assert_that_is_always_true_is_no_check(check):
             {check}
         """)
     assert "no_assert" in flags["test_x"]
+
+
+def test_an_empty_tuple_assert_is_not_always_true():
+    """`assert ()` fails, so it is a check that can fail, not a no-op."""
+    flags = _flags("""
+        def test_x():
+            out = run()
+            assert ()
+        """)
+    assert "no_assert" not in flags["test_x"]
 
 
 def test_an_attribute_named_like_an_assert_method_is_data():
