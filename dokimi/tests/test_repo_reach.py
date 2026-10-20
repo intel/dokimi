@@ -229,43 +229,30 @@ def test_execution_id_pinned_by_profile_name():
     assert id1 == load_profile("claude-code").execution_id("all")
 
 
+def _ids_differ_only_by(tmp_path, first: dict, second: dict) -> bool:
+    """Load two profiles from the same directory, changing only the fields given, and compare their ids."""
+    before = load_profile(_profile(tmp_path, **first)).execution_id("read")
+    after = load_profile(_profile(tmp_path, **second)).execution_id("read")
+    return before != after
+
+
 def test_execution_id_pinned_by_env_set(tmp_path):
-    # env_set is part of the id
-    tmp1 = tmp_path / "t1"
-    tmp2 = tmp_path / "t2"
-    tmp1.mkdir()
-    tmp2.mkdir()
-    p1 = _profile(tmp1, env_set={"VAR": "value1"})
-    p2 = _profile(tmp2, env_set={"VAR": "value2"})
-    profile1 = load_profile(p1)
-    profile2 = load_profile(p2)
-    assert profile1.execution_id("read") != profile2.execution_id("read")
+    assert _ids_differ_only_by(tmp_path, {"env_set": {"VAR": "value1"}}, {"env_set": {"VAR": "value2"}})
 
 
 def test_execution_id_pinned_by_config_files(tmp_path):
-    # config_files is part of the id
-    tmp1 = tmp_path / "t1"
-    tmp2 = tmp_path / "t2"
-    tmp1.mkdir()
-    tmp2.mkdir()
-    p1 = _profile(tmp1, config_files={"cfg.json": "{\"a\": 1}"})
-    p2 = _profile(tmp2, config_files={"cfg.json": "{\"a\": 2}"})
-    profile1 = load_profile(p1)
-    profile2 = load_profile(p2)
-    assert profile1.execution_id("read") != profile2.execution_id("read")
+    assert _ids_differ_only_by(tmp_path, {"config_files": {"cfg.json": '{"a": 1}'}},
+                               {"config_files": {"cfg.json": '{"a": 2}'}})
 
 
 def test_execution_id_pinned_by_prompt_suffix(tmp_path):
-    # prompt_suffix is part of the id
-    tmp1 = tmp_path / "t1"
-    tmp2 = tmp_path / "t2"
-    tmp1.mkdir()
-    tmp2.mkdir()
-    p1 = _profile(tmp1, prompt_suffix="suffix1")
-    p2 = _profile(tmp2, prompt_suffix="suffix2")
-    profile1 = load_profile(p1)
-    profile2 = load_profile(p2)
-    assert profile1.execution_id("read") != profile2.execution_id("read")
+    assert _ids_differ_only_by(tmp_path, {"prompt_suffix": "suffix1"}, {"prompt_suffix": "suffix2"})
+
+
+def test_execution_id_pinned_by_bridge_and_egress(tmp_path):
+    bridge = {"for": "AGENTS.md", "write": "CLAUDE.md", "content": "@AGENTS.md"}
+    assert _ids_differ_only_by(tmp_path, {"bridge": bridge}, {"bridge": {**bridge, "content": "@OTHER.md"}})
+    assert _ids_differ_only_by(tmp_path, {"egress": ["a.example"]}, {"egress": ["b.example"]})
 
 
 def test_a_profile_without_delegation_cannot_run_without_subagents(tmp_path):
