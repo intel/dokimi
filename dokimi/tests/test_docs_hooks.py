@@ -103,3 +103,8 @@ def test_front_matter_list_is_not_a_page_list() -> None:
 ])
 def test_front_matter_with_crlf_or_bom_is_not_a_page_list(text) -> None:
     assert hooks.list_mismatch(text, "<ul><li>a</li></ul>") is None
+
+
+def test_front_matter_only_page_without_final_newline_is_stripped() -> None:
+    """The closing `---` is the last bytes of the file: no newline after it."""
+    assert hooks.list_mismatch("---\ndepends_on:\n  - a/**\n---", "") is None

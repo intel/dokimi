@@ -190,9 +190,12 @@ When your change touches user-facing behavior, confirm:
 
 A page in `docs/` names the code it documents in YAML front matter above its
 license header: `depends_on:`, a list of globs from the repository root
-(`dokimi/dokimi/novelty/**`). The `docs-review-triggers` check then lists the
-page on any PR that changes a matching file without touching the page, and
-`tests/test_docs_review_triggers.py` fails on a glob that matches no file.
+(`dokimi/dokimi/novelty/**`; `**` crosses `/`, while `*` and `?` stay within one
+path segment). The `docs-review-triggers` check is advisory: it lists the page on
+any PR that changes a matching file without touching the page, and those findings
+exit 0. Only a malformed `depends_on` (exit 1) or an undiffable base (exit 2) fails
+the job. `tests/test_docs_review_triggers.py` fails on a glob that matches no
+tracked file.
 
 ## Subsystem ownership
 
