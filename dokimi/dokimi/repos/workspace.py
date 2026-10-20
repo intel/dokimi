@@ -478,7 +478,8 @@ def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm
     inside = sorted(p for p in set(changed) | touched if _is_within(p, eval_dir))
     if inside:  # the agent must not see an eval_dir, not even a patched-in one
         raise PrepError(f"arm {arm}: patch {arm.patch_path} writes into eval_dir {eval_dir}: {', '.join(inside)}")
-    return changed, {"arm_patch": {"path": arm.patch_path, "sha256": arm.patch_sha256}}
+    # a written file .gitignore hides is in the workspace, not in start_sha: still a file the arm wrote
+    return sorted(set(changed) | touched), {"arm_patch": {"path": arm.patch_path, "sha256": arm.patch_sha256}}
 
 
 def _patch_paths(numstat: str) -> set[str]:

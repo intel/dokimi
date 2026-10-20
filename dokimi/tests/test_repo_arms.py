@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
@@ -271,6 +272,18 @@ def test_patch_arm_rejects_a_file_gitignore_hides_inside_eval_dir(toy):
                      "--- /dev/null\n+++ b/.agent-eval/notes.log\n@@ -0,0 +1 @@\n+answers\n")
     with pytest.raises(PrepError, match=r"writes into eval_dir .*\.agent-eval/notes\.log"):
         _prep(toy, f"patch:{patch}")
+
+
+def test_patch_arm_records_a_file_it_writes_that_gitignore_hides(toy):
+    task = toy["tasks"]["fix_add"]
+    base = commit_on(toy["root"], "ignore", {".gitignore": ".claude/\n"}, start=task.base)
+    toy["tasks"]["ignore"] = dataclasses.replace(task, raw={**task.raw, "base": base})
+    patch = toy["tmp"] / "claude.diff"
+    patch.write_text("diff --git a/.claude/commands/check.md b/.claude/commands/check.md\nnew file mode 100644\n"
+                     "--- /dev/null\n+++ b/.claude/commands/check.md\n@@ -0,0 +1 @@\n+Run make check.\n")
+    meta, ws = _prep(toy, f"patch:{patch}", task="ignore")
+    assert (ws / ".claude/commands/check.md").is_file()
+    assert meta["arm_files"] == [".claude/commands/check.md"]
 
 
 def _link_commit(toy, branch: str, links: dict[str, str], files: dict[str, str]) -> str:
