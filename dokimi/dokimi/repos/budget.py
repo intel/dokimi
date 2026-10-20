@@ -68,16 +68,36 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
         groups.setdefault(_target(tree, f), []).append(f)
     # Rules are decided from every path that reaches a file, not only the one shown.
     claude = [f for f in every if f.rsplit("/", 1)[-1].startswith("CLAUDE")]
-    # Only a root CLAUDE.md (not .claude/CLAUDE.md or CLAUDE.local.md) can turn AGENTS.md off
     root_claude = [f for f in claude if _is_root(f)]
-    # For off rule: only root CLAUDE.md that resolves (not dangling/out-of-tree); unreadable UTF-8 still counts
-    root_claude_for_off = [f for f in root_claude if f == "CLAUDE.md" and _is_resolvable(tree, f)]
-    root_claude_readable = [f for f in root_claude if _is_resolvable(tree, f)]
+    # Claude reads AGENTS.md only when no CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md is in the
+    # working directory or above it, so any root one of those turns AGENTS.md off. Only those that
+    # resolve (not dangling/out-of-tree) count; unreadable UTF-8 still counts.
+    root_claude_for_off = [f for f in root_claude if _is_resolvable(tree, f)]
     # A root CLAUDE.md's imports load at start; a nested one's when the agent reaches its subtree.
-    at_start, cut_start = _imports(tree, root_claude_readable, import_max_depth)
+    at_start, cut_start = _imports(tree, root_claude_for_off, import_max_depth)
     lazy_all, cut_lazy = _imports(tree, [f for f in claude if f not in root_claude], import_max_depth)
     lazily = lazy_all - at_start
 
+    start_t = {_target(tree, p) for p in at_start}
+    loaded_t = start_t | {_target(tree, p) for p in lazily}
+
+    def displaced(f: str) -> bool:
+        """An AGENTS.md that a root CLAUDE* turns off and no CLAUDE.md imports or links to."""
+        t = _target(tree, f)
+        return bool(root_claude_for_off) and not (
+            any(a in root_claude for a in groups.get(t, [f])) or t in start_t or t in loaded_t)
+
+    # An AGENTS.md Claude reads expands its own @imports, as a CLAUDE.md does: root ones at start,
+    # nested ones when the agent reaches their subtree.
+    agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md" and _is_resolvable(tree, f)
+              and not displaced(f)]
+    agents_at_start, cut_agents_start = _imports(tree, [f for f in agents if _is_root(f)], import_max_depth)
+    agents_lazy, cut_agents_lazy = _imports(tree, [f for f in agents if not _is_root(f)], import_max_depth)
+    at_start |= agents_at_start
+    lazy_all |= agents_lazy
+    cut_start = cut_start + cut_agents_start
+    cut_lazy = cut_lazy + cut_agents_lazy
+    lazily = lazy_all - at_start
     start_t = {_target(tree, p) for p in at_start}
     loaded_t = start_t | {_target(tree, p) for p in lazily}
 
@@ -136,7 +156,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
         if s["unreadable"]:
             warnings.append(f"{s['path']}: not readable ({s['unreadable']}), body counted as 0")
         elif s["listed"] and not s["description"]:
-            warnings.append(f"{s['path']}: no description; the listing gives the agent nothing to choose it by")
+            warnings.append(f"{s['path']}: no description and an empty body; the listing gives the agent nothing "
+                            "to choose it by")
     duplicates = _near_duplicates([s for s in skills if s["listed"]])
     for d in duplicates:
         warnings.append(f"skills {d['a']} and {d['b']} have near-duplicate descriptions "
@@ -154,7 +175,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
 
 def _is_root(path: str) -> bool:
     """Guidance Claude Code reads at start: at the root, or the project memory in `.claude/`."""
-    return "/" not in path or path == ".claude/CLAUDE.md"
+    return "/" not in path or path in (".claude/CLAUDE.md", ".claude/AGENTS.md")
 
 
 def _target(tree: RepoTree, path: str) -> str:
@@ -265,7 +286,9 @@ def _skills(tree: RepoTree, paths: list[str]) -> list[dict[str, Any]]:
             meta, body, unreadable = {}, "", _unreadable_reason(err)
         meta = meta if isinstance(meta, dict) else {}
         name = str(meta.get("name") or path.split("/")[-2])
-        description = str(meta.get("description") or "")
+        # Claude Code uses the first non-empty line of the body when the description is omitted
+        description = str(meta.get("description") or "") or next(
+            (line.strip() for line in body.splitlines() if line.strip()), "")
         # The CLI reads a boolean as 1/true/yes/on (as harnesses/skill_treatment.py does); such a
         # skill is left out of the listing, so the model never sees its name or description.
         hidden = str(meta.get("disable-model-invocation", "")).strip().lower() in ("1", "true", "yes", "on")

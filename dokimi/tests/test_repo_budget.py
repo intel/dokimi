@@ -115,9 +115,20 @@ def test_claude_dir_claude_md_is_project_memory_read_at_start(tmp_path):
     entries = _by_path(got)
     assert entries[(".claude/CLAUDE.md", "guidance")]["when"] == "start"
     assert entries[(".claude/notes.md", "import")]["when"] == "start"
-    # .claude/CLAUDE.md does not turn AGENTS.md off (only root CLAUDE.md does)
-    assert entries[("AGENTS.md", "guidance")]["when"] == "start"
-    assert len(got["warnings"]) == 0
+    # .claude/CLAUDE.md is read instead of AGENTS.md, so AGENTS.md is off (docs: "When Claude Code reads AGENTS.md")
+    assert entries[("AGENTS.md", "guidance")]["when"] == "off"
+    assert len(got["warnings"]) == 1 and "reads none of AGENTS.md unless" in got["warnings"][0]
+
+
+def test_an_agents_md_import_loads_what_it_names(tmp_path):
+    """Claude expands @imports inside AGENTS.md: at start from the root, lazily from a nested one."""
+    tree = _tree(tmp_path, {"AGENTS.md": "See @docs/guide.md\n", "docs/guide.md": "g" * 12,
+                            "lib/AGENTS.md": "@more.md\n", "lib/more.md": "m" * 5})
+    got = budget(tree, NAMES)
+    entries = _by_path(got)
+    assert entries[("docs/guide.md", "import")]["when"] == "start"
+    assert entries[("lib/more.md", "import")]["when"] == "lazy"
+    assert got["warnings"] == []
 
 
 def test_a_nested_claude_md_bridge_loads_its_agents_md_lazily(tmp_path):
@@ -199,7 +210,7 @@ def test_near_duplicate_and_missing_descriptions_warn(tmp_path):
         ".claude/skills/a/SKILL.md": _skill("release-a", "Run the release checklist for the relay service."),
         ".claude/skills/b/SKILL.md": _skill("release-b", "Run the release checklist for the queue service."),
         ".claude/skills/c/SKILL.md": _skill("lint", "Lint Python files with ruff."),
-        ".claude/skills/d/SKILL.md": "no frontmatter at all\n",
+        ".claude/skills/d/SKILL.md": "---\nname: d\n---\n\n",
     })
     got = budget(tree, NAMES)
     assert got["duplicate_skills"] == [{"a": "release-a", "b": "release-b", "overlap": 0.67}]
@@ -360,7 +371,7 @@ def test_alias_layouts_thread_1_repro(tmp_path):
 
 
 def test_claude_local_md_import_at_start(tmp_path):
-    """CLAUDE.local.md imports are treated as starting, but do NOT turn AGENTS.md off (only root CLAUDE.md does)."""
+    """CLAUDE.local.md imports are treated as starting, and CLAUDE.local.md turns a root AGENTS.md off."""
     tree = _tree(tmp_path, {
         "CLAUDE.local.md": "See @docs/ref.md\n",
         "docs/ref.md": "x" * 15,
@@ -370,8 +381,21 @@ def test_claude_local_md_import_at_start(tmp_path):
     entries = _by_path(got)
     assert entries[("CLAUDE.local.md", "guidance")]["when"] == "start"
     assert entries[("docs/ref.md", "import")]["when"] == "start"
-    # root AGENTS.md is NOT off; only root CLAUDE.md turns it off, not CLAUDE.local.md
-    assert entries[("AGENTS.md", "guidance")]["when"] == "start"
+    assert entries[("AGENTS.md", "guidance")]["when"] == "off"
+    assert "CLAUDE.local.md turns AGENTS.md loading off" in got["warnings"][0]
+
+
+def test_skill_without_description_is_described_by_its_first_body_line(tmp_path):
+    """Claude Code lists the first non-empty body line when `description` is omitted."""
+    tree = _tree(tmp_path, {
+        ".claude/skills/a/SKILL.md": "---\nname: fmt-a\n---\n\nFormat the repo.\nMore text.\n",
+        ".claude/skills/b/SKILL.md": "---\nname: fmt-b\n---\nFormat the repo.\n",
+    })
+    got = budget(tree, NAMES)
+    entries = _by_path(got)
+    assert entries[(".claude/skills/a/SKILL.md", "skill listing")]["chars"] == len("fmt-a") + len("Format the repo.")
+    assert got["duplicate_skills"] == [{"a": "fmt-a", "b": "fmt-b", "overlap": 1.0}]
+    assert not any("no description" in w for w in got["warnings"])
 
 
 def test_circular_imports_terminate(tmp_path):
