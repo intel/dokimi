@@ -258,6 +258,37 @@ def test_the_base_baseline_is_read_from_git(project, monkeypatch):
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_an_entry_the_base_lowered_after_the_fork_is_not_blamed_on_the_branch(project):
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                       cwd=project, check=True, capture_output=True)
+
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "-m", "fork point")
+    git("tag", "fork")
+    git("checkout", "-q", "-b", "feature")
+    (project / "README.md").write_text("unrelated\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "feature")
+    git("checkout", "-q", "main")
+    (project / "dokimi" / "big.py").write_text("x = 1\n" * 21, encoding="utf-8")
+    assert cg.main(["--update"]) == 0           # main lowers big.py from 22 to 21
+    git("commit", "-q", "-am", "shrink")
+
+    git("checkout", "-q", "feature")            # a branch behind main
+    assert cg.main(["--base", "main"]) == 0
+    git("checkout", "-q", "--detach", "fork")   # CI's merge commit, built before the shrink
+    git("merge", "-q", "--no-ff", "-m", "merge", "feature")
+    assert cg.main(["--base", "main"]) == 0
+    raised = cg.load_baseline()                 # a raise the branch makes is still caught
+    raised["files"]["dokimi/big.py"]["lines"] = 23
+    cg.BASELINE.write_text(cg.dump_baseline(raised), encoding="utf-8")
+    (project / "dokimi" / "big.py").write_text("x = 1\n" * 23, encoding="utf-8")
+    assert cg.main(["--base", "main"]) == 1
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 def test_non_origin_remote_baseline_via_dokimi_growth_base(project, monkeypatch):
     """Regression: ci_local.py resolves the base ref to a non-origin remote, but did not
     pass it to the pytest environment, causing the growth check to use the wrong baseline."""

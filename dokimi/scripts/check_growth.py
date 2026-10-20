@@ -30,8 +30,8 @@ slack that later growth could quietly use up. Anything new over a cap fails.
 
 Raising an entry (or adding one) is a hand edit of the baseline with a
 ``"rationale"`` of at most ``RATIONALE_MAX`` characters on that entry; the test
-compares the baseline against the PR's base branch and fails a raised or added
-entry without one.
+compares the baseline with the base branch's at the commit the PR forked from
+and fails a raised or added entry without one.
 """
 
 from __future__ import annotations
@@ -279,11 +279,16 @@ def base_ref() -> str:
 
 
 def load_base_baseline(ref: str) -> dict[str, dict[str, dict[str, Any]]] | None:
-    """The baseline as ``ref`` has it, or None when git, the ref or the file there is
+    """The baseline at the commit HEAD forked from ``ref`` (``git merge-base``; the
+    ref itself when that fails), so an entry ``ref`` lowered after the fork is not
+    read as raised by this branch. None when git, the ref or the file there is
     missing (a shallow clone, or the base predates the gate)."""
     try:
+        fork = subprocess.run(["git", "merge-base", "HEAD", ref],
+                              cwd=PROJECT, capture_output=True, text=True, check=False)
+        point = fork.stdout.strip() if fork.returncode == 0 else ref
         shown = subprocess.run(
-            ["git", "show", f"{ref}:./{BASELINE.relative_to(PROJECT).as_posix()}"],
+            ["git", "show", f"{point}:./{BASELINE.relative_to(PROJECT).as_posix()}"],
             cwd=PROJECT, capture_output=True, text=True, check=False)
     except OSError:
         return None
