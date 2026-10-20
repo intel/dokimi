@@ -243,6 +243,15 @@ def test_score_headroom_is_unknown_when_the_arms_have_different_score_max(tmp_pa
     assert row["delta"]["mean"] == -3.0 and row["headroom"] is None
 
 
+def test_score_floor_is_unknown_when_the_arms_have_different_score_max(tmp_path):
+    """Both arms score 0 on every task, so only the tops decide: the treatment's top (1.0) must count, not the baseline's."""
+    b = tmp_path / "b1"
+    for i in range(2):
+        _cell(b, f"r{i}", "guidance:none", 1, score=0.0, score_max=4.0)
+        _cell(b, f"r{i}", "guidance:raw", 1, score=0.0, score_max=1.0)
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] is None
+
+
 def test_score_headroom_unknown_when_pooling_legacy_and_current_cells(tmp_path):
     """Regression: when legacy cells (score_max=None) and current cells (score_max=1.0) appear for the same task,
     do not report ceiling if the legacy cells' maxima are unknown."""
