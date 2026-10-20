@@ -124,12 +124,17 @@ def _seed_hits(seeds, path, text, line):
     near = [(min(abs(line - x) for x in s["lines"]), s["id"]) for s in seeds
             if same_file(s, path) and s["file"] != "*" and s["lines"]]
     near = [n for n in near if n[0] <= 1]
-    return [min(near, key=lambda n: (n[0], str(n[1])))[1]] if near else []
+    return [min(near, key=lambda n: (n[0], _id_key(n[1])))[1]] if near else []
+
+
+def _id_key(x):
+    """Sort key for an id: numbers in numeric order, then strings; a manifest may mix int and str ids."""
+    return (isinstance(x, str), x)
 
 
 def _ids(ids):
-    """Ids in a stable order; a manifest may mix int and str ids, which do not compare."""
-    return sorted(ids, key=str)
+    """Ids in a stable order."""
+    return sorted(ids, key=_id_key)
 
 
 def _per_group(entries, key, hit):
@@ -205,8 +210,8 @@ def grade_replay(task, task_dir, answer):
                 "recall_addressed": _ratio(0, sum(bool(g.get("addressed")) for g in gold))}
     pairs, near = _replay_pairs(gold, findings, task.get("window", 5))
     hit, used = set(), set()
-    # nearest first: one finding per thread, one thread per finding; str ids, as ints and strs do not compare
-    for _, i, gid in sorted(pairs, key=lambda p: (p[0], p[1], str(p[2]))):
+    # nearest first: one finding per thread, one thread per finding; ids in _id_key order, as oneDAL's min()
+    for _, i, gid in sorted(pairs, key=lambda p: (p[0], p[1], _id_key(p[2]))):
         if i not in used and gid not in hit:
             used.add(i)
             hit.add(gid)

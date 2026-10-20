@@ -469,3 +469,49 @@ def test_a_repository_grader_exiting_127_is_not_the_python3_failure(tmp_path):
     task = Task(id="t", raw={"grader": "repo_review"}, dir=tmp_path / "content" / "t")
     result = run_entry(ctx, "grade", task, rd, "none")
     assert result.returncode == 127 and ctx.runner.specs[0].argv[0] == "python3"
+
+
+def test_int_ids_break_ties_in_numeric_order_as_onedal_does(tmp_path):
+    seeds = {"seeds": [{"id": 10, "class": "c", "file": "src/calc.py", "lines": [4], "kw": "zzz"},
+                       {"id": 2, "class": "c", "file": "src/calc.py", "lines": [6], "kw": "zzz"}]}
+    gold = [{"id": 10, "file": "src/calc.py", "line": 4, "kind": "k", "comment": "c"},
+            {"id": 2, "file": "src/calc.py", "line": 6, "kind": "k", "comment": "c"}]
+    write(tmp_path / "t", "manifest.json", json.dumps(seeds))
+    write(tmp_path / "t", "gold.json", json.dumps(gold))
+    # one finding at line 5 is one line from both seeds and both threads: the lower int id wins
+    assert review.grade_seeds({}, tmp_path / "t", fence([_f(5)]))["seeds_hit"] == [2]
+    assert review.grade_replay({}, tmp_path / "t", fence([_f(5)]))["threads_hit"] == [2]
+    # ids that all match by keyword are listed in numeric order, not as strings
+    assert review.grade_seeds({}, tmp_path / "t", fence([_f(4, message="zzz"), _f(6, message="zzz")]))[
+        "seeds_hit"] == [2, 10]
+
+
+def test_a_builtin_grader_exiting_127_for_another_reason_is_a_plain_exit(tmp_path):
+    """Only a missing python3 (tini's message on stderr) is the image failure; any other 127 is the grader's."""
+    class OtherExit127(FakeRunner):
+        def run(self, spec, *, stdout, stderr, timeout_s):
+            if spec.argv[0] == "python3":
+                self.specs.append(spec)
+                stdout.write_text("")
+                stderr.write_text("Grader exit 127 for other reason\n")
+                return ContainerResult(returncode=127, timed_out=False, wall_s=0.0)
+            return super().run(spec, stdout=stdout, stderr=stderr, timeout_s=timeout_s)
+
+    ctx = EvalContext(manifest=parse_manifest(MANIFEST), git_dir=tmp_path, content_dir=tmp_path / "content",
+                      image="img", runner=OtherExit127(), caches={"build-cache": tmp_path})
+    (tmp_path / "content").mkdir()
+    rd = tmp_path / "rd"
+    rd.mkdir()
+    task = Task(id="t", raw={"grader": "dokimi:review_seeds"}, dir=tmp_path / "content" / "t")
+    result = run_entry(ctx, "grade", task, rd, "none")  # no ContainerError: not the python3 failure
+    assert result.returncode == 127 and ctx.runner.specs[0].argv[0] == "python3"
+
+
+def test_a_replay_window_that_is_not_a_positive_number_is_an_authoring_error(tmp_path, capsys):
+    root = _repo(tmp_path, {"replay_mul": {**TASKS["replay_mul"], "window": "5"}})  # its gold.json is in DATA
+    args = build_parser().parse_args(["repo", "validate", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
+                                      "--cache-dir", str(tmp_path / "caches"), "--json"])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    errors = json.loads(capsys.readouterr().out)["errors"]
+    assert any("replay_mul" in e and "window must be a positive number" in e for e in errors), errors

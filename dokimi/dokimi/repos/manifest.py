@@ -529,6 +529,8 @@ def _builtin_problems(tree: RepoTree, task_dir: str, raw: dict[str, Any], name: 
         return [f"{key} {path!r}: {problem}"]
     if not tree.is_file(f"{task_dir}/{path}"):
         return [f"{key} file does not exist: {path}"]
+    if name == "review_replay" and not _positive(raw.get("window", 5)):  # review.py compares lines to it
+        return [f"window must be a positive number, not {raw.get('window')!r}"]
     return []
 
 

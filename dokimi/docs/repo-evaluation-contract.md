@@ -109,8 +109,9 @@ outside every workspace and passes its absolute path to entry points as
   containers share. A grader that imports or runs workspace code runs the
   agent's code.
 - **Fixed paths.** Inside every container `{run_dir}` is `/eval/run`,
-  `{eval_dir}` is `/eval/content` and `{source_dir}` is `/eval/source`. The
-  agent container mounts the workspace at `/eval/run/workspace`, the same path
+  `{eval_dir}` is `/eval/content`, `{source_dir}` is `/eval/source`, and
+  the built-in graders' code is `/eval/graders` (grading container only, §4.5).
+  The agent container mounts the workspace at `/eval/run/workspace`, the same path
   graders see. An absolute path in an answer or grade therefore means the same
   thing after a run directory is archived or regraded on another host. On
   oneDAL, 14 of 308 copied runs regraded differently because build answers
@@ -430,8 +431,8 @@ objects are dropped. `file` is made repository-relative: a path is cut after
 `/eval/run/workspace/`, then after the last `/repo/` (a standalone oneDAL
 run's workspace; a relative `a/repo/b` becomes `b`, the seed's or thread's
 `file` as well as the finding's), then leading `./` and `/` go. `line` is
-read with Python's `int()` (`"6"` is 6, `5.9` is 5); a missing line, `0`, or
-a value `int()` cannot read is -99, near nothing. `severity` `blocker` or `major` counts toward
+read with Python's `int()` (`"6"` is 6, `5.9` is 5); a missing or falsy line
+(`null`, `0`, `""`), or a value `int()` cannot read, is -99, near nothing. `severity` `blocker` or `major` counts toward
 `n_severe`. An answer with no such array gives only `pass: false`,
 `parse_error: true` and every recall 0 (`recall`; replay also `recall_all`
 and `recall_addressed`; `null` when there is nothing to recall): the agent
