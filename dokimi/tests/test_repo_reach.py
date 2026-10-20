@@ -198,7 +198,8 @@ def test_delegation_none_drops_the_subagent_tools_and_changes_the_execution_id()
     native = profile.argv(prompt="p", model="m", tools="all")
     solo = profile.argv(prompt="p", model="m", tools="all", delegation="none")
     assert native[-3:] == ["--disallowedTools", "WebFetch", "WebSearch"]
-    assert solo[-5:] == ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task"]
+    assert solo[-6:] == ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task", "Workflow"]
+    # Claude Code 2.1.304's Workflow tool starts subagents without going through Agent/Task.
     assert profile.argv(prompt="p", model="m", tools="read", delegation="none")[-2:] == ["--tools", "Read"]
     ids = {profile.execution_id("all"), profile.execution_id("all", "none"), profile.execution_id("read")}
     assert len(ids) == 3 and profile.execution_id("all") == load_profile("claude-code").execution_id("all")

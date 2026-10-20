@@ -29,10 +29,10 @@ tools:
   none: ["--tools", ""]
   read: ["--tools", "Read"]
   all: ["--disallowedTools", "WebFetch", "WebSearch"]
-# --delegation none: the same tools without the subagent tools (Agent; Task on older versions).
+# --delegation none: the same tools without the ones that start subagents (Agent/Task, Workflow).
 delegation:
   none:
-    all: ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task"]
+    all: ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task", "Workflow"]
 config_dir_env: CLAUDE_CONFIG_DIR
 env_allow:
   - PATH

@@ -4,9 +4,9 @@
   `--tools all` Claude Code could start subagents through its `Agent` tool, so
   a `repo run` cell was not a single-agent run. `--delegation none` runs the
   harness profile's new `delegation.none` tool arguments instead (for
-  `claude-code`: `Agent` and `Task` added to `--disallowedTools`); a profile
-  without them refuses the flag. The default, `--delegation native`, keeps
-  today's behaviour.
+  `claude-code`: `Agent`, `Task` and `Workflow` added to
+  `--disallowedTools`); a profile without them refuses the flag. The default,
+  `--delegation native`, keeps today's behaviour.
 
 ### Changed
 

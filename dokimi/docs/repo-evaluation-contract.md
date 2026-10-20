@@ -623,7 +623,7 @@ tools:                               # what the "{tools}" element expands to
   all:  ["--disallowedTools", "WebFetch", "WebSearch"]
 delegation:                          # --delegation none: these replace the tool mode's arguments
   none:
-    all: ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task"]
+    all: ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task", "Workflow"]
 config_dir_env: CLAUDE_CONFIG_DIR    # a fresh directory per run
 env_allow: [PATH, HOME, AWS_REGION, AWS_BEARER_TOKEN_BEDROCK, ANTHROPIC_API_KEY,
             CLAUDE_CODE_USE_BEDROCK, https_proxy, no_proxy, ...]
