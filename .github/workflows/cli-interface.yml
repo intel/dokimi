@@ -4,9 +4,9 @@
 name: cli-interface
 
 # Makes every change to how users call dokimi visible on the PR: dumps the CLI
-# surface (commands, options, arguments, defaults, choices) of the base
-# branch's tip and of the PR head with dokimi/scripts/cli_surface.py, diffs
-# them and, when they differ, labels the PR `cli-interface-change` and posts a
+# surface (commands, options, arguments, defaults, choices) of the merge base of
+# the PR with its base branch and of the PR head with dokimi/scripts/cli_surface.py,
+# diffs them and, when they differ, labels the PR `cli-interface-change` and posts a
 # sticky comment listing each added, removed or changed command and option.
 # The comment is updated on every push, and the label removed once the surface
 # matches the base again. The check reports; it never fails a PR for a change.

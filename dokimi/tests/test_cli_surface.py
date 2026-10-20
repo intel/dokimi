@@ -254,6 +254,39 @@ def test_a_validator_default_is_compared_by_content():
     assert cs.diff_surfaces(_one(type=with_default(1)), _one(type=with_default(0)))
 
 
+def test_a_validator_keyword_only_default_is_compared_by_content():
+    def kw(lim: int):
+        def take(s: str, *, lim: int = lim) -> str:
+            return s[:lim]
+        return take
+
+    assert cs.diff_surfaces(_one(type=kw(3)), _one(type=kw(30)))
+
+
+def test_a_validator_that_calls_itself_through_a_closure_is_dumped():
+    def mk():
+        def loop(s: str) -> str:
+            return loop(s) if s == "x" else s
+        return loop
+
+    assert cs.diff_surfaces(_one(type=mk()), _one(type=mk())) == []
+
+
+def test_enum_type_is_compared_by_its_members():
+    one = enum.Enum("Mode", "a")
+    two = enum.Enum("Mode", "a b")
+    assert cs.diff_surfaces(_one(type=one), _one(type=two))
+    assert cs.diff_surfaces(_one(type=one), _one(type=enum.Enum("Mode", "a"))) == []
+
+
+def test_class_type_is_compared_by_its_code(tmp_path):
+    source = "class Check:\n    def __call__(self, s):\n        return s\n"
+    loosened = source.replace("return s", "return s[:1]")
+    base = _one(type=_file_validator(tmp_path, "base", source, attr="Check"))
+    head = _one(type=_file_validator(tmp_path, "head", loosened, attr="Check"))
+    assert cs.diff_surfaces(base, head)
+
+
 def test_default_objects_are_dumped_without_addresses():
     a = _one(default=object())
     b = _one(default=object())
@@ -308,8 +341,11 @@ def build_parser():
 """
 
 
-def _run_diff_step(tmp_path: Path, *, pr_adds: bool) -> str:
-    """Run the workflow's dump-and-diff step on a merge commit whose base branch moved on."""
+def _run_diff_step(tmp_path: Path, *, pr_adds: bool, pr_moves_build_parser: bool = False) -> str:
+    """Run the workflow's dump-and-diff step on a merge commit whose base branch moved on.
+
+    With `pr_moves_build_parser` the PR deletes dokimi/cli.py, so the head dump raises.
+    """
     import os
     import shutil
     import subprocess
@@ -335,15 +371,19 @@ def _run_diff_step(tmp_path: Path, *, pr_adds: bool) -> str:
         return subprocess.run(["git", "-c", "commit.gpgsign=false", *args], cwd=repo, env=env,
                               check=True, capture_output=True, text=True).stdout.strip()
 
-    def commit(extra: str, msg: str) -> str:
-        (pkg / "cli.py").write_text(_CLI.format(extra=extra), encoding="utf-8")
+    def commit(extra: str, msg: str, *, cli: bool = True) -> str:
+        if cli:
+            (pkg / "cli.py").write_text(_CLI.format(extra=extra), encoding="utf-8")
+        else:
+            (pkg / "cli.py").unlink(missing_ok=True)
         git("add", "-A")
         git("commit", "-q", "--allow-empty", "-m", msg)
         return git("rev-parse", "HEAD")
 
     git("init", "-q", "-b", "main")
     fork_point = commit("", "base")
-    commit('    p.add_argument("--pr-opt")\n' if pr_adds else "", "pr")
+    commit('    p.add_argument("--pr-opt")\n' if pr_adds else "", "pr",
+           cli=not pr_moves_build_parser)
     pr = git("rev-parse", "HEAD")
     git("checkout", "-q", "--detach", fork_point)
     git("merge", "-q", "--no-ff", "-m", "merge", pr)  # what refs/pull/N/merge is
@@ -367,6 +407,14 @@ def test_workflow_ignores_base_branch_changes_made_after_the_merge_commit(tmp_pa
     assert "changed=1" in _run_diff_step(tmp_path / "b", pr_adds=True)
 
 
+def test_workflow_reports_error_and_passes_when_the_head_cannot_be_dumped(tmp_path):
+    # a PR that moves build_parser: the head dump raises; the step must still exit 0 (checked by
+    # _run_diff_step) and report changed=error so the label is left alone
+    output = _run_diff_step(tmp_path, pr_adds=False, pr_moves_build_parser=True)
+    assert "changed=error" in output
+    assert "changed=0" not in output and "changed=1" not in output
+
+
 _VALIDATOR = '''def positive_int(text):
     """Reject non-positive integers."""
     value = int(text)
@@ -376,8 +424,8 @@ _VALIDATOR = '''def positive_int(text):
 '''
 
 
-def _file_validator(tmp_path: Path, name: str, source: str):
-    """`positive_int` from a module file `validators.py`: same module and qualname every time."""
+def _file_validator(tmp_path: Path, name: str, source: str, attr: str = "positive_int"):
+    """`attr` from a module file `validators.py`: same module and qualname every time."""
     path = tmp_path / name / "validators.py"
     path.parent.mkdir()
     path.write_text(source, encoding="utf-8")
@@ -385,7 +433,7 @@ def _file_validator(tmp_path: Path, name: str, source: str):
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.positive_int
+    return getattr(module, attr)
 
 
 def test_a_validator_is_compared_by_code_not_by_its_docstring_or_comments(tmp_path):

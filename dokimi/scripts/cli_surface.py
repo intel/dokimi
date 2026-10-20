@@ -45,6 +45,11 @@ FIELDS = ("required", "is_flag", "nargs", "default", "type", "choices", "hidden"
           "position", "const", "group_key", "group_required")
 
 
+# Class attributes that name or locate the class rather than define it.
+_CLASS_NOISE = frozenset({"__dict__", "__doc__", "__firstlineno__", "__module__", "__qualname__",
+                          "__weakref__"})
+
+
 def _filled(cell: Any) -> bool:
     try:
         _ = cell.cell_contents
@@ -71,28 +76,48 @@ def _code(fn: Any) -> str:
     return ast.dump(tree)
 
 
-def _value(value: Any) -> Any:
-    """A JSON value standing for `value`, stable across runs (no object addresses)."""
+def _value(value: Any, _seen: frozenset[int] = frozenset()) -> Any:
+    """A JSON value standing for `value`, stable across runs (no object addresses).
+
+    `_seen` holds the functions being hashed up the call chain: a validator that reaches
+    itself through a closure cell is named, not hashed again.
+    """
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, (list, tuple)):
-        return [_value(v) for v in value]
+        return [_value(v, _seen) for v in value]
     if isinstance(value, dict):
-        return {str(k): _value(v) for k, v in value.items()}
+        return {str(k): _value(v, _seen) for k, v in value.items()}
     if isinstance(value, PurePath):
         return str(value)
     if isinstance(value, (set, frozenset)):
-        return sorted(repr(_value(v)) for v in value)
+        return sorted(repr(_value(v, _seen)) for v in value)
     if isinstance(value, enum.Enum):
         return repr(value)
-    if inspect.isfunction(value):
+    if inspect.isfunction(value) and id(value) not in _seen:
         # A validator's name alone hides a loosened body: add a hash of its code.
         src = _code(value)
-        # Captured values and defaults (a factory's `lo`) change what the function accepts too.
+        # Captured values and defaults (a factory's `lo`, a keyword-only `lim`) change what the
+        # function accepts too.
+        seen = _seen | {id(value)}
         cells = [c.cell_contents for c in (value.__closure__ or ()) if _filled(c)]
-        src += repr([_value(c) for c in cells]) + repr(_value(value.__defaults__))
+        src += repr([_value(c, seen) for c in cells])
+        src += repr(_value(value.__defaults__, seen)) + repr(_value(value.__kwdefaults__, seen))
         digest = hashlib.sha256(src.encode("utf-8")).hexdigest()[:12]
         return f"{value.__module__}.{value.__qualname__}#{digest}"
+    if inspect.isclass(value) and value.__module__ != "builtins" and id(value) not in _seen:
+        # A class used as a type is hashed by its attributes (their code, through _value), so a
+        # changed method or a new enum member changes it. Its source is not used: a class defined
+        # in a module that is not in sys.modules has none.
+        seen = _seen | {id(value)}
+        attrs = {k: v for k, v in vars(value).items() if k not in _CLASS_NOISE}
+        src = repr(_value(attrs, seen))
+        if issubclass(value, enum.Enum):
+            src += repr([(m.name, _value(m.value)) for m in value])
+        digest = hashlib.sha256(src.encode("utf-8")).hexdigest()[:12]
+        return f"{value.__module__}.{value.__qualname__}#{digest}"
+    if inspect.isfunction(value) and id(value) in _seen:  # reached again through its own closure
+        return f"{value.__module__}.{value.__qualname__}"
     name = getattr(value, "__name__", None)
     if isinstance(name, str):
         return name
@@ -150,10 +175,10 @@ def _command(parser: argparse.ArgumentParser, path: str) -> dict[str, Any]:
         else:
             # -h/--help and --version are kept (help text and the version string are not dumped)
             group_info = action_to_group.get(action)
-            group_key = group_info[0] if group_info else None
-            group_required = group_info[1] if group_info else None
+            param_group = group_info[0] if group_info else None
+            param_required = group_info[1] if group_info else None
             node["params"].append(_param(action, None if action.option_strings else position,
-                                         group_key, group_required))
+                                         param_group, param_required))
             position += 0 if action.option_strings else 1
     node["params"].sort(key=lambda p: (p["kind"], p["key"]))
     return node
