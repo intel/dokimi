@@ -23,6 +23,7 @@ path. The arm string is recorded as it was written: ``guidance:raw+skill:x`` and
 from __future__ import annotations
 
 import hashlib
+import os
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -101,15 +102,36 @@ def resolve_skills(arm: RepoArm, content_dir: Path) -> list[Skill]:
             continue
         if not root.is_dir():
             raise ArmError(f"arm {arm.spec!r}: skill-catalog {path} is not a directory")
-        subs = [Skill(d.name, d) for d in sorted(root.iterdir()) if d.is_dir() and (d / "SKILL.md").is_file()]
+        subs = []
+        for d in sorted(root.iterdir()):
+            if not d.is_dir() or not (d / "SKILL.md").is_file():
+                continue
+            if not d.resolve().is_relative_to(root.resolve()):
+                raise ArmError(f"arm {arm.spec!r}: {d.name} in {path} links outside it")
+            subs.append(Skill(d.name, d))
         if not subs:
             raise ArmError(f"arm {arm.spec!r}: no subdirectory of {path} holds a SKILL.md")
         found += subs
+    for skill in found:
+        link = _escaping_link(skill.dir)
+        if link:
+            raise ArmError(f"arm {arm.spec!r}: {link.relative_to(skill.dir)} in skill {skill.name} links outside it")
     names = [s.name for s in found]
     dupes = sorted({n for n in names if names.count(n) > 1})
     if dupes:
         raise ArmError(f"arm {arm.spec!r}: more than one skill named {', '.join(dupes)}")
     return found
+
+
+def _escaping_link(skill_dir: Path) -> Path | None:
+    """A link under ``skill_dir`` whose target is outside it: copying would take the host's bytes."""
+    root = skill_dir.resolve()
+    for dirpath, dirnames, filenames in os.walk(skill_dir):
+        for name in dirnames + filenames:
+            link = Path(dirpath, name)
+            if link.is_symlink() and not link.resolve().is_relative_to(root):
+                return link
+    return None
 
 
 def _skill_path(path: str, content_dir: Path) -> Path:
@@ -125,9 +147,15 @@ def _skill_path(path: str, content_dir: Path) -> Path:
 def check_arms(arms: list[str], content_dir: Path, tasks: list[Any]) -> list[RepoArm]:
     """Parse every arm and find its skills before anything runs; a catalog must hold each task's
     ``expected_skill``. Returns the parsed arms."""
+    from .runner import slug  # runner imports this module
+
     parsed = []
+    cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm string that owns it
     for spec in arms:
         arm = parse_arm(spec)
+        cell = slug(spec.replace(":", "-"))
+        if cells.setdefault(cell, spec) != spec:
+            raise ArmError(f"arms {cells[cell]!r} and {spec!r} would share one result directory ({cell})")
         names = {s.name for s in resolve_skills(arm, content_dir)}
         if arm.catalog:
             for task in tasks:

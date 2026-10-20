@@ -255,7 +255,7 @@ def _install_skills(ws: Path, task: Task, skills: list[Skill]) -> list[dict[str,
         if dest.exists():
             raise PrepError(f"task {task.id}: the workspace already has {skill.target}")
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(skill.dir, dest, symlinks=False)  # a link out of the skill would not exist in the container
+        shutil.copytree(skill.dir, dest, symlinks=False)  # resolve_skills refused any link out of the skill
         out.append({"name": skill.name, "path": skill.target, "sha256": tree_sha256(dest)})
     return out
 

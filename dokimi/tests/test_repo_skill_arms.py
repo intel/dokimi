@@ -134,3 +134,55 @@ def test_tasks_check_validates_skill_arms(setup, capsys):
     with pytest.raises(SystemExit):
         args.func(args)
     assert "no SKILL.md in skills/nope" in capsys.readouterr().err
+
+
+def test_a_link_out_of_a_skill_or_catalog_is_refused(tmp_path):
+    host = tmp_path / "host"  # outside eval_dir; a link to it must not copy its bytes into the workspace
+    host.mkdir()
+    (host / "SKILL.md").write_text("---\nname: evil\ndescription: x\n---\n")
+    (host / "token.txt").write_text("TOPSECRET")
+    evaldir = tmp_path / "eval"
+    _skill(evaldir, "skills/good", "good")
+    (evaldir / "skills/good/leak.txt").symlink_to(host / "token.txt")
+    with pytest.raises(ArmError, match="leak.txt in skill good links outside it"):
+        resolve_skills(parse_arm("skill:skills/good"), evaldir)
+    (evaldir / "skills/good/leak.txt").unlink()
+    (evaldir / "skills/evil").symlink_to(host)
+    with pytest.raises(ArmError, match="evil in skills links outside it"):
+        resolve_skills(parse_arm("skill-catalog:skills"), evaldir)
+
+
+def test_arms_that_share_a_result_directory_are_refused(tmp_path):
+    _skill(tmp_path, "a/b", "x")
+    _skill(tmp_path, "a_b", "y")
+    _skill(tmp_path, "s/one", "one")
+    _skill(tmp_path, "catalog-s", "two")
+    with pytest.raises(ArmError, match="share one result directory"):
+        check_arms(["skill:a/b", "skill:a_b"], tmp_path, [])
+    with pytest.raises(ArmError, match="share one result directory"):
+        check_arms(["skill-catalog:s", "skill:catalog-s"], tmp_path, [])
+
+
+def test_claude_code_gets_mcp_config_only_when_the_workspace_has_the_file(tmp_path, monkeypatch):
+    runner = FakeRunner()
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    monkeypatch.setenv("FAKE_ACTION", "fix")
+    profile = Path(__file__).resolve().parents[1] / "dokimi/repos/profiles/claude-code.yaml"
+    exe, _ = fake_harness(tmp_path)
+    for with_mcp in (True, False):
+        runner.specs.clear()
+        base = tmp_path / ("with" if with_mcp else "without")
+        base.mkdir()
+        if with_mcp:
+            write(base / "toy", ".mcp.json", '{"mcpServers": {}}')  # make_repo commits it into the task base
+        root, _ = make_repo(base)
+        argv = ["repo", "run", f"{root}@HEAD", "--harness", str(profile), "--bin", str(exe), "--model", "m-1",
+                "--batch", "b1", "--out", str(base / "runs"), "--cache-root", str(base / "caches"),
+                "--agent-network", "host", "--arm", "guidance:raw", "--task", "fix_add"]
+        args = build_parser().parse_args(argv)
+        args.func(args)
+        agent = [s.argv for s in runner.specs if "--strict-mcp-config" in s.argv]
+        assert len(agent) == 1
+        assert ("--mcp-config" in agent[0]) is with_mcp
+        if with_mcp:
+            assert agent[0][agent[0].index("--mcp-config") + 1] == ".mcp.json"
