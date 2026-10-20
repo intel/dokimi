@@ -248,6 +248,11 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
     cells = []
     for raw in paths:
         data = json.loads(Path(raw).read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ProbeFileError(
+                f"{raw} is {type(data).__name__}, not an object; "
+                "it is not `novelty probe` output"
+            )
         runs_value = data.get("runs", [])
         if not isinstance(runs_value, list):
             raise ProbeFileError(

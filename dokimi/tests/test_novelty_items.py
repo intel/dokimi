@@ -285,6 +285,7 @@ def test_probe_files_load_as_cells_and_warn_on_different_atom_sets(tmp_path):
     ({"runs": [{"atom_id": "x"}]}, "missing 'probe_kind'"),
     ({"runs": None}, "`runs` as NoneType, not a list"),
     ({"runs": [1]}, "a run entry as int, not an object"),
+    ([1], "is list, not an object"),
 ])
 def test_a_file_that_is_not_probe_output_is_refused(tmp_path, payload, message):
     path = tmp_path / "p.json"

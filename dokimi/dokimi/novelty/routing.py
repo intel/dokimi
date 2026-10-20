@@ -376,8 +376,6 @@ def check_field(gold: Candidate, competitors: list[Candidate]) -> None:
             f"`{gold.name}` appears in --competitors as well as --artifact; selection "
             "against itself is not a measurement. Drop it from the competitor list."
         )
-    from collections import Counter
-
     names = [c.name for c in competitors]
     name_counts = Counter(names)
     repeated = sorted({n for n, count in name_counts.items() if count > 1})
