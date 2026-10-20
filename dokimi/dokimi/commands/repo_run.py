@@ -200,6 +200,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     try:
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
+        profile.tool_args(args.tools, args.delegation)  # a profile that cannot turn subagents off: refuse now
         harness_bin = _harness_bin(args.bin or profile.bin)
         source = RepoSource.parse(args.source)  # a misspelled revision fails before the build and the pin too
         arms = _pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
@@ -211,7 +212,6 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, delegation=args.delegation, timeout_s=args.timeout,
                                 max_turns=args.max_turns, budget_usd=args.budget) for m in args.model]
-        profile.tool_args(args.tools, args.delegation)  # a profile that cannot turn subagents off: refuse now
         for task in tasks:  # refuse before anything runs, not cell by cell
             task_caps(task, options[0])
             agent_network(options[0], ctx, task)

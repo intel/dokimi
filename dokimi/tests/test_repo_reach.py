@@ -222,11 +222,17 @@ def test_harness_binary_and_version_change_the_execution_id():
     assert id4 != id5 and id4 != id1
 
 
-def test_execution_id_pinned_by_profile_name():
-    profile = load_profile("claude-code")
-    id1 = profile.execution_id("all")
-    # Profile name is part of the id (in the key dict)
-    assert id1 == load_profile("claude-code").execution_id("all")
+def test_execution_id_pinned_by_profile_name(tmp_path):
+    assert _ids_differ_only_by(tmp_path, {"name": "fake-a"}, {"name": "fake-b"})
+
+
+def test_execution_id_pinned_by_invoke(tmp_path):
+    assert _ids_differ_only_by(tmp_path, {}, {"invoke": ["{bin}", "--other", "-p", "{prompt}", "{tools}"]})
+
+
+def test_execution_id_pinned_by_env_allow_and_config_dir_env(tmp_path):
+    assert _ids_differ_only_by(tmp_path, {}, {"env_allow": ["PATH"]})
+    assert _ids_differ_only_by(tmp_path, {}, {"config_dir_env": "OTHER_CONFIG_DIR"})
 
 
 def _ids_differ_only_by(tmp_path, first: dict, second: dict) -> bool:

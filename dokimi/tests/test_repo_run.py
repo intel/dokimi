@@ -181,6 +181,13 @@ def test_delegation_none_is_refused_before_anything_runs_when_the_profile_cannot
     assert not [s for s in setup["runner"].specs if "-p" in s.argv]
 
 
+def test_a_refused_delegation_none_leaves_no_batch_behind(setup, capsys):
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
+    capsys.readouterr()
+    assert not (setup["out"] / "b1").exists()  # no pin, no eval content, no image build for a refused run
+
+
 @pytest.mark.outcome("cjm-repo-grader-crash")
 def test_a_grader_crash_is_a_failure_not_an_exclusion(setup, monkeypatch, capsys):
     monkeypatch.setenv("FAKE_ACTION", "break")  # the agent deletes src/calc.py, the grader cannot import it
