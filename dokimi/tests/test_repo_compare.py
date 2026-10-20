@@ -306,9 +306,37 @@ def test_a_grader_failure_on_the_one_task_that_can_move_is_not_near_ceiling(tmp_
      [False, True], None),
     ([{"baseline": 1.0, "treatment": 1.0}, {"baseline": 0.5, "treatment": 1.0}], [(1.0, 1.0)] * 2,
      [False, False], "near_ceiling"),
+    # one arm at 0 is not a floor; one task is not near_ceiling; a small loss is still a loss
+    ([{"baseline": 0.0, "treatment": 1.0}] * 3, [(1.0, 1.0)] * 3, None, None),
+    ([{"baseline": 0.0, "treatment": 1.0}], [(1.0, 1.0)], None, None),
+    ([{"baseline": 1.0, "treatment": 1.0}, {"baseline": 1.0, "treatment": 0.7}], [(1.0, 1.0)] * 2, None, None),
 ])
 def test_headroom_on_mixed_tops_and_grader_failures(pairs, tops, failed, expected):
     assert compare_mod.headroom(pairs, tops, failed) == expected
+
+
+def test_score_headroom_allows_for_float_means_and_needs_one_known_top(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(2):
+        for arm in ("guidance:none", "guidance:raw"):
+            for rep in (1, 2, 3):  # a mean of 0.6999999999999998
+                _cell(b, f"r{i}", arm, rep, score=0.7, score_max=0.7)
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] == "ceiling"
+    c = tmp_path / "b2"
+    for i in range(2):
+        for arm in ("guidance:none", "guidance:raw"):  # two eval trees in one task: no single top
+            _cell(c, f"r{i}", arm, 1, score=4.0, score_max=1.0)
+            _cell(c, f"r{i}", arm, 2, score=4.0, score_max=4.0)
+    assert _row(compare([c], "guidance:none"), "score")["headroom"] is None
+
+
+def test_cost_and_turns_rows_never_carry_a_headroom_flag(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(2):
+        for arm in ("guidance:none", "guidance:raw"):  # values that equal the gate's top
+            _cell(b, f"fix_{i}", arm, 1, cost=1.0, turns=1)
+    s = compare([b], "guidance:none")
+    assert _row(s, "cost_usd")["headroom"] is None and _row(s, "turns")["headroom"] is None
 
 
 @pytest.mark.parametrize("baseline,expected", [
