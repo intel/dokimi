@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -346,47 +347,67 @@ def test_gitleaks_job_in_needs_network() -> None:
     assert "gitleaks" in cl.NEEDS_NETWORK
 
 
-def test_gitleaks_workflow_includes_merge_diffs(tmp_path: Path) -> None:
-    """Regression: gitleaks uses -m flag to include merge diffs in both PR and push-to-main scans."""
-    workflows = cl.load_workflows()
-    gitleaks_wf = None
-    for name, wf in workflows:
-        if name == "gitleaks.yml":
-            gitleaks_wf = wf
-            break
+def test_gitleaks_scan_reports_each_line_once_under_its_own_commit(tmp_path: Path) -> None:
+    """The Scan commits step on a PR merge with a conflict, with a stub gitleaks that
+    runs the `git log -p -U0 <log-opts>` gitleaks runs: the PR's lines and its conflict
+    resolution are scanned, and a line from main only under main's own commit (where
+    its .gitleaksignore fingerprint points), on a PR and on a push."""
+    version = subprocess.run(["git", "--version"], capture_output=True, text=True, check=True).stdout
+    if tuple(int(n) for n in re.findall(r"\d+", version)[:2]) < (2, 36):
+        pytest.skip("--diff-merges=remerge needs git 2.36")
+    wf = dict(cl.load_workflows())["gitleaks.yml"]
+    step = next(s for s in wf["jobs"]["gitleaks"]["steps"] if s.get("name") == "Scan commits")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    env = {"PATH": os.environ["PATH"], "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "RUNNER_TEMP": str(tmp_path), "OUT": str(tmp_path / "out")}
 
-    assert gitleaks_wf is not None, "gitleaks.yml workflow not found"
+    def git(*args: str, check: bool = True) -> str:
+        return subprocess.run(["git", *args], cwd=repo, env=env, check=check,
+                              capture_output=True, text=True).stdout.strip()
 
-    job = gitleaks_wf["jobs"].get("gitleaks")
-    assert job is not None, "gitleaks job not found in gitleaks.yml"
+    def commit(path: str, text: str) -> str:
+        (repo / path).write_bytes(text.encode())
+        git("add", path)
+        git("commit", "-q", "-m", path)
+        return git("rev-parse", "HEAD")
 
-    # Find the "Scan commits" step
-    scan_step = None
-    for step in job.get("steps", []):
-        if step.get("name") == "Scan commits":
-            scan_step = step
-            break
+    git("init", "-q", "-b", "main")
+    commit("c.txt", "base\n")
+    git("checkout", "-q", "-b", "feat")
+    commit("pr.txt", "PR_OWN\n")
+    commit("c.txt", "feat\n")
+    git("checkout", "-q", "main")
+    main_sha = commit("main.txt", "MAIN_ONLY\n")
+    commit("c.txt", "main\n")
+    git("update-ref", "refs/remotes/origin/main", "main")
+    git("checkout", "-q", "--detach", "main")
+    git("merge", "-q", "feat", check=False)  # conflicts in c.txt
+    commit("c.txt", "RESOLVED\n")
+    (tmp_path / "gitleaks").mkdir()
+    stub = tmp_path / "gitleaks" / "gitleaks"
+    stub.write_bytes(b'#!/bin/sh\nprintf "%s\\n" "$@" > "$OUT.argv"\n'
+                     b'for a; do case $a in --log-opts=*) opts=${a#--log-opts=};; esac; done\n'
+                     b'git log -p -U0 $opts > "$OUT"\n')
+    stub.chmod(0o755)
 
-    assert scan_step is not None, "Scan commits step not found"
+    def scan(event: str) -> list[tuple[str, str]]:
+        """(commit, added line) pairs gitleaks would scan."""
+        subprocess.run(["bash", "-c", str(step["run"])], env={**env, "EVENT": event, "BASE_REF": "main"},
+                       cwd=repo, check=True)
+        assert "--redact" in (tmp_path / "out.argv").read_text(encoding="utf-8").splitlines()
+        pairs, sha = [], ""
+        for line in (tmp_path / "out").read_text(encoding="utf-8").splitlines():
+            if line.startswith("commit "):
+                sha = line.split()[1]
+            elif line.startswith("+") and not line.startswith("+++"):
+                pairs.append((sha, line[1:]))
+        return pairs
 
-    # Run the step with a stub gitleaks that records its argv, once per event.
-    run_script = str(scan_step.get("run", ""))
-
-    def scan_argv(event: str, tmp: Path, base: str = "main") -> list[str]:
-        stub_dir = tmp / "gitleaks"
-        stub_dir.mkdir(parents=True)
-        stub = stub_dir / "gitleaks"
-        argv_file = tmp / "argv"
-        stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$ARGV_FILE"\n', encoding="utf-8")
-        stub.chmod(0o755)
-        env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(tmp), "ARGV_FILE": str(argv_file),
-               "EVENT": event, "BASE_REF": base}
-        subprocess.run(["bash", "-c", run_script], env=env, cwd=tmp, check=True)
-        return argv_file.read_text(encoding="utf-8").splitlines()
-
-    pr = scan_argv("pull_request", tmp_path / "pr")
-    assert "--log-opts=-m origin/main..HEAD" in pr, pr
-    push = scan_argv("push", tmp_path / "push")
-    assert "--log-opts=-m --full-history --all" in push, push
-    for argv in (pr, push):
-        assert "--redact" in argv, argv
+    pr = scan("pull_request")
+    assert {"PR_OWN", "RESOLVED"} <= {line for _, line in pr}, pr
+    assert [sha for sha, line in pr if line == "MAIN_ONLY"] == [], pr
+    push = scan("push")
+    assert "RESOLVED" in {line for _, line in push}, push
+    assert [sha for sha, line in push if line == "MAIN_ONLY"] == [main_sha], push
