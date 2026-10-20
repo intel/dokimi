@@ -76,21 +76,12 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # A root CLAUDE.md's imports load at start; a nested one's when the agent reaches its subtree.
     at_start, cut_start = _imports(tree, root_claude_for_off, import_max_depth)
     lazy_all, cut_lazy = _imports(tree, [f for f in claude if f not in root_claude], import_max_depth)
-    lazily = lazy_all - at_start
 
-    start_t = {_target(tree, p) for p in at_start}
-    loaded_t = start_t | {_target(tree, p) for p in lazily}
-
-    def displaced(f: str) -> bool:
-        """An AGENTS.md that a root CLAUDE* turns off and no CLAUDE.md imports or links to."""
-        t = _target(tree, f)
-        return bool(root_claude_for_off) and not (
-            any(a in root_claude for a in groups.get(t, [f])) or t in start_t or t in loaded_t)
-
-    # An AGENTS.md Claude reads expands its own @imports, as a CLAUDE.md does: root ones at start,
-    # nested ones when the agent reaches their subtree.
+    # An AGENTS.md Claude reads on its own expands its @imports from hop 0: root ones at start, nested
+    # ones when the agent reaches their subtree. One a root CLAUDE* displaces is read only through an
+    # import, whose chain already follows it at its real hop count, unless it is a root CLAUDE* alias.
     agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md" and _is_resolvable(tree, f)
-              and not displaced(f)]
+              and (not root_claude_for_off or any(a in root_claude for a in groups.get(_target(tree, f), [f])))]
     agents_at_start, cut_agents_start = _imports(tree, [f for f in agents if _is_root(f)], import_max_depth)
     agents_lazy, cut_agents_lazy = _imports(tree, [f for f in agents if not _is_root(f)], import_max_depth)
     at_start |= agents_at_start

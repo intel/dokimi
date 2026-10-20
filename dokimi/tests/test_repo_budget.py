@@ -131,6 +131,27 @@ def test_an_agents_md_import_loads_what_it_names(tmp_path):
     assert got["warnings"] == []
 
 
+def test_a_claude_dir_agents_md_import_loads_at_start(tmp_path):
+    tree = _tree(tmp_path, {".claude/AGENTS.md": "@g.md\n", ".claude/g.md": "g" * 3})
+    assert _by_path(budget(tree, NAMES))[(".claude/g.md", "import")]["when"] == "start"
+
+
+def test_an_agents_md_read_through_an_import_counts_hops_from_the_claude_md(tmp_path):
+    tree = _tree(tmp_path, {"CLAUDE.md": "@AGENTS.md\n", "AGENTS.md": "@a1.md\n", "a1.md": "@a2.md\n",
+                            "a2.md": "@a3.md\n", "a3.md": "@a4.md\n", "a4.md": "end\n"})
+    got = budget(tree, NAMES, import_max_depth=4)
+    assert ("a4.md", "import") not in _by_path(got)
+    assert any(w.startswith("a3.md: import of a4.md is past") for w in got["warnings"]), got["warnings"]
+
+
+def test_an_agents_md_only_a_nested_claude_md_imports_loads_its_imports_lazily(tmp_path):
+    tree = _tree(tmp_path, {"CLAUDE.md": "root\n", "sub/CLAUDE.md": "@../AGENTS.md\n",
+                            "AGENTS.md": "@docs/x.md\n", "docs/x.md": "x" * 4})
+    entries = _by_path(budget(tree, NAMES))
+    assert entries[("AGENTS.md", "guidance")]["when"] == "lazy"
+    assert entries[("docs/x.md", "import")]["when"] == "lazy"
+
+
 def test_a_nested_claude_md_bridge_loads_its_agents_md_lazily(tmp_path):
     tree = _tree(tmp_path, {
         "CLAUDE.md": "@AGENTS.md\n", "AGENTS.md": "a",
