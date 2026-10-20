@@ -362,14 +362,6 @@ def _count(value: Any) -> int | None:
     return int(number)
 
 
-def _load_json(path: Path) -> dict[str, Any] | None:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):  # ValueError covers JSONDecodeError, UnicodeDecodeError and the int-string limit
-        return None
-    return data if isinstance(data, dict) else None
-
-
 def _render_template(template: str, context: dict[str, Any]) -> str:
     escaped = template.replace("{", "{{").replace("}", "}}")
     for key in _PLACEHOLDERS:
