@@ -84,6 +84,15 @@ def test_bad_native_profile_is_refused(mutate, needle):
     assert needle in str(exc.value)
 
 
+@pytest.mark.parametrize("name", ["../x", "a/b", "/etc/passwd", ".hidden"])
+def test_bin_companions_are_plain_file_names(name):
+    # harness_mounts joins each name to the --bin directory and mounts the result into the agent
+    raw = yaml.safe_load(Path(load_profile("codex").path).read_text())
+    raw["bin_companions"] = [name]
+    with pytest.raises(ProfileError, match="bin_companions"):
+        parse_profile(raw)
+
+
 def test_reach_refuses_a_native_prompt_profile(tmp_path):
     root, _ = make_repo(tmp_path)
     from dokimi.repos import RepoSource, load_manifest, open_source
@@ -169,6 +178,7 @@ def test_unwrap_shell():
     assert unwrap_shell("/usr/bin/bash -lc 'cat a.txt'") == "cat a.txt"
     assert unwrap_shell("bash -lc \"git show HEAD | head\"") == "git show HEAD | head"
     assert unwrap_shell("rg foo") == "rg foo"
+    assert unwrap_shell("/bin/bash -lc cat a") == "cat a"  # an unquoted script of several words
 
 
 def _jsonl(*records):
