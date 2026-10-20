@@ -87,7 +87,9 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 - A file the package reads at run time goes inside `dokimi/dokimi/` and into
   `[tool.setuptools.package-data]`, or the installed wheel goes without it.
 - Design rationale, status and plans go in the PR description or an issue;
-  the tree has no ADRs or status reports.
+  the tree has no ADRs or status reports. The one exception is the research
+  register, `dokimi/research/records/`: one record per idea, experiment,
+  finding or decision, negative results included (`dokimi/docs/research-register.md`).
 - A new file starts with the SPDX header (`Copyright (C) <year> Intel
   Corporation` / `SPDX-License-Identifier: Apache-2.0`) in its comment syntax.
   CI's license header step (static job) checks it and `make ci-local` does

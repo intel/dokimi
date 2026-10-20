@@ -1,0 +1,225 @@
+#!/usr/bin/env python
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""Check, query and export the research register in ``research/records/``.
+
+Each record is one Markdown file, ``research/records/<type>/<id>.md``: YAML
+front matter with the typed fields of ``research/record.v1.json`` and a free
+Markdown body (setup, result, rationale). Ideas, experiments, findings,
+decisions and implementation references point at each other by id, so a
+refuted experiment stays findable from the idea it tested.
+
+    python scripts/research_register.py check
+    python scripts/research_register.py query --type experiment --where outcome=refuted,inconclusive
+    python scripts/research_register.py query --type experiment --ref I001
+    python scripts/research_register.py next experiment
+    python scripts/research_register.py export > register.json
+
+``check`` exits 1 when a record breaks its schema, sits under the wrong path,
+or points at a missing record or one of the wrong type. ``export`` writes every
+record plus the reference edges and an idea tree grouped by map theme, the input
+for the plans-and-research map.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import jsonschema
+import yaml
+
+PROJECT = Path(__file__).resolve().parents[1]
+RESEARCH = PROJECT / "research"
+SCHEMA = RESEARCH / "record.v1.json"
+# The license header every file carries, as an HTML comment after the front matter.
+_HEADER = re.compile(r"\A\s*<!--.*?SPDX-License-Identifier.*?-->\s*", re.DOTALL)
+
+PREFIX = {"idea": "I", "experiment": "X", "finding": "F", "decision": "D", "implref": "R"}
+# field -> record type it must point at, per record type.
+REFS: dict[str, dict[str, str]] = {
+    "experiment": {"idea": "idea"},
+    "finding": {"experiments": "experiment"},
+    "decision": {"findings": "finding", "ideas": "idea", "superseded_by": "decision"},
+    "implref": {"decision": "decision"},
+}
+THEMES = {
+    "P": "User workflows and integrations",
+    "E": "Engineering foundations",
+    "V": "Eval design, quality and infrastructure",
+    "K": "Skill scope, knowledge and utility",
+    "G": "Graphs, context and MCP",
+    "O": "Traces, optimization and visualization",
+    "C": "Judging and empirical validation",
+    "D": "Documentation and adoption",
+    "W": "Research workspace and records",
+}
+
+
+@dataclass
+class Record:
+    fields: dict[str, Any]
+    body: str
+    path: Path
+
+    @property
+    def id(self) -> str:
+        return str(self.fields.get("id", self.path.stem))
+
+    @property
+    def type(self) -> str:
+        return str(self.fields.get("type", ""))
+
+
+def parse(path: Path) -> Record:
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n") or "\n---\n" not in text[4:]:
+        raise ValueError(f"{path}: no YAML front matter")
+    front, body = text[4:].split("\n---\n", 1)
+    fields = yaml.safe_load(front)
+    if not isinstance(fields, dict):
+        raise ValueError(f"{path}: front matter is not a mapping")
+    # YAML reads an unquoted 2026-10-14 as a date; the schema wants the string.
+    fields = {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in fields.items()}
+    return Record(fields, _HEADER.sub("", body).strip(), path)
+
+
+def load(root: Path = RESEARCH) -> tuple[dict[str, Record], list[str]]:
+    records: dict[str, Record] = {}
+    errors: list[str] = []
+    for path in sorted((root / "records").glob("*/*.md")):
+        try:
+            record = parse(path)
+        except (ValueError, yaml.YAMLError) as exc:
+            errors.append(str(exc))
+            continue
+        if record.id in records:
+            errors.append(f"{record.id}: duplicate id in {path} and {records[record.id].path}")
+            continue
+        records[record.id] = record
+    return records, errors
+
+
+def ref_values(record: Record, field: str) -> list[str]:
+    value = record.fields.get(field)
+    if value is None:
+        return []
+    return list(value) if isinstance(value, list) else [value]
+
+
+def check(records: dict[str, Record], schema: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    for rid, record in sorted(records.items()):
+        kind = record.type
+        if kind not in PREFIX:
+            errors.append(f"{rid}: unknown type {kind!r}")
+            continue
+        sub = {"$schema": schema["$schema"], "$defs": schema["$defs"], "$ref": f"#/$defs/{kind}"}
+        for err in jsonschema.Draft202012Validator(sub).iter_errors(record.fields):
+            errors.append(f"{rid}: {err.json_path}: {err.message}")
+        if record.path.parent.name != kind or record.path.stem != rid:
+            errors.append(f"{rid}: expected at records/{kind}/{rid}.md, found {record.path.name}")
+        if not rid.startswith(PREFIX[kind]):
+            errors.append(f"{rid}: a {kind} id starts with {PREFIX[kind]}")
+        for field, want in REFS.get(kind, {}).items():
+            for target in ref_values(record, field):
+                if target not in records:
+                    errors.append(f"{rid}.{field}: no record {target}")
+                elif records[target].type != want:
+                    errors.append(f"{rid}.{field}: {target} is {records[target].type}, "
+                                  f"want {want}")
+        if record.fields.get("state") == "superseded" and "superseded_by" not in record.fields:
+            errors.append(f"{rid}: a superseded decision names its superseded_by")
+    return errors
+
+
+def matches(record: Record, where: list[str], ref: str | None, kind: str | None) -> bool:
+    if kind and record.type != kind:
+        return False
+    for clause in where:
+        field, _, wanted = clause.partition("=")
+        value = record.fields.get(field)
+        values = [str(v) for v in value] if isinstance(value, list) else [str(value)]
+        if not set(values) & set(wanted.split(",")):
+            return False
+    if ref:
+        return any(ref in ref_values(record, f) for f in REFS.get(record.type, {}))
+    return True
+
+
+def next_id(records: dict[str, Record], kind: str) -> str:
+    prefix = PREFIX[kind]
+    used = [int(r[len(prefix):]) for r in records if r.startswith(prefix) and r[len(prefix):].isdigit()]
+    return f"{prefix}{max(used, default=0) + 1:03d}"
+
+
+def export(records: dict[str, Record]) -> dict[str, Any]:
+    edges = [{"from": rid, "to": target, "rel": field}
+             for rid, record in sorted(records.items())
+             for field in REFS.get(record.type, {})
+             for target in ref_values(record, field)]
+    pointing: dict[str, list[str]] = {}
+    for edge in edges:
+        pointing.setdefault(edge["to"], []).append(edge["from"])
+    themes = []
+    for key, title in THEMES.items():
+        ideas = [r for r in records.values() if r.type == "idea" and r.fields["theme"] == key]
+        themes.append({"id": key, "title": title, "ideas": [
+            {"id": r.id, "title": r.fields["title"], "status": r.fields["status"],
+             "experiments": [{"id": x, "outcome": records[x].fields["outcome"]}
+                             for x in sorted(pointing.get(r.id, []))
+                             if records[x].type == "experiment"]}
+            for r in sorted(ideas, key=lambda r: r.id)]})
+    commit = subprocess.run(["git", "-C", str(PROJECT), "rev-parse", "HEAD"],
+                            capture_output=True, text=True, check=False).stdout.strip()
+    return {"commit": commit or None,
+            "records": [{**r.fields, "body": r.body} for _, r in sorted(records.items())],
+            "edges": edges, "themes": themes}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--root", type=Path, default=RESEARCH, help=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("check", help="validate every record and its references")
+    query = sub.add_parser("query", help="list records matching every filter")
+    query.add_argument("--type", choices=PREFIX)
+    query.add_argument("--where", action="append", default=[], metavar="FIELD=V1,V2")
+    query.add_argument("--ref", metavar="ID", help="records that point at ID")
+    nxt = sub.add_parser("next", help="print the next free id for a record type")
+    nxt.add_argument("type", choices=PREFIX)
+    sub.add_parser("export", help="write records, edges and the theme tree as JSON")
+    args = parser.parse_args(argv)
+
+    records, errors = load(args.root)
+    if args.command == "check":
+        schema = json.loads((args.root / SCHEMA.name).read_text(encoding="utf-8"))
+        errors += check(records, schema)
+        print("\n".join(errors) if errors else f"OK: {len(records)} records")
+        return 1 if errors else 0
+    if errors:
+        print("\n".join(errors), file=sys.stderr)
+        return 1
+    if args.command == "query":
+        for record in sorted(records.values(), key=lambda r: r.id):
+            if matches(record, args.where, args.ref, args.type):
+                extra = record.fields.get("outcome") or record.fields.get("state") or \
+                    record.fields.get("status") or record.fields.get("confidence") or ""
+                print(f"{record.id}\t{record.type}\t{extra}\t{record.fields['title']}")
+    elif args.command == "next":
+        print(next_id(records, args.type))
+    else:
+        json.dump(export(records), sys.stdout, indent=1, ensure_ascii=False)
+        print()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
