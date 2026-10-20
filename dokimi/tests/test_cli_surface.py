@@ -296,3 +296,72 @@ def test_choices_with_different_types_are_reported():
 def test_removed_command_lists_its_options():
     lines = cs.diff_surfaces(_surface(), _surface(drop_cmd=True))
     assert "    - option `--n`" in lines and "    - argument `questions`" in lines
+
+
+_CLI = """import argparse
+
+
+def build_parser():
+    p = argparse.ArgumentParser(prog="dokimi")
+    p.add_argument("--old")
+{extra}    return p
+"""
+
+
+def _run_diff_step(tmp_path: Path, *, pr_adds: bool) -> str:
+    """Run the workflow's dump-and-diff step on a merge commit whose base branch moved on."""
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    import yaml
+
+    if not all(shutil.which(t) for t in ("bash", "git", "tar")):
+        pytest.skip("needs bash, git and tar")
+    wf = yaml.safe_load((PROJECT.parent / ".github/workflows/cli-interface.yml").read_text(encoding="utf-8"))
+    (step,) = [s for s in wf["jobs"]["cli-surface"]["steps"] if s.get("id") == "diff"]
+    repo = tmp_path / "repo"
+    pkg = repo / "dokimi" / "dokimi"
+    pkg.mkdir(parents=True)
+    (repo / "dokimi" / "scripts").mkdir()
+    shutil.copy(_SCRIPT, repo / "dokimi" / "scripts" / "cli_surface.py")
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "PYTHON"))}
+    env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+
+    def git(*args: str) -> str:
+        return subprocess.run(["git", "-c", "commit.gpgsign=false", *args], cwd=repo, env=env,
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(extra: str, msg: str) -> str:
+        (pkg / "cli.py").write_text(_CLI.format(extra=extra), encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "--allow-empty", "-m", msg)
+        return git("rev-parse", "HEAD")
+
+    git("init", "-q", "-b", "main")
+    fork_point = commit("", "base")
+    commit('    p.add_argument("--pr-opt")\n' if pr_adds else "", "pr")
+    pr = git("rev-parse", "HEAD")
+    git("checkout", "-q", "--detach", fork_point)
+    git("merge", "-q", "--no-ff", "-m", "merge", pr)  # what refs/pull/N/merge is
+    merge = git("rev-parse", "HEAD")
+    git("checkout", "-q", fork_point)
+    main_moved = commit('    p.add_argument("--main-opt")\n', "main moves on")
+    git("update-ref", "refs/remotes/origin/main", main_moved)
+    git("checkout", "-q", "--detach", merge)
+    output = tmp_path / "output"
+    env.update(BASE_REF="main", RUNNER_TEMP=str(tmp_path), GITHUB_OUTPUT=str(output),
+               GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
+               PATH=os.path.dirname(sys.executable) + os.pathsep + env.get("PATH", ""))
+    subprocess.run(["bash", "-e", "-c", step["run"]], cwd=repo / "dokimi", env=env, check=True,
+                   capture_output=True, text=True)
+    return output.read_text(encoding="utf-8")
+
+
+def test_workflow_ignores_base_branch_changes_made_after_the_merge_commit(tmp_path):
+    # main gained --main-opt after the merge commit was made: that is not this PR's change
+    assert "changed=0" in _run_diff_step(tmp_path, pr_adds=False)
+    assert "changed=1" in _run_diff_step(tmp_path / "b", pr_adds=True)

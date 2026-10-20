@@ -43,8 +43,9 @@ jobs:
           python-version: '3.13'
       - name: Install dependencies
         run: pip install -r requirements.lock.txt
-      # The base branch's current tip (fetched by the checkout), as in the other
-      # diff-against-base steps. git archive, not a worktree: no git state changes.
+      # The base is the merge base of HEAD and the base branch, as in the other
+      # diff-against-base steps: on CI that is the merge commit's own base, even if
+      # the base branch moved on since. git archive, not a worktree: no git state changes.
       # Each dump imports the dokimi of its own tree through PYTHONPATH; the
       # head's script reads both, so the dump format is the same on each side.
       - name: Dump and diff the CLI surface
@@ -54,7 +55,8 @@ jobs:
         run: |
           out="$RUNNER_TEMP/cli-surface"
           rm -rf "$out" && mkdir -p "$out/base"
-          git -C .. archive "origin/$BASE_REF" dokimi | tar -x -C "$out/base"
+          base=$(git -C .. merge-base HEAD "origin/$BASE_REF")
+          git -C .. archive "$base" dokimi | tar -x -C "$out/base"
           # A dump that raises (e.g. a PR that moves build_parser) must not fail the
           # job: report "error" and leave the label as it is.
           if ! PYTHONPATH="$out/base/dokimi" python scripts/cli_surface.py dump "$out/base.json" \
