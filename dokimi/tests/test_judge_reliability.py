@@ -1547,6 +1547,24 @@ def test_score_measure_marks_a_measure_stored_only_if_an_arm_saw_material():
     assert cj.score_measure(records, scorer, name="p/m", library="lib").context == "none"
 
 
+def test_score_measure_with_no_scored_answer_is_context_none_even_with_a_store():
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    # Every answer is blank, so no job is sent to a judge. Nothing was judged in any
+    # context, so the measure must not claim "stored" and let a stored PASS gate it.
+    records = [{"question_id": "q1", "question_text": "q?",
+                "arms": {"baseline": {"answer": ""}, "skill": {"answer": ""}}}]
+    store = JudgeContextStore()
+    store.put("q1", "skill", "real material")
+
+    def scorer(library, question, answer, ground_truth, context):
+        raise AssertionError("a blank answer must not reach the judge")
+
+    m = cj.score_measure(records, scorer, name="p/m", library="lib", store=store)
+    assert m.scores == {}
+    assert m.context == "none"
+
+
 def _material_arms_run(material="FULL SKILL BODY"):
     """An arms file that keeps its judge material, with digests on answers and stored scores."""
     from dokimi.utils import digest_text

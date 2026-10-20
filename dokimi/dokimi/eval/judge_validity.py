@@ -496,7 +496,7 @@ def refuse_unpaired_arms(
     if starved:
         raise NoUsablePairs(
             f"Arm(s) {starved} have verified judge material but no base was scored, "
-            f"so the gate would not cover them: raise {flag} or drop those arms"
+            f"so the gate would not cover them: raise {flag}, or remove those arms from the answers file"
         )
 
 
@@ -599,7 +599,7 @@ def _build(answers, noop, *, n_bases, seed, variants, library, store=None,
         if lost:
             raise NoUsablePairs(
                 f"Arm(s) {lost} have answers but no verified judge material, so the gate would "
-                "not cover them: repair the artifact's judge_materials or drop those arms"
+                "not cover them: repair the artifact's judge_materials, or remove those arms from the answers file"
             )
         pairs = attach_stored_context(pairs, store)
         return Built(pairs, dropped_from_pairs.get("total", 0))
