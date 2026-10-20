@@ -78,6 +78,18 @@ def test_compare_strict_exits_2_on_a_malformed_record(compare, capsys):
     assert "missing question_id" in err and "missing question_id" not in out
 
 
+def test_compare_strict_exits_2_on_a_malformed_record_when_no_models_are_recorded(compare, capsys):
+    """The model checks must not run first: a baseline with no recorded models is still read."""
+    base = {"evaluations": _eval()["evaluations"]}
+    current = _eval()
+    del current["evaluations"][0]["question_id"]
+    with pytest.raises(SystemExit) as exc:
+        compare(base, current, "--strict")
+    assert exc.value.code == 2
+    out, err = capsys.readouterr()
+    assert "missing question_id" in err and "--strict cannot verify" not in err
+
+
 def test_compare_is_silent_when_the_models_match(compare, capsys):
     compare(_eval(delta=1.0), _eval(), "--strict")
     out, err = capsys.readouterr()

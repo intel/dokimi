@@ -195,6 +195,18 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
         entry = candidates[-1]   # most recent
 
     baseline_data = json.loads(Path(entry["path"]).read_text(encoding="utf-8"))
+
+    from dokimi.records import RecordError, records
+
+    # Read both record lists before the model checks: a malformed file must exit 2, not reach the --strict verdict.
+    try:
+        baseline_evals = {e.key: e for e in records(baseline_data.get("evaluations", []),
+                                                    source=entry["path"], kind="evaluations")}
+        current_evals = records(eval_data.get("evaluations", []), source=str(eval_path), kind="evaluations")
+    except RecordError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc  # 1 is the --strict verdict
+
     mismatches, unverified = _model_mismatches(baseline_data, eval_data)
     strict = getattr(args, "strict", False)
     for role in unverified:
@@ -214,16 +226,6 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
         print(f"⚠ Baseline model warning: '{entry['name']}' was scored with different models;"
               f" the changes below mix the model change with the content change.{detail}",
               file=sys.stderr)
-
-    from dokimi.records import RecordError, records
-
-    try:
-        baseline_evals = {e.key: e for e in records(baseline_data.get("evaluations", []),
-                                                    source=entry["path"], kind="evaluations")}
-        current_evals = records(eval_data.get("evaluations", []), source=str(eval_path), kind="evaluations")
-    except RecordError as exc:
-        print(f"❌ {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc  # 1 is the --strict verdict
 
     print(f"Comparing against baseline: {entry['name']} (saved {entry.get('saved_at', '?')})\n")
 
