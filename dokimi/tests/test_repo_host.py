@@ -198,7 +198,6 @@ def test_tasks_check_reports_a_task_the_host_cannot_show_as_unsupported(tmp_path
     assert verdicts["fix_add"]["verdict"] == "ok" and verdicts["review_add"]["verdict"] == "ok"
     assert doc["host"]["cpus"] == 2 and doc["host"]["cpu_vendor"] == "AuthenticAMD"
     assert len(runner.probes) == 1  # once per check, not per task
-    assert not any("fix_race__" in str(m.host) for s in runner.specs for m in s.mounts)  # nothing ran for it
     out = capsys.readouterr().out
     assert "fix_race: UNSUPPORTED\n  - host: needs" in out and "2/3 ok" in out
 
@@ -495,7 +494,9 @@ def test_run_exits_1_when_the_probe_failed_and_still_runs_unconstrained_tasks(tm
     logged = capsys.readouterr()
     assert "2 ran, 0 already done, 0 crashed" in logged.out
     assert "the host probe failed, so these tasks have cells that were not run: fix_race" in logged.err
-    assert [u["task"] for u in summarize(out / "b1")["unsupported"]] == ["fix_race", "fix_race"]
+    # A probe failure says nothing about the cells: no marker, so report counts them missing, not unsupported.
+    assert summarize(out / "b1")["unsupported"] == []
+    assert len(summarize(out / "b1")["missing"]) == 2
 
 
 def test_a_complete_batch_rerun_on_a_failed_probe_exits_0(tmp_path, monkeypatch, capsys):
@@ -569,3 +570,67 @@ def test_load_unsupported_skips_a_cell_that_has_a_result(tmp_path):
         if has_result:
             (tmp_path / name / "result.json").write_text("{}", encoding="utf-8")
     assert [c["cell"] for c in load_unsupported(tmp_path)] == ["open__arm__m__r1"]
+
+
+# ------------------------------------------------------------------ review round: vlad-perevezentsev
+
+
+def test_a_host_miss_still_checks_the_oracle_when_only_cpus_are_short(tmp_path, monkeypatch, capsys):
+    typo = dict(RACE, gate=["tests_pas"], host={"min_cpus": 4})  # a broken grader must not hide behind the host
+    root, _ = make_repo(tmp_path, {"fix_race": typo})
+    with pytest.raises(SystemExit) as exc:
+        _check(root, tmp_path / "a", HostRunner(_probe_out(affinity=2)), monkeypatch, "--allow-unsupported",
+               "--task", "fix_race")
+    assert exc.value.code == 1
+    race = json.loads((tmp_path / "a/check/check.json").read_text())["tasks"][0]
+    assert race["verdict"] == "broken" and "oracle" in race and "null" not in race
+
+
+def test_a_host_miss_still_probes_isolation_and_skips_only_null(tmp_path, monkeypatch, capsys):
+    root = _repo(tmp_path, host={"min_cpus": 4})
+    _check(root, tmp_path / "a", HostRunner(_probe_out(affinity=2)), monkeypatch, "--task", "fix_race",
+           "--allow-unsupported")
+    race = json.loads((tmp_path / "a/check/check.json").read_text())["tasks"][0]
+    assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host"
+    assert "isolation" in race and "oracle" in race and "null" not in race
+
+
+def test_warm_does_not_judge_the_host(tmp_path, monkeypatch, capsys):
+    root = _repo(tmp_path)
+    runner = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
+    _check(root, tmp_path / "a", runner, monkeypatch, "--task", "fix_race", "--warm")
+    race = json.loads((tmp_path / "a/check/check.json").read_text())["tasks"][0]
+    assert race["verdict"] != "unsupported" and "null" in race and race["warm"] is True
+
+
+def test_a_probe_failure_leaves_no_marker_for_report_to_count(tmp_path, monkeypatch, capsys):
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    with pytest.raises(SystemExit):
+        _run(root, out, HostRunner(None), monkeypatch, "--task", "fix_race")
+    assert not list((out / "b1").glob("*/unsupported.json"))
+    assert summarize(out / "b1")["unsupported"] == []
+
+
+def test_validate_reports_a_bad_host_shape(tmp_path, monkeypatch, capsys):
+    root, _ = make_repo(tmp_path, {"fix_race": dict(RACE, host={"min_cpus": "4", "cpu_vendors": ["Intel"]})})
+    with pytest.raises(SystemExit) as exc:
+        _cli(["repo", "validate", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml"], monkeypatch, HostRunner(None))
+    assert exc.value.code == 1
+    err = capsys.readouterr()
+    assert "host.min_cpus must be an integer >= 1" in err.out + err.err
+
+
+def test_missing_cpuinfo_is_a_probe_failure_not_a_miss():
+    blind = host_facts(_probe_out(affinity=8, cpuinfo=""))
+    assert blind["cpu_vendor"] is None and blind["cpu_flags"] == []
+    assert unmet(_task({"cpu_vendors": ["GenuineIntel"]}), blind)[1] == "host-probe"
+    assert unmet(_task({"cpu_flags": ["avx2"]}), blind)[1] == "host-probe"
+    assert unmet(_task({"min_cpus": 4}), blind) == (None, None)  # CPUs alone do not need cpuinfo
+
+
+def test_vendors_compare_in_any_case_and_unknown_names_are_refused():
+    intel = host_facts(_probe_out())
+    assert unmet(_task({"cpu_vendors": ["genuineintel"]}), intel) == (None, None)
+    with pytest.raises(HostSpecError, match="unknown vendor.*Intel"):
+        requirements(_task({"cpu_vendors": ["Intel"]}))

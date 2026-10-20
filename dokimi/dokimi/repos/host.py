@@ -36,6 +36,8 @@ from .grading import EvalContext
 from .workspace import PrepError, Task
 
 HOST_KEYS = ("min_cpus", "cpu_vendors", "cpu_flags")
+# /proc/cpuinfo vendor_id strings of x86 CPUs; compared in any case. arm64 cpuinfo has no vendor_id.
+KNOWN_VENDORS = ("GenuineIntel", "AuthenticAMD", "HygonGenuine", "CentaurHauls", "Shanghai")
 PROBE_TIMEOUT_S = 120
 
 # Runs in the image: stdlib only, reads files and prints one JSON object. The host interprets it.
@@ -167,7 +169,12 @@ def requirements(task: Task) -> HostRequirements | None:
     min_cpus = raw.get("min_cpus", 1)
     if isinstance(min_cpus, bool) or not isinstance(min_cpus, int) or min_cpus < 1:
         raise HostSpecError(f"{where}.min_cpus must be an integer >= 1, got {min_cpus!r}")
-    need = HostRequirements(min_cpus, _names(raw, "cpu_vendors", where), _names(raw, "cpu_flags", where))
+    vendors = _names(raw, "cpu_vendors", where)
+    unknown_vendors = [v for v in vendors if v.lower() not in {k.lower() for k in KNOWN_VENDORS}]
+    if unknown_vendors:
+        raise HostSpecError(f"{where}.cpu_vendors: unknown vendor(s) {', '.join(unknown_vendors)} "
+                            f"(/proc/cpuinfo vendor_id, one of {', '.join(KNOWN_VENDORS)}; any case)")
+    need = HostRequirements(min_cpus, vendors, _names(raw, "cpu_flags", where))
     return None if need == HostRequirements() else need  # no constraint: a probe failure cannot unsupport it
 
 
@@ -267,7 +274,11 @@ def unmet(task: Task, facts: dict[str, Any] | None) -> tuple[str | None, str | N
         # --allow-unsupported does not hide a broken measurement.
         why = (facts or {}).get("error") or "the host probe reported no CPU count"
         return (f"needs {need.describe()}; cannot tell on this host: {why}", "host-probe")
-    short = _shortfalls(need, facts)
+    if (need.cpu_vendors or need.cpu_flags) and not facts.get("cpu_vendor") and not facts.get("cpu_flags"):
+        # /proc/cpuinfo was unreadable (or empty): neither vendor nor flags were seen, so a miss is a guess.
+        return (f"needs {need.describe()}; cannot tell on this host: the probe read no vendor or flags "
+                f"from /proc/cpuinfo", "host-probe")
+    short = [text for _, text in _shortfalls(need, facts)]
     if not short:
         return None, None
     reason = (f"needs {need.describe()} to show its bug; the grading container has {'; '.join(short)} "
@@ -275,16 +286,24 @@ def unmet(task: Task, facts: dict[str, Any] | None) -> tuple[str | None, str | N
     return reason, "host"
 
 
-def _shortfalls(need: HostRequirements, facts: dict[str, Any]) -> list[str]:
+def shortfall_kinds(task: Task, facts: dict[str, Any] | None) -> set[str]:
+    """Which requirements a measured host misses: any of ``cpus``, ``vendor``, ``flags``."""
+    need = requirements(task)
+    if need is None or not facts or facts.get("cpus") is None:
+        return set()
+    return {kind for kind, _ in _shortfalls(need, facts)}
+
+
+def _shortfalls(need: HostRequirements, facts: dict[str, Any]) -> list[tuple[str, str]]:
     short = []
     if facts["cpus"] < need.min_cpus:
-        short.append(f"{facts['cpus']} CPU(s) < min_cpus {need.min_cpus}")
-    if need.cpu_vendors and facts.get("cpu_vendor") not in need.cpu_vendors:
-        short.append(f"vendor {facts.get('cpu_vendor')} not in {', '.join(need.cpu_vendors)}")
+        short.append(("cpus", f"{facts['cpus']} CPU(s) < min_cpus {need.min_cpus}"))
+    if need.cpu_vendors and (facts.get("cpu_vendor") or "").lower() not in {v.lower() for v in need.cpu_vendors}:
+        short.append(("vendor", f"vendor {facts.get('cpu_vendor')} not in {', '.join(need.cpu_vendors)}"))
     have = {f.lower() for f in facts.get("cpu_flags") or []}  # docs write AVX512F, cpuinfo avx512f
     missing = [f for f in need.cpu_flags if f.lower() not in have]
     if missing:
-        short.append(f"missing cpu_flags {', '.join(missing)}")
+        short.append(("flags", f"missing cpu_flags {', '.join(missing)}"))
     return short
 
 

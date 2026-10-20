@@ -14,3 +14,10 @@
   meets the requirements runs them. The probed facts are recorded in `check.json` `host`, in
   the batch's `_eval/host.json` and in every cell's `meta.json` `host` (or its `unsupported.json` `host` when the cell is not run). A `host` value of the
   wrong shape is refused before any container starts.
+  `repo validate` reports it too, and refuses a `cpu_vendors` name `/proc/cpuinfo` does not
+  use (`GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai`); vendors
+  and flags match in any case. A `/proc/cpuinfo` the probe could not read is a probe failure,
+  not a hardware miss. A failed probe writes no `unsupported.json`, so `repo report` counts the
+  cells missing. On a host miss `tasks check` still prepares the workspace and probes isolation
+  (and runs the oracle when only CPUs are short); it skips the null check. `--warm` does not
+  judge the host.

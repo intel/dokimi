@@ -24,7 +24,7 @@ import json
 import math
 import re
 from dataclasses import dataclass, field
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 import yaml
@@ -477,6 +477,13 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
         if value is not None and not _positive(value):
             problems.append(f"{key} must be a positive, finite number")
 
+    from .host import HostSpecError, requirements  # host imports workspace, which imports this module
+    from .workspace import Task
+
+    try:
+        requirements(Task(name, raw, Path(task_dir)))
+    except HostSpecError as exc:
+        problems.append(str(exc).split("task.json ", 1)[-1])
     report.errors.extend(f"{where}: {p}" for p in problems)
     if not problems:
         report.tasks.append(TaskSummary(

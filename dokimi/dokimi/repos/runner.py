@@ -271,7 +271,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         name = cell_name(task.id, arm, opts.model, rep)
         if task.id in unsupported:
             done = _done(batch_dir / name)
-            if not done:
+            if not done and verdicts[task.id][1] != "host-probe":  # a failed probe is no verdict on the cell
                 _mark_unsupported(batch_dir / name, cell, unsupported[task.id], host)
             with lock:
                 state["skipped" if done else "unsupported"] += 1

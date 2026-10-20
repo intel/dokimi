@@ -32,7 +32,7 @@ from typing import Any
 
 from .container import CONTENT_DIR, RUN_DIR, SOURCE_DIR, ContainerError, ContainerSpec, docker_network
 from .grading import EvalContext, outcome, run_entry
-from .host import probe_host, unmet, validate_tasks
+from .host import probe_host, shortfall_kinds, unmet, validate_tasks
 from .runner import agent_layout, container_name
 from .workspace import PrepError, Task, prepare_workspace
 
@@ -62,6 +62,10 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     ``--allow-unsupported`` may pass) or ``host-probe`` (the probe could not run or gave no CPU count,
     which it never passes).
 
+    A task the host cannot show still has its workspace prepared and isolation probed, and its oracle run
+    when only CPUs are short; only the null check, which depends on the hardware, is skipped. ``--warm``
+    does not judge the host.
+
     ``host`` is :func:`.host.probe_host`'s facts, probed once per check; without it a task with
     ``host`` requirements probes for itself."""
     network = ctx.manifest.image.network if ctx.manifest.image else "none"
@@ -71,14 +75,17 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     except ContainerError as exc:
         res.update(verdict="unsupported", unsupported_by="egress", problems=[str(exc)])
         return res
-    reason, unsupported_by = _host_reason(ctx, task, work_dir, host)
-    if reason:
-        res.update(verdict="unsupported", unsupported_by=unsupported_by or "host", problems=[f"host: {reason}"])
-        return res
+    # --warm has network and a different image state, as for egress: the host is not judged there.
+    reason, unsupported_by, facts = (None, None, None) if warm else _host_reason(ctx, task, work_dir, host)
+    # Only what the hardware decides is skipped: the null check (it passes where the bug cannot show) and,
+    # unless the miss is CPUs alone, the oracle. Preparing the workspace and isolation hold anywhere.
+    run_oracle = not reason or (unsupported_by == "host" and shortfall_kinds(task, facts) <= {"cpus"})
     for kind in ("null", "oracle"):
         rd = work_dir / f"{task.id}__{kind}"
         try:
             _prepare(ctx, task, rd)
+            if reason and kind == "null" or kind == "oracle" and not run_oracle:
+                continue
             if kind == "oracle":
                 run = run_entry(ctx, "oracle", task, rd, net, container_name(rd.name, "oracle"))
                 res["oracle_run"] = {"rc": run.returncode, "timed_out": run.timed_out, "wall_s": run.wall_s}
@@ -94,15 +101,19 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     if not res["problems"]:
         res["isolation"] = isolation_probe(ctx, [task], work_dir / f"{task.id}__null", guidance_names)
         res["problems"] += [f"isolation: {p}" for p in res["isolation"]]
-    res["verdict"] = "broken" if res["problems"] else "ok"
+    if reason and not res["problems"]:
+        res.update(verdict="unsupported", unsupported_by=unsupported_by or "host", problems=[f"host: {reason}"])
+    else:
+        res["verdict"] = "broken" if res["problems"] else "ok"
     return res
 
 
-def _host_reason(ctx: EvalContext, task: Task, work_dir: Path, host: dict[str, Any] | None) -> tuple[str | None, str | None]:
-    """Return (reason, unsupported_by) or (None, None)."""
+def _host_reason(ctx: EvalContext, task: Task, work_dir: Path,
+                 host: dict[str, Any] | None) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    """``(reason, unsupported_by, facts)``; reason and unsupported_by are ``None`` when the host suffices."""
     if host is None and task.raw.get("host") is not None:
         host = probe_host(ctx, work_dir / f"{task.id}__host")
-    return unmet(task, host)
+    return (*unmet(task, host), host)
 
 
 def _prepare(ctx: EvalContext, task: Task, rd: Path) -> None:
