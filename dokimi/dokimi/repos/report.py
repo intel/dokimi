@@ -132,6 +132,17 @@ def _normalize_model_id(model_id: str) -> str:
     return re.sub(r"-v\d+:\d+$", "", model_id)
 
 
+# Bedrock cross-region inference profile prefixes: the same model served from another region.
+_REGION_PREFIXES = ("us-gov.", "global.", "apac.", "us.", "eu.", "jp.", "au.", "ca.")
+
+
+def _strip_region(model_id: str) -> str:
+    for prefix in _REGION_PREFIXES:
+        if model_id.startswith(prefix):
+            return model_id[len(prefix):]
+    return model_id
+
+
 def _model_prefix_matches(base: str, candidate: str) -> bool:
     """Check if candidate is base optionally preceded by provider prefix (., /)."""
     # base could be the suffix of candidate, with optional prefix
@@ -146,7 +157,7 @@ def model_matches(requested: str, resolved: str) -> bool:
     date, or either behind a provider prefix (Bedrock's ``us.anthropic.claude-x`` answers as
     ``claude-x``, with its ``-v1:0`` too)."""
     # Vertex's @20250929 is the same snapshot as -20250929; an undated side matches any snapshot of it
-    req, res = (re.sub(r"@(?=\d{8}$)", "-", _normalize_model_id(m)) for m in (requested, resolved))
+    req, res = (re.sub(r"@(?=\d{8}$)", "-", _strip_region(_normalize_model_id(m))) for m in (requested, resolved))
     pairs = [(req, res), (re.sub(r"-\d{8}$", "", req), res), (req, re.sub(r"-\d{8}$", "", res))]
     return any(_model_prefix_matches(a, b) or _model_prefix_matches(b, a) for a, b in pairs)
 
