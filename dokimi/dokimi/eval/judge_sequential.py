@@ -33,6 +33,7 @@ from dokimi.eval.judge_validity import (
     ValidityReport,
     _build,
     _score_pairs,
+    refuse_unpaired_arms,
     require_context_scorer,
 )
 
@@ -138,6 +139,8 @@ def run_sequential(
     built = _build(answers, noop, n_bases=max_bases, seed=seed, variants=variants, library=library,
                    store=store, by_arm=by_arm)
     pairs = built.pairs
+    if store is not None:
+        refuse_unpaired_arms(pairs, by_arm, "--max-bases")
     order: List[tuple] = list(dict.fromkeys((p["base_id"], p.get("arm", "")) for p in pairs))
     graded = sorted({p["variant"] for p in pairs if p["variant"] not in NEUTRAL_VARIANTS})
     decisions: Dict[str, Dict[str, Any]] = {v: {"decision": "continue", "llr": 0.0, "n": 0} for v in graded}

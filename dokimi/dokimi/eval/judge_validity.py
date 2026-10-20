@@ -486,6 +486,20 @@ def require_context_scorer(scorer: Callable[..., Any]) -> None:
             "material: add a `context` parameter, or run without a store")
 
 
+def refuse_unpaired_arms(
+    pairs: Sequence[Dict[str, Any]], by_arm: Dict[str, Dict[str, int]], flag: str,
+) -> None:
+    """Refuse before scoring if an arm with kept material has no pair left: the
+    sample can leave it out, or every one of its variants can be a no-op."""
+    paired_arms = {p.get("arm", "") for p in pairs}
+    starved = sorted(a for a, c in by_arm.items() if c.get("kept", 0) > 0 and a not in paired_arms)
+    if starved:
+        raise NoUsablePairs(
+            f"Arm(s) {starved} have verified judge material but no base was scored, "
+            f"so the gate would not cover them: raise {flag} or drop those arms"
+        )
+
+
 def run_validity(
     answers: Sequence[Dict[str, Any]],
     scorer: Scorer,
@@ -514,16 +528,8 @@ def run_validity(
     built = _build(answers, noop, n_bases=n_bases, seed=seed, variants=variants, library=library,
                    store=store, by_arm=by_arm)
     pairs = built.pairs
-    # In fixed mode, refuse before scoring if an arm with kept material has no pair left
-    # (--bases can leave it out, or every one of its variants can be a no-op).
     if store is not None:
-        paired_arms = {p.get("arm", "") for p in pairs}
-        starved = sorted(a for a, c in by_arm.items() if c.get("kept", 0) > 0 and a not in paired_arms)
-        if starved:
-            raise NoUsablePairs(
-                f"Arm(s) {starved} have verified judge material but no base was scored, "
-                "so the gate would not cover them: raise --bases or drop those arms"
-            )
+        refuse_unpaired_arms(pairs, by_arm, "--bases")
     report = evaluate_pairs(
         scorer, pairs, judge=judge, min_accuracy=min_accuracy, seed=seed, progress=progress,
         concurrency=concurrency, pair_scorer=pair_scorer,

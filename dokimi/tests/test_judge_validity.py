@@ -2012,3 +2012,24 @@ def test_sequential_per_arm_scored_counts_differ():
     # Verify that "scored" is tracked
     assert "scored" in report.by_arm["skill"], "scored field should be in by_arm"
     assert report.by_arm["skill"]["scored"] > 0, "scored count should be > 0"
+
+
+def test_sequential_refuses_an_arm_with_material_left_out_of_the_pool():
+    """--max-bases can leave the only skill base out of the pool: refuse before any call."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.eval.judge_validity import NoUsablePairs
+
+    data = _starvable(n=100, with_material=1)
+    for rec in data["answers"][1:]:
+        del rec["arms"]["skill"]
+    calls = []
+
+    def scorer(lib, q, a, context=None):
+        calls.append(a)
+        return float(len(a))
+
+    store = JudgeContextStore.from_artifact(data)
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*raise --max-bases"):
+        run_sequential(data["answers"], scorer, max_bases=20, seed=1, variants=["truncate_20"], store=store)
+    assert calls == []
