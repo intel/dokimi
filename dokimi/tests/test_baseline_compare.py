@@ -90,6 +90,28 @@ def test_compare_strict_exits_2_on_a_malformed_record_when_no_models_are_recorde
     assert "missing question_id" in err and "--strict cannot verify" not in err
 
 
+def test_compare_strict_exits_2_on_a_malformed_saved_baseline_record(tmp_path, monkeypatch, capsys):
+    """The saved baseline is read before the --strict model checks, so a malformed one exits 2."""
+    monkeypatch.setattr(baseline_mod, "BASELINES_DIR", tmp_path / "baselines")
+    (tmp_path / "base.json").write_text(json.dumps(_eval(judge=("openai", "gpt-4o-mini"))), encoding="utf-8")
+    (tmp_path / "cur.json").write_text(json.dumps(_eval()), encoding="utf-8")
+    parser = build_parser()
+    args = parser.parse_args(["baseline", "save", "--from-eval", str(tmp_path / "base.json"), "--name", "b"])
+    args.func(args)
+    saved = tmp_path / "baselines" / "b.json"  # the baseline records a judge model, so --strict would fire
+    data = json.loads(saved.read_text(encoding="utf-8"))
+    del data["evaluations"][0]["question_id"]
+    saved.write_text(json.dumps(data), encoding="utf-8")
+    args = parser.parse_args(["baseline", "compare", "--baseline", "b",
+                              "--eval", str(tmp_path / "cur.json"), "--strict"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    out, err = capsys.readouterr()
+    assert "missing question_id" in err and "--strict" not in err
+    assert "Avg delta" not in out
+
+
 def test_compare_is_silent_when_the_models_match(compare, capsys):
     compare(_eval(delta=1.0), _eval(), "--strict")
     out, err = capsys.readouterr()
