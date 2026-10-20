@@ -12,6 +12,8 @@ network, whether a command passes) is listed under ``not_observed`` instead of p
 
 from __future__ import annotations
 
+import posixpath
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -52,6 +54,8 @@ RULES: dict[str, RuleInfo] = {
                                                 "when the harness loads the file depends on its frontmatter"),
     "instructions.large": RuleInfo("warning", ("orient",), "instruction file large enough to crowd the context"),
     "checks.test.missing": RuleInfo("error", ("verify",), "no test files and no way to run tests found"),
+    "checks.test.runner-file": RuleInfo("warning", ("verify",),
+                                        "no test runner this pass reads, but a runner file is in the tree"),
     "checks.test.runner-unknown": RuleInfo("warning", ("verify",), "test files found but no runner is known"),
     "checks.test.toolchain-only": RuleInfo("info", ("verify",),
                                            "tests only through the toolchain default, and no test file found"),
@@ -85,6 +89,17 @@ def _finding(rule: str, why: str, path: str | None = None, confidence: str = "hi
     info = RULES[rule]
     return {"id": f"{rule}:{key or path}" if (key or path) else rule, "rule": rule, "severity": info.severity,
             "confidence": confidence, "stages": list(info.stages), "path": path, "why": why}
+
+
+_RUNNER_FILES = frozenset({"justfile", "Justfile", "Taskfile.yml", "Taskfile.yaml", "Taskfile.dist.yml", "meson.build"})
+_ROOT_MAKEFILES = ("GNUmakefile", "makefile", "Makefile")
+
+
+def _runner_file_unread(scan: Scan) -> bool:
+    """Whether a test runner may be defined in a file the checks pass does not parse."""
+    if any(posixpath.basename(f) in _RUNNER_FILES for f in scan.files):
+        return True
+    return any(mk in scan.file_set and re.search(r"^-?include\s", scan.text(mk), re.M) for mk in _ROOT_MAKEFILES)
 
 
 def _read_sizes(tree: RepoTree, files: list[str], size_of: dict[str, int] | None) -> dict[str, int] | None:
@@ -142,6 +157,9 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
         if files["test_files"] > 0:
             findings.append(_finding("checks.test.runner-unknown", f"{files['test_files']} test files found but no runner is known",
                                      confidence="low"))
+        elif _runner_file_unread(scan):
+            findings.append(_finding("checks.test.runner-file", "a justfile, Taskfile, meson.build or Makefile "
+                                     "include may define the tests; this pass does not read them", confidence="low"))
         else:
             findings.append(_finding("checks.test.missing", "no test files and no way to run tests found",
                                      confidence="medium"))

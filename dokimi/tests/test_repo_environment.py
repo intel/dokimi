@@ -848,6 +848,25 @@ def test_vendored_build_files_are_not_the_repositorys_tests(tmp_path, files):
     assert "checks.test.missing" in _rules(inspect_repo(WorkTree(tmp_path)))
 
 
+@pytest.mark.parametrize("files", [
+    {"justfile": "test:\n    pytest\n"},
+    {"Taskfile.yml": "tasks:\n  test:\n    cmds: [pytest]\n"},
+    {"meson.build": "project('x')\ntest('a', executable('a'))\n"},
+    {"Makefile": "include common.mk\n"},
+])
+def test_a_runner_file_this_pass_does_not_read_is_a_warning_not_an_error(tmp_path, files):
+    _repo(tmp_path, {"AGENTS.md": "x", **files})
+    findings = {f["rule"]: f for f in inspect_repo(WorkTree(tmp_path))["findings"]}
+    assert "checks.test.missing" not in findings
+    assert findings["checks.test.runner-file"]["severity"] == "warning"
+    assert findings["checks.test.runner-file"]["stages"] == ["verify"]
+
+
+def test_a_nested_makefile_include_does_not_count_as_a_runner(tmp_path):
+    _repo(tmp_path, {"AGENTS.md": "x", "tests/Makefile": "include x.mk\n"})
+    assert "checks.test.missing" in _rules(inspect_repo(WorkTree(tmp_path)))
+
+
 def test_autotools_names_the_makefile_that_declares_tests(tmp_path):
     _repo(tmp_path, {"AGENTS.md": "x", "configure.ac": "", "Makefile.am": "SUBDIRS = tests\n",
                      "tests/Makefile.am": "TESTS = t\n"})
