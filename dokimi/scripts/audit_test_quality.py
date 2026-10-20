@@ -42,9 +42,11 @@ from __future__ import annotations
 import argparse
 import ast
 import collections
+import io
 import itertools
 import json
 import pathlib
+import tokenize
 from collections.abc import Callable, Iterable, Iterator
 from typing import NamedTuple
 
@@ -508,18 +510,23 @@ def _duplicates(tests: list[tuple[str, _FuncDef]]) -> set[str]:
     return repeats
 
 
-def _is_exempt(fn: _FuncDef, lines: list[str]) -> bool:
-    """The marker, followed by a reason, on a decorator or signature line.
+def _marker_lines(source: str) -> frozenset[int]:
+    """Lines with a comment holding the marker and a reason; a string holding it is data."""
+    return frozenset(
+        tok.start[0] for tok in tokenize.generate_tokens(io.StringIO(source).readline)
+        if tok.type == tokenize.COMMENT and tok.string.partition(EXEMPT_MARKER)[2].strip()
+    )
+
+
+def _is_exempt(fn: _FuncDef, marker_lines: frozenset[int]) -> bool:
+    """The marker, followed by a reason, in a comment on a decorator or signature line.
 
     A formatter may wrap the signature, so any line from the first decorator to
     the body counts. A bare marker exempts nothing.
     """
     start = min([d.lineno for d in fn.decorator_list] + [fn.lineno])
     end = max(fn.lineno, fn.body[0].lineno - 1)
-    return any(
-        lines[i - 1].partition(EXEMPT_MARKER)[2].strip()
-        for i in range(start, end + 1) if EXEMPT_MARKER in lines[i - 1]
-    )
+    return any(i in marker_lines for i in range(start, end + 1))
 
 
 def audit_source(source: str, file: str = "<source>") -> list[Audit]:
@@ -528,7 +535,7 @@ def audit_source(source: str, file: str = "<source>") -> list[Audit]:
     names = _package_names(tree)
     helpers = _asserting_helpers(tree)
     value_helpers = _asserting_helpers(tree, behavioral=True)
-    lines = source.splitlines()
+    marker_lines = _marker_lines(source)
     tests = _test_functions(tree)
     duplicates = _duplicates(tests)
     audits = []
@@ -537,7 +544,7 @@ def audit_source(source: str, file: str = "<source>") -> list[Audit]:
         if qualname in duplicates:
             found.add("duplicate")
         flags = tuple(f for f in FLAGS if f in found)
-        audits.append(Audit(file, fn.lineno, qualname, flags, _is_exempt(fn, lines)))
+        audits.append(Audit(file, fn.lineno, qualname, flags, _is_exempt(fn, marker_lines)))
     return audits
 
 

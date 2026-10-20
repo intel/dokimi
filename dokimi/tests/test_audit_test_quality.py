@@ -220,6 +220,16 @@ def test_the_exemption_marker_needs_a_reason():
     assert atq.gated_findings(audits.values())["no_assert"] == {"t.py::test_bare"}
 
 
+def test_the_exemption_marker_in_a_string_exempts_nothing():
+    (audit,) = atq.audit_source(textwrap.dedent("""
+        import pytest
+        @pytest.mark.parametrize("text", ["test-quality: ok example"])
+        def test_x(text):
+            run(text)
+        """))
+    assert (audit.flags, audit.exempt) == (("no_assert",), False)
+
+
 def test_methods_are_keyed_by_class_and_lines_do_not_enter_the_key():
     (audit,) = atq.audit_source("class TestA:\n    def test_x(self):\n        run()\n", "t.py")
     assert (audit.key, audit.line) == ("t.py::TestA.test_x", 2)
