@@ -155,6 +155,19 @@ def test_a_malformed_registry_shape_is_a_problem_not_a_crash(tmp_path, criteria,
     journeys.markdown(report)
 
 
+def test_a_criterion_given_twice_in_the_registry_is_a_problem(tmp_path):
+    """A second entry further down would otherwise replace an enforced one, unseen in the diff."""
+    registry = _tree(tmp_path)
+    registry.write_text(
+        "schema: 1\ncriteria:\n"
+        "  AC-J04-001:\n    delivery: available\n    enforce: true\n"
+        "    evidence: [{id: ev, kind: unit, stubs: []}]\n"
+        "  AC-J04-001:\n    delivery: proposed\n", encoding="utf-8")
+    report = journeys.check(registry, tmp_path, {}, _evidence({}), {}, plugin._anchors)
+    assert report["verdict"] == "error"
+    assert any("AC-J04-001 given twice" in p for p in report["problems"]), report["problems"]
+
+
 def test_a_catalog_path_that_is_not_a_string_is_a_problem(tmp_path):
     registry = _tree(tmp_path)
     registry.write_text(yaml.safe_dump({"schema": 1, "catalog": 5, "criteria": {}}), encoding="utf-8")

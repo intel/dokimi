@@ -219,6 +219,25 @@ def _ref_problem(repo_root: Path, ref: str, anchors: Callable[[Path], set[str]])
     return None
 
 
+def _repeated_keys(text: str, name: str) -> list[str]:
+    """Keys given twice in one mapping: safe_load keeps the last copy without a word."""
+    problems: list[str] = []
+    todo = [yaml.compose(text, Loader=yaml.SafeLoader)]
+    while todo:
+        node = todo.pop()
+        if isinstance(node, yaml.MappingNode):
+            keys = set()
+            for key, value in node.value:
+                if isinstance(key, yaml.ScalarNode):
+                    if key.value in keys:
+                        problems.append(f"{name}:{key.start_mark.line + 1}: {key.value} given twice")
+                    keys.add(key.value)
+                todo.append(value)
+        elif isinstance(node, yaml.SequenceNode):
+            todo += node.value
+    return problems
+
+
 def _normalize(registry: dict) -> list[str]:
     """Drop the nested shapes the checks cannot read, in place, and say what was dropped."""
     problems = []
@@ -347,11 +366,13 @@ def check(registry_path: Path, repo_root: Path, contracts: dict[str, dict],
 
     root = build_parser()
     try:
-        registry = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+        text = registry_path.read_text(encoding="utf-8")
+        registry = yaml.safe_load(text) or {}
     except (OSError, yaml.YAMLError) as exc:
         registry, problems = {}, [f"{registry_path.name}: cannot read: {exc}"]
     else:
         problems = [] if isinstance(registry, dict) else [f"{registry_path.name}: not a mapping"]
+        problems += _repeated_keys(text, registry_path.name)
         registry = registry if isinstance(registry, dict) else {}
     problems += _normalize(registry)
     catalog_path = repo_root / registry.get("catalog", CATALOG)
