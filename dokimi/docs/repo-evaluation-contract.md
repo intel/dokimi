@@ -261,6 +261,14 @@ harness profile; a repository supplies no arm content:
   only when no `CLAUDE.md` is in its start-up chain, so a repository-side
   bridge arm would mean different things on different versions.
 
+A skill arm (`skill:<path>`, `skill-catalog:<dir>`, joined to a guidance part
+with `+`) installs skill directories into `.claude/skills/<dir name>/` after the
+guidance part, so `guidance:none+skill:x` keeps `x`. A skill is refused before
+any cell runs if it holds a link that copying cannot take (out of the skill,
+dangling, looping, to a directory) or a file that is not regular. Preparation
+also refuses to write through a `.claude` or `.claude/skills` the repository
+ships as a link.
+
 `meta.json` records the base (`base_rev`, `base_sha`, `base_date`), the arm,
 the SHA of every applied patch, and `start_sha`: the workspace `HEAD` after
 step 7, the commit the agent starts from (§4). `base_sha` names the upstream
@@ -442,6 +450,8 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
+args_if_present:                     # argv added after the "{tools}" element when the workspace file exists
+  .mcp.json: ["--mcp-config", ".mcp.json"]
 ```
 
 - `invoke` and `version_cmd` are argv lists. Each element becomes exactly one

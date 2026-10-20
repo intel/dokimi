@@ -55,7 +55,7 @@ from .container import (
     Mount,
     docker_network,
 )
-from .arms import skill_usage
+from .arms import skill_unmeasured, skill_usage, slug
 from .events import convert
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
@@ -80,10 +80,6 @@ class AgentOptions:
     timeout_s: float = 2700
     max_turns: int = 200
     budget_usd: float = 2.0
-
-
-def slug(text: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("_") or "x"
 
 
 def cell_name(task: str, arm: str, model: str, rep: int) -> str:
@@ -217,8 +213,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
               "harness": opts.profile.name, "harness_version": meta["harness_version"],
               "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "grade": grade}
     if meta.get("skills"):  # without a trace the agent used none of them
-        record["skills"] = skills if skills is not None else skill_usage(
-            [], [s["name"] for s in meta["skills"]], task.expected_skill)
+        record["skills"] = skills if skills is not None else skill_unmeasured(
+            [s["name"] for s in meta["skills"]], task.expected_skill)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
         _write_json(rd / "result.json", record)

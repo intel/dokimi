@@ -252,8 +252,14 @@ def _install_skills(ws: Path, task: Task, skills: list[Skill]) -> list[dict[str,
     out = []
     for skill in skills:
         dest = ws / skill.target
+        for part in (ws / ".claude", ws / ".claude" / "skills"):  # a repository link would write to the host
+            if part.is_symlink():
+                raise PrepError(f"task {task.id}: {part.relative_to(ws)} is a symlink in the repository; "
+                                f"refusing to install {skill.name} through it")
         if dest.exists():
             raise PrepError(f"task {task.id}: the workspace already has {skill.target}")
+        if not dest.parent.resolve().is_relative_to(ws.resolve()):
+            raise PrepError(f"task {task.id}: {skill.target} resolves outside the workspace")
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(skill.dir, dest, symlinks=False)  # resolve_skills refused any link out of the skill
         out.append({"name": skill.name, "path": skill.target, "sha256": tree_sha256(dest)})

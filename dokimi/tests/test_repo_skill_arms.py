@@ -6,15 +6,17 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from pathlib import Path
 
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.repos.arms import ArmError, check_arms, parse_arm, resolve_skills, skill_usage
+from dokimi.repos.arms import ArmError, Skill, check_arms, parse_arm, resolve_skills, skill_usage, tree_sha256
 from dokimi.repos.events import convert
 from dokimi.repos.report import format_report, summarize
-from dokimi.repos.workspace import Task
+from dokimi.repos.workspace import PrepError, Task, _install_skills
 from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo, write
 
 
@@ -81,6 +83,51 @@ def test_skill_usage_from_skill_calls_and_skill_md_reads():
     assert used["skill_invoked"] is True and used["skill_selected_correct"] is False
     none = skill_usage([], ["lint"], None)
     assert none["skill_invoked"] is False and none["skill_selected_correct"] is None
+
+
+def test_catalog_arm_counts_the_expected_skill_picked_first(setup, monkeypatch):
+    monkeypatch.setenv("FAKE_SKILLS", "lint,format")  # the agent picks the right skill first
+    _run(setup, "--arm", "guidance:none+skill-catalog:skills", "--task", "fix_lint")
+    rd = next((setup["out"] / "b1").glob("fix_lint__guidance-none_skill-catalog-skills__*"))
+    skills = json.loads((rd / "result.json").read_text())["skills"]
+    assert skills["skills_used"] == ["lint", "format"] and skills["skill_selected_correct"] is True
+    rows = {r["arm"]: r for r in summarize(setup["out"] / "b1")["rows"]}
+    assert rows["guidance:none+skill-catalog:skills"]["skill_selected_correct"] == 1
+
+
+def test_guidance_none_keeps_a_skill_when_the_repo_ships_claude_skills(tmp_path, monkeypatch):
+    write(tmp_path / "toy", ".claude/skills/other/SKILL.md", "---\nname: other\ndescription: x\n---\nOther.\n")
+    root, _ = make_repo(tmp_path, {"fix_lint": {"family": "fix", "grader": "calc", "setup_patch": "setup.patch",
+                                                "expected_skill": "lint", "prompt": "fix it."}})
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    exe, profile = fake_harness(tmp_path)
+    runner = FakeRunner()
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    monkeypatch.setenv("FAKE_ACTION", "fix")
+    out = tmp_path / "runs"
+    args = build_parser().parse_args(["repo", "run", f"{root}@HEAD", "--harness", str(profile), "--bin", str(exe),
+                                      "--model", "m-1", "--batch", "b1", "--out", str(out),
+                                      "--cache-root", str(out / "caches"), "--agent-network", "host",
+                                      "--arm", "guidance:none+skill:skills/lint", "--task", "fix_lint"])
+    args.func(args)
+    rd = next((out / "b1").glob("fix_lint__*"))
+    assert (rd / "workspace/.claude/skills/lint/SKILL.md").is_file()
+
+
+@pytest.mark.parametrize("link", [".claude", ".claude/skills"])
+def test_a_skill_is_not_written_through_a_repository_link(tmp_path, link):
+    host = tmp_path / "host"  # a host directory the repository's own link points at
+    host.mkdir()
+    ws = tmp_path / "ws"
+    (ws / ".claude").mkdir(parents=True) if link == ".claude/skills" else ws.mkdir()
+    (ws / link).symlink_to(host, target_is_directory=True)
+    _skill(tmp_path / "eval", "skills/lint", "lint")
+    skill = Skill("lint", tmp_path / "eval/skills/lint")
+    with pytest.raises(PrepError, match="is a symlink in the repository"):
+        _install_skills(ws, Task("t", {}, tmp_path), [skill])
+    assert not (host / "skills").exists()
 
 
 def test_trace_records_the_skill_and_cache_tokens():
@@ -150,6 +197,53 @@ def test_a_link_out_of_a_skill_or_catalog_is_refused(tmp_path):
     (evaldir / "skills/evil").symlink_to(host)
     with pytest.raises(ArmError, match="evil in skills links outside it"):
         resolve_skills(parse_arm("skill-catalog:skills"), evaldir)
+    (evaldir / "skills/evil").unlink()
+    # inside the skill, but the copy cannot take them: each is refused before any cell runs
+    good = evaldir / "skills/good"
+    cases = (("loop", lambda: (good / "loop").symlink_to("."), ["loop"], "links to a directory"),
+             ("up", lambda: ((good / "sub").mkdir(), (good / "sub/up").symlink_to("..")), ["sub"],
+              "links to a directory"),
+             ("dangling", lambda: (good / "d").symlink_to("nope"), ["d"], "dangling or looping link"),
+             ("ping", lambda: (good / "a").symlink_to("b") or (good / "b").symlink_to("a"), ["a", "b"],
+              "dangling or looping link"),
+             ("fifo", lambda: os.mkfifo(good / "pipe"), ["pipe"], "is not a regular file"))
+    for _name, make, names, why in cases:
+        make()
+        with pytest.raises(ArmError, match=why):
+            resolve_skills(parse_arm("skill:skills/good"), evaldir)
+        for leftover in names:
+            if (good / leftover).is_dir() and not (good / leftover).is_symlink():
+                shutil.rmtree(good / leftover)
+            else:
+                (good / leftover).unlink()
+
+
+def test_a_tree_hash_changes_with_the_skill_bytes(tmp_path):
+    for name, body in (("a", "Do lint."), ("b", "Do format.")):
+        write(tmp_path, f"{name}/SKILL.md", body)
+    assert tree_sha256(tmp_path / "a") != tree_sha256(tmp_path / "b")
+
+
+def test_unmeasured_skill_usage_is_left_out_of_the_counts(tmp_path):
+    batch = tmp_path / "b"
+
+    def cell(name, skills):
+        rd = batch / name
+        rd.mkdir(parents=True)
+        (rd / "meta.json").write_text("{}")
+        rec = {"task": "t", "arm": "skill:skills/lint", "model": "m", "score_task": False, "grade": {
+                   "status": "ok", "success": True, "score_only": False, "score": None},
+               "agent": {"timed_out": False, "is_error": False, "over_budget": False, "cost_usd": 0.1,
+                         "num_turns": 3, "network": "none"}, "skills": skills}
+        (rd / "result.json").write_text(json.dumps(rec))
+
+    cell("c1", {"measured": True, "skills_installed": ["lint"], "skills_used": ["lint"], "expected_skill": "lint",
+                "skill_invoked": True, "skill_selected_correct": True})
+    cell("c2", {"measured": False, "skills_installed": ["lint"], "skills_used": [], "expected_skill": "lint",
+                "skill_invoked": None, "skill_selected_correct": None})
+    row = summarize(batch)["rows"][0]
+    assert (row["skill_measured"], row["skill_invoked"], row["skill_selected_correct"]) == (1, 1, 1)
+    assert "1/1 skill invoked" in format_report(summarize(batch))
 
 
 def test_arms_that_share_a_result_directory_are_refused(tmp_path):

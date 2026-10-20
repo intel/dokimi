@@ -16,6 +16,8 @@
 - skill arms add ``skill_invoked`` (cells whose agent used the expected skill,
   or any installed one when the task names none) and, when the task has an
   ``expected_skill``, ``skill_selected_correct`` (cells that used it first).
+  Cells whose trace could not be read are left out of both (``skill_measured``
+  counts the rest).
 """
 
 from __future__ import annotations
@@ -83,8 +85,9 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
         else:
             wins = sum(bool(r["grade"]["success"]) for r in recs)
             row.update(kind="gate", successes=wins, success_rate=round(wins / n, 4), ci95=wilson(wins, n))
-        used = [r["skills"] for r in recs if r.get("skills")]
-        if used:
+        used = [r["skills"] for r in recs if r.get("skills") and r["skills"].get("measured", True)]
+        if used:  # cells whose trace was unreadable are not counted: no rate from a missing measurement
+            row["skill_measured"] = len(used)
             row["skill_invoked"] = sum(bool(u["skill_invoked"]) for u in used)
             if any(u.get("expected_skill") for u in used):
                 row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in used)
@@ -115,8 +118,8 @@ def format_report(summary: dict[str, Any]) -> str:
                      f"{result:<22}  {r['grader_failures']:>11}  {r['missing']:>7}  {cost:>8}  {turns:>6}")
         noted = ("agent_timeouts", "agent_errors", "over_budget", "cost_unknown")
         notes = [f"{r[k]} {k.replace('_', ' ')}" for k in noted if r[k]]
-        notes += [f"{r[k]}/{r['n']} {k.replace('_', ' ')}" for k in ("skill_invoked", "skill_selected_correct")
-                  if k in r]
+        notes += [f"{r[k]}/{r['skill_measured']} {k.replace('_', ' ')}"
+                  for k in ("skill_invoked", "skill_selected_correct") if k in r]
         if notes:
             lines.append(" " * (width + 2) + "  " + ", ".join(notes))
     if summary["missing"]:

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -32,6 +33,11 @@ GUIDANCE = ("guidance:none", "guidance:raw", "guidance:bridge")
 SKILL_KINDS = ("skill", "skill-catalog")
 SKILLS_DIR = ".claude/skills"
 COMBINE = "+"
+
+
+def slug(text: str) -> str:
+    """``text`` as a file-system-safe name: the result directory of a cell, the cell name."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("_") or "x"
 
 
 class ArmError(ValueError):
@@ -113,9 +119,10 @@ def resolve_skills(arm: RepoArm, content_dir: Path) -> list[Skill]:
             raise ArmError(f"arm {arm.spec!r}: no subdirectory of {path} holds a SKILL.md")
         found += subs
     for skill in found:
-        link = _escaping_link(skill.dir)
-        if link:
-            raise ArmError(f"arm {arm.spec!r}: {link.relative_to(skill.dir)} in skill {skill.name} links outside it")
+        bad = _uncopyable(skill.dir)
+        if bad:
+            path, why = bad
+            raise ArmError(f"arm {arm.spec!r}: {path.relative_to(skill.dir)} in skill {skill.name} {why}")
     names = [s.name for s in found]
     dupes = sorted({n for n in names if names.count(n) > 1})
     if dupes:
@@ -123,14 +130,25 @@ def resolve_skills(arm: RepoArm, content_dir: Path) -> list[Skill]:
     return found
 
 
-def _escaping_link(skill_dir: Path) -> Path | None:
-    """A link under ``skill_dir`` whose target is outside it: copying would take the host's bytes."""
+def _uncopyable(skill_dir: Path) -> tuple[Path, str] | None:
+    """What under ``skill_dir`` the copy into the workspace cannot take, with the reason: a link out of the
+    skill (the copy would take the host's bytes), a dangling or looping link, a link to a directory (the copy
+    would recurse), or a file that is not regular (a FIFO would block the copy)."""
     root = skill_dir.resolve()
     for dirpath, dirnames, filenames in os.walk(skill_dir):
         for name in dirnames + filenames:
-            link = Path(dirpath, name)
-            if link.is_symlink() and not link.resolve().is_relative_to(root):
-                return link
+            path = Path(dirpath, name)
+            if path.is_symlink():
+                try:
+                    target = path.resolve(strict=True)
+                except (OSError, RuntimeError):
+                    return path, "is a dangling or looping link"
+                if not target.is_relative_to(root):
+                    return path, "links outside it"
+                if target.is_dir():
+                    return path, "links to a directory"
+            elif not path.is_file() and not path.is_dir():
+                return path, "is not a regular file"
     return None
 
 
@@ -147,8 +165,6 @@ def _skill_path(path: str, content_dir: Path) -> Path:
 def check_arms(arms: list[str], content_dir: Path, tasks: list[Any]) -> list[RepoArm]:
     """Parse every arm and find its skills before anything runs; a catalog must hold each task's
     ``expected_skill``. Returns the parsed arms."""
-    from .runner import slug  # runner imports this module
-
     parsed = []
     cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm string that owns it
     for spec in arms:
@@ -176,6 +192,12 @@ def tree_sha256(root: Path) -> str:
     return h.hexdigest()
 
 
+def skill_unmeasured(installed: list[str], expected: str | None) -> dict[str, Any]:
+    """The usage of a cell whose trace could not be read: unknown, not "did not use the skill" (``None``)."""
+    return {"measured": False, "skills_installed": installed, "skills_used": [], "expected_skill": expected,
+            "skill_invoked": None, "skill_selected_correct": None}
+
+
 def skill_usage(events: list[dict[str, Any]], installed: list[str], expected: str | None) -> dict[str, Any]:
     """Which installed skills the agent used: a ``Skill`` tool call naming it, or a read of its ``SKILL.md``.
 
@@ -193,7 +215,8 @@ def skill_usage(events: list[dict[str, Any]], installed: list[str], expected: st
                 name = parts[2]
         if name in installed and name not in used:
             used.append(name)
-    out: dict[str, Any] = {"skills_installed": installed, "skills_used": used, "expected_skill": expected,
+    out: dict[str, Any] = {"measured": True, "skills_installed": installed, "skills_used": used,
+                           "expected_skill": expected,
                            "skill_invoked": (expected in used) if expected else bool(used),
                            "skill_selected_correct": (used[:1] == [expected]) if expected else None}
     return out
