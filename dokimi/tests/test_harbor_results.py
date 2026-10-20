@@ -368,3 +368,96 @@ def test_result_json_path_is_properly_recorded(tmp_path):
     result_path = result.metrics["result_json"]
     assert "result.json" in result_path
     assert Path(result_path).exists()  # verify the path is valid
+
+
+def _read_trial(tmp_path, trial):
+    """Grade one trial written as *trial* (a dict, or raw text) under a jobs dir."""
+    jobs = tmp_path / "jobs"
+    path = jobs / JOB / "t" / "result.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(trial if isinstance(trial, str) else json.dumps(trial), encoding="utf-8")
+    return read_harbor_job(jobs, 0)
+
+
+VT = {"exception_type": "VerifierTimeoutError", "exception_message": "Verifier timed out"}
+AT = {"exception_type": "AgentTimeoutError", "exception_message": "Agent timed out"}
+PASS_REWARDS = {"reward": 1.0}
+
+
+@pytest.mark.parametrize("trial", [
+    {"exception_info": VT, "step_results": [{"exception_info": AT}]},
+    {"step_results": [{"exception_info": VT}, {"exception_info": AT}]},
+    {"step_results": [{"exception_info": AT}, {"exception_info": VT}]},
+])
+def test_a_verifier_timeout_does_not_hide_a_real_exception(tmp_path, trial):
+    """The label is the first exception that is not a verifier timeout."""
+    reward, metrics = _read_trial(tmp_path, trial)
+
+    assert reward is None
+    assert metrics["harbor_exception"] == "AgentTimeoutError"
+    assert metrics["error"] == "harbor: AgentTimeoutError: Agent timed out"
+    assert "verifier_timeout" not in metrics
+
+
+def test_a_verifier_timeout_on_a_step_alone_is_a_zero(tmp_path):
+    reward, metrics = _read_trial(tmp_path, {"step_results": [{"exception_info": VT}]})
+
+    assert reward == 0.0
+    assert metrics["verifier_timeout"] is True
+    assert "error" not in metrics
+
+
+def test_a_multi_step_trial_with_no_agent_result_has_no_usage_and_no_crash(tmp_path):
+    trial = {"verifier_result": {"rewards": PASS_REWARDS}, "step_results": [{"exception_info": None}]}
+    reward, metrics = _read_trial(tmp_path, trial)
+
+    assert reward == 1.0
+    assert "error" not in metrics
+    assert not {"prompt_tokens", "cost_usd", "total_tokens"} & metrics.keys()
+
+
+def test_a_non_object_step_is_skipped_not_a_crash(tmp_path):
+    step = {"exception_info": None, "agent_result": {"n_input_tokens": 100, "n_output_tokens": 1}}
+    trial = {"verifier_result": {"rewards": PASS_REWARDS}, "step_results": ["oops", step]}
+    reward, metrics = _read_trial(tmp_path, trial)
+
+    assert reward == 1.0
+    assert metrics["prompt_tokens"] == 100
+
+
+def test_a_top_level_agent_result_beside_steps_wins_over_the_step_sum(tmp_path):
+    step = {"exception_info": None, "agent_result": {"n_input_tokens": 1000, "n_output_tokens": 500}}
+    trial = {"verifier_result": {"rewards": PASS_REWARDS}, "step_results": [step],
+             "agent_result": {"n_input_tokens": 7, "n_output_tokens": 3}}
+    reward, metrics = _read_trial(tmp_path, trial)
+
+    assert reward == 1.0
+    assert (metrics["prompt_tokens"], metrics["completion_tokens"], metrics["total_tokens"]) == (7, 3, 10)
+
+
+def test_a_trial_path_that_is_a_directory_is_unreadable(tmp_path):
+    jobs = tmp_path / "jobs"
+    (jobs / JOB / "t" / "result.json").mkdir(parents=True)
+
+    reward, metrics = read_harbor_job(jobs, 0)
+
+    assert reward is None
+    assert metrics["error"] == "harbor: trial result.json is unreadable or not valid JSON"
+
+
+@pytest.mark.parametrize("info, error", [
+    ({"exception_type": "X", "exception_message": 12345}, "harbor: X: 12345"),
+    ({"exception_type": 42, "exception_message": "boom"}, "harbor: 42: boom"),
+])
+def test_a_non_string_exception_field_is_stringified(tmp_path, info, error):
+    reward, metrics = _read_trial(tmp_path, {"exception_info": info})
+
+    assert reward is None
+    assert metrics["error"] == error
+
+
+def test_an_exception_with_no_reward_keeps_no_reward_after_exception(tmp_path):
+    reward, metrics = _read_trial(tmp_path, {"exception_info": AT})
+
+    assert reward is None
+    assert "reward_after_exception" not in metrics
