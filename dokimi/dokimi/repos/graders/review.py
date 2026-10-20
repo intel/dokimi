@@ -67,7 +67,7 @@ def last_json(text):
     for block in reversed(re.findall(r"```json\s*(.*?)```", text or "", re.S)):
         try:
             return json.loads(block)
-        except ValueError:
+        except (ValueError, RecursionError):  # a fence nested too deep is unreadable, like any other
             continue
     return None
 

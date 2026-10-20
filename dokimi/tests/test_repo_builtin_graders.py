@@ -62,6 +62,16 @@ def test_last_json_takes_the_last_parseable_fence():
     assert review.last_json("no fence") is None and review.last_json(None) is None
 
 
+def test_a_fence_nested_too_deep_is_unreadable_not_a_grader_crash(tmp_path):
+    seeds, replay = _task_dir(tmp_path, "seeds_mul"), _task_dir(tmp_path, "replay_mul")
+    deep = "```json\n" + "[" * 100000 + "]" * 100000 + "\n```"
+    assert review.grade_seeds({}, seeds, deep) == {"pass": False, "parse_error": True, "recall": 0.0}
+    assert review.grade_replay({}, replay, deep)["parse_error"] is True
+    # an earlier readable fence is still the answer
+    assert review.grade_seeds({}, seeds, review.oracle_seeds({}, seeds) + deep)["recall"] == 1.0
+    assert review.grade_replay({}, replay, review.oracle_replay({}, replay) + deep)["recall"] == 1.0
+
+
 def test_norm_path_cuts_at_workspace_and_repo_and_drops_leading_dots_and_slashes():
     # workspace path (agent's working directory in container)
     assert review.norm_path("/eval/run/workspace/src/calc.py") == "src/calc.py"
