@@ -36,7 +36,15 @@ _PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.M)
 _CONTINUATION = re.compile(r"\\\n")
 _HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
 # a redirect that writes nowhere a read could be confused with: 2>&1, 2>/dev/null, &>/dev/null
-_HARMLESS_REDIRECT = re.compile(r"\d*>&\d+|&>>?\s*/dev/null|\d*>>?\s*/dev/null")
+_HARMLESS_REDIRECT = re.compile(r"(?:\d*>&\d+|&>>?\s*/dev/null|\d*>>?\s*/dev/null)(?=\s|$|[;&|])")
+# the values of long options that take a separate word (``head --lines 5``), by command
+_LONG_VALUE = {
+    "head": {"--lines", "--bytes"},
+    "tail": {"--lines", "--bytes", "--sleep-interval", "--pid", "--max-unchanged-stats"},
+    "nl": {"--body-numbering", "--section-delimiter", "--footer-numbering", "--header-numbering",
+           "--number-format", "--number-separator", "--number-width", "--starting-line-number",
+           "--line-increment", "--join-blank-lines"},
+}
 
 
 def unwrap_shell(command: str) -> str:
@@ -81,6 +89,8 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
             if part.split(None, 1)[:1] == ["cd"]:
                 here, moved = None, True
             continue
+        if words[:1] == ["{"]:  # a brace group runs in this shell: its cd and reads count
+            words = words[1:]
         if not words:
             continue
         if words[0] == "cd":
@@ -125,7 +135,7 @@ def _computed(part: str) -> bool:
 
 def _print_files(cmd: str, args: list[str]) -> list[str]:
     """Operands of ``cat`` / ``head`` / ``tail`` / ``nl``, not the values of their options (``-n 5``, ``-ba``, ``-w 3``)."""
-    takes = {"head": "nc", "tail": "nc", "nl": "bdfhilnsvw"}.get(cmd, "")  # short options that take a value
+    takes = {"head": "nc", "tail": "ncs", "nl": "bdfhilnsvw"}.get(cmd, "")  # short options that take a value
     files, skip, ended = [], False, False
     for a in args:
         if skip:
@@ -135,7 +145,7 @@ def _print_files(cmd: str, args: list[str]) -> list[str]:
         elif a == "--":
             ended = True
         elif a.startswith("--"):
-            skip = a in ("--lines", "--bytes") and cmd in ("head", "tail")  # the value is the next word
+            skip = a in _LONG_VALUE.get(cmd, ())  # the value is the next word
         else:
             for i, c in enumerate(a[1:], 1):
                 if c in takes:  # the value is the next word unless it is attached (-n5, -ba)

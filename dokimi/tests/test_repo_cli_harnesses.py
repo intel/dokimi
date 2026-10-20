@@ -153,6 +153,16 @@ def test_reach_refuses_a_native_prompt_profile(tmp_path):
     ("sed -n '$p' f", ["f"]),                             # $ inside single quotes is the last line
     ("sed -n '1,$p' AGENTS.md", ["AGENTS.md"]),
     ("cat \"$HOME/f\"", []),                              # an expansion is not a path
+    ("{ cd x; cat f; }", ["x/f"]),                        # a brace group runs in this shell
+    ("{ cat f; }", ["f"]),
+    ("cat a >/dev/null2", []),                            # /dev/null must end the word
+    ("cat a 2>/dev/nullfile", []),
+    ("tail -s 2 a", ["a"]),                               # -s takes the sleep interval
+    ("tail -f -s 2 a", ["a"]),
+    ("tail --sleep-interval 2 a", ["a"]),
+    ("nl -ba -v 2 a", ["a"]),
+    ("nl --number-format ln a", ["a"]),
+    ("nl --number-format=ln a", ["a"]),
 ])
 def test_shell_reads(command, reads):
     assert shell_reads(command) == reads
@@ -162,6 +172,7 @@ def test_shell_reads_start_in_the_given_directory():
     assert shell_reads("cat AGENTS.md", "sub") == ["sub/AGENTS.md"]
     assert shell_reads("cd inner && cat ../x", "sub") == ["sub/x"]
     assert shell_reads("cat /ws/a", "sub") == ["/ws/a"]
+    assert shell_reads("{ cd x && cat f; }", "sub") == ["sub/x/f"]
 
 
 def test_cli_traces_resolve_relative_reads_from_the_starting_directory():
@@ -414,6 +425,23 @@ def test_repo_run_keeps_a_failed_native_review_without_a_findings_block(tmp_path
     rd, _ = _run_codex_review(tmp_path, monkeypatch, FAKE_CODEX_REVIEW_FAILED)
     assert (rd / "answer.txt").read_text() == "Review was interrupted. Please re-run /review and wait for it to complete."
     assert json.loads((rd / "result.json").read_text())["agent"]["is_error"] is True
+
+
+# A review that prints a complete finding, then exits non-zero (or is killed by the timeout): no turn.failed.
+FAKE_CODEX_REVIEW_EXIT_1 = r'''#!/usr/bin/env python3
+import json, sys
+if sys.argv[1:] == ["--version"]:
+    print("codex-cli 0.160.0"); sys.exit(0)
+text = "One bug.\n\nReview comment:\n\n- [P1] add() subtracts — src/calc.py:2-2\n  The change turns a + b into a - b."
+print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": text}}))
+print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 0, "output_tokens": 0}}))
+sys.exit(1)
+'''
+
+
+def test_repo_run_gives_a_cut_off_review_no_findings_block_when_the_harness_exits_non_zero(tmp_path, monkeypatch):
+    rd, _ = _run_codex_review(tmp_path, monkeypatch, FAKE_CODEX_REVIEW_EXIT_1)
+    assert "```json" not in (rd / "answer.txt").read_text()
 
 
 @pytest.mark.parametrize("tools", ["read", "all"])
