@@ -135,6 +135,21 @@ def test_a_step_that_raised_errors_a_multi_step_trial(tmp_path):
     assert "prompt_tokens" not in result.metrics  # the oracle's counts are null
 
 
+def test_a_verifier_timeout_is_a_zero_not_an_error(tmp_path):
+    """Harbor 0.20.0 raises VerifierTimeoutError (no verifier_result) when the verifier
+    overruns its timeout. As for docker-* and BenchFlow it is a failure, not missing data."""
+    def verifier_timed_out(trial):
+        trial["verifier_result"] = None
+        trial["exception_info"] = {"exception_type": "VerifierTimeoutError",
+                                   "exception_message": "Verifier execution timed out after 5.0 seconds"}
+
+    result = _run(tmp_path, _harbor_writes("pass", edit=verifier_timed_out))
+
+    assert (result.passed, result.reward) == (False, 0.0)
+    assert result.metrics["verifier_timeout"] is True
+    assert "error" not in result.metrics
+
+
 def test_a_multi_step_trial_sums_its_steps_usage(tmp_path):
     def two_clean_steps(trial):
         first, second = trial["step_results"]

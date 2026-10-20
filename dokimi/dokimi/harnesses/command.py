@@ -274,6 +274,12 @@ def read_harbor_job(jobs_dir: Path | None, returncode: int) -> tuple[float | Non
     agent_result = trial.get("agent_result")
     metrics.update(_step_usage(steps) if agent_result is None and steps else harbor_usage(agent_result))
     reward = _harbor_reward(trial)
+    raised = [i for i in [trial.get("exception_info"), *(s.get("exception_info") for s in steps)] if i]
+    if raised and all(isinstance(i, dict) and i.get("exception_type") == "VerifierTimeoutError" for i in raised):
+        # The verifier overran its timeout: a verified failure, as docker-* and BenchFlow
+        # score it (the report footnote says so), not missing data.
+        metrics["verifier_timeout"] = True
+        return 0.0, metrics
     exception = trial.get("exception_info") or next(
         (s["exception_info"] for s in steps if s.get("exception_info")), None)
     if exception:

@@ -418,6 +418,7 @@ a verdict. The rules mirror intel/skills' `tools/check_harbor_job.py`:
 | Trial `result.json` | Cell |
 |---|---|
 | `verifier_result.rewards.reward` is a finite number in [0, 1], no `exception_info` | scored: that reward, a pass at 1.0 |
+| the only `exception_info` (top or `step_results[]`) is `VerifierTimeoutError` | scored 0, `metrics.verifier_timeout` true: a verifier timeout is a failure, not an error |
 | `exception_info` set, at the top or on a `step_results[]` entry (a multi-step task) | errored: `metrics.error` is `harbor: <exception_type>: <first line>`, `metrics.harbor_exception` the type; a reward the verifier still wrote is kept as `metrics.reward_after_exception`, not scored |
 | no `exception_info`, no numeric reward or one outside [0, 1] | errored |
 | no trial file (with or without the job's), more than one trial, or not a JSON object | errored |
