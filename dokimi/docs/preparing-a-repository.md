@@ -90,7 +90,7 @@ real repository, corrected in
 |---|---|
 | a generator script that produces the pkg-config files | no such script; the build preprocesses a template |
 | every algorithm has `backend/{cpu,gpu}` directories | 26 of 31 algorithms had a CPU backend, 20 of 31 a GPU backend |
-| never mix the two internal APIs in one file | the backends that call the older API (46 files) convert its error codes to the newer API's exceptions by design; 16 files hold both APIs' error and pointer types |
+| never mix the two internal APIs in one file | the backends that call the older API (46 files) convert its error codes to the newer API's exceptions by design; some files hold both APIs' error and pointer types |
 
 - Prefer precise facts (paths, targets, symbols) to generalisations. State the
   exceptions next to a rule.
@@ -178,7 +178,11 @@ Recurring review comments are review knowledge a repository already has.
     - On replays of real PRs, whose comments were almost all specific to that PR,
       the rules changed nothing ([E7](preparing-a-repository-evidence.md#e7)).
 - **Linters on the changed lines** (clang-tidy, cppcheck) given to the reviewer as
-  hints helped in the same way, and distracted one weaker model.
+  hints raised recall on seeded defects for Sonnet 5 (0.750 to 0.875) and
+  Haiku 4.5 (0.781 to 0.844) ([E6](preparing-a-repository-evidence.md#e6)). Codex
+  with `gpt-6-luna` is the model that lost recall (0.677 to 0.604); its gain came
+  from `rules` (0.875). On real PRs they changed nothing
+  ([E7](preparing-a-repository-evidence.md#e7)).
 
 ## 7. Know which files each harness loads
 

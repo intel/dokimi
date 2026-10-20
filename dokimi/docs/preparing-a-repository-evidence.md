@@ -18,7 +18,7 @@ guidance arms as a hypothesis (see §8 on the main page).
 How the figures were produced:
 
 - **Repository and harness.** All runs used oneDAL at one fixed commit and
-  Claude Code 2.1.286, except E6, which used the Codex CLI.
+  Claude Code 2.1.286, except the Codex row of E6.
 - **Model.** The model column is the ID the harness reported in its trace, not
   the alias it was asked for.
 - **Cell.** A cell is one agent run of one task in one arm.
