@@ -303,12 +303,13 @@ def test_report_puts_the_discovery_arm_beside_no_skill_and_with_skill():
     assert "## Skill discovery" not in render_task_runs_report(data)
 
 
-@pytest.mark.parametrize("notice, n_cut", [(False, 1), (True, 0)])
-def test_truncated_discovery_row_is_noted_without_its_pair(notice, n_cut):
+@pytest.mark.parametrize("notice, truncated, n_cut", [(False, True, 1), (True, True, 0),
+                                                       (False, False, 0)])
+def test_truncated_discovery_row_is_noted_without_its_pair(notice, truncated, n_cut):
     """A discovery arm run against the baseline only still says its description was cut."""
     arms = ["docker-claude", "docker-claude-skill-discover:s"]
     listing = {"description_chars": 2000, "max_desc_chars": 1536, "budget_chars": 8000,
-               "truncated": True}
+               "truncated": truncated}
     rows = [{"task": "t1", "harness": h, "passed": False, "reward": 0.0, "returncode": 0,
              "output_dir": None, "operations": [],
              "metrics": {"operation_count": 0, "operations_by_type": {}, **extra}}
@@ -401,6 +402,20 @@ def test_discovery_gap_labels_run_and_loss_differences_apart(
     assert entry["attempted_cells_match"] is attempted_match
     assert entry["errored_cells_match"] is errored_match
     assert label in render_task_runs_report(data)
+
+
+@pytest.mark.parametrize("disc_errored, skill_errored", [
+    # The discovery arm has no scored cell; the with-skill arm passes.
+    ((0, 1), ()),
+    # The with-skill arm has no scored cell; the discovery arm does not pass.
+    ((), (0, 1)),
+])
+def test_discovery_gap_no_scored_cells_when_only_one_arm_is_unscored(disc_errored, skill_errored):
+    data = _gap_data((0, 1), skill_errored, disc_errored)
+    entry = data["summary"]["discovery_gaps"]["docker-claude-skill-discover:s"]
+    assert entry["gap"] is None
+    assert (entry["with_skill_pass_rate"] is None) != (entry["discover_pass_rate"] is None)
+    assert "— (no scored cells)" in render_task_runs_report(data)
 
 
 def test_discovery_gap_both_arms_fully_errored():

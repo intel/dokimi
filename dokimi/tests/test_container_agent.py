@@ -486,6 +486,17 @@ def test_a_discover_arm_warns_when_the_listing_cuts_the_description(
     assert "first 1536" in (out / "run.log").read_text(encoding="utf-8")
 
 
+def test_a_discover_arm_does_not_warn_when_the_listing_shows_the_whole_description(
+        tmp_path, docker_calls, monkeypatch):
+    skill = _demo_skill(tmp_path)
+    _fake_claude(monkeypatch, {"stream": _stream("demo-skill")})
+    out = tmp_path / "out"
+    result = create_harness(f"docker-claude-skill-discover:{skill}").run(
+        load_task(_task(tmp_path)), model="haiku", output_dir=out)
+    assert result.metrics["skill_listing"]["truncated"] is False
+    assert "WARNING" not in (out / "run.log").read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize("make", ["missing", "readme", "outside-link", "fork", "link-loop"])
 def test_a_bad_skill_fails_before_any_docker_step(tmp_path, docker_calls, monkeypatch, make):
     skill = _demo_skill(tmp_path, extra="context: fork\n" if make == "fork" else "")
