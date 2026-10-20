@@ -892,6 +892,13 @@ that must succeed and runs out errors the cell. A timeout kills the step's whole
 the host (a host agent's tool processes too); in the container, whatever the
 agent uid left running is killed before the verifier starts.
 
+Some timeouts leave no verdict and are still scored as failures (reward 0,
+returncode 124, no `metrics.error`), so they count in pass-rate denominators:
+the pre-verifier reap, the recompile, the credential-file and plugin removals,
+the verifier's `reward.txt` copy-out, and the sidecar's removal. A slow daemon
+on one of these reads as a model failure; such a cell's run.log has a `TIMEOUT:`
+line, and the cell is not in `errored`.
+
 - `per_harness.<h>` carries `errored` and `scored = n - errored`, and
   `pass_rate = passed / scored`. `per_task` carries `errored` too.
 - `pass_rate_delta`, `passed_delta` and `cost_delta_usd` are null when the two

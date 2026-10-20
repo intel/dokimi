@@ -132,6 +132,7 @@ class ContainerSandbox:
     # False when the sidecar's log could not be read at teardown (timed out or failed):
     # the empty ``log`` then means "unknown", not "no requests".
     log_known: bool = True
+    _log_read: bool = False  # a teardown read of the sidecar's log has succeeded
     _scratch: Optional[Path] = None
     runner: process.Runner = field(default=process.run, repr=False)  # starts the probe's docker exec
 
@@ -324,10 +325,16 @@ class ContainerSandbox:
         if self._stopped:
             return
         logs = docker(["logs", self.proxy_name], log, check=False)
-        self.log = parse_log(getattr(logs, "stdout", "") or "")
-        self.log_known = not logs.timed_out and logs.returncode == 0
-        if not self.log_known and log is not None:
-            log.write(f"\n[sidecar logs] {self.proxy_name} could not be read; egress is unknown\n")
+        # A retry after the sidecar is already gone (its first removal timed out) must not
+        # erase the decisions an earlier read got: the first successful read is kept.
+        if not logs.timed_out and logs.returncode == 0:
+            self.log = parse_log(getattr(logs, "stdout", "") or "")
+            self.log_known = True
+            self._log_read = True
+        elif not self._log_read:
+            self.log_known = False
+            if log is not None:
+                log.write(f"\n[sidecar logs] {self.proxy_name} could not be read; egress is unknown\n")
         removed = docker(["rm", "-f", self.proxy_name], log, check=False)
         if removed.timed_out:  # still running, with the credentials: not stopped, close() retries
             raise subprocess.TimeoutExpired(removed.argv, DOCKER_STEP_TIMEOUT)

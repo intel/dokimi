@@ -12,6 +12,9 @@ recompile are handled correctly:
 
 from __future__ import annotations
 
+import json
+import subprocess
+
 import pytest
 
 from dokimi.harnesses import container_agent as container_mod
@@ -121,7 +124,8 @@ def test_reap_timeout_aborts_cell(tmp_path):
 def test_workdir_inspect_timeout_refuses_the_cell(tmp_path):
     """A timed-out ``docker inspect`` of the image WORKDIR must not fall back to /app.
 
-    /app is only a guess; the agent would run in a tree the image never declared.
+    /app is only a guess, and no agent ran, so there is no verdict: the cell is
+    errored (the harness raises), not billed as a reward-0 failure.
     """
     task = load_task(_fixture_task(tmp_path))
     cli = _pipeline(reward=1.0, answer=lambda call: reply(timed_out=True) if (
@@ -129,9 +133,56 @@ def test_workdir_inspect_timeout_refuses_the_cell(tmp_path):
 
     result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
 
-    assert result.returncode == 124, "Should time out when the WORKDIR inspect times out"
-    assert result.reward == 0.0
+    # An errored cell: no verdict (reward None, not 0), and the error is recorded.
+    assert result.reward is None and result.passed is False
+    assert "WORKDIR" in result.metrics["error"]
     assert not [c for c in cli.calls if c.argv[1] == "exec" and "test.sh" in " ".join(c.argv)]
+
+
+def test_workdir_presence_timeout_errors_the_cell(tmp_path):
+    """A timed-out ``test -d`` of the WORKDIR is no answer: the cell is errored before any agent runs.
+
+    Exit 124 is not exit 1 ("no such directory"), so it must not read as "present" either.
+    """
+    task = load_task(_fixture_task(tmp_path))
+    cli = _pipeline(reward=1.0, answer=lambda call: reply(timed_out=True) if (
+        call.argv[1] == "exec" and "test" in call.argv and "-d" in call.argv) else None)
+
+    result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
+
+    assert result.reward is None and result.passed is False
+    assert "test -d" in result.metrics["error"]
+    assert not [c for c in cli.calls if c.argv[1] == "exec" and "test.sh" in " ".join(c.argv)]
+
+
+def test_sidecar_log_kept_when_teardown_retry_cannot_read_it(tmp_path):
+    """A failed second ``docker logs`` (the sidecar already removed) keeps the first read's decisions.
+
+    Otherwise egress.jsonl is written empty and a denied request disappears from the record.
+    """
+    row = json.dumps({"host": "evil.example", "port": 443, "decision": "denied", "reason": "x"})
+    logs = iter([reply(row + "\n"), reply(stderr="No such container", returncode=1)])
+    rms = iter([reply(timed_out=True), reply()])
+
+    def docker(args, log=None, *, check=True, timeout=None):
+        if args[0] == "logs":
+            return next(logs)
+        if args[0] == "rm":
+            return next(rms)
+        if args[:2] == ["network", "rm"]:  # close() drops the internal network last
+            return reply()
+        raise AssertionError(f"unexpected docker call: {args}")
+
+    sandbox = container_mod.ContainerSandbox(network="dokimi-net-x", proxy_name="dokimi-egress-x",
+                                             allow=[], binary=None)
+    with pytest.raises(subprocess.TimeoutExpired):
+        sandbox.stop_proxy(docker, None)
+    sandbox.close(docker, None, tmp_path)
+
+    assert [r["host"] for r in sandbox.log] == ["evil.example"]
+    assert sandbox.egress_summary()["status"] == "violated"
+    saved = (tmp_path / "egress.jsonl").read_text(encoding="utf-8")
+    assert "evil.example" in saved
 
 
 def test_recompile_timeout_aborts_cell(tmp_path):

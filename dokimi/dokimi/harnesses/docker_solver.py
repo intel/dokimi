@@ -90,7 +90,6 @@ from .tasks import (  # noqa: F401  (timeouts re-exported)
 _RECOMPILE_RE = re.compile(r"(g\+\+|gcc) [^`\n]*-o /app/[^ `\n]*")
 _PROXY_VARS = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
 _DEFAULT_SOLVE_TIMEOUT = 600.0
-_DOCKER_STEP_TIMEOUT = DOCKER_STEP_TIMEOUT
 _CONTAINER_PLUGIN = "/opt/abskill"
 # The only tree a docker-* agent edits: the host agent's snapshot and copy-back,
 # the in-container agent's chown and `-w`. Anything else (an exported
@@ -471,7 +470,7 @@ class DockerSolverHarness:
         def note(proc: process.Completed) -> None:
             nonlocal stuck
             if proc.timed_out and stuck is None:
-                stuck = subprocess.TimeoutExpired(proc.argv, _DOCKER_STEP_TIMEOUT)
+                stuck = subprocess.TimeoutExpired(proc.argv, DOCKER_STEP_TIMEOUT)
 
         try:
             sandbox.reap(container, self._docker, log)  # nothing the agent backgrounded sees /tests
@@ -600,7 +599,7 @@ class DockerSolverHarness:
             log.write(f"\n[recompile] {cc}\n")
             proc = self._docker(["exec", "-u", "root", container, "bash", "-lc", cc], log, check=False)
             if proc.timed_out:  # no verdict on a binary that may be stale or half-built
-                raise subprocess.TimeoutExpired(proc.argv, _DOCKER_STEP_TIMEOUT)
+                raise subprocess.TimeoutExpired(proc.argv, DOCKER_STEP_TIMEOUT)
             if proc.returncode != 0:
                 log.write(f"[recompile] FAILED (exit {proc.returncode}): {cc}\n")
                 failed.append(cc)
@@ -629,13 +628,15 @@ class DockerSolverHarness:
             log, check=False,
         )
         if pulled.timed_out:  # not "no reward file": the exit code would pass a failing verifier
-            raise subprocess.TimeoutExpired(pulled.argv, _DOCKER_STEP_TIMEOUT)
+            raise subprocess.TimeoutExpired(pulled.argv, DOCKER_STEP_TIMEOUT)
         if pulled.returncode == 0 and reward_file.is_file():
             return _parse_reward_text(
                 reward_file.read_text(encoding="utf-8", errors="replace"), reward_file=True
             )
         if proc.returncode != 0:  # no verdict at all if the container is gone, not a 0
             running = self._docker(["inspect", "-f", "{{.State.Running}}", container], log, check=False)
+            if running.timed_out:  # no answer is not "stopped": say so, the cell is errored either way
+                raise RuntimeError(f"task container {container} state inspect timed out at verify time; see run.log")
             if (getattr(running, "stdout", "") or "").strip() != "true":
                 raise RuntimeError(f"task container {container} is not running at verify time; see run.log")
         # No reward file written: fall back to verifier exit code.
@@ -722,8 +723,10 @@ def _require_agent_workdir(task: TaskSpec, container: str, log, docker: "Docker"
             f"only {_AGENT_TREE}; {_NO_ARM}"
         )
     # Exit 1 is "no such directory"; 126/127 (no `test` in the image) leaves it to the copy.
-    if docker(["exec", "-u", "root", container, "test", "-d", workdir], log,
-              check=False).returncode == 1:
+    present = docker(["exec", "-u", "root", container, "test", "-d", workdir], log, check=False)
+    if present.timed_out:  # not "present": no verdict, so the cell is errored before any agent runs
+        raise RuntimeError(f"test -d {workdir} timed out after {DOCKER_STEP_TIMEOUT:g}s; see run.log")
+    if present.returncode == 1:
         raise ValueError(
             f"{task.name}: the image has no {workdir}, the tree a docker-* agent edits; {_NO_ARM}"
         )
@@ -754,8 +757,9 @@ def _task_workdir(task: TaskSpec, container: str, log, docker: "Docker") -> str:
         # WORKDIR of "/": a snapshot would `docker cp` the whole filesystem.
         return declared
     proc = docker(["inspect", "-f", "{{.Config.WorkingDir}}", container], log, check=False)
-    if proc.timed_out:  # an unknown WORKDIR is not /app: the cell is refused, not billed on a guess
-        raise subprocess.TimeoutExpired(proc.argv, _DOCKER_STEP_TIMEOUT)
+    if proc.timed_out:  # an unknown WORKDIR is not /app: the cell is errored, not billed on a guess
+        raise RuntimeError(f"docker inspect of {container} timed out after {DOCKER_STEP_TIMEOUT:g}s "
+                           "(WORKDIR unknown); see run.log")
     found = (proc.stdout or "").strip()
     if proc.returncode != 0 or not found.startswith("/"):
         return "/app"
@@ -868,14 +872,14 @@ def _docker(args: list[str], log, *, check: bool = True, timeout: Optional[float
 
     ``timeout`` is a step's own budget (build, solve, verify): running out raises
     :class:`subprocess.TimeoutExpired`, and the caller decides what the cell is.
-    Any other step gets :data:`_DOCKER_STEP_TIMEOUT`; running out is exit 124,
+    Any other step gets :data:`DOCKER_STEP_TIMEOUT`; running out is exit 124,
     which ``check`` raises like any failure (an errored cell). The CLI keeps the
     caller's environment: its context, ``DOCKER_HOST`` and ``~/.docker``. Its output
     is kept whole, in memory: callers parse it (the sidecar's decision log), and it is
     redacted before run.log gets all of it.
     """
     argv = ["docker", *args]
-    budget = timeout if timeout is not None else _DOCKER_STEP_TIMEOUT
+    budget = timeout if timeout is not None else DOCKER_STEP_TIMEOUT
     proc = runner(argv, timeout=budget, env=process.Env.inherit(), capture_limit=None)
     log.write(f"$ docker {' '.join(shlex.quote(_redact(a)) for a in args)}\n")
     # The output too: a verifier or a build step can echo a proxy URL it was given.
