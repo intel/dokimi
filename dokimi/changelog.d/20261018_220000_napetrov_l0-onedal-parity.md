@@ -20,3 +20,6 @@
   redirections, so a cut label (`//pkg/`) was `unresolved` and `>` was looked
   up as a make target or hook id. A `<placeholder>` is now a word to fill in,
   like `$VAR`, and is not looked up.
+- **Starlark and Python fences nested in a list item** kept the item's
+  indentation, so their `load()`, macro and keyword-argument claims were
+  skipped. Such a fence is now checked as it would be at the top level.

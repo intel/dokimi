@@ -230,6 +230,17 @@ def test_a_bazel_dep_is_not_checked_against_a_leftover_build_file(tmp_path, ref,
     assert got == {("bazel_label", "@zlib//:z"): expected}
 
 
+@pytest.mark.parametrize("lang", ["python", "starlark"])
+def test_a_fence_nested_in_a_list_item_is_checked_as_at_the_top_level(tmp_path, lang):
+    fence = _fence(lang, *_BUILD_SNIPPET)
+    nested = "".join(f"   {line}\n" if line else "\n" for line in fence.splitlines())
+    claims = lambda p, shift=0: {(c["line"] - shift, c["kind"], c["claim"], c["status"])  # noqa: E731
+                                 for c in p["claims"]}
+    top = claims(_scan(tmp_path / "top", fence, _DEFS))
+    assert {k for _, k, _, _ in top} >= {"starlark_load", "starlark_macro", "starlark_kwarg", "bazel_label"}
+    assert claims(_scan(tmp_path / "nested", "1. Add this to BUILD:\n\n" + nested, _DEFS), shift=2) == top
+
+
 def test_a_computed_first_build_file_is_not_forgotten_by_the_second(tmp_path):
     files = _external({
         "third_party/repos.bzl": 'r(name = "lib", build_file = "//third_party:lib.BUILD")\n'

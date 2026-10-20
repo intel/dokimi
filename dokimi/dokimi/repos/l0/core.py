@@ -15,6 +15,7 @@ import fnmatch
 import posixpath
 import re
 import shlex
+import textwrap
 from urllib.parse import unquote
 from dataclasses import dataclass, field
 from typing import Any
@@ -446,6 +447,8 @@ class Scan:
         from . import adapters
 
         if fence.lang in STARLARK_LANGS or fence.lang in PYTHON_LANGS:
+            code = textwrap.dedent("\n".join(text for _, text in fence.lines)).split("\n")
+            fence = Fence(fence.line, fence.lang, [(n, t) for (n, _), t in zip(fence.lines, code, strict=True)])  # in a list item
             if "bazel" in self.adapters and (fence.lang in STARLARK_LANGS or adapters.reads_as_build(self, fence)):
                 adapters.check_starlark(self, file, fence)
             return
