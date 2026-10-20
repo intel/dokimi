@@ -232,6 +232,7 @@ def test_a_computed_first_build_file_is_not_forgotten_by_the_second(tmp_path):
     ('exports_files(FILES)\ncc_library(name = "zlib")\n', "NOTICE", "unresolved"),
     ('cc_library(name = "%{target_name}")\n', "zlib", "unresolved"),  # a template, rendered on fetching
     ('cc_library(name = "a")\n%{extra_targets}\n', "b", "unresolved"),  # a bare placeholder injects targets
+    ('cc_library(name = "a", srcs = ["%{repo_root}/lib/a.a"])\n', "kore", "fail"),  # a path makes no target
 ])
 def test_external_exports_files_and_templates(tmp_path, build, label, expected):
     files = _external({"third_party/repos.bzl": 'r(name = "zlib", build_file = "//third_party:zlib.tpl.BUILD")\n',

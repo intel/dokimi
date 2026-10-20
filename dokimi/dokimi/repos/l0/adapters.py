@@ -158,7 +158,8 @@ def _build_names(text: str) -> tuple[set[str], bool]:
     top-level ``exports_files([...])`` (every name of a plain list). Computed: any other value of those arguments
     (``"t_" + s``, ``"t_%s" % s``, a variable), ``exports_files(glob(...))`` and the like, a call at the start of a
     line, or in a comprehension that starts a line, to anything but a native rule or a builtin (a macro, which may
-    generate targets). A ``%{...}`` anywhere in the file is a template placeholder, filled in on rendering.
+    generate targets). A ``%{...}`` outside a string, or inside a name, is a template placeholder, filled in on
+    rendering; one inside another string (``"%{repo_root}/lib/x.a"``) makes no target.
     """
     names: set[str] = set()
     computed = False
@@ -201,7 +202,8 @@ def _build_names(text: str) -> tuple[set[str], bool]:
                 names.update(v for k, v in value if k == "str")
             else:
                 computed = True
-    return names, computed or "%{" in text  # a template's `%{...}` is filled in on rendering
+    bare = any(t[:2] == ("op", "%") and n[:2] == ("op", "{") for t, n in zip(toks, toks[1:], strict=False))
+    return names, computed or bare or any("%{" in n for n in names)  # `%{...}` code or a name: filled in on rendering
 
 
 def _exports_names(toks: list[tuple[str, str, bool]], start: int) -> tuple[set[str], bool]:
