@@ -111,16 +111,18 @@ jobs:
         if: ${{ !cancelled() }}
         run: bandit -r . -ll -q
       # The locks are the full closure (requirements-docs.lock.txt for the
-      # documentation site), so --no-deps --disable-pip audits them as written
+      # documentation site, requirements-ci.lock.txt for the tools), so --no-deps --disable-pip audits them as written
       # without resolving or installing anything. Each --ignore-vuln is
       # an advisory SECURITY.md documents; add or drop them together.
       # pip-audit skips a pin whose marker is false on this 3.13 runner (the
       # pins for older interpreters, for one), so markers are stripped, a pin
-      # both locks share is kept once, and a name pinned twice goes to a second file.
+      # the locks share is kept once, a name pinned twice goes to a second file,
+      # and the trailing `\` of a hashed pin is dropped (its --hash lines are skipped).
       - name: pip-audit
         if: ${{ !cancelled() }}
         run: |
-          sed 's/ *;.*//' requirements.lock.txt requirements-docs.lock.txt | sort -u \
+          sed -e 's/ *\\$//' -e 's/ *;.*//' \
+              requirements.lock.txt requirements-docs.lock.txt requirements-ci.lock.txt | sort -u \
             | awk -F'==' '/^[A-Za-z0-9]/ { print > (ENVIRON["RUNNER_TEMP"] "/pins" seen[$1]++ ".txt") }'
           for f in "$RUNNER_TEMP"/pins*.txt; do
             pip-audit -r "$f" --no-deps --disable-pip --progress-spinner off \
