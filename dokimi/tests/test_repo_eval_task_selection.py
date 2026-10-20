@@ -69,7 +69,8 @@ def repo(tmp_path: Path) -> Path:
     return root
 
 
-def _select(repo: Path, tmp_path: Path, *, commit: bool = True, **overrides: str) -> list[str]:
+def _select(repo: Path, tmp_path: Path, *, commit: bool = True, manifest_tasks: str | None = TASKS,
+            **overrides: str) -> list[str]:
     """Commit the working tree (unless ``commit`` is false) and run the step on HEAD."""
     if commit:
         _git(repo, "add", "-A")
@@ -77,7 +78,7 @@ def _select(repo: Path, tmp_path: Path, *, commit: bool = True, **overrides: str
     temp = tmp_path / "runner"
     temp.mkdir(exist_ok=True)
     (temp / "validate.json").write_text(json.dumps({"manifest": {
-        "id": "demo", "tasks": TASKS, "eval_dir": EVAL_DIR}}), encoding="utf-8")
+        "id": "demo", "tasks": manifest_tasks, "eval_dir": EVAL_DIR}}), encoding="utf-8")
     env = {
         **os.environ, "RUNNER_TEMP": str(temp), "GITHUB_OUTPUT": str(temp / "out"),
         "GITHUB_STEP_SUMMARY": str(temp / "summary"), "EVENT": "pull_request",
@@ -145,6 +146,16 @@ def test_the_manifest_is_compared_normalised(repo, tmp_path, manifest):
     else:
         _write(repo, f"{EVAL_DIR}/repo-eval.yaml", "changed\n")
     assert _select(repo, tmp_path, MANIFEST=manifest) == ["t1"]
+
+
+def test_an_empty_smoke_set_means_every_task(repo, tmp_path):
+    _write(repo, f"{EVAL_DIR}/Dockerfile")
+    assert _select(repo, tmp_path, SMOKE_TASKS="") == ["my task", "t1"]
+
+
+def test_a_guidance_only_manifest_checks_no_task(repo, tmp_path):
+    _write(repo, f"{EVAL_DIR}/Dockerfile")
+    assert _select(repo, tmp_path, manifest_tasks=None) == []
 
 
 def test_an_unrelated_file_selects_nothing(repo, tmp_path):
