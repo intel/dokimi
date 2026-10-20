@@ -237,3 +237,9 @@ def test_the_out_of_sync_message_names_both_paths(tmp_path, monkeypatch, capsys)
     err = capsys.readouterr().err
     assert f"--skill {skill}" in err
     assert f"--profile {profile}" in err
+
+
+def test_frontmatter_block_opening_fence_must_be_exactly_three_dashes():
+    # parse_frontmatter reads these as body, so the copied "header" must be empty too.
+    for first in ("-----", "--- not a fence", "---x"):
+        assert sync.frontmatter_block(f"{first}\nintro\n---\nrest\n") == ""

@@ -57,9 +57,9 @@ def frontmatter_block(text: str) -> str:
     keyed by.
     """
     stripped = text.lstrip("﻿")
-    if not stripped.startswith("---"):
-        return ""
     lines = stripped.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        return ""
     for idx in range(1, len(lines)):
         if lines[idx].strip() == "---":
             block = "".join(lines[: idx + 1])
