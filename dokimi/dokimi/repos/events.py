@@ -55,7 +55,7 @@ class Transcript:
     cache_read_tokens: int | None = None
     cache_write_tokens: int | None = None
     usage_scope: str | None = None  # "tree": tokens include subagents and helper models; "main": parent only
-    subagent_calls: int = 0
+    subagent_calls: int | None = None  # counted once the harness's result record is seen
     is_error: bool = False
     harness_version: str | None = None
     result_subtype: str | None = None
@@ -119,7 +119,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
                 if rec.get("parent_tool_use_id"):
                     event["agent"] = str(rec["parent_tool_use_id"])
                 if block.get("name") in _AGENT_TOOLS:
-                    out.subagent_calls += 1
+                    out.subagent_calls = (out.subagent_calls or 0) + 1
                 out.events.append(event)
                 if block.get("id"):
                     by_id[block["id"]] = event
@@ -148,6 +148,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
         out.num_turns = rec.get("num_turns")
         out.is_error = bool(rec.get("is_error"))
         out.result_subtype = rec.get("subtype")
+        out.subagent_calls = out.subagent_calls or 0
         if not isinstance(rec.get("usage") or {}, dict):
             raise TypeError("usage is not an object")
         from dokimi.harnesses.claude_json import token_counts

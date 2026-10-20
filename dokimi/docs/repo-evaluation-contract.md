@@ -315,7 +315,7 @@ reads the upstream base (`base_sha`) and the workspace start commit
 `usage_scope` is `tree` when they include subagents and helper models (Claude
 Code's `modelUsage`), `main` when the harness reported the parent's only, and
 `null` when it reported none. `subagent_calls` counts the parent's and
-subagents' `Agent`/`Task` calls.
+subagents' `Agent`/`Task` calls; `null` when the harness wrote no result record.
 
 ### 4.2 `grade.json` (written by `grade` to `{run_dir}/grade.json`)
 
