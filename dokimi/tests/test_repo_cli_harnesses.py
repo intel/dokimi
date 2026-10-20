@@ -59,6 +59,13 @@ def test_profile_env_passes_byok_names_only():
     assert env["COPILOT_HOME"] == "/cfg" and env["COPILOT_AUTO_UPDATE"] == "false"
     assert env["COPILOT_PROVIDER_BASE_URL"] == "http://127.0.0.1:4000/v1"
     assert "AWS_BEARER_TOKEN_BEDROCK" not in env
+
+
+@pytest.mark.parametrize("name", ["copilot", "copilot-review"])
+def test_copilot_profiles_forward_only_the_token_copilot_hides_from_its_shell(name):
+    env = load_profile(name).env(Path("/cfg")).resolve(
+        {"COPILOT_GITHUB_TOKEN": "c", "GH_TOKEN": "g", "GITHUB_TOKEN": "t", "PATH": "/bin"})
+    assert env["COPILOT_GITHUB_TOKEN"] == "c" and "GH_TOKEN" not in env and "GITHUB_TOKEN" not in env
     assert load_profile("codex").env(Path("/c")).resolve({"OPENAI_API_KEY": "k"})["CODEX_HOME"] == "/c"
 
 

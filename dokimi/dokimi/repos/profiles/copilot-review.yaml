@@ -35,9 +35,9 @@ env_allow:
   - HOME
   - LANG
   - SYSTEMROOT
+  # Copilot hides COPILOT_GITHUB_TOKEN from its shell but not GH_TOKEN or GITHUB_TOKEN,
+  # which the agent's commands could then read: those two are not forwarded.
   - COPILOT_GITHUB_TOKEN
-  - GH_TOKEN
-  - GITHUB_TOKEN
   # BYOK: a custom OpenAI-compatible, Azure or Anthropic endpoint instead of Copilot's
   - COPILOT_PROVIDER_BASE_URL
   - COPILOT_PROVIDER_TYPE
