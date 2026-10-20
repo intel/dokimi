@@ -211,6 +211,15 @@ def _is_weak(node: ast.expr) -> bool:
     return False
 
 
+def _always_true(node: ast.expr) -> bool:
+    """``assert True``, ``assert x or True``, or ``assert m.assert_called_once_with`` (never called)."""
+    if isinstance(node, ast.Constant):
+        return bool(node.value)
+    if isinstance(node, ast.BoolOp):
+        return (any if isinstance(node.op, ast.Or) else all)(map(_always_true, node.values))
+    return isinstance(node, ast.Attribute) and node.attr.startswith("assert_")
+
+
 def _eq_operands(node: ast.expr) -> tuple[ast.expr, ast.expr] | None:
     if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
         return node.left, node.comparators[0]
@@ -409,7 +418,7 @@ class _Facts(NamedTuple):
 
 def _collect(fn: _FuncDef) -> _Facts:
     nodes = list(_own_nodes(fn.body))
-    asserts = [n for n in nodes if isinstance(n, ast.Assert)]
+    asserts = [n for n in nodes if isinstance(n, ast.Assert) and not _always_true(n.test)]
     calls = [n for n in nodes if isinstance(n, ast.Call)]
     # A @patch decorator patches the whole test from outside its body.
     decorator_calls = [n for d in fn.decorator_list for n in ast.walk(d) if isinstance(n, ast.Call)]

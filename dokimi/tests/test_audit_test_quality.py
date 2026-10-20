@@ -442,6 +442,20 @@ def test_no_assert_only_suppressed_by_bare_calls(check, expected_no_assert):
         assert "no_assert" not in flags["test_x"]
 
 
+@pytest.mark.parametrize("check", [
+    "assert True", "assert out == 42 or True", "assert send.assert_called_once_with",
+])
+def test_an_assert_that_is_always_true_is_no_check(check):
+    flags = _flags(f"""
+        from unittest.mock import patch
+        def test_x():
+            with patch("mod.send") as send:
+                out = run()
+            {check}
+        """)
+    assert "no_assert" in flags["test_x"]
+
+
 def test_callable_form_raises_is_a_check():
     flags = _flags("""
         import pytest
