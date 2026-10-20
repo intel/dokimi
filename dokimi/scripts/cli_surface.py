@@ -14,6 +14,11 @@ The dump walks the argparse tree `dokimi.cli.build_parser()` returns, of
 whichever `dokimi` is first on sys.path: the workflow points PYTHONPATH at a
 checkout of each ref in turn.
 
+Limit: only the parser tree is compared. A validator that reads module state
+when it runs (for example one that checks against `JUDGE_ROLES`) can reject
+more input after a change without any change in the dump, so the diff is empty
+for it. Review such changes by hand.
+
 Usage:
   python scripts/cli_surface.py dump [OUT.json]
   python scripts/cli_surface.py diff BASE.json HEAD.json [--markdown]
