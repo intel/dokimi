@@ -123,6 +123,36 @@ def test_a_reward_beside_an_exception_is_kept_aside_not_scored(tmp_path):
     assert result.metrics["reward_after_exception"] == 1.0
 
 
+def test_a_step_that_raised_errors_a_multi_step_trial(tmp_path):
+    """Measured with Harbor 0.20.0 (``multistep`` fixture, agent ``oracle``): step-2's
+    setup.sh failed, the exception is on that step only, and the top-level reward is
+    step-1's 1.0 because Harbor's mean leaves a step without a verifier result out."""
+    result = _run(tmp_path, _harbor_writes("multistep"))
+
+    assert (result.passed, result.reward) == (False, None)
+    assert result.metrics["error"] == "harbor: RuntimeError: Step 'step-2' setup.sh exited with code 3: None"
+    assert result.metrics["reward_after_exception"] == 1.0
+    assert "prompt_tokens" not in result.metrics  # the oracle's counts are null
+
+
+def test_a_multi_step_trial_sums_its_steps_usage(tmp_path):
+    def two_clean_steps(trial):
+        first, second = trial["step_results"]
+        first["agent_result"] = {"n_input_tokens": 1000, "n_cache_tokens": 400, "n_output_tokens": 10,
+                                 "cost_usd": 0.5}
+        second.update(exception_info=None, verifier_result={"rewards": {"reward": 1.0}},
+                      agent_result={"n_input_tokens": 500, "n_cache_tokens": None, "n_output_tokens": 5,
+                                    "cost_usd": 0.25})
+
+    result = _run(tmp_path, _harbor_writes("multistep", edit=two_clean_steps))
+
+    assert (result.passed, result.reward) == (True, 1.0)
+    m = result.metrics
+    assert (m["prompt_tokens"], m["completion_tokens"], m["total_tokens"]) == (1500, 15, 1515)
+    assert m["cost_usd"] == pytest.approx(0.75)
+    assert "cache_read_tokens" not in m  # unknown for step-2, so not a partial sum
+
+
 @pytest.mark.parametrize("exception_info, error", [
     ("boom", "harbor: unknown"),  # not a dict: no type to report
     ({"exception_type": None, "exception_message": "x" * 300 + "\nsecond line"},

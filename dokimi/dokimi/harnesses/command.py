@@ -240,8 +240,9 @@ def read_harbor_job(jobs_dir: Path | None, returncode: int) -> tuple[float | Non
     ``<jobs_dir>/<job>/<trial>/result.json`` per trial; the trial's file is the
     authoritative one. The reward is its ``verifier_result.rewards.reward``. A
     trial with ``exception_info`` (agent install, environment start, agent
-    timeout), a trial with no reward, a cell with no trial file at all, or with
-    more than one trial, has no verdict: ``metrics.error`` is set and the
+    timeout) at the top or on any of its ``step_results``, a trial with no
+    reward, a cell with no trial file at all, or with more than one trial, has
+    no verdict: ``metrics.error`` is set and the
     reward is None, so the runner counts the cell as errored, never as a pass
     because ``harbor`` exited 0.
     """
@@ -266,9 +267,15 @@ def read_harbor_job(jobs_dir: Path | None, returncode: int) -> tuple[float | Non
     if not isinstance(trial, dict):
         metrics["error"] = "harbor: trial result.json is not a JSON object"
         return None, metrics
-    metrics.update(harbor_usage(trial.get("agent_result")))
+    # A multi-step trial keeps its usage and a step's exception on step_results only;
+    # its top-level reward is the mean over the steps that reached their verifier.
+    raw_steps = trial.get("step_results")
+    steps = [s for s in raw_steps if isinstance(s, dict)] if isinstance(raw_steps, list) else []
+    agent_result = trial.get("agent_result")
+    metrics.update(_step_usage(steps) if agent_result is None and steps else harbor_usage(agent_result))
     reward = _harbor_reward(trial)
-    exception = trial.get("exception_info")
+    exception = trial.get("exception_info") or next(
+        (s["exception_info"] for s in steps if s.get("exception_info")), None)
     if exception:
         info = exception if isinstance(exception, dict) else {}
         kind = str(info.get("exception_type") or "unknown")
@@ -309,6 +316,15 @@ def harbor_usage(agent_result: Any) -> dict[str, Any]:
         except OverflowError:  # beyond float range: unknown, not a value to add up
             pass
     return metrics
+
+
+def _step_usage(steps: list[dict[str, Any]]) -> dict[str, Any]:
+    """Usage summed over the steps whose agent ran; a key one of them lacks is unknown."""
+    usages = [harbor_usage(s.get("agent_result")) for s in steps if isinstance(s.get("agent_result"), dict)]
+    if not usages:
+        return {}
+    keys = set(usages[0]).intersection(*usages[1:])
+    return {key: sum(u[key] for u in usages) for key in keys}
 
 
 def _harbor_reward(trial: dict[str, Any]) -> float | None:

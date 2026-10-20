@@ -418,7 +418,7 @@ a verdict. The rules mirror intel/skills' `tools/check_harbor_job.py`:
 | Trial `result.json` | Cell |
 |---|---|
 | `verifier_result.rewards.reward` is a number, no `exception_info` | scored: that reward, a pass at 1.0 |
-| `exception_info` set | errored: `metrics.error` is `harbor: <exception_type>: <first line>`, `metrics.harbor_exception` the type; a reward the verifier still wrote is kept as `metrics.reward_after_exception`, not scored |
+| `exception_info` set, at the top or on a `step_results[]` entry (a multi-step task) | errored: `metrics.error` is `harbor: <exception_type>: <first line>`, `metrics.harbor_exception` the type; a reward the verifier still wrote is kept as `metrics.reward_after_exception`, not scored |
 | no `exception_info`, no numeric reward | errored |
 | no trial file (with or without the job's), more than one trial, or not a JSON object | errored |
 
@@ -427,7 +427,8 @@ for `docker-*` and BenchFlow. `metrics.n_trials` counts the trial files and
 `metrics.result_json` names the one read. A `harbor` that `dokimi` kills at
 the task budget is a failed cell (reward 0, returncode 124), as above.
 
-Usage comes from the trial's `agent_result`: `n_input_tokens` →
+Usage comes from the trial's `agent_result` (for a multi-step trial, the sum over
+`step_results[].agent_result`): `n_input_tokens` →
 `prompt_tokens` (Harbor's count includes the cached prompt, as BenchFlow's
 does), `n_output_tokens` → `completion_tokens`, `n_cache_tokens` →
 `cache_read_tokens`, their sum → `total_tokens`, and `cost_usd`; these feed
