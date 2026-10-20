@@ -497,3 +497,12 @@ def test_skill_listing_counts_what_the_listing_shows(tmp_path):
     listing = skill_listing(long)
     assert listing["description_chars"] == len("Use for b things.") + 3 + 1530
     assert listing["truncated"] is True
+
+
+@pytest.mark.parametrize("chars, truncated", [(1536, False), (1537, True)])
+def test_skill_listing_cuts_only_past_the_cap(tmp_path, chars, truncated):
+    skill = tmp_path / "s"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(f"---\nname: s\ndescription: {'x' * chars}\n---\n# B\n",
+                                    encoding="utf-8")
+    assert skill_listing(skill)["truncated"] is truncated

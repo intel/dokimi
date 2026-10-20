@@ -1225,3 +1225,21 @@ def test_the_plugin_modes_are_reset_not_widened(tmp_path, monkeypatch):
     chmod = next(c for c in calls if "chmod" in c)
     # a+rX would keep a setuid or world-writable file from the source as it is.
     assert chmod == ["exec", "-u", "root", "c1", "chmod", "-R", "u=rwX,go=rX", "/opt/abskill"]
+
+
+def test_an_announced_arm_does_not_warn_and_the_notice_is_on_by_default(
+        tmp_path, docker_calls, monkeypatch):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(f"---\nname: demo-skill\ndescription: {'x' * 1600}\n---\n# D\n",
+                                    encoding="utf-8")
+    task = load_task(_task(tmp_path))
+    for name, harness in (("skill", create_harness(f"docker-claude-skill:{skill}")),
+                          ("direct", DockerSolverHarness(harness_id="d", skill_path=str(skill)))):
+        seen: dict = {"stream": _stream("demo-skill")}
+        _fake_claude(monkeypatch, seen)
+        result = harness.run(task, model="haiku", output_dir=tmp_path / f"out-{name}")
+        assert result.metrics["skill_listing"]["truncated"] is True
+        assert result.metrics["skill_notice"] is True
+        assert "demo-skill" in seen["argv"][seen["argv"].index("-p") + 1]
+        assert "WARNING" not in (tmp_path / f"out-{name}" / "run.log").read_text(encoding="utf-8")
