@@ -271,7 +271,7 @@ def test_a_file_name_that_is_not_utf8_is_skipped_with_a_warning(tmp_path, capsys
     assert inspect_repo(tree)["files"]["files"] == 1
     for _ in range(2):  # what `repo budget` reads; the second time, the blob is local
         assert tree.read_many(tree.files()) == {"AGENTS.md": "x"}
-    assert "not UTF-8: 0\\xff.md" in capsys.readouterr().err
+    assert "not UTF-8: b'0\\xff.md'" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("kind", ["work", "git"])
@@ -1113,6 +1113,11 @@ def test_command_v_lookup_not_flagged(tmp_path, command, flagged):
     ("cat <<< 'npm ci'", False),
     ("bash -c 'echo' <<EOF\nnpm ci\nEOF", False),  # bash -c ignores stdin
     ("cat <<EOF\nnpm ci\nEOF\nsh -s <<<y", False),  # the cat body is not read by a shell
+    ("cat <<EOF\nnpm ci\nEOF\nbash <<EOF\nx\nEOF", False),  # the shell's EOF body is `x`
+    ("bash <<EOF\nx\nEOF\ncat <<EOF\nnpm ci\nEOF", False),
+    ("bash <<A <<B\nx\nA\nnpm ci\nB", True),  # the second heredoc on a line takes the body after the first
+    ("bash <<'A' <<B\nnpm ci\nA\nx\nB", True),
+    ("bash <<A\nx\nA\ncat <<B\nnpm ci\nB", False),
 ])
 def test_heredoc_and_here_string_parsing(tmp_path, command, flagged):
     """Heredocs and here-strings fed to a shell should parse the body."""
@@ -1131,6 +1136,17 @@ def test_unclosed_heredocs_are_linear(tmp_path):
     assert time.monotonic() - start < 5.0
 
 
+def test_heredocs_opened_on_one_line_are_linear(tmp_path):
+    """Several heredocs on one line read their bodies in turn, so the cost grows with the text, not its square."""
+    import time
+    from dokimi.repos.environment.risks import _segments
+    n = 1000
+    hostile = "bash " + " ".join(f"<<L{i}" for i in range(n)) + "\n" + "".join(f"echo x{i}\nL{i}\n" for i in range(n))
+    start = time.monotonic()
+    _segments(hostile)
+    assert time.monotonic() - start < 5.0
+
+
 def test_redirection_keeps_its_fd_digit():
     from dokimi.repos.environment.risks import _segments
     assert [" ".join(argv) for argv in _segments("npm ci 2>&1 | tee log")] == ["npm ci 2>&1", "tee log"]
@@ -1140,6 +1156,7 @@ def test_whitespace_is_one_line_and_control_characters_are_escaped():
     from dokimi.commands.repo import _normalize_whitespace
     assert _normalize_whitespace("a\r\n\tb  c") == "a b c"
     assert _normalize_whitespace("rm\x1b[2K ok") == "rm\\x1b[2K ok"
+    assert _normalize_whitespace("a\u200bb\u202e\ud800") == "a\\u200bb\\u202e\\ud800"
     assert _normalize_whitespace("dir\ndz") == "dir dz"
     assert _normalize_whitespace("x" * 150) == "x" * 100
     assert _normalize_whitespace("x" * 150, max_len=None) == "x" * 150

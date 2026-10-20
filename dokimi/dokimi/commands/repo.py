@@ -16,7 +16,7 @@ from pathlib import Path
 def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
     """One line: whitespace runs become one space, control characters are escaped, then truncated."""
     flat = re.sub(r"\s+", " ", text).strip()
-    printable = "".join(c if c.isprintable() else f"\\x{ord(c):02x}" for c in flat)
+    printable = "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii") for c in flat)
     return printable[:max_len]
 
 

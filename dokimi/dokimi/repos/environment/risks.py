@@ -419,20 +419,22 @@ def _segments(command: str, depth: int = 0) -> list[list[str]]:
     for body in _double_quoted_substitutions(text):
         extra += _segments(body, depth + 1)
     # Here-strings and heredoc bodies are commands only when a shell reads them as its stdin.
-    shell_labels: list[str] = []
+    shell_starts: dict[str, list[bool]] = {}
     for k, argv in enumerate(out):
         _, i = _command_start(argv)
-        if i < len(argv) and argv[i].rsplit("/", 1)[-1] in _SHELLS and _reads_stdin(argv, i):
+        is_shell = i < len(argv) and argv[i].rsplit("/", 1)[-1] in _SHELLS and _reads_stdin(argv, i)
+        if is_shell:
             for here_string in _here_strings(argv[i:]):
                 extra += _segments(here_string, depth + 1)
-            shell_labels += _heredoc_labels(argv[i:])
         # A shell piped after this command reads its heredoc (`cat <<EOF | sh`)
+        piped_to_shell = False
         if k + 1 < len(out) and seps[k + 1] == "|":
             _, next_i = _command_start(out[k + 1])
-            if (next_i < len(out[k + 1]) and out[k + 1][next_i].rsplit("/", 1)[-1] in _SHELLS
-                    and _reads_stdin(out[k + 1], next_i)):
-                shell_labels += _heredoc_labels(argv)
-    for body in _heredoc_bodies(text, set(shell_labels)):
+            piped_to_shell = (next_i < len(out[k + 1]) and out[k + 1][next_i].rsplit("/", 1)[-1] in _SHELLS
+                              and _reads_stdin(out[k + 1], next_i))
+        for label in _heredoc_labels(argv):
+            shell_starts.setdefault(label, []).append(is_shell or piped_to_shell)
+    for body in _heredoc_bodies(text, shell_starts):
         extra += _segments(body, depth + 1)
     for k, argv in enumerate(out):
         _, i = _command_start(argv)
@@ -489,12 +491,14 @@ def _heredoc_labels(argv: list[str]) -> list[str]:
 _HEREDOC_START = re.compile(r"(?<!<)<<-?[ \t]*['\"]?([A-Za-z_][\w.-]*)['\"]?(?![\w.-])")
 
 
-def _heredoc_bodies(text: str, labels: set[str]) -> list[str]:
-    """The bodies of the heredocs that ``labels`` open, each read to the next line that is its label.
+def _heredoc_bodies(text: str, shell_starts: dict[str, list[bool]]) -> list[str]:
+    """The bodies of the heredocs a shell reads, in the order the shell reads them.
 
-    One pass over the text per call, so a long run of unclosed heredocs is linear, not quadratic.
+    ``shell_starts[label]`` says, for each start of that label in text order, whether a shell is fed
+    by it. Starts on one line take their bodies in turn; a start inside an earlier body is data. An
+    unclosed heredoc runs to the end of the text, so reading stops there. One pass, so linear.
     """
-    if not labels:
+    if not shell_starts:
         return []
     lines = text.split("\n")
     line_starts: list[int] = []
@@ -502,30 +506,33 @@ def _heredoc_bodies(text: str, labels: set[str]) -> list[str]:
     for line in lines:
         line_starts.append(offset)
         offset += len(line) + 1
+    starts = [(bisect.bisect_right(line_starts, m.start()) - 1, m.group(1))
+              for m in _HEREDOC_START.finditer(text)]
     terminators: dict[str, list[int]] = {}
+    wanted = {label for _, label in starts}
     for idx, line in enumerate(lines):
         stripped = line.strip()
-        if stripped in labels:
+        if stripped in wanted:
             terminators.setdefault(stripped, []).append(idx)
-    starts: dict[str, list[int]] = {}
-    for m in _HEREDOC_START.finditer(text):
-        if m.group(1) in labels:
-            line_idx = bisect.bisect_right(line_starts, m.start()) - 1
-            starts.setdefault(m.group(1), []).append(line_idx)
     out = []
-    for label, label_starts in starts.items():
+    ordinal: dict[str, int] = {}
+    last_line = next_free = -1
+    for line_idx, label in starts:
+        if last_line < line_idx <= next_free:
+            continue
+        n = ordinal.get(label, 0)
+        ordinal[label] = n + 1
         ends = terminators.get(label, [])
-        cursor = -1  # a start inside an earlier body is data, not a new heredoc
-        for s in label_starts:
-            if s <= cursor:
-                continue
-            k = bisect.bisect_right(ends, s)
-            if k == len(ends):
-                break
-            body = "\n".join(lines[s + 1:ends[k]])
+        begin = max(line_idx, next_free) + 1
+        k = bisect.bisect_left(ends, begin)
+        if k == len(ends):
+            break
+        flags = shell_starts.get(label, [])
+        if n < len(flags) and flags[n]:
+            body = "\n".join(lines[begin:ends[k]])
             if body.strip():
                 out.append(body)
-            cursor = ends[k]
+        last_line, next_free = line_idx, ends[k]
     return out
 
 

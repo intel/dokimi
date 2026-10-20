@@ -441,8 +441,7 @@ def _git_entries(git_dir: Path, *args: str, check: bool = True, warn: bool = Fal
             out.append(entry.decode("utf-8"))
         except UnicodeDecodeError:
             if warn:
-                print(f"warning: skipped a file name that is not UTF-8: {entry.decode('utf-8', 'backslashreplace')}",
-                      file=sys.stderr)
+                print(f"warning: skipped a file name that is not UTF-8: {entry!r}", file=sys.stderr)
     return [e for e in out if e]
 
 
