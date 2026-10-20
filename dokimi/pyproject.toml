@@ -121,6 +121,8 @@ extend-exclude = ["benchmarks", "data"]
 [tool.ruff.per-file-target-version]
 "dokimi/repos/support/no_background.py" = "py310"
 "dokimi/harnesses/egress_proxy.py" = "py310"
+# The built-in review graders run on the task image's python3 too, 3.8 or newer (contract §4.5).
+"dokimi/repos/graders/*.py" = "py38"
 
 # A correctness gate: rules that flag code that misbehaves (a swallowed
 # KeyboardInterrupt, a naive datetime, a file handle never closed, an assert
