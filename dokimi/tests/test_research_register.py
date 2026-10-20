@@ -66,6 +66,19 @@ def test_valid_register_passes(root: Path, capsys: pytest.CaptureFixture[str]) -
      "a finding id starts with F"),
     ("idea", "I002", "title: T\ntheme: O\nquestion: Q\nstatus: open\nlinks: [https://example.com/x]\n",
      "does not match"),
+    ("experiment", "X003", "title: T\nidea: [[I001]]\nhypothesis: H\noutcome: refuted\n",
+     "is not of type 'string'"),
+    ("decision", "D002", "title: T\nstate: accepted\nsuperseded_by: D001\n",
+     "superseded_by is set but state is 'accepted'"),
+    ("decision", "D002", "title: T\nstate: superseded\nsuperseded_by: D002\n",
+     "names the record itself"),
+    ("idea", "I002", "title: T\ntheme: O\nquestion: Q\nstatus: open\nextra: 1\n",
+     "Unevaluated properties"),
+    ("finding", "F002", "title: T\nexperiments: [X001]\nconfidence: low\nextra: 1\n",
+     "Unevaluated properties"),
+    ("decision", "D002", "title: T\nstate: accepted\nextra: 1\n", "Unevaluated properties"),
+    ("implref", "R001", "title: T\ndecision: D001\nstatus: open\nlinks: []\nextra: 1\n",
+     "Unevaluated properties"),
 ])
 def test_bad_record_fails(root: Path, capsys: pytest.CaptureFixture[str],
                           kind: str, rid: str, front: str, message: str) -> None:
@@ -88,9 +101,62 @@ def test_query_negative_outcomes_for_idea(root: Path, capsys: pytest.CaptureFixt
     assert [line.split("\t")[0] for line in out] == ["X001"]
 
 
+def test_query_ref_and_type_both_filter(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _write(root, "idea", "I002", "title: Other\ntheme: O\nquestion: Q?\nstatus: open\n")
+    _write(root, "experiment", "X003", "title: Run 3\nidea: I002\nhypothesis: H\noutcome: refuted\n")
+
+    def listed(*argv: str) -> list[str]:
+        capsys.readouterr()
+        assert rr.main(["--root", str(root), "query", *argv]) == 0
+        return [line.split("\t")[0] for line in capsys.readouterr().out.splitlines()]
+
+    assert listed("--ref", "I001") == ["X001", "X002"]
+    assert listed("--ref", "I002") == ["X003"]
+    assert listed("--type", "idea") == ["I001", "I002"]
+    assert listed("--type", "experiment", "--ref", "I002") == ["X003"]
+    assert listed("--type", "finding", "--ref", "I001") == []
+
+
+def test_misplaced_record_fails(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _write(root, "idea", "I002", "title: T\ntheme: O\nquestion: Q\nstatus: open\n")
+    (root / "records" / "idea" / "I002.md").rename(root / "records" / "finding" / "I002.md")
+    assert rr.main(["--root", str(root), "check"]) == 1
+    assert "expected at records/idea/I002.md, found I002.md" in capsys.readouterr().out
+
+
+def test_wrong_filename_fails(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _write(root, "idea", "I002", "title: T\ntheme: O\nquestion: Q\nstatus: open\n")
+    (root / "records" / "idea" / "I002.md").rename(root / "records" / "idea" / "I009.md")
+    assert rr.main(["--root", str(root), "check"]) == 1
+    assert "expected at records/idea/I002.md, found I009.md" in capsys.readouterr().out
+
+
+def test_next_id_skips_gaps(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _write(root, "experiment", "X005", "title: Run 5\nidea: I001\nhypothesis: H\noutcome: planned\n")
+    assert rr.main(["--root", str(root), "next", "experiment"]) == 0
+    assert capsys.readouterr().out.strip() == "X006"
+
+
 def test_next_id(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert rr.main(["--root", str(root), "next", "experiment"]) == 0
     assert capsys.readouterr().out.strip() == "X003"
+
+
+@pytest.mark.parametrize("argv", [["query"], ["next", "experiment"], ["export"]])
+def test_commands_refuse_broken_register(root: Path, capsys: pytest.CaptureFixture[str],
+                                         argv: list[str]) -> None:
+    _write(root, "idea", "I002", "title: No theme\nquestion: Q\nstatus: open\n")
+    assert rr.main(["--root", str(root), *argv]) == 1
+    captured = capsys.readouterr()
+    assert "I002: $: 'theme' is a required property" in captured.err
+    assert captured.out == ""
+
+
+def test_export_refuses_record_without_theme_status(root: Path,
+                                                   capsys: pytest.CaptureFixture[str]) -> None:
+    _write(root, "idea", "I002", "title: No status\ntheme: O\nquestion: Q\n")
+    assert rr.main(["--root", str(root), "export"]) == 1
+    assert "'status' is a required property" in capsys.readouterr().err
 
 
 def test_export_tree(root: Path, capsys: pytest.CaptureFixture[str]) -> None:

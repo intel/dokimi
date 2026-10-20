@@ -130,13 +130,20 @@ def check(records: dict[str, Record], schema: dict[str, Any]) -> list[str]:
             errors.append(f"{rid}: a {kind} id starts with {PREFIX[kind]}")
         for field, want in REFS.get(kind, {}).items():
             for target in ref_values(record, field):
+                if not isinstance(target, str):
+                    continue  # the schema already reports a non-id value
                 if target not in records:
                     errors.append(f"{rid}.{field}: no record {target}")
                 elif records[target].type != want:
                     errors.append(f"{rid}.{field}: {target} is {records[target].type}, "
                                   f"want {want}")
-        if record.fields.get("state") == "superseded" and "superseded_by" not in record.fields:
+        state = record.fields.get("state")
+        if state == "superseded" and "superseded_by" not in record.fields:
             errors.append(f"{rid}: a superseded decision names its superseded_by")
+        if "superseded_by" in record.fields and state != "superseded":
+            errors.append(f"{rid}: superseded_by is set but state is {state!r}, not 'superseded'")
+        if record.fields.get("superseded_by") == rid:
+            errors.append(f"{rid}: superseded_by names the record itself")
     return errors
 
 
@@ -199,11 +206,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     records, errors = load(args.root)
+    schema = json.loads((args.root / SCHEMA.name).read_text(encoding="utf-8"))
+    errors += check(records, schema)
     if args.command == "check":
-        schema = json.loads((args.root / SCHEMA.name).read_text(encoding="utf-8"))
-        errors += check(records, schema)
         print("\n".join(errors) if errors else f"OK: {len(records)} records")
         return 1 if errors else 0
+    # Every other command reads the records as valid, so refuse a broken register up front.
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
