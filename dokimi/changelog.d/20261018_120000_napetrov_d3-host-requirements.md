@@ -8,7 +8,7 @@
   cgroup CPU quota (`docker --cpus`), vendor and flags come from `/proc/cpuinfo`. A task the
   host cannot show is `unsupported` with the reason in `tasks check` (which exits 1, as for
   an egress task, unless `--allow-unsupported` is given, for CI on hosts that cannot show
-  some bugs; broken and egress tasks still exit 1), and in `repo run` its cells are not run: each holds an `unsupported.json`,
+  some bugs; broken tasks, egress tasks and tasks whose host probe failed still exit 1), and in `repo run` its cells are not run: each holds an `unsupported.json`,
   and `repo report` lists them apart, neither failed nor missing; if the probe itself
   failed, `repo run` exits 1. A later run on a host that
   meets the requirements runs them. The probed facts are recorded in `check.json` `host`, in

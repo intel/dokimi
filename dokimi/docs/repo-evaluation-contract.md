@@ -370,8 +370,8 @@ For every task, before any paid run:
 A task whose `host` requirements (§3) the probe container does not meet is
 `unsupported` with the reason, like a task whose `egress` needs the missing
 proxy, and `tasks check` exits 1 for it. With `--allow-unsupported` it is
-still printed with its reason but does not make the exit code 1; broken tasks
-and tasks that need egress still do. `repo run` does not run its cells:
+still printed with its reason but does not make the exit code 1; broken tasks,
+tasks that need egress and tasks whose host probe failed still do. `repo run` does not run its cells:
 each holds an `unsupported.json` with the reason, and `repo report` lists them
 apart, neither failed nor missing. If the probe itself fails, a task with
 `host` requirements is not run either, and `repo run` exits 1 when one of its

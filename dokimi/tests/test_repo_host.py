@@ -527,6 +527,18 @@ def test_a_partly_finished_batch_rerun_on_a_failed_probe_exits_1(tmp_path, monke
     assert race_cells[1].is_file()  # the finished cell keeps its result
 
 
+def test_an_unfinished_cell_of_another_task_does_not_fail_a_task_that_is_done(tmp_path, monkeypatch, capsys):
+    """fix_race is complete; only a fix_add cell is left, so the failed probe costs nothing."""
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_add", "--task", "fix_race")
+    capsys.readouterr()
+    add_cells = sorted((out / "b1").glob("fix_add__*/result.json"))
+    add_cells[0].unlink()
+    _run(root, out, HostRunner(None), monkeypatch, "--task", "fix_add", "--task", "fix_race")  # exits 0
+    assert "host probe failed" not in capsys.readouterr().err
+
+
 def test_a_probe_failure_never_unsupports_a_task_with_no_constraint():
     assert unmet(_task({}), {"error": "host probe did not start"}) == (None, None)
 
