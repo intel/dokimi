@@ -90,7 +90,7 @@ flowchart LR
     estimate --> run[Run with explicit inputs and cap]
     run --> out[Structured output, settings, spend, limits]
     out --> rerender[Re-render saved output, no model calls]
-    run -->|cap reached| stop[Stopped at cap, partial result labelled]
+    run -->|cap reached| stop[Stopped at cap, no result written]
     J14 --> novelty[Novelty]
     J14 --> reach[Reach]
     J14 --> routing[Routing]

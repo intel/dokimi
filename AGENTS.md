@@ -37,7 +37,8 @@ also holds a PR to:
   weaken or drop it only together with the doc and the contract. The same
   session checks the journey trace (`tests/outcomes/journeys.yaml` against
   `docs/user-journeys/journeys.md`) and writes `journeys-result.json`; removing
-  a marked `cjm-*` test fails it even when `outcomes-result.json` says pass.
+  a marked `cjm-*` test fails it, even when `outcomes-result.json` says pass,
+  if the criterion it evidences has `enforce: true`.
 
 ## Before changing a subsystem, read its doc
 
