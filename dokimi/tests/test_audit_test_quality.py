@@ -395,6 +395,21 @@ def test_and_or_splits_in_mock_echo():
     assert "mock_echo" in flags["test_or_split"]
 
 
+@pytest.mark.parametrize("check,flag", [
+    ("out == 42 or send.called", "mock_echo"),
+    ("out == 42 or out is not None", "type_only"),
+])
+def test_an_or_with_one_check_that_cannot_fail_is_flagged(check, flag):
+    flags = _flags(f"""
+        from unittest.mock import patch
+        def test_x():
+            with patch("mod.send") as send:
+                out = run()
+            assert {check}
+        """)
+    assert flag in flags["test_x"]
+
+
 def test_tuple_of_mock_attrs_and_literals_is_mock_echo():
     """A tuple of mock attributes against literal expectations only reads the mock."""
     flags = _flags("""

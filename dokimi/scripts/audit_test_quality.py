@@ -191,7 +191,8 @@ def _is_len_call(node: ast.expr) -> bool:
 def _is_weak(node: ast.expr) -> bool:
     """An existence, type or non-emptiness check that compares no value."""
     if isinstance(node, ast.BoolOp):
-        return all(_is_weak(v) for v in node.values)
+        # `a or b` passes as soon as one operand does, so one weak operand makes it weak.
+        return (any if isinstance(node.op, ast.Or) else all)(_is_weak(v) for v in node.values)
     if isinstance(node, ast.Call):
         name = _call_name(node)
         if name in _TYPE_CHECK_CALLS and len(node.args) == 2:
@@ -315,7 +316,8 @@ def _is_mock_verify(test: ast.expr) -> bool:
     """An assert that only reads whether a mock was called.
 
     ``assert m.call_count == 2 and vote.aggregate == 70.0`` also checks a value,
-    so each operand of an ``and`` is judged on its own. Similarly for ``or``.
+    so each operand of an ``and`` is judged on its own. An ``or`` passes as soon as
+    one operand does, so one mock-only operand makes it mock-only.
 
     Tuple comparisons like ``assert (m.call_count, out) == (1, 42)`` check both
     the mock call and the output, so they are not mock-only. But
@@ -325,7 +327,7 @@ def _is_mock_verify(test: ast.expr) -> bool:
         if isinstance(test.op, ast.And):
             return all(map(_is_mock_verify, test.values))
         elif isinstance(test.op, ast.Or):
-            return all(map(_is_mock_verify, test.values))
+            return any(map(_is_mock_verify, test.values))
     # If this is a comparison with tuples, check if all tuple elements are mock attributes
     if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq):
         left_tuple = isinstance(test.left, ast.Tuple)
