@@ -108,7 +108,7 @@ def _param(action: argparse.Action, position: int | None, group_key: str | None 
         "default": _value(action.default),
         "const": _value(action.const),
         "type": _value(action.type),
-        "choices": sorted(repr(_value(c)) for c in action.choices) if action.choices else None,
+        "choices": sorted(repr(_value(c)) for c in action.choices) if action.choices is not None else None,
         "hidden": action.help == argparse.SUPPRESS,
         "action": type(action).__name__,
         "group_key": group_key,

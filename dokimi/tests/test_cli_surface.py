@@ -395,3 +395,8 @@ def test_a_validator_is_compared_by_code_not_by_its_docstring_or_comments(tmp_pa
     assert cs.diff_surfaces(base, _one(type=_file_validator(tmp_path, "reworded", reworded))) == []
     loosened = _one(type=_file_validator(tmp_path, "loosened", _VALIDATOR.replace("< 1", "< 0")))
     assert any("type:" in line for line in cs.diff_surfaces(base, loosened))
+
+
+def test_empty_choices_are_not_unrestricted():
+    # choices=[] rejects every value; None accepts any
+    assert any("choices: None -> []" in line for line in cs.diff_surfaces(_one(), _one(choices=[])))
