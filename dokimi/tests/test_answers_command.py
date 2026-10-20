@@ -91,7 +91,7 @@ def test_output_path_precedence():
 
 
 @pytest.mark.parametrize("top_k, config_text, expected_top_k", [
-    (3, None, 3),                                   # the flag wins
+    (5, "retrieval:\n  top_k: 7\n", 5),             # the flag wins over the config and the default
     (None, "retrieval:\n  top_k: 7\n", 7),          # else the config's retrieval.top_k
     (None, None, DEFAULT_RETRIEVAL_TOP_K),          # else the built-in default
 ])

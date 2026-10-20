@@ -69,7 +69,6 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     )
 
     config = _load_runtime_config()
-    _product_config = config.get("products", {}).get(args.product, {})
     _retrieval_cfg = config.get("retrieval", {})
     if args.top_k is None:
         args.top_k = _retrieval_cfg.get("top_k", DEFAULT_RETRIEVAL_TOP_K)
