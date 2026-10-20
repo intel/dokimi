@@ -64,7 +64,7 @@ WORKFLOWS = REPO / ".github" / "workflows"
 
 # Jobs or steps that cannot run offline. Keyed by job id, or (job id, step name).
 # pre-commit clones its hook repositories on first use; gitleaks downloads its binary.
-NEEDS_NETWORK = {"package-smoke", "windows-smoke", "gitleaks", ("static", "pre-commit"), ("static", "pip-audit")}
+NEEDS_NETWORK = {"package-smoke", "windows-smoke", "gitleaks", ("static", "pre-commit"), "pip-audit"}
 NEEDS_DOCKER = {"external-catalog-smoke"}
 # Jobs that `pip install .`: run on a copy of the tree in a throwaway venv.
 ISOLATED = {"package-smoke", "windows-smoke"}
@@ -206,12 +206,14 @@ class Context:
             expr = expr[3:-2]
         for fn in ("always()", "success()", "!cancelled()"):
             expr = expr.replace(fn, "True")
+        # A local run has no failed job to report (pip-audit.yml's `report` job).
+        expr = expr.replace("failure()", "False")
         for key, val in sorted(self.values.items(), key=lambda kv: -len(kv[0])):
             expr = expr.replace(key, repr(val))
         expr = expr.replace("&&", " and ").replace("||", " or ")
         expr = re.sub(r"!(?!=)", " not ", expr)
         try:
-            return bool(eval(expr, {"__builtins__": {}}, {"True": True}))  # nosec B307
+            return bool(eval(expr, {"__builtins__": {}}, {"True": True, "False": False}))  # nosec B307
         except (NameError, SyntaxError, TypeError):
             print(f"NOTICE: cannot evaluate `if: {expr.strip()}`; running the step")
             return True

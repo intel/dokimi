@@ -363,7 +363,7 @@ label.
 
 1. **static** — the checks that need no lock install, as steps of one job:
    `ruff check .`, zizmor on the workflows, the license headers, the pre-commit
-   hooks, bandit and pip-audit. Schema checks: `schema_check` validates
+   hooks and bandit (pip-audit is its own workflow, `pip-audit.yml`). Schema checks: `schema_check` validates
    `benchmarks/spec.v1.yaml`; `config_check` checks `products.yaml`/`intents.yaml`/
    `dokimi/config/products.yaml` drift. The `guidance self-scan (L0)` step runs
    `repo scan` as a gate (`--fail-on-fail`).
