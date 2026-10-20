@@ -730,7 +730,7 @@ that runs the no-LLM checks on the caller's checkout and needs no secret.
   `repo_readiness.v1` report to an artifact); `tasks-check` runs `repo tasks check`
   for each selected task in a job of its own (docker; the image is built from the
   manifest's Dockerfile), and uploads `check.json` and the grade logs.
-- `tasks: changed` (the default) checks, on a pull request, the tasks whose
+- `tasks: changed` (the default, also for an empty value) checks, on a pull request, the tasks whose
   directories it touches, plus `smoke-tasks` (empty: every task) when it changes
   the eval directory outside its tasks (Markdown anywhere in it excepted), the manifest, the
   calling workflow file or a path under `smoke-paths`. A file in the tasks directory that is

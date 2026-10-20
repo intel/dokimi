@@ -162,6 +162,12 @@ def test_an_explicit_task_list_is_checked_as_given(repo, tmp_path):
     assert _select(repo, tmp_path, TASKS="t1") == ["t1"]
 
 
+@pytest.mark.parametrize("tasks", ["", " ", ","])
+def test_an_empty_task_list_means_changed(repo, tmp_path, tasks):
+    _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
+    assert _select(repo, tmp_path, TASKS=tasks) == ["my task"]
+
+
 def test_all_minus_excluded_tasks(repo, tmp_path):
     _write(repo, "README.md", "changed\n")
     assert _select(repo, tmp_path, TASKS="all", EXCLUDE_TASKS="t1") == ["my task"]

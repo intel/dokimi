@@ -44,7 +44,7 @@ on:
         type: string
         default: .agent-eval/repo-eval.yaml
       tasks:
-        description: "`changed`, `all`, or task ids separated by spaces or commas"
+        description: "`changed`, `all`, or task ids separated by spaces or commas (empty: `changed`)"
         required: false
         type: string
         default: changed
@@ -222,7 +222,8 @@ jobs:
               return r.stdout.split('\0') if r.stdout else []
 
           import posixpath
-          mode = env["TASKS"].strip()
+          # empty is the default: a caller forwarding an unset dispatch input passes '', not `changed`
+          mode = env["TASKS"].strip() if ids(env["TASKS"]) else "changed"
           if mode == "all":
               sel = list(all_ids)
           elif mode == "changed":
