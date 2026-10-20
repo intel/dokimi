@@ -132,7 +132,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     _check_models(models, rows, unpaired)
     _holm(rows)
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
-            "cells": len(cells), "missing": missing, **_provenance(batch_dirs, cells, baseline, treatments),
+            "cells": len(cells), "missing": missing, **_provenance(batch_dirs, cells, baseline, treatments, models),
             "comparisons": rows, "unpaired": unpaired}
 
 
@@ -149,7 +149,7 @@ def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, A
 
 
 def _provenance(batch_dirs: list[Path], cells: list[dict[str, Any]], baseline: str,
-                treatments: list[str]) -> dict[str, Any]:
+                treatments: list[str], models: list[str] | None = None) -> dict[str, Any]:
     """``sources`` (each selector's batches), ``stamps`` (each batch's pin and harness versions), ``warnings``."""
     names = [d.resolve().name for d in batch_dirs]
     stamps = {name: {**batch_stamp(d), "harness_versions": sorted({str(c.get("harness_version"))
@@ -159,7 +159,7 @@ def _provenance(batch_dirs: list[Path], cells: list[dict[str, Any]], baseline: s
     sources = {text: sorted({c["batch"] for c in cells if selector_matches(parse_selector(text), c)})
                for text in [baseline, *treatments]}
     return {"sources": sources, "stamps": stamps,
-            "warnings": _provenance_warnings(cells, baseline, treatments, sources, stamps)}
+            "warnings": _provenance_warnings(cells, baseline, treatments, sources, stamps, models)}
 
 
 def _models_equivalent(base_models: set[str], treat_models: set[str]) -> bool:
@@ -185,8 +185,9 @@ def _models_equivalent(base_models: set[str], treat_models: set[str]) -> bool:
 
 
 def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments: list[str],
-                         sources: dict[str, list[str]], stamps: dict[str, dict[str, Any]]) -> list[str]:
-    """Pooled batches and stamp mismatches between the arms of each comparison."""
+                         sources: dict[str, list[str]], stamps: dict[str, dict[str, Any]],
+                         models: list[str] | None = None) -> list[str]:
+    """Pooled batches and stamp mismatches between the arms of each comparison; model checks only of ``models``."""
     out = [f"{text} pools cells of {len(batches)} batches ({', '.join(batches)}); name one as BATCH/ARM"
            for text, batches in sources.items() if parse_selector(text)[0] is None and len(batches) > 1]
     unstamped = set()
@@ -207,13 +208,15 @@ def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments:
                     if selector_matches(parse_selector(sel), c)}
         if len(versions) > 1:
             out.append(f"{text} vs {baseline}: cells ran on different harness versions ({', '.join(sorted(versions))})")
-        arms = [[c for c in cells if selector_matches(parse_selector(sel), c)] for sel in (baseline, text)]
+        arms = [[c for c in cells if selector_matches(parse_selector(sel), c) and (not models or c["model"] in models)]
+                for sel in (baseline, text)]
         for model in sorted({c["model"] for c in arms[0]} & {c["model"] for c in arms[1]}):
             base, treat = ({m for c in arm if c["model"] == model for m in resolved_models(c)} for arm in arms)
             if base and treat and not _models_equivalent(base, treat):
                 out.append(f"{text} vs {baseline}: model {model} was answered by {', '.join(sorted(base))} in "
                            f"baseline, {', '.join(sorted(treat))} in treatment")
-    compared = [c for c in cells if any(selector_matches(parse_selector(sel), c) for sel in (baseline, *treatments))]
+    compared = [c for c in cells if (not models or c["model"] in models)
+                and any(selector_matches(parse_selector(sel), c) for sel in (baseline, *treatments))]
     return out + mismatch_warnings(model_mismatch(compared))
 
 

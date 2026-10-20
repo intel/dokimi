@@ -599,6 +599,17 @@ def test_arms_answered_by_different_models_warn(tmp_path):
     assert "warning: cells run with model m-1 were answered by m-0" in format_compare(s)
 
 
+def test_model_warnings_follow_the_selected_model(tmp_path):
+    b = tmp_path / "b1"
+    for task in ("fix_a", "fix_b"):
+        _cell(b, task, "guidance:none", 1, model="m-2", model_resolved="m-2")
+        _cell(b, task, "guidance:raw", 1, model="m-2", model_resolved="m-2")
+        _cell(b, task, "guidance:none", 1, model="m-1", model_resolved="m-1")
+        _cell(b, task, "guidance:raw", 1, model="m-1", model_resolved="m-0")
+    assert compare([b], "guidance:none", models=["m-2"])["warnings"] == []
+    assert len(compare([b], "guidance:none", models=["m-1"])["warnings"]) == 2
+
+
 def test_model_matches_equivalence_does_not_warn(tmp_path):
     """Equivalent model IDs (Bedrock provider-prefix variants) do not trigger a warning."""
     b = tmp_path / "b1"
