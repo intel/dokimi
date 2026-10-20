@@ -429,8 +429,9 @@ Both review graders read the answer the same way. Its last parseable
 objects are dropped. `file` is made repository-relative: a path is cut after
 `/eval/run/workspace/`, then after the last `/repo/` (a standalone oneDAL
 run's workspace; a relative `a/repo/b` becomes `b`, the seed's or thread's
-`file` as well as the finding's), then leading `./` and `/` go. A `line` that is not an
-integer is -99, near nothing. `severity` `blocker` or `major` counts toward
+`file` as well as the finding's), then leading `./` and `/` go. `line` is
+read with Python's `int()` (`"6"` is 6, `5.9` is 5); a missing line, `0`, or
+a value `int()` cannot read is -99, near nothing. `severity` `blocker` or `major` counts toward
 `n_severe`. An answer with no such array gives only `pass: false`,
 `parse_error: true` and every recall 0 (`recall`; replay also `recall_all`
 and `recall_addressed`; `null` when there is nothing to recall): the agent

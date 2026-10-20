@@ -138,6 +138,11 @@ def test_line_fallback_credits_only_the_nearest_seed_within_one_line(tmp_path):
     assert review.grade_seeds({}, d, fence([_f("x")]))["unmatched"] == 1  # unreadable line: near nothing
 
 
+@pytest.mark.parametrize(("line", "read"), [("6", 6), (" 7 ", 7), (5.9, 5), (0, -99), (None, -99), ("6.0", -99)])
+def test_a_finding_line_is_read_as_the_contract_says(line, read):
+    assert review.finding_fields({"file": "a", "line": line})[2] == read
+
+
 @pytest.mark.parametrize("line", ["Infinity", "-Infinity", "1e999"])
 def test_an_infinite_line_is_unreadable_not_a_grader_crash(tmp_path, line):
     seeds, replay = _task_dir(tmp_path, "seeds_mul"), _task_dir(tmp_path, "replay_mul")
