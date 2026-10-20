@@ -118,7 +118,8 @@ jobs:
       # The locks are the full closure (requirements-docs.lock.txt for the
       # documentation site), so --no-deps --disable-pip audits them as written
       # without resolving or installing anything. Each --ignore-vuln is
-      # an advisory SECURITY.md documents; add or drop them together.
+      # an advisory SECURITY.md documents and dokimi/osv-scanner.toml ignores;
+      # add or drop them together, in all three.
       # pip-audit skips a pin whose marker is false on this 3.13 runner (the
       # pins for older interpreters, for one), so markers are stripped, a pin
       # both locks share is kept once, and a name pinned twice goes to a second file.

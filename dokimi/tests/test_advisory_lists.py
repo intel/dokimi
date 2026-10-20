@@ -1,0 +1,54 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The dependency-advisory ignore lists must name the same IDs and point at each other."""
+
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+import tomllib
+from pathlib import Path
+
+import pytest
+
+PROJECT = Path(__file__).resolve().parents[1]
+REPO = PROJECT.parent
+OSV_CONFIG = PROJECT / "osv-scanner.toml"
+CI_WORKFLOW = REPO / ".github" / "workflows" / "ci.yml"
+SECURITY = PROJECT / "SECURITY.md"
+
+
+def _osv_ids() -> set[str]:
+    data = tomllib.loads(OSV_CONFIG.read_text(encoding="utf-8"))
+    return {entry["id"] for entry in data["IgnoredVulns"]}
+
+
+def _pip_audit_ids() -> set[str]:
+    return set(
+        re.findall(r"--ignore-vuln\s+(PYSEC-\d{4}-\d+)", CI_WORKFLOW.read_text(encoding="utf-8"))
+    )
+
+
+def test_osv_and_pip_audit_ignore_the_same_ids():
+    assert _osv_ids() == _pip_audit_ids()
+
+
+def test_ci_and_security_name_the_osv_config():
+    """A removed advisory must be dropped from all three lists, so each names the file."""
+    assert "dokimi/osv-scanner.toml" in CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "osv-scanner.toml" in SECURITY.read_text(encoding="utf-8")
+
+
+def test_hypothesis_example_database_is_git_ignored():
+    git = shutil.which("git")
+    if git is None or not (REPO / ".git").exists():
+        pytest.skip("needs a git checkout to ask git check-ignore")
+    result = subprocess.run(
+        [git, "check-ignore", "-q", ".hypothesis/examples/probe"],
+        cwd=REPO,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, ".hypothesis/ is not ignored by the root .gitignore"
