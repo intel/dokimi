@@ -35,7 +35,11 @@ def test_parse_raises_only_arm_spec_error(spec: str) -> None:
         parts = parse_arm_spec(spec)
     except ArmSpecError:
         return
-    assert parts and all(p.raw == p.raw.strip() for p in parts)
+    assert parts
+    for p in parts:
+        assert p.raw == p.raw.strip()
+        assert p.raw.startswith(p.kind.prefix)
+        assert p.arg == p.arg.strip()
 
 
 @_SETTINGS
@@ -53,7 +57,7 @@ def test_split_combined_is_idempotent(spec: str) -> None:
         assert split_combined(part) == [part]
 
 
-_ARG = st.text(alphabet=st.sampled_from([*"abc019/._-"]), min_size=1, max_size=12)
+_ARG = st.text(alphabet=st.sampled_from([*"abc019/._-+:"]), min_size=1, max_size=12)
 
 
 @st.composite
