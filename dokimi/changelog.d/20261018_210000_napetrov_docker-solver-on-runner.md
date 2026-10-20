@@ -2,8 +2,10 @@
 
 - **`docker-oracle` stops an oracle that overruns its budget** — `solve.sh` now
   gets the task's agent budget (`agent.timeout_sec`, else 600 s), like an agent.
-  An oracle that runs out is a failed cell (reward 0, rc 124), as BenchFlow scores
-  it. Before, `docker-oracle` waited for it with no limit.
+  An oracle that runs out is a failed cell (reward 0, rc 124) that stays in the
+  pass-rate denominator. BenchFlow's `oracle` errors the same overrun
+  (`metrics.error`, no verdict), so the two oracles count it differently.
+  Before, `docker-oracle` waited for it with no limit.
 - **Every `docker-*` step has a budget** — the build, the solve and the verifier
   keep their own. Every other `docker` step (`cp`, `inspect`, the `exec`s that copy
   files in, the sidecar's `create`, which may pull its image) gets 600 s instead of
