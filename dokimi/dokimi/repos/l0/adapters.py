@@ -307,8 +307,11 @@ def _check_external(scan: Scan, file: str, line: int, label: str, parts: tuple[s
 def _external_builds(scan: Scan, repo: str) -> list[str]:
     """Tracked BUILD files of the external repository ``repo``: named for it (``repo.BUILD``, ``BUILD.repo``,
     ``repo.tpl.BUILD``, ``repo_win.BUILD.bazel``) and named in turn by a ``.bzl`` file, ``MODULE.bazel`` or
-    ``WORKSPACE``, as a ``build_file`` or a template is."""
+    ``WORKSPACE``, as a ``build_file`` or a template is. None for a ``bazel_dep`` of ``MODULE.bazel``: the
+    registry supplies that repository, and a leftover WORKSPACE-era BUILD file is not it."""
     def make() -> list[str]:
+        if repo in scan.cached("bazel_deps", lambda: _bazel_deps(scan.text("MODULE.bazel"))):
+            return []
         paths, repos = scan.cached("bazel_refs", lambda: _bazel_refs(scan))
         r = re.escape(repo)
         named = re.compile(rf"^(?:BUILD\.{r}(?:\.bazel)?|{r}(?:[._][\w.-]*?)?\.BUILD(?:\.bazel)?)$")
@@ -316,6 +319,19 @@ def _external_builds(scan: Scan, repo: str) -> list[str]:
         return [f for f in scan.files if f in paths and named.match(b := posixpath.basename(f))
                 and not any(re.match(rf"^(?:BUILD\.)?{re.escape(o)}(?:[._]|$)", b) for o in longer)]
     return scan.cached(f"bazel_external:{repo}", make)
+
+
+def _bazel_deps(text: str) -> set[str]:
+    """The repository names ``bazel_dep(...)`` calls of a ``MODULE.bazel`` make visible: ``repo_name``, else
+    ``name``."""
+    text = _TOKEN.sub(lambda m: "" if m.lastgroup == "comment" else m.group(), text)
+    out: set[str] = set()
+    for m in re.finditer(r"\bbazel_dep\(([^)]*)\)", text):
+        name = re.search(r"""\brepo_name\s*=\s*["']([^"']+)""", m.group(1)) or re.search(
+            r"""\bname\s*=\s*["']([^"']+)""", m.group(1))
+        if name:
+            out.add(name.group(1))
+    return out
 
 
 def _bazel_refs(scan: Scan) -> tuple[set[str], set[str]]:

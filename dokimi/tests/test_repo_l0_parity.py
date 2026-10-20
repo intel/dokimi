@@ -214,6 +214,22 @@ def test_a_longer_repository_name_does_not_claim_the_shorter_ones_build_file(tmp
     assert got == {("bazel_label", "@lib//:win"): "fail", ("bazel_label", "@lib//:lib"): "ok"}
 
 
+@pytest.mark.parametrize("ref", [
+    {"WORKSPACE": 'http_archive(name = "zlib", build_file = "//third_party:zlib.BUILD")\n'},
+    {"third_party/repos.bzl": 'r(name = "zlib", build_file = "//third_party:zlib.BUILD")\n'},
+], ids=["WORKSPACE", "bzl"])
+@pytest.mark.parametrize("dep, expected", [
+    ('bazel_dep(name = "zlib", version = "1.3.1")', "unresolved"),  # the registry module, not the leftover BUILD
+    ('bazel_dep(name = "zlib", version = "1.3.1", repo_name = "z2")', "fail"),  # @zlib is not that module
+    ('# bazel_dep(name = "zlib", version = "1.3.1")', "fail"),
+])
+def test_a_bazel_dep_is_not_checked_against_a_leftover_build_file(tmp_path, ref, dep, expected):
+    files = _external({"MODULE.bazel": f'module(name = "me")\n{dep}\n',
+                       "third_party/zlib.BUILD": 'cc_library(name = "zlib")\n', **ref})
+    got = _verdicts(_scan(tmp_path, "`@zlib//:z`\n", files))
+    assert got == {("bazel_label", "@zlib//:z"): expected}
+
+
 def test_a_computed_first_build_file_is_not_forgotten_by_the_second(tmp_path):
     files = _external({
         "third_party/repos.bzl": 'r(name = "lib", build_file = "//third_party:lib.BUILD")\n'

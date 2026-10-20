@@ -574,7 +574,8 @@ external repository's BUILD file is in the tree when a tracked file is named
 for the repository (`zlib.BUILD`, `BUILD.zlib`, `mkl.tpl.BUILD`,
 `mkl_win.tpl.BUILD`, with an optional `.bazel`) and a `.bzl` file,
 `MODULE.bazel` or `WORKSPACE` names that file, as a `build_file` or a
-template. A label in the root package of such a repository is `ok` when one of
+template, and `MODULE.bazel` does not take the repository from a registry
+with `bazel_dep` (its `repo_name`, else its `name`). A label in the root package of such a repository is `ok` when one of
 those files spells the name out (or lists it in `exports_files([...])`), or
 the target is `all`, `*` or `all-targets`. It is `unresolved` when one of those
 files computes names (a macro, `exports_files(glob(...))`, or a template's

@@ -8,7 +8,8 @@
   the in-tree `.bzl` it names (`starlark_load`); a label of an external
   repository is checked against that repository's BUILD file when the tree
   holds one (`<repo>.BUILD`, `BUILD.<repo>`, `<repo>.tpl.BUILD`, named by a
-  `.bzl`, `MODULE.bazel` or `WORKSPACE`), and `@<module>//` alone is `ok`;
+  `.bzl`, `MODULE.bazel` or `WORKSPACE`, and not a `bazel_dep`),
+  and `@<module>//` alone is `ok`;
   `cmake -S <dir>` must name a directory with a `CMakeLists.txt`
   (`cmake_src`; `fail` only after a literal `cd`).
 
