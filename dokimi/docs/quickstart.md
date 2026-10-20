@@ -49,7 +49,9 @@ export GITHUB_TOKEN="ghp_..."
 ### 2. Dependencies
 
 ```bash
-pip install -e ".[dev]"          # package + dev tooling (recommended)
+pip install dokimi               # released package
+# or, from a source checkout:
+pip install -e ".[dev]"          # package + dev tooling
 # or, dependencies only:
 pip install -r requirements.txt
 ```
@@ -239,7 +241,7 @@ per answer in `answers/<product>.json`.
 
 | Symptom | Fix |
 | --- | --- |
-| LLM calls fail / wrong provider | All providers go through LiteLLM (`dokimi/llm.py`); set the matching `*_API_KEY` and pass `--provider`/`--model`. LangChain is used only by `eval ragas`, which wraps its judge in `ChatOpenAI`/`ChatAnthropic` (`langchain-openai` comes with ragas; `langchain-anthropic` is a direct dependency). |
+| LLM calls fail / wrong provider | All providers go through LiteLLM (`dokimi/llm.py`); set the matching `*_API_KEY` and pass `--provider`/`--model`. LangChain is used only by `eval ragas`, which wraps its judge in `ChatOpenAI`/`ChatAnthropic`; it and ragas come with the `ragas` extra (`pip install 'dokimi[ragas]'`). |
 | `No module named numpy` | Pipeline falls back to exact-text dedup; install numpy for embedding-based dedup |
 | `GitHub client not available` | Pipeline uses `gh` CLI fallback; `pip install PyGithub` to silence |
 | Context7 timeout | Raise `context7.timeout` in `dokimi/config/products.yaml` (or in a config/products.yaml of your own in the working directory) |

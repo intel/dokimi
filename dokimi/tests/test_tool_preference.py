@@ -8,7 +8,9 @@ from __future__ import annotations
 import copy
 import json
 import threading
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -368,13 +370,14 @@ def test_cli_caller_attaches_usage_to_exception_from_response_parsing(monkeypatc
         return r
 
     monkeypatch.setattr(llm, "chat_completion", fail_after_response)
+    monkeypatch.setattr(llm, "_safe_completion_cost", lambda *a, **k: 0.01)
     items = tp.build_items(tp.load_groups(json.loads(GROUPS.read_text(encoding="utf-8"))), ["assertive"])
     # This should fail with usage attached to the exception
     caller = _first_turn_caller("m", "openai", 77)
     with pytest.raises(IndexError) as info:
         caller(items[0])
     usage = getattr(info.value, "usage", None)
-    assert isinstance(usage, dict) and "cost_usd" in usage
+    assert isinstance(usage, dict) and usage["cost_usd"] == 0.01
 
 
 # ── cost cap ──────────────────────────────────────────────────────────────
@@ -443,7 +446,7 @@ def test_a_failed_but_billed_call_counts_toward_the_cap(doc):
     assert all(r["skipped"] for r in results[2:])
 
 
-def test_classify_raises_after_billed_call_counts_toward_cap(doc):
+def test_classify_raises_after_billed_call_counts_toward_cap(doc, monkeypatch):
     items = tp.build_items(doc, ["assertive"])
     def call_then_classify_fails(item):
         return {"called": [item["tools"][0]["function"]["name"]], "usage": {"cost_usd": 0.01}, "text": ""}
@@ -457,21 +460,91 @@ def test_classify_raises_after_billed_call_counts_toward_cap(doc):
             raise ValueError("classify error")
         return original_classify(item, called)
 
-    # Patch classify to fail on second call
-    import dokimi.tool_preference as tp_module
-    tp_module.classify = failing_classify
-    try:
-        results = tp.run_probe(items, call_then_classify_fails, reps=1, concurrency=1, max_cost_usd=0.02)
-        # First call: success, costs 0.01, skipped=False
-        assert results[0]["skipped"] is False and results[0]["error"] is None
-        assert results[0]["usage"]["cost_usd"] == 0.01
-        # Second call: classify raises, but usage is still captured from the call
-        assert results[1]["skipped"] is False and results[1]["error"] is not None
-        assert results[1]["usage"]["cost_usd"] == 0.01
-        # Total spent: 0.02, so remaining calls should be skipped
-        assert all(r["skipped"] for r in results[2:])
-    finally:
-        tp_module.classify = original_classify
+    monkeypatch.setattr(tp, "classify", failing_classify)
+    results = tp.run_probe(items, call_then_classify_fails, reps=1, concurrency=1, max_cost_usd=0.02)
+    # First call: success, costs 0.01, skipped=False
+    assert results[0]["skipped"] is False and results[0]["error"] is None
+    assert results[0]["usage"]["cost_usd"] == 0.01
+    # Second call: classify raises, but usage is still captured from the call
+    assert results[1]["skipped"] is False and results[1]["error"] is not None
+    assert results[1]["usage"]["cost_usd"] == 0.01
+    # Total spent: 0.02, so remaining calls should be skipped
+    assert all(r["skipped"] for r in results[2:])
+
+
+@pytest.mark.parametrize("reply", [
+    {"called": []},                                   # no usage at all
+    {"called": [], "usage": {}},                      # usage without a cost
+    {"called": [], "usage": "n/a"},                   # usage that is not a dict
+    {"called": [], "usage": {"cost_usd": "0.01"}},    # a cost that is not a number
+    {"called": [], "usage": {"cost_usd": float("nan")}},
+    {"called": [], "usage": {"cost_usd": True}},
+])
+def test_a_reply_without_a_usable_price_blinds_the_cap(doc, reply):
+    items = tp.build_items(doc, ["assertive"])
+    # a cap no valid price would reach: only a blind cap stops the run after one call
+    results = tp.run_probe(items, lambda i: reply, reps=1, concurrency=1, max_cost_usd=100.0)
+    assert [r["skipped"] for r in results] == [False] + [True] * (len(items) - 1)
+    assert results[0]["error"] is None
+
+
+def test_a_billed_failure_without_a_usable_price_blinds_the_cap(doc):
+    items = tp.build_items(doc, ["assertive"])
+
+    def cut(item):
+        exc = RuntimeError("cut")
+        exc.usage = {"cost_usd": "0.01"}  # type: ignore[attr-defined]
+        raise exc
+
+    results = tp.run_probe(items, cut, reps=1, concurrency=1, max_cost_usd=100.0)
+    assert [r["skipped"] for r in results] == [False] + [True] * (len(items) - 1)
+
+
+def test_a_failure_with_no_usage_is_not_billed_and_does_not_blind_the_cap(doc):
+    items = tp.build_items(doc, ["assertive"])
+
+    def refused(item):
+        raise ConnectionError("refused before any reply")
+
+    results = tp.run_probe(items, refused, reps=1, concurrency=1, max_cost_usd=0.01)
+    assert not any(r["skipped"] for r in results)
+    assert all(r["error"] for r in results)
+
+
+class _HoldOneDecision:
+    """A lock that holds the first thread to reach its second job back for a moment.
+
+    Every job takes the lock twice, to start and to count its cost, so a thread's third
+    entry is the start of its second job. A later job must not run while it waits.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._flag = threading.Lock()
+        self._local = threading.local()
+        self._held = False
+
+    def __enter__(self):
+        self._local.n = getattr(self._local, "n", 0) + 1
+        with self._flag:
+            hold = self._local.n == 3 and not self._held
+            self._held = self._held or hold
+        if hold:
+            time.sleep(0.3)
+        return self._lock.__enter__()
+
+    def __exit__(self, *exc):
+        return self._lock.__exit__(*exc)
+
+
+def test_the_calls_that_ran_are_a_prefix_when_a_worker_is_slow_to_start(doc, monkeypatch):
+    items = tp.build_items(doc, ["assertive"])
+    monkeypatch.setattr(tp, "threading", SimpleNamespace(Lock=_HoldOneDecision))
+    results = tp.run_probe(items, lambda i: {"called": [], "usage": {"cost_usd": 0.01}},
+                           reps=1, concurrency=2, max_cost_usd=0.05)
+    ran = "".join("." if r["skipped"] else "R" for r in results)
+    assert ran == ran.count("R") * "R" + ran.count(".") * ".", ran
+    assert 5 <= ran.count("R") <= 6
 
 
 def test_the_overshoot_stays_within_concurrency_minus_one(doc):
@@ -648,6 +721,18 @@ def test_non_dict_exc_usage_does_not_crash_payload(doc):
     assert payload_doc["usage"]["n_calls"] == 0  # no valid dict usage
 
 
+def test_payload_counts_only_dict_usages_with_a_number_as_priced(doc):
+    items = tp.build_items(doc, ["assertive"])
+    base = {"item_id": items[0]["id"], "rep": 0, "choice": None, "text_preview": "", "truncated": False,
+            "skipped": False, "error": "RuntimeError: cut"}
+    results = [{**base, "usage": "n/a"}, {**base, "usage": {"cost_usd": "0.01"}},
+               {**base, "usage": {"cost_usd": 0.02}}]
+    usage = tp.payload(doc, items, results, model="test", provider="test", reps=1, factors=[],
+                       max_tokens=2048)["usage"]
+    assert usage["n_calls"] == 2
+    assert usage["cost_known_calls"] == 1 and usage["cost_usd"] == 0.02
+
+
 def test_non_dict_success_usage_does_not_crash_payload(doc):
     items = tp.build_items(doc, ["assertive"])
     def bad_success_usage(item):
@@ -657,6 +742,23 @@ def test_non_dict_success_usage_does_not_crash_payload(doc):
     assert results[0]["usage"] is None  # non-dict usage converted to None
     payload_doc = tp.payload(doc, items, results, model="test", provider="test", reps=1, factors=[], max_tokens=2048)
     assert payload_doc["usage"]["n_calls"] == 0  # no valid dict usage
+
+
+def test_cli_no_unpriced_warning_without_a_cap(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    monkeypatch.setattr(llm, "chat_completion",
+                        lambda messages, model, tools=None, **k: _Resp([tools[0]["function"]["name"]]))
+    monkeypatch.setattr(llm, "_safe_completion_cost", lambda *a, **k: None)
+    out = tmp_path / "pref.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--concurrency", "1",
+                                      "--out-json", str(out)])
+    args.func(args)
+    err = capsys.readouterr().err
+    assert "max-cost-usd" not in err
+    assert json.loads(out.read_text(encoding="utf-8"))["usage"]["cost_known_calls"] == 0
 
 
 def test_cli_skipping_exactly_one_call(monkeypatch, tmp_path, capsys):

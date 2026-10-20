@@ -102,7 +102,12 @@ longer follows `--provider`: with no judge flags it runs on `anthropic`, so a
 Bedrock-only run passes `--judge-provider amazon-bedrock` (and `atoms`/`shorten`
 `--provider amazon-bedrock`). `--judge-provider` alone takes the default judge that
 runs there; when none does (measuring `claude-sonnet-5-5` on Bedrock) the run exits
-and asks for `--judge-model`.
+and asks for `--judge-model`. The other commands with a judge (`benchmark`, `eval`,
+`evaluate`, `arms` and `subjects`) do the same with `--judge-provider` alone:
+`claude-sonnet-5-5` on `anthropic` and `amazon-bedrock`, `gpt-6.1-sol` on `openai`
+(the default answer model, so the judge-independence warning fires where it is
+checked), and on any other provider they exit before the first call and ask for
+`--judge-model`.
 
 **Defaults changed on 2026-10-13: results are not comparable with older baselines;
 re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and
@@ -420,7 +425,8 @@ degradation, the pairs scored, the gate accuracy with its 95% CI and PASS or
 FAIL; `--sequential` adds a `mode` line and marks a degradation still undecided
 at the stop `continue`, with the reason under INCONCLUSIVE (cap reached, or the
 answer pool exhausted). Exit 1 on FAIL, and on an inconclusive pass with
-`--strict`.
+`--strict`. A malformed input, such as a record that would be judged with no
+question text, exits 2, so it never reads as a failed gate.
 
 `--mode pairwise` shows the judge both answers, in both orders, and asks which
 is better. On the perf gate gpt-oss-120b pairwise passed every degradation

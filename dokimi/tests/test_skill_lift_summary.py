@@ -232,6 +232,41 @@ def test_bool_cost_is_not_a_price():
     assert cost["cost_known_n"] == 0 and cost["cost_per_pass_usd"] is None
 
 
+def test_bool_reward_is_not_a_score():
+    """True is an int, so it used to enter avg_reward as 1.0 — a perfect score."""
+    rows = [_row("t1", "a", False), _row("t2", "a", False)]
+    rows[0]["reward"] = True
+    rows[1]["reward"] = False
+    stats = summarize_task_results(rows)["per_harness"]["a"]
+    assert stats["avg_reward"] is None
+
+
+def test_bool_reward_mixed_with_scores_is_skipped():
+    """reward_n is internal; counting True would make the average 0.75."""
+    rows = [_row("t1", "a", False), _row("t2", "a", False)]
+    rows[0]["reward"] = True
+    rows[1]["reward"] = 0.5
+    stats = summarize_task_results(rows)["per_harness"]["a"]
+    assert stats["avg_reward"] == 0.5
+
+
+def test_nan_reward_is_not_a_score():
+    rows = [_row("t1", "a", False), _row("t2", "a", False)]
+    rows[0]["reward"] = float("nan")
+    rows[1]["reward"] = 0.5
+    stats = summarize_task_results(rows)["per_harness"]["a"]
+    assert stats["avg_reward"] == 0.5
+
+
+def test_bool_tokens_and_operation_count_are_not_counted():
+    rows = [_row("t1", "a", True)]
+    rows[0]["metrics"].update(operation_count=True, prompt_tokens=True, total_tokens=7)
+    stats = summarize_task_results(rows)["per_harness"]["a"]
+    assert stats["operation_count"] == 0
+    assert stats["cost"]["prompt_tokens"] is None
+    assert stats["cost"]["total_tokens"] == 7
+
+
 @pytest.mark.parametrize("path, value", [
     (("summary", "comparisons", "benchflow-skill:a", "normalized_change"), -1.5),
     (("summary", "comparisons", "benchflow-skill:a", "normalized_gain"), 1.5),

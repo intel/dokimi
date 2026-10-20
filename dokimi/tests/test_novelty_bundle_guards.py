@@ -219,15 +219,39 @@ def test_safe_int_reads_bools_and_non_finite_floats_as_zero_and_truncates_floats
     assert _safe_int(float("inf")) == 0
 
 
-def test_absent_policy_words_are_summed_from_policy_rows_only():
+def test_an_entry_point_record_without_a_stored_share_reports_it_from_the_counts():
+    """A record that predates ``outside_share`` prints the share its counts give (83%), not 0%."""
+    record = {"include_resources": False, "n_files": 1, "entry_point_words": 100,
+              "resource_words_on_disk": 500, "resource_words_measured": 0,
+              "policy_excluded_words": 0, "unreadable_files": 0, "excluded": []}
+    text = "\n".join(report._render_bundle({"bundle": record}))
+    assert "**83%** of this artifact's words (500 of 600) sit in bundled files" in text
+
+
+#: The gate's (passed, value) for the record below, by its ``coverage_basis``. Unstamped
+#: (every stored artifact) and an explicit legacy stamp keep the figure this test pinned
+#: before the stamp existed: 4,500 unread of all 9,100 words. A ``readable`` stamp leaves
+#: the 4,500 policy words out of the denominator -- 4,500 of 4,600 -- which is the change.
+POLICY_ROWS_BY_BASIS = {
+    None: (True, 0.4945),
+    "all_bundled_words": (True, 0.4945),
+    "readable": (False, 0.9783),
+}
+
+
+@pytest.mark.parametrize("basis", list(POLICY_ROWS_BY_BASIS))
+def test_absent_policy_words_are_summed_from_policy_rows_only(basis):
     record = {"include_resources": False, "entry_point_words": 100,
               "resource_words_on_disk": 9000, "resource_words_measured": 0,
               "excluded": [{"path": "a", "kind": "policy", "words": 4500},
                            {"path": "b", "kind": "not_requested", "words": 4500}]}
+    if basis is not None:
+        record["coverage_basis"] = basis
     cov = Coverage.from_record(record)
     assert cov.policy_excluded_words == 4500
     check = _coverage_check(record)
-    assert check.passed is True and check.value == 0.4945
+    assert (check.passed, check.value) == POLICY_ROWS_BY_BASIS[basis]
+    assert check.basis == (basis or "all_bundled_words")
 
 
 def test_absent_unreadable_count_comes_from_unreadable_rows():
@@ -268,3 +292,12 @@ def test_a_stored_bool_is_not_a_count_and_the_rows_are_recounted(stored):
     cov = Coverage.from_record(record)
     assert cov.policy_excluded_words == 4500 and cov.unreadable_files == 0
     assert _coverage_check(record).value == 0.4945
+
+
+@pytest.mark.parametrize("junk", ["", "Readable", 5, True, ["readable"]])
+def test_a_stamp_that_is_not_a_known_basis_is_not_read_as_the_legacy_one(junk):
+    """Only an absent stamp means "written before it existed"; anything else is unknown."""
+    record = dict(COUNTS, coverage_basis=junk)
+    check = _coverage_check(record)
+    assert (check.measured, check.passed, check.value) == (False, True, None)
+    assert "does not know" in check.message

@@ -11,7 +11,12 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from dokimi.defaults import DEFAULT_CONCURRENCY, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.defaults import (
+    DEFAULT_CONCURRENCY,
+    DEFAULT_JUDGE_PROVIDER,
+    JUDGE_MODEL_FOR_PROVIDER,
+    JUDGE_MODEL_HELP,
+)
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 
@@ -78,12 +83,13 @@ def pairwise_judge(args: argparse.Namespace):
 
 def cmd_eval_pairwise(args: argparse.Namespace) -> None:
     """Every arm against the baseline, both answers shown together, both orders."""
-    from dokimi.eval.pairwise import run_arm_pairwise
+    from dokimi.eval.pairwise import pairwise_jobs, run_arm_pairwise
 
     data, records = _load_answers(args.answers)
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
+    pairwise_jobs(records, baseline_arm=baseline, arms=arms)  # refuse a blank question before the probe call
     judge, label = pairwise_judge(args)
     print(f"Pairwise comparison: {label}, {len(records)} questions, baseline `{baseline}`")
     report = run_arm_pairwise(
@@ -110,13 +116,14 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
 
 def cmd_eval_checklist(args: argparse.Namespace) -> None:
     """Required-point coverage of every arm, against the questions' expected_topics."""
-    from dokimi.eval.checklist import load_points, run_checklist
+    from dokimi.eval.checklist import checklist_jobs, load_points, run_checklist
     from dokimi.eval.judge import Judge
 
     data, records = _load_answers(args.answers)
     points = load_points(args.questions)
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
+    checklist_jobs(records, points, arms=arms)  # refuse a blank question before the probe call
     _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
     llm = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature).llm
     label = f"{args.judge_provider}/{args.judge_model}"
@@ -194,8 +201,8 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
 def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     """Score the same arms under several judges and label each arm's verdict."""
     from dokimi.eval.cross_judge import (
-        CrossJudgeReport, coverage_measure, pairwise_measure, score_measure, stored_measure,
-        unreproducible_arms,
+        CrossJudgeReport, coverage_measure, pairwise_measure, score_measure, scored_answers,
+        stored_measure, unreproducible_arms,
     )
     from dokimi.eval.arm_runner import _ground_truth_from_topics
     from dokimi.eval.checklist import load_points
@@ -293,6 +300,8 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         report.measures.append(m)
 
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
+    if specs:
+        scored_answers(records)  # refuse a blank question before the probe call
     _check_judge_temperature([(m, p) for p, _, m in (s.partition("/") for s in specs) if m and p in JUDGE_PROVIDERS],
                              args.judge_temperature)
     for spec in specs:
@@ -353,7 +362,7 @@ def register(eval_sub, positive_int) -> None:
     ck.add_argument("--baseline-arm", default=None, dest="baseline_arm",
                     help="Arm the others are compared to (default: the run's baseline_arm)")
     ck.add_argument("--arms", default=None, help="Comma-separated arms to check (default: all)")
-    ck.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    ck.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     ck.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     ck.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
@@ -377,7 +386,7 @@ def register(eval_sub, positive_int) -> None:
     jw.add_argument("--seed", type=int, default=0)
     jw.add_argument("--min-accuracy", type=float, default=DEFAULT_MIN_ACCURACY, dest="min_accuracy")
     jw.add_argument("--strict", action="store_true", help="Exit 1 when any variant is FRAGILE")
-    jw.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    jw.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     jw.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     jw.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
@@ -427,7 +436,7 @@ def register(eval_sub, positive_int) -> None:
     pw.add_argument("--product", default=None, help="Library name (default: read from answers file)")
     pw.add_argument("--baseline-arm", default=None, dest="baseline_arm")
     pw.add_argument("--arms", default=None, help="Comma-separated arms to compare (default: all)")
-    pw.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    pw.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     pw.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     pw.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")

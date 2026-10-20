@@ -21,7 +21,8 @@ Three solver modes:
     / ``ttft_ms`` / ``num_turns``, which we parse into a :class:`UsageRecord` and
     fold into ``HarnessResult.metrics``, with tool calls counted by name. An
     optional skill is installed as a plugin (the with-skill treatment arm, see
-    :mod:`.skill_treatment`).
+    :mod:`.skill_treatment`); with ``skill_notice`` off the prompt does not
+    announce it (the discovery arm).
 ``probe``
     No LLM: run the isolation probe from :mod:`.agent_sandbox` in exactly the
     cwd and env ``claude`` would get, and score 1.0 only when nothing the agent
@@ -72,7 +73,7 @@ from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
 from .command import _parse_reward_text
 from .container_agent import AGENT_BIN, FILES_DIR, ContainerSandbox
 from .models import HarnessResult, OperationRecord
-from .skill_treatment import Treatment, build_plugin, check_skill, treatment_notice
+from .skill_treatment import Treatment, build_plugin, check_skill, skill_listing, treatment_notice
 from .solver_stream import record_solver, run_solver
 from .tasks import (  # noqa: F401  (timeouts re-exported)
     _DEFAULT_BUILD_TIMEOUT,
@@ -108,6 +109,9 @@ class DockerSolverHarness:
     top-level ``evals/``, is installed as a plugin for the with-skill treatment
     arm (see :mod:`.skill_treatment`), in probe mode it is a path the probe must
     not reach.
+    ``skill_notice`` opens the prompt with the treatment notice; off, the skill
+    is installed the same way and the agent must find it by its description
+    (the ``-skill-discover`` arms).
     ``agent_location`` is ``container`` (the agent runs in the task container,
     see :mod:`.container_agent`) or ``host`` (see :mod:`.agent_sandbox`).
     """
@@ -119,6 +123,7 @@ class DockerSolverHarness:
     kind: str = "docker"
     env: dict[str, str] = field(default_factory=dict)
     agent_location: str = "container"
+    skill_notice: bool = True
 
     def run(
         self,
@@ -472,7 +477,7 @@ class DockerSolverHarness:
             if skill_dir is not None and not probing:
                 treatment = build_plugin(skill_dir, workspace.root / "plugin")
                 if extra_metrics is not None:
-                    extra_metrics["treatment"] = treatment.as_metrics()
+                    self._record_treatment(treatment, skill_dir, extra_metrics, log)
         except BaseException:  # also Ctrl-C: don't leave the dokimi-run-* snapshot behind
             workspace.cleanup()
             raise
@@ -488,7 +493,7 @@ class DockerSolverHarness:
         _rmtree(staged)
         try:
             treatment = build_plugin(skill_dir, staged)
-            extra_metrics["treatment"] = treatment.as_metrics()
+            self._record_treatment(treatment, skill_dir, extra_metrics, log)
             # Create the target first and copy its contents: `docker cp dir path` nests
             # dir inside an existing path, and fails where /opt does not exist.
             _docker(["exec", "-u", "root", container, "mkdir", "-p", _CONTAINER_PLUGIN], log)
@@ -501,12 +506,27 @@ class DockerSolverHarness:
             _rmtree(staged)
         return treatment
 
+    def _record_treatment(self, treatment: Treatment, skill_dir: Path,
+                          extra_metrics: dict[str, Any], log) -> None:
+        """The arm's skill, whether the prompt announced it, and what its listing shows.
+
+        A discovery arm whose description the listing cuts measures part of a
+        description: kept a measured cell, with a warning in ``run.log``.
+        """
+        extra_metrics["treatment"] = treatment.as_metrics()
+        extra_metrics["skill_notice"] = self.skill_notice
+        listing = skill_listing(skill_dir)
+        extra_metrics["skill_listing"] = listing
+        if listing["truncated"] and not self.skill_notice:
+            log.write(f"\n[skill] WARNING: description is {listing['description_chars']} chars; "
+                      f"the listing shows the first {listing['max_desc_chars']}\n")
+
     def _claude_args(self, task: TaskSpec, treatment: Optional[Treatment],
                      plugin_dir: Optional[str], model: Optional[str],
                      output_dir: Path) -> list[str]:
         """``claude`` argv after the executable; the prompt is also saved as ``prompt.txt``."""
         prompt = (
-            f"{treatment_notice(treatment)}"
+            f"{treatment_notice(treatment) if self.skill_notice else ''}"
             "Solve this coding task. Edit files in the current directory only. "
             "When done, leave the optimized source and any required outputs in place.\n\n"
             f"{task.instruction}"
@@ -622,6 +642,8 @@ class DockerSolverHarness:
             parts += ["--model", model]
         if self.skill_path:
             parts += ["--skill", self.skill_path]
+            if not self.skill_notice and self.mode == "claude":
+                parts.append("--no-skill-notice")
         return parts
 
 

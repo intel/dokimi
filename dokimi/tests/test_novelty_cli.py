@@ -98,10 +98,19 @@ def test_the_extractor_follows_the_judge_not_the_answerer():
     assert answerer.model == "model-a"
 
 
-def test_dropping_the_baseline_arm_is_refused():
-    with pytest.raises(SystemExit, match="paired"):
-        novelty_cmd._arms("full,placebo")
-    assert novelty_cmd._arms("no_artifact,full,shuffled") == ["no_artifact", "full", "shuffled"]
+def test_dropping_the_baseline_arm_is_refused(tmp_path):
+    from dokimi.novelty.measure import parse_arms
+
+    with pytest.raises(ValueError, match="paired"):
+        parse_arms("full,placebo")
+    assert parse_arms(" no_artifact, full,,shuffled") == ("no_artifact", "full", "shuffled")
+    # The CLI exits with the same message.
+    (tmp_path / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                       encoding="utf-8")
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--estimate-only",
+                  "--arms", "full")
+    with pytest.raises(SystemExit, match="^--arms must include no_artifact: the 2x2"):
+        args.func(args)
 
 
 def test_a_missing_artifact_exits_with_a_message(capsys):
@@ -402,6 +411,26 @@ def test_shorten_restricts_a_bundle_answer_key_to_the_entry_point(tmp_path, caps
     assert "bundle spans" in capsys.readouterr().err
 
 
+def test_shorten_exits_with_a_message_on_a_bundle_block_it_cannot_slice(tmp_path):
+    """A malformed ``bundle`` block (a file row without ``end``) is an exit naming the file, not a traceback."""
+    from dokimi.novelty.atoms import save_atoms
+    from dokimi.novelty.bundle import load_bundle
+    from dokimi.novelty.spans import segment
+
+    root = _bundle_skill(tmp_path)
+    bundle = load_bundle(f"skill:{root}", include_resources=True)
+    atoms = tmp_path / "atoms.json"
+    save_atoms([], segment(bundle.text), atoms, extractor="e", cap=None, bundle=bundle.summary())
+    saved = json.loads(atoms.read_text(encoding="utf-8"))
+    del saved["bundle"]["files"][0]["end"]
+    atoms.write_text(json.dumps(saved), encoding="utf-8")
+    args = _parse("novelty", "shorten", "--artifact", f"skill:{root}", "--atoms", str(atoms),
+                  "--lexical-only")
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert str(exc.value) == f"{atoms}: the atoms record no span range for SKILL.md"
+
+
 def test_item_analysis_refuses_a_file_that_carries_no_probe_runs(tmp_path):
     path = tmp_path / "novelty.json"
     path.write_text(json.dumps({"model": "m", "paired": {}}), encoding="utf-8")
@@ -448,6 +477,20 @@ def test_item_analysis_of_one_model_prints_why_it_is_not_computable(tmp_path, ca
     args = _parse("novelty", "items", "--probes", str(path))
     args.func(args)
     assert "at least 3" in capsys.readouterr().out
+
+
+def test_item_analysis_warns_when_the_cells_cover_different_atoms(tmp_path, capsys):
+    files = []
+    for model, atoms in (("m1", ("a1", "a2")), ("m2", ("a1",))):
+        path = tmp_path / f"{model}.json"
+        path.write_text(json.dumps({"model": model, "runs": [
+            {"atom_id": atom, "probe_kind": "direct", "arm": "full", "question": "q",
+             "response": "r", "verdict": "correct_complete"} for atom in atoms]}),
+            encoding="utf-8")
+        files.append(str(path))
+    args = _parse("novelty", "items", "--probes", *files)
+    args.func(args)
+    assert "WARNING: these runs do not cover the same atom set" in capsys.readouterr().err
 
 
 def test_two_runs_of_the_same_model_do_not_overwrite_each_other(tmp_path, capsys):

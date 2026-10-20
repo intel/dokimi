@@ -78,11 +78,12 @@ call starts. The calls not run are kept as `skipped`, left out of the summary
 (`n_skipped`), and the command exits 2. Calls already in flight finish, so the
 spend can pass the cap by up to `--concurrency` − 1 calls. A reply cut at
 `--max-tokens` before any tool call is billed, so it counts. A call that comes
-back with no price leaves the cap blind: no new call starts after it, and the
-command exits 2.
-Items run group by group; at any concurrency the last group reached may be partial. Partial
-groups are summarized from the cells that ran, so their A/B counterbalancing is incomplete.
-A call priced at exactly 0 does not move the cap.
+back with no price leaves the cap blind: no new call starts after it. If that
+left calls unstarted, the command exits 2; otherwise it prints a warning.
+Items run group by group, and each call is checked against the cap as it is
+taken, so the calls that ran are a prefix: only the last group reached may be
+partial. Partial groups are summarized from the cells that ran, so their A/B
+counterbalancing is incomplete. A call priced at exactly 0 does not move the cap.
 
 ## Reading the result
 

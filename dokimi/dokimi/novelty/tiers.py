@@ -21,6 +21,9 @@ and into the artifact's warnings, so the ceiling travels with the number.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from typing import Any
+
 #: What a run gives up, keyed by the setting that is off ("sampled": an atom cap the
 #: artifact reached). The forfeits of a run are derived from its resolved settings and,
 #: once known, its atom count -- not fixed per tier -- so `--no-verify` adds the
@@ -119,7 +122,21 @@ FLAG_DEFAULTS: dict[str, object] = {
     "no_confirm_carriers": False,
 }
 
-#: Which ``AnalyzeConfig`` field each flag decides, and whether the flag negates it.
+#: The settings a tier or a flag decides -- the ``AnalyzeConfig`` fields of the same names.
+SETTING_NAMES = ("max_atoms", "paraphrases", "reversals", "verify_faithfulness",
+                 "classify_content", "shorten_artifact", "confirm_carriers")
+
+#: The settings when no tier is named and no flag is set. ``AnalyzeConfig`` takes its
+#: defaults from here, so the two cannot drift apart.
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "max_atoms": DEFAULT_MAX_ATOMS, "paraphrases": 1, "reversals": True,
+    "verify_faithfulness": True, "classify_content": True, "shorten_artifact": True,
+    "confirm_carriers": True,
+}
+
+#: Which setting each flag decides, and whether the flag negates it. The only flag ->
+#: setting mapping: every command that takes these flags resolves them through
+#: :func:`resolve_settings`.
 _FLAG_TO_SETTING: dict[str, tuple[str, bool]] = {
     "max_atoms": ("max_atoms", False),
     "all_atoms": ("max_atoms", False),
@@ -132,27 +149,107 @@ _FLAG_TO_SETTING: dict[str, tuple[str, bool]] = {
 }
 
 
-def resolve(tier: str | None, flags: dict) -> dict:
-    """Merge a tier with the flags the user actually set.
+@dataclass(frozen=True)
+class RunSettings:
+    """What one run measures and what it may therefore claim.
+
+    ``values`` holds every :data:`SETTING_NAMES` entry, resolved; ``tier`` and
+    ``overrides`` say how they were reached, because a ``--tier triage --max-atoms 90`` run
+    is not a stock triage run and must not be read as one. The forfeits and warnings
+    follow ``values`` (and, once known, the atom count) -- never the tier's name.
+    """
+
+    values: dict[str, Any]
+    tier: str | None = None
+    overrides: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def of(cls, config: Any) -> RunSettings:
+        """The settings an ``AnalyzeConfig`` carries."""
+        return cls(values={name: getattr(config, name) for name in SETTING_NAMES},
+                   tier=getattr(config, "tier", None),
+                   overrides=dict(getattr(config, "tier_overrides", None) or {}))
+
+    def config_fields(self) -> dict[str, Any]:
+        """The ``AnalyzeConfig`` keyword arguments that carry these settings."""
+        return {**self.values, "tier": self.tier, "tier_overrides": dict(self.overrides)}
+
+    def forfeits(self, n_atoms: int | None = None) -> list[str]:
+        """The claims a run at these settings may not make (see :func:`forfeits`)."""
+        return forfeits(self.values, n_atoms=n_atoms)
+
+    def tier_record(self, n_atoms: int | None = None) -> dict | None:
+        """``run_config.tier``: name, forfeits, overrides; ``None`` without a tier."""
+        if self.tier is None:
+            return None
+        return {"name": self.tier, "forfeits": self.forfeits(n_atoms),
+                "overrides": dict(self.overrides)}
+
+    def warnings(self, n_atoms: int | None = None) -> list[str]:
+        """The warnings a result at these settings carries.
+
+        With a tier: its forfeits, recomputed from what the run did, and the overrides.
+        Without one, only the dropped probe kinds: a tier states those through its
+        forfeits, and the stage switches warn on their own in the analyzer, flag named.
+        """
+        if self.tier is None:
+            out: list[str] = []
+            if not self.values["paraphrases"]:
+                out.extend(FORFEITS["paraphrases"])
+            if not self.values["reversals"]:
+                out.extend(FORFEITS["reversals"])
+            return out
+        out = [f"tier `{self.tier}` forfeits: {line}" for line in self.forfeits(n_atoms)]
+        if self.overrides:
+            out.append(
+                f"tier `{self.tier}` was overridden by flags "
+                f"({', '.join(sorted(self.overrides))}); the forfeits above follow the "
+                "settings this run used"
+            )
+        return out
+
+    def estimate(self, n_spans: int, *, budgets: tuple[float, ...] = (),
+                 n_arms: int = 2) -> dict:
+        """The ``--estimate-only`` bill for an artifact of ``n_spans`` spans.
+
+        One atom per two spans is the density the study's extractor produced, capped at
+        ``max_atoms``. The forfeits assume the cap is reached, since the atom count is a
+        guess until extraction runs: an artifact with fewer atoms than the cap drops the
+        sampled-rate forfeits.
+        """
+        cap = self.values["max_atoms"]
+        expected = max(1, n_spans // 2)
+        n_atoms = expected if cap is None else min(cap, expected)
+        return {
+            "spans": n_spans,
+            "atom_cap": cap,
+            # The full resolved settings, so the projection is the model `estimate_calls`
+            # implements rather than a subset of it.
+            "estimate": estimate_calls(n_atoms, dict(self.values, budgets=tuple(budgets)),
+                                       n_arms=n_arms),
+            "tier": self.tier_record(),
+            "caveat": (
+                "forfeits assume the atom cap is reached; the run recomputes them from the "
+                "atoms it extracts" if cap is not None else None
+            ),
+        }
+
+
+def resolve_settings(tier: str | None, flags: dict) -> RunSettings:
+    """Merge a tier (or the defaults) with the flags the user actually set.
 
     An explicit flag always wins over the tier -- a tier is a starting point, not a lock --
     and the override is recorded so the result cannot be read as a stock tier run.
 
     Args:
-        tier: Tier name, or ``None`` for the historical defaults.
-        flags: Parsed flag values, keyed as in :data:`FLAG_DEFAULTS`.
-
-    Returns:
-        ``{"settings": {...}, "tier": {...}}``. ``settings`` are ``AnalyzeConfig`` fields to
-        apply; ``tier`` is the record for ``run_config`` (name, forfeits, overrides).
+        tier: Tier name, or ``None`` for :data:`DEFAULT_SETTINGS`.
+        flags: Parsed flag values keyed as in :data:`FLAG_DEFAULTS`; a missing flag is
+            unset (a command that does not offer it).
 
     Raises:
         KeyError: Unknown tier name.
     """
-    if tier is None:
-        return {"settings": {}, "tier": {}}
-    spec = TIERS[tier]
-    settings = dict(spec["settings"])
+    values = dict(TIERS[tier]["settings"]) if tier is not None else dict(DEFAULT_SETTINGS)
     overrides: dict[str, object] = {}
     # Explicit order, not caller insertion order: `--all-atoms` beats `--max-atoms` exactly
     # as it does without a tier, and that precedence must not depend on how the caller
@@ -164,23 +261,16 @@ def resolve(tier: str | None, flags: dict) -> dict:
             continue
         if flag == "max_atoms" and flags.get("all_atoms"):
             continue  # discarded by --all-atoms, so not a setting this run applied
-        field, negates = _FLAG_TO_SETTING[flag]
+        name, negates = _FLAG_TO_SETTING[flag]
         resolved: object = (not value) if negates else value
-        if field == "paraphrases":
+        if name == "paraphrases":
             resolved = 0 if value else 1
         if flag == "all_atoms":
             resolved = None  # no cap: the full sweep the `study` forfeit points to
-        if settings.get(field) != resolved:
+        if tier is not None and values.get(name) != resolved:
             overrides[flag] = value
-        settings[field] = resolved
-    return {
-        "settings": settings,
-        "tier": {
-            "name": tier,
-            "forfeits": forfeits(settings),
-            "overrides": overrides,
-        },
-    }
+        values[name] = resolved
+    return RunSettings(values=values, tier=tier, overrides=overrides)
 
 
 def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2) -> dict:

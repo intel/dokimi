@@ -48,6 +48,12 @@ SPDX-License-Identifier: Apache-2.0
 > python cli.py repo budget <source> [--harness claude-code] [--json] [--fail-on-warning]
 > ```
 >
+> `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
+>
+> ```bash
+> python cli.py repo inspect <source> [--out environment.json] [--json] [--large-bytes N] [--fail-on-error]
+> ```
+>
 > `--manifest-file <local.yaml>` on `validate`, `scan` and `reach` reads the manifest
 > from outside the tree, for a repository that has not added it yet. `scan` and `reach`
 > need only `guidance`; given neither a manifest in the tree nor `--manifest-file`, they
@@ -139,7 +145,8 @@ outside every workspace and passes its absolute path to entry points as
   anywhere in that context, for example a build wrapper under `<eval-dir>`,
   and must work for every task base: a version pinned in the task tree (such
   as `.bazelversion`) is read at run time, not baked in. A build that runs
-  past 3 hours fails as a container error rather than hanging the batch.
+  past `--build-timeout` seconds (3 hours by default) fails as a container
+  error rather than hanging the batch.
 - `tasks check` (§4.3) fails a task whose agent container can read any file
   under `tasks` or `{source_dir}`.
 
@@ -255,7 +262,8 @@ belongs to the repository's grader and is passed through unread.
 2. delete `eval_dir`
 3. `git init` and commit (no history, so fixes cannot leak)
 4. apply `setup_patches`
-5. apply the arm
+5. apply the arm: `guidance:none`, `guidance:raw`, `guidance:bridge`,
+   `guidance:rev:<rev>` or `patch:<file>`
 6. amend the commit
 7. apply `review_patch` with `git am` under a neutral author
 8. expire the reflog and prune unreachable objects: the
@@ -264,8 +272,9 @@ belongs to the repository's grader and is passed through unread.
    Prep's git never runs `gc --auto`, which would pack them where `prune`
    cannot reach
 
-Every `guidance:*` arm is made by the framework from `guidance.globs` and the
-harness profile; a repository supplies no arm content:
+Every `guidance:*` arm is made by the framework from `guidance.globs`, the
+harness profile and the source's own history; a repository supplies no arm
+content:
 
 - `none` deletes every file the globs match at the base; `raw` keeps them.
 - `bridge` exists only for a profile with a `bridge` key. It writes that file
@@ -274,12 +283,43 @@ harness profile; a repository supplies no arm content:
   depends on its version: Claude Code 2.1.286 loads `AGENTS.md` itself, but
   only when no `CLAUDE.md` is in its start-up chain, so a repository-side
   bridge arm would mean different things on different versions.
+- `rev:<rev>` keeps the base's code and replaces its guidance with that of
+  another revision of the source: the base's matched files are deleted and the
+  files the globs match at `<rev>` (outside `eval_dir`) are written. It answers
+  "does this PR's `AGENTS.md` help?" by running the same tasks with
+  `guidance:rev:main` and with the PR's head. `<rev>` is a SHA, tag or branch
+  (`/` allowed) of the source's git dir; for a remote source a branch or tag is
+  fetched first. `repo run` resolves it once per batch and names the arm by the
+  full SHA, `guidance:rev:<sha>`: a branch that moves later gives another arm
+  with its own cells, never more cells of the old one, and `repo compare`
+  selects the arm by that name.
+
+`patch:<file>` is the one arm whose content comes from the evaluator rather
+than from the globs: a unified diff on the host running `repo run`, applied
+with `git apply` on top of `guidance:raw` (after `setup_patches`). It is for
+tooling or layout treatments, such as a new script or a Makefile target, that
+no task carries. The file is read once per batch, so every cell applies the
+same bytes, and the arm is named `patch:<name>@<first 12 hex of its
+sha256>`, where `<name>` is the file name without its directory, with every
+character outside `[A-Za-z0-9.-]` replaced by `_` and cut to 40 characters, so
+the name holds no `/` for `BATCH/ARM` selectors. The exact name is printed on
+the `repo run` stderr line `arm <name> = <path>, sha256 ...`. A patch that does not apply to a task's base, or that writes into
+`eval_dir`, fails that cell's preparation. A cell has one arm: `guidance:rev:`
+and `patch:` do not combine.
+
+Both write files, as step 1 does: no object of the source's git dir is copied
+into the workspace, so its object store gains only the blobs of the files the
+arm wrote, and step 8 drops the guidance the arm replaced.
 
 `meta.json` records the base (`base_rev`, `base_sha`, `base_date`), the arm,
 the SHA of every applied patch, and `start_sha`: the workspace `HEAD` after
 step 7, the commit the agent starts from (§4). `base_sha` names the upstream
 commit and is not in the workspace, because step 3 starts a new history; a
-grader diffs the agent's changes from `start_sha`.
+grader diffs the agent's changes from `start_sha`. With the arm come
+`arm_files`, the files it deleted, wrote or changed; for `guidance:rev:` an
+`arm_rev` object (`rev` as given, its `sha`, and `removed`: the base's guidance
+files with no counterpart at `<rev>`); for `patch:` an `arm_patch` object (the
+file's absolute `path` and full `sha256`).
 
 Step 3 removes history only. A fix that landed upstream before a model's
 training cutoff may still be known to the model, so reports split results by
@@ -321,6 +361,15 @@ reads the upstream base (`base_sha`) and the workspace start commit
   (Claude Code), `rc` is `0` or `1`. It is `null` when no result came back,
   for example when the run stopped at its turn or budget limit; a grader
   must not count `null` as a failure.
+- `agent` is present on an event a subagent made: the id of the parent's
+  `Agent`/`Task` call that started it. Events without it are the parent's.
+
+`result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
+`cache_read_tokens`, `cache_write_tokens`) over the same scope as `cost_usd`.
+`usage_scope` is `tree` when they include subagents and helper models (Claude
+Code's `modelUsage`), `main` when the harness reported the parent's only, and
+`null` when it reported none. `subagent_calls` counts the parent's and
+subagents' `Agent`/`Task` calls; `null` when the harness wrote no result record.
 
 ### 4.2 `grade.json` (written by `grade` to `{run_dir}/grade.json`)
 
@@ -645,6 +694,76 @@ file-set parity check.
 
 Measured on oneDAL and scikit-learn-intelex, claim by claim against their own
 checkers: see the pull request that added the scan (#68).
+
+### 8.1 Inspection (`repo_environment.v1`)
+
+`repo inspect <source>` reads the tree and nothing else: no manifest, no LLM
+call, no command of the repository run. Where L0 asks whether what the
+guidance says is true, inspection asks what the guidance may have left out:
+which instruction files exist and where they apply, how a change can be built
+and checked, and what a session or a command it runs could do beyond editing
+files. Its findings are hypotheses for `repo reach` and `repo run` to test,
+not measured effects.
+
+The report keeps observations apart from findings:
+
+- `instructions`: one record per instruction file and per harness rule it
+  matches (a root `AGENTS.md`, a nested `CLAUDE.md`, `.cursor/rules/*.mdc`,
+  `.github/instructions/*.instructions.md`, …), with its `scope`
+  (`root`, `path-specific`, `mode-specific`, `local-private`, `legacy`,
+  `capability`, `unknown`), `activation`, the `directory` it applies to and
+  its size (for a link, the size of the file it names). This is what each
+  harness documents; which files a given harness version loads is measured by
+  the reach probe (§7).
+- `checks`: ways to build, test, lint and type-check, per project root (the
+  root and every directory below it with a `package.json`, makefile,
+  `pyproject.toml`, `setup.py`, `setup.cfg`, `Pipfile`, `go.mod` or `Cargo.toml`; Bazel, CMake,
+  Gradle, Maven, .NET and Autotools are read tree-wide). `basis: declared`
+  means the repository names it: a script, a make target, a config section,
+  a pre-commit hook. `basis: toolchain` means the tool offers the command
+  whether or not there is anything for it to run (`go test` beside a
+  `go.mod`): a place to start, not evidence of tests.
+- `capabilities`: what the harness gets from the repository: MCP configs,
+  Claude Code hooks of any type (`command`, `http`, `prompt`, `agent`) and
+  plugins, settings commands (`statusLine`, `apiKeyHelper`),
+  `enableAllProjectMcpServers`, skills, editor settings, each with a risk tier
+  (documentation under `.claude/hooks/` is low; a `.claude-plugin/` manifest is
+  medium, and high when it declares `hooks` or `mcpServers` or cannot be read). `scripts`: root
+  `package.json` scripts that are install hooks, delete the root, home, a glob
+  or the whole tree (`rm -rf dist` is not flagged; `git clean -n` is a dry
+  run), pipe a download into a shell, or publish and deploy.
+  `hook_risks`: the concrete path, a hook the harness fires on its own
+  (`SessionStart`, `SessionEnd`, `PreCompact`, `Notification`, `UserPromptSubmit`, `Stop`, `SubagentStop`) that installs
+  packages with lifecycle scripts on, runs a `package.json` script (`npm run`, `npm test`, `yarn build`, …),
+  `make`, or executes a path in the tree (also behind `VAR=value`, `sudo -u x`, `nice -n 10`, `timeout -s KILL 30`,
+  `env -u X`, `/usr/bin/env`, `source`, `sh -c`, `eval`, `$(…)` in double quotes, or `echo '…' | sh`),
+  so starting a session or running tools executes code from the checked-out branch. Hook
+  commands are read word by word, with quotes (also across lines) and comments
+  honoured, so a command named inside `echo '…'` or after `#` does not count. A heredoc or
+  here-string body counts only when a shell reads it (`bash <<EOF`, `cat <<EOF | sh`,
+  `bash <<< '…'`), not under `bash -c` or a non-shell command. `npm update`, `dedupe` and the like
+  count as installs. `--ignore-scripts` (the last such flag wins), `npm_config_ignore_scripts=true`,
+  a root `.npmrc` with `ignore-scripts=true` (npm, pnpm) and a global install (`-g`, `yarn global`)
+  clear the install risk. A `.claude/settings.json` or `.claude/settings.local.json` that cannot be
+  parsed is listed under `not_observed`, since its hooks were not read.
+- `files`: counts and bytes, generated files (lockfiles, `vendor/`,
+  `third_party/`, test fixtures, `*_pb2.py`, …), minified bundles, test files,
+  and files over `--large-bytes` (default 100 000, about 30k tokens: large
+  for an agent to read, far below what a disk-size lint flags). From a
+  blob-less clone sizes are not read, since listing them would fetch every
+  blob; the report says so under `not_observed`.
+
+Each finding has a `rule`, a `severity` (`error`, `warning`, `info`) and,
+separately, a `confidence`, the `stages` it affects (`orient`, `bootstrap`,
+`navigate`, `edit`, `verify`, `deploy`), a `path` (null for
+the whole repository) and `why`. Only stages that some warning or error can
+reach are reported; how a change is reviewed and merged is not visible in the
+tree and is listed under `not_observed`. A stage is `blocked` by an error,
+`attention` on a warning, and at best `no_known_blocker`, never ready:
+`not_observed` lists what the tree cannot show, such as whether the commands
+pass, CI secrets and the agent's network. `risk` is the worst of the launch
+observations. There is no overall score. `--fail-on-error` exits 1 when any
+finding is an error.
 
 ## 9. Running
 

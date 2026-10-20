@@ -347,7 +347,8 @@ def test_probe_harness_scores_the_probe_and_skips_the_verifier(tmp_path, monkeyp
     assert not any(["cp", str(task.path / "tests")] == c[:2] for c in calls)
 
 
-def test_claude_solve_runs_in_scratch_with_sealed_env(tmp_path, monkeypatch):
+@pytest.mark.parametrize("arm", ["skill", "skill-discover"])
+def test_claude_solve_runs_in_scratch_with_sealed_env(tmp_path, monkeypatch, arm):
     import dokimi.harnesses.docker_solver as mod
 
     task = load_task(_content_checkout(tmp_path))
@@ -384,7 +385,7 @@ def test_claude_solve_runs_in_scratch_with_sealed_env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mod.subprocess, "run", fake_run)
     out = tmp_path / "out"
-    result = create_harness(f"docker-claude-host-skill:{skill}").run(task, output_dir=out)
+    result = create_harness(f"docker-claude-host-{arm}:{skill}").run(task, output_dir=out)
 
     cwd = seen["cwd"]
     assert out not in cwd.parents and tmp_path / "content" not in cwd.parents
@@ -396,7 +397,12 @@ def test_claude_solve_runs_in_scratch_with_sealed_env(tmp_path, monkeypatch):
     assert seen["skill_seen"] is True and seen["manifest"]["name"] == "demo"
     assert cwd not in seen["plugin"].parents
     prompt = seen["cmd"][seen["cmd"].index("-p") + 1]
-    assert prompt.startswith("A skill named `demo:demo` is installed.")
+    # The discovery arm installs the same plugin and only drops the notice.
+    notice = arm == "skill"
+    assert prompt.startswith("A skill named `demo:demo` is installed." if notice
+                             else "Solve this coding task.")
+    assert ("demo" in prompt.split("Solve this coding task.")[0]) is notice
+    assert result.metrics["skill_notice"] is notice
     assert seen["cmd"][seen["cmd"].index("--output-format") + 1] == "stream-json"
     # stream-json under -p exits 1 with "requires --verbose" without it.
     assert "--verbose" in seen["cmd"]

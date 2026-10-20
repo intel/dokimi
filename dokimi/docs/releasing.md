@@ -96,8 +96,11 @@ conda-forge packages are built by a feedstock repository under
 `conda-forge/`, not from this repository. After the first PyPI release:
 
 1. Generate a recipe from the PyPI sdist (`grayskull pypi dokimi`), make it
-   `noarch: python`, test with `dokimi --version` and `dokimi --help`, add the
-   maintainers, and open a PR to
+   `noarch: python` with `python {{ python_min }}.*` in host and test and
+   `python >={{ python_min }}` in run, where `python_min` is `3.11` unless the
+   conda-forge global value is already at least that (see conda-forge's
+   [noarch guide](https://conda-forge.org/docs/how-to/basics/noarch/)), test with
+   `dokimi --version` and `dokimi --help`, add the maintainers, and open a PR to
    [conda-forge/staged-recipes](https://github.com/conda-forge/staged-recipes).
    The sdist is the source because it is the project directory alone (this
    repository's `dokimi/`), with `LICENSE` at its root for `license_file`.
@@ -107,4 +110,4 @@ conda-forge packages are built by a feedstock repository under
 
 Every runtime dependency in `pyproject.toml` is on conda-forge (checked for
 0.1.0), including versions inside the current upper bounds. An optional extra
-(`ocr`, `mcp`, `embeddings`, `typed-scorer`) is not part of the conda package.
+(`ragas`, `ocr`, `mcp`, `embeddings`, `typed-scorer`) is not part of the conda package.

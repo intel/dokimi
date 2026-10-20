@@ -17,11 +17,12 @@ from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
     DEFAULT_CONCURRENCY,
-    DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
     DEFAULT_MAX_TOKENS_PER_QUESTION,
     DEFAULT_RETRIEVAL_TOP_K,
     DEFAULT_RESULTS_SUFFIX,
+    JUDGE_MODEL_FOR_PROVIDER,
+    JUDGE_MODEL_HELP,
 )
 from dokimi.commands.library import _load_registry
 
@@ -329,6 +330,12 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+_FORCE_REGEN_HELP = ("Do not reuse the personas and questions cached in the output directory: "
+                     "discover and generate them again, or re-read the golden set under "
+                     "--questions-root. A run with a golden set or --questions-from discovers "
+                     "no personas")
+
+
 def register(sub, positive_int) -> None:
     """Add the `benchmark` subcommand group."""
     benchmark_p = sub.add_parser("benchmark", help="Run context benchmark for one or more registered targets")
@@ -343,7 +350,8 @@ def register(sub, positive_int) -> None:
                              help="Output directory (default: results/{target}_final)")
     bench_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
-    bench_run_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    bench_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
+                             help=JUDGE_MODEL_HELP)
     bench_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                              choices=JUDGE_PROVIDERS)
     bench_run_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
@@ -352,7 +360,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency",
                              help="Parallel API calls for answering and judging (default: 5)")
     bench_run_p.add_argument("--force-regen", action="store_true", dest="force_regen",
-                             help="Regenerate personas/questions even if cached files exist")
+                             help=_FORCE_REGEN_HELP)
     bench_run_p.add_argument("--questions-from", default=None, dest="questions_from",
                              help="Reuse questions from another run's output directory or JSON file. "
                                   "Skips question generation entirely — essential for fair multi-model "
@@ -378,7 +386,8 @@ def register(sub, positive_int) -> None:
     bench_pre_p.add_argument("--output-dir", default=None, dest="output_dir", help="Output directory (default: results/{target}_final)")
     bench_pre_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
-    bench_pre_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
+                             help=JUDGE_MODEL_HELP)
     bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
     bench_pre_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_pre_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
@@ -399,13 +408,14 @@ def register(sub, positive_int) -> None:
     bench_batch_p.add_argument("--output-dir", default="results", dest="output_dir")
     bench_batch_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
-    bench_batch_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    bench_batch_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
+                               help=JUDGE_MODEL_HELP)
     bench_batch_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                                choices=JUDGE_PROVIDERS)
     bench_batch_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
                                help="Max tokens to retrieve per question from doc source (default: 4000)")
     bench_batch_p.add_argument("--force-regen", action="store_true", dest="force_regen",
-                               help="Regenerate personas/questions even if cached files exist")
+                               help=_FORCE_REGEN_HELP)
     bench_batch_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_batch_p.add_argument("--questions-root", default=None, dest="questions_root",
                                help="Directory where each <target>_golden.json is looked "

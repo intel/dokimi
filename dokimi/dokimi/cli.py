@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import threading
+from collections.abc import Sequence
 
 from dokimi.commands import (
     answers,
@@ -35,6 +37,7 @@ from dokimi.commands import (
 )
 from dokimi import __version__, process
 from dokimi.console import tolerate_console_encoding
+from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER, default_judge_model
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -82,14 +85,38 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse ``argv`` (default ``sys.argv[1:]``), then fill in defaults that hang on another flag.
+
+    A left-out ``--judge-model`` becomes the default judge that runs on ``--judge-provider``,
+    read once every flag is parsed, so the two flags can come in either order.
+    """
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
+        model = default_judge_model(args.judge_provider)
+        if model is None:
+            parser.error(f"--judge-provider {args.judge_provider} has no default judge model; "
+                         f"pass --judge-model")
+        args.judge_model = model
+    return args
+
+
 def main() -> None:
     """Entry point."""
     if threading.current_thread() is threading.main_thread():  # signal.signal works only there
         process.install_signal_handlers()  # SIGTERM/SIGHUP: kill the process groups we started, then exit
     tolerate_console_encoding()
-    parser = build_parser()
-    args = parser.parse_args()
-    args.func(args)
+    args = parse_args()
+    from dokimi.eval.question_text import EmptyQuestionError
+
+    try:
+        args.func(args)
+    except EmptyQuestionError as exc:  # a bad input record, not a bug: no traceback
+        print(f"Error: {exc}", file=sys.stderr)
+        # 2, as the commands' other input errors: 1 is the verdict of `eval judge-validity`
+        # and of the --strict gates, and a malformed file must not read as a failed gate.
+        sys.exit(2)
 
 
 if __name__ == "__main__":

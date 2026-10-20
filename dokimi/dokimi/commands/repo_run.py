@@ -12,6 +12,10 @@ import math
 import shutil
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dokimi.repos.workspace import Arm
 
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
@@ -62,7 +66,8 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     if not args.image and (args.rebuild_image or not runner.image_exists(image)):
         print(f"building {image} from {tree.label} (tasks removed)", file=sys.stderr)
         ctx_dir = ctx_dir or export_build_context(tree, manifest, out / "_eval" / "build-context")
-        runner.build(ctx_dir, ctx_dir / manifest.image.dockerfile, image, args.build_network)
+        runner.build(ctx_dir, ctx_dir / manifest.image.dockerfile, image, args.build_network,
+                     timeout_s=args.build_timeout)
     if ctx_dir is not None:
         shutil.rmtree(ctx_dir)
     overrides = dict(_pair(c) for c in args.cache or ())
@@ -159,19 +164,23 @@ def cmd_repo_run(args: argparse.Namespace) -> None:
 
 
 def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock: contextlib.ExitStack) -> None:
+    from dokimi.repos import RepoSource, open_source
     from dokimi.repos.container import docker_network
     from dokimi.repos.harness_profile import load_profile
     from dokimi.repos.runner import (
         AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps)
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
-    from dokimi.repos.workspace import ARMS, load_tasks
+    from dokimi.repos.workspace import load_tasks, parse_arm, source_git_dir
+
+    from .repo import _cache_dir
 
     try:
-        bad_arms = [a for a in arms if a not in ARMS]
-        if bad_arms:
-            raise ValueError(f"unknown arm(s) {', '.join(bad_arms)} (known: {', '.join(ARMS)})")
+        parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
         harness_bin = _harness_bin(args.bin or profile.bin)
+        source = RepoSource.parse(args.source)  # a misspelled revision fails before the build and the pin too
+        arms = _pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
+                         args.source)
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
@@ -200,6 +209,30 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
           f"{summary['budget_stopped']} not started (batch budget); ${summary['spent_usd']:.4f}")
     if summary["errors"] or summary["budget_stopped"]:
         sys.exit(1)
+
+
+def _pin_arms(arms: list[Arm], git_dir: Path, source: str) -> list[str]:
+    """Each arm under the name its cells get, resolved once for the whole batch (a revision to its
+    full SHA, so a branch that moves later names another arm); two spellings of one arm run once."""
+    from dokimi.repos import RepoSource
+    from dokimi.repos.workspace import pin_arm
+
+    parsed = RepoSource.parse(source)
+    remote = parsed.remote
+    worktree = None if remote else Path(parsed.location)  # HEAD of a linked worktree is not the main one's
+    pinned: list[str] = []  # Arm objects: run_batch hands each to prepare_workspace
+    first_path: dict[str, str | None] = {}
+    for arm in arms:
+        named = pin_arm(arm, git_dir, fetch=remote, worktree_dir=worktree)
+        if named != named.spec:
+            detail = f"{named.patch_path}, sha256 {named.patch_sha256}" if named.patch is not None else named.spec
+            print(f"arm {named} = {detail}", file=sys.stderr)
+        first = first_path.setdefault(named, named.patch_path)
+        if first != named.patch_path:  # same bytes under another path: one cell, recorded under the first path
+            print(f"arm {named}: {named.patch_path} and {first} are the same patch and share one cell; "
+                  f"meta.json names {first}", file=sys.stderr)
+        pinned.append(named)
+    return list(dict.fromkeys(pinned))
 
 
 def _harness_bin(name: str) -> Path:
@@ -260,6 +293,9 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
                    help="Build the image even if the tag exists")
     p.add_argument("--build-network", default=None, dest="build_network",
                    help="docker build --network (for example host, behind a local proxy)")
+    # repos.container.BUILD_TIMEOUT_S, written out to keep dokimi.repos unimported at startup
+    p.add_argument("--build-timeout", type=positive_int, default=3 * 3600, dest="build_timeout",
+                   help="Seconds the image build may run before it fails (default 10800, 3 hours)")
     p.add_argument("--cache", action="append", default=None, metavar="NAME=PATH",
                    help="Host directory for the manifest cache NAME; repeatable")
     p.add_argument("--cache-root", default=None, dest="cache_root",
@@ -291,7 +327,11 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
         "result.json per cell, already finished cells skipped")
     _common(run_p, source_help, cache_help, positive_int)
     run_p.add_argument("--arm", action="append", default=None, required=True,
-                       help="guidance:none | guidance:raw | guidance:bridge; repeatable or comma-separated")
+                       help="guidance:none | guidance:raw | guidance:bridge | guidance:rev:REV (the base with "
+                       "the guidance files of revision REV of the source; the arm is named by REV's full SHA, "
+                       "resolved once per batch) | patch:FILE (a unified diff on this host, applied with git "
+                       "apply on top of guidance:raw; named patch:<file name>@<sha256 prefix>, path and "
+                       "sha256 in meta.json); repeatable or comma-separated")
     run_p.add_argument("--model", action="append", required=True,
                        help="Model string passed to the harness as it is; repeatable")
     run_p.add_argument("--reps", type=positive_int, default=1)

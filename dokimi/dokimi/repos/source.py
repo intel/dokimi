@@ -18,6 +18,7 @@ import os
 import posixpath
 import re
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable, Protocol
@@ -114,10 +115,11 @@ class WorkTree:
         The root may be a subdirectory of the working tree; ``ls-files -C`` lists paths relative to it.
         """
         if self._files is None and _git(self.root, "rev-parse", "--is-inside-work-tree", check=False).strip() == "true":
-            listed = _git(self.root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", check=False)
+            listed = _git_entries(self.root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
+                                  check=False, warn=True)
             if listed:  # a link is an entry even when it dangles or names a directory, as in git
-                self._files = sorted({p for p in listed.split("\0")
-                                      if p and ((self.root / p).is_file() or (self.root / p).is_symlink())})
+                self._files = sorted({p for p in listed
+                                      if (self.root / p).is_file() or (self.root / p).is_symlink()})
         if self._files is None:
             out: list[str] = []
             for dirpath, dirnames, filenames in os.walk(self.root):
@@ -183,8 +185,7 @@ class GitTree:
 
     def files(self) -> list[str]:
         if self._files is None:
-            out = _git(self.git_dir, "ls-tree", "-r", "-z", "--name-only", self.sha)
-            self._files = sorted(p for p in out.split("\0") if p)
+            self._files = sorted(_git_entries(self.git_dir, "ls-tree", "-r", "-z", "--name-only", self.sha, warn=True))
         return self._files
 
     def _dir_set(self) -> set[str]:
@@ -203,8 +204,7 @@ class GitTree:
 
     def _links(self) -> set[str]:
         if self._symlinks is None:
-            out = _git(self.git_dir, "ls-tree", "-r", "-z", self.sha)
-            self._symlinks = {entry.split("\t", 1)[1] for entry in out.split("\0")
+            self._symlinks = {entry.split("\t", 1)[1] for entry in _git_entries(self.git_dir, "ls-tree", "-r", "-z", self.sha)
                               if entry.startswith("120000 ")}
         return self._symlinks
 
@@ -251,9 +251,8 @@ class GitTree:
         fetched first in one request, not one by one."""
         skipped = {} if skipped is None else skipped
         # No `-l`: listing sizes makes git fetch every missing blob of a partial clone, one by one.
-        listing = _git(self.git_dir, "ls-tree", "-r", "-z", self.sha)
         oid_of: dict[str, str] = {}
-        for entry in listing.split("\0"):
+        for entry in _git_entries(self.git_dir, "ls-tree", "-r", "-z", self.sha):
             meta, _, path = entry.partition("\t")
             parts = meta.split()
             if len(parts) == 3 and parts[1] == "blob":
@@ -323,7 +322,9 @@ def _prefetch(git_dir: Path, sha: str, oids: set[str]) -> None:
     """
     if not _git(git_dir, "config", "--get", "remote.origin.promisor", check=False).strip():
         return
-    listed = _git(git_dir, "rev-list", "--objects", "--no-walk", "--missing=print", sha)
+    # Only the "?<oid>" lines are used; a path printed beside an object may not be UTF-8.
+    listed = _run_git(git_dir, ["rev-list", "--objects", "--no-walk", "--missing=print", sha], None,
+                      True).stdout_bytes.decode("utf-8", "replace")
     absent = [line[1:] for line in listed.splitlines() if line.startswith("?") and line[1:] in oids]
     if absent:
         _git_bytes(git_dir, ["-c", "fetch.negotiationAlgorithm=noop", "fetch", "origin", "--no-tags",
@@ -445,13 +446,27 @@ def _git(git_dir: Path | None, *args: str, check: bool = True) -> str:
     return raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")  # strict, as a blob read always was
 
 
+def _git_entries(git_dir: Path, *args: str, check: bool = True, warn: bool = False) -> list[str]:
+    """The entries of a ``-z`` listing. A file name that is not UTF-8 cannot be named in a
+    report, so its entry is left out, with a warning on stderr when ``warn`` is set."""
+    out = []
+    for entry in _run_git(git_dir, list(args), None, check).stdout_bytes.split(b"\0"):
+        try:
+            out.append(entry.decode("utf-8"))
+        except UnicodeDecodeError:
+            if warn:
+                print(f"warning: skipped a file name that is not UTF-8: {entry!r}", file=sys.stderr)
+    return [e for e in out if e]
+
+
 def _git_bytes(git_dir: Path, args: list[str], stdin: bytes) -> bytes:
     """``git -C git_dir *args`` with binary stdin and stdout."""
     return _run_git(git_dir, args, stdin, True).stdout_bytes
 
 
 def _run_git(git_dir: Path | None, args: list[str], stdin: bytes | None, check: bool) -> process.Completed:
-    where = ["-C", str(git_dir)] if git_dir is not None else []
+    # core.fsmonitor=false: a repository's own config must not run a command when it is read.
+    where = ["-c", "core.fsmonitor=false"] + (["-C", str(git_dir)] if git_dir is not None else [])
     try:
         proc = process.git(*where, *args, input=stdin, timeout=_GIT_TIMEOUT_S)
     except OSError as exc:

@@ -16,8 +16,9 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
-    DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
+    JUDGE_MODEL_FOR_PROVIDER,
+    JUDGE_MODEL_HELP,
 )
 
 # Run-configuration fields the arms commands read off parsed args, shared with
@@ -47,6 +48,8 @@ FORWARDED_RUN_CONFIG_FIELDS = (
     "stats_correction",
 )
 
+
+from dokimi.eval.question_text import EmptyQuestionError
 
 def forwarded_run_config(args: argparse.Namespace, **overrides) -> dict:
     """Copy the shared run-configuration fields off *args*.
@@ -81,6 +84,8 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
         questions = _load_questions(args.questions)
         _apply_named_matrix_cell(args)
         output = _build_arms_output(args, specs, questions)
+    except EmptyQuestionError:
+        raise  # a bad input record, not an arm setup error: cli.main reports it (exit 2)
     except (ValueError, FileNotFoundError) as exc:
         print(f"Error building arms/plugins: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -134,6 +139,8 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
         out_md = cells_dir / f"{safe_name}.md"
         try:
             output = _build_arms_output(cell_args, specs, questions)
+        except EmptyQuestionError:
+            raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
         except (ValueError, FileNotFoundError) as exc:
             print(f"Error running matrix cell {cell.name!r}: {exc}", file=sys.stderr)
             sys.exit(1)
@@ -245,7 +252,8 @@ def register(sub, positive_int) -> None:
                                  "discovery rate)")
     arms_run_p.add_argument("--judge", action="store_true",
                             help="Also score each arm with the LLM-as-judge")
-    arms_run_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    arms_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
+                            help=JUDGE_MODEL_HELP)
     arms_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                             choices=JUDGE_PROVIDERS)
     arms_run_p.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
@@ -384,7 +392,8 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
                              "or 'bh' (Benjamini-Hochberg, controls false discovery rate)")
     parser.add_argument("--judge", action="store_true",
                         help="Also score each arm with the LLM-as-judge")
-    parser.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, dest="judge_model")
+    parser.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
+                        help=JUDGE_MODEL_HELP)
     parser.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                         choices=JUDGE_PROVIDERS)
     parser.add_argument("--top-k", type=positive_int, default=5, dest="top_k",
@@ -575,6 +584,12 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
 
     _check_sampling_support(args)
     if args.judge:
+        from dokimi.eval.question_text import require_question_text
+
+        # The judge refuses a blank question; here, that is before any answer is paid for.
+        # Every question is answered and then judged, so every one is checked.
+        for i, q in enumerate(questions):
+            require_question_text(q, i)
         from dokimi.llm import unsupported_sampling_params
         from dokimi.utils import bedrock_litellm_model
 

@@ -7,11 +7,13 @@ The benchmark produces long-lived JSON artifact kinds: ``questions``,
 ``answers``, ``eval`` (LLM-judge scores), ``arms`` (treatment-arm comparisons),
 ``task_runs`` (executable task results), ``explore_runs`` (ExploreBench
 localization results), ``novelty`` (what an artifact's content adds to one
-model), ``guidance_reach`` (L1 reach probes) and ``repo_readiness`` (L0 claim
-checks) and ``tool_preference`` (which of two equal tools a model picks, and
-what moves it). This module stamps each with a ``schema_version`` and
-validates it against the JSON Schema in ``dokimi/schemas/`` on save
-and load, so fixtures and baselines stay forward-compatible and self-describing.
+model), ``guidance_reach`` (L1 reach probes), ``repo_readiness`` (L0 claim
+checks), ``tool_preference`` (which of two equal tools a model picks, and
+what moves it) and ``repo_environment`` (static inspection of what a
+repository offers an agent). This module stamps each with a
+``schema_version`` and validates it against the JSON Schema in
+``dokimi/schemas/`` on save and load, so fixtures and baselines stay
+forward-compatible and self-describing.
 
 Every artifact of a registered kind is written through :func:`save_artifact`, partial
 (incremental) saves included: a run that would write an invalid artifact fails on its first
@@ -47,6 +49,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "guidance_reach": "guidance_reach.v1",
     "repo_readiness": "repo_readiness.v1",
     "tool_preference": "tool_preference.v1",
+    "repo_environment": "repo_environment.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an

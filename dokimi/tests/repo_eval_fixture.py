@@ -95,8 +95,15 @@ if action == "tamper":  # leave state for the grader: a .pth in HOME, and an fsm
 lines.append({"type": "assistant", "message": {"content": [
     {"type": "tool_use", "id": "t1", "name": "Edit",
      "input": {"file_path": os.environ.get("FAKE_CONTAINER_CWD", str(cwd)) + "/src/calc.py"}}]}})
-lines.append({"type": "result", "subtype": "success", "result": "done: src/calc.py", "total_cost_usd": 0.01,
-              "num_turns": 3, "is_error": False})
+result = {"type": "result", "subtype": "success", "result": "done: src/calc.py", "total_cost_usd": 0.01,
+          "num_turns": 3, "is_error": False}
+if os.environ.get("FAKE_USAGE"):  # a subagent (Agent tool) and the token counts of the whole tree
+    lines.append({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t2", "name": "Agent", "input": {"prompt": "look around"}}]}})
+    result.update(usage={"input_tokens": 7, "output_tokens": 2},
+                  modelUsage={"m-main": {"inputTokens": 7, "outputTokens": 2, "cacheReadInputTokens": 100},
+                              "m-sub": {"inputTokens": 30, "outputTokens": 9, "cacheCreationInputTokens": 5}})
+lines.append(result)
 print("\n".join(json.dumps(x) for x in lines))
 '''
 
@@ -106,7 +113,7 @@ PROFILE = {
     "invoke": ["{bin}", "-p", "{prompt}", "--model", "{model}", "--max-turns", "{max_turns}",
                "--max-budget-usd", "{budget}", "{tools}"],
     "tools": {"none": ["--tools", ""], "read": ["--tools", "Read"], "all": []},
-    "config_dir_env": "FAKE_CONFIG_DIR", "env_allow": ["FAKE_ACTION", "FAKE_MARKER", "PATH"],
+    "config_dir_env": "FAKE_CONFIG_DIR", "env_allow": ["FAKE_ACTION", "FAKE_MARKER", "FAKE_USAGE", "PATH"],
     "egress": ["api.example.com"], "trace": "claude-stream-json",
     "prompt_suffix": "Stay in the foreground.",
     "config_files": {"settings.json": '{"hook": "python3 {support_dir}/no_background.py"}'},
@@ -219,13 +226,16 @@ class FakeRunner:
         self.specs: list[ContainerSpec] = []
         self.images = set(images)
         self.builds: list[tuple[Path, list[str]]] = []
+        self.build_timeouts: list[float] = []
         self.leak = False
 
     def image_exists(self, tag: str) -> bool:
         return tag in self.images
 
-    def build(self, context: Path, dockerfile: Path, tag: str, network: str | None = None) -> None:
+    def build(self, context: Path, dockerfile: Path, tag: str, network: str | None = None,
+              timeout_s: float = 0) -> None:
         assert dockerfile.is_file()
+        self.build_timeouts.append(timeout_s)
         self.builds.append((context, sorted(p.relative_to(context).as_posix() for p in context.rglob("*"))))
         self.images.add(tag)
 

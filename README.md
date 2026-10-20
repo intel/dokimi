@@ -3,7 +3,7 @@ Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Dokimi — agent measurement framework
+# Dokimi — A/B testing for agent context
 
 [![docs](https://github.com/intel/dokimi/actions/workflows/docs.yml/badge.svg?branch=main)](https://intel.github.io/dokimi/)
 [![codecov](https://codecov.io/gh/intel/dokimi/graph/badge.svg?branch=main)](https://codecov.io/gh/intel/dokimi)
@@ -16,18 +16,29 @@ SPDX-License-Identifier: Apache-2.0
 > artifact does not get trusted because it was written or because it is popular,
 > it gets trusted because it passed a test that could have failed.
 
-Documentation, skills, MCP doc sources and agent persona prompts are cheap to
-write and easy to over-claim. This repository is the framework that measures
-whether any of them actually helps a coding agent: change one thing, hold
-everything else fixed, run the same question or task set, and report the delta
-together with its p-value.
+Skills, instructions, docs, MCP servers and repository guidance are cheap to
+write and easy to over-claim. Dokimi tests each one like an experiment: change
+one thing, keep everything else fixed, run the same question or task set, and
+report the delta together with its p-value. An artifact ships with the
+scorecard that earned it, a deliberate contrast to popularity-ranked
+marketplaces, which structurally bury niche HPC and numerical-accuracy tooling.
 
-The measurement is the deliverable. An artifact ships with the scorecard that
-earned it — a deliberate contrast to popularity-ranked marketplaces, which
-structurally bury niche HPC and numerical-accuracy tooling.
+What measuring shows ([evidence](dokimi/docs/skill-novelty-evidence.md)):
+
+- **Much of a skill repeats what the model already knows, and the rest is
+  exact detail.** For `claude-opus-5` under lenient grading, 70% of what a
+  skill says the model already produces unprompted. Under strict grading,
+  which also checks qualifiers and exact values, only 22% is already known
+  and 38% is still missing even with the skill in context. Read the two
+  gradings together.
+- **Models believe their context, even when it is wrong.** A plausible wrong
+  value planted in a skill is repeated 94% of the time.
+- **Value depends on the model.** What a small model needs, a frontier model
+  may already know, so every verdict is per model.
 
 The framework is vendor-neutral: any model reachable through LiteLLM, any
-docs, skills or tasks.
+docs, skills or tasks. Why it exists and where it is going:
+[`VISION.md`](VISION.md).
 
 ## What it measures
 
@@ -82,6 +93,9 @@ manifest it owns:
   demand, and which AGENTS.md files a CLAUDE.md turns off.
 - `dokimi repo reach` (L1): which guidance files does a given harness actually
   load?
+- `dokimi repo inspect` (static, no LLM): which instruction files, checks,
+  capability surfaces and risky hooks or scripts the repository offers an
+  agent, with findings per stage.
 - `dokimi repo run`: run an agent per (task, arm, model, repetition) inside the
   repository's image, grade each run with the repository's own tests, and
   `dokimi repo report` the per (task, arm, model) table. With the `guidance:*`
@@ -96,6 +110,7 @@ LLM-free static checks on the documentation itself (`dokimi run`) round this out
 
 ```text
 README.md                          This overview
+VISION.md                          Why the project exists and where it is going
 Makefile                           Delegates targets into dokimi/
 dokimi/                            The framework (self-contained Python project)
 LICENSE  NOTICE                    Apache-2.0 + attribution (repo-wide)
@@ -167,7 +182,8 @@ the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
 - **At triage** with `--include-resources`, the 25-atom cap takes atoms in
   document order, and the entry point comes first: the flag reaches
   `references/` only if `SKILL.md` has fewer than 25 atoms. For such skills,
-  use `--tier standard` (60 atoms), or `--all-atoms` for a full sweep, which costs more.
+  use `--tier standard` (60 atoms), or add `--all-atoms` to the tier command for
+  a full sweep; run `--estimate-only` first, it costs more.
 - Step 5 needs evaluation content: a golden question set for 5a, executable
   tasks for 5b. `arms run` takes no tasks. That content lives outside this repository
   ([external-content.md](dokimi/docs/external-content.md)). Without it, the
@@ -180,7 +196,7 @@ The full path with reading notes: [skill-novelty-walkthrough.md](dokimi/docs/ski
 | Step | Command | Cost |
 |---|---|---|
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
-| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and Anthropic or Bedrock credentials |
+| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
 | 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
 | 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>` | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
 
@@ -238,6 +254,7 @@ reference. The hand-written pages can also be read on GitHub under
 
 | You want to understand… | Read |
 |---|---|
+| Why the project exists and where it is going | [`VISION.md`](VISION.md) |
 | Why measure context at all, and what an arm is | [`dokimi/docs/README.md`](dokimi/docs/README.md) |
 | How to point the framework at your own questions, tasks and skills | [`dokimi/docs/external-content.md`](dokimi/docs/external-content.md) |
 | How the measurement engine works | [`dokimi/docs/architecture.md`](dokimi/docs/architecture.md) |
