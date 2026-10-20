@@ -800,6 +800,12 @@ def test_imports_stop_at_the_depth_limit_and_warn(tmp_path):
     assert any("c4.md" in w and "c5.md" in w and "4-hop" in w for w in got["warnings"])
 
 
+def test_a_missing_import_past_the_depth_limit_does_not_warn(tmp_path):
+    tree = _chain(tmp_path, 4)
+    (tmp_path / "c4.md").write_text("@nope.md\n", encoding="utf-8")
+    assert not budget(tree, NAMES, import_max_depth=4)["warnings"]
+
+
 def test_imports_exactly_at_the_depth_limit_do_not_warn(tmp_path):
     got = budget(_chain(tmp_path, 4), NAMES, import_max_depth=4)
     assert ("c4.md", "import") in _by_path(got)

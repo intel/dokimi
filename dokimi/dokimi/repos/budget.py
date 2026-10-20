@@ -145,6 +145,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     for f, target in sorted(set(cut_start + cut_lazy)):
         if target in at_start or target in lazy_all:
             continue  # another chain did load it
+        if not _is_resolvable(tree, target):
+            continue  # nothing to load, as with a missing import within the limit
         warnings.append(f"{f}: import of {target} is past the harness's {import_max_depth}-hop import limit, "
                         "not followed")
     off = [e["path"] for e in entries if e["when"] == "off"]
