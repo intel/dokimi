@@ -342,23 +342,25 @@ def test_needs_network_entries_match_real_jobs_and_steps() -> None:
 
 
 def test_isolated_job_ids_match_real_jobs() -> None:
-    """Every job id in ISOLATED names a real job that pip-installs the package."""
+    """Every job id in ISOLATED names a real job that pip-installs the built wheel."""
     workflows = cl.load_workflows()
     job_ids = {job_id for _, wf in workflows for job_id in wf["jobs"]}
 
     for job_id in cl.ISOLATED:
         assert job_id in job_ids, f"ISOLATED job id '{job_id}' does not exist in workflows"
-        # Verify it runs `pip install ` steps that refer to wheels or packages
-        found_pip_install = False
+        # A `pip install` of a wheel: `pip install ... dist/*.whl`. A step that only
+        # installs requirements (`pip install -r requirements.lock.txt`) does not count.
+        found_wheel_install = False
         for _, wf in workflows:
             if job_id in wf["jobs"]:
                 job = wf["jobs"][job_id]
                 for step in job.get("steps", []):
-                    if "run" in step and "pip install" in str(step.get("run", "")):
-                        found_pip_install = True
+                    run = str(step.get("run", ""))
+                    if "pip install" in run and ".whl" in run:
+                        found_wheel_install = True
                         break
-        assert found_pip_install, (
-            f"ISOLATED job id '{job_id}' does not contain a pip install step"
+        assert found_wheel_install, (
+            f"ISOLATED job id '{job_id}' does not contain a pip install of a wheel"
         )
 
 

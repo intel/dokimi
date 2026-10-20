@@ -63,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
     # command crashes there unless the CLI tolerates the console encoding.
     env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
     listed = subprocess.run([str(exe), "library", "list"], capture_output=True, env=env, check=False)
+    if listed.returncode != 0:
+        print(listed.stderr.decode(errors="replace"), file=sys.stderr)
     _check(listed.returncode == 0, "`dokimi library list` on a cp1252 stdout")
 
     products = ProductRegistry()
