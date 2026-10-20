@@ -324,6 +324,29 @@ def test_headroom_on_mixed_tops_and_grader_failures(pairs, tops, failed, expecte
     assert compare_mod.headroom(pairs, tops, failed) == expected
 
 
+@pytest.mark.parametrize("pairs,expected", [
+    # both arms 0.05 short of the top: a task that still has room is no ceiling, nor near_ceiling
+    ([{"baseline": 0.95, "treatment": 0.95}] * 2, None),
+    # the baseline at the top on both tasks, the treatment 0.05 below it on one: a small loss, not near_ceiling
+    ([{"baseline": 1.0, "treatment": 1.0}, {"baseline": 1.0, "treatment": 0.95}], None),
+    # the treatment 0.3 past score.max on both tasks: an effect, not a top
+    ([{"baseline": 1.0, "treatment": 1.3}] * 2, None),
+])
+def test_headroom_tolerances_are_exact_not_coarse(pairs, expected):
+    assert compare_mod.headroom(pairs, [(1.0, 1.0)] * len(pairs), None) == expected
+
+
+def test_gate_headroom_top_is_one_not_half(tmp_path):
+    # both arms pass half of their reps on every task: a rep mean of 0.5 is not at the gate top of 1.0
+    b = tmp_path / "b1"
+    for i in range(2):
+        _cell(b, f"fix_{i}", "guidance:none", 1, success=True)
+        _cell(b, f"fix_{i}", "guidance:none", 2, success=False)
+        _cell(b, f"fix_{i}", "guidance:raw", 1, success=True)
+        _cell(b, f"fix_{i}", "guidance:raw", 2, success=False)
+    assert _row(compare([b], "guidance:none"), "gate")["headroom"] is None
+
+
 def test_score_headroom_allows_for_float_means_and_needs_one_known_top(tmp_path):
     b = tmp_path / "b1"
     for i in range(2):
