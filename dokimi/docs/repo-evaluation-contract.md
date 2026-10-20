@@ -278,9 +278,11 @@ than from the globs: a unified diff on the host running `repo run`, applied
 with `git apply` on top of `guidance:raw` (after `setup_patches`). It is for
 tooling or layout treatments, such as a new script or a Makefile target, that
 no task carries. The file is read once per batch, so every cell applies the
-same bytes, and the arm is named `patch:<file name>@<first 12 hex of its
-sha256>`, without the directory, so the name holds no `/` for `BATCH/ARM`
-selectors. A patch that does not apply to a task's base, or that writes into
+same bytes, and the arm is named `patch:<name>@<first 12 hex of its
+sha256>`, where `<name>` is the file name without its directory, with every
+character outside `[A-Za-z0-9.-]` replaced by `_` and cut to 40 characters, so
+the name holds no `/` for `BATCH/ARM` selectors. The exact name is printed on
+the `repo run` stderr line `arm <name> = <path>, sha256 ...`. A patch that does not apply to a task's base, or that writes into
 `eval_dir`, fails that cell's preparation. A cell has one arm: `guidance:rev:`
 and `patch:` do not combine.
 

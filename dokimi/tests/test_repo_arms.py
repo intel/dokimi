@@ -386,8 +386,17 @@ def test_rev_arm_copies_the_executable_bit_of_a_linked_target(toy):
     git(toy["root"], "worktree", "remove", "--force", str(wt))
     meta, ws = _prep(toy, f"guidance:rev:{rev}")
     assert (ws / "AGENTS.md").read_text() == "#!/bin/sh\necho hi\n"
-    assert os.stat(ws / "AGENTS.md").st_mode & 0o111
+    assert os.stat(ws / "AGENTS.md").st_mode & 0o111 == 0o111
     assert "AGENTS.md" in meta["arm_files"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links")
+def test_rev_arm_does_not_make_a_linked_guidance_file_executable_unless_its_target_is(toy):
+    """A link to a non-executable target stays non-executable in the workspace."""
+    _link_commit(toy, "plain-link", {"AGENTS.md": "run.sh"}, {"run.sh": "#!/bin/sh\necho hi\n"})
+    _, ws = _prep(toy, "guidance:rev:plain-link")
+    assert (ws / "AGENTS.md").read_text() == "#!/bin/sh\necho hi\n"
+    assert os.stat(ws / "AGENTS.md").st_mode & 0o111 == 0
 
 
 def test_patch_arm_names_an_unknown_home_user_as_a_prep_error(tmp_path):
@@ -512,3 +521,25 @@ def test_pin_arms_fetches_a_remote_branch_before_pinning_it(toy):
     assert moved != toy["pr"]
     pinned = _pin_arms([parse_arm("guidance:rev:pr")], cached, f"file://{toy['root']}@{toy['pr']}")
     assert pinned[0].rev_sha == moved
+
+
+def test_pin_arms_shares_one_cell_for_two_paths_to_the_same_patch(toy, capsys):
+    from dokimi.commands.repo_run import _pin_arms
+
+    a = toy["tmp"] / "a.diff"
+    (toy["tmp"] / "sub").mkdir()
+    same_bytes = toy["tmp"] / "sub" / "a.diff"  # same file name and bytes, another directory: same arm name
+    a.write_text(TOOLING_PATCH)
+    same_bytes.write_text(TOOLING_PATCH)
+    git_dir = toy["git_dir"]
+
+    assert len(_pin_arms([parse_arm(f"patch:{a}"), parse_arm(f"patch:{a}")], git_dir, str(toy["root"]))) == 1
+    assert "share one cell" not in capsys.readouterr().err  # the same path given twice is not a warning
+
+    pinned = _pin_arms([parse_arm(f"patch:{a}"), parse_arm(f"patch:{same_bytes}"), parse_arm(f"patch:{a}")],
+                       git_dir, str(toy["root"]))
+    assert len(pinned) == 1 and pinned[0].patch_path == str(a.resolve())
+    err = capsys.readouterr().err
+    assert err.count("share one cell") == 1
+    assert f"{same_bytes.resolve()} and {a.resolve()} are the same patch" in err
+    assert f"meta.json names {a.resolve()}" in err
