@@ -226,13 +226,18 @@ tbb::parallel_for(range, [](int i) {
 });
 
 tbb::task_arena arena;
+arena.initialize();
 ```
 """)
-        
+
         patterns = analyzer._extract_api_patterns(mock_github_repo)
-        
+
         # Code-block lines with :: or . are kept; the comment and the closing brace are not.
-        assert patterns == ["tbb::parallel_for(range, [](int i) {", "tbb::task_arena arena;"]
+        assert patterns == [
+            "tbb::parallel_for(range, [](int i) {",
+            "tbb::task_arena arena;",
+            "arena.initialize();",
+        ]
     
     def test_empty_analysis(self):
         """Test empty analysis structure."""

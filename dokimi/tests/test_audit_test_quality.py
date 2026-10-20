@@ -230,6 +230,15 @@ def test_the_exemption_marker_in_a_string_exempts_nothing():
     assert (audit.flags, audit.exempt) == (("no_assert",), False)
 
 
+@pytest.mark.parametrize("marker", ["# test-quality: okay", "# test-quality: ok.", "# test-quality: ok,why"])
+def test_the_marker_word_must_be_followed_by_whitespace_and_a_reason(marker):
+    (audit,) = atq.audit_source(textwrap.dedent(f"""
+        def test_x():  {marker}
+            run()
+        """), "t.py")
+    assert audit.exempt is False
+
+
 def test_methods_are_keyed_by_class_and_lines_do_not_enter_the_key():
     (audit,) = atq.audit_source("class TestA:\n    def test_x(self):\n        run()\n", "t.py")
     assert (audit.key, audit.line) == ("t.py::TestA.test_x", 2)
@@ -367,6 +376,11 @@ def test_a_length_check_alone_is_type_only(check):
     "c.items.append(3)",  # method call on an attribute of the object
     "(c := Config(n=9))",  # walrus rebind
     "mutate(c)",  # object passed as an argument
+    "mutate(target=c)",  # object passed as a keyword value
+    "mutate([c])",  # object inside a list argument
+    "c.d['a'] = 3",  # subscript store on the object
+    "for c in items(): pass",  # for-loop rebind
+    "with open_c() as c: pass",  # with-statement rebind
 ])
 def test_mutation_patterns_invalidate_echo(mutation):
     """All mutation patterns invalidate the constructor echo check."""
@@ -486,6 +500,7 @@ def test_no_assert_only_suppressed_by_bare_calls(check, expected_no_assert):
 
 @pytest.mark.parametrize("check", [
     "assert True", "assert out == 42 or True", "assert send.assert_called_once_with",
+    "assert (out == 5, 'msg')",  # the message inside the parens: a non-empty tuple never fails
 ])
 def test_an_assert_that_is_always_true_is_no_check(check):
     flags = _flags(f"""
@@ -496,6 +511,15 @@ def test_an_assert_that_is_always_true_is_no_check(check):
             {check}
         """)
     assert "no_assert" in flags["test_x"]
+
+
+def test_an_attribute_named_like_an_assert_method_is_data():
+    flags = _flags("""
+        def test_x():
+            r = run()
+            assert r.assert_ok
+        """)
+    assert "no_assert" not in flags["test_x"]
 
 
 def test_callable_form_raises_is_a_check():

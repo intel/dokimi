@@ -46,6 +46,7 @@ import io
 import itertools
 import json
 import pathlib
+import re
 import tokenize
 from collections.abc import Callable, Iterable, Iterator
 from typing import NamedTuple
@@ -81,6 +82,10 @@ _MOCK_VERIFY_METHODS = frozenset(
     {"assert_called", "assert_called_once", "assert_not_called", "assert_awaited",
      "assert_awaited_once", "assert_not_awaited"}
 )
+# Uncalled, these name a mock's verify method and always pass; `r.assert_ok` on a real object is data.
+_MOCK_VERIFY_UNCALLED = _MOCK_VERIFY_METHODS | {
+    "assert_called_with", "assert_called_once_with", "assert_any_call", "assert_has_calls",
+}
 # "It was called" checks no outcome; "it was not called" is an absence, which is one.
 _CALL_ONLY_METHODS = _MOCK_VERIFY_METHODS - {"assert_not_called", "assert_not_awaited"}
 # len(x) > 0 and its spellings only say "x is non-empty".
@@ -216,18 +221,43 @@ def _is_weak(node: ast.expr) -> bool:
 
 
 def _always_true(node: ast.expr) -> bool:
-    """``assert True``, ``assert x or True``, or ``assert m.assert_called_once_with`` (never called)."""
+    """``assert True``, ``assert x or True``, ``assert (x == 5, "msg")`` (a non-empty tuple is
+    truthy, so the comparison never runs), or ``assert m.assert_called_once_with`` (never called)."""
     if isinstance(node, ast.Constant):
         return bool(node.value)
+    if isinstance(node, ast.Tuple):
+        return bool(node.elts)
     if isinstance(node, ast.BoolOp):
         return (any if isinstance(node.op, ast.Or) else all)(map(_always_true, node.values))
-    return isinstance(node, ast.Attribute) and node.attr.startswith("assert_")
+    return isinstance(node, ast.Attribute) and node.attr in _MOCK_VERIFY_UNCALLED
 
 
 def _eq_operands(node: ast.expr) -> tuple[ast.expr, ast.expr] | None:
     if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
         return node.left, node.comparators[0]
     return None
+
+
+def _root_name(node: ast.expr) -> str | None:
+    """The variable at the bottom of ``x.a.b``, ``x.d["k"]`` or ``x.f`` (None for ``f().a``)."""
+    while isinstance(node, ast.Attribute | ast.Subscript):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def _passed_names(call: ast.Call) -> set[str]:
+    """Names handed to a call directly, as a keyword value, or inside a list/tuple/set argument."""
+    names: set[str] = set()
+    for arg in [*call.args, *(kw.value for kw in call.keywords)]:
+        for elt in arg.elts if isinstance(arg, ast.List | ast.Tuple | ast.Set) else [arg]:
+            if isinstance(elt, ast.Name):
+                names.add(elt.id)
+    return names
+
+
+def _stored_names(target: ast.expr) -> list[str]:
+    """Every name a ``for`` or ``with`` target binds."""
+    return [n.id for n in ast.walk(target) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)]
 
 
 def _constructor_inputs(nodes: list[ast.AST]) -> dict[str, set[tuple[str, object, type]]]:
@@ -244,35 +274,44 @@ def _constructor_inputs(nodes: list[ast.AST]) -> dict[str, set[tuple[str, object
         # Any call on the object (c.bump(), c.items.append(3)) or taking it as an
         # argument (setattr(c, ...), mutate(c)) may change it, wherever the call sits.
         if isinstance(node, ast.Call):
-            root = node.func
-            while isinstance(root, ast.Attribute):
-                root = root.value
-            if isinstance(node.func, ast.Attribute) and isinstance(root, ast.Name):
-                mutated.add(root.id)
+            root = _root_name(node.func)
+            if isinstance(node.func, ast.Attribute) and root is not None:
+                mutated.add(root)
             if _call_name(node) not in _READ_ONLY_BUILTINS:
-                mutated.update(a.id for a in node.args if isinstance(a, ast.Name))
+                mutated.update(_passed_names(node))
         elif isinstance(node, ast.NamedExpr) and isinstance(node.target, ast.Name):
             seen[node.target.id] += 1  # a walrus rebind: which binding an assert reads is unknown
+        elif isinstance(node, ast.For | ast.AsyncFor):
+            seen.update(_stored_names(node.target))
+        elif isinstance(node, ast.With | ast.AsyncWith):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    seen.update(_stored_names(item.optional_vars))
         elif isinstance(node, ast.Assign):
             for target in node.targets:
-                if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
-                    mutated.add(target.value.id)
+                if isinstance(target, ast.Attribute | ast.Subscript):
+                    # `c.n = 9`, `c.d["a"] = 3`: the store changes the object
+                    if (root := _root_name(target)) is not None:
+                        mutated.add(root)
                 # Track tuple targets
                 elif isinstance(target, ast.Tuple):
                     for elt in target.elts:
                         if isinstance(elt, ast.Name):
                             seen[elt.id] += 1
-                        elif isinstance(elt, ast.Attribute) and isinstance(elt.value, ast.Name):
+                        elif isinstance(elt, ast.Attribute | ast.Subscript):
                             # Mark the object as mutated if an attribute is assigned in a tuple
-                            mutated.add(elt.value.id)
+                            if (root := _root_name(elt)) is not None:
+                                mutated.add(root)
         elif isinstance(node, ast.AugAssign):
             # Track augmented assignments (+=, -=, etc.)
-            if isinstance(node.target, ast.Attribute) and isinstance(node.target.value, ast.Name):
-                mutated.add(node.target.value.id)
+            if isinstance(node.target, ast.Attribute | ast.Subscript) and (
+                    root := _root_name(node.target)) is not None:
+                mutated.add(root)
         elif isinstance(node, ast.AnnAssign) and node.value is not None:
             # Track annotated assignments with values
-            if isinstance(node.target, ast.Attribute) and isinstance(node.target.value, ast.Name):
-                mutated.add(node.target.value.id)
+            if isinstance(node.target, ast.Attribute | ast.Subscript) and (
+                    root := _root_name(node.target)) is not None:
+                mutated.add(root)
 
         if not isinstance(node, ast.Assign | ast.AnnAssign):
             continue
@@ -513,9 +552,11 @@ def _duplicates(tests: list[tuple[str, _FuncDef]]) -> set[str]:
 
 def _marker_lines(source: str) -> frozenset[int]:
     """Lines with a comment holding the marker and a reason; a string holding it is data."""
+    # The marker must be followed by whitespace and a reason: `ok.` or `okay` is not one.
+    reason = re.compile(re.escape(EXEMPT_MARKER) + r"\s+\S")
     return frozenset(
         tok.start[0] for tok in tokenize.generate_tokens(io.StringIO(source).readline)
-        if tok.type == tokenize.COMMENT and tok.string.partition(EXEMPT_MARKER)[2].strip()
+        if tok.type == tokenize.COMMENT and reason.search(tok.string)
     )
 
 
