@@ -413,6 +413,10 @@ def test_workflow_reports_error_and_passes_when_the_head_cannot_be_dumped(tmp_pa
     output = _run_diff_step(tmp_path, pr_adds=False, pr_moves_build_parser=True)
     assert "changed=error" in output
     assert "changed=0" not in output and "changed=1" not in output
+    # the github-script step reads diff.md through the file= output: it must be the error text
+    diff_md = tmp_path / "cli-surface" / "diff.md"
+    assert f"file={diff_md}" in output
+    assert "## CLI interface check could not run" in diff_md.read_text(encoding="utf-8")
 
 
 _VALIDATOR = '''def positive_int(text):
@@ -475,3 +479,46 @@ def test_allow_abbrev_change_is_reported():
         return cs._command(argparse.ArgumentParser(prog="dokimi", allow_abbrev=abbrev), "dokimi")
     assert cs.diff_surfaces(surface(True), surface(False)) == [
         "~ `dokimi` option abbreviations allowed: True -> False"]
+
+
+_CLASS_MEMBERS = {
+    "staticmethod": "    @staticmethod\n    def run(s):\n        return BODY\n",
+    "classmethod": "    @classmethod\n    def run(cls, s):\n        return BODY\n",
+    "property": "    @property\n    def run(self):\n        return BODY\n",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_CLASS_MEMBERS))
+def test_a_class_type_is_compared_by_its_static_method_classmethod_and_property(tmp_path, kind):
+    def loaded(name: str, body: str):
+        source = "class Check:\n" + _CLASS_MEMBERS[kind].replace("BODY", body)
+        return _one(type=_file_validator(tmp_path, f"{kind}-{name}", source, attr="Check"))
+    assert cs.diff_surfaces(loaded("base", "1"), loaded("loose", "2"))
+
+
+def test_a_class_type_is_compared_by_code_it_inherits(tmp_path):
+    def loaded(name: str, body: str):
+        source = f"class Base:\n    def check(self, s):\n        return {body}\n\nclass Check(Base):\n    pass\n"
+        return _one(type=_file_validator(tmp_path, name, source, attr="Check"))
+    assert cs.diff_surfaces(loaded("base", "s"), loaded("loose", "s[:1]"))
+
+
+def test_the_order_of_a_class_members_does_not_change_its_hash(tmp_path):
+    ab = "class Check:\n    def a(self, s):\n        return s\n\n    def b(self, s):\n        return s\n"
+    ba = "class Check:\n    def b(self, s):\n        return s\n\n    def a(self, s):\n        return s\n"
+    assert cs.diff_surfaces(_one(type=_file_validator(tmp_path, "ab", ab, attr="Check")),
+                            _one(type=_file_validator(tmp_path, "ba", ba, attr="Check"))) == []
+
+
+def test_a_class_that_holds_itself_is_dumped(tmp_path):
+    cls = _file_validator(tmp_path, "selfref", "class Check:\n    me = None\n\nCheck.me = Check\n",
+                          attr="Check")
+    assert cs.diff_surfaces(_one(type=cls), _one(type=cls)) == []
+
+
+def test_a_class_docstring_is_not_a_change(tmp_path):
+    base = _file_validator(tmp_path, "doc-base", "class Check:\n    def run(self, s):\n        return s\n",
+                           attr="Check")
+    reworded = _file_validator(tmp_path, "doc-new", "import os\n\nclass Check:\n    '''Reworded.'''\n"
+                               "    def run(self, s):\n        return s\n", attr="Check")
+    assert cs.diff_surfaces(_one(type=base), _one(type=reworded)) == []

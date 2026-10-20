@@ -17,7 +17,8 @@ checkout of each ref in turn.
 Limit: only the parser tree is compared. A validator that reads module state
 when it runs (for example one that checks against `JUDGE_ROLES`) can reject
 more input after a change without any change in the dump, so the diff is empty
-for it. Review such changes by hand.
+for it. Review such changes by hand. Callable instances, `functools.partial` objects
+and metaclasses are reduced to their name: a change inside them is not compared.
 
 Usage:
   python scripts/cli_surface.py dump [OUT.json]
@@ -94,6 +95,10 @@ def _value(value: Any, _seen: frozenset[int] = frozenset()) -> Any:
         return sorted(repr(_value(v, _seen)) for v in value)
     if isinstance(value, enum.Enum):
         return repr(value)
+    if isinstance(value, (staticmethod, classmethod)):  # a class's members: hash the function
+        return _value(value.__func__, _seen)
+    if isinstance(value, property):
+        return [_value(f, _seen) for f in (value.fget, value.fset, value.fdel)]
     if inspect.isfunction(value) and id(value) not in _seen:
         # A validator's name alone hides a loosened body: add a hash of its code.
         src = _code(value)
@@ -106,12 +111,18 @@ def _value(value: Any, _seen: frozenset[int] = frozenset()) -> Any:
         digest = hashlib.sha256(src.encode("utf-8")).hexdigest()[:12]
         return f"{value.__module__}.{value.__qualname__}#{digest}"
     if inspect.isclass(value) and value.__module__ != "builtins" and id(value) not in _seen:
-        # A class used as a type is hashed by its attributes (their code, through _value), so a
-        # changed method or a new enum member changes it. Its source is not used: a class defined
-        # in a module that is not in sys.modules has none.
+        # A class used as a type is hashed by its attributes, inherited ones included (their code,
+        # through _value), in sorted order so the definition order does not matter. Its source is
+        # not used: a class defined in a module that is not in sys.modules has none.
         seen = _seen | {id(value)}
-        attrs = {k: v for k, v in vars(value).items() if k not in _CLASS_NOISE}
-        src = repr(_value(attrs, seen))
+        attrs: dict[str, Any] = {}
+        for base in value.__mro__:
+            if base.__module__ != "builtins":
+                for k, v in vars(base).items():
+                    if k not in _CLASS_NOISE:
+                        attrs.setdefault(k, v)  # the most derived definition wins
+        bases = [f"{b.__module__}.{b.__qualname__}" for b in value.__mro__ if b.__module__ != "builtins"]
+        src = repr(_value(dict(sorted(attrs.items())), seen)) + repr(bases)
         if issubclass(value, enum.Enum):
             src += repr([(m.name, _value(m.value)) for m in value])
         digest = hashlib.sha256(src.encode("utf-8")).hexdigest()[:12]
