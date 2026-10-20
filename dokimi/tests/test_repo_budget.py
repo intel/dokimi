@@ -896,3 +896,48 @@ def test_a_git_import_through_an_escaping_directory_link_is_refused(tmp_path, li
     with pytest.raises(SourceError, match="escapes"):
         tree.read_text("docs/a.md")
     assert not any(e["kind"] == "import" for e in budget(tree, NAMES)["entries"])
+
+
+def test_a_cut_import_another_chain_loaded_through_a_link_is_not_warned(tmp_path):
+    files = {"CLAUDE.md": "@c1.md\n", "c1.md": "@c2.md\n", "c2.md": "@c3.md\n", "c3.md": "@c4.md\n",
+             "c4.md": "@x.md\n", "x.md": "xx\n", "sub/CLAUDE.md": "@../lnk.md\n"}
+    tree = _tree(tmp_path, files)
+    _link(tmp_path / "lnk.md", "x.md")  # the nested chain loads x.md under the name lnk.md
+    got = budget(tree, NAMES, import_max_depth=4)
+    assert ("lnk.md", "import") in _by_path(got)
+    assert got["warnings"] == [], got["warnings"]
+
+
+def test_a_root_agents_md_chain_past_the_hop_limit_warns(tmp_path):
+    got = budget(_tree(tmp_path, {"AGENTS.md": "@a.md\n", "a.md": "@b.md\n", "b.md": "end\n"}), NAMES,
+                 import_max_depth=1)
+    assert any(w.startswith("a.md: import of b.md") and "1-hop" in w for w in got["warnings"]), got["warnings"]
+
+
+def test_a_nested_agents_md_chain_past_the_hop_limit_warns(tmp_path):
+    files = {"sub/AGENTS.md": "@a.md\n", "sub/a.md": "@b.md\n", "sub/b.md": "end\n"}
+    got = budget(_tree(tmp_path, files), NAMES, import_max_depth=1)
+    assert any(w.startswith("sub/a.md: import of sub/b.md") and "1-hop" in w for w in got["warnings"]), got["warnings"]
+
+
+def test_an_import_back_to_a_root_file_is_not_followed_again(tmp_path):
+    got = budget(_tree(tmp_path, {"CLAUDE.md": "@a.md\n", "a.md": "@CLAUDE.md\n"}), NAMES, import_max_depth=1)
+    assert got["warnings"] == [], got["warnings"]
+    assert ("a.md", "import") in _by_path(got)
+
+
+def test_an_import_through_a_directory_link_loop_is_not_followed_again(tmp_path, monkeypatch):
+    tree = _tree(tmp_path, {"CLAUDE.md": "@loop/f.md\n", "f.md": "@loop/loop/f.md\n"})
+    _link(tmp_path / "loop", ".")
+    reads = []
+    read_text = WorkTree.read_text
+
+    def counting(self, path):
+        reads.append(path)
+        assert len(reads) < 50, f"the import chain does not stop at the loop: {reads[:6]}"
+        return read_text(self, path)
+
+    monkeypatch.setattr(WorkTree, "read_text", counting)
+    got = budget(tree, NAMES)  # no depth limit: only the visited set stops the loop
+    assert ("loop/f.md", "import") in _by_path(got)
+    assert got["warnings"] == [], got["warnings"]

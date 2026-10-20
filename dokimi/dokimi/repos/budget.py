@@ -133,9 +133,10 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
 
     totals = {w: sum(e["chars"] for e in entries if e["when"] == w) for w in ("start", "lazy", "on demand", "off")}
     warnings = unreadable_warnings[:]
+    loaded = {_target(tree, p) for p in at_start | lazy_all}
     for f, target in sorted(set(cut_start + cut_lazy)):
-        if target in at_start or target in lazy_all:
-            continue  # another chain did load it
+        if _target(tree, target) in loaded:
+            continue  # another chain did load it, possibly through a link
         if not _is_resolvable(tree, target):
             continue  # nothing to load, as with a missing import within the limit
         warnings.append(f"{f}: import of {target} is past the harness's {import_max_depth}-hop import limit, "
