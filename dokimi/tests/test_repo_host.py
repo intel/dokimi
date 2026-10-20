@@ -400,6 +400,12 @@ def test_a_host_with_exactly_min_cpus_is_supported():
     assert unmet(_task({"min_cpus": 5}), facts)[1] == "host"
 
 
+def test_cpu_flags_match_regardless_of_case():
+    facts = host_facts(_probe_out())
+    assert unmet(_task({"cpu_flags": ["AVX512F"]}), facts) == (None, None)
+    assert unmet(_task({"cpu_flags": ["AVX512_VNNI"]}), facts)[1] == "host"
+
+
 def test_probe_failure_is_marked_host_probe_never_hidden_by_allow_unsupported(tmp_path, monkeypatch, capsys):
     """Regression: probe failure (unsupported_by='host-probe') must not be hidden by --allow-unsupported.
 

@@ -272,7 +272,8 @@ def _shortfalls(need: HostRequirements, facts: dict[str, Any]) -> list[str]:
         short.append(f"{facts['cpus']} CPU(s) < min_cpus {need.min_cpus}")
     if need.cpu_vendors and facts.get("cpu_vendor") not in need.cpu_vendors:
         short.append(f"vendor {facts.get('cpu_vendor')} not in {', '.join(need.cpu_vendors)}")
-    missing = [f for f in need.cpu_flags if f not in (facts.get("cpu_flags") or [])]
+    have = {f.lower() for f in facts.get("cpu_flags") or []}  # docs write AVX512F, cpuinfo avx512f
+    missing = [f for f in need.cpu_flags if f.lower() not in have]
     if missing:
         short.append(f"missing cpu_flags {', '.join(missing)}")
     return short
