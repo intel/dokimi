@@ -256,6 +256,9 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     probe_failed = [task_id for task_id, (_, by) in verdicts.items() if by == "host-probe"]
     for task_id, why in unsupported.items():
         log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
+    for t, a, o, r in cells:  # this host meets them: an old marker would hide a cell this run never reaches
+        if t.id not in unsupported:
+            (batch_dir / cell_name(t.id, a, o.model, r) / UNSUPPORTED_FILE).unlink(missing_ok=True)
     lock = threading.Lock()
     state: dict[str, Any] = {"spent": 0.0, "ran": 0, "skipped": 0, "errors": [], "budget_stopped": 0,
                              "unsupported": 0}

@@ -302,6 +302,18 @@ def test_run_skips_unsupported_cells_and_the_report_shows_them(tmp_path, monkeyp
     assert len(load_cells(batch)[0]) == 4 and not list(batch.glob("*/unsupported.json"))
 
 
+def test_a_capable_run_that_stops_early_leaves_the_unreached_cells_missing(tmp_path, monkeypatch, capsys):
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
+    with pytest.raises(SystemExit):  # the budget stops it after one cell
+        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race",
+             "--max-batch-usd", "0.005")
+    assert "1 ran, 0 already done, 0 crashed, 1 not started" in capsys.readouterr().out
+    summary = summarize(out / "b1")
+    assert summary["unsupported"] == [] and summary["missing"] == ["fix_race__guidance-raw__m-1__r2"]
+
+
 def test_run_refuses_a_bad_host_shape_before_any_agent(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path, host={"cpu_flags": "avx512f"})
     runner = HostRunner(_probe_out())
