@@ -31,7 +31,7 @@ not run this job; check locally with Docker, from the root of a clone (in a
 
 ```bash
 docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
-  apache/skywalking-eyes:0.9.0 -c .github/.licenserc.yaml header check
+  apache/skywalking-eyes:0.9.0 -v error -c .github/.licenserc.yaml header check
 ```
 
 ## Development setup
