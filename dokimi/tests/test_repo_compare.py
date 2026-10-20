@@ -311,6 +311,16 @@ def test_headroom_on_mixed_tops_and_grader_failures(pairs, tops, failed, expecte
     assert compare_mod.headroom(pairs, tops, failed) == expected
 
 
+@pytest.mark.parametrize("score_max", [0.0, -1.0])
+def test_a_grader_failure_is_not_ceiling_when_score_max_is_not_above_zero(tmp_path, score_max):
+    b = tmp_path / "b1"
+    for i in range(3):  # a lower-is-better metric negated, say; the grader failed everywhere and scored 0
+        _cell(b, f"r{i}", "guidance:none", 1, score=0.0, score_max=score_max, failure=True)
+        _cell(b, f"r{i}", "guidance:raw", 1, score=0.0, score_max=score_max, failure=True)
+    s = compare([b], "guidance:none")
+    assert _row(s, "score")["headroom"] is None and "ceiling" not in format_compare(s)
+
+
 def test_unpaired_tasks_are_listed_not_compared(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1)

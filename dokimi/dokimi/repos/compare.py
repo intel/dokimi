@@ -32,12 +32,11 @@ A gate or score comparison also says whether its tasks had room to move (``headr
 on a task set nobody can fail, or nobody can pass, is not evidence of no effect. A task's top is 1.0 for
 gate and the task's ``score.max`` for score (recorded in ``result.json``; a batch without it has no known
 top, so its score rows are never at ceiling). ``ceiling``: both arms at the top on every paired task;
-``floor``: both arms at 0 on every paired task, none of the zeros a grader failure (those say the
-measurement failed, not that the tasks had no room); ``near_ceiling``: neither, at least 2 paired tasks,
-the baseline at the top on all but at most one, that one not a grader failure, and the treatment nowhere below
-the baseline, so at most one task can improve and a gain resting on one task has a sign-flip p of 1. A pair
-whose baseline and treatment tops differ is on two scales, and any other case has no flag: ``None``. The flag
-is a note; p and Holm are unchanged.
+``floor``: both arms at 0 on every paired task; ``near_ceiling``: neither, at least 2 paired tasks, the
+baseline at the top on all but at most one, and the treatment nowhere below the baseline, so at most one task
+can improve and a gain resting on one task has a sign-flip p of 1. A pair whose baseline and treatment tops
+differ is on two scales, a grader failure in either arm scores a 0 that says the measurement failed, not that
+the task had no room, and any other case has no flag: ``None``. The flag is a note; p and Holm are unchanged.
 
 Each selector's batches are reported with the stamp ``repo run`` pins a batch
 to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
@@ -320,8 +319,8 @@ def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float |
     """
     if any(b != t for b, t in tops):
         return None  # two scales: neither "at the top" nor the delta compares
-    if failed is None:
-        failed = [False] * len(pairs)
+    if failed and any(failed):
+        return None  # its 0 is not a measurement, at either end (a score.max of 0 would read it as the top)
 
     def at_top(value: float, top: float | None) -> bool:
         return top is not None and value >= top - EPS
@@ -329,11 +328,9 @@ def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float |
     base_top = [at_top(p["baseline"], b) for p, (b, _) in zip(pairs, tops, strict=True)]
     if all(base_top) and all(at_top(p["treatment"], t) for p, (_, t) in zip(pairs, tops, strict=True)):
         return "ceiling"
-    if not any(failed) and all(abs(p["baseline"]) <= EPS and abs(p["treatment"]) <= EPS for p in pairs):
+    if all(abs(p["baseline"]) <= EPS and abs(p["treatment"]) <= EPS for p in pairs):
         return "floor"
-    # the one task that may still move must have a measured baseline: a grader failure says nothing about its room
-    not_top_failed = any(f and not t for f, t in zip(failed, base_top, strict=True))
-    if (len(pairs) >= 2 and base_top.count(False) <= 1 and not not_top_failed
+    if (len(pairs) >= 2 and base_top.count(False) <= 1
             and all(p["treatment"] >= p["baseline"] - EPS for p in pairs)):
         return "near_ceiling"
     return None
