@@ -206,9 +206,11 @@ jobs:
           all_ids = sorted(p.parent.name for p in Path(tasks_dir).glob("*/task.json"))
 
           def changed_files():
-              # the base the PR was opened against, from the event: no reliance on a local origin/<base> ref
+              # HEAD is GitHub's merge commit; its first parent is the base tip now, while base.sha is
+              # the base at PR-open time and would count what the base gained since as the PR's change
               if env["EVENT"] == "pull_request" and env["BASE_SHA"]:
-                  rng = [f"{env['BASE_SHA']}...HEAD"]
+                  merge = subprocess.run(["git", "rev-parse", "-q", "--verify", "HEAD^2"], capture_output=True).returncode == 0
+                  rng = ["HEAD^1...HEAD" if merge else f"{env['BASE_SHA']}...HEAD"]
               elif env["EVENT"] == "push" and env["BEFORE"].strip("0"):
                   rng = [env["BEFORE"], "HEAD"]
               else:

@@ -69,10 +69,11 @@ def repo(tmp_path: Path) -> Path:
     return root
 
 
-def _select(repo: Path, tmp_path: Path, **overrides: str) -> list[str]:
-    """Commit nothing more; run the step on the working tree's diff against origin/main."""
-    _git(repo, "add", "-A")
-    _git(repo, "commit", "-q", "-m", "change", "--allow-empty")
+def _select(repo: Path, tmp_path: Path, *, commit: bool = True, **overrides: str) -> list[str]:
+    """Commit the working tree (unless ``commit`` is false) and run the step on HEAD."""
+    if commit:
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "change", "--allow-empty")
     temp = tmp_path / "runner"
     temp.mkdir(exist_ok=True)
     (temp / "validate.json").write_text(json.dumps({"manifest": {
@@ -174,6 +175,21 @@ def test_a_push_diffs_against_the_previous_tip(repo, tmp_path):
 def test_a_push_without_a_previous_tip_checks_every_task(repo, tmp_path):
     _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
     assert _select(repo, tmp_path, EVENT="push", BEFORE="0" * 40) == ["my task", "t1"]
+
+
+def test_a_merge_commit_ignores_what_the_base_gained_after_the_pr_opened(repo, tmp_path):
+    # base.sha stays at the fork point while the checkout merges into the base's current tip
+    fork = _git(repo, "rev-parse", "HEAD").strip()
+    _git(repo, "checkout", "-q", "-b", "pr")
+    _write(repo, f"{TASKS}/t1/grader.py", "changed\n")
+    _git(repo, "commit", "-q", "-a", "-m", "pr")
+    _git(repo, "checkout", "-q", "main")
+    _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
+    _write(repo, f"{EVAL_DIR}/Dockerfile")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "main moves on")
+    _git(repo, "merge", "-q", "--no-ff", "--no-edit", "pr")
+    assert _select(repo, tmp_path, commit=False, BASE_SHA=fork, SMOKE_TASKS="my task") == ["t1"]
 
 
 def test_the_check_results_artifact_keeps_the_stderr_files():
