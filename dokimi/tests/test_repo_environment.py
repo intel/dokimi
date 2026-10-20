@@ -907,9 +907,11 @@ def test_an_npm_script_command_runs_repository_code(tmp_path, word):
     assert _hook_payload(tmp_path, f"npm {word} build")["hook_risks"] != []
 
 
-def test_makefile_rules_are_linear(tmp_path):
+@pytest.mark.parametrize("body", ["a\n" * 40_000, "a" + " " * 100_000, "a" + "\t" * 100_000],
+                         ids=["lines", "spaces", "tabs"])
+def test_makefile_rules_are_linear(tmp_path, body):
     import time
-    _repo(tmp_path, {"AGENTS.md": "x", "Makefile": "a\n" * 40_000})
+    _repo(tmp_path, {"AGENTS.md": "x", "Makefile": body})
     start = time.monotonic()
     inspect_repo(WorkTree(tmp_path))
     assert time.monotonic() - start < 2
