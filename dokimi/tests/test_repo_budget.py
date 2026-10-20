@@ -950,3 +950,22 @@ def test_an_import_through_a_directory_link_loop_is_not_followed_again(tmp_path,
     got = budget(tree, NAMES)  # no depth limit: only the visited set stops the loop
     assert ("loop/f.md", "import") in _by_path(got)
     assert got["warnings"] == [], got["warnings"]
+
+
+def _cut_chain_warnings(tmp_path, tail, extra):
+    files = {"CLAUDE.md": "@c1.md\n", "c1.md": "@c2.md\n", "c2.md": "@c3.md\n", "c3.md": "@c4.md\n",
+             "c4.md": tail, **extra}
+    return budget(_tree(tmp_path, files), NAMES, import_max_depth=4)["warnings"]
+
+
+def test_a_cut_import_of_an_off_agents_md_still_warns(tmp_path):
+    warnings = _cut_chain_warnings(tmp_path, "@AGENTS.md\n", {"AGENTS.md": "rules\n"})
+    assert any(w.startswith("c4.md: import of AGENTS.md is past the harness's 4-hop import limit, not followed")
+               for w in warnings), warnings
+
+
+def test_a_cut_import_of_a_skill_file_still_warns(tmp_path):
+    warnings = _cut_chain_warnings(tmp_path, "@.claude/skills/s/SKILL.md\n",
+                                   {".claude/skills/s/SKILL.md": "---\nname: s\ndescription: does a thing\n---\nbody\n"})
+    assert any(w.startswith("c4.md: import of .claude/skills/s/SKILL.md is past the harness's 4-hop import limit, "
+                            "not followed") for w in warnings), warnings

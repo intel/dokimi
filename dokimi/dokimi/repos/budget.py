@@ -6,24 +6,24 @@
 A static inventory, in characters, of the context a harness takes from the tree when it
 starts at the repository root:
 
-- **start**: guidance files at the root, the files a root ``CLAUDE*`` file ``@import``s (imports are
-  followed from ``CLAUDE*`` files only), and the skill
+- **start**: guidance files at the root, the files a root ``CLAUDE*`` or ``AGENTS.md`` file
+  ``@import``s (``AGENTS.md`` only when it is not turned off), and the skill
   listing (each project skill's ``name``, plus its ``description`` and ``when_to_use`` up to
   1,536 characters together; a skill with
   ``disable-model-invocation: true`` is not listed). Every model call pays for these.
-- **lazy**: guidance files in subdirectories, and what a nested CLAUDE.md imports, loaded
+- **lazy**: guidance files in subdirectories, and what a nested CLAUDE.md or AGENTS.md imports, loaded
   when the agent works in that subtree.
 - **on demand**: skill bodies, loaded when the agent invokes the skill.
-- **off**: AGENTS.md files the harness will not read: a CLAUDE.md is at the root and no
+- **off**: AGENTS.md files the harness will not read: a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md is present and no
   CLAUDE.md imports them (measured on Claude Code 2.1.286; the reach probe re-measures).
 
 Characters, not tokens: how many tokens a character costs depends on the model's tokenizer,
 and differs between model families. The exact cost is the first-call prompt difference
 between a run with the file and one without.
 
-Five checks ride along: skills with no description, skills whose descriptions are near-duplicates
+Five checks ride along: skills with no description and no body text, skills whose descriptions are near-duplicates
 (the agent has to choose between them from the listing alone), AGENTS.md files turned off by a
-CLAUDE.md at the root, unreadable files (non-UTF-8, dangling link), and imports past the
+CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md at the root, unreadable files (non-UTF-8, dangling link), and imports past the
 harness's hop limit.
 """
 
