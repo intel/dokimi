@@ -311,6 +311,8 @@ def test_unreadable_bzl_or_external_build_is_unresolved_with_the_reason(tmp_path
     "cd nocm && cmake -S examples/?pp -B b",
     "cd nocm && cmake -S examples/[ab]pp -B b",
     "cd nocm && cmake -S examples/{a,b} -B b",
+    "cd nocm && cmake -S src\\app -B b",  # unquoted: shlex drops the backslash, so the raw text is checked
+    "cd nocm && cmake -S ..\\src -B b",
 ])
 def test_cmake_source_that_is_not_a_literal_tree_path_is_not_claimed(tmp_path, cmd):
     got = _verdicts(_scan(tmp_path, _fence("bash", cmd) + "\n", {"nocm/x.txt": "", **_CMAKE}))
@@ -321,6 +323,47 @@ def test_redirections_next_to_a_placeholder_are_not_placeholders(tmp_path):
     agents = _fence("bash", "cd nocm && cmake -S examples/app -B b < in.txt >out.txt")
     got = _verdicts(_scan(tmp_path, agents + "\n", {"nocm/x.txt": "", **_CMAKE}))
     assert got == {("cmake_src", "examples/app"): "fail"}, got
+
+
+def test_a_script_path_after_an_input_redirection_is_still_checked(tmp_path):
+    # the redirected command gives the same claims as the plain one: the path is not swallowed into a placeholder
+    plain = _verdicts(_scan(tmp_path / "a", _fence("bash", "python scripts/missing.py") + "\n", {"nocm/x.txt": ""}))
+    redirected = _verdicts(_scan(tmp_path / "b", _fence("bash", "python <in scripts/missing.py 2>err.log") + "\n",
+                                 {"nocm/x.txt": ""}))
+    assert ("script_path", "scripts/missing.py") in plain and redirected == plain, (plain, redirected)
+
+
+def test_unread_module_bazel_leaves_an_external_label_unresolved_with_the_reason(tmp_path):
+    # MODULE.bazel may declare @zlib as a bazel_dep, which the WORKSPACE-era BUILD file would not be
+    files = {"MODULE.bazel": 'module(name = "case")\nbazel_dep(name = "zlib", version = "1")\n\0',
+             "WORKSPACE": 'zlib_repo(name = "zlib", build_file = "//third_party:zlib.BUILD")\n',
+             "third_party/zlib.BUILD": 'cc_library(name = "zlib")\n'}
+    claims = {(c["kind"], c["claim"]): c for c in _scan(tmp_path, "`@zlib//:z`\n", files)["claims"]}
+    label = claims[("bazel_label", "@zlib//:z")]
+    assert label["status"] == "unresolved" and "MODULE.bazel was not read" in label["why"], label
+
+
+def test_unread_local_build_file_leaves_a_label_unresolved_with_the_reason(tmp_path):
+    claims = {(c["kind"], c["claim"]): c
+              for c in _scan(tmp_path, "`//a:kore`\n", {"a/BUILD": 'cc_library(name = "core")\n\0'})["claims"]}
+    label = claims[("bazel_label", "//a:kore")]
+    assert label["status"] == "unresolved" and "a/BUILD was not read" in label["why"], label
+
+
+def test_an_unreadable_external_build_file_is_read_once_for_all_its_claims(tmp_path, monkeypatch):
+    reads: list[str] = []
+    real = GitTree.read_many
+
+    def spy(self, paths, *args, **kwargs):
+        reads.extend(paths)
+        return real(self, paths, *args, **kwargs)
+
+    monkeypatch.setattr(GitTree, "read_many", spy)
+    agents = "`@zlib//:t1` `@zlib//:t2` `@zlib//:t3` `@zlib//:t4` `@zlib//:t5`\n"
+    files = {"WORKSPACE": 'zlib_repo(name = "zlib", build_file = "//third_party:zlib.BUILD")\n',
+             "third_party/zlib.BUILD": 'cc_library(name = "zlib")\n\0'}
+    _scan(tmp_path, agents, files)
+    assert reads.count("third_party/zlib.BUILD") == 1, reads
 
 
 def test_every_string_form_of_a_label_is_checked_on_its_own_line(tmp_path):

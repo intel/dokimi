@@ -285,12 +285,16 @@ def _check_external(scan: Scan, file: str, line: int, label: str, parts: tuple[s
     uses as a string, as a source is) is never ``fail``."""
     repo, pkg, target = parts
     builds = _external_builds(scan, repo) if not pkg and target and "/" not in target else []
+    unread = {b: why for b in builds if (why := scan.unread_reason(b))}
+    if (why := scan.unread_reason("MODULE.bazel")):  # it may declare @repo as a bazel_dep, which no BUILD file says
+        unread["MODULE.bazel"] = why
     if not builds or target is None:
-        scan.add(file, line, "bazel_label", label, "unresolved", f"external repository @{repo}", ctx)
+        scan.add(file, line, "bazel_label", label, "unresolved",
+                 "; ".join(f"{b} was not read ({w})" for b, w in unread.items()) if unread
+                 else f"external repository @{repo}", ctx)
         return
     names: set[str] = set()
     computed = False
-    unread = {b: why for b in builds if (why := scan.unread_reason(b))}
     for build in builds:
         found, comp = scan.cached(f"bazel_build:{build}", lambda b=build: _build_names(scan.text(b)))
         names |= found
@@ -622,7 +626,9 @@ def _cmake_source(scan: Scan, file: str, line: int, src: str, text: str) -> None
     """``-S <dir>`` names a directory with a ``CMakeLists.txt``. Where the command runs is known only after a
     literal ``cd``; without one the directory is tried at the guidance file's directory and its ancestors, and a
     miss is ``unresolved``, since the text may say elsewhere where to run it."""
-    if not src or dynamic(src) or src.startswith(("/", "~", "-")) or any(c in src for c in "*?[{%\\"):
+    # the shell split already dropped the backslash of an unquoted `src\app`, so the command text is checked too
+    if not src or dynamic(src) or src.startswith(("/", "~", "-")) or any(c in src for c in "*?[{%\\") \
+            or re.search(r"-S\s*\S*\\", text):
         return  # a glob or brace expansion, a Windows path or a Windows variable names directories this text does not list
     if re.match(r"^[A-Za-z]:", src):
         return
