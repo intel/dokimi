@@ -100,7 +100,7 @@ jobs:
       # missing license template; invalid files are still listed at error.
       - name: License header check
         if: ${{ !cancelled() }}
-        uses: docker://apache/skywalking-eyes@sha256:cd89ccbbcba2e87d3fb0e34b156b1da208d6c5ac1ada4e2d335e920022c765b8  # 0.9.0
+        uses: docker://apache/skywalking-eyes:0.9.0@sha256:cd89ccbbcba2e87d3fb0e34b156b1da208d6c5ac1ada4e2d335e920022c765b8
         with:
           args: -v error -c .github/.licenserc.yaml header check
       # The hooks in .pre-commit-config.yaml, so they stay green on main: a change
