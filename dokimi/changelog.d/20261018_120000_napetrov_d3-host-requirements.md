@@ -9,7 +9,8 @@
   host cannot show is `unsupported` with the reason in `tasks check` (which exits 1, as for
   an egress task, unless `--allow-unsupported` is given, for CI on hosts that cannot show
   some bugs; broken and egress tasks still exit 1), and in `repo run` its cells are not run: each holds an `unsupported.json`,
-  and `repo report` lists them apart, neither failed nor missing. A later run on a host that
+  and `repo report` lists them apart, neither failed nor missing; if the probe itself
+  failed, `repo run` exits 1. A later run on a host that
   meets the requirements runs them. The probed facts are recorded in `check.json` `host`, in
   the batch's `_eval/host.json` and in every cell's `meta.json` `host`. A `host` value of the
   wrong shape is refused before any container starts.

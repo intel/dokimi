@@ -251,7 +251,9 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     _record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
-    unsupported = {t.id: why for t in tasks if (why := unmet(t, host)[0])}
+    verdicts = {t.id: unmet(t, host) for t in tasks}
+    unsupported = {task_id: why for task_id, (why, _) in verdicts.items() if why}
+    probe_failed = [task_id for task_id, (_, by) in verdicts.items() if by == "host-probe"]
     for task_id, why in unsupported.items():
         log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
     lock = threading.Lock()
@@ -301,7 +303,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         list(pool.map(one, cells))
     return {"cells": len(cells), "ran": state["ran"], "skipped": state["skipped"],
             "errors": state["errors"], "budget_stopped": state["budget_stopped"],
-            "unsupported": state["unsupported"], "unsupported_tasks": unsupported,
+            "unsupported": state["unsupported"], "unsupported_tasks": unsupported, "probe_failed": probe_failed,
             "spent_usd": round(state["spent"], 6)}
 
 

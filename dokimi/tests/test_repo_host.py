@@ -397,6 +397,18 @@ def test_probe_failure_is_marked_host_probe_never_hidden_by_allow_unsupported(tm
     assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host-probe"
 
 
+def test_run_exits_1_when_the_probe_failed_and_still_runs_unconstrained_tasks(tmp_path, monkeypatch, capsys):
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    with pytest.raises(SystemExit) as exc:
+        _run(root, out, HostRunner(None), monkeypatch, "--task", "fix_add", "--task", "fix_race")
+    assert exc.value.code == 1  # not a green run with the constrained task never graded
+    logged = capsys.readouterr()
+    assert "2 ran, 0 already done, 0 crashed" in logged.out
+    assert "the host probe failed, so these tasks were not run: fix_race" in logged.err
+    assert [u["task"] for u in summarize(out / "b1")["unsupported"]] == ["fix_race", "fix_race"]
+
+
 def test_a_probe_failure_never_unsupports_a_task_with_no_constraint():
     assert unmet(_task({}), {"error": "host probe did not start"}) == (None, None)
 

@@ -204,7 +204,10 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         sys.exit(1)
     print(f"{summary['ran']} ran, {summary['skipped']} already done, {len(summary['errors'])} crashed, "
           f"{summary['budget_stopped']} not started (batch budget); ${summary['spent_usd']:.4f}")
-    if summary["errors"] or summary["budget_stopped"]:
+    if summary["probe_failed"]:
+        print(f"✗ the host probe failed, so these tasks were not run: {', '.join(summary['probe_failed'])}",
+              file=sys.stderr)
+    if summary["errors"] or summary["budget_stopped"] or summary["probe_failed"]:
         sys.exit(1)
 
 

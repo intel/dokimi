@@ -373,7 +373,8 @@ proxy, and `tasks check` exits 1 for it. With `--allow-unsupported` it is
 still printed with its reason but does not make the exit code 1; broken tasks
 and tasks that need egress still do. `repo run` does not run its cells:
 each holds an `unsupported.json` with the reason, and `repo report` lists them
-apart, neither failed nor missing.
+apart, neither failed nor missing. If the probe itself fails, a task with
+`host` requirements is not run either, and `repo run` exits 1.
 
 Each task runs with its own network (`image.network` plus its `egress`).
 `tasks check --warm` runs the same null and oracle steps with network and
