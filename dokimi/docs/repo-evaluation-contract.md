@@ -554,7 +554,7 @@ in one request.
 | generic | Markdown links (inline and reference definitions, `<angle-bracket>` targets; relative, and blob/tree links to `source.url`), paths and globs in code spans (see below), identifiers (a word in some tracked file that is not prose; a missing ALL_CAPS name is `unresolved`, since a tool outside the tree may read it), `python <script>` paths, a command wrapped in backticks inside a shell fence |
 | `bazel` | `--config` values against `.bazelrc` and its imports, flag aliases, labels against the target and output names (`name`, `outs`, and the files of a top-level `exports_files([...])`) that the package's `BUILD.bazel`, else `BUILD`, spells out in either quote style (a package that calls a macro or computes a name, `"t_" + s`, a comprehension or `exports_files(glob(...))`, gives `unresolved`, not `fail`), macros and keyword arguments in Starlark fences against tracked `.bzl` files, `load()` symbols against the public top-level names (a `def` or an assignment) of the in-tree `.bzl` an absolute label names, labels of an external repository against its BUILD file when the tree holds one (see below), and `@<module>//` alone as this repository |
 | `make` | targets against the rules of every makefile (a `%:` catch-all or a rule named by a variable gives `unresolved`), `VAR=value` against the makefiles |
-| `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json`, `-S <dir>` against a `CMakeLists.txt` in that directory (`ok` when any ancestor directory of the guidance file holds it; `fail` only after a literal `cd`, and there a miss inside a declared submodule is `unresolved`; without a `cd` the directory the command runs in is not known, so a miss is `unresolved`; a glob such as `examples/*` is not a literal directory and gets no claim) |
+| `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json`, `-S <dir>` against a `CMakeLists.txt` in that directory (`ok` when any ancestor directory of the guidance file holds it; `fail` only after a literal `cd`, and there a miss inside a declared submodule is `unresolved`; without a `cd` the directory the command runs in is not known, so a miss is `unresolved`; a glob such as `examples/*` is not a literal directory and gets no claim; a `%VAR%`, a drive path such as `C:/x`, and a `-S` word holding a backslash get no claim) |
 | `pytest` | path arguments and `::test` nodes |
 | `pre-commit` | `pre-commit run <hook>` against hook ids and aliases |
 
@@ -582,7 +582,9 @@ files computes names (a macro, `exports_files(glob(...))`, or a template's
 `%{...}` substitution), when the target contains a `.`, or when the name
 appears as any string in the file (a source in `srcs`); otherwise it is
 `fail`. Labels of any other
-external repository stay `unresolved`.
+external repository stay `unresolved`. A `BUILD`, `.bzl`, `WORKSPACE` or `MODULE.bazel` file that was not read
+(binary, over the size limit, a dangling or escaping link) makes its `bazel_label` and `starlark_load` claims
+`unresolved`, with the reason (`X was not read (...)`).
 
 L0 checks only what holds for any repository. The rules of oneDAL's own
 checker that are repository policy were not ported, and oneDAL dropped them

@@ -16,6 +16,7 @@ import fnmatch
 import json
 import posixpath
 import re
+import shlex
 from typing import Callable, Iterator
 
 import yaml
@@ -77,12 +78,15 @@ def _bazel_facts(scan: Scan) -> dict:
         configs: set[str] = set()
         aliases: set[str] = set()
         todo, seen = [".bazelrc"], set()
+        unread: dict[str, str] = {}  # an rc file that was not read: its configs are unknown, not absent
         while todo:
             rc = todo.pop()
             if rc in seen:
                 continue
             seen.add(rc)
             text = scan.text(rc)
+            if (why := scan.unread_reason(rc)):
+                unread[rc] = why
             configs |= set(re.findall(r"^\s*\w+:([\w.-]+)", text, re.M))
             aliases |= set(re.findall(r"--flag_alias=([\w-]+)=", text))
             todo += [m.replace("%workspace%/", "") for m in re.findall(r"^\s*(?:try-)?import\s+(\S+)", text, re.M)]
@@ -98,7 +102,7 @@ def _bazel_facts(scan: Scan) -> dict:
                     twice.add(m.group(1))
                 defs.setdefault(m.group(1), (f, params))
         return {"configs": configs, "aliases": aliases, "module": module.group(1) if module else None, "defs": defs,
-                "twice": twice}
+                "twice": twice, "unread": unread}
     return scan.cached("bazel", make)
 
 
@@ -402,6 +406,10 @@ def _bazel(scan: Scan, file: str, line: int, toks: list[str], text: str) -> None
             if dynamic(value):
                 continue
             ok = value in facts["configs"]
+            if not ok and facts["unread"]:
+                why = "; ".join(f"{rc} was not read ({r})" for rc, r in sorted(facts["unread"].items()))
+                scan.add(file, line, "bazel_config", value, "unresolved", why, text)
+                continue
             scan.add(file, line, "bazel_config", value, "ok" if ok else "fail",
                      "config in .bazelrc" if ok else "no such config in .bazelrc or its imports", text)
         elif t.startswith("--") and t[2:].split("=")[0] in facts["aliases"]:
@@ -622,13 +630,28 @@ def _cmake_var(scan: Scan, file: str, line: int, var: str, text: str) -> None:
                  "used in the CMake sources" if ok else "appears in no CMakeLists.txt or .cmake file", text)
 
 
+def _raw_source_has_backslash(text: str, src: str) -> bool:
+    """True when the ``-S`` word of the command text that gives ``src`` holds a backslash the shell split removed.
+    A backslash in another word of the same command does not count."""
+    for m in re.finditer(r"(?:^|\s)-S\s*(\S+)", text):
+        raw = m.group(1)
+        if "\\" in raw:
+            try:
+                parts = shlex.split(raw)
+            except ValueError:
+                continue
+            if parts == [src]:
+                return True
+    return False
+
+
 def _cmake_source(scan: Scan, file: str, line: int, src: str, text: str) -> None:
     """``-S <dir>`` names a directory with a ``CMakeLists.txt``. Where the command runs is known only after a
     literal ``cd``; without one the directory is tried at the guidance file's directory and its ancestors, and a
     miss is ``unresolved``, since the text may say elsewhere where to run it."""
     # the shell split already dropped the backslash of an unquoted `src\app`, so the command text is checked too
     if not src or dynamic(src) or src.startswith(("/", "~", "-")) or any(c in src for c in "*?[{%\\") \
-            or re.search(r"-S\s*\S*\\", text):
+            or _raw_source_has_backslash(text, src):
         return  # a glob or brace expansion, a Windows path or a Windows variable names directories this text does not list
     if re.match(r"^[A-Za-z]:", src):
         return

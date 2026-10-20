@@ -53,8 +53,8 @@ _REDIRECT = re.compile(r"(?:(?<=\s)|^)[0-9]?(?:&>>?|>>?|<)(?:&[0-9]+|\s*[^\s|;&<
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)")
 # `<name>`, `<path/to/src>` or `<source dir>`: a placeholder to fill in, not redirections. Its first word is a name
 # (`<in.txt scripts/x.py 2>` is an input redirection: a dot ends the first word), and it does not end in a space, in a
-# file descriptor (`2>`) or before `&` (`2>&1`).
-_FILL_IN = re.compile(r"<[A-Za-z_][\w/-]*(?:[ \t][^<>\n;&|]*[^\s<>;&|])?(?<!\s\d)>(?!&)")
+# file descriptor (`2>`) or before `&` (`2>&1`); a heredoc `<<EOF>` is not a placeholder either.
+_FILL_IN = re.compile(r"(?<!<)<[A-Za-z_][\w/-]*(?:[ \t][^<>\n;&|]*[^\s<>;&|])?(?<!\s\d)>(?!&)")
 _CONTROL = frozenset({"&&", "||", "|", ";", "&", "|&", ";;", "(", ")"})
 _CONTROL_RUN = re.compile(r"&&|\|\||\|&|;;|[;&|()]")
 # A ref that is one path segment: a default branch, a commit or a version tag. Any other ref may hold slashes.
@@ -140,7 +140,9 @@ class Scan:
 
     # ---------- reading ----------
     def preload(self, paths: list[str], skipped: dict[str, str] | None = None) -> None:
-        # a path already found unreadable is not read again: each claim against it would list and read the tree
+        # a path already found unreadable (by detect, say) is not read again, but the caller still learns why
+        if skipped is not None:
+            skipped.update({p: self.unread[p] for p in paths if p in self.unread})
         missing = [p for p in paths if p not in self._texts and p not in self.unread and p in self.file_set]
         if missing:
             skip = {} if skipped is None else skipped

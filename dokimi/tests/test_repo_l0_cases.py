@@ -432,3 +432,12 @@ def test_gate_fails_when_globbed_guidance_deleted(tmp_path, monkeypatch, capsys)
         args.func(args)
     assert exc.value.code == 1
     assert "guidance/also_scan matches no file: AGENTS.md" in capsys.readouterr().out
+
+
+def test_unreadable_guidance_that_detect_also_reads_keeps_its_warning(tmp_path):
+    # detect() reads setup.cfg before the guidance files are preloaded: its failed read must still be reported
+    for payload in _both(tmp_path, {"AGENTS.md": "x\n"}, {"setup.cfg": "nowhere.cfg"}, build_systems=[],
+                         also_scan=["setup.cfg"]):
+        warning = next((w for w in payload["warnings"] if "setup.cfg" in w), "")
+        assert warning.startswith("guidance file not scanned: setup.cfg") and "links to nothing" in warning, payload
+        assert payload["incomplete"]

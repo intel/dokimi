@@ -18,6 +18,7 @@ import pytest
 
 from dokimi.repos import parse_manifest
 from dokimi.repos.l0 import scan_repo
+from dokimi.repos.l0.core import _FILL_IN
 from dokimi.repos.source import GitTree
 
 FENCE = "```"
@@ -390,3 +391,61 @@ def test_python_fence_calling_a_name_plain_python_also_uses_is_plain_python(tmp_
 def test_python_fence_calling_a_bazel_rule_reads_as_bazel(tmp_path, lines):
     agents = _fence("python", *lines)
     assert _verdicts(_scan(tmp_path, agents, _DEFS)) == {("bazel_label", "//a:kore"): "fail"}
+
+
+@pytest.mark.parametrize("cmd", [
+    "cd nocm && cmake -Sexamples\\app -B b",  # shlex joins the -S value, so the raw token is checked
+])
+def test_cmake_source_with_a_backslash_in_the_same_word_is_not_claimed(tmp_path, cmd):
+    got = _verdicts(_scan(tmp_path, _fence("bash", cmd) + "\n", {"nocm/x.txt": "", **_CMAKE}))
+    assert got == {}, got
+
+
+@pytest.mark.parametrize("cmd, want", [
+    # a backslash in another word of the same command does not drop the -S claim
+    ("cd nocm && cmake -S missing -B b && cmake -S a\\b -B c", {("cmake_src", "missing"): "fail"}),
+    ("cd nocm && cmake -S missing -B b --toolchain x-S\\y", {("cmake_src", "missing"): "fail"}),
+    ("cd nocm && cmake -S missing -B b -DP=x-Sy\\z", {("cmake_src", "missing"): "fail", ("cmake_var", "P"): "fail"}),
+    ("cd nocm && cmake -S missingdir -B b\\x", {("cmake_src", "missingdir"): "fail"}),
+])
+def test_a_backslash_in_another_word_does_not_drop_a_cmake_source_claim(tmp_path, cmd, want):
+    got = _verdicts(_scan(tmp_path, _fence("bash", cmd) + "\n", {"nocm/x.txt": "", **_CMAKE}))
+    assert got == want, got
+
+
+@pytest.mark.parametrize("cmd", [
+    "python <in.txt scripts/missing.py>out",
+    "python <in scripts/missing.py>&2",
+    "make <x-y> && python scripts/missing.py",
+    "python <in scripts/missing.py >b",
+    "python <in.txt scripts/missing.py 2>&1",
+])
+def test_placeholder_and_redirection_clauses_keep_the_claims_of_the_plain_command(tmp_path, cmd):
+    plain = _verdicts(_scan(tmp_path / "a", _fence("bash", "python scripts/missing.py") + "\n", {"nocm/x.txt": ""}))
+    got = _verdicts(_scan(tmp_path / "b", _fence("bash", cmd) + "\n", {"nocm/x.txt": ""}))
+    assert ("script_path", "scripts/missing.py") in plain and got == plain, (plain, got)
+
+
+def test_a_heredoc_followed_by_a_redirection_is_not_a_placeholder():
+    # the second `<` of `<<EOF>` is part of the heredoc operator, not the start of a placeholder
+    assert _FILL_IN.search("cat <<EOF>out") is None
+    assert _FILL_IN.search("python <in.txt scripts/x.py>out") is None
+    assert _FILL_IN.search("cat <path/to/src> > log") is not None
+
+
+def test_unread_module_bazel_without_a_build_file_is_unresolved_with_the_reason(tmp_path):
+    # no BUILD file names @other: the unread MODULE.bazel may declare it, so the label is unresolved, not failed
+    files = {"MODULE.bazel": 'module(name = "case")\n\0', "WORKSPACE": ""}
+    claims = {(c["kind"], c["claim"]): c for c in _scan(tmp_path, "`@other//:z`\n", files)["claims"]}
+    label = claims[("bazel_label", "@other//:z")]
+    assert label["status"] == "unresolved" and label["why"].startswith("MODULE.bazel was not read (") \
+        and "NUL byte" in label["why"], label
+
+
+def test_unread_bazelrc_leaves_a_config_unresolved_not_missing(tmp_path):
+    # a .bazelrc that cannot be read may hold `build:ci`: the config is unresolved with the reason, not a failure
+    files = {".bazelrc": "build:dev --copt=-O0\n\0"}
+    claims = {(c["kind"], c["claim"]): c for c in _scan(tmp_path, _fence("bash", "bazel build --config=ci //x") + "\n",
+                                                        files)["claims"]}
+    config = claims[("bazel_config", "ci")]
+    assert config["status"] == "unresolved" and config["why"].startswith(".bazelrc was not read ("), config
