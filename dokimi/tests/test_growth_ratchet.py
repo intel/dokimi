@@ -101,6 +101,59 @@ def test_functions_are_keyed_by_qualified_name():
     assert found == {"A.m": 2, "A.m.inner": 1, "g": 1}
 
 
+def test_defs_in_handlers_cases_async_and_classes_count_like_ruff_c901():
+    # expected: ruff 0.17.0 `--select C901` with max-complexity 0 on this source
+    found = _cx("""
+        try:
+            import x
+        except ImportError:
+            def fallback(a):
+                if a:
+                    return 1
+                elif a > 2:
+                    return 2
+                return 0
+        match MODE:
+            case "x":
+                def in_case(a):
+                    if a:
+                        return 1
+                    return 0
+        async def af(a):
+            async for x in a:
+                if x:
+                    pass
+            async with a:
+                if a:
+                    pass
+        def outer(a):
+            async def inner(b):
+                if b:
+                    pass
+            class Inner:
+                def m(self):
+                    if a:
+                        pass
+        def withcase(a):
+            match a:
+                case 1:
+                    pass
+                case 2:
+                    pass
+                case (_ as z):
+                    pass
+        def dup(a):
+            if a:
+                pass
+            elif a:
+                pass
+        def dup():
+            pass
+    """)
+    assert found == {"fallback": 3, "in_case": 2, "af": 4, "outer": 5, "outer.inner": 2,
+                     "outer.Inner.m": 2, "withcase": 3, "dup": 3}   # dup: the max of 3 and 1
+
+
 # --- the gate binds -----------------------------------------------------------------
 
 
@@ -133,6 +186,23 @@ def project(tmp_path, monkeypatch):
 
 def _found(root: Path) -> list[str]:
     return cg.violations(cg.measure(root), cg.load_baseline())
+
+
+def test_cli_py_is_measured_and_dot_dirs_and_caches_are_not(project):
+    (project / "cli.py").write_text("x = 1\n", encoding="utf-8")
+    for sub in (".venv", "__pycache__"):
+        (project / "dokimi" / sub).mkdir()
+        (project / "dokimi" / sub / "v.py").write_text("x = 1\n", encoding="utf-8")
+    found = [p.relative_to(project).as_posix() for p in cg.python_files(project)]
+    assert found == ["cli.py", "dokimi/big.py", "dokimi/cx.py", "tests/test_ok.py"]
+
+
+def test_a_non_integer_entry_fails(project):
+    cg.BASELINE.write_text(cg.dump_baseline({
+        "files": {"dokimi/big.py": {"lines": "22"}},
+        "functions": {"dokimi/cx.py::f": {"complexity": 5}},
+    }), encoding="utf-8")
+    assert _found(project) == ["dokimi/big.py: baseline entry has no integer 'lines'"]
 
 
 def test_the_fixture_project_passes(project):
@@ -232,6 +302,17 @@ def test_a_raised_entry_keeping_its_old_rationale_still_fails():
     assert cg.raised_without_rationale(head, base) == []
     head["files"]["a.py"] = {"lines": 900, "rationale": "legacy"}  # unchanged: no new rationale needed
     assert cg.raised_without_rationale(head, base) == []
+    base["files"]["a.py"]["rationale"] = "legacy "  # a whitespace edit is not a new rationale
+    head["files"]["a.py"]["lines"] = 1500
+    assert len(cg.raised_without_rationale(head, base)) == 1
+
+
+def test_base_ref_follows_github_base_ref(monkeypatch):
+    monkeypatch.delenv("DOKIMI_GROWTH_BASE", raising=False)
+    monkeypatch.setenv("GITHUB_BASE_REF", "dev")
+    assert cg.base_ref() == "origin/dev"
+    monkeypatch.delenv("GITHUB_BASE_REF")
+    assert cg.base_ref() == "origin/main"
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
