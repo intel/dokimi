@@ -8,8 +8,9 @@
 # Each rev is a commit SHA with its tag in the `# frozen:` comment (what
 # `pre-commit autoupdate --freeze` writes); Renovate's pre-commit manager
 # bumps both. The ruff and zizmor revs are the versions dokimi/requirements-ci.txt
-# pins for the tools lock CI installs (ruff's is also the dev extra's), and
-# Renovate updates each tool's pins in one PR (.github/renovate.json5).
+# pins for the tools lock CI installs (ruff's is also the dev extra's), the gitleaks
+# rev the version gitleaks.yml downloads, and Renovate updates each tool's pins in
+# one PR (.github/renovate.json5).
 #
 # Not here, measured on the tree this was added to: end-of-file-fixer and
 # trailing-whitespace (they would rewrite 29 files, several touched by open
@@ -48,3 +49,12 @@ repos:
       - id: zizmor
         args: [--no-progress, --offline, --min-severity, medium]
         files: ^\.github/workflows/[^/]+\.ya?ml$
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # frozen: v8.30.1
+    hooks:
+      # The staged changes of a commit, redacted output (the hook's own entry).
+      # The first run builds gitleaks with Go (pre-commit fetches the
+      # toolchain), about 20 s; then well under a second per commit. CI skips
+      # it: there is nothing staged there, and gitleaks.yml scans the commits.
+      - id: gitleaks

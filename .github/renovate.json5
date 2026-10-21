@@ -62,6 +62,19 @@
     schedule: ["* 0-3 1 * *"],
   },
 
+  customManagers: [
+    {
+      // The gitleaks release gitleaks.yml downloads. Its SHA-256 has no
+      // datasource: the bump PR fails that workflow until GITLEAKS_SHA256 is
+      // updated by hand from the release's checksums file.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/gitleaks\\.yml$/"],
+      matchStrings: ["GITLEAKS_VERSION: '?(?<currentValue>\\d+\\.\\d+\\.\\d+)'?"],
+      depNameTemplate: "gitleaks/gitleaks",
+      datasourceTemplate: "github-releases",
+      extractVersionTemplate: "^v(?<version>.+)$",
+    },
+  ],
   packageRules: [
     {
       groupName: "non-major dependencies",
@@ -80,6 +93,13 @@
       groupName: "zizmor",
       groupSlug: "zizmor",
       matchDepNames: ["zizmor", "zizmorcore/zizmor-pre-commit"],
+    },
+    {
+      // The pre-commit hook rev and gitleaks.yml's download (both depName
+      // gitleaks/gitleaks).
+      groupName: "gitleaks",
+      groupSlug: "gitleaks",
+      matchDepNames: ["gitleaks/gitleaks"],
     },
     {
       // Renovate pins the proposed release (--upgrade-package=numpy==X), and

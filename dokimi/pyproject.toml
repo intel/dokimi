@@ -39,7 +39,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=7.4.0",
+  # 9.0.3 fixes PYSEC-2026-1845; a lower floor lets a resolver pick an affected pytest.
+  "pytest>=9.0.3",
+  # Property-based tests (tests/test_arm_specs_properties.py).
+  "hypothesis>=6.100",
   "pytest-cov>=4.1.0",
   "pytest-mock>=3.12.0",
   "pytest-socket>=0.7",

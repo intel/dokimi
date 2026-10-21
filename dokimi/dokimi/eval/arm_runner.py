@@ -16,7 +16,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from dokimi.utils import question_id  # noqa: F401  (re-exported: callers import it from here)
 from dokimi.artifacts import save_artifact
@@ -27,9 +27,8 @@ from dokimi.eval.arm_summary import (
     cost_summary, summarize_agentic_usage, summarize_skill_selection,
 )
 from dokimi.eval.cells import Cell
-from dokimi.eval.question_text import (
-    has_answer_to_judge, question_text_of, require_question_text, require_question_texts,
-)
+from dokimi.eval.question_text import question_text_of, require_question_texts
+from dokimi.records import Record, RecordLike, arm_names, records as as_records
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import SOURCE_STORED
 from dokimi.eval.judge_context import stamp_for as judge_context_stamp
@@ -438,7 +437,7 @@ class ArmRunner:
         self,
         judge,
         library_name: str,
-        records: List[Dict[str, Any]],
+        records: Sequence[RecordLike],
         baseline_arm: str = "baseline",
         concurrency: int = 5,
     ) -> List[Dict[str, Any]]:
@@ -446,24 +445,22 @@ class ArmRunner:
 
         Deltas are computed against *baseline_arm* when that arm is present.
         """
-        def _score(rec: Dict[str, Any]) -> Dict[str, Any]:
+        def _score(rec: Record) -> Dict[str, Any]:
             scores: Dict[str, Any] = {}
-            gt = rec.get("ground_truth_chunk")
-            # One read for the judge call and the row (a ``question``-only record must not
-            # pass the check and then fail on ``rec["question_text"]`` after paid calls).
-            text = require_question_text(rec) if has_answer_to_judge(rec) else question_text_of(rec)
-            for arm_name, arm in rec.get("arms", {}).items():
-                if not arm or not arm.get("answer"):
+            gt = rec.ground_truth
+            for arm_name in arm_names(rec):
+                answer = rec.answer(arm_name)
+                if answer is None or not answer.text:
                     scores[arm_name] = None
                     continue
                 context, source = self.judge_context.resolve_with_source(
-                    rec["question_id"], arm_name, arm
+                    rec.question_id, arm_name, dict(answer.raw)
                 )
                 try:
                     score = judge.score_answer(
                         library_name=library_name,
-                        question=text,
-                        answer=arm["answer"],
+                        question=rec.question_text,
+                        answer=answer.text,
                         context=context,
                         ground_truth=gt,
                     )
@@ -472,7 +469,7 @@ class ArmRunner:
                     score = {"error": str(exc)}
                 if isinstance(score, dict):
                     score = {**score, "judge_context_source": source}
-                    digest = (self.judge_context.digest_of(rec["question_id"], arm_name)
+                    digest = (self.judge_context.digest_of(rec.question_id, arm_name)
                               if source == SOURCE_STORED else None)
                     if digest:
                         # Which of `judge_materials` this score saw.
@@ -488,19 +485,21 @@ class ArmRunner:
                         deltas[arm_name] = round(s["aggregate"] - base_agg, 1)
 
             return {
-                "question_id": rec["question_id"],
-                "question_text": text,
-                "category": rec.get("category"),
-                "difficulty": rec.get("difficulty"),
+                "question_id": rec.question_id,
+                "question_text": rec.question_text,
+                "category": rec.category,
+                "difficulty": rec.difficulty,
                 "scores": scores,
                 "deltas_vs_baseline": deltas,
             }
 
-        require_question_texts(records)  # before any judge call: refuse, do not grade against ""
-        n = len(records)
+        recs = as_records(records, source="answers", kind="answers")
+        # Before any judge call: refuse, do not grade against "".
+        require_question_texts(r.raw for r in recs)
+        n = len(recs)
         out: Dict[int, Dict[str, Any]] = {}
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
-            futures = {pool.submit(_score, r): i for i, r in enumerate(records)}
+            futures = {pool.submit(_score, r): i for i, r in enumerate(recs)}
             for f in as_completed(futures):
                 idx = futures[f]
                 out[idx] = f.result()
@@ -550,9 +549,9 @@ class ArmRunner:
             out["evaluations"] = evaluations
             out["summary"] = self._summarize(evaluations, baseline_arm)
             sources = [
-                s.get("judge_context_source")
-                for ev in evaluations for s in (ev.get("scores") or {}).values()
-                if isinstance(s, dict)
+                s.raw.get("judge_context_source")
+                for ev in as_records(evaluations, source="evaluations", kind="evaluations")
+                for s in ev.scores.values()
             ]
             out["judge_context_sources"] = dict(sorted(Counter(
                 s for s in sources if s is not None).items()))
@@ -587,10 +586,10 @@ class ArmRunner:
         self, evaluations: List[Dict[str, Any]], baseline_arm: str
     ) -> Dict[str, Any]:
         per_arm: Dict[str, List[float]] = {name: [] for name in self.arm_names}
-        for ev in evaluations:
-            for arm_name, s in ev.get("scores", {}).items():
-                if isinstance(s, dict) and isinstance(s.get("aggregate"), (int, float)):
-                    per_arm.setdefault(arm_name, []).append(float(s["aggregate"]))
+        for ev in as_records(evaluations, source="evaluations", kind="evaluations"):
+            for arm_name in ev.scores:
+                if (v := ev.score(arm_name)) is not None:
+                    per_arm.setdefault(arm_name, []).append(float(v))
 
         summary: Dict[str, Any] = {"per_arm": {}}
         base_avg = None

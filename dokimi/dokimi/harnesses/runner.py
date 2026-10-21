@@ -16,7 +16,7 @@ from dokimi.eval import binary_stats
 from dokimi.eval.stats import adjust_pvalues
 
 from .models import HarnessResult, OperationRecord, TaskRunResult
-from .registry import create_harness
+from .registry import create_harness, find_with_skill_arm
 from .tasks import TaskSpec
 
 
@@ -278,7 +278,49 @@ def summarize_task_results(
             }
         _correct_across_harnesses(comparisons)
 
-    return {"per_harness": per_harness, "comparisons": comparisons}
+    summary: dict[str, Any] = {"per_harness": per_harness, "comparisons": comparisons}
+    gaps = _discovery_gaps(rows, per_harness)
+    if gaps:
+        summary["discovery_gaps"] = gaps
+    return summary
+
+
+def _discovery_gaps(rows: list[dict[str, Any]],
+                    per_harness: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """With-skill pass rate minus discovery pass rate, per ``-skill-discover`` arm run beside its pair.
+
+    The two arms differ by the treatment notice only, so the gap is what the
+    skill gives when it is announced and the agent does not find it alone. It is
+    withheld (``None``) when the arms ran or lost different cells, as for
+    ``pass_rate_delta``.
+    """
+    outcomes, attempted = _outcomes_by_cell(rows)
+    gaps: dict[str, dict[str, Any]] = {}
+    for harness, stats in per_harness.items():
+        pair = find_with_skill_arm(harness, per_harness)
+        if pair is None:
+            continue
+        with_rate, discover_rate = per_harness[pair]["pass_rate"], stats["pass_rate"]
+        # Two arms with the same discovered gap are comparable only if they attempted
+        # the same cells and errored on the same subset. The two checks are kept apart
+        # in the summary, so the report can say which one withheld the gap.
+        attempted_match = attempted.get(harness) == attempted.get(pair)
+        errored_match = (_errored_cells(outcomes, attempted, harness)
+                         == _errored_cells(outcomes, attempted, pair))
+        comparable = attempted_match and errored_match
+        gaps[harness] = {
+            "with_skill_harness": pair,
+            "with_skill_pass_rate": with_rate,
+            "discover_pass_rate": discover_rate,
+            "gap": (round(with_rate - discover_rate, 4)
+                    if comparable and with_rate is not None and discover_rate is not None
+                    else None),
+            "attempted_cells_match": attempted_match,
+            "errored_cells_match": errored_match,
+            "with_skill_invocation_rate": per_harness[pair]["skill_invocation_rate"],
+            "discover_invocation_rate": stats["skill_invocation_rate"],
+        }
+    return gaps
 
 
 def _outcomes_by_cell(
@@ -360,6 +402,55 @@ def _exact_rate(passed: int, scored: int) -> float | None:
     return passed / scored if scored else None
 
 
+def _withheld_pair_record(
+    shared: list[tuple],
+    arm_cells: dict[tuple, bool],
+    base_cells: dict[tuple, bool],
+    n_excluded: int,
+) -> dict[str, Any]:
+    """Counts for a pairing too small for McNemar, with the exclusions kept.
+
+    ``mcnemar_test`` returns None below two pairs. Dropping the whole record
+    with it hid ``n_excluded``: one shared cell plus cells each harness
+    attempted alone looked like no comparison, not a withheld one.
+    """
+    gained = lost = both_passed = both_failed = 0
+    for key in shared:
+        treatment, control = bool(arm_cells[key]), bool(base_cells[key])
+        if treatment and not control:
+            gained += 1
+        elif control and not treatment:
+            lost += 1
+        elif treatment:
+            both_passed += 1
+        else:
+            both_failed += 1
+    n = len(shared)
+    n_units = len({task for task, _repeat in shared})
+    return {
+        "test": "mcnemar_exact",
+        "n": n,
+        "n_units": n_units,
+        "pseudo_replicated": n_units < n,
+        "n_gained": gained,
+        "n_lost": lost,
+        "n_both_passed": both_passed,
+        "n_both_failed": both_failed,
+        "n_discordant": gained + lost,
+        "n_excluded": n_excluded,
+        "paired_pass_rate_delta": round((gained - lost) / n, 4),
+        "ci_lo": None,
+        "ci_hi": None,
+        # No interval is computed, so no confidence level applies to it.
+        "ci_confidence": None,
+        "p_exact": None,
+        "significant": None,
+        # Filled by the family correction, which leaves a null p null.
+        "p_adjusted": None,
+        "significant_adjusted": None,
+    }
+
+
 def _paired_binary_test(
     outcomes: dict[str, dict[tuple, bool]],
     attempted: dict[str, set[tuple]],
@@ -372,12 +463,18 @@ def _paired_binary_test(
     lining repeats up by index is arbitrary between harnesses but keeps every
     comparison within one task, which is what the pairing is for. Cells missing
     on either side are excluded rather than treated as failures.
+
+    ``None`` only when no cell is shared. A shared cell below the test's
+    minimum still returns a record: the p-value stays null, and ``n_excluded``
+    stays visible.
     """
     arm_cells = outcomes.get(harness, {})
     base_cells = outcomes.get(baseline, {})
     shared = sorted(set(arm_cells) & set(base_cells))
     if not shared:
         return None
+    universe = attempted.get(harness, set()) | attempted.get(baseline, set())
+    n_excluded = len(universe) - len(shared)
     res = binary_stats.mcnemar_test(
         [arm_cells[k] for k in shared],
         [base_cells[k] for k in shared],
@@ -386,15 +483,15 @@ def _paired_binary_test(
         # records that rather than letting n stand in for the sample size.
         units=[task for task, _repeat in shared],
     )
-    if res is not None:
-        # How much was thrown away, so a shrunken n is visible in the artifact
-        # instead of silently making the comparison look cleaner than it is.
-        # Measured against the cells *attempted*, not the ones that survived:
-        # counting only surviving cells missed every cell that errored on both
-        # sides — the docker-is-broken case, where the loss is largest and the
-        # artifact reported zero exclusions.
-        universe = attempted.get(harness, set()) | attempted.get(baseline, set())
-        res["n_excluded"] = len(universe) - len(shared)
+    if res is None:
+        return _withheld_pair_record(shared, arm_cells, base_cells, n_excluded)
+    # How much was thrown away, so a shrunken n is visible in the artifact
+    # instead of silently making the comparison look cleaner than it is.
+    # Measured against the cells *attempted*, not the ones that survived:
+    # counting only surviving cells missed every cell that errored on both
+    # sides — the docker-is-broken case, where the loss is largest and the
+    # artifact reported zero exclusions.
+    res["n_excluded"] = n_excluded
     return res
 
 
@@ -411,7 +508,12 @@ def _correct_across_harnesses(
     twice — once as ``method=`` and once as a literal in the artifact — lets the
     two drift, so a reader could be told "holm" while BH was applied.
     """
-    tested = [h for h, cr in comparisons.items() if cr.get("mcnemar")]
+    # A withheld record (p_exact None) tested nothing, so it is not in the family.
+    tested = [
+        h
+        for h, cr in comparisons.items()
+        if cr.get("mcnemar") and cr["mcnemar"].get("p_exact") is not None
+    ]
     raw = [comparisons[h]["mcnemar"]["p_exact"] for h in tested]
     adjusted = adjust_pvalues(raw, method=correction)
     # The decision uses the unrounded adjusted p; the rounded one is recorded.
