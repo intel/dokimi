@@ -57,7 +57,7 @@ on:
         default: ''
       smoke-paths:
         description: >-
-          More path prefixes (space-separated) whose change selects `smoke-tasks`,
+          More path prefixes (space- or comma-separated) whose change selects `smoke-tasks`,
           for example a vendored grader library
         required: false
         type: string
