@@ -705,7 +705,8 @@ instead. A baseline saved before a default-model change is such a baseline. A pa
 artifact (`eval panel-score`) is compared by its set of judge models. A role either
 side does not record (an older artifact, or answers with no model) is named on
 stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
-vouch for that role.
+vouch for that role. A malformed record in either file (no `question_id`) exits 2,
+naming the record on stderr, so it never reads as a failed `--strict` check.
 
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.

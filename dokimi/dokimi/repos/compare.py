@@ -33,10 +33,12 @@ to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
 cells. A warning is printed, not an error, when a bare ``ARM`` pools cells of
 several batches, when a batch of a comparison has no stamp to compare, or when
 the two arms of a comparison ran from different ``eval_dir`` or ``image``
-stamps or harness versions: the deltas then mix the treatment with whatever
-else changed between the batches. An image ``repo run`` tagged from the tree's
-own revision follows the tree, so it is compared only against an ``--image``
-given explicitly.
+stamps or harness versions, or their cells of one model were answered by
+different models (``model_resolved``): the deltas then mix the treatment with
+whatever else changed between the batches. A cell answered by another model
+than it asked for is warned about as in ``repo report``. An image ``repo run``
+tagged from the tree's own revision follows the tree, so it is compared only
+against an ``--image`` given explicitly.
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ from typing import Any
 
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
-from .report import load_cells
+from .report import load_cells, mismatch_warnings, model_mismatch, model_matches, resolved_models
 
 #: Largest number of non-zero deltas whose sign-flip distribution is enumerated (2**16 patterns).
 EXACT_MAX = 16
@@ -130,7 +132,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     _check_models(models, rows, unpaired)
     _holm(rows)
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
-            "cells": len(cells), "missing": missing, **_provenance(batch_dirs, cells, baseline, treatments),
+            "cells": len(cells), "missing": missing, **_provenance(batch_dirs, cells, baseline, treatments, models),
             "comparisons": rows, "unpaired": unpaired}
 
 
@@ -147,21 +149,45 @@ def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, A
 
 
 def _provenance(batch_dirs: list[Path], cells: list[dict[str, Any]], baseline: str,
-                treatments: list[str]) -> dict[str, Any]:
+                treatments: list[str], models: list[str] | None = None) -> dict[str, Any]:
     """``sources`` (each selector's batches), ``stamps`` (each batch's pin and harness versions), ``warnings``."""
     names = [d.resolve().name for d in batch_dirs]
     stamps = {name: {**batch_stamp(d), "harness_versions": sorted({str(c.get("harness_version"))
-                                                                   for c in cells if c["batch"] == name})}
+                                                                   for c in cells if c["batch"] == name}),
+                     "model_resolved": sorted({m for c in cells if c["batch"] == name for m in resolved_models(c)})}
               for d, name in zip(batch_dirs, names, strict=True)}
     sources = {text: sorted({c["batch"] for c in cells if selector_matches(parse_selector(text), c)})
                for text in [baseline, *treatments]}
     return {"sources": sources, "stamps": stamps,
-            "warnings": _provenance_warnings(cells, baseline, treatments, sources, stamps)}
+            "warnings": _provenance_warnings(cells, baseline, treatments, sources, stamps, models)}
+
+
+def _models_equivalent(base_models: set[str], treat_models: set[str]) -> bool:
+    """Whether base and treatment model sets are equivalent under model_matches() logic.
+
+    Two resolved model sets are equivalent if they differ only by provider prefixes or
+    version suffixes that model_matches() considers equivalent. For each base model,
+    there must be a matching treatment model and the reverse; the set sizes may differ, since one arm can
+    hold several spellings of the same model across repetitions.
+    """
+    if base_models == treat_models:
+        return True
+    # Check if each base model has an equivalent in treatment models
+    # (model_matches is already bidirectional, so one call per pair suffices)
+    for base_model in base_models:
+        if not any(model_matches(base_model, treat_model) for treat_model in treat_models):
+            return False
+    # Check the reverse: every treatment model matches some base model
+    for treat_model in treat_models:
+        if not any(model_matches(treat_model, base_model) for base_model in base_models):
+            return False
+    return True
 
 
 def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments: list[str],
-                         sources: dict[str, list[str]], stamps: dict[str, dict[str, Any]]) -> list[str]:
-    """Pooled batches and stamp mismatches between the arms of each comparison."""
+                         sources: dict[str, list[str]], stamps: dict[str, dict[str, Any]],
+                         models: list[str] | None = None) -> list[str]:
+    """Pooled batches and stamp mismatches between the arms of each comparison; model checks only of ``models``."""
     out = [f"{text} pools cells of {len(batches)} batches ({', '.join(batches)}); name one as BATCH/ARM"
            for text, batches in sources.items() if parse_selector(text)[0] is None and len(batches) > 1]
     unstamped = set()
@@ -182,7 +208,16 @@ def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments:
                     if selector_matches(parse_selector(sel), c)}
         if len(versions) > 1:
             out.append(f"{text} vs {baseline}: cells ran on different harness versions ({', '.join(sorted(versions))})")
-    return out
+        arms = [[c for c in cells if selector_matches(parse_selector(sel), c) and (not models or c["model"] in models)]
+                for sel in (baseline, text)]
+        for model in sorted({c["model"] for c in arms[0]} & {c["model"] for c in arms[1]}):
+            base, treat = ({m for c in arm if c["model"] == model for m in resolved_models(c)} for arm in arms)
+            if base and treat and not _models_equivalent(base, treat):
+                out.append(f"{text} vs {baseline}: model {model} was answered by {', '.join(sorted(base))} in "
+                           f"baseline, {', '.join(sorted(treat))} in treatment")
+    compared = [c for c in cells if (not models or c["model"] in models)
+                and any(selector_matches(parse_selector(sel), c) for sel in (baseline, *treatments))]
+    return out + mismatch_warnings(model_mismatch(compared))
 
 
 def _built_from_tree(stamp: dict[str, Any]) -> bool:

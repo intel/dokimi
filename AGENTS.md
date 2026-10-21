@@ -77,6 +77,10 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
   `without_docs`, and every stored run uses them: writers, readers, schemas
   and data files keep those keys. Text people read (report headings, console
   output) may label the conditions however it reads best.
+- Code that reads answers, eval or arms records goes through
+  `dokimi/dokimi/records.py` (`read`/`load`/`records`), not
+  `.get("with_docs")` on the dict: it is the one place that knows the keys
+  the writers write.
 
 ## What goes in the tree
 

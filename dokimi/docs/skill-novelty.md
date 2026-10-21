@@ -507,15 +507,14 @@ Things to know before reading a bundle result:
   exclusion is a *file* the run did not select; text it selected that no extraction call could
   read is an *unread span* (`spans.n_unread`, below), which narrows the dead-token figure and
   not coverage.
-- **Two surfaces quote coverage on different bases.** The CLI note, the analyzer's warnings,
-  the gate's `artifact_coverage` and the report all read the record through the same
-  `Coverage`, and each names the denominator it divides by (`COVERAGE_BASES`). The warnings
-  and the report use *readable* words (role decisions left out, so for an entry-point run the
-  figure is `measurable_outside_share`). The gate judges its 0.5 ceiling over *all bundled
-  words*, role decisions included, as it always has: for an entry-point run of a skill with
-  its own `evals/` its figure is lower than the warning's (26% against 56% for 400 entry
-  words, a 500-word reference and 1,000 words of evals). Moving the gate to the readable
-  basis changes its numbers, so it is a separate change, stamped in the record.
+- **Coverage has one basis, and the record says which.** The CLI note, the analyzer's
+  warnings, the gate's `artifact_coverage` and the report all read the record through the same
+  `Coverage`, over *readable* words: role decisions are left out of the denominator, so for an
+  entry-point run the gate judges `measurable_outside_share`, the figure the warning quotes.
+  The record carries `bundle.coverage_basis: "readable"`, and the gate's check carries it as
+  `basis`. Records written before the stamp were gated over *all bundled words*, role decisions
+  included (26% instead of 56% for 400 entry words, a 500-word reference and 1,000 words of
+  evals), and are still read that way, so re-gating a stored artifact does not move its value.
 
 The payoff is `bundle.by_source`: the paired 2×2 cut by the file that carried each atom. A
 reference whose atoms are all `redundant` is a file the model already knows; one full of

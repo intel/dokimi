@@ -17,6 +17,7 @@ from dokimi.report.model_compare import (
     load_run,
     non_baseline_arms,
     prompt_digests,
+    scored_arms,
 )
 
 
@@ -157,6 +158,56 @@ def test_non_baseline_arms_unions_over_every_record():
 
 def test_non_baseline_arms_empty_when_nothing_but_baseline():
     assert non_baseline_arms({"baseline_arm": "baseline", "arms": ["baseline"]}) == set()
+
+
+def _binary_run(run_id, **meta) -> dict:
+    """Build a minimal binary artifact (no treatment arms, just with_docs/without_docs)."""
+    answers = [
+        {
+            "question_id": "q1",
+            "question_text": "Question?",
+            "with_docs": {"answer": "with context"},
+            "without_docs": {"answer": "without context"},
+        }
+    ]
+    return {
+        "model": meta.get("model", "model-x"),
+        "provider": meta.get("provider", "prov"),
+        "answers": answers,
+        **meta,
+    }
+
+
+def test_non_baseline_arms_ignores_binary_file_conditions():
+    """Binary files have with_docs/without_docs conditions, not treatment arms.
+
+    check_run_consistency should treat two binary files as the same (no arms)
+    rather than reporting them as measuring different treatments."""
+    # Two identical binary files with different models
+    run_a = _binary_run("a", model="model-a")
+    run_b = _binary_run("b", model="model-b")
+
+    # Before the fix, this would raise:
+    # "runs are scored on 2 different treatment arms (a=with_docs/without_docs, b=with_docs/without_docs)"
+    # After the fix, non_baseline_arms returns set() for both, so consistency passes.
+    check_run_consistency([("a", run_a), ("b", run_b)], "regular")
+    # Both runs have no treatment arms, so they're compatible.
+    # We may get warnings about no scored arms, which is fine.
+    assert non_baseline_arms(run_a) == set()
+    assert scored_arms(run_a) == set()
+
+
+def test_null_treatment_arm_in_every_record_still_counts_as_an_arm():
+    """A treatment that ran and produced nothing is still an arm of its run."""
+    run_a = {"baseline_arm": "baseline", "answers": [
+        {"question_id": "q1", "question_text": "Q?",
+         "arms": {"baseline": {"answer": "b"}, "docs": None}}]}
+    run_b = {"baseline_arm": "baseline", "answers": [
+        {"question_id": "q1", "question_text": "Q?",
+         "arms": {"baseline": {"answer": "b"}, "skill": {"answer": "s"}}}]}
+    assert non_baseline_arms(run_a) == {"docs"}
+    with pytest.raises(SystemExit, match="different treatment arms"):
+        check_run_consistency([("a", run_a), ("b", run_b)], "regular")
 
 
 def test_prompt_digests_collects_the_stamped_prompt_hashes():
@@ -443,14 +494,14 @@ def test_delta_avg_is_mean_of_paired_deltas():
     assert "1 (1 unscored)" in lines
 
 
-def test_extract_scores_skips_missing_question_id():
+def test_extract_scores_refuses_a_record_without_question_id():
+    """It used to drop the record; a run with an unidentifiable question is malformed."""
     run = _eval_run([
         {"id": "", "scores": {"baseline": {"aggregate": 60}, "with-ctx": {"aggregate": 80}}},
         {"id": "Q1", "scores": {"baseline": {"aggregate": 60}, "with-ctx": {"aggregate": 80}}},
     ])
-    scores = extract_scores(run)
-    assert len(scores) == 1
-    assert scores[0]["question_id"] == "Q1"
+    with pytest.raises(SystemExit, match=r"evaluations\[0\]: missing question_id"):
+        extract_scores(run)
 
 
 def test_extract_scores_empty_evaluations():
@@ -623,7 +674,7 @@ def test_eval_report_significance_uses_sample_sd():
     from dokimi.report.eval_report import significance_test as er_sig
 
     evals = [
-        {"with_docs": {"aggregate": w + (1 if i % 2 else -1)},
+        {"question_id": f"q{i}", "with_docs": {"aggregate": w + (1 if i % 2 else -1)},
          "without_docs": {"aggregate": wo}}
         for i, (w, wo) in enumerate(zip(WITH, WITHOUT, strict=True))
     ]
