@@ -454,8 +454,9 @@ def _run_codex_review(tmp_path, monkeypatch, fake, tools="all"):
     return next((out / "b1").glob("review_add__*/")), runner
 
 
-def test_repo_run_keeps_a_failed_native_review_without_a_findings_block(tmp_path, monkeypatch):
-    rd, _ = _run_codex_review(tmp_path, monkeypatch, FAKE_CODEX_REVIEW_FAILED)
+@pytest.mark.parametrize("rc", [1, 0])  # 0: only turn.failed marks the run as failed
+def test_repo_run_keeps_a_failed_native_review_without_a_findings_block(tmp_path, monkeypatch, rc):
+    rd, _ = _run_codex_review(tmp_path, monkeypatch, FAKE_CODEX_REVIEW_FAILED.replace("sys.exit(1)", f"sys.exit({rc})"))
     assert (rd / "answer.txt").read_text() == "Review was interrupted. Please re-run /review and wait for it to complete."
     assert json.loads((rd / "result.json").read_text())["agent"]["is_error"] is True
 
