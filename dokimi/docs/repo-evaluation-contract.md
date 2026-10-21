@@ -33,6 +33,21 @@ SPDX-License-Identifier: Apache-2.0
 >     [--json] [--fail-on-fail]
 > ```
 >
+> `repo budget` sizes what the tree puts into an agent's context (no manifest,
+> no LLM call): root CLAUDE.md files and their `@` imports plus the skill listing at
+> start (AGENTS.md files and their imports too, unless a root CLAUDE*, `.claude/CLAUDE.md` or
+> `CLAUDE.local.md` turns them off), nested guidance lazily, skill bodies on demand, and AGENTS.md
+> files a root CLAUDE* turns off. The `start` total is not an upper bound: it is too low by what it does
+> not count (`.claude/rules/*.md` files, non-`.md` imports, skills behind a linked directory, nested
+> `.claude/skills/` skills, and
+> imports past the profile's `guidance.import_max_depth`, four hops for Claude Code, which warns
+> naming what was skipped), and too high by whatever the harness cuts from the skill listing.
+> Usage:
+>
+> ```bash
+> python cli.py repo budget <source> [--harness claude-code] [--json] [--fail-on-warning]
+> ```
+>
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
 >
 > ```bash
@@ -233,6 +248,7 @@ belongs to the repository's grader and is passed through unread.
 | `gate` | no | framework | what counts as success; default `["pass"]`. Each entry is a boolean metric name, which must be `true`, or `{"metric": <name>, "min": <number>}` for a numeric metric |
 | `score` | for score-only tasks | framework | `{"metric": <name>, "max": <number>}`: the metric that is the result when `pass` is `null`, and the value the oracle must reach (§4.3) |
 | `timeout_s`, `max_turns`, `budget_usd` | no | framework | per-task caps, overriding run defaults; each a finite number > 0 |
+| `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
@@ -320,7 +336,7 @@ base commit date against the model's cutoff where the cutoff is known.
 | `task.json` | copy of the task |
 | `answer.txt` | the agent's final message |
 | `events.jsonl` | normalized trace, one JSON object per line, harness-independent (§4.1) |
-| `meta.json` | `arm`, `harness`, `harness_version`, `model`, `rep`; `base_rev` (as written in `task.json`), `base_sha` (resolved, 40 characters), `base_date` (committer date, ISO 8601); `patches` (SHA of each applied patch); `start_sha` (workspace `HEAD` the agent started from, §3) |
+| `meta.json` | `arm`, `harness`, `harness_version`, `model`, `model_resolved` (the model(s) the trace says answered: a name, a sorted list, or `null` when the trace format cannot tell), `rep`; `base_rev` (as written in `task.json`), `base_sha` (resolved, 40 characters), `base_date` (committer date, ISO 8601); `patches` (SHA of each applied patch); `start_sha` (workspace `HEAD` the agent started from, §3) |
 
 Graders must not parse a harness-specific trace. A grader that needs "did the
 agent run `bazel`?" reads the `command` events in `events.jsonl`. A grader
@@ -413,6 +429,16 @@ For every task, before any paid run:
 - for score-only tasks, the oracle must reach `score.max` on `score.metric`
 - the agent container must not be able to read any file under `tasks` or
   `{source_dir}` (§1.1)
+
+A task whose `host` requirements (§3) the probe container does not meet is
+`unsupported` with the reason, like a task whose `egress` needs the missing
+proxy, and `tasks check` exits 1 for it. With `--allow-unsupported` it is
+still printed with its reason but does not make the exit code 1; broken tasks,
+tasks that need egress and tasks whose host probe failed still do. `repo run` does not run its cells:
+each holds an `unsupported.json` with the reason, and `repo report` lists them
+apart, neither failed nor missing. If the probe itself fails, a task with
+`host` requirements is not run either, and `repo run` exits 1 when one of its
+cells is left unrun; a cell that already has a `result.json` keeps it.
 
 Each task runs with its own network (`image.network` plus its `egress`).
 `tasks check --warm` runs the same null and oracle steps with network and
@@ -838,4 +864,9 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   batch of a comparison has no pin, or when the two arms ran from different
   `eval_dir` or `image` pins or harness versions. An image `repo run` tagged
   from the tree (`dokimi/<id>:<sha>`) follows the tree, so two revisions are
-  not warned about it; an `--image` of its own is compared.
+  not warned about it; an `--image` of its own is compared. `repo report` warns
+  (`model_mismatch` in its summary) when a cell's `model_resolved` is another
+  model than the one requested; a snapshot of the requested id (`-20250929`,
+  `@20250929`) or its provider-prefixed form is the same model, `-v2` against
+  `-v3` is not. `repo compare` warns the same way when the two arms of a
+  comparison were answered by different models.

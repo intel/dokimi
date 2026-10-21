@@ -114,6 +114,7 @@ def _slugs(path: Path) -> set[str]:
         count = seen.get(base, 0)
         slugs.add(base if not count else f"{base}-{count}")
         seen[base] = count + 1
+    slugs.update(re.findall(r'<a id="([^"]+)"></a>', text))  # explicit row anchors
     return slugs
 
 

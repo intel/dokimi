@@ -151,7 +151,11 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         sys.exit(1)
     bad = [r for r in results if r["verdict"] != "ok"]
     print(f"{len(results) - len(bad)}/{len(results)} ok; wrote {out / 'check' / 'check.json'}")
-    if bad:
+    allowed = [r for r in bad if args.allow_unsupported and r.get("unsupported_by") == "host"]
+    if allowed:
+        print(f"{len(allowed)} unsupported on this host, allowed by --allow-unsupported: "
+              + ", ".join(r["task"] for r in allowed))
+    if len(bad) > len(allowed):
         sys.exit(1)
 
 
@@ -168,7 +172,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos.container import docker_network
     from dokimi.repos.harness_profile import load_profile
     from dokimi.repos.runner import (
-        AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps)
+        AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps, validate_tasks)
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
     from dokimi.repos.workspace import load_tasks, parse_arm, source_git_dir
 
@@ -184,6 +188,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
+        validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, timeout_s=args.timeout, max_turns=args.max_turns,
                                 budget_usd=args.budget) for m in args.model]
@@ -207,7 +212,10 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         sys.exit(1)
     print(f"{summary['ran']} ran, {summary['skipped']} already done, {len(summary['errors'])} crashed, "
           f"{summary['budget_stopped']} not started (batch budget); ${summary['spent_usd']:.4f}")
-    if summary["errors"] or summary["budget_stopped"]:
+    if summary["probe_failed"]:
+        print(f"✗ the host probe failed, so these tasks have cells that were not run: {', '.join(summary['probe_failed'])}",
+              file=sys.stderr)
+    if summary["errors"] or summary["budget_stopped"] or summary["probe_failed"]:
         sys.exit(1)
 
 
@@ -319,6 +327,10 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     _common(check_p, source_help, cache_help, positive_int)
     check_p.add_argument("--warm", action="store_true",
                          help="Run null and oracle with network to fill the caches before offline runs")
+    check_p.add_argument("--allow-unsupported", action="store_true", dest="allow_unsupported",
+                         help="Exit 0 when the only tasks that are not ok are unsupported because this host "
+                         "misses their task.json `host` requirements (still printed with the reason). Broken "
+                         "tasks, tasks that need egress and tasks whose host probe failed still exit 1")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
 

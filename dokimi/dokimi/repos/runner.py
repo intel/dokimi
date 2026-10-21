@@ -17,6 +17,10 @@ A cell is a run directory under the batch directory:
 - ``grade`` runs in a separate container and the framework's verdict goes to
   ``result.json``. A cell with ``result.json`` is done and is skipped unless
   ``force``; a cell without one is *missing* (it never finished), not failed.
+- a cell whose task's ``host`` requirements this host does not meet
+  (:mod:`.host`) is not run: its directory holds only ``unsupported.json``
+  with the reason, and it is neither failed nor missing. A later run on a host
+  that meets them runs it.
 
 The agent must reach its model. The contract gives it one route, a proxy that
 allows only the harness profile's ``egress`` hosts; until that proxy exists a
@@ -58,6 +62,7 @@ from .container import (
 from .events import convert
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
+from .host import probe_host, unmet, validate_tasks
 from .manifest import scratch_name
 from .workspace import PrepError, Task, prepare_workspace
 
@@ -142,8 +147,10 @@ def task_caps(task: Task, opts: AgentOptions) -> dict[str, float]:
 
 
 def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, opts: AgentOptions,
-             force: bool = False) -> dict[str, Any]:
-    """Prepare, run the agent, grade. Returns the cell's ``result.json`` (``skipped`` when it existed)."""
+             force: bool = False, host: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Prepare, run the agent, grade. Returns the cell's ``result.json`` (``skipped`` when it existed).
+
+    ``host`` (the probed facts of :func:`.host.probe_host`) is recorded in ``meta.json``."""
     rd = batch_dir / cell_name(task.id, arm, opts.model, rep)
     if (rd / "result.json").is_file() and not force:
         return {**json.loads((rd / "result.json").read_text(encoding="utf-8")), "skipped": True}
@@ -155,7 +162,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     rd.mkdir(parents=True)
     meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile)
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
-                batch=batch_dir.name, agent_network=network, egress_proxy=False)
+                batch=batch_dir.name, agent_network=network, egress_proxy=False, host=host)
     _write_json(rd / "meta.json", meta)
 
     mounts, env = agent_layout(ctx, rd, task)
@@ -192,6 +199,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         (rd / "answer.txt").write_text(transcript.answer, encoding="utf-8")
         _write_json(rd / "task.json", task.raw)
         meta["harness_version"] = transcript.harness_version or opts.harness_version
+        meta["model_resolved"] = transcript.model_resolved()  # an alias can map `model` to another one
         _write_json(rd / "meta.json", meta)
         cost = transcript.cost_usd
         agent.update(
@@ -209,7 +217,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         # Excluding the run would favour arms that break workspaces (contract §4.2): it fails the task.
         what = "grade run failed" if isinstance(exc, ContainerError) else f"host error after the agent ran ({type(exc).__name__})"
         grade = failed_outcome(f"{what}: {str(exc)[:300]}")
-    record = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model, "rep": rep,
+    record = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model,
+              "model_resolved": meta.get("model_resolved"), "rep": rep,
               "harness": opts.profile.name, "harness_version": meta["harness_version"],
               "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "grade": grade}
     try:
@@ -237,21 +246,47 @@ def _own_dir(path: Path) -> None:
 def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: list[AgentOptions], reps: int,
               batch_dir: Path, jobs: int = 1, force: bool = False, max_batch_usd: float | None = None,
               log=print) -> dict[str, Any]:
-    """Every (task, arm, model, rep) cell; returns counts. Cells that crash are reported, not raised."""
+    """Every (task, arm, model, rep) cell; returns counts. Cells that crash are reported, not raised.
+
+    The host is probed once, before any cell (``_eval/host.json``); a cell of a task whose ``host``
+    requirements it does not meet is marked unsupported instead of run. One that already has a
+    ``result.json`` (from a host that met them) keeps it, even with ``force``."""
+    validate_tasks(tasks)
     cells = [(t, a, o, r) for t in tasks for a in arms for o in options for r in range(1, reps + 1)]
     _record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
+    host = probe_host(ctx, batch_dir / "_eval")
+    _write_json(batch_dir / "_eval" / "host.json", host)
+    verdicts = {t.id: unmet(t, host) for t in tasks}
+    unsupported = {task_id: why for task_id, (why, _) in verdicts.items() if why}
+    # A probe failure only costs the run when a cell of the task is left unrun: a finished cell keeps its result.
+    probe_failed = [task_id for task_id, (_, by) in verdicts.items() if by == "host-probe"
+                    and any(not _done(batch_dir / cell_name(t.id, a, o.model, r))
+                            for t, a, o, r in cells if t.id == task_id)]
+    for task_id, why in unsupported.items():
+        log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
+    for t, a, o, r in cells:  # this host meets them: an old marker would hide a cell this run never reaches
+        if t.id not in unsupported:
+            (batch_dir / cell_name(t.id, a, o.model, r) / UNSUPPORTED_FILE).unlink(missing_ok=True)
     lock = threading.Lock()
-    state: dict[str, Any] = {"spent": 0.0, "ran": 0, "skipped": 0, "errors": [], "budget_stopped": 0}
+    state: dict[str, Any] = {"spent": 0.0, "ran": 0, "skipped": 0, "errors": [], "budget_stopped": 0,
+                             "unsupported": 0}
 
     def one(cell: tuple[Task, str, AgentOptions, int]) -> None:
         task, arm, opts, rep = cell
         name = cell_name(task.id, arm, opts.model, rep)
+        if task.id in unsupported:
+            done = _done(batch_dir / name)
+            if not done and verdicts[task.id][1] != "host-probe":  # a failed probe is no verdict on the cell
+                _mark_unsupported(batch_dir / name, cell, unsupported[task.id], host)
+            with lock:
+                state["skipped" if done else "unsupported"] += 1
+            return
         with lock:
             if max_batch_usd is not None and state["spent"] >= max_batch_usd and not _done(batch_dir / name):
                 state["budget_stopped"] += 1
                 return
         try:
-            rec = run_cell(ctx, task, arm, rep, batch_dir, opts, force=force)
+            rec = run_cell(ctx, task, arm, rep, batch_dir, opts, force=force, host=host)
         except CellCrash as exc:
             with lock:
                 state["spent"] += exc.charged_usd
@@ -279,7 +314,22 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         list(pool.map(one, cells))
     return {"cells": len(cells), "ran": state["ran"], "skipped": state["skipped"],
             "errors": state["errors"], "budget_stopped": state["budget_stopped"],
+            "unsupported": state["unsupported"], "unsupported_tasks": unsupported, "probe_failed": probe_failed,
             "spent_usd": round(state["spent"], 6)}
+
+
+UNSUPPORTED_FILE = "unsupported.json"
+
+
+def _mark_unsupported(rd: Path, cell: tuple[Task, str, AgentOptions, int], reason: str,
+                      host: dict[str, Any]) -> None:
+    """Leave only ``unsupported.json`` in the cell's directory: what an earlier, unfinished run left goes."""
+    task, arm, opts, rep = cell
+    if rd.exists():
+        _rmtree(rd)
+    rd.mkdir(parents=True)
+    _write_json(rd / UNSUPPORTED_FILE, {"task": task.id, "family": task.family, "arm": arm, "model": opts.model,
+                                        "rep": rep, "harness": opts.profile.name, "reason": reason, "host": host})
 
 
 class BatchBusy(ContainerError):
