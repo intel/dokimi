@@ -32,21 +32,17 @@ dependencies = [
   "httpx>=0.27.0",
   "numpy>=1.24.0",
   "scipy>=1.11.0",
-  "beautifulsoup4>=4.12.0",
   "PyGithub>=2.1.0",
-  "ragas>=0.3.0,<0.4",
-  # Every ragas release imports langchain_community.chat_models.vertexai, which 0.4.2 removed.
-  "langchain-community<0.4.2",
-  # eval ragas wraps the judge in ChatAnthropic for the anthropic provider.
-  "langchain-anthropic>=1.0,<2",
   "datasets>=2.20,<6",
   "openai>=1.51,<3",
-  "anthropic~=1.12",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=7.4.0",
+  # 9.0.3 fixes PYSEC-2026-1845; a lower floor lets a resolver pick an affected pytest.
+  "pytest>=9.0.3",
+  # Property-based tests (tests/test_arm_specs_properties.py).
+  "hypothesis>=6.100",
   "pytest-cov>=4.1.0",
   "pytest-mock>=3.12.0",
   "pytest-socket>=0.7",
@@ -59,6 +55,18 @@ dev = [
   "types-PyYAML",
   "types-jsonschema",
   "scriv>=1.5",
+  # The test suite covers eval ragas.
+  "dokimi[ragas]",
+]
+# `eval ragas` and `answers generate --ragas`.
+ragas = [
+  "ragas>=0.3.0,<0.4",
+  # Every ragas release imports langchain_community.chat_models.vertexai, which 0.4.2 removed.
+  "langchain-community<0.4.2",
+  # eval ragas wraps the judge in ChatOpenAI or ChatAnthropic, typed as langchain-core's BaseChatModel.
+  "langchain-anthropic>=1.0,<2",
+  "langchain-openai>=1.0,<2",
+  "langchain-core>=1.0,<2",
 ]
 ocr = ["docling>=2.0"]
 mcp = ["mcp>=1.0"]
@@ -107,6 +115,26 @@ output_file = "CHANGELOG.md"
 md_header_level = "2"
 entry_title_template = "[{{ version }}] — {{ date.strftime('%Y-%m-%d') }}"
 version = "literal: pyproject.toml: project.version"
+
+# Dependency hygiene (deptry, CI's typecheck job): every third-party import in
+# the package, cli.py and scripts/ is declared in [project.dependencies] or an
+# extra, imported directly rather than through another package's dependencies,
+# and every declared runtime dependency is imported. Run from dokimi/ in an env
+# with the lock installed, so import names come from the installed metadata.
+# tests/ is skipped (deptry's default exclude): the test deps live in
+# requirements-test.txt and the dev extra.
+[tool.deptry]
+extend_exclude = [
+  # The docs build's hooks: their deps are requirements-docs.txt, not the wheel's.
+  "scripts/docs",
+]
+# Tools in the dev extra (pytest and plugins, ruff, mypy, scriv), never imported by
+# the package. A dev dep imported from the package is DEP004.
+optional_dependencies_dev_groups = ["dev"]
+
+[tool.deptry.per_rule_ignores]
+# Declared only to cap the version ragas resolves (see the comment in the ragas extra).
+DEP002 = ["langchain-community"]
 
 [tool.ruff]
 line-length = 100
@@ -189,12 +217,7 @@ ignore = [
   "PLW3301",  # nested min/max: style
 ]
 
-# Type checking covers the whole package. The modules listed in the override
-# below carried type errors when the gate was widened from a hand-picked file
-# list; they are exempt until fixed. The list can only shrink:
-# tests/test_mypy_config.py fails on an entry that is not in its frozen
-# baseline, so a new module is checked from its first commit. Fix the types
-# and remove the entry (from both places) to shrink it.
+# Type checking covers the whole package. All modules are subject to mypy checks.
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
@@ -210,13 +233,6 @@ warn_unreachable = true
 strict_equality = true
 extra_checks = true
 files = ["dokimi"]
-
-[[tool.mypy.overrides]]
-module = [
-  "dokimi.commands.catalog",
-  "dokimi.personas.analyzer",
-]
-ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

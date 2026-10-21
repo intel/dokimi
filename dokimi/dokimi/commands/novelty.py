@@ -17,10 +17,9 @@ import json
 import math
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from dokimi.defaults import (
-    BEDROCK_MODEL_IDS,
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
     DEFAULT_GENERATOR_MODEL,
@@ -28,6 +27,9 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
 )
+
+if TYPE_CHECKING:
+    from dokimi.novelty.tiers import RunSettings
 
 PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"]
 
@@ -46,58 +48,23 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         render_novelty_markdown,
     )
 
-    artifact_bundle = _bundle_from_args(args)
-    kind, name, description, frontmatter = (
-        artifact_bundle.kind, artifact_bundle.name, artifact_bundle.description,
-        artifact_bundle.frontmatter,
-    )
-    body = artifact_bundle.text
-
     from dokimi.novelty.spans import segment
-    from dokimi.novelty.tiers import FLAG_DEFAULTS, estimate_calls, resolve
 
-    resolved = resolve(args.tier, {flag: getattr(args, flag) for flag in FLAG_DEFAULTS})
-    tier_settings = resolved["settings"]
-    if resolved["tier"]:
-        forfeits = resolved["tier"]["forfeits"]
-        overrides = resolved["tier"]["overrides"]
+    artifact_bundle = _bundle_from_args(args)
+    settings = _settings(args)
+    record = settings.tier_record()
+    if record:
         print(f"Tier `{args.tier}`: " + ", ".join(
-            f"{k}={v}" for k, v in sorted(tier_settings.items())), file=sys.stderr)
-        for line in forfeits:
+            f"{k}={v}" for k, v in sorted(settings.values.items())), file=sys.stderr)
+        for line in record["forfeits"]:
             print(f"  forfeits: {line}", file=sys.stderr)
-        if overrides:
-            print(f"  overridden by flags: {sorted(overrides)}", file=sys.stderr)
+        if record["overrides"]:
+            print(f"  overridden by flags: {sorted(record['overrides'])}", file=sys.stderr)
 
     if args.estimate_only:
-        spans = segment(artifact_bundle.text)
-        cap = tier_settings.get("max_atoms", None if args.all_atoms else _atom_cap(args))
-        # One atom per two spans is the density the study's extractor produced.
-        expected = max(1, len(spans) // 2)
-        n_atoms = expected if cap is None else min(cap, expected)
-        # The full resolved settings, so the projection is the model `estimate_calls`
-        # implements rather than a subset of it.
-        estimate = estimate_calls(n_atoms, {
-            "paraphrases": tier_settings.get(
-                "paraphrases", 0 if args.no_paraphrase else 1),
-            "reversals": tier_settings.get("reversals", not args.no_reversal),
-            "verify_faithfulness": tier_settings.get(
-                "verify_faithfulness", not args.no_verify),
-            "classify_content": tier_settings.get("classify_content", not args.no_classify),
-            "shorten_artifact": tier_settings.get("shorten_artifact", not args.no_shorten),
-            "confirm_carriers": tier_settings.get(
-                "confirm_carriers", not args.no_confirm_carriers),
-            "budgets": tuple(args.budgets),
-        }, n_arms=len(_arms(args.arms)))
-        print(json.dumps({
-            "spans": len(spans), "atom_cap": cap, "estimate": estimate,
-            "tier": resolved["tier"] or None,
-            # The forfeits follow the resolved settings, but the atom count is a guess here:
-            # an artifact with fewer atoms than the cap drops the sampled-rate forfeits.
-            "caveat": (
-                "forfeits assume the atom cap is reached; the run recomputes them from the "
-                "atoms it extracts" if cap is not None else None
-            ),
-        }, indent=2))
+        estimate = settings.estimate(len(segment(artifact_bundle.text)),
+                                     budgets=tuple(args.budgets), n_arms=len(_arms(args.arms)))
+        print(json.dumps(estimate, indent=2))
         print("Estimate only, nothing was measured. ~4 calls per paired probe is the "
               "measured shape; batch sizes and retries move the real figure.",
               file=sys.stderr)
@@ -108,27 +75,16 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         return
 
     extractor, answerer, judge = _clients(args)
-    # A setting the tier fixes comes from the tier; the rest from the flags.
-    flag_settings: dict[str, Any] = {
-        "max_atoms": None if args.all_atoms else _atom_cap(args),
-        "paraphrases": 0 if args.no_paraphrase else 1,
-        "reversals": not args.no_reversal,
-        "verify_faithfulness": not args.no_verify,
-        "classify_content": not args.no_classify,
-        "shorten_artifact": not args.no_shorten,
-        "confirm_carriers": not args.no_confirm_carriers,
-    }
     config = AnalyzeConfig(
         artifact_ref=args.artifact,
-        artifact_kind=kind,
-        name=name,
-        description=description,
-        frontmatter=frontmatter,
-        arms=tuple(_arms(args.arms)),
+        artifact_kind=artifact_bundle.kind,
+        name=artifact_bundle.name,
+        description=artifact_bundle.description,
+        frontmatter=artifact_bundle.frontmatter,
+        arms=_arms(args.arms),
         budgets=tuple(args.budgets),
         concurrency=args.concurrency,
         allow_self_judge=args.allow_self_judge,
-        **{k: v for k, v in flag_settings.items() if k not in tier_settings},
         placebo_text=(
             Path(args.placebo_text).read_text(encoding="utf-8")
             if args.placebo_text else None
@@ -137,15 +93,12 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         seed=args.seed,
         include_resources=args.include_resources,
         resource_roles=tuple(args.resource_roles) if args.resource_roles else None,
-        **tier_settings,
+        **settings.config_fields(),
     )
     try:
-        result = analyze(
-            body, config,
-            extractor=extractor, answerer=answerer, judge=judge,
-            artifact_bundle=artifact_bundle,
-            tier=resolved["tier"] or None,
-        )
+        result = analyze(artifact_bundle.text, config,
+                         extractor=extractor, answerer=answerer, judge=judge,
+                         artifact_bundle=artifact_bundle)
     except (SelfJudgeError, ExtractionError) as exc:
         raise SystemExit(str(exc)) from None
 
@@ -154,7 +107,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     save_artifact("novelty", result.artifact, out_json)
     out_md = out_json.with_suffix(".md")
     out_md.write_text(render_novelty_markdown(result.artifact), encoding="utf-8")
-    title = f"{name or args.artifact} × {answerer.model}"
+    title = f"{artifact_bundle.name or args.artifact} × {answerer.model}"
     view_path = out_dir / ("annotated.html" if args.view_format == "html" else "annotated.md")
     render = render_annotated_html if args.view_format == "html" else render_annotated_markdown
     view_path.parent.mkdir(parents=True, exist_ok=True)
@@ -178,10 +131,10 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     from dokimi.novelty.spans import segment, span_summary
 
     artifact_bundle = _bundle_from_args(args)
-    body = artifact_bundle.text
+    settings = _settings(args)
     extractor = _client(args.extract_model or args.model, args.provider, "extractor", args)
-    spans = segment(body)
-    cap = None if args.all_atoms else _atom_cap(args)
+    spans = segment(artifact_bundle.text)
+    cap = settings.values["max_atoms"]
     extraction = ExtractionReport()
     try:
         atoms = extract_atoms(spans, client=extractor, cap=cap, report=extraction)
@@ -189,7 +142,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
         raise SystemExit(str(exc)) from None
     for warning in extraction.warnings(len(spans)):
         print(f"WARNING {warning}", file=sys.stderr)
-    if not args.no_verify:
+    if settings.values["verify_faithfulness"]:
         verify_atoms(atoms, spans, client=extractor)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "atoms.json"
     save_atoms(atoms, spans, out, extractor=extractor.model, cap=cap,
@@ -214,14 +167,16 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         raise SystemExit(verdict.message)
     for note in verdict.notes:
         print(note, file=sys.stderr)
+    settings = _settings(args)
     extractor, answerer, judge = _clients(args)
     if saved.get("extractor") == answerer.model:
         print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
               "wrote its own answer key; extract with a different --extract-model",
               file=sys.stderr)
+    paraphrases, reversals = settings.values["paraphrases"], settings.values["reversals"]
     probe_set = build_probe_set(
-        atoms, client=None if args.no_paraphrase and args.no_reversal else extractor,
-        paraphrases=0 if args.no_paraphrase else 1, reversals=not args.no_reversal,
+        atoms, client=extractor if paraphrases or reversals else None,
+        paraphrases=paraphrases, reversals=reversals,
     )
     for kind, row in sorted(probe_set.fidelity.items()):
         if row["rejected"]:
@@ -232,7 +187,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     try:
         result = run_measurement(
             atoms, probe_set.probes, verdict.text, answerer=answerer, judge=judge,
-            arms=tuple(_arms(args.arms)), concurrency=args.concurrency,
+            arms=_arms(args.arms), concurrency=args.concurrency,
             allow_self_judge=args.allow_self_judge, seed=args.seed,
             placebo_text=(
                 Path(args.placebo_text).read_text(encoding="utf-8") if args.placebo_text else None
@@ -261,65 +216,16 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
 
 def cmd_novelty_items(args: argparse.Namespace) -> None:
     """Item analysis across saved probe runs: which atoms separate the models."""
-    from dokimi.novelty.items import discrimination, kind_agreement
-    from dokimi.novelty.measure import ProbeRun
+    from dokimi.novelty.items import ProbeFileError, item_analysis, load_probe_cells
 
-    cells = []
-    for raw in args.probes:
-        data = json.loads(Path(raw).read_text(encoding="utf-8"))
-        try:
-            runs = [
-                ProbeRun(
-                    atom_id=row["atom_id"], probe_kind=row["probe_kind"], arm=row["arm"],
-                    question=row.get("question", ""), response=row.get("response", ""),
-                    verdict=row["verdict"], confidence=row.get("confidence"),
-                )
-                for row in data.get("runs", [])
-            ]
-        except (KeyError, TypeError) as exc:
-            raise SystemExit(
-                f"{raw} has a probe run missing {exc}; it is not `novelty probe` output"
-            ) from None
-        if not runs:
-            raise SystemExit(f"{raw} carries no probe runs; item analysis needs `novelty "
-                             "probe` output, not a novelty.json")
-        cells.append({"model": data.get("model", raw), "runs": runs, "source": raw,
-                      "artifact": data.get("artifact"), "ref_digest": data.get("ref_digest")})
+    try:
+        cells, warnings = load_probe_cells(args.probes)
+    except ProbeFileError as exc:
+        raise SystemExit(str(exc)) from None
+    for warning in warnings:
+        print(f"WARNING: {warning}", file=sys.stderr)
 
-    # Correlating atoms across models only means something over one answer key and one
-    # probed text. Atom ids are content hashes, so ids collide across artifacts only for
-    # identical statements -- but then the "same atom" was asked with different context.
-    # A file that does not record a field (older output) is not held against the rest.
-    for field in ("artifact", "ref_digest"):
-        values = {cell[field] for cell in cells if cell[field] is not None}
-        if len(values) > 1:
-            raise SystemExit(
-                f"these probe runs measured different texts ({field}: "
-                f"{', '.join(sorted(values))}); item analysis correlates one artifact's "
-                "atoms across models, so pass runs of one artifact at one revision"
-            )
-
-    atom_sets = {frozenset(run.atom_id for run in cell["runs"]) for cell in cells}
-    if len(atom_sets) > 1:
-        print("WARNING: these runs do not cover the same atom set; an atom missing from a "
-              "cell is dropped from its own statistic rather than counted as a failure",
-              file=sys.stderr)
-
-    payload: dict[str, Any] = {
-        "cells": [{"model": cell["model"], "source": cell["source"],
-                   "n_runs": len(cell["runs"])} for cell in cells],
-        "discrimination": {
-            scoring: discrimination(cells, scoring=scoring, arm=args.arm)
-            for scoring in ("lenient", "strict")
-        },
-        # Keyed by source file: two runs of the same model (two seeds, say) must not
-        # overwrite each other.
-        "kind_agreement": {
-            cell["source"]: dict(kind_agreement(cell["runs"], arm=args.arm),
-                                 model=cell["model"])
-            for cell in cells
-        },
-    }
+    payload = item_analysis(cells, arm=args.arm)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -358,68 +264,51 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
 
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
     """Can this artifact be selected against its competitors? Lexical floor, model on top."""
-    from dokimi.novelty.analyze import load_artifact_text
     from dokimi.novelty.routing import (
         Candidate,
+        RoutingInputError,
+        catalog_competitors,
+        check_field,
         headings_as_queries,
         lexical_routing,
+        load_candidate,
+        load_queries,
         model_routing,
     )
 
-    def candidate(ref: str) -> tuple[Candidate, str]:
-        kind, name, description, _frontmatter, body = load_artifact_text(ref)
-        if kind == "skill" and not description:
-            print(f"WARNING: {ref} has no description; its card is a name, which is all a "
-                  "tool schema would show", file=sys.stderr)
-        return Candidate(name=name or ref, description=description), body
+    def card(ref: str) -> tuple[Candidate, str]:
+        candidate, body, warning = load_candidate(ref)
+        if warning:
+            print(f"WARNING: {warning}", file=sys.stderr)
+        return candidate, body
 
     try:
-        gold, body = candidate(args.artifact)
-        competitors = [candidate(ref)[0] for ref in args.competitors or []]
+        gold, body = card(args.artifact)
+        competitors = [card(ref)[0] for ref in args.competitors or []]
         if args.catalog:
-            competitors += _catalog_competitors(args.catalog, gold.name,
-                                                {c.name for c in competitors})
+            catalog = catalog_competitors(args.catalog,
+                                          {gold.name, *(c.name for c in competitors)})
+            no_description = [c.name for c in catalog if not c.description]
+            if no_description:
+                print(f"WARNING: {len(no_description)} catalog skill(s) have no description, "
+                      f"so their card is a name only: {', '.join(sorted(no_description))}",
+                      file=sys.stderr)
+            print(f"--catalog {args.catalog}: {len(catalog)} competitors", file=sys.stderr)
+            competitors += catalog
     except (FileNotFoundError, ValueError) as exc:
         raise SystemExit(f"cannot load an artifact: {exc}") from None
-    if not competitors:
-        raise SystemExit(
-            "routing needs competitors (--competitors, or --catalog for a skill's siblings): "
-            "selecting from one candidate measures whether the model will use a tool at all, "
-            "not whether this artifact wins"
-        )
-
-    # The artifact as its own competitor is a measurement that cannot succeed: the tie
-    # break puts the gold card last, so it scores 0 against itself. Checked before the
-    # query file is read, so the message is about the real problem.
-    if any(c.name == gold.name for c in competitors):
-        raise SystemExit(
-            f"`{gold.name}` appears in --competitors as well as --artifact; selection "
-            "against itself is not a measurement. Drop it from the competitor list."
-        )
-    # A repeated competitor is counted twice in "vs N competitors" and splits the lexical
-    # tie-break between two copies of one card, so the rates describe a different field.
-    names = [c.name for c in competitors]
-    repeated = sorted({n for n in names if names.count(n) > 1})
-    if repeated:
-        raise SystemExit(f"--competitors names {', '.join(f'`{n}`' for n in repeated)} more "
-                         "than once; pass each competitor once")
+    # Checked before the query file is read, so the message is about the real problem.
+    try:
+        check_field(gold, competitors)
+    except RoutingInputError as exc:
+        raise SystemExit(str(exc)) from None
 
     self_derived = False
     if args.queries:
-        raw = Path(args.queries).read_text(encoding="utf-8-sig")
         try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            data = None
-        if not isinstance(data, (list, dict)):      # one-per-line, e.g. "[urgent] build fails"
-            data = raw.splitlines()
-        listed = data if isinstance(data, list) else data.get("queries", [])
-        # A string here is iterable, so `{"queries": "a b"}` once became one query per
-        # character and a run over 0 scored queries exited 0.
-        if not isinstance(listed, list) or not all(isinstance(q, str) for q in listed):
-            raise SystemExit(f"{args.queries}: queries must be a list of strings, "
-                             "or one query per line")
-        queries = [q for q in listed if q.strip()]
+            queries = load_queries(args.queries)
+        except RoutingInputError as exc:
+            raise SystemExit(str(exc)) from None
     elif args.queries_from_headings:
         queries = headings_as_queries(body)
         self_derived = True
@@ -470,25 +359,6 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
               "truncates descriptions in its own listing selects on less text.")
     if self_derived:
         print("Self-derived queries: read as triage only.")
-
-
-def _catalog_competitors(root: str, gold: str, named: set[str]) -> list:
-    """Every skill under ``root`` except the one under test and those already named.
-
-    The field a harness would list next to the artifact, rather than one the caller picks.
-    """
-    from dokimi.novelty.routing import Candidate
-    from dokimi.skills import discover_skills
-
-    if not Path(root).is_dir():
-        raise ValueError(f"--catalog is not a directory: {root}")
-    skills = [s for s in discover_skills(root) if s.name != gold and s.name not in named]
-    no_description = [s.name for s in skills if not s.description]
-    if no_description:
-        print(f"WARNING: {len(no_description)} catalog skill(s) have no description, so their "
-              f"card is a name only: {', '.join(sorted(no_description))}", file=sys.stderr)
-    print(f"--catalog {root}: {len(skills)} competitors", file=sys.stderr)
-    return [Candidate(name=s.name, description=s.description) for s in skills]
 
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
@@ -846,10 +716,15 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
 
 def _clients(args: argparse.Namespace):
     """Build the three role clients, defaulting so roles never silently collapse."""
+    from dokimi.novelty.client import default_judge
+
     if args.judge_model:
         judge_model, judge_provider = args.judge_model, args.judge_provider or args.provider
     else:
-        judge_model, judge_provider = _default_judge(args.model, args.judge_provider)
+        try:
+            judge_model, judge_provider = default_judge(args.model, args.judge_provider)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from None
     extract_model = args.extract_model or judge_model
     extract_provider = args.extract_provider or judge_provider
     return (
@@ -912,46 +787,21 @@ def _add_spend_cap(parser: argparse.ArgumentParser) -> None:
                              "under the same cap. Default: no cap")
 
 
-def _default_judge(model: str, provider: str | None = None) -> tuple[str, str]:
-    """A (model, provider) judge that is not the answerer, when the caller did not name one.
+def _settings(args: argparse.Namespace) -> RunSettings:
+    """The run settings these flags resolve to; a flag the command lacks is unset."""
+    from dokimi.novelty.tiers import FLAG_DEFAULTS, resolve_settings
 
-    The default judge, unless it is the model under measurement (by bare name, so a
-    Bedrock ``us.anthropic.claude-...`` id counts too); then the default generator,
-    which is of the other family. With ``provider`` (an explicit ``--judge-provider``)
-    only a default that runs there is taken: its own provider, or Bedrock for a name in
-    ``BEDROCK_MODEL_IDS``. Pairing the provider with a model of another provider would
-    send e.g. ``bedrock/gpt-6.1-sol``, so with no such default the run exits instead.
-    """
-    bare = model.rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1]
-    candidates = [(m, p) for m, p in ((DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER),
-                                      (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER))
-                  if m != bare]
-    if provider is None:
-        return candidates[0]
-    for m, p in candidates:
-        if p == provider or (provider == "amazon-bedrock" and m in BEDROCK_MODEL_IDS):
-            return m, provider
-    raise SystemExit(
-        f"--judge-provider {provider}: no default judge runs there other than the model "
-        f"under measurement ({model}); pass --judge-model as well")
+    return resolve_settings(getattr(args, "tier", None), {
+        flag: getattr(args, flag, default) for flag, default in FLAG_DEFAULTS.items()})
 
 
-def _arms(spec: str) -> list[str]:
-    arms = [part.strip() for part in spec.split(",") if part.strip()]
-    if "no_artifact" not in arms:
-        # Without the baseline there is no pair, and without a pair every outcome is a
-        # level — which is the one thing the judge agreement does not support.
-        raise SystemExit("--arms must include no_artifact: the 2x2 is a paired comparison")
-    if "full" not in arms:
-        raise SystemExit("--arms must include full: the headline 2x2 pairs it with no_artifact")
-    return arms
+def _arms(spec: str) -> tuple[str, ...]:
+    from dokimi.novelty.measure import parse_arms
 
-
-def _atom_cap(args: argparse.Namespace) -> int:
-    """The atom cap, resolving the unset sentinel to the documented default."""
-    from dokimi.novelty.tiers import DEFAULT_MAX_ATOMS
-
-    return DEFAULT_MAX_ATOMS if args.max_atoms is None else args.max_atoms
+    try:
+        return parse_arms(spec)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
 
 
 def _default_dir(ref: str) -> Path:

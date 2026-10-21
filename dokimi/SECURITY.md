@@ -67,3 +67,6 @@ fixed in 0.3.0).
 The `static` job in `.github/workflows/ci.yml` runs `pip-audit` with exactly
 these two IDs ignored, and `bandit -ll` with no Medium or High finding allowed,
 so a new advisory or finding fails CI until it is fixed or listed here.
+The same two IDs are ignored by osv-scanner through `dokimi/osv-scanner.toml`,
+which OpenSSF Scorecard runs. A removed advisory comes out of this section,
+the `pip-audit` step, and that file together.

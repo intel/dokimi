@@ -17,6 +17,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from dokimi.defaults import (
+    BEDROCK_MODEL_IDS,
+    DEFAULT_GENERATOR_MODEL,
+    DEFAULT_GENERATOR_PROVIDER,
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_PROVIDER,
+)
 from dokimi.metrics.usage import UsageRecord
 
 # A transport takes (prompt, system) and returns (text, usage).
@@ -228,3 +235,30 @@ def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:
         else None,
         "by_role": per_role,
     }
+
+
+def default_judge(model: str, provider: str | None = None) -> tuple[str, str]:
+    """A (model, provider) judge that is not the answerer, when the caller did not name one.
+
+    The default judge, unless it is the model under measurement (by bare name, so a
+    Bedrock ``us.anthropic.claude-...`` id counts too); then the default generator,
+    which is of the other family. With ``provider`` (an explicit ``--judge-provider``)
+    only a default that runs there is taken: its own provider, or Bedrock for a name in
+    ``BEDROCK_MODEL_IDS``. Pairing the provider with a model of another provider would
+    send e.g. ``bedrock/gpt-6.1-sol``, so with no such default this raises instead.
+
+    Raises:
+        ValueError: ``provider`` runs no default judge other than ``model``.
+    """
+    bare = model.rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1]
+    candidates = [(m, p) for m, p in ((DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER),
+                                      (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER))
+                  if m != bare]
+    if provider is None:
+        return candidates[0]
+    for m, p in candidates:
+        if p == provider or (provider == "amazon-bedrock" and m in BEDROCK_MODEL_IDS):
+            return m, provider
+    raise ValueError(
+        f"--judge-provider {provider}: no default judge runs there other than the model "
+        f"under measurement ({model}); pass --judge-model as well")

@@ -3,6 +3,7 @@
 
 """Tests for the paired-statistics helpers used by the N-arm comparison."""
 
+import itertools
 import pytest
 
 from dokimi.eval import stats
@@ -70,8 +71,13 @@ def test_adjust_pvalues_rejects_unknown_method():
 # ---------------------------------------------------------------------------
 
 
+_QIDS = itertools.count()
+
+
 def _ev(**arms):
-    return {"scores": {k: {"aggregate": v} for k, v in arms.items() if v is not None}}
+    """One arms.v1 evaluation as ``ArmRunner.judge`` writes it (an id, a score block per arm)."""
+    return {"question_id": f"q{next(_QIDS)}",
+            "scores": {k: {"aggregate": v} for k, v in arms.items() if v is not None}}
 
 
 def test_paired_vectors_keeps_complete_cases_only():
@@ -88,8 +94,8 @@ def test_paired_vectors_keeps_complete_cases_only():
 
 def test_paired_vectors_ignores_malformed_score_blocks():
     evaluations = [
-        {"scores": {"baseline": {"aggregate": "n/a"}, "skill": {"aggregate": 60}}},
-        {"scores": {"baseline": None, "skill": {"aggregate": 60}}},
+        {"question_id": "m1", "scores": {"baseline": {"aggregate": "n/a"}, "skill": {"aggregate": 60}}},
+        {"question_id": "m2", "scores": {"baseline": None, "skill": {"aggregate": 60}}},
         _ev(baseline=50, skill=60),
     ]
     treat, base = stats.paired_vectors(evaluations, "skill", "baseline")
