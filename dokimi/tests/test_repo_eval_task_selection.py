@@ -312,6 +312,35 @@ def test_an_unreadable_previous_tip_checks_every_task(repo, tmp_path):
     assert _select(repo, tmp_path, EVENT="push", BEFORE="1" * 40) == ["my task", "t1"]
 
 
+def _summary(tmp_path: Path, job_status: str) -> tuple[str, Path]:
+    """Run the tasks-check Summary step with no check.json, as after a killed check."""
+    run = next(s for s in _steps() if s.get("name") == "Summary")["run"]
+    match = re.search(r"python - <<'PY'[^\n]*\n(.*)\nPY\s*$", run, re.S)
+    assert match, "the Summary step is no longer a python heredoc"
+    temp = tmp_path / job_status
+    temp.mkdir()
+    env = {**os.environ, "RUNNER_TEMP": str(temp), "JOB_STATUS": job_status, "TASK": "t1"}
+    result = subprocess.run(
+        [sys.executable, "-c", match.group(1)], env=env, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout, temp / "repo-check" / "check" / "check.json"
+
+
+def test_a_job_cancelled_before_the_verdict_records_a_timeout(tmp_path):
+    summary, check = _summary(tmp_path, "cancelled")
+    assert json.loads(check.read_text(encoding="utf-8"))["tasks"][0]["verdict"] == "timeout"
+    assert "`t1`: TIMEOUT" in summary
+    # a timeout cancels the job, and only always() runs a step in a cancelled job
+    steps = {s.get("name"): s for s in _steps()}
+    assert steps["Summary"]["if"] == steps["Upload the check results"]["if"] == "${{ always() }}"
+
+
+def test_a_failed_check_without_a_verdict_invents_none(tmp_path):
+    summary, check = _summary(tmp_path, "failure")
+    assert not check.exists() and "No check.json" in summary
+
+
 def test_the_check_results_artifact_keeps_the_stderr_files():
     upload = next(s for s in _steps() if "Upload the check results" in str(s.get("name", "")))
     paths = [ln.strip() for ln in str(upload["with"]["path"]).splitlines()]
