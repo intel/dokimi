@@ -165,7 +165,8 @@ def test_export_tree(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert {"from": "X001", "to": "I001", "rel": "idea"} in data["edges"]
     theme = next(t for t in data["themes"] if t["id"] == "O")
     assert theme["ideas"][0]["experiments"] == [
-        {"id": "X001", "outcome": "refuted"}, {"id": "X002", "outcome": "supported"}]
+        {"id": "X001", "outcome": "refuted", "retracted": False},
+        {"id": "X002", "outcome": "supported", "retracted": False}]
     assert next(r for r in data["records"] if r["id"] == "X001")["body"] == "## Result\nworse"
 
 
@@ -177,7 +178,8 @@ def test_export_ignores_decision_pointing_at_idea(root: Path,
     data = json.loads(capsys.readouterr().out)
     theme = next(t for t in data["themes"] if t["id"] == "O")
     assert theme["ideas"][0]["experiments"] == [
-        {"id": "X001", "outcome": "refuted"}, {"id": "X002", "outcome": "supported"}]
+        {"id": "X001", "outcome": "refuted", "retracted": False},
+        {"id": "X002", "outcome": "supported", "retracted": False}]
 
 
 @pytest.mark.parametrize("clause", ["outcom=refuted", "noequals", "bogus=None"])
@@ -193,3 +195,29 @@ def test_query_missing_field_matches_no_value(root: Path, capsys: pytest.Capture
     assert rr.main(["--root", str(root), "query", "--type", "experiment",
                     "--where", "retracted=None"]) == 0
     assert capsys.readouterr().out == ""
+
+
+def test_query_rejects_unknown_ref(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert rr.main(["--root", str(root), "query", "--ref", "I009"]) == 2
+    assert "no record I009" in capsys.readouterr().err
+
+
+def test_citing_retracted_experiment_fails(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _write(root, "experiment", "X001",
+           "title: Run 1\nidea: I001\nhypothesis: H\noutcome: refuted\nretracted: true\n")
+    assert rr.main(["--root", str(root), "check"]) == 1
+    assert "F001.experiments: X001 is retracted" in capsys.readouterr().out
+
+
+def test_render_map(root: Path, capsys: pytest.CaptureFixture[str],
+                    monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(rr.subprocess, "run", lambda *a, **k: rr.subprocess.CompletedProcess(a, 0, ""))
+    assert rr.main(["--root", str(root), "render"]) == 0
+    out = capsys.readouterr().out
+    assert "```mermaid\nmindmap\n  root((Dokimi research))\n" \
+           "    O[Traces, optimization and visualization]\n" \
+           "      I001[I001 Compress - open]\n" \
+           "        X001[X001 - Run 1]\n" \
+           "        X002[X002 + Run 2]\n```" in out
+    assert "| O | I001 | X001 | refuted | Run 1 |" in out
+    assert "from commit `unknown`" in out

@@ -28,7 +28,10 @@ a decision's `state` (what the team chose) and an implementation reference's `st
 was built). A closed issue does not tell which of the three happened.
 
 An experiment that turns out wrong is not deleted: set `retracted: true` and say in the body
-what was wrong with it. Every record has a `date` (`YYYY-MM-DD`) and optional `links`, which
+what was wrong with it. `retracted` means the whole experiment is invalid, so `check` fails
+any finding that still cites it; export and render keep it, marked. When only part of a
+result is withdrawn, keep the outcome, leave `retracted` unset and list the withdrawn claims
+under a `## Corrections` heading. Every record has a `date` (`YYYY-MM-DD`) and optional `links`, which
 must be public `github.com/intel/` or `github.com/napetrov/` URLs. The register is public:
 leave out internal hosts, paths, names and raw traces, and describe local evidence in words
 ("local run, 96 runs").
@@ -43,6 +46,7 @@ python scripts/research_register.py next experiment
 python scripts/research_register.py query --type experiment --ref I001 --where outcome=refuted,inconclusive
 python scripts/research_register.py query --type decision --where state=rejected
 python scripts/research_register.py export > register.json
+python scripts/research_register.py render > map.md
 ```
 
 - `check` validates every record against its schema, its path and id prefix, and every
@@ -50,9 +54,14 @@ python scripts/research_register.py export > register.json
 - `next` prints the next free id for a type. Two PRs can claim the same id; `check` reports
   the duplicate on whichever merges second, which renumbers.
 - `query` lists the records matching every filter: `--where FIELD=V1,V2` matches any of the
-  values, `--ref ID` keeps the records that point at `ID`.
+  values, `--ref ID` keeps the records that point at `ID`. An unknown field, a clause
+  without `=` or a missing `ID` exits 2.
 - `export` writes all records, the reference edges and the ideas grouped by map theme as one
   JSON document, stamped with the commit, for the plans-and-research map and other views.
+- `render` writes the plans-and-research map from the same tree: a Mermaid mindmap (theme,
+  idea, experiments marked by outcome) and a table, as one Markdown file. It is generated on
+  demand and not committed; open it in any Mermaid-aware viewer, such as GitHub or an editor
+  preview.
 
 ## Adding a record
 
