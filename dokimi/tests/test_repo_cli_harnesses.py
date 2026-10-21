@@ -536,6 +536,25 @@ def test_bin_companions_are_taken_from_beside_the_file_a_linked_bin_points_to(tm
     assert next((out / "b1").glob("*/result.json")).is_file()
 
 
+def test_harness_mounts_takes_the_companion_from_beside_the_link_target(tmp_path):
+    """Directly, so an unresolved ``harness_bin`` reaches the code (``repo run`` resolves it first)."""
+    from dokimi.repos.container import HARNESS_DIR
+    from dokimi.repos.runner import AgentOptions, harness_mounts
+    from repo_eval_fixture import PROFILE
+
+    real_dir, link_dir = tmp_path / "native", tmp_path / "links"
+    real_dir.mkdir()
+    link_dir.mkdir()
+    write(real_dir, "fake-agent", "")
+    write(real_dir, "fake-helper", "")
+    (link_dir / "fake-agent").symlink_to(real_dir / "fake-agent")  # no companion beside the link
+    profile = parse_profile({**PROFILE, "bin_companions": ["fake-helper"]})
+    opts = AgentOptions(profile=profile, model="m", harness_bin=link_dir / "fake-agent")
+    mounts = {m.container: m.host for m in harness_mounts(opts)}
+    assert mounts[f"{HARNESS_DIR}/fake-helper"] == (real_dir / "fake-helper").resolve()
+    assert mounts[f"{HARNESS_DIR}/fake-agent"] == (real_dir / "fake-agent").resolve()
+
+
 def test_a_missing_bin_companion_stops_before_any_agent_runs(tmp_path, monkeypatch, capsys):
     runner, out, args = _run_fake(tmp_path, monkeypatch, companion=False)
     with pytest.raises(SystemExit):

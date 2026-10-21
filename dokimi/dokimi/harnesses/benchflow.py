@@ -824,7 +824,7 @@ def _bridge_gateway(runner: process.Runner = process.run) -> Optional[str]:
 def _load_json(path: Path) -> Optional[dict[str, Any]]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError):  # ValueError covers JSONDecodeError and the int-string limit
         return None
     return data if isinstance(data, dict) else None
 

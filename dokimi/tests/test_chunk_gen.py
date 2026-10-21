@@ -88,10 +88,15 @@ def test_strip_html_keeps_text_that_only_looks_like_a_tag():
 # ── _chunk_text ───────────────────────────────────────────────────────────────
 
 def test_chunk_text_basic():
+    # The two headings are under 30 characters and dropped; the four paragraphs fit one chunk.
     chunks = _chunk_text(SAMPLE_TEXT, max_chars=300)
-    assert len(chunks) >= 1
-    for c in chunks:
-        assert len(c) >= 1
+    assert chunks == ["\n\n".join([
+        "Install oneDAL using pip: pip install onedal",
+        "The library supports Python 3.8+. GPU support requires SYCL runtime.",
+        "Import the library and patch scikit-learn:\n"
+        "from sklearnex import patch_sklearn; patch_sklearn()",
+        "After patching, all supported estimators use oneDAL acceleration automatically.",
+    ])]
 
 
 def test_chunk_text_respects_max_chars():

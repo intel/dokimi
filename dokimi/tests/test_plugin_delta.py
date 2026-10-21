@@ -204,7 +204,10 @@ def test_compare_plugin_runs_allows_judge_context_that_matches(stamp):
     if stamp is not None:
         baseline["judge_context"] = plugin["judge_context"] = stamp
 
-    compare_plugin_runs(baseline, plugin)
+    out = compare_plugin_runs(baseline, plugin)
+    assert (out["plugin_set"], out["total_questions"], out["warnings"]) == ("caveman:full", 2, [])
+    assert out["score_deltas"]["skill"] == {"n": 2, "baseline_avg_aggregate": 85.0,
+                                            "plugin_avg_aggregate": 85.0, "aggregate_delta": 0.0}
 
 
 def test_plugin_delta_report_renders_key_sections():

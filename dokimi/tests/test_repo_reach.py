@@ -504,6 +504,7 @@ def test_reach_writes_the_profile_config_files(tmp_path, monkeypatch):
     assert (SUPPORT_HOST / "no_background.py").is_file()
 
 
+@pytest.mark.outcome("cjm-repo-reach-harness-failure")
 def test_reach_flags_a_refusal(tmp_path, monkeypatch):
     payload = _reach(tmp_path, monkeypatch, mode="refuse", only=("read=sub",))
     assert [s["id"] for s in payload["scenarios"]] == ["read=sub"]
@@ -512,6 +513,7 @@ def test_reach_flags_a_refusal(tmp_path, monkeypatch):
     assert "tool result" in payload["ask"]
 
 
+@pytest.mark.outcome("cjm-repo-reach-harness-failure")
 def test_reach_records_errors_when_the_harness_fails(tmp_path, monkeypatch):
     payload = _reach(tmp_path, monkeypatch, mode="crash", kinds=("root",))
     assert payload["scenarios"][0]["error"].startswith("exit 3")
@@ -616,6 +618,7 @@ def test_repo_reach_cli_manifest_file_and_a_failed_scenario(tmp_path, monkeypatc
     assert exc.value.code == 1 and (tmp_path / "o" / "reach.json").is_file()
 
 
+@pytest.mark.outcome("cjm-repo-reach")
 def test_repo_reach_cli_dry_run_and_run(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("FAKE_MODE", "ok")
     root = _repo(tmp_path)
@@ -639,6 +642,7 @@ def test_repo_reach_cli_dry_run_and_run(tmp_path, monkeypatch, capsys):
     assert stored["schema_version"] == "guidance_reach.v1" and len(stored["scenarios"]) == 3
 
 
+@pytest.mark.outcome("cjm-repo-reach")
 def test_repo_reach_dry_run_shows_the_run_budget_and_turns(tmp_path, capsys):
     args = build_parser().parse_args(["repo", "reach", str(_repo(tmp_path)), "--manifest", "evals/repo-eval.yaml",
                                       "--model", "m", "--dry-run", "--budget", "0.02", "--max-turns", "2"])

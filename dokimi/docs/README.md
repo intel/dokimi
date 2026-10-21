@@ -214,6 +214,20 @@ CLI surface. The files in this directory go deeper. They are also published at
 [API reference](https://intel.github.io/dokimi/reference/api/dokimi/) generated from the
 code.
 
+## User journeys
+
+- [user-journeys/README.md](user-journeys/README.md) — what users come to
+  Dokimi to get done: fifteen journeys (J1–J15) from "check this" to "invoke
+  one capability" and "turn a solved chat into a skill", who they are for, and where each one enters.
+- [user-journeys/journeys.md](user-journeys/journeys.md) — the catalog: each
+  journey's use cases and acceptance criteria, today's commands, and what is
+  still proposed.
+- [user-journeys/flow-map.md](user-journeys/flow-map.md) — how the journeys
+  connect, current and proposed transitions told apart.
+- [user-journeys/traceability.md](user-journeys/traceability.md) — how a
+  criterion links to commands and tests, evidence kinds and stubs, and the
+  coverage report `pytest --outcomes` generates.
+
 ## Using Dokimi
 
 - [external-content.md](external-content.md) — **start here if you have no

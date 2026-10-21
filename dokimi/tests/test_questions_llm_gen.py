@@ -69,7 +69,8 @@ class TestQuestionGeneratorInit:
         with patch('dokimi.questions.llm_gen.ChatAnthropic', mock_cls, create=True), \
              patch('dokimi.questions.llm_gen.LANGCHAIN_AVAILABLE', True):
             gen = QuestionGenerator(model="claude-haiku", provider="anthropic", api_key="test")
-            assert gen.model == "claude-haiku"
+            mock_cls.assert_called_once_with(model="claude-haiku", api_key="test")
+            assert gen.llm is mock_cls.return_value
             assert gen.provider == "anthropic"
     
     def test_init_unsupported_provider(self):
@@ -88,14 +89,20 @@ class TestQuestionGeneratorInit:
 
 
 class TestGenerateQuestions:
-    def test_returns_list(self, sample_personas, sample_topics, mock_llm):
+    def test_returns_questions_for_every_persona_and_topic(self, sample_personas, sample_topics,
+                                                           mock_llm):
         mock_cls = Mock(return_value=mock_llm)
         with patch('dokimi.questions.llm_gen.ChatOpenAI', mock_cls, create=True), \
              patch('dokimi.questions.llm_gen.LANGCHAIN_AVAILABLE', True):
             gen = QuestionGenerator()
             questions = gen.generate_questions("oneTBB", sample_personas, sample_topics, questions_per_topic=2)
-            assert isinstance(questions, list)
-            assert len(questions) > 0
+        # One call per persona x topic, each answering the two mocked questions.
+        assert mock_llm.invoke.call_count == 6
+        topics_by_persona = {
+            p["id"]: sorted(q["topics"][0] for q in questions if q["personas"] == [p["id"]])
+            for p in sample_personas
+        }
+        assert topics_by_persona == {p["id"]: sorted(sample_topics * 2) for p in sample_personas}
     
     def test_assigns_unique_ids(self, sample_personas, sample_topics, mock_llm):
         mock_cls = Mock(return_value=mock_llm)

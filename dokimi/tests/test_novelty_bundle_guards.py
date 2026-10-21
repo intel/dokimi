@@ -148,10 +148,10 @@ def test_report_render_with_include_resources_and_no_excluded(tmp_path):
         "files": [{"path": "SKILL.md", "start": 0, "end": 100}]
         # Note: no "excluded" key
     }
-    # Should render without crashing
+    # A missing key reads as nothing excluded, not as a crash or an "excluded" section.
     rendered = report._render_bundle({"bundle": record})
-    assert rendered is not None
-    assert len(rendered) > 0
+    assert rendered == report._render_bundle({"bundle": {**record, "excluded": []}})
+    assert "0 resource files measured, 0 of 100 measurable bundled words read" in rendered[2]
 
 
 def test_answer_key_entry_point_note_for_legacy_record(tmp_path):

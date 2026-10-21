@@ -1,0 +1,52 @@
+{
+    "task_name": "multi-step",
+    "trial_name": "multi-step__33vSPWb",
+    "source": null,
+    "agent_info": {
+        "name": "oracle",
+        "version": "1.0.0",
+        "model_info": {
+            "name": "oracle",
+            "provider": null
+        }
+    },
+    "agent_result": null,
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-10-20T06:57:54.275133Z",
+    "finished_at": "2026-10-20T06:58:18.385501Z",
+    "step_results": [
+        {
+            "step_name": "step-1",
+            "agent_result": {
+                "n_input_tokens": null,
+                "n_cache_tokens": null,
+                "n_output_tokens": null,
+                "cost_usd": null,
+                "rollout_details": null,
+                "metadata": null
+            },
+            "verifier_result": {
+                "rewards": {
+                    "reward": 1.0
+                }
+            },
+            "exception_info": null
+        },
+        {
+            "step_name": "step-2",
+            "agent_result": null,
+            "verifier_result": null,
+            "exception_info": {
+                "exception_type": "RuntimeError",
+                "exception_message": "Step 'step-2' setup.sh exited with code 3: None",
+                "exception_traceback": "Traceback (most recent call last):\n  ...\nRuntimeError: Step 'step-2' setup.sh exited with code 3: None\n",
+                "occurred_at": "2026-10-20T06:58:06.411062"
+            }
+        }
+    ]
+}

@@ -322,10 +322,10 @@ prints one or more traces as a comparison table; it calls no model. Guide:
 
 ## Shared building blocks
 
-- `dokimi/process.py` — the process runner that spawning code goes
-  through (git, `gh`, doc snippets, harness profiles, the `command:`, Harbor
-  and BenchFlow harnesses, the explorer and the repository-mode docker runner;
-  the `docker-*` task harnesses still spawn on their own). A timeout,
+- `dokimi/process.py` — the one place in the package that spawns a process
+  (git, `gh`, doc snippets, harness profiles, the `command:`, Harbor, BenchFlow
+  and `docker-*` harnesses with their `docker` and `claude` calls, the explorer and
+  the repository-mode docker runner). A timeout,
   an interrupt or the command's exit kills its whole process group / job
   object (with `term_grace`, as for `bench` and `docker run`, a timeout or an
   interrupt sends the group SIGTERM first and kills it after the grace); so does a SIGTERM/SIGHUP to the `dokimi` CLI, which installs
@@ -367,7 +367,7 @@ label.
 
 1. **static** — the checks that need no lock install, as steps of one job:
    `ruff check .`, zizmor on the workflows, the license headers, the pre-commit
-   hooks, bandit and pip-audit. Schema checks: `schema_check` validates
+   hooks and bandit (pip-audit is its own workflow, `pip-audit.yml`). Schema checks: `schema_check` validates
    `benchmarks/spec.v1.yaml`; `config_check` checks `products.yaml`/`intents.yaml`/
    `dokimi/config/products.yaml` drift. The `guidance self-scan (L0)` step runs
    `repo scan` as a gate (`--fail-on-fail`).

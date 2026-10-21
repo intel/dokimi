@@ -1,0 +1,23 @@
+{
+    "task_name": "onetbb-transpose",
+    "trial_name": "onetbb-transpose__SizQxqz",
+    "source": null,
+    "agent_info": {
+        "name": "claude-code",
+        "version": "unknown",
+        "model_info": {
+            "name": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "provider": null
+        }
+    },
+    "agent_result": null,
+    "verifier_result": null,
+    "exception_info": {
+        "exception_type": "NonZeroAgentExitCodeError",
+        "exception_message": "Command failed (exit 100): apt-get update && apt-get install -y curl nodejs npm\nstdout: Ign:1 http://security.ubuntu.com/ubuntu jammy-security InRelease\nIgn:2 http://archive.ubuntu.com/ubuntu jammy InRelease\nIgn:3 http://archive.ubuntu.com/ubuntu jammy-updates InRelease\nIgn:4 http://archive.ubuntu.com/ubuntu jammy-backports InRelease\nIg ... [945 chars truncated] ... to fetch http://archive.ubuntu.com/ubuntu/dists/jammy/InRelease  Connection failed [IP: 192.0.2.1 3128]\nW: Failed to fetch http://archive.ubuntu.com/ubuntu/dists/jammy-updates/InRelease  Connection failed [IP: 192.0.2.1 3128]\nW: Failed to fetch http://archive.ubuntu.com/ubuntu/dists/jammy-backports/InRelease  Connection failed [IP: 192.0.2.1 3128]\nW: Failed to fetch http://security.ubuntu.com/ubuntu/dists/jammy-security/InRelease  Connection failed [IP: 192.0.2.1 3128]\nW: Some index files failed to download. They have been ignored, or old ones used instead.\nReading package lists...\nBuilding dependency tree...\nReading state information...\nE: Unable to locate package curl\nE: Unable to locate package nodejs\nE: Unable to locate package npm\n\nstderr: None",
+        "exception_traceback": "Traceback (most recent call last):\n  ...\nNonZeroAgentExitCodeError: Command failed (exit 100)\n",
+        "occurred_at": "2026-10-06T21:39:44.515276Z"
+    },
+    "started_at": "2026-10-06T21:39:31.205122Z",
+    "finished_at": "2026-10-06T21:39:56.632387Z"
+}
