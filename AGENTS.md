@@ -100,7 +100,7 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 - Design rationale, status and plans go in the PR description or an issue;
   the tree has no ADRs or status reports. The one exception is the research
   register, `dokimi/research/records/`: one record per idea, experiment,
-  finding, decision or implementation link, negative results included (`dokimi/docs/research-register.md`).
+  finding or decision, negative results included (`dokimi/docs/research-register.md`).
 - A new file starts with the SPDX header (`Copyright (C) <year> Intel
   Corporation` / `SPDX-License-Identifier: Apache-2.0`) in its comment syntax.
   CI's license header step (static job) checks it and `make ci-local` does
