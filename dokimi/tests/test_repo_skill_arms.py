@@ -296,3 +296,12 @@ def test_a_skill_whose_frontmatter_name_differs_from_its_directory_is_refused(tm
         resolve_skills(parse_arm("skill-catalog:skills"), tmp_path)
     write(tmp_path, "skills/bare/SKILL.md", "No frontmatter.\n")  # no name: the directory names it
     assert [s.name for s in resolve_skills(parse_arm("skill:skills/bare"), tmp_path)] == ["bare"]
+
+
+def test_repo_compare_selects_a_skill_arm_named_from_a_path_with_slashes():
+    from dokimi.repos.compare import parse_selector, selector_matches
+
+    arm = str(parse_arm("guidance:raw+skill:skills/lint"))
+    assert parse_selector(arm) == (None, arm)
+    assert parse_selector(f"b1/{arm}") == ("b1", arm)
+    assert selector_matches(parse_selector(f"b1/{arm}"), {"arm": arm, "batch": "b1"})
