@@ -350,3 +350,25 @@ def test_a_rerun_with_an_unknown_log_leaves_no_earlier_egress_file(tmp_path):
 
     assert second.metrics["egress"]["status"] == "unknown"
     assert not (out / "egress.jsonl").exists()
+
+
+def test_a_failed_read_then_a_clean_retry_is_ok_egress(tmp_path):
+    """The first teardown read times out with the removal; close()'s retry reads a clean log."""
+    allowed = json.dumps({"host": "api.example", "port": 443, "decision": "allowed", "reason": "x"})
+    logs = iter([reply(timed_out=True), reply(allowed + "\n")])
+    removals = iter([reply(timed_out=True), reply()])
+
+    def docker(args, log=None, *, check=True, timeout=None):
+        if args[0] == "logs":
+            return next(logs)
+        return next(removals) if args[0] == "rm" else reply()
+
+    sandbox = container_mod.ContainerSandbox(network="n", proxy_name="p", allow=[], binary=None)
+    with pytest.raises(subprocess.TimeoutExpired):
+        sandbox.stop_proxy(docker, None)
+    assert sandbox.egress_summary()["status"] == "unknown"
+    sandbox.close(docker, None, tmp_path)
+
+    assert sandbox.egress_summary() == {"status": "ok", "allowed": ["api.example"], "denied": [],
+                                        "errors": [], "denied_entries": []}
+    assert "api.example" in (tmp_path / "egress.jsonl").read_text(encoding="utf-8")
