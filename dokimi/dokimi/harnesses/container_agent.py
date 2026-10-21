@@ -352,6 +352,8 @@ class ContainerSandbox:
             with (output_dir / "egress.jsonl").open("w", encoding="utf-8") as fh:
                 for row in self.log:
                     fh.write(json.dumps(row) + "\n")
+        elif output_dir is not None:  # an earlier run's file in a reused dir is not this run's
+            (output_dir / "egress.jsonl").unlink(missing_ok=True)
         docker(["network", "rm", self.network], log, check=False)
         if self._scratch is not None:
             shutil.rmtree(self._scratch, ignore_errors=True)

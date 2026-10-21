@@ -325,3 +325,28 @@ def test_stop_proxy_marks_log_known_after_unknown(tmp_path):
     assert sandbox.log_known is True
     sandbox.close(docker, None, tmp_path)
     assert "a.example" in (tmp_path / "egress.jsonl").read_text(encoding="utf-8")
+
+
+def test_a_rerun_with_an_unknown_log_leaves_no_earlier_egress_file(tmp_path):
+    """A reused output dir: an unknown second run must not show the first run's egress.jsonl."""
+    task = load_task(_fixture_task(tmp_path))
+    out = tmp_path / "out"
+    denied = json.dumps({"host": "evil.example", "port": 443, "decision": "denied", "reason": "x"})
+
+    def cli(teardown_logs):
+        reads = []
+
+        def answer(call):
+            if call.argv[1] != "logs":
+                return None
+            reads.append(call)
+            return reply('{"ready": true}\n') if len(reads) == 1 else teardown_logs
+        return _pipeline(reward=1.0, answer=answer)
+
+    create_harness("docker-claude", runner=cli(reply(denied + "\n"))).run(task, output_dir=out)
+    assert "evil.example" in (out / "egress.jsonl").read_text(encoding="utf-8")
+    second = create_harness("docker-claude", runner=cli(reply(stderr="boom", returncode=1))).run(
+        task, output_dir=out)
+
+    assert second.metrics["egress"]["status"] == "unknown"
+    assert not (out / "egress.jsonl").exists()
