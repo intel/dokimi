@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -271,6 +272,24 @@ def test_export_marks_uncommitted_records(root: Path, capsys: pytest.CaptureFixt
     assert (edited["commit"], edited["dirty"]) == (clean["commit"], True)
     assert rr.main(["--root", str(root), "render"]) == 0
     assert f"`{clean['commit']}` (with uncommitted changes)." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("command", ["export", "query", "render"])
+def test_output_is_utf8_under_a_legacy_code_page(root: Path, command: str) -> None:
+    (root / "records" / "experiment" / "X002.md").write_text(
+        "---\nid: X002\ntype: experiment\ndate: 2026-10-14\ntitle: Run 2 → ±\nidea: I001\n"
+        "hypothesis: H\noutcome: supported\n---\n", encoding="utf-8")
+    script = PROJECT / "scripts" / "research_register.py"
+    result = subprocess.run([sys.executable, str(script), "--root", str(root), command],
+                            capture_output=True, check=False,
+                            env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+    assert result.returncode == 0, result.stderr
+    out = result.stdout.decode("utf-8")
+    if command == "export":
+        assert next(r for r in json.loads(out)["records"] if r["id"] == "X002")["title"] == \
+            "Run 2 → ±"
+    else:
+        assert "Run 2 → ±" in out
 
 
 def test_render_map(root: Path, capsys: pytest.CaptureFixture[str],

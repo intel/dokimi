@@ -27,6 +27,7 @@ map: a Mermaid mindmap and a table, as Markdown.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import re
 import subprocess
@@ -309,4 +310,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Redirected output defaults to the locale code page (cp1252 on Windows), which
+    # writes an export that is not UTF-8 and fails on any title outside it.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
     sys.exit(main())
