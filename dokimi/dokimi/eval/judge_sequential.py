@@ -200,8 +200,9 @@ def run_sequential(
     if store is not None:
         # The loop stops once every variant is decided, which can happen before
         # an arm's bases are reached; the gate would then pass without covering it.
+        # A FAIL on the bases that were scored stands whatever the other arms hold.
         unscored = sorted(a for a, c in by_arm.items() if c.get("kept", 0) > 0 and c["scored"] == 0)
-        if unscored:
+        if unscored and report.summary()["passed"]:
             raise NoUsablePairs(
                 f"Arm(s) {unscored} have verified judge material but no base was scored "
                 "before the sequential test stopped, so the gate would not cover them: "

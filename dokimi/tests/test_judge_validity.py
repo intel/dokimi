@@ -2054,11 +2054,8 @@ def test_refusal_still_says_raise_the_sample_when_a_kept_base_was_not_drawn():
         refuse_unpaired_arms([], by_arm, "--bases")
 
 
-def test_sequential_refuses_an_arm_the_loop_never_scored():
-    """100 baseline + 3 skill answers: the SPRT can decide on baseline bases
-    alone and stop, leaving the skill arm with 0 scored bases."""
-    from dokimi.eval.judge_context import JudgeContextStore
-    from dokimi.eval.judge_sequential import run_sequential
+def _baseline_heavy_arms():
+    """100 baseline + 3 skill answers, each citing its verified material."""
     from dokimi.utils import digest_text
 
     data = {"answers": [], "judge_materials": {}}
@@ -2071,7 +2068,32 @@ def test_sequential_refuses_an_arm_the_loop_never_scored():
             "question_id": f"Q{i}", "question_text": f"Question number {i}?",
             "arms": {arm_name: {"answer": ANSWER + f"Variant {i}. ", "judge_context_sha256": digest}},
         })
+    return data
+
+
+def test_sequential_refuses_an_arm_the_loop_never_scored():
+    """The SPRT can decide on baseline bases alone and stop, leaving the skill
+    arm with 0 scored bases."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _baseline_heavy_arms()
     with pytest.raises(NoUsablePairs, match=r"\['skill'\].*no base was scored"):
         run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)),
                        max_bases=50, variants=["truncate_20"],
                        store=JudgeContextStore.from_artifact(data))
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_sequential_reports_a_fail_even_when_an_arm_was_never_scored(seed):
+    """A judge that cannot tell a degraded answer apart fails on the bases it
+    was scored on; that FAIL is the result, not a refusal over the other arm."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _baseline_heavy_arms()
+    report = run_sequential(data["answers"], lambda l, q, a, context=None: 5.0, max_bases=50,
+                            seed=seed, variants=["truncate_20"], store=JudgeContextStore.from_artifact(data))
+    assert report.sequential["truncate_20"]["decision"] == "FAIL"
+    assert report.summary()["passed"] is False
+    assert report.by_arm["skill"]["scored"] == 0
