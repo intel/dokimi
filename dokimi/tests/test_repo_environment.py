@@ -1054,7 +1054,9 @@ def test_script_and_manifest_patterns_are_linear_on_hostile_strings(tmp_path, fi
     _repo(tmp_path, {"AGENTS.md": "x", **files})
     start = time.monotonic()
     inspect_repo(WorkTree(tmp_path))
-    assert time.monotonic() - start < 2
+    # Bounded, the `tsc` case takes ~0.4 s on a workstation and over 2 s on a loaded CI runner; unbounded,
+    # its pattern is quadratic (~150 s), so the limit leaves room for slow runners.
+    assert time.monotonic() - start < 15
 
 
 @pytest.mark.parametrize("body", ["{not json", "[1, 2]", ""])
