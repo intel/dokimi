@@ -5,7 +5,7 @@
 
 import json
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Sequence
 from collections import defaultdict
 
 from dokimi.gate.trust_gate import evaluate_trust, format_trust_block
@@ -14,6 +14,10 @@ from dokimi.eval.diagnoser import (
     DIAGNOSIS_LABELS,
     DIAGNOSIS_DESCRIPTIONS,
 )
+from dokimi.records import BASELINE, CONTEXT, Record, records
+
+#: The persisted condition key each report column reads.
+_MODES = {"with_docs": CONTEXT, "without_docs": BASELINE}
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +54,7 @@ class ReportGenerator:
             multirun_with_averages: Per-run context-arm means from N-run mode
             trust_thresholds: Override default trust gate thresholds
         """
-        evaluations = eval_data.get("evaluations", [])
+        evaluations = records(eval_data.get("evaluations", []), source="evaluations", kind="evaluations")
         questions = questions_data.get("questions", [])
         
         # Build question lookup
@@ -146,11 +150,9 @@ class ReportGenerator:
                 trust_verdict=trust_verdict,
             )
     
-    def _compute_stats(self, evaluations: List[Dict]) -> Dict[str, Any]:
+    def _compute_stats(self, evaluations: Sequence[Record]) -> Dict[str, Any]:
         """Compute overall statistics."""
-        with_scores = [e["with_docs"]["aggregate"] for e in evaluations if e.get("with_docs")]
-        without_scores = [e["without_docs"]["aggregate"] for e in evaluations if e.get("without_docs")]
-        deltas = [e["delta"] for e in evaluations if e.get("delta") is not None]
+        with_scores, without_scores, deltas = _columns(evaluations)
         
         return {
             "total_questions": len(evaluations),
@@ -173,72 +175,70 @@ class ReportGenerator:
             "doc_degradations": sum(1 for d in deltas if d < 0),
         }
     
-    def _top_performers(self, evaluations: List[Dict], mode: str, limit: int) -> List[Dict]:
+    def _top_performers(self, evaluations: Sequence[Record], mode: str, limit: int) -> List[Dict]:
         """Get top N by aggregate score."""
-        scored = [(e[mode]["aggregate"], e) for e in evaluations if e.get(mode)]
+        scored = [(s, e) for e in evaluations if (s := e.score(_MODES[mode])) is not None]
         scored.sort(reverse=True, key=lambda x: x[0])
         return [
             {
-                "question_id": e["question_id"],
+                "question_id": e.question_id,
                 "score": s,
-                "question_text": e.get("question_text", "")[:80]
+                "question_text": e.question_text[:80]
             }
             for s, e in scored[:limit]
         ]
     
-    def _bottom_performers(self, evaluations: List[Dict], mode: str, limit: int) -> List[Dict]:
+    def _bottom_performers(self, evaluations: Sequence[Record], mode: str, limit: int) -> List[Dict]:
         """Get bottom N by aggregate score."""
-        scored = [(e[mode]["aggregate"], e) for e in evaluations if e.get(mode)]
+        scored = [(s, e) for e in evaluations if (s := e.score(_MODES[mode])) is not None]
         scored.sort(key=lambda x: x[0])
         return [
             {
-                "question_id": e["question_id"],
+                "question_id": e.question_id,
                 "score": s,
-                "question_text": e.get("question_text", "")[:80]
+                "question_text": e.question_text[:80]
             }
             for s, e in scored[:limit]
         ]
     
-    def _top_deltas(self, evaluations: List[Dict], limit: int) -> List[Dict]:
+    def _top_deltas(self, evaluations: Sequence[Record], limit: int) -> List[Dict]:
         """Get top N improvements (WITH - WITHOUT)."""
-        deltas = [
-            (e["delta"], e)
-            for e in evaluations if e.get("delta") is not None
-        ]
+        # Both arms scored: a delta next to an unscored arm has no row to show.
+        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None
+                  and e.score(CONTEXT) is not None and e.score(BASELINE) is not None]
         deltas.sort(reverse=True, key=lambda x: x[0])
         return [
             {
-                "question_id": e["question_id"],
+                "question_id": e.question_id,
                 "delta": d,
-                "with_score": e["with_docs"]["aggregate"],
-                "without_score": e["without_docs"]["aggregate"],
-                "question_text": e.get("question_text", "")[:80]
+                "with_score": e.score(CONTEXT),
+                "without_score": e.score(BASELINE),
+                "question_text": e.question_text[:80]
             }
             for d, e in deltas[:limit]
         ]
     
-    def _bottom_deltas(self, evaluations: List[Dict], limit: int) -> List[Dict]:
+    def _bottom_deltas(self, evaluations: Sequence[Record], limit: int) -> List[Dict]:
         """Get bottom N (worst degradations from docs)."""
-        deltas = [
-            (e["delta"], e)
-            for e in evaluations if e.get("delta") is not None
-        ]
+        # Both arms scored: a delta next to an unscored arm has no row to show.
+        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None
+                  and e.score(CONTEXT) is not None and e.score(BASELINE) is not None]
         deltas.sort(key=lambda x: x[0])
         return [
             {
-                "question_id": e["question_id"],
+                "question_id": e.question_id,
                 "delta": d,
-                "with_score": e["with_docs"]["aggregate"],
-                "without_score": e["without_docs"]["aggregate"],
-                "question_text": e.get("question_text", "")[:80]
+                "with_score": e.score(CONTEXT),
+                "without_score": e.score(BASELINE),
+                "question_text": e.question_text[:80]
             }
             for d, e in deltas[:limit]
         ]
     
     def _cluster_by_topic(
         self,
-        evaluations: List[Dict],
-        q_lookup: Dict[str, Dict]
+        evaluations: Sequence[Record],
+        q_lookup: Dict[Any, Dict]
     ) -> List[Dict[str, Any]]:
         """
         Cluster questions by topic (extracted from persona + keywords).
@@ -249,8 +249,7 @@ class ReportGenerator:
         topic_map = defaultdict(list)
         
         for e in evaluations:
-            qid = e["question_id"]
-            q = q_lookup.get(qid, {})
+            q = q_lookup.get(e.question_id, {})
             
             # Use persona as primary cluster
             persona_id = q.get("persona_id", "unknown")
@@ -259,9 +258,7 @@ class ReportGenerator:
         # Compute stats per cluster
         clusters = []
         for topic, evals in topic_map.items():
-            with_scores = [e["with_docs"]["aggregate"] for e in evals if e.get("with_docs")]
-            without_scores = [e["without_docs"]["aggregate"] for e in evals if e.get("without_docs")]
-            deltas = [e["delta"] for e in evals if e.get("delta") is not None]
+            with_scores, without_scores, deltas = _columns(evals)
             
             clusters.append({
                 "topic": topic,
@@ -276,21 +273,18 @@ class ReportGenerator:
         
         return clusters
     
-    def _compute_source_summary(self, evaluations: List[Dict], q_lookup: Dict[str, Dict]) -> List[Dict[str, Any]]:
+    def _compute_source_summary(self, evaluations: Sequence[Record], q_lookup: Dict[Any, Dict]) -> List[Dict[str, Any]]:
         """Compute performance broken down by question source_type (generated vs manual)."""
         source_map = defaultdict(list)
         for e in evaluations:
-            qid = e["question_id"]
-            q = q_lookup.get(qid, {})
+            q = q_lookup.get(e.question_id, {})
             # Default to unknown if not present
             stype = q.get("source_type", "unknown")
             source_map[stype].append(e)
 
         results = []
         for stype, evals in source_map.items():
-            with_scores = [e["with_docs"]["aggregate"] for e in evals if e.get("with_docs")]
-            without_scores = [e["without_docs"]["aggregate"] for e in evals if e.get("without_docs")]
-            deltas = [e["delta"] for e in evals if e.get("delta") is not None]
+            with_scores, without_scores, deltas = _columns(evals)
 
             results.append({
                 "source_type": stype,
@@ -537,3 +531,18 @@ class ReportGenerator:
                 lines.append(f"- **{c['topic']}** (delta: {c['delta_avg']:+.1f})")
         
         return "\n".join(lines)
+
+
+def _columns(evaluations: Sequence[Record]) -> "tuple[List[float], List[float], List[float]]":
+    """Each arm's scores and the persisted deltas, each over the records that have one.
+
+    The arms are averaged over different question sets when a question is scored
+    in one arm only. The deltas are the persisted ``delta`` values, whatever the
+    arms' scores: a record with a delta and one unscored arm counts in the delta
+    mean but not in that arm's, so the delta mean need not equal the difference
+    of the arm means (and the top/bottom tables, which need both arms, leave it out).
+    """
+    with_scores = [s for e in evaluations if (s := e.score(CONTEXT)) is not None]
+    without_scores = [s for e in evaluations if (s := e.score(BASELINE)) is not None]
+    deltas = [d for e in evaluations if (d := e.delta) is not None]
+    return with_scores, without_scores, deltas

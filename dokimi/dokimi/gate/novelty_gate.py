@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from dokimi.novelty.bundle import GATE_COVERAGE_BASIS, Coverage
+from dokimi.novelty.bundle import COVERAGE_BASES, Coverage
 
 # ── Thresholds (override per call) ────────────────────────────────────────────
 
@@ -80,10 +80,13 @@ class NoveltyCheck:
     message: str
     severity: str = "warn"
     measured: bool = True
+    #: What ``value`` is a share of, for a check whose figure depends on it
+    #: (``artifact_coverage``: the record's ``coverage_basis``); ``None`` otherwise.
+    basis: str | None = None
 
     def as_dict(self) -> dict:
         """Serializable form (what the scorecard carries)."""
-        return {
+        row = {
             "name": self.name,
             "measured": self.measured,
             "passed": self.passed,
@@ -92,6 +95,9 @@ class NoveltyCheck:
             "message": self.message,
             "severity": self.severity,
         }
+        if self.basis is not None:
+            row["basis"] = self.basis
+        return row
 
 
 @dataclass
@@ -329,9 +335,13 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
 
     # ── 3b. Was the whole artifact measured, or only its entry point? ───────
     # The record owns its arithmetic: which excluded rows are a gap, what each denominator
-    # is, and when no figure can be computed. The gate only picks its basis and judges.
+    # is, and when no figure can be computed. The record also says which denominator it was
+    # written for (`coverage_basis`; none means all bundled words), so a stored artifact is
+    # judged as it was when it was written. The gate only judges the result.
     coverage = Coverage.from_record(artifact.get("bundle"))
-    unmeasured = None if coverage is None else coverage.unmeasured_share(GATE_COVERAGE_BASIS)
+    known = coverage is not None and coverage.basis in COVERAGE_BASES
+    unmeasured = (coverage.unmeasured_share(coverage.basis)
+                  if coverage is not None and known else None)
     if coverage is None:
         checks.append(NoveltyCheck(
             name="artifact_coverage", passed=True, value=None,
@@ -339,6 +349,17 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             message=(
                 "this run does not record which files of the artifact it read, so whether it "
                 "measured the whole artifact is unknown"
+            ),
+        ))
+    elif not known:
+        checks.append(NoveltyCheck(
+            name="artifact_coverage", passed=True, value=None,
+            threshold=cfg["max_unmeasured_outside_share"], severity="info", measured=False,
+            basis=coverage.basis,
+            message=(
+                f"this run records its coverage on the {coverage.basis!r} basis, which this "
+                f"version does not know ({', '.join(COVERAGE_BASES)}), so the share of the "
+                "artifact that was read is not judged"
             ),
         ))
     elif unmeasured is None:
@@ -357,17 +378,24 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
         # entry-point run leaves all of them out; a bundle run leaves out whatever the word
         # budgets dropped -- which on a 30k-word bundle is most of it at the default
         # 4,000/20,000 caps. Role decisions (a skill's own `evals/`) are never charged as
-        # unread, but on this basis they stay in the denominator, so for an entry-point run
-        # the gate's figure is lower than the analyzer's (readable-basis) warning. That
-        # disagreement is deliberate here: it is what the gate has always reported, and
-        # moving it is a change to the gate's numbers that ships, stamped, on its own.
-        mode = (
-            f"the bundle was measured ({coverage.n_files} files, "
-            f"{coverage.resource_words_measured} of {coverage.resource_words_on_disk} "
-            f"bundled words, {coverage.named_excluded_files} files excluded)"
-            if coverage.include_resources
-            else "only the entry point was measured"
-        )
+        # unread. On the readable basis they are not in the denominator either, so for an
+        # entry-point run this is the analyzer's `measurable_outside_share` and the two
+        # cannot disagree; a record from before the stamp keeps its all-bundled-words value.
+        readable = coverage.basis == "readable"
+        if not coverage.include_resources:
+            mode = "only the entry point was measured"
+        elif readable:
+            decided = (f", {coverage.decision_files} not measured by role"
+                       if coverage.decision_files else "")
+            gap_label = "file" if coverage.gap_files == 1 else "files"
+            mode = (f"the bundle was measured ({coverage.n_files} files, "
+                    f"{coverage.resource_words_measured} of "
+                    f"{coverage.measurable_resource_words} readable bundled words, "
+                    f"{coverage.gap_files} {gap_label} excluded by the word budgets{decided})")
+        else:
+            mode = (f"the bundle was measured ({coverage.n_files} files, "
+                    f"{coverage.resource_words_measured} of {coverage.resource_words_on_disk} "
+                    f"bundled words, {coverage.named_excluded_files} files excluded)")
         advice = (
             "raise --max-file-words / --max-resource-words, or narrow --resource-roles, "
             "before reading these rates as a property of the artifact"
@@ -379,8 +407,10 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             name="artifact_coverage",
             passed=unmeasured <= cfg["max_unmeasured_outside_share"],
             value=round(unmeasured, 4), threshold=cfg["max_unmeasured_outside_share"],
+            basis=coverage.basis,
             message=(
-                f"{mode}: {unmeasured:.0%} of this artifact's words were not read "
+                f"{mode}: {unmeasured:.0%} of this artifact's "
+                f"{'readable ' if readable else ''}words were not read "
                 f"(ceiling {cfg['max_unmeasured_outside_share']:.0%}); {advice}. A bundle "
                 "run is an upper bound on what the artifact can deliver -- whether the "
                 "agent loads a file is the agentic track's question"

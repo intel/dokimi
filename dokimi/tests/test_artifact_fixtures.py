@@ -114,7 +114,7 @@ def test_the_judge_writes_only_declared_keys(tmp_path):
         real = judge._evaluate_answer_pair
 
         def flaky(library_name, answer):
-            if answer["question_id"] == "q2":
+            if answer.question_id == "q2":
                 raise RuntimeError("judge down")
             return real(library_name, answer)
 

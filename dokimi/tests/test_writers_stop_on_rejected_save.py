@@ -62,13 +62,16 @@ def _judge_run(tmp_path, concurrency):
 
     calls = []
 
+    # The judge refuses a malformed answers record before any call, so the bad id
+    # comes from the evaluation it writes: the answer for "q1" is written as 1.5.
     def evaluate(library_name, answer):
-        calls.append(answer["question_id"])
-        _hold_q0_until_rejected(out, answer["question_id"], concurrency)
-        return {"question_id": answer["question_id"], "question_text": "t", "delta": 0}
+        qid = 1.5 if answer.question_id == "q1" else answer.question_id
+        calls.append(qid)
+        _hold_q0_until_rejected(out, qid, concurrency)
+        return {"question_id": qid, "question_text": "t", "delta": 0}
 
     out = tmp_path / "eval.json"
-    answers = [{"question_id": i, "question_text": "t"} for i in _ids()]
+    answers = [{"question_id": i if i != 1.5 else "q1", "question_text": "t"} for i in _ids()]
     with patch("dokimi.eval.judge.ChatAnthropic", Mock(), create=True), \
          patch("dokimi.eval.judge.LANGCHAIN_AVAILABLE", True):
         judge = Judge()

@@ -13,7 +13,7 @@
 # when there is one. Locally, from the root of a clone (in a `git worktree` it
 # cannot read .gitignore and also scans .venv and other untracked files):
 #   docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
-#     apache/skywalking-eyes:0.9.0 -c .github/.licenserc.yaml header check
+#     apache/skywalking-eyes:0.9.0 -v error -c .github/.licenserc.yaml header check
 header:
   license:
     # The pattern alone decides. With 0.9.0 a `content` passes any file that

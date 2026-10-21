@@ -191,6 +191,25 @@ class MeasureResult:
         return _pearson(xs, ys)
 
 
+def parse_arms(spec: str) -> tuple[str, ...]:
+    """``"no_artifact,full,placebo"`` -> the arm tuple a paired 2x2 can be computed from.
+
+    Only the pairing is checked here; unknown arm names are refused by
+    :func:`run_measurement`.
+
+    Raises:
+        ValueError: A set without ``no_artifact`` or without ``full``.
+    """
+    arms = tuple(part.strip() for part in spec.split(",") if part.strip())
+    if BASELINE_ARM not in arms:
+        # Without the baseline there is no pair, and without a pair every outcome is a
+        # level -- which is the one thing the judge agreement does not support.
+        raise ValueError("--arms must include no_artifact: the 2x2 is a paired comparison")
+    if "full" not in arms:
+        raise ValueError("--arms must include full: the headline 2x2 pairs it with no_artifact")
+    return arms
+
+
 def run_measurement(
     atoms: list[Atom],
     probes: list[Probe],
