@@ -72,7 +72,7 @@ const rest = {
     calls.push(['download', a]); return { data: fs.readFileSync(c.zip) }; } },
   pulls: { get: async (a) => { calls.push(['pulls.get', a]); return { data: c.pr }; } },
   issues: { listComments: 'comments', createLabel: rec('createLabel'), addLabels: rec('addLabels'),
-    removeLabel: rec('removeLabel'), createComment: rec('createComment'),
+    removeLabel: c.fail_labels ? async () => { throw new Error('404'); } : rec('removeLabel'), createComment: rec('createComment'),
     updateComment: rec('updateComment') },
 };
 const github = { rest, paginate: async (fn, a) => fn === 'list' ? c.artifacts : c.comments };
@@ -97,6 +97,7 @@ def _run(
     comments=(),
     pr_repo: str = "intel/dokimi",
     artifact_run: int = 7,
+    fail_labels: bool = False,
 ):
     node = shutil.which("node")
     if not (node and shutil.which("unzip")):
@@ -113,6 +114,7 @@ def _run(
         "zip": str(zpath),
         "run_sha": run_sha,
         "comments": list(comments),
+        "fail_labels": fail_labels,
         "pr": {"head": {"sha": pr_sha}, "base": {"repo": {"full_name": pr_repo}}},
         "artifacts": [
             {
@@ -178,6 +180,14 @@ def test_unchanged_result_removes_the_label(tmp_path):
     assert "createComment" not in _names(calls)
 
 
+def test_unchanged_result_rewrites_an_existing_comment_even_if_removing_the_label_fails(tmp_path):
+    comments = [{"id": 99, "user": {"login": "github-actions[bot]"}, "body": MARKER + "\nold"}]
+    calls = _run(tmp_path, _good(changed="0"), comments=comments, fail_labels=True)
+    assert "throw" not in _names(calls)
+    body = next(a for n, a in calls if n == "updateComment")["body"]
+    assert body.startswith(MARKER) and "matches the base branch" in body
+
+
 def test_error_result_comments_and_leaves_the_label(tmp_path):
     calls = _run(tmp_path, _good(changed="error"))
     assert "createComment" in _names(calls)
@@ -234,3 +244,23 @@ def test_oversized_artifact_is_not_downloaded(tmp_path):
 def test_artifact_from_another_run_is_ignored(tmp_path):
     calls = _run(tmp_path, _good(), artifact_run=8)
     assert "download" not in _names(calls)
+
+
+def test_many_mentions_cannot_push_the_body_past_githubs_limit(tmp_path):
+    calls = _run(tmp_path, _good(diff="@" * 60000))
+    body = next(a for n, a in calls if n == "createComment")["body"]
+    assert len(body) < 65536 and "truncated" in body
+
+
+def test_diff_is_fenced_so_links_and_references_do_not_render(tmp_path):
+    diff = "[x](http://evil) ![i](http://t/p.png) intel/dokimi#1 ``` break out"
+    body = next(a for n, a in _run(tmp_path, _good(diff=diff)) if n == "createComment")["body"]
+    lines = body.split("\n")
+    assert lines[1].startswith("````diff") and lines[-2].startswith("````")
+    assert not lines[-2].startswith("`````")
+
+
+def test_concurrency_is_per_pr_branch_not_per_commit():
+    group = _wf()["concurrency"]["group"]
+    assert "head_branch" in group and "head_repository.full_name" in group
+    assert "head_sha" not in group
