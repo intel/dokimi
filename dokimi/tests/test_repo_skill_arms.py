@@ -262,6 +262,16 @@ def test_arms_that_share_a_result_directory_are_refused(tmp_path):
         check_arms([parse_arm("skill-catalog:s"), parse_arm("skill:catalog-s")], tmp_path, [])
 
 
+def test_two_skill_paths_with_one_directory_name_in_one_run_are_refused(setup, capsys):
+    _skill(setup["root"], ".agent-eval/other/lint", "lint")  # both arms are named skill:lint
+    git(setup["root"], "add", "-A")
+    git(setup["root"], "commit", "-qm", "other lint")
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "skill:skills/lint,skill:other/lint", "--task", "fix_lint")
+    assert "name different skill paths" in capsys.readouterr().err
+    assert not list((setup["out"] / "b1").glob("fix_lint__*"))
+
+
 def test_claude_code_gets_mcp_config_only_when_the_workspace_has_the_file(tmp_path, monkeypatch):
     runner = FakeRunner()
     monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)

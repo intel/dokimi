@@ -238,7 +238,7 @@ def _pin_arms(arms: list[Arm], git_dir: Path, source: str) -> list[str]:
     worktree = None if remote else Path(parsed.location)  # HEAD of a linked worktree is not the main one's
     pinned: list[str] = []  # Arm objects: run_batch hands each to prepare_workspace
     first_path: dict[str, str | None] = {}
-    first_skills: dict[str, tuple[str, ...]] = {}
+    first_skills: dict[str, tuple[tuple[str, str], ...]] = {}
     for arm in arms:
         named = pin_arm(arm, git_dir, fetch=remote, worktree_dir=worktree)
         if first_skills.setdefault(named, named.skills) != named.skills:  # skill arms are named by directory
