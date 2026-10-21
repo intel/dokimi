@@ -1015,8 +1015,8 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   the top on all but at most one of 2+ tasks and the treatment nowhere below
   it), else `null`; a grader failure in either arm also gives `null`. A pair
   is at the top only when both arms reach it and tie: a score past `score.max`
-  is an effect, not a top. The text prints a note under a flagged comparison. A zero delta there means no room to
-  move, not no effect. Cost, turns and metric rows have `headroom` `null`.
+  is an effect, not a top. The text prints a note under a flagged comparison. A
+  zero delta there means no room to move, not no effect. Cost, turns and metric rows have `headroom` `null`.
   The top of a score task is the `score.max` that `repo run` records in
   `result.json` as `score_max`: a batch run before that has no known top, so
   its score rows are never `ceiling`, and arms whose tops differ are on two
