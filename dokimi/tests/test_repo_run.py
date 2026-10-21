@@ -638,3 +638,25 @@ def test_graders_digest_follows_the_grader_sources(tmp_path, monkeypatch):
     before = graders.graders_digest()
     (tmp_path / "review.py").write_text("VERSION = '2'\n")
     assert graders.graders_digest() != before
+
+
+def test_graders_digest_covers_main_and_pairs_names_with_contents(tmp_path, monkeypatch):
+    from dokimi.repos import graders
+
+    monkeypatch.setattr(graders, "HOST_DIR", tmp_path)
+    (tmp_path / "main.py").write_text("ENTRY = 1\n")
+    (tmp_path / "review.py").write_text("VERSION = 1\n")
+    base = graders.graders_digest()
+    assert graders.graders_digest() == base  # deterministic
+    (tmp_path / "main.py").write_text("ENTRY = 2\n")  # the entry point is part of the score
+    edited = graders.graders_digest()
+    assert edited != base
+    (tmp_path / "main.py").write_text("VERSION = 1\n")  # swap the contents between the files
+    (tmp_path / "review.py").write_text("ENTRY = 1\n")
+    swapped = graders.graders_digest()
+    assert swapped not in (base, edited)
+    (tmp_path / "main.py").write_text("ENTRY = 1\n")  # same contents, names swapped back and forth
+    (tmp_path / "review.py").write_text("VERSION = 1\n")
+    assert graders.graders_digest() == base
+    (tmp_path / "main.py").rename(tmp_path / "other.py")  # same bytes under another name
+    assert graders.graders_digest() != base

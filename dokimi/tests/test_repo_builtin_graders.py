@@ -72,6 +72,21 @@ def test_a_fence_nested_too_deep_is_unreadable_not_a_grader_crash(tmp_path):
     assert review.grade_replay({}, replay, review.oracle_replay({}, replay) + deep)["recall"] == 1.0
 
 
+def test_fence_nesting_cap_is_exactly_max_depth():
+    def nested(n):
+        return "```json\n" + "[" * n + "]" * n + "\n```"
+
+    cap = review.MAX_DEPTH
+    assert review._too_deep("[" * cap + "]" * cap) is False
+    assert review._too_deep("[" * (cap + 1) + "]" * (cap + 1)) is True
+    assert review.last_json(nested(cap)) is not None  # just under the cap parses
+    assert review.last_json(nested(cap + 1)) is None  # just over is unreadable
+    # brackets inside strings do not count toward the depth
+    assert review._too_deep('["' + "[" * (cap + 5) + '"]') is False
+    # an over-deep last fence falls back to the earlier readable one
+    assert review.last_json("```json\n[7]\n```" + nested(cap + 1)) == [7]
+
+
 def test_norm_path_cuts_at_workspace_and_repo_and_drops_leading_dots_and_slashes():
     # workspace path (agent's working directory in container)
     assert review.norm_path("/eval/run/workspace/src/calc.py") == "src/calc.py"
