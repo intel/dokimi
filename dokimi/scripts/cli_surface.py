@@ -8,7 +8,8 @@ The `cli-interface` workflow (.github/workflows/cli-interface.yml) dumps the
 surface of the PR's base and of its head, diffs the two and, when they differ,
 labels the PR `cli-interface-change` and posts a sticky comment listing every
 added, removed or changed command and option. So each change to how users call
-dokimi is visible in review and stays on record in the PR.
+dokimi is visible in review and stays on record in the PR. A PR from a fork has a
+read-only token: it gets the diff in the job summary only, with no label or comment.
 
 The dump walks the argparse tree `dokimi.cli.build_parser()` returns, of
 whichever `dokimi` is first on sys.path: the workflow points PYTHONPATH at a
@@ -19,12 +20,16 @@ when it runs (for example one that checks against `JUDGE_ROLES`) can reject
 more input after a change without any change in the dump, so the diff is empty
 for it. Review such changes by hand. Callable instances, `functools.partial` objects
 and metaclasses are reduced to their name: a change inside them is not compared.
+A class used as `type=` is hashed by the attributes of its non-builtin bases and its
+own, and by its base names (builtin ones included); the attributes of a builtin base
+are not hashed, and neither is the body of a `functools.lru_cache` or `cached_property`
+member (only its name).
 
 Usage:
   python scripts/cli_surface.py dump [OUT.json]
   python scripts/cli_surface.py diff BASE.json HEAD.json [--markdown]
 
-`diff` exits 0 when the surfaces match, 1 when they differ.
+`diff` exits 0 when the surfaces match, 1 when they differ, 2 when a dump cannot be read.
 """
 
 from __future__ import annotations
@@ -48,7 +53,8 @@ FIELDS = ("required", "is_flag", "nargs", "default", "type", "choices", "hidden"
 
 # Class attributes that name or locate the class rather than define it.
 _CLASS_NOISE = frozenset({"__dict__", "__doc__", "__firstlineno__", "__module__", "__qualname__",
-                          "__weakref__"})
+                          "__weakref__",
+                          "_value2member_map_"})  # the last is keyed by str(value), which may hold an address
 
 
 def _filled(cell: Any) -> bool:
@@ -94,7 +100,7 @@ def _value(value: Any, _seen: frozenset[int] = frozenset()) -> Any:
     if isinstance(value, (set, frozenset)):
         return sorted(repr(_value(v, _seen)) for v in value)
     if isinstance(value, enum.Enum):
-        return repr(value)
+        return [repr(type(value)), _value(value.name, _seen), _value(value.value, _seen)]
     if isinstance(value, (staticmethod, classmethod)):  # a class's members: hash the function
         return _value(value.__func__, _seen)
     if isinstance(value, property):
@@ -121,7 +127,7 @@ def _value(value: Any, _seen: frozenset[int] = frozenset()) -> Any:
                 for k, v in vars(base).items():
                     if k not in _CLASS_NOISE:
                         attrs.setdefault(k, v)  # the most derived definition wins
-        bases = [f"{b.__module__}.{b.__qualname__}" for b in value.__mro__ if b.__module__ != "builtins"]
+        bases = [f"{b.__module__}.{b.__qualname__}" for b in value.__mro__ if b is not object]
         src = repr(_value(dict(sorted(attrs.items())), seen)) + repr(bases)
         digest = hashlib.sha256(src.encode("utf-8")).hexdigest()[:12]
         return f"{value.__module__}.{value.__qualname__}#{digest}"
@@ -274,9 +280,13 @@ def main(argv: list[str] | None = None) -> int:
         else:
             sys.stdout.write(text)
         return 0
-    base = json.loads(args.base.read_text(encoding="utf-8"))
-    head = json.loads(args.head.read_text(encoding="utf-8"))
-    lines = diff_surfaces(base, head)
+    try:
+        base = json.loads(args.base.read_text(encoding="utf-8"))
+        head = json.loads(args.head.read_text(encoding="utf-8"))
+        lines = diff_surfaces(base, head)
+    except (OSError, ValueError, KeyError) as exc:  # an uncaught exception would exit 1: "surfaces differ"
+        print(f"cli_surface: cannot diff: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
     sys.stdout.write(render(lines, markdown=args.markdown))
     return 1 if lines else 0
 

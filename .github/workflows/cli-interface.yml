@@ -59,24 +59,27 @@ jobs:
           rm -rf "$out" && mkdir -p "$out/base"
           base=$(git -C .. merge-base HEAD "origin/$BASE_REF")
           git -C .. archive "$base" dokimi | tar -x -C "$out/base"
-          # A dump that raises (e.g. a PR that moves build_parser) must not fail the
+          # A dump or diff that raises (e.g. a PR that moves build_parser) must not fail the
           # job: report "error" and leave the label as it is.
-          if ! PYTHONPATH="$out/base/dokimi" python scripts/cli_surface.py dump "$out/base.json" \
-              || ! PYTHONPATH=. python scripts/cli_surface.py dump "$out/head.json"; then
+          report_error() {
             printf '%s\n' "## CLI interface check could not run" "" \
-              "The CLI surface could not be dumped from the base or the head; see the job log." \
+              "The CLI surface could not be dumped or diffed from the base or the head; see the job log." \
               > "$out/diff.md"
             cat "$out/diff.md"
             echo "changed=error" >> "$GITHUB_OUTPUT"
             echo "file=$out/diff.md" >> "$GITHUB_OUTPUT"
             cat "$out/diff.md" >> "$GITHUB_STEP_SUMMARY"
             exit 0
+          }
+          if ! PYTHONPATH="$out/base/dokimi" python scripts/cli_surface.py dump "$out/base.json" \
+              || ! PYTHONPATH=. python scripts/cli_surface.py dump "$out/head.json"; then
+            report_error
           fi
           rc=0
           python scripts/cli_surface.py diff "$out/base.json" "$out/head.json" --markdown \
             > "$out/diff.md" || rc=$?
+          if [ "$rc" -gt 1 ]; then report_error; fi
           cat "$out/diff.md"
-          if [ "$rc" -gt 1 ]; then exit "$rc"; fi
           echo "changed=$rc" >> "$GITHUB_OUTPUT"
           echo "file=$out/diff.md" >> "$GITHUB_OUTPUT"
           cat "$out/diff.md" >> "$GITHUB_STEP_SUMMARY"

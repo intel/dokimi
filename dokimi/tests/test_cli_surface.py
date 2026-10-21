@@ -341,7 +341,8 @@ def build_parser():
 """
 
 
-def _run_diff_step(tmp_path: Path, *, pr_adds: bool, pr_moves_build_parser: bool = False) -> str:
+def _run_diff_step(tmp_path: Path, *, pr_adds: bool, pr_moves_build_parser: bool = False,
+                   truncate_dump: bool = False) -> str:
     """Run the workflow's dump-and-diff step on a merge commit whose base branch moved on.
 
     With `pr_moves_build_parser` the PR deletes dokimi/cli.py, so the head dump raises.
@@ -396,7 +397,12 @@ def _run_diff_step(tmp_path: Path, *, pr_adds: bool, pr_moves_build_parser: bool
     env.update(BASE_REF="main", RUNNER_TEMP=str(tmp_path), GITHUB_OUTPUT=str(output),
                GITHUB_STEP_SUMMARY=str(tmp_path / "summary"),
                PATH=os.path.dirname(sys.executable) + os.pathsep + env.get("PATH", ""))
-    subprocess.run(["bash", "-e", "-c", step["run"]], cwd=repo / "dokimi", env=env, check=True,
+    script = step["run"]
+    if truncate_dump:  # both dumps succeed, then one is cut short: only the diff raises
+        marker = "rc=0\n"
+        assert marker in script
+        script = script.replace(marker, marker + "printf '{' > \"$out/head.json\"\n", 1)
+    subprocess.run(["bash", "-e", "-c", script], cwd=repo / "dokimi", env=env, check=True,
                    capture_output=True, text=True)
     return output.read_text(encoding="utf-8")
 
@@ -417,6 +423,23 @@ def test_workflow_reports_error_and_passes_when_the_head_cannot_be_dumped(tmp_pa
     diff_md = tmp_path / "cli-surface" / "diff.md"
     assert f"file={diff_md}" in output
     assert "## CLI interface check could not run" in diff_md.read_text(encoding="utf-8")
+
+
+def test_workflow_reports_error_and_passes_when_the_diff_crashes(tmp_path):
+    # an uncaught exception in `diff` must not read as "CLI changed" (changed=1)
+    output = _run_diff_step(tmp_path, pr_adds=False, truncate_dump=True)
+    assert "changed=error" in output
+    assert "changed=0" not in output and "changed=1" not in output
+
+
+def test_main_diff_of_an_unreadable_dump_exits_2(tmp_path, capsys):
+    bad, ok = tmp_path / "bad.json", tmp_path / "ok.json"
+    bad.write_text("{", encoding="utf-8")
+    ok.write_text(json.dumps(_surface()), encoding="utf-8")
+    assert cs.main(["diff", str(bad), str(bad), "--markdown"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and "cannot diff" in captured.err
+    assert cs.main(["diff", str(ok), str(tmp_path / "missing.json")]) == 2
 
 
 _VALIDATOR = '''def positive_int(text):
@@ -522,3 +545,57 @@ def test_a_class_docstring_is_not_a_change(tmp_path):
     reworded = _file_validator(tmp_path, "doc-new", "import os\n\nclass Check:\n    '''Reworded.'''\n"
                                "    def run(self, s):\n        return s\n", attr="Check")
     assert cs.diff_surfaces(_one(type=base), _one(type=reworded)) == []
+
+
+def test_an_enum_member_without_a_stable_repr_is_dumped_the_same_every_time(tmp_path):
+    # two loads of the same source: the members' objects live at different addresses
+    src = "import enum\n\nclass Obj(enum.Enum):\n    a = object()\n"
+    one = _one(type=_file_validator(tmp_path, "enum-1", src, attr="Obj"))
+    two = _one(type=_file_validator(tmp_path, "enum-2", src, attr="Obj"))
+    assert cs.diff_surfaces(one, two) == []
+
+
+def test_a_subclass_override_wins_over_the_base_definition(tmp_path):
+    def loaded(name: str, body: str):
+        source = (f"class Base:\n    def check(self, s):\n        return s\n\n"
+                  f"class Check(Base):\n    def check(self, s):\n        return {body}\n")
+        return _one(type=_file_validator(tmp_path, name, source, attr="Check"))
+    assert cs.diff_surfaces(loaded("strict", "s"), loaded("loose", "True"))
+
+
+def test_classes_with_the_same_members_and_different_bases_differ(tmp_path):
+    def loaded(name: str, base: str):
+        source = f"class A:\n    pass\n\nclass B:\n    pass\n\nclass Check({base}):\n    pass\n"
+        return _one(type=_file_validator(tmp_path, name, source, attr="Check"))
+    assert cs.diff_surfaces(loaded("a", "A"), loaded("b", "B"))
+
+
+def test_a_builtin_base_of_a_class_type_is_a_change(tmp_path):
+    def loaded(name: str, base: str):
+        return _one(type=_file_validator(tmp_path, name, f"class Check({base}):\n    pass\n", attr="Check"))
+    assert cs.diff_surfaces(loaded("i", "int"), loaded("s", "str"))
+
+
+def test_a_property_setter_only_change_is_reported(tmp_path):
+    def loaded(name: str, body: str):
+        source = ("class Check:\n    @property\n    def v(self):\n        return 1\n\n"
+                  f"    @v.setter\n    def v(self, x):\n        {body}\n")
+        return _one(type=_file_validator(tmp_path, name, source, attr="Check"))
+    assert cs.diff_surfaces(loaded("a", "pass"), loaded("b", "self.x = x"))
+
+
+def test_a_set_default_is_dumped_in_the_same_order_under_any_hash_seed():
+    import os
+    import subprocess
+    import sys
+
+    code = ("import importlib.util, json, sys\n"
+            "spec = importlib.util.spec_from_file_location('cs', sys.argv[1])\n"
+            "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+            "print(json.dumps(m._value(frozenset({'alpha', 'beta', 'gamma'}))))\n")
+    outs = {
+        subprocess.run([sys.executable, "-c", code, str(_SCRIPT)], capture_output=True, text=True, check=True,
+                       env={**os.environ, "PYTHONHASHSEED": seed}).stdout
+        for seed in ("1", "2", "3", "4")
+    }
+    assert len(outs) == 1, outs
