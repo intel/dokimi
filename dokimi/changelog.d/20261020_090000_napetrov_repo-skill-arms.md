@@ -7,11 +7,12 @@
   cache read/write token counts. `repo tasks check --arm` rejects a skill
   path that does not exist.
 - **`args_if_present` in harness profiles** — arguments appended only when a
-  file exists in the workspace.
+  file exists in the workspace and the tool mode is `all`.
 
 ### Fixed
 
 - **claude-code starts a repo's MCP servers** — the stock profile passed
   `--strict-mcp-config` without `--mcp-config`, so a repo that ships
   `.mcp.json` ran with no MCP tools. It now passes `--mcp-config .mcp.json`
-  when that file is present.
+  when that file is present and `--tools all` is used (`--tools none`/`read` do not
+  limit MCP tools, so they start no MCP server).

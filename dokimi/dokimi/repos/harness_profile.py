@@ -6,7 +6,7 @@
 A profile is data, not code. ``invoke`` is an argv template, and every element
 becomes exactly one argument after placeholder substitution, so a prompt with
 quotes or spaces never passes through a shell. The element ``"{tools}"`` is
-replaced by the argument list of the selected tool mode, followed by the
+replaced by the argument list of the selected tool mode, followed, in the ``all`` tool mode only, by the
 ``args_if_present`` arguments of each named workspace file that exists. The child process
 gets a scrubbed environment: only ``env_allow`` names are inherited, then
 ``env_set`` is applied, then ``config_dir_env`` points at a per-run directory
@@ -93,8 +93,9 @@ class HarnessProfile:
         for element in self.invoke:
             if element == TOOLS_ELEMENT:
                 out.extend(self.tools[tools])
-                for name in sorted(present & self.args_if_present.keys()):
-                    out.extend(self.args_if_present[name])
+                if tools == "all":  # --tools does not limit MCP tools: only here is the repo's MCP config part of the arm
+                    for name in sorted(present & self.args_if_present.keys()):
+                        out.extend(self.args_if_present[name])
             else:
                 out.append(_substitute(element, values))
         return out

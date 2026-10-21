@@ -277,7 +277,7 @@ def test_claude_code_gets_mcp_config_only_when_the_workspace_has_the_file(tmp_pa
         root, _ = make_repo(base)
         argv = ["repo", "run", f"{root}@HEAD", "--harness", str(profile), "--bin", str(exe), "--model", "m-1",
                 "--batch", "b1", "--out", str(base / "runs"), "--cache-root", str(base / "caches"),
-                "--agent-network", "host", "--arm", "guidance:raw", "--task", "fix_add"]
+                "--agent-network", "host", "--arm", "guidance:raw", "--task", "fix_add", "--tools", "all"]
         args = build_parser().parse_args(argv)
         args.func(args)
         agent = [s.argv for s in runner.specs if "--strict-mcp-config" in s.argv]

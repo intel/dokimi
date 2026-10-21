@@ -197,7 +197,11 @@ def test_claude_code_profile_passes_mcp_config_only_when_the_workspace_has_one()
     profile = load_profile("claude-code")
     assert "--mcp-config" not in profile.argv(prompt="p", model="m")
     argv = profile.argv(prompt="p", model="m", present=frozenset({".mcp.json", "other"}))
-    assert argv[-4:] == ["--tools", "", "--mcp-config", ".mcp.json"]
+    assert "--mcp-config" not in argv  # --tools "" does not stop MCP servers, so none is started
+    for tools in ("none", "read"):
+        assert "--mcp-config" not in profile.argv(prompt="p", model="m", tools=tools, present=frozenset({".mcp.json"}))
+    assert profile.argv(prompt="p", model="m", tools="all", present=frozenset({".mcp.json"}))[-2:] == [
+        "--mcp-config", ".mcp.json"]
 
 
 def test_profile_env_is_allow_listed_and_isolated(tmp_path):

@@ -526,7 +526,7 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
-args_if_present:                     # argv added after the "{tools}" element when the workspace file exists
+args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
   .mcp.json: ["--mcp-config", ".mcp.json"]
 ```
 
