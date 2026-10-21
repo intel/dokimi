@@ -121,10 +121,9 @@ def test_a_cell_is_reused_only_by_the_same_execution(setup, capsys):
     ran = json.loads((rd / "result.json").read_text())["execution"]
     assert ran["delegation"] == "native" and ran["tools"] == "all"
     assert json.loads((rd / "meta.json").read_text())["execution"] == ran
-    with pytest.raises(SystemExit):  # a crashed cell fails the run
+    with pytest.raises(SystemExit):  # refused before any cell runs
         _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
-    out = capsys.readouterr()
-    assert "0 ran, 0 already done, 1 crashed" in out.out and "finished with another execution" in out.out
+    assert "holds cells of another execution" in capsys.readouterr().err
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none", "--force")
     assert "1 ran" in capsys.readouterr().out
     rec = json.loads((rd / "result.json").read_text())
@@ -133,21 +132,18 @@ def test_a_cell_is_reused_only_by_the_same_execution(setup, capsys):
     assert "--no-agents" in agent.argv
 
 
-def test_a_result_from_before_execution_ids_counts_as_native(setup, capsys):
-    raw = yaml.safe_load(setup["profile"].read_text())
-    raw["delegation"] = {"none": {"all": [*raw["tools"]["all"], "--no-agents"]}}
-    setup["profile"].write_text(yaml.safe_dump(raw))
+def test_a_result_from_before_execution_ids_is_not_reused(setup, capsys):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     rd = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"
     rec = json.loads((rd / "result.json").read_text())
     del rec["execution"]  # written by an earlier version
     (rd / "result.json").write_text(json.dumps(rec))
     capsys.readouterr()
-    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
-    assert "1 already done" in capsys.readouterr().out
     with pytest.raises(SystemExit):
-        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
-    assert "finished with another execution" in capsys.readouterr().out
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert "unrecorded" in capsys.readouterr().err
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--force")
+    assert "1 ran" in capsys.readouterr().out
 
 
 def test_the_same_harness_bytes_resume_from_any_path(setup, capsys, tmp_path):
@@ -163,15 +159,44 @@ def test_the_same_harness_bytes_resume_from_any_path(setup, capsys, tmp_path):
     assert "1 already done" in capsys.readouterr().out
 
 
-def test_a_changed_harness_binary_crashes_on_resume(setup, capsys):
+def test_a_changed_harness_binary_is_refused_on_resume(setup, capsys):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     capsys.readouterr()
     # Same name, same reported version, other bytes: the id is the executable's digest
     setup["exe"].write_text(setup["exe"].read_text() + "\n# upgraded in place\n")
-    with pytest.raises(SystemExit):  # a crashed cell fails the run
+    with pytest.raises(SystemExit):
         _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
-    out = capsys.readouterr()
-    assert "0 ran, 0 already done, 1 crashed" in out.out and "finished with another execution" in out.out
+    assert "holds cells of another execution" in capsys.readouterr().err
+
+
+def test_a_batch_dir_with_cells_of_another_execution_is_refused_up_front(setup, capsys):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    setup["runner"].specs.clear()
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw,guidance:none", "--task", "fix_add", "--tools", "read")
+    assert "holds cells of another execution" in capsys.readouterr().err
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
+
+
+def test_a_refused_delegation_none_starts_no_harness_version_probe(setup, monkeypatch, capsys):
+    probes = []
+    monkeypatch.setattr("dokimi.repos.runner.harness_version", lambda *a, **k: probes.append(a) or "1")
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
+    capsys.readouterr()
+    assert probes == []
+
+
+def test_the_cell_records_the_delegation_whose_arguments_ran(setup, capsys):
+    raw = yaml.safe_load(setup["profile"].read_text())
+    raw["delegation"] = {"none": {"all": [*raw["tools"]["all"], "--no-agents"], "none": raw["tools"]["none"]}}
+    setup["profile"].write_text(yaml.safe_dump(raw))
+    rd = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--tools", "none", "--delegation", "none")
+    assert json.loads((rd / "result.json").read_text())["execution"]["delegation"] == "native"
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--tools", "all", "--delegation", "none", "--force")
+    assert json.loads((rd / "result.json").read_text())["execution"]["delegation"] == "none"
 
 
 def test_delegation_none_is_refused_before_anything_runs_when_the_profile_cannot(setup, capsys):

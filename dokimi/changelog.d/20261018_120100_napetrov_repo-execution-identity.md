@@ -5,7 +5,11 @@
   a `repo run` cell was not a single-agent run. `--delegation none` runs the
   harness profile's new `delegation.none` tool arguments instead (for
   `claude-code`: `Agent`, `Task` and `Workflow` added to
-  `--disallowedTools`); a profile without them refuses the flag. The default,
+  `--disallowedTools`); a profile without them refuses the flag, and so does a tool mode that
+  `delegation.none` does not list (an allow-list, no fallback to the native
+  arguments; `claude-code` lists `none`, `read` and `all`). A cell records the
+  delegation whose arguments ran: `native` for a tool mode whose arguments are
+  the same either way. The default,
   `--delegation native`, keeps today's behaviour.
 
 ### Changed
@@ -19,5 +23,7 @@
   another `--tools`, `--delegation`, edited profile, harness binary, or harness
   upgrade no longer counts cells from
   the old one as done: those cells are reported as crashed, and `--force` or a
-  new `--batch` runs them. Results from earlier versions count as
-  `--delegation native`.
+  new `--batch` runs them. A batch dir that already holds cells of another
+  execution is refused before anything runs (unless `--force`), and so is a
+  result from earlier versions, which carries no `execution`: it is not
+  reused.

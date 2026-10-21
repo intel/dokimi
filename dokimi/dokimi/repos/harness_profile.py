@@ -110,7 +110,19 @@ class HarnessProfile:
         if delegation not in self.delegation:
             raise ProfileError(f"{self.path}: declares no `delegation: {delegation}`, so a run cannot be "
                                "kept from starting subagents")
-        return self.delegation[delegation].get(tools, self.tools[tools])
+        listed = self.delegation[delegation]
+        if tools not in listed:  # an allow-list: no silent fallback to the native arguments
+            raise ProfileError(f"{self.path}: `delegation: {delegation}` lists no arguments for tool mode "
+                               f"{tools!r} (lists: {', '.join(sorted(listed)) or 'none'}); list every mode "
+                               "it may run with")
+        return listed[tools]
+
+    def effective_delegation(self, tools: str, delegation: str = "native") -> str:
+        """The delegation whose arguments the command line gets: ``native`` when the profile's arguments for
+        ``delegation`` are the native ones (the tool mode never starts subagents anyway)."""
+        if delegation != "native" and self.tool_args(tools, delegation) == self.tools[tools]:
+            return "native"
+        return delegation
 
     def execution_id(self, tools: str, delegation: str = "native", harness_sha256: str | None = None,
                      harness_version: str | None = None) -> str:

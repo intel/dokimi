@@ -266,6 +266,18 @@ def test_a_profile_without_delegation_cannot_run_without_subagents(tmp_path):
         load_profile(_profile(tmp_path)).tool_args("read", "none")
 
 
+def test_delegation_none_is_an_allow_list_of_tool_modes(tmp_path):
+    raw = yaml.safe_load(Path(_profile(tmp_path)).read_text())
+    raw["delegation"] = {"none": {}}
+    path = tmp_path / "custom.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ProfileError, match="lists no arguments for tool mode"):
+        load_profile(str(path)).tool_args("read", "none")
+    claude = load_profile("claude-code")
+    assert {m: claude.effective_delegation(m, "none") for m in ("none", "read", "all")} == {
+        "none": "native", "read": "native", "all": "none"}
+
+
 def test_profile_env_is_allow_listed_and_isolated(tmp_path):
     profile = load_profile("claude-code")
     env = profile.env(tmp_path / "cfg").resolve({"PATH": "/bin", "AWS_REGION": "us-east-1",

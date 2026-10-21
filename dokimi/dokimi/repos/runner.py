@@ -110,11 +110,27 @@ def execution_record(opts: AgentOptions) -> dict[str, str]:
     """How the cell's agent was started, as ``meta.json`` and ``result.json`` record it."""
     return {"id": opts.profile.execution_id(opts.tools, opts.delegation, harness_sha256(opts.harness_bin),
                                              opts.harness_version),
-            "tools": opts.tools, "delegation": opts.delegation}
+            "tools": opts.tools, "delegation": opts.profile.effective_delegation(opts.tools, opts.delegation)}
 
 
 class ExecutionMismatch(PrepError):
     """A finished cell of the batch ran with another execution than the one asked for."""
+
+
+def check_batch_executions(batch_dir: Path, options: list[AgentOptions]) -> None:
+    """Refuse, before anything runs, a batch dir whose finished cells ran with another execution."""
+    wanted = {execution_record(o)["id"] for o in options}
+    found: set[str] = set()
+    for path in sorted(batch_dir.glob("*/result.json")):
+        try:
+            found.add((json.loads(path.read_text(encoding="utf-8")).get("execution") or {}).get("id", "unrecorded"))
+        except (OSError, ValueError):
+            continue
+    other = found - wanted
+    if other:
+        raise ExecutionMismatch(
+            f"{batch_dir} holds cells of another execution ({', '.join(sorted(other))}) than this run "
+            f"({', '.join(sorted(wanted))}); use another --batch, or --force to replace them")
 
 
 def agent_network(opts: AgentOptions, ctx: EvalContext, task: Task) -> str:
@@ -179,9 +195,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     if (rd / "result.json").is_file() and not force:
         done = json.loads((rd / "result.json").read_text(encoding="utf-8"))
         ran = done.get("execution") or {}
-        # A result from before execution ids carries none: it can only have run with native delegation.
-        if ran.get("id", execution["id"]) != execution["id"] or (
-                not ran and execution["delegation"] != "native"):
+        # A result from before execution ids carries none: nothing says how it ran, so it is not reused.
+        if ran.get("id") != execution["id"]:
             raise ExecutionMismatch(
                 f"the cell finished with another execution ({ran.get('id', 'unrecorded')}, delegation "
                 f"{ran.get('delegation', 'native')}) than this run ({execution['id']}, delegation "
@@ -293,6 +308,8 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     requirements it does not meet is marked unsupported instead of run. One that already has a
     ``result.json`` (from a host that met them) keeps it, even with ``force``."""
     validate_tasks(tasks)
+    if not force:
+        check_batch_executions(batch_dir, options)
     cells = [(t, a, o, r) for t in tasks for a in arms for o in options for r in range(1, reps + 1)]
     _record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
     host = probe_host(ctx, batch_dir / "_eval")
