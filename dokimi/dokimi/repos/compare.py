@@ -31,7 +31,8 @@ descriptive and keep their raw p.
 A gate or score comparison also says whether its tasks had room to move (``headroom``), since a zero delta
 on a task set nobody can fail, or nobody can pass, is not evidence of no effect. A task's top is 1.0 for
 gate and the task's ``score.max`` for score (recorded in ``result.json``; a batch without it has no known
-top, so its score rows are never at ceiling). ``ceiling``: both arms at the top on every paired task;
+top, so its score rows are never at ceiling). A pair is at the top only when both arms reach it and tie: a
+score past ``score.max`` is an effect, not a top. ``ceiling``: both arms at the top on every paired task;
 ``floor``: both arms at 0 on every paired task; ``near_ceiling``: neither, at least 2 paired tasks, the
 baseline at the top on all but at most one, and the treatment nowhere below the baseline, so at most one task
 can improve and a gain resting on one task has a sign-flip p of 1. A pair whose baseline and treatment tops
