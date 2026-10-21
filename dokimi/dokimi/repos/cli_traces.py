@@ -281,6 +281,7 @@ def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     out = Transcript()
     messages: list[str] = []
     by_id: dict[str, dict[str, Any]] = {}  # Track started items by ID to update on completion
+    event_reads: dict[int, list[dict[str, Any]]] = {}  # command event -> the read events derived from it
     for n, line in enumerate(raw.splitlines(), 1):
         if not line.strip():
             continue
@@ -292,7 +293,7 @@ def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
         if not isinstance(rec, dict):
             continue
         try:
-            _codex_apply(out, rec, messages, workdir, by_id, cwd)
+            _codex_apply(out, rec, messages, workdir, by_id, cwd, event_reads)
         except (AttributeError, TypeError, ValueError) as exc:
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     out.answer = messages[-1].strip() if messages else ""
@@ -300,9 +301,12 @@ def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
 
 
 def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], workdir: str | None,
-                  by_id: dict[str, dict[str, Any]] | None = None, cwd: str = "") -> None:
+                  by_id: dict[str, dict[str, Any]] | None = None, cwd: str = "",
+                  event_reads: dict[int, list[dict[str, Any]]] | None = None) -> None:
     if by_id is None:
         by_id = {}
+    if event_reads is None:
+        event_reads = {}
     kind = rec.get("type")
     if kind == "turn.completed":
         usage = rec.get("usage") or {}
@@ -326,9 +330,11 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
             # Use item.id if available (handles overlapping commands with same text), fallback to text
             item_id = item.get("id")
             item_key = str(item_id) if item_id else f"text:{script}"
-            for path in shell_reads(script, cwd):
-                out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
+            read_events = [{"t": None, "kind": "read", "path": relative_path(path, workdir)}
+                           for path in shell_reads(script, cwd)]
+            out.events.extend(read_events)
             event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None}
+            event_reads[id(event)] = read_events
             by_id[item_key] = event
             out.events.append(event)
     elif kind == "item.completed":
@@ -348,10 +354,14 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
                 if item.get("aggregated_output"):
                     event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
                 del by_id[item_key]
+                if event["rc"] not in (None, 0):  # a failed read did not read: drop its derived read events
+                    dropped = {id(e) for e in event_reads.get(id(event), [])}
+                    out.events[:] = [e for e in out.events if id(e) not in dropped]
             else:
                 # Fallback for item.completed without item.started
-                for path in shell_reads(script, cwd):
-                    out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
+                if item.get("exit_code") in (None, 0):
+                    for path in shell_reads(script, cwd):
+                        out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
                 event = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
                 if item.get("aggregated_output"):
                     event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))

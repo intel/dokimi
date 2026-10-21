@@ -289,6 +289,28 @@ def test_codex_incomplete_command_is_recorded_with_rc_null():
     assert t.events[0] == {"t": None, "kind": "command", "text": "make build", "rc": None}
 
 
+def test_codex_failed_command_does_not_count_as_a_read():
+    cmd = {"type": "command_execution", "command": "cat missing.md"}
+    raw = _jsonl(
+        {"type": "item.started", "item": {"id": "a", **cmd}},
+        {"type": "item.completed", "item": {"id": "a", **cmd, "exit_code": 1}},
+        {"type": "item.started", "item": {"id": "b", "type": "command_execution", "command": "cat AGENTS.md"}},
+        {"type": "item.completed", "item": {"id": "b", "type": "command_execution", "command": "cat AGENTS.md",
+                                            "exit_code": 0}},
+        {"type": "item.completed", "item": {"type": "command_execution", "command": "cat nope.md", "exit_code": 2}},
+    )
+    t = convert("codex-json", raw, None)
+    assert [e["path"] for e in t.events if e["kind"] == "read"] == ["AGENTS.md"]
+    assert [e["rc"] for e in t.events if e["kind"] == "command"] == [1, 0, 2]
+
+
+def test_answer_format_lists_agree():
+    from dokimi.repos import answers
+    schema = json.loads((Path(answers.__file__).parents[1] / "schemas" / "harness_profile.v1.json").read_text())
+    enum = schema["properties"]["answer_format"]["enum"]
+    assert sorted(enum) == sorted(answers.ANSWER_FORMATS) == sorted(answers._CONVERTERS)
+
+
 def test_copilot_json_to_events():
     raw = _jsonl(
         {"type": "assistant.turn_start", "timestamp": "2026-01-01T00:00:00Z", "data": {}},

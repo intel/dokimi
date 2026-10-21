@@ -651,7 +651,10 @@ per scenario).
 - `class` is one of:
     - `loaded`: both tokens reported;
     - `truncated`: one token reported;
-    - `fetched`: reported only after the agent read the file with a tool;
+    - `fetched`: reported only after the agent read the file with a tool. For the
+      Codex and Copilot profiles a shell read counts only as a bare `cat`, `head`,
+      `tail`, `nl` or `sed -n` that exited 0; a read through a pipe, `grep` or
+      `rg` is not seen, so such a file can be classed `loaded`;
     - `not_loaded`;
     - `error`: the scenario produced no usable answer: no answer, a non-zero
       exit, or an error result.
