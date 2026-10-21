@@ -195,8 +195,11 @@ def next_id(records: dict[str, Record], kind: str) -> str:
 
 
 def _git(root: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(root), *args],
-                          capture_output=True, text=True, check=False).stdout.strip()
+    try:
+        return subprocess.run(["git", "-C", str(root), *args],
+                              capture_output=True, text=True, check=False).stdout.strip()
+    except OSError:
+        return ""  # git is not installed
 
 
 def export(records: dict[str, Record], root: Path = RESEARCH) -> dict[str, Any]:

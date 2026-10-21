@@ -283,6 +283,16 @@ def test_export_marks_uncommitted_records(root: Path, capsys: pytest.CaptureFixt
     assert f"`{clean['commit']}` (with uncommitted changes)." in capsys.readouterr().out
 
 
+def test_export_without_git_installed(root: Path, capsys: pytest.CaptureFixture[str],
+                                      monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(rr.subprocess, "run", missing)
+    assert rr.main(["--root", str(root), "export"]) == 0
+    assert json.loads(capsys.readouterr().out)["commit"] is None
+
+
 def test_export_and_render_mark_retracted(root: Path, capsys: pytest.CaptureFixture[str],
                                           monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rr.subprocess, "run", lambda *a, **k: rr.subprocess.CompletedProcess(a, 0, ""))
