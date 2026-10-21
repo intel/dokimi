@@ -14,7 +14,12 @@ Graders and probes read only these events, never a harness-specific trace:
 format has no timestamps. Paths inside the workspace are made relative to it.
 A command event carries ``output`` when the harness returned one: over
 :data:`OUTPUT_LIMIT` bytes it keeps the first and last :data:`OUTPUT_KEEP`
-bytes, and ``output_truncated`` says whether that happened.
+bytes, and ``output_truncated`` says whether that happened. An event a
+subagent made carries ``agent``: the id of the parent's tool call that started it.
+
+Token counts cover the same scope as ``cost_usd``: summed over ``modelUsage``
+(parent, subagents and helper models) when the result has it, else the parent's
+``usage``; ``usage_scope`` says which (``tree`` or ``main``).
 """
 
 from __future__ import annotations
@@ -33,6 +38,7 @@ OUTPUT_KEEP = 4096
 _COMMAND_TOOLS = {"Bash", "PowerShell"}
 _READ_TOOLS = {"Read"}
 _EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
+_AGENT_TOOLS = {"Agent", "Task"}
 _HOOK_DENIAL = re.compile(r"\s*PreToolUse:\w+ hook error")
 
 
@@ -46,11 +52,25 @@ class Transcript:
     num_turns: int | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    usage_scope: str | None = None  # "tree": tokens include subagents and helper models; "main": parent only
+    subagent_calls: int | None = None  # counted once the harness's result record is seen
     is_error: bool = False
     harness_version: str | None = None
     result_subtype: str | None = None
     plugins: list[str] = field(default_factory=list)  # loaders the harness reported at start-up
     errors: list[str] = field(default_factory=list)
+    init_model: str | None = None  # the model the harness says it starts with (``system``/``init``)
+    answered_by: set[str] = field(default_factory=set)  # ``message.model`` of the main thread's replies
+
+    def model_resolved(self) -> str | list[str] | None:
+        """The model that answered: one name, a sorted list when several did, ``None`` when the trace cannot tell.
+
+        The replies' own ``message.model`` wins; the harness's ``init`` model stands in for a run with no reply.
+        """
+        found = sorted(self.answered_by) or ([self.init_model] if self.init_model else [])
+        return (found[0] if len(found) == 1 else found) if found else None
 
     def reads(self) -> set[str]:
         return {e["path"] for e in self.events if e["kind"] == "read" and e.get("path")}
@@ -99,6 +119,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
     kind = rec.get("type")
     if kind == "system" and rec.get("subtype") == "init":
         out.harness_version = rec.get("claude_code_version")
+        out.init_model = str(rec["model"]) if rec.get("model") else None
         # Claude Code loads AGENTS.md through a built-in plugin (cc-plugin-agents-md) on some versions
         out.plugins = sorted(str(p.get("name")) for p in rec.get("plugins") or []
                              if isinstance(p, dict) and p.get("name"))
@@ -106,9 +127,17 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
         for block in _content(rec):
             if block.get("type") == "tool_use":
                 event = _tool_event(block, t, workdir)
+                if rec.get("parent_tool_use_id"):
+                    event["agent"] = str(rec["parent_tool_use_id"])
+                if block.get("name") in _AGENT_TOOLS:
+                    out.subagent_calls = (out.subagent_calls or 0) + 1
                 out.events.append(event)
                 if block.get("id"):
                     by_id[block["id"]] = event
+        model = (rec.get("message") or {}).get("model")
+        # A subagent's model is its definition's, not the run's; "<synthetic>" marks a reply Claude Code wrote itself.
+        if model and model != "<synthetic>" and rec.get("parent_tool_use_id") is None:
+            out.answered_by.add(str(model))
     elif kind == "user":
         for block in _content(rec):
             if block.get("type") == "tool_result":
@@ -134,9 +163,14 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
         out.num_turns = rec.get("num_turns")
         out.is_error = bool(rec.get("is_error"))
         out.result_subtype = rec.get("subtype")
-        usage = rec.get("usage") or {}
-        out.input_tokens = usage.get("input_tokens")
-        out.output_tokens = usage.get("output_tokens")
+        out.subagent_calls = out.subagent_calls or 0
+        if not isinstance(rec.get("usage") or {}, dict):
+            raise TypeError("usage is not an object")
+        from dokimi.harnesses.claude_json import token_counts
+        counts = token_counts(rec)
+        if counts is not None:
+            out.usage_scope, (out.input_tokens, out.output_tokens, out.cache_read_tokens,
+                              out.cache_write_tokens) = counts
         for denial in rec.get("permission_denials") or []:
             if isinstance(denial, dict) and denial.get("tool_use_id") in by_id:
                 by_id[denial["tool_use_id"]]["denied"] = True

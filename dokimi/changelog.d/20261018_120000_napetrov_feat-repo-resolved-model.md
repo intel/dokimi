@@ -1,0 +1,3 @@
+### Added
+
+- **`model_resolved` in `repo run` cells** — `meta.json` and `result.json` record the model that answered the cell, read from a `claude-stream-json` trace (the main thread's `message.model`, else the `init` event's `model`): one name, a sorted list when several answered, `null` for a `text` trace. `repo report` and `repo compare` print a warning when a cell was answered by another model than its `--model` (a Bedrock-style provider prefix such as `us.anthropic.` is not a difference), and `repo compare` also when the two arms of a comparison were answered by different models. A harness alias that pins an older model now shows up. `--json` output gains `model_resolved` per report row and per compare batch stamp, and `model_mismatch` in the report.

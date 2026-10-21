@@ -512,7 +512,7 @@ def test_factory_builds_agentic_specs(demo_skill):
 
 # ── tool-count stamp ────────────────────────────────────────────────────
 def _agentic_record(**tool_usage):
-    return {"arms": {"agent": {"agentic": True, "tool_call_count": 1, "iterations": 1,
+    return {"question_id": "q1", "arms": {"agent": {"agentic": True, "tool_call_count": 1, "iterations": 1,
                                **({"tool_usage": tool_usage} if tool_usage else {})}}}
 
 

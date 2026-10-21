@@ -276,6 +276,13 @@ code.
 - [repo-evaluation-agent-modes.md](repo-evaluation-agent-modes.md) —
   *(proposed)* how a repository task states its agent mode, effort, perf
   protocol and team rules, split from the mergeability proposal (#67).
+- [preparing-a-repository.md](preparing-a-repository.md) — what to put in a
+  repository and its environment so coding agents build, test and review it
+  well (runnable pinned commands, tool lines in `AGENTS.md`, true guidance, a
+  complete compile database, review rules), and how to measure each change.
+- [preparing-a-repository-evidence.md](preparing-a-repository-evidence.md) —
+  the runs behind each figure on that page: task set, arms, model, cell count
+  and raw count.
 
 ## Extending Dokimi
 

@@ -25,12 +25,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from dokimi.eval.diagnoser import retrieval_hit
-from dokimi.eval.question_text import (
-    has_answer_to_judge, question_text_of, require_question_text, require_question_texts,
-)
 from dokimi.llm import llm_call
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.eval.question_text import require_question_texts
+from dokimi.records import BASELINE, CONTEXT, Answer, RecordLike, records
 
 logger = logging.getLogger(__name__)
 
@@ -472,38 +470,32 @@ class JudgePanel:
                             std_aggregate=std_agg, agreement_score=agreement,
                             mean_dimensions=mean_dims)
 
-    def _score_answer_entry(self, ans_data: Optional[Dict], question: str,
+    def _score_answer_entry(self, answer: Optional[Answer], question: str,
                             library_name: str) -> Optional[PanelVerdict]:
-        if not ans_data or not ans_data.get("answer"):
+        if answer is None or not answer.text:
             return None
         # answers.v1 keeps only each doc's 200-char ``snippet``; the full text the
         # answerer was given is not persisted. That is also what the single judge
         # shows (``Judge._format_context``), so both judges see the same material.
-        # ``content`` is read as a fallback for records that do carry it.
-        ctx = "\n".join(
-            d.get("snippet") or d.get("content", "")
-            for d in ans_data.get("retrieved_docs") or [] if d
-        )
-        return self.evaluate(question, ans_data["answer"], library_name, ctx)
+        ctx = "\n".join(answer.context)
+        return self.evaluate(question, answer.text, library_name, ctx)
 
-    def evaluate_answers(self, answers: List[Dict[str, Any]], library_name: str,
+    def evaluate_answers(self, answers: List[RecordLike], library_name: str,
                          output_path: Optional[Path] = None,
                          limit: Optional[int] = None,
                          run_metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         if limit:
             answers = answers[:limit]
-        require_question_texts(answers)  # before any judge call: refuse, do not grade against ""
         results = []
         n = len(answers)
-        for i, answer in enumerate(answers, 1):
-            q_id = answer.get("question_id", answer.get("id", f"q{i}"))
-            # answers.v1 writes ``question_text``; ``question``/``text`` are the
-            # question-set spellings, accepted for hand-built inputs.
-            question = (require_question_text(answer, i - 1) if has_answer_to_judge(answer)
-                        else question_text_of(answer))
+        recs = records(answers, source="answers", kind="answers")
+        require_question_texts(r.raw for r in recs)  # before any judge call: refuse, do not grade against ""
+        for i, rec in enumerate(recs, 1):
+            q_id = rec.question_id
+            question = rec.question_text
             print(f"[{i}/{n}] Panel: {q_id}…", flush=True)
-            with_v = self._score_answer_entry(answer.get("with_docs"), question, library_name)
-            without_v = self._score_answer_entry(answer.get("without_docs"), question, library_name)
+            with_v = self._score_answer_entry(rec.answer(CONTEXT), question, library_name)
+            without_v = self._score_answer_entry(rec.answer(BASELINE), question, library_name)
             delta = None
             if (with_v and with_v.mean_aggregate is not None
                     and without_v and without_v.mean_aggregate is not None):
@@ -515,7 +507,7 @@ class JudgePanel:
                 "with_docs": _verdict_to_dict(with_v),
                 "without_docs": _verdict_to_dict(without_v),
                 "delta": delta,
-                "retrieval_hit": retrieval_hit(answer),
+                "retrieval_hit": rec.retrieval_hit,
             })
             if output_path:
                 _save_incremental(results, output_path, library_name, self, run_metadata)

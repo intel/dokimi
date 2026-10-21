@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import statistics
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
+
+from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 
 # ── Thresholds (can be overridden via spec/config) ────────────────────────────
@@ -93,16 +95,16 @@ class TrustVerdict:
 
 
 def evaluate_trust(
-    evaluations: List[Dict[str, Any]],
+    evaluations: Iterable[RecordLike],
     thresholds: Optional[Dict[str, Any]] = None,
     multirun_with_averages: Optional[List[float]] = None,
 ) -> TrustVerdict:
     """
-    Compute trust verdict from a list of evaluation dicts.
+    Compute trust verdict from a list of evaluation records.
 
     Args:
-        evaluations:   List of eval entries (the `evaluations` array of an
-                       eval.v1 artifact, e.g. eval/{product}.json)
+        evaluations:   Eval records (the `evaluations` array of an eval.v1
+                       artifact, e.g. eval/{product}.json)
         thresholds:    Override any DEFAULTS key
         multirun_with_averages:  Per-run context-arm averages from N-run mode;
                                  if provided, variance check is included.
@@ -112,11 +114,13 @@ def evaluate_trust(
     cfg = {**DEFAULTS, **(thresholds or {})}
     checks: List[TrustCheck] = []
 
+    # Every check is over the questions scored in both arms.
     valid = [
-        e for e in evaluations
-        if e.get("with_docs") and e["with_docs"].get("aggregate") is not None
-        and e.get("without_docs") and e["without_docs"].get("aggregate") is not None
+        r for r in records(evaluations, kind="evaluations")
+        if r.score(CONTEXT) is not None and r.score(BASELINE) is not None
     ]
+    with_scores: List[float] = [r.score(CONTEXT) or 0 for r in valid]
+    without_scores: List[float] = [r.score(BASELINE) or 0 for r in valid]
 
     # ── 1. Minimum question count ──────────────────────────────────────────
     n = len(valid)
@@ -132,7 +136,7 @@ def evaluate_trust(
         return TrustVerdict(checks=checks)  # can't compute anything else
 
     # ── 2. Zero-score fraction ─────────────────────────────────────────────
-    zero_with = sum(1 for e in valid if e["with_docs"]["aggregate"] == 0)
+    zero_with = sum(1 for v in with_scores if v == 0)
     zero_frac = zero_with / n
     checks.append(TrustCheck(
         name="zero_score_fraction",
@@ -144,7 +148,6 @@ def evaluate_trust(
     ))
 
     # ── 3. Minimum context-arm average ────────────────────────────────────
-    with_scores = [e["with_docs"]["aggregate"] for e in valid]
     with_avg = statistics.mean(with_scores)
     checks.append(TrustCheck(
         name="min_with_docs_avg",
@@ -156,7 +159,6 @@ def evaluate_trust(
     ))
 
     # ── 4. Minimum delta (context arm minus baseline) ─────────────────────
-    without_scores = [e["without_docs"]["aggregate"] for e in valid]
     delta_avg = statistics.mean(with_scores) - statistics.mean(without_scores)
     checks.append(TrustCheck(
         name="min_delta",
@@ -180,11 +182,7 @@ def evaluate_trust(
     ))
 
     # ── 6. Inter-rater agreement (panel judge) ────────────────────────────
-    agreement_scores = [
-        e["with_docs"].get("agreement_score")
-        for e in valid
-        if isinstance(e.get("with_docs", {}).get("agreement_score"), (int, float))
-    ]
+    agreement_scores = [a for r in valid if (a := r.scores[CONTEXT].agreement) is not None]
     if agreement_scores:
         mean_agree = statistics.mean(agreement_scores)
         checks.append(TrustCheck(
@@ -203,7 +201,7 @@ def evaluate_trust(
     # artifacts judged before that carry no retrieval outcome at all, and the
     # check reports "not measured" for them rather than a pass. So does a mix of
     # the two below ``min_retrieval_coverage``: the rate would describe a subset.
-    measured = [e["retrieval_hit"] for e in valid if isinstance(e.get("retrieval_hit"), bool)]
+    measured = [h for r in valid if (h := r.retrieval_hit) is not None]
     if measured and len(measured) / n < cfg["min_retrieval_coverage"]:
         checks.append(TrustCheck(
             name="retrieval_hit_rate",
