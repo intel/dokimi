@@ -10,7 +10,7 @@ FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903c
 # hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends git make ca-certificates curl procps \
     && rm -rf /var/lib/apt/lists/* && ln -sf /usr/local/bin/python3 /usr/bin/python3 && ln -sf /usr/local/bin/python3 /usr/bin/python
-RUN pip install --no-cache-dir uv==0.11.9
+RUN pip install --no-cache-dir uv==0.13.0
 # A configured identity, as on a contributor's machine: agents commit (and sign off) as it.
 RUN git config --system user.name "Eval Contributor" && git config --system user.email "contributor@example.com"
 COPY dokimi/requirements.lock.txt dokimi/requirements.txt dokimi/requirements-test.txt /opt/dokimi-req/

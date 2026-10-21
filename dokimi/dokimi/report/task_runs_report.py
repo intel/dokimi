@@ -138,6 +138,57 @@ def _mcnemar_lines(cmp: dict[str, Any], baseline: str | None) -> list[str]:
     return lines
 
 
+def _fmt_rate(v: Any) -> str:
+    return f"{v*100:.0f}%" if isinstance(v, (int, float)) and not isinstance(v, bool) else "—"
+
+
+def _discovery_lines(data: dict[str, Any]) -> list[str]:
+    """The ``-skill-discover`` arms beside their with-skill pair (``summary.discovery_gaps``)."""
+    gaps = data.get("summary", {}).get("discovery_gaps") or {}
+    # Counted over every discovery row (notice off), paired or not, as run.log warns.
+    cut = sum(1 for r in data.get("results", []) if r.get("metrics", {}).get("skill_notice") is False
+              and (r.get("metrics", {}).get("skill_listing") or {}).get("truncated"))
+    note = ([f"_⚠️ {cut} discovery row(s) ran with a description longer than the "
+             "skill listing shows; the agent saw only its start._", ""] if cut else [])
+    if not gaps:
+        return note
+    lines = [
+        "## Skill discovery",
+        "",
+        "_The discovery arm installs the same skill as its with-skill arm but does "
+        "not announce it, so the agent finds it by its description or not at all. "
+        "Gap = with-skill pass rate − discovery pass rate; skill invoked = rows "
+        "that loaded the skill with the `Skill` tool._",
+        "",
+        "| Discovery arm | With-skill pass | Discovery pass | Gap | "
+        "With-skill invoked | Discovery invoked |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for h, g in gaps.items():
+        gap = g.get("gap")
+        if isinstance(gap, (int, float)):
+            gap_s = f"{gap*100:+.2f} pp"
+        elif g.get("with_skill_pass_rate") is None or g.get("discover_pass_rate") is None:
+            gap_s = "— (no scored cells)"
+        else:
+            # Artifacts from before the two flags were recorded get the combined reading.
+            ran, lost = g.get("attempted_cells_match"), g.get("errored_cells_match")
+            if ran is False and lost is False:
+                gap_s = "— (arms ran and lost different cells)"
+            elif ran is False:
+                gap_s = "— (arms ran different cells)"
+            elif lost is False:
+                gap_s = "— (arms lost different cells)"
+            else:
+                gap_s = "— (arms ran or lost different cells)"
+        lines.append(f"| `{h}` | {_fmt_rate(g.get('with_skill_pass_rate'))} | "
+                     f"{_fmt_rate(g.get('discover_pass_rate'))} | {gap_s} | "
+                     f"{_fmt_rate(g.get('with_skill_invocation_rate'))} | "
+                     f"{_fmt_rate(g.get('discover_invocation_rate'))} |")
+    lines.append("")
+    return lines + note
+
+
 def render_task_runs_report(data: dict[str, Any]) -> str:
     """Render a ``task_runs.v1`` artifact as Markdown."""
     lines: list[str] = []
@@ -285,6 +336,7 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
                          f"{cr.get('operation_count_delta', 0):+} | {cd_s} |")
         lines.append("")
         lines.extend(_mcnemar_lines(cmp, baseline))
+    lines.extend(_discovery_lines(data))
 
     # ── per-task pass + cost (one column pair per harness) ──
     lines.append("## Per-task pass + cost")

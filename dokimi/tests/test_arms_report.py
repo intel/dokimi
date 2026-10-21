@@ -21,7 +21,7 @@ def test_report_escapes_question_text_in_table():
         "total_questions": 1,
         "answers": [],
         "evaluations": [
-            {"question_text": "What | how\nnewline?",
+            {"question_id": "q1", "question_text": "What | how\nnewline?",
              "scores": {"baseline": {"aggregate": 70}}}
         ],
         "summary": {"per_arm": {"baseline": {"avg_aggregate": 70.0, "n": 1}}},
@@ -207,7 +207,7 @@ def test_report_renders_agentic_section():
         "library_name": "oneTBB", "model": "m", "provider": "openai",
         "arms": ["agent"], "baseline_arm": "baseline", "total_questions": 1,
         "answers": [
-            {"arms": {"agent": {"agentic": True, "tool_call_count": 2, "iterations": 3}}}
+            {"question_id": "q1", "arms": {"agent": {"agentic": True, "tool_call_count": 2, "iterations": 3}}}
         ],
     }
     md = render_arms_report(data)

@@ -5,11 +5,14 @@
 
 The pages link into the source tree with relative paths (``../dokimi/eval/judge.py``,
 ``../../README.md``), which resolve when the Markdown is read on GitHub. The site
-only contains ``docs/``, so those links would 404 there; this rewrites them to
-``<repo_url>/blob/main/<path>`` (``tree`` for directories, ``raw`` for images) before
-the page is rendered. Links inside ``docs/``, absolute URLs and links whose target
-does not exist are left alone, so mkdocs reports a missing target and ``--strict``
-fails on it. An anchor into a file outside ``docs/`` is not checked.
+only contains ``docs/``, so those links would 404 there. A treeprocessor rewrites
+``a[href]`` and ``img[src]`` to ``<repo_url>/blob/main/<path>`` (``tree`` for
+directories, ``raw`` for images) before mkdocs resolves them. Code is never
+rewritten, because it is not a link element. Links inside ``docs/``, absolute URLs
+and links whose target does not exist are left alone, so mkdocs reports a missing
+target and ``--strict`` fails on it. An anchor into a file outside ``docs/`` is
+not checked. A relative ``href`` or ``src`` in raw HTML cannot be rewritten here
+(the parser stashes it); that page gets a warning instead.
 
 The pages are written to read on GitHub too, and Python-Markdown parses lists
 differently from GitHub: a nested item needs 4 spaces of indentation, and a list
@@ -27,54 +30,112 @@ import posixpath
 import re
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 from markdown_it import MarkdownIt
 
 log = logging.getLogger("mkdocs.hooks.dokimi")
 
-# Inline links `[text](target)` and reference definitions `[id]: target`.
-_INLINE = re.compile(r"(\]\()([^)\s]+)(\))")
-_REFDEF = re.compile(r"^(\s*\[[^\]]+\]:\s*)(\S+)", re.MULTILINE)
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+# Set in on_page_markdown, read by the treeprocessor during the following convert,
+# cleared in on_page_content. MkDocs renders one page at a time, after that hook
+# returns; Markdown rendered outside a page body is not rewritten.
+_page = None
+_config = None
 
 
-def _is_image(markdown: str, close: int) -> bool:
-    """Whether the `]` at ``close`` ends the text of an image, `![...]`."""
-    depth = 0
-    for i in range(close, -1, -1):
-        if markdown[i] == "]":
-            depth += 1
-        elif markdown[i] == "[":
-            depth -= 1
-            if depth == 0:
-                return i > 0 and markdown[i - 1] == "!"
-    return False
+def _rewrite(target: str, *, image: bool, docs_dir: Path, repo_root: Path, base: str,
+             page_dir: str, page_uri: str) -> str:
+    if target.startswith(("#", "/")) or _SCHEME.match(target):
+        return target
+    rest, hsep, frag = target.partition("#")
+    path, qsep, query = rest.partition("?")
+    resolved = (docs_dir / page_dir / unquote(path)).resolve()
+    if resolved.is_relative_to(docs_dir) or not resolved.exists():
+        return target
+    if not resolved.is_relative_to(repo_root):
+        log.warning("Doc file '%s' links to '%s', which is outside the repository",
+                    page_uri, target)
+        return target
+    rel = resolved.relative_to(repo_root).as_posix()
+    kind = "tree" if resolved.is_dir() else "raw" if image else "blob"
+    return f"{base}/{kind}/main/{quote(rel)}{qsep}{query}{hsep}{frag}"
 
 
-def on_page_markdown(markdown, page, config, files):
+def rewrite_tree(root, page, config) -> None:
+    """Rewrite link and image targets on a parsed element tree. Code is not an element."""
     docs_dir = Path(config["docs_dir"]).resolve()
     repo_root = Path(config["config_file_path"]).resolve().parents[1]
     base = config["repo_url"].rstrip("/")
     page_dir = posixpath.dirname(page.file.src_uri)
+    page_uri = page.file.src_uri
+    for el in root.iter():
+        if el.tag == "a" and el.get("href"):
+            el.set("href", _rewrite(el.get("href"), image=False, docs_dir=docs_dir,
+                                    repo_root=repo_root, base=base, page_dir=page_dir,
+                                    page_uri=page_uri))
+        elif el.tag == "img" and el.get("src"):
+            el.set("src", _rewrite(el.get("src"), image=True, docs_dir=docs_dir,
+                                   repo_root=repo_root, base=base, page_dir=page_dir,
+                                   page_uri=page_uri))
 
-    def rewrite(target: str, image: bool = False) -> str:
-        if target.startswith(("#", "/")) or _SCHEME.match(target):
-            return target
-        path, sep, frag = target.partition("#")
-        resolved = (docs_dir / page_dir / path).resolve()
-        if resolved.is_relative_to(docs_dir) or not resolved.exists():
-            return target
-        if not resolved.is_relative_to(repo_root):
-            log.warning("Doc file '%s' links to '%s', which is outside the repository",
-                        page.file.src_uri, target)
-            return target
-        rel = resolved.relative_to(repo_root).as_posix()
-        kind = "tree" if resolved.is_dir() else "raw" if image else "blob"
-        return f"{base}/{kind}/main/{rel}{sep}{frag}"
 
-    markdown = _INLINE.sub(
-        lambda m: m[1] + rewrite(m[2], _is_image(m.string, m.start())) + m[3], markdown)
-    return _REFDEF.sub(lambda m: m[1] + rewrite(m[2]), markdown)
+class _RawHtmlLinks(HTMLParser):
+    """The relative ``href``/``src`` targets in the start tags of an HTML fragment."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found: list[tuple[str, str]] = []
+
+    def handle_starttag(self, tag, attrs):
+        for name, value in attrs:
+            if name in ("href", "src") and value:
+                if not value.startswith(("#", "/")) and not _SCHEME.match(value):
+                    self.found.append((name, value))
+
+
+def _warn_raw_html(fragments, page) -> None:
+    for fragment in fragments:
+        parser = _RawHtmlLinks()
+        parser.feed(fragment)
+        for attr, url in parser.found:
+            log.warning(
+                "Doc file '%s' has a relative %s in raw HTML (%r); the site does not rewrite it",
+                page.file.src_uri, attr, url,
+            )
+
+
+def on_config(config, **kwargs):
+    """Register the link rewriter above mkdocs' ``relpath`` treeprocessor (priority 0)."""
+    try:
+        from markdown.extensions import Extension
+        from markdown.treeprocessors import Treeprocessor
+    except ImportError:
+        log.warning("Python-Markdown is not installed; links that leave docs/ will 404 on the site")
+        return config
+
+    class _GithubLinks(Treeprocessor):
+        def run(self, root):
+            if _page is not None and _config is not None:
+                rewrite_tree(root, _page, _config)
+                _warn_raw_html(self.md.htmlStash.rawHtmlBlocks, _page)
+
+    class _GithubLinksExtension(Extension):
+        dokimi_github_links = True
+
+        def extendMarkdown(self, md):
+            md.treeprocessors.register(_GithubLinks(md), "dokimi_github_links", 15)
+
+    extensions = config.setdefault("markdown_extensions", [])
+    if not any(getattr(item, "dokimi_github_links", False) for item in extensions):
+        extensions.append(_GithubLinksExtension())
+    return config
+
+
+def on_page_markdown(markdown, page, config, files):
+    global _page, _config
+    _page, _config = page, config
+    return markdown
 
 
 class _Items(HTMLParser):
@@ -143,6 +204,8 @@ def on_nav(nav, config, files):
 
 
 def on_page_content(html, page, config, files):
+    global _page, _config
+    _page, _config = None, None
     if page.file.generated_by is None:  # the generated reference pages are not read on GitHub
         problem = list_mismatch(page.file.content_string, html)
         if problem:

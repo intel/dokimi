@@ -10,9 +10,9 @@
   record. A record the path would skip anyway is not refused: an answer-error
   record with no answer, a record with only empty answers, one without expected
   points (`eval checklist`), one without a baseline answer or with only arms left
-  out by `--arms` (`eval pairwise`), one whose answers are all under the
-  degradation length floor, and one without a question id (the degradation
-  pairs). `arms run --judge` checks every question before any answer is paid
+  out by `--arms` (`eval pairwise`), and one whose answers are all under the
+  degradation length floor (a record without a question id is a `RecordError`,
+  see the records entry). `arms run --judge` checks every question before any answer is paid
   for. Before, `eval score` recorded a per-question error only when the key was
   missing, the degradation pairs skipped the record silently, RAGAS reported a
   warning, and the other paths sent an empty question to the judge. The CLI

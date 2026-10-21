@@ -5,11 +5,18 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from dokimi.eval.stats import point_biserial
 from dokimi.novelty.items import (
     MIN_DISCRIMINATION,
+    ProbeFileError,
     discrimination,
+    item_analysis,
     kind_agreement,
+    load_probe_cells,
 )
 from dokimi.novelty.measure import BASELINE_ARM, ERRORED, ProbeRun
 
@@ -251,3 +258,82 @@ def test_markdown_does_not_print_a_floor_that_was_not_applied():
         "n_atoms": 9, "n_non_discriminating": 0, "n_negative": 3,
         "models": ["a", "b", "c"]}}}))
     assert "r=None" not in text and "floor not applied to 9 atoms" in text
+
+
+def _probe_file(tmp_path, name, atoms, **fields):
+    runs = [{"atom_id": a, "probe_kind": "direct", "arm": arm, "verdict": "correct_complete"}
+            for a in atoms for arm in (BASELINE_ARM, "full")]
+    path = tmp_path / name
+    path.write_text(json.dumps({"model": name, "runs": runs, **fields}), encoding="utf-8")
+    return str(path)
+
+
+def test_probe_files_load_as_cells_and_warn_on_different_atom_sets(tmp_path):
+    a = _probe_file(tmp_path, "a.json", ["x", "y"], artifact="skill:s", ref_digest="d")
+    b = _probe_file(tmp_path, "b.json", ["x"])      # older output: no artifact, no digest
+    cells, warnings = load_probe_cells([a, b])
+    assert [(c["model"], c["source"], len(c["runs"])) for c in cells] == [
+        ("a.json", a, 4), ("b.json", b, 2)]
+    assert len(warnings) == 1 and "same atom set" in warnings[0]
+    record = item_analysis(cells, arm="full")
+    assert sorted(record) == ["cells", "discrimination", "kind_agreement"]
+    assert sorted(record["kind_agreement"]) == sorted([a, b])    # keyed by file, not model
+
+
+@pytest.mark.parametrize("payload, message", [
+    ({"runs": []}, "carries no probe runs"),
+    ({"runs": [{"atom_id": "x"}]}, "missing 'probe_kind'"),
+    ({"runs": None}, "`runs` as NoneType, not a list"),
+    ({"runs": [1]}, "a run entry as int, not an object"),
+    ([1], "is list, not an object"),
+])
+def test_a_file_that_is_not_probe_output_is_refused(tmp_path, payload, message):
+    path = tmp_path / "p.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ProbeFileError, match=message):
+        load_probe_cells([str(path)])
+
+
+def test_runs_of_different_texts_are_not_correlated(tmp_path):
+    a = _probe_file(tmp_path, "a.json", ["x"], artifact="skill:s")
+    b = _probe_file(tmp_path, "b.json", ["x"], artifact="skill:t")
+    with pytest.raises(ProbeFileError, match="measured different texts"):
+        load_probe_cells([a, b])
+
+
+def test_item_analysis_respects_arm_parameter_in_discrimination():
+    # item_analysis() must pass arm= through to discrimination(), not hardcode "full".
+    # Discrimination needs three models as respondents. Full passes every atom for
+    # every model (no variance, nothing to discriminate); placebo varies by model.
+    atoms = ["a1", "a2", "a3", "a4"]
+    placebo_pass = {"m1": [True, True, False, False],
+                    "m2": [True, False, True, False],
+                    "m3": [False, True, True, False]}
+    cells = []
+    for model, passes in placebo_pass.items():
+        runs = []
+        for atom, ok in zip(atoms, passes, strict=True):
+            runs.append(_run(atom, "direct", "placebo", ok))
+            runs.append(_run(atom, "paraphrase", "placebo", ok))
+            runs.append(_run(atom, "direct", "full", True))
+            runs.append(_run(atom, "paraphrase", "full", True))
+        cells.append({"model": model, "source": f"{model}.json", "runs": runs})
+
+    placebo = item_analysis(cells, arm="placebo")["discrimination"]["lenient"]
+    full = item_analysis(cells, arm="full")["discrimination"]["lenient"]
+    assert placebo == discrimination(cells, scoring="lenient", arm="placebo")
+    assert placebo != full, "arm= must reach discrimination(); dropping it scores the full arm"
+
+
+def test_item_analysis_respects_arm_parameter_in_kind_agreement():
+    # item_analysis() must pass arm= through to kind_agreement(), not hardcode "full".
+    runs = [
+        _run("a1", "direct", "placebo", True), _run("a1", "paraphrase", "placebo", True),
+        _run("a1", "direct", "full", True), _run("a1", "paraphrase", "full", False),
+    ]
+    cells = [{"model": "m1", "source": "file.json", "runs": runs}]
+    result_placebo = item_analysis(cells, arm="placebo")
+    result_full = item_analysis(cells, arm="full")
+    # Placebo: both kinds agree (both correct), agreement=1.0; Full: they disagree, agreement=0.0
+    assert result_placebo["kind_agreement"]["file.json"]["agreement"] == 1.0
+    assert result_full["kind_agreement"]["file.json"]["agreement"] == 0.0
