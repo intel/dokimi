@@ -54,6 +54,22 @@ def test_parse_frontmatter_strips_bom_when_no_frontmatter():
     assert body == "hello"  # BOM removed
 
 
+def test_parse_frontmatter_opening_fence_must_be_exactly_three_dashes():
+    # A thematic break or a "--- title" line opens nothing: the closing-fence rule
+    # is "exactly ---", and the opening line gets the same rule.
+    for first in ("-----", "--- not a fence", "---x", "  ---"):
+        text = f"{first}\nintro paragraph\n---\nrest"
+        meta, body = parse_frontmatter(text)
+        assert meta == {}
+        assert body == text
+
+
+def test_parse_frontmatter_unterminated_strips_bom():
+    meta, body = parse_frontmatter("\ufeff---\nname: x\nnever closed")
+    assert meta == {}
+    assert body == "---\nname: x\nnever closed"
+
+
 # ── baseline arm ────────────────────────────────────────────────────────
 def test_baseline_treatment():
     t = BaselineTreatment()

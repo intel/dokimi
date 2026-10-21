@@ -20,6 +20,15 @@ def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
     return printable[:max_len]
 
 
+def _write_json(path: str, payload: dict) -> None:
+    """Write a --out report as JSON, or exit 1 with `cannot write`."""
+    try:
+        Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(f"✗ cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_repo_validate(args: argparse.Namespace) -> None:
     """Validate a repository's repo-eval.yaml and its tasks against one snapshot."""
     from dokimi.repos import ManifestError, RepoSource, SourceError, check_repo, open_source
@@ -37,6 +46,8 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
     if open_base is None:
         report.notes.append("task bases were not checked: the source has no git history")
 
+    if args.out:
+        _write_json(args.out, report.to_dict())
     if args.json:
         print(json.dumps(report.to_dict(), indent=2))
     else:
@@ -58,7 +69,7 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
             print(f"  note: {note}")
         for error in report.errors:
             print(f"  error: {error}", file=sys.stderr)
-    if not report.ok:
+    if not report.ok or (args.fail_on_warning and report.warnings):
         sys.exit(1)
 
 
@@ -167,7 +178,10 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     assert isinstance(tree, GitTree)
-    print(f"{tree.sha}\t{tree.git_dir}")
+    if args.json:
+        print(json.dumps({"sha": tree.sha, "git_dir": str(tree.git_dir)}, indent=2))
+    else:
+        print(f"{tree.sha}\t{tree.git_dir}")
 
 
 def cmd_repo_reach(args: argparse.Namespace) -> None:
@@ -240,6 +254,8 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     payload = budget(tree, profile.guidance_names, profile.import_max_depth)
+    if args.out:
+        _write_json(args.out, payload)
     if args.json:
         print(json.dumps(payload, indent=2))
     else:
@@ -339,7 +355,10 @@ def register(sub, positive_int) -> None:
                             help="Read the manifest from this local file instead of from the tree, as if it were "
                             "at --manifest (for a repository that has not added it yet)")
     validate_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
+    validate_p.add_argument("--out", default=None, help="Write the full report as JSON to this file")
     validate_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
+    validate_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
+                            help="Exit 1 when the report has any warning (for a CI gate)")
     validate_p.set_defaults(func=cmd_repo_validate)
 
     scan_p = repo_sub.add_parser(
@@ -386,6 +405,7 @@ def register(sub, positive_int) -> None:
 
     fetch_p = repo_sub.add_parser("fetch", help="Clone/fetch a pinned source and print its commit SHA")
     fetch_p.add_argument("source", help=source_help)
+    fetch_p.add_argument("--json", action="store_true", help="Print {sha, git_dir} as JSON instead of tab-separated")
     fetch_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     fetch_p.set_defaults(func=cmd_repo_fetch)
 
@@ -439,6 +459,7 @@ def register(sub, positive_int) -> None:
                           help="Built-in profile name or a harness_profile.v1 YAML path; its guidance names "
                           "supply the file names, but the classification rules (root vs nested, off rule) are "
                           "hardcoded to Claude Code until other harnesses are measured (default: claude-code)")
+    budget_p.add_argument("--out", default=None, help="Write the full inventory as JSON to this file")
     budget_p.add_argument("--json", action="store_true", help="Print the full inventory as JSON")
     budget_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
                           help="Exit 1 when any warning is printed (for a CI gate)")

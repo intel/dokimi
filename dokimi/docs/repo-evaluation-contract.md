@@ -15,8 +15,8 @@ SPDX-License-Identifier: Apache-2.0
 > subject kind:
 >
 > ```bash
-> python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json]
-> python cli.py repo fetch <url@rev>     # bare, blob-less clone cached per URL
+> python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json] [--out FILE] [--fail-on-warning]
+> python cli.py repo fetch <url@rev> [--json]     # bare, blob-less clone cached per URL
 > ```
 >
 > Slice S3 adds harness profiles (§6) and the reach probe (§7):
@@ -45,7 +45,7 @@ SPDX-License-Identifier: Apache-2.0
 > Usage:
 >
 > ```bash
-> python cli.py repo budget <source> [--harness claude-code] [--json] [--fail-on-warning]
+> python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on-warning]
 > ```
 >
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
