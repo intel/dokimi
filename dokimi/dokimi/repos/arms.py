@@ -173,7 +173,9 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
         skills = resolve_skills(arm, content_dir)
         names = {s.name for s in skills}
         drops = arm.patch is None and (arm.base == "guidance:none" or arm.rev_sha is not None)
-        for task in tasks if git_dir and skills else ():
+        for task in tasks if skills else ():
+            if git_dir is None:
+                break
             if task.base not in shipped:
                 shipped[task.base] = _base_skill_files(git_dir, task.base)
             left = [p for p in shipped[task.base]
