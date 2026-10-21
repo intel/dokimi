@@ -411,6 +411,8 @@ def test_the_isolation_probe_script_reports_what_it_names(tmp_path):
     (image / "usr/bin/fix_pip").write_text("", encoding="utf-8")  # a task's name left in the image
     named = probe("fix_pip")
     assert named.returncode == 1 and "named like a task" in named.stdout, named.stdout
+    if os.geteuid() == 0:  # root writes through 0o500, so mktemp cannot be made to fail
+        return
     tmp.chmod(0o500)  # the list is a mktemp file under TMPDIR: an unwritable one stops the probe
     try:
         refused = probe("fix_pip")
