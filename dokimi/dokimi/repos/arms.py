@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import yaml
+
 SKILL_KINDS = ("skill", "skill-catalog")
 SKILLS_DIR = ".claude/skills"
 
@@ -95,17 +97,21 @@ def _named(arm: Any, directory: Path, written: str) -> Skill:
 
 
 def _frontmatter_name(skill_md: Path) -> str | None:
-    """``name`` in the YAML frontmatter of ``skill_md``, ``None`` without one."""
-    lines = skill_md.read_text(encoding="utf-8", errors="replace").splitlines()
+    """Top-level ``name`` in the YAML frontmatter of ``skill_md``, ``None`` without one (or unreadable YAML)."""
+    lines = skill_md.read_text(encoding="utf-8-sig", errors="replace").splitlines()
     if not lines or lines[0].strip() != "---":
         return None
+    block: list[str] = []
     for line in lines[1:]:
         if line.strip() == "---":
             break
-        key, sep, value = line.partition(":")
-        if sep and key.strip() == "name":
-            return value.strip().strip("\"'") or None
-    return None
+        block.append(line)
+    try:
+        meta = yaml.safe_load("\n".join(block))
+    except yaml.YAMLError:
+        return None
+    name = meta.get("name") if isinstance(meta, dict) else None
+    return str(name).strip() or None if name is not None else None
 
 
 def _uncopyable(skill_dir: Path) -> tuple[Path, str] | None:

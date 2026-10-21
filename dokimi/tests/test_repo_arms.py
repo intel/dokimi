@@ -543,3 +543,36 @@ def test_pin_arms_shares_one_cell_for_two_paths_to_the_same_patch(toy, capsys):
     assert err.count("share one cell") == 1
     assert f"{same_bytes.resolve()} and {a.resolve()} are the same patch" in err
     assert f"meta.json names {a.resolve()}" in err
+
+
+def _toy_skill(toy, name="lint"):
+    write(toy["tmp"] / "content", f"skills/{name}/SKILL.md", f"---\nname: {name}\ndescription: x\n---\nDo it.\n")
+
+
+@pytest.mark.parametrize("arm", ["skill:skills/lint", "guidance:raw+skill:skills/lint"])
+def test_a_raw_arm_with_a_skill_leaves_the_repository_guidance_alone(toy, arm):
+    _toy_skill(toy)
+    meta = prepare_workspace(toy["git_dir"], toy["manifest"], toy["tasks"]["fix_add"], arm, toy["tmp"] / "rd",
+                             content_dir=toy["tmp"] / "content")
+    ws = toy["tmp"] / "rd" / "workspace"
+    assert meta["arm_files"] == [] and [s["name"] for s in meta["skills"]] == ["lint"]
+    assert (ws / "AGENTS.md").read_text() == "# guidance\n" and (ws / "sub/AGENTS.md").is_file()
+    assert (ws / ".claude/skills/lint/SKILL.md").is_file()
+
+
+def test_a_bridge_arm_with_a_skill_still_needs_a_bridge_key(toy):
+    _toy_skill(toy)
+    with pytest.raises(PrepError, match="needs a harness profile"):
+        prepare_workspace(toy["git_dir"], toy["manifest"], toy["tasks"]["fix_add"],
+                          "guidance:bridge+skill:skills/lint", toy["tmp"] / "rd", content_dir=toy["tmp"] / "content")
+
+
+def test_a_pinned_rev_arm_keeps_its_skill(toy):
+    _toy_skill(toy)
+    arm = pin_arm(parse_arm("guidance:rev:pr+skill:skills/lint"), toy["git_dir"])
+    assert str(arm) == f"guidance:rev:{toy['pr']}+skill:lint"
+    assert arm.skills == (("skill", "skills/lint"),) and arm.base == f"guidance:rev:{toy['pr']}"
+    meta = prepare_workspace(toy["git_dir"], toy["manifest"], toy["tasks"]["fix_add"], arm, toy["tmp"] / "rd",
+                             content_dir=toy["tmp"] / "content")
+    assert [s["name"] for s in meta["skills"]] == ["lint"] and meta["arm_rev"]["sha"] == toy["pr"]
+    assert (toy["tmp"] / "rd/workspace/AGENTS.md").read_text() == "# pr guidance\n"

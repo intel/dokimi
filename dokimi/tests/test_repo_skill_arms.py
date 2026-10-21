@@ -93,6 +93,16 @@ def test_skill_usage_from_skill_calls_and_skill_md_reads():
     assert plugin["skill_invoked"] is True and plugin["skill_selected_correct"] is True
 
 
+def test_only_a_read_of_skill_md_counts_as_using_a_skill():
+    for path in (".claude/skills/lint/references/x.md", ".claude/skills/lint/notes.md"):
+        used = skill_usage([{"kind": "read", "path": path}], ["lint"], "lint")
+        assert used["skills_used"] == [] and used["skill_invoked"] is False
+    twice = skill_usage([{"kind": "tool", "name": "Skill", "skill": "lint"},
+                         {"kind": "tool", "name": "Skill", "skill": "lint"},
+                         {"kind": "read", "path": ".claude/skills/lint/SKILL.md"}], ["lint"], "lint")
+    assert twice["skills_used"] == ["lint"]
+
+
 def test_an_older_claude_code_names_the_skill_in_command():
     raw = json.dumps({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "a", "name": "Skill", "input": {"command": "lint"}}]}})
@@ -381,3 +391,20 @@ def test_repo_compare_selects_a_skill_arm_named_from_a_path_with_slashes():
     assert parse_selector(arm) == (None, arm)
     assert parse_selector(f"b1/{arm}") == ("b1", arm)
     assert selector_matches(parse_selector(f"b1/{arm}"), {"arm": arm, "batch": "b1"})
+
+
+@pytest.mark.parametrize("front", [
+    "name: lint # the linter\ndescription: x",
+    "name: >\n  lint\ndescription: x",
+    "metadata:\n  name: other\nname: lint\ndescription: x",
+    "description: |\n  name: foo\nname: lint",
+    "name: lint\nmetadata:\n  name: other",
+])
+def test_a_valid_frontmatter_name_is_read_from_the_top_level_key_only(tmp_path, front):
+    write(tmp_path, "skills/lint/SKILL.md", f"---\n{front}\n---\nname: other\nBody.\n")
+    assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]
+
+
+def test_a_nested_name_alone_is_not_the_skill_name(tmp_path):
+    write(tmp_path, "skills/lint/SKILL.md", "---\nmetadata:\n  name: other\n---\nBody.\n")
+    assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]
