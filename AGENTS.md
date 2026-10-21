@@ -34,13 +34,20 @@ also holds a PR to:
 - No growth: a file over 800 lines (tests 1000) or a function over complexity 10
   fails unless `scripts/growth_baseline.json` holds it, and then it may only
   shrink. Split instead; after shrinking, `python scripts/check_growth.py --update`.
+- Tests that check behaviour: `tests/test_audit_test_quality.py` fails a test that only
+  checks types, echoes its input, only checks a mock was called, asserts nothing or
+  repeats another (`python scripts/audit_test_quality.py` lists them).
 - Docs that name a command, flag, path or module must match the tree
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
   network calls.
 - User outcomes (`tests/outcomes/*.json`, checked by `pytest --outcomes`): a
   test marked `@pytest.mark.outcome(...)` is evidence for a promise in the docs;
-  weaken or drop it only together with the doc and the contract.
+  weaken or drop it only together with the doc and the contract. The same
+  session checks the journey trace (`tests/outcomes/journeys.yaml` against
+  `docs/user-journeys/journeys.md`) and writes `journeys-result.json`; removing
+  a marked `cjm-*` test fails it, even when `outcomes-result.json` says pass,
+  if the criterion it evidences has `enforce: true`.
 
 ## Before changing a subsystem, read its doc
 

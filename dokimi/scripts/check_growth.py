@@ -57,13 +57,13 @@ PROJECT = Path(__file__).resolve().parents[1]
 BASELINE = PROJECT / "scripts" / "growth_baseline.json"
 
 #: Production code (``dokimi/``, ``scripts/``, ``cli.py``). When the gate was added
-#: 6 of 224 files were over 800 lines; the next largest had 766.
+#: only a handful of files were over 800 lines; the next largest had 766.
 PROD_LINE_CAP = 800
-#: Tests group many cases per module: 8 of 167 are over 1000 lines, 4 over 1200.
+#: Tests group many cases per module, so their cap is higher than for production code.
 TEST_LINE_CAP = 1000
 #: Per-function cyclomatic complexity, as ruff's C901 counts it. 10 is mccabe's and
 #: ruff's default ``max-complexity``, so C901 can later be switched on in ruff with
-#: the same number; 80 of 6548 functions are over it at this commit.
+#: the same number; the baseline records the functions over it.
 COMPLEXITY_CAP = 10
 #: A raised or added baseline entry says why in at most this many characters.
 RATIONALE_MAX = 300

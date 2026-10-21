@@ -12,10 +12,10 @@ import dokimi.llm as llm_mod
 from dokimi.eval import Judge
 
 
-def test_judge_accepts_and_stores_sampling_params():
+def test_judge_hands_sampling_params_to_its_client_and_output():
     j = Judge(model="m", provider="openai", temperature=0.0, seed=7)
-    assert j.temperature == 0.0
-    assert j.seed == 7
+    assert (j.llm.temperature, j.llm.seed) == (0.0, 7)
+    assert j._build_evaluation_output([])["judge_temperature"] == 0.0
 
 
 def test_judge_defaults_leave_sampling_unset():

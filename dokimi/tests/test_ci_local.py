@@ -107,9 +107,16 @@ def test_job_and_workflow_env_reach_the_step(env: dict[str, Any]) -> None:
 
 def test_unevaluable_condition_runs_step_with_notice(env: dict[str, Any], capsys: Any) -> None:
     """An `if:` outside the supported grammar does not crash the run."""
-    for expr in ("failure()", "github.ref == 'refs/heads/main'", "contains(github.event.labels.*.name, 'x')"):
+    for expr in ("github.ref == 'refs/heads/main'", "contains(github.event.labels.*.name, 'x')"):
         assert cl.Context("main", PYV, Path(".")).condition(expr) is True
     assert "NOTICE: cannot evaluate" in capsys.readouterr().out
+
+
+def test_failure_condition_is_false_locally() -> None:
+    """A local run has no failed job: pip-audit.yml's `report` job (which opens an issue) is skipped."""
+    ctx = cl.Context("main", PYV, Path("."))
+    assert ctx.condition("${{ failure() && github.event_name == 'schedule' }}") is False
+    assert ctx.condition("failure()") is False
 
 
 def test_tool_specs_keep_each_requirement_file_flagged(env: dict[str, Any]) -> None:

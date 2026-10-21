@@ -83,10 +83,10 @@ class TestRagasSeedExtractorInit:
 # ---------------------------------------------------------------------------
 
 class TestExtractTopics:
-    def test_returns_list(self, extractor):
+    def test_returns_the_llm_topics_in_order(self, extractor):
         topics = extractor.extract_topics("uxlfoundation/oneTBB", "oneTBB")
-        assert isinstance(topics, list)
-        assert len(topics) > 0
+        assert topics == ["parallel_for", "task_arena", "flow_graph",
+                          "blocked_range", "concurrent_vector"]
 
     def test_respects_max_topics(self, extractor):
         topics = extractor.extract_topics("uxlfoundation/oneTBB", "oneTBB", max_topics=3)
@@ -118,16 +118,17 @@ class TestExtractTopics:
     def test_no_mcp_client_returns_fallback(self, mock_llm):
         e = RagasSeedExtractor(llm=mock_llm)
         topics = e.extract_topics("uxlfoundation/oneTBB", "oneTBB")
-        # With no MCP, docs are empty → heuristic/fallback runs
-        assert isinstance(topics, list)
-        assert len(topics) > 0
+        # With no MCP, docs are empty: the generic fallback, without asking the LLM
+        assert topics == RagasSeedExtractor._fallback_topics("oneTBB")
+        mock_llm.invoke.assert_not_called()
 
     def test_mcp_error_returns_fallback(self, mock_llm):
         bad_client = Mock()
         bad_client.get_library_docs.side_effect = Exception("Network error")
         e = RagasSeedExtractor(mcp_client=bad_client, llm=mock_llm)
         topics = e.extract_topics("uxlfoundation/oneTBB", "oneTBB")
-        assert isinstance(topics, list)
+        assert topics == RagasSeedExtractor._fallback_topics("oneTBB")
+        mock_llm.invoke.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -159,16 +160,16 @@ class TestExtractViaLLM:
     def test_invalid_json_falls_back_to_heuristic(self, mock_llm):
         mock_llm.invoke.return_value.content = "Not JSON at all"
         e = RagasSeedExtractor(llm=mock_llm)
-        # Should not raise; falls back to heuristic
+        # Should not raise; falls back to heuristic (the :: name and its code span, deduplicated)
         topics = e._extract_via_llm("Use `tbb::parallel_for` here.", "oneTBB", max_topics=10)
-        assert isinstance(topics, list)
+        assert topics == ["tbb::parallel_for"]
 
     def test_no_llm_uses_heuristic(self):
         e = RagasSeedExtractor()
         topics = e._extract_via_llm(
             "Use `tbb::parallel_for` and `tbb::task_arena`.", "oneTBB", max_topics=10
         )
-        assert isinstance(topics, list)
+        assert topics == ["tbb::parallel_for", "tbb::task_arena"]
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +201,8 @@ class TestExtractHeuristic:
 
     def test_empty_docs_returns_fallback(self):
         topics = RagasSeedExtractor._extract_heuristic("", "oneTBB", max_topics=10)
-        assert len(topics) > 0
+        assert topics == RagasSeedExtractor._fallback_topics("oneTBB")
+        assert "installation" in topics
 
 
 # ---------------------------------------------------------------------------
@@ -229,9 +231,10 @@ class TestFetchDocs:
     def test_calls_mcp_client(self, mock_mcp_client):
         e = RagasSeedExtractor(mcp_client=mock_mcp_client)
         result = e._fetch_docs("uxlfoundation/oneTBB", "oneTBB", max_tokens=1000)
-        assert isinstance(result, str)
-        assert len(result) > 0
-        mock_mcp_client.get_library_docs.assert_called_once()
+        assert result == mock_mcp_client.get_library_docs.return_value[0]["content"]
+        mock_mcp_client.get_library_docs.assert_called_once_with(
+            "uxlfoundation/oneTBB", query="oneTBB API overview concepts", max_tokens=1000
+        )
 
     def test_no_client_returns_empty(self):
         e = RagasSeedExtractor()

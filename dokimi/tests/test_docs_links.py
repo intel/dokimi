@@ -22,7 +22,7 @@ PYPI_README = PROJECT / tomllib.loads(
     (PROJECT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["readme"]
 #: Link *sources*: the docs plus the project README, which is the entry point most readers
 #: arrive through and links into `docs/` ten times.
-SOURCES = sorted(DOCS.glob("*.md")) + [PROJECT / "README.md"]
+SOURCES = sorted(DOCS.glob("*.md")) + sorted(DOCS.glob("user-journeys/*.md")) + [PROJECT / "README.md"]
 LINK = re.compile(r"\[[^\]]+\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 #: A reference-style definition, `[label]: target`, which an inline-only pattern never sees.
 REFERENCE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?([^\s>]+)>?", re.M)

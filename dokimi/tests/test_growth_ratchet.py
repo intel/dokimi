@@ -272,10 +272,16 @@ def test_seed_records_growth_and_new_entries_with_a_rationale(project):
     (project / "dokimi" / "big.py").write_text("x = 1\n" * 24, encoding="utf-8")    # grew
     (project / "dokimi" / "cx.py").write_text(_complex_fn("f", 3), encoding="utf-8")  # shrank
     (project / "dokimi" / "new.py").write_text("x = 1\n" * 40, encoding="utf-8")    # new
+    # Unchanged: a hand-written rationale must survive, not be replaced by the seed text.
+    (project / "dokimi" / "keep.py").write_text("x = 1\n" * 30, encoding="utf-8")
+    baseline = cg.load_baseline()
+    baseline["files"]["dokimi/keep.py"] = {"lines": 30, "rationale": "why it stays long"}
+    cg.BASELINE.write_text(cg.dump_baseline(baseline), encoding="utf-8")
     assert cg.main(["--seed"]) == 0
     why = cg.SEED_RATIONALE
     assert cg.load_baseline() == {
         "files": {"dokimi/big.py": {"lines": 24, "rationale": why},
+                  "dokimi/keep.py": {"lines": 30, "rationale": "why it stays long"},
                   "dokimi/new.py": {"lines": 40, "rationale": why}},
         "functions": {"dokimi/cx.py::f": {"complexity": 4}},
     }

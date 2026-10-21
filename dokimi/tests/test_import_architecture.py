@@ -137,14 +137,8 @@ _SPAWNS = {
 }
 
 #: Modules that still start a child directly: module -> (spawn sites, reason).
-SPAWN_BASELINE: dict[str, tuple[int, str]] = {
-    "dokimi.harnesses.container_agent": (
-        1, "docker exec of the agent in the task container; not yet on process.run"),
-    "dokimi.harnesses.docker_solver": (
-        1, "the solver's docker run; moving to process.run in its own change"),
-    "dokimi.harnesses.solver_stream": (
-        1, "runs the solver and records its partial stream on timeout"),
-}
+#: Empty: the docker-* harnesses start every child through dokimi.process.
+SPAWN_BASELINE: dict[str, tuple[int, str]] = {}
 
 
 # --- the import graph -------------------------------------------------------------

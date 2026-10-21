@@ -10,9 +10,12 @@ test leaves the machine.
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -32,8 +35,9 @@ from dokimi.harnesses.agent_sandbox import (
     run_probe,
     solver_cli_flags,
 )
-from dokimi.harnesses.docker_solver import DockerSolverHarness
 from dokimi.harnesses.registry import create_harness
+from dokimi.process import reply
+from docker_cli_fake import DockerCLI
 
 _CLOSED_URL = "http://127.0.0.1:9/"
 _MARKERS = (".git", "task.toml", "CLAUDE.md", "skills")
@@ -317,26 +321,18 @@ def test_parse_probe_output_marks_garbage_untested():
 # ── harness integration (Docker steps patched out) ──────────────────────────
 
 
-def _patch_docker(monkeypatch, calls: list):
-    import dokimi.harnesses.docker_solver as mod
-
-    def fake_docker(args, log, **kwargs):
-        calls.append(args)
-        return subprocess.CompletedProcess(args, 0, "", "")
-
-    monkeypatch.setattr(mod, "_docker", fake_docker)
-    monkeypatch.setattr(DockerSolverHarness, "_build_image", lambda self, t, i, log: None)
-    monkeypatch.setattr(DockerSolverHarness, "_start_container", lambda self, t, i, c, log, sandbox=None: None)
+def _docker_cli(**kwargs) -> DockerCLI:
+    """The docker CLI and the host claude; the host probe's `sh` runs for real."""
+    return DockerCLI(real=("sh",), **kwargs)
 
 
 def test_probe_harness_scores_the_probe_and_skips_the_verifier(tmp_path, monkeypatch):
     task = load_task(_content_checkout(tmp_path))
-    calls: list = []
-    _patch_docker(monkeypatch, calls)
-    monkeypatch.setattr(DockerSolverHarness, "_verify",
-                        lambda *a, **k: pytest.fail("probe must not run the verifier"))
+    cli = _docker_cli(answer=lambda call: pytest.fail("probe must not run the verifier") if (
+        "test.sh" in call.argv[-1]) else None)
+    calls = cli.args
 
-    result = create_harness("docker-probe-host").run(task, output_dir=tmp_path / "out")
+    result = create_harness("docker-probe-host", runner=cli).run(task, output_dir=tmp_path / "out")
 
     assert result.reward == 0.0 and result.passed is False
     probe = result.metrics["isolation_probe"]
@@ -349,28 +345,21 @@ def test_probe_harness_scores_the_probe_and_skips_the_verifier(tmp_path, monkeyp
 
 @pytest.mark.parametrize("arm", ["skill", "skill-discover"])
 def test_claude_solve_runs_in_scratch_with_sealed_env(tmp_path, monkeypatch, arm):
-    import dokimi.harnesses.docker_solver as mod
-
     task = load_task(_content_checkout(tmp_path))
     skill = tmp_path / "content" / "skills" / "demo"
-    calls: list = []
-    _patch_docker(monkeypatch, calls)
-    monkeypatch.setattr(DockerSolverHarness, "_recompile", lambda self, t, c, log: [])
-    monkeypatch.setattr(DockerSolverHarness, "_verify", lambda *a, **k: 1.0)
     monkeypatch.setenv("GITHUB_TOKEN", "ghp_secret")
     config = Path(sandbox.os.environ["CLAUDE_CONFIG_DIR"])
     config.mkdir(parents=True, exist_ok=True)
     (config / "settings.json").write_text(json.dumps({"env": {"CLAUDE_CODE_USE_BEDROCK": "1"}}),
                                           encoding="utf-8")
     seen: dict = {}
-    real_run = subprocess.run
 
-    def fake_run(cmd, **kwargs):
-        if cmd[0] != "claude":
-            return real_run(cmd, **kwargs)
-        cwd = Path(kwargs["cwd"])
+    def fake_claude(call):
+        cmd = list(call.argv)
+        cwd = call.cwd
         plugin = Path(cmd[cmd.index("--plugin-dir") + 1])
-        seen.update(cmd=cmd, cwd=cwd, env=kwargs["env"], plugin=plugin, stdin=kwargs.get("stdin"),
+        seen.update(cmd=cmd, cwd=cwd, env=call.env, plugin=plugin, stdin=call.input,
+                    timeout=call.timeout,
                     skill_seen=(plugin / "skills" / "demo" / "SKILL.md").is_file(),
                     manifest=json.loads((plugin / ".claude-plugin" / "plugin.json").read_text()))
         (cwd / "main.cpp").write_text("fixed", encoding="utf-8")
@@ -381,11 +370,11 @@ def test_claude_solve_runs_in_scratch_with_sealed_env(tmp_path, monkeypatch, arm
                 {"type": "tool_use", "name": "Edit", "input": {}}]}}),
             json.dumps({"type": "result", "num_turns": 2, "total_cost_usd": 0.01}),
         ])
-        return subprocess.CompletedProcess(cmd, 0, stream, "")
+        return reply(stream)
 
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
     out = tmp_path / "out"
-    result = create_harness(f"docker-claude-host-{arm}:{skill}").run(task, output_dir=out)
+    result = create_harness(f"docker-claude-host-{arm}:{skill}",
+                            runner=_docker_cli(solver=fake_claude)).run(task, output_dir=out)
 
     cwd = seen["cwd"]
     assert out not in cwd.parents and tmp_path / "content" not in cwd.parents
@@ -406,7 +395,7 @@ def test_claude_solve_runs_in_scratch_with_sealed_env(tmp_path, monkeypatch, arm
     assert seen["cmd"][seen["cmd"].index("--output-format") + 1] == "stream-json"
     # stream-json under -p exits 1 with "requires --verbose" without it.
     assert "--verbose" in seen["cmd"]
-    assert seen["stdin"] is subprocess.DEVNULL
+    assert seen["stdin"] is None  # the runner closes stdin
     assert result.metrics["treatment"] == {"skill": "demo", "plugin": "demo",
                                            "delivery": "plugin-dir"}
     assert result.metrics["n_skill_invocations"] == 1
@@ -439,60 +428,85 @@ def test_probe_with_a_skill_forbids_it_even_outside_the_task_checkout(tmp_path, 
         (loose / sub).mkdir(parents=True)
     (loose / "instruction.md").write_text("x", encoding="utf-8")
     (loose / "task.toml").write_text("", encoding="utf-8")
-    _patch_docker(monkeypatch, [])
-    result = create_harness(f"docker-probe-host:{elsewhere / 'SKILL.md'}").run(
+    result = create_harness(f"docker-probe-host:{elsewhere / 'SKILL.md'}", runner=_docker_cli()).run(
         load_task(loose), output_dir=tmp_path / "out")
     assert result.metrics["isolation_probe"]["treatment"] == "open"
 
 
 def test_a_timed_out_solve_keeps_the_agent_tree(tmp_path, monkeypatch):
-    import dokimi.harnesses.docker_solver as mod
-
     task = load_task(_content_checkout(tmp_path))
-    _patch_docker(monkeypatch, [])
-    real_run = subprocess.run
 
-    def slow_claude(cmd, **kwargs):
-        if cmd[0] != "claude":
-            return real_run(cmd, **kwargs)
-        (Path(kwargs["cwd"]) / "half-done.cpp").write_text("partial", encoding="utf-8")
-        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout") or 1)
+    def slow_claude(call):
+        (call.cwd / "half-done.cpp").write_text("partial", encoding="utf-8")
+        return reply(timed_out=True)
 
-    monkeypatch.setattr(mod.subprocess, "run", slow_claude)
     out = tmp_path / "out"
-    result = create_harness("docker-claude-host").run(task, output_dir=out)
+    result = create_harness("docker-claude-host", runner=_docker_cli(solver=slow_claude)).run(
+        task, output_dir=out)
     assert result.returncode == 124
     assert (out / "work" / "half-done.cpp").read_text(encoding="utf-8") == "partial"
 
 
+def _alive(pid: int) -> bool:
+    """True while ``pid`` runs; an unreaped zombie is not running."""
+    try:
+        os.kill(pid, 0)
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+    except FileNotFoundError:  # no /proc (macOS): kill(0) succeeded
+        return sys.platform != "linux"
+    except OSError:
+        return False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a POSIX script stands for claude")
+def test_a_timed_out_host_agent_leaves_none_of_its_tools_running(tmp_path, monkeypatch):
+    """docker-claude-host: a timeout kills claude's whole process tree. On main only
+    claude was killed, and a tool process it had started ran on after the cell."""
+    task = load_task(_content_checkout(tmp_path))
+    pid_file = tmp_path / "tool.pid"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "claude"  # resolved first on PATH; the real one is never reached
+    fake.write_text(
+        f"#!{sys.executable}\n"
+        "import subprocess, sys, time\n"
+        "tool = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'],\n"
+        "                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        f"open({str(pid_file)!r}, 'w').write(str(tool.pid))\n"
+        "time.sleep(60)\n", encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    cli = _docker_cli()
+    cli.real = ("sh", "claude")
+
+    result = create_harness("docker-claude-host", runner=cli).run(
+        task, output_dir=tmp_path / "out", timeout_sec=1.5)
+
+    assert result.returncode == 124 and result.reward == 0.0
+    assert [Path(c.argv[0]).name for c in cli.solver_calls()] == ["claude"]
+    tool = int(pid_file.read_text())
+    deadline = time.monotonic() + 5
+    while _alive(tool) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not _alive(tool), "the agent's tool process outlived the cell"
+
+
 def _run_fake_claude(tmp_path, monkeypatch, stdout, *, edit=False, fail_copy_back=False,
                      stderr=""):
-    import dokimi.harnesses.docker_solver as mod
-
     task = load_task(_content_checkout(tmp_path))
-    calls: list = []
-    _patch_docker(monkeypatch, calls)
-    if fail_copy_back:
-        ok = mod._docker
 
-        def docker(args, log, **kwargs):
-            if args[0] == "cp" and args[2].endswith(":/app/"):
-                raise RuntimeError("copy back failed")
-            return ok(args, log, **kwargs)
+    def copy_back(call):
+        if fail_copy_back and call.argv[1] == "cp" and call.argv[3].endswith(":/app/"):
+            return reply(stderr="copy back failed", returncode=1)
+        return None
 
-        monkeypatch.setattr(mod, "_docker", docker)
-    monkeypatch.setattr(DockerSolverHarness, "_verify", lambda *a, **k: 1.0)
-    real_run = subprocess.run
-
-    def claude(cmd, **kwargs):
-        if cmd[0] != "claude":
-            return real_run(cmd, **kwargs)
+    def claude(call):
         if edit:
-            (Path(kwargs["cwd"]) / "fixed.cpp").write_text("the fix", encoding="utf-8")
-        return subprocess.CompletedProcess(cmd, 0, stdout, stderr)
+            (call.cwd / "fixed.cpp").write_text("the fix", encoding="utf-8")
+        return reply(stdout, stderr)
 
-    monkeypatch.setattr(mod.subprocess, "run", claude)
-    return create_harness("docker-claude-host").run(task, output_dir=tmp_path / "out")
+    cli = _docker_cli(solver=claude, answer=copy_back)
+    return create_harness("docker-claude-host", runner=cli).run(task, output_dir=tmp_path / "out")
 
 
 def test_a_crash_with_no_result_after_real_edits_is_scored(tmp_path, monkeypatch):
@@ -511,7 +525,7 @@ def test_a_failed_copy_back_keeps_the_model_and_a_failing_returncode(tmp_path, m
     obj = {"type": "result", "subtype": "success", "num_turns": 3, "total_cost_usd": 0.1,
            "usage": {"output_tokens": 50}, "modelUsage": {"claude-sonnet-4-5": {"costUSD": 0.1}}}
     result = _run_fake_claude(tmp_path, monkeypatch, json.dumps(obj), fail_copy_back=True)
-    assert result.metrics["error"] == "RuntimeError: copy back failed"
+    assert result.metrics["error"] == "RuntimeError: docker cp failed (exit 1); see run.log"
     assert result.metrics["model"] == "claude-sonnet-4-5" and result.metrics["cost_usd"] == 0.1
     assert result.returncode == 1 and result.reward is None
 
@@ -529,8 +543,8 @@ def test_a_relative_probe_skill_path_is_resolved(tmp_path, monkeypatch):
         (loose / sub).mkdir(parents=True)
     (loose / "instruction.md").write_text("x", encoding="utf-8")
     (loose / "task.toml").write_text("", encoding="utf-8")
-    _patch_docker(monkeypatch, [])
-    result = create_harness("docker-probe-host:myskill").run(load_task(loose), output_dir=tmp_path / "out")
+    result = create_harness("docker-probe-host:myskill", runner=_docker_cli()).run(
+        load_task(loose), output_dir=tmp_path / "out")
     assert result.metrics["isolation_probe"]["treatment"] == "open"
 
 
@@ -564,15 +578,10 @@ def test_operator_settings_env_block_is_merged_over_the_environment(tmp_path, ca
 
 
 def test_scratch_root_is_removed_when_the_snapshot_fails(tmp_path, monkeypatch):
-    import dokimi.harnesses.docker_solver as mod
-
-    def failing_docker(args, log, **kwargs):
-        raise RuntimeError("docker cp failed")
-
-    monkeypatch.setattr(mod, "_docker", failing_docker)
+    failing = DockerCLI(answer=lambda call: reply(stderr="docker cp failed", returncode=1))
     task = load_task(_content_checkout(tmp_path))
     with pytest.raises(RuntimeError):
-        create_harness("docker-probe-host")._prepare_workspace(task, "c1", log=None)
+        create_harness("docker-probe-host", runner=failing)._prepare_workspace(task, "c1", log=io.StringIO())
     assert not list((tmp_path / "scratch").iterdir())
 
 
@@ -695,16 +704,10 @@ def test_a_probe_timeout_kills_the_hung_child_not_only_the_shell(tmp_path, monke
 
 
 def test_a_probe_timeout_records_every_class_untested(tmp_path, monkeypatch):
-    import dokimi.harnesses.docker_solver as mod
-
-    _patch_docker(monkeypatch, [])
-
-    def hung(*a, **k):
-        raise subprocess.TimeoutExpired(["sh"], 60)
-
-    monkeypatch.setattr(mod, "run_probe", hung)
+    hung = DockerCLI(answer=lambda call: reply(timed_out=True) if call.argv[0] == "sh" else None)
     out = tmp_path / "out"
-    result = create_harness("docker-probe-host").run(load_task(_content_checkout(tmp_path)), output_dir=out)
+    result = create_harness("docker-probe-host", runner=hung).run(load_task(_content_checkout(tmp_path)),
+                                                                  output_dir=out)
     assert result.metrics["isolation_probe"] == {k: "untested" for k in LEAK_CLASSES}
     assert result.reward == 0.0 and result.returncode == 0
     assert json.loads((out / "isolation_probe.json").read_text(encoding="utf-8"))["env"] == "untested"
@@ -725,7 +728,6 @@ def test_a_symlinked_skill_md_exposes_the_linking_dir(tmp_path):
 def test_scratch_root_is_removed_when_the_skill_copy_fails(tmp_path, monkeypatch):
     import dokimi.harnesses.docker_solver as mod
 
-    _patch_docker(monkeypatch, [])
     skill = tmp_path / "content" / "skills" / "demo"
     task = load_task(_content_checkout(tmp_path))
 
@@ -734,54 +736,35 @@ def test_scratch_root_is_removed_when_the_skill_copy_fails(tmp_path, monkeypatch
 
     monkeypatch.setattr(mod, "build_plugin", interrupted)
     with pytest.raises(KeyboardInterrupt):
-        create_harness(f"docker-claude-skill:{skill}")._prepare_workspace(task, "c1", log=None)
+        create_harness(f"docker-claude-skill:{skill}", runner=DockerCLI())._prepare_workspace(
+            task, "c1", log=io.StringIO())
     assert not list((tmp_path / "scratch").iterdir())
 
 
 def test_a_rerun_does_not_see_its_previous_tree_or_verdict(tmp_path, monkeypatch):
-    import dokimi.harnesses.docker_solver as mod
-
     task = load_task(_content_checkout(tmp_path))
-    _patch_docker(monkeypatch, [])
-    monkeypatch.setattr(DockerSolverHarness, "_recompile", lambda self, t, c, log: [])
-    monkeypatch.setattr(DockerSolverHarness, "_verify", lambda *a, **k: 0.0)
     out = tmp_path / "out"
     (out / "work").mkdir(parents=True)
     (out / "work" / "notes.txt").write_text("previous attempt", encoding="utf-8")
     (out / "reward.txt").write_text("1.0", encoding="utf-8")
     seen: dict = {}
-    real_run = subprocess.run
 
-    def fake_run(cmd, **kwargs):
-        if cmd[0] != "claude":
-            return real_run(cmd, **kwargs)
+    def fake_claude(call):
         seen.update(work=(out / "work").exists(), reward=(out / "reward.txt").exists())
-        return subprocess.CompletedProcess(cmd, 0, '{"num_turns": 1}', "")
+        return reply('{"num_turns": 1}')
 
-    monkeypatch.setattr(mod.subprocess, "run", fake_run)
-    create_harness("docker-claude-host").run(task, output_dir=out)
+    create_harness("docker-claude-host", runner=_docker_cli(solver=fake_claude, reward="0.0")).run(
+        task, output_dir=out)
     assert seen == {"work": False, "reward": False}
 
 
 def test_a_failed_copy_back_keeps_the_paid_solve_metrics(tmp_path, monkeypatch):
-    import dokimi.harnesses.docker_solver as mod
-
     task = load_task(_content_checkout(tmp_path))
-    monkeypatch.setattr(DockerSolverHarness, "_build_image", lambda self, t, i, log: None)
-    monkeypatch.setattr(DockerSolverHarness, "_start_container", lambda self, t, i, c, log, sandbox=None: None)
-
-    def docker(args, log, **kwargs):
-        if args[0] == "cp" and str(args[-1]).endswith(":/app/"):
-            raise RuntimeError("docker cp failed (exit 1); see run.log")
-        return subprocess.CompletedProcess(args, 0, "", "")
-
-    monkeypatch.setattr(mod, "_docker", docker)
     paid = json.dumps({"type": "result", "num_turns": 5, "total_cost_usd": 1.25,
                        "usage": {"input_tokens": 10, "output_tokens": 20}})
-    real_run = subprocess.run
-    monkeypatch.setattr(mod.subprocess, "run", lambda cmd, **kw: (
-        subprocess.CompletedProcess(cmd, 0, paid, "") if cmd[0] == "claude" else real_run(cmd, **kw)))
-    result = create_harness("docker-claude-host").run(task, output_dir=tmp_path / "out")
+    cli = _docker_cli(solver=paid, answer=lambda call: reply(returncode=1) if (
+        call.argv[1] == "cp" and call.argv[-1].endswith(":/app/")) else None)
+    result = create_harness("docker-claude-host", runner=cli).run(task, output_dir=tmp_path / "out")
     assert result.reward is None and result.passed is False
     assert "docker cp failed" in result.metrics["error"]
     assert result.metrics["cost_usd"] == 1.25
@@ -837,21 +820,11 @@ def test_a_host_solve_redacts_every_credential_variable_everywhere_it_saves_outp
 
 
 def test_a_timed_out_host_solve_redacts_the_stream_it_kept(tmp_path, monkeypatch):
-    import dokimi.harnesses.docker_solver as mod
-
     for name, value in _SECRETS.items():
         monkeypatch.setenv(name, value)
-    _patch_docker(monkeypatch, [])
-    real_run = subprocess.run
-
-    def slow_claude(cmd, **kwargs):
-        if cmd[0] != "claude":
-            return real_run(cmd, **kwargs)
-        raise subprocess.TimeoutExpired(cmd, 1, output=_leaky_stream().encode())
-
-    monkeypatch.setattr(mod.subprocess, "run", slow_claude)
     out = tmp_path / "out"
-    result = create_harness("docker-claude-host").run(
+    cli = _docker_cli(solver=lambda call: reply(_leaky_stream(), timed_out=True))
+    result = create_harness("docker-claude-host", runner=cli).run(
         load_task(_content_checkout(tmp_path)), output_dir=out)
     assert result.returncode == 124 and "solver_timeout" in result.metrics
     saved = (out / "solver.jsonl").read_text(encoding="utf-8")
