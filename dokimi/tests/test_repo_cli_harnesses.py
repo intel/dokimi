@@ -490,13 +490,17 @@ def test_repo_run_grades_a_native_review_answer(tmp_path, monkeypatch, tools):
     assert "Review HEAD." not in " ".join(agent.argv)  # the task prompt is not passed
 
 
-def _run_fake(tmp_path, monkeypatch, *, companion: bool):
+def _run_fake(tmp_path, monkeypatch, *, companion: bool, link: bool = False):
     from repo_eval_fixture import PROFILE, fake_harness
 
     root, _ = make_repo(tmp_path)
     exe, _ = fake_harness(tmp_path)
     if companion:
         write(exe.parent, "fake-helper", "")
+    if link:  # npm's layout: --bin is a link in another directory, with no companion beside it
+        (tmp_path / "links").mkdir()
+        (tmp_path / "links" / exe.name).symlink_to(exe)
+        exe = tmp_path / "links" / exe.name
     profile = tmp_path / "fake-companion.yaml"
     profile.write_text(yaml.safe_dump({**PROFILE, "bin_companions": ["fake-helper"]}), encoding="utf-8")
     runner = FakeRunner()
@@ -518,6 +522,17 @@ def test_bin_companions_are_mounted_beside_the_harness(tmp_path, monkeypatch):
     agent = next(s for s in runner.specs if "-p" in s.argv)
     mounts = {m.container: m for m in agent.mounts}
     assert mounts[f"{HARNESS_DIR}/fake-helper"].read_only and mounts[f"{HARNESS_DIR}/fake-agent"].read_only
+    assert next((out / "b1").glob("*/result.json")).is_file()
+
+
+def test_bin_companions_are_taken_from_beside_the_file_a_linked_bin_points_to(tmp_path, monkeypatch):
+    from dokimi.repos.container import HARNESS_DIR
+
+    runner, out, args = _run_fake(tmp_path, monkeypatch, companion=True, link=True)
+    args.func(args)
+    agent = next(s for s in runner.specs if "-p" in s.argv)
+    mounts = {m.container: m.host for m in agent.mounts}
+    assert mounts[f"{HARNESS_DIR}/fake-helper"] == (tmp_path / "bin" / "fake-helper").resolve()
     assert next((out / "b1").glob("*/result.json")).is_file()
 
 
