@@ -29,7 +29,7 @@ was built). A closed issue does not tell which of the three happened.
 
 An experiment that turns out wrong is not deleted: set `retracted: true` and say in the body
 what was wrong with it. `retracted` means the whole experiment is invalid, so `check` fails
-any finding that still cites it; export and render keep it, marked. When only part of a
+any finding that still cites it; query, export and render keep it, marked. When only part of a
 result is withdrawn, keep the outcome, leave `retracted` unset and list the withdrawn claims
 under a `## Corrections` heading. Every record has a `date` (`YYYY-MM-DD`) and optional `links`, which
 must be public `github.com/intel/` or `github.com/napetrov/` URLs. The register is public:
@@ -55,7 +55,8 @@ python scripts/research_register.py render > map.md
   the duplicate on whichever merges second, which renumbers.
 - `query` lists the records matching every filter: `--where FIELD=V1,V2` matches any of the
   values, `--ref ID` keeps the records that point at `ID`. An unknown field, a clause
-  without `=` or a missing `ID` exits 2.
+  without `=` or a missing `ID` exits 2. Booleans are spelled as in the records:
+  `--where retracted=true`.
 - `export` writes all records, the reference edges and the ideas grouped by map theme as one
   JSON document, stamped with the commit, for the plans-and-research map and other views.
 - `render` writes the plans-and-research map from the same tree: a Mermaid mindmap (theme,

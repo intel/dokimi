@@ -197,6 +197,15 @@ def test_query_missing_field_matches_no_value(root: Path, capsys: pytest.Capture
     assert capsys.readouterr().out == ""
 
 
+def test_query_finds_and_marks_retracted(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _write(root, "experiment", "X002",
+           "title: Run 2\nidea: I001\nhypothesis: H\noutcome: supported\nretracted: true\n")
+    assert rr.main(["--root", str(root), "query", "--where", "retracted=true"]) == 0
+    assert capsys.readouterr().out == "X002\texperiment\tsupported, retracted\tRun 2\n"
+    assert rr.main(["--root", str(root), "query", "--where", "outcome=supported"]) == 0
+    assert capsys.readouterr().out == "X002\texperiment\tsupported, retracted\tRun 2\n"
+
+
 def test_query_rejects_unknown_ref(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert rr.main(["--root", str(root), "query", "--ref", "I009"]) == 2
     assert "no record I009" in capsys.readouterr().err

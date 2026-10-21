@@ -152,6 +152,11 @@ def check(records: dict[str, Record], schema: dict[str, Any]) -> list[str]:
     return errors
 
 
+def _text(value: object) -> str:
+    # Spell booleans as the records do (`retracted: true`), not as Python's str() does.
+    return str(value).lower() if isinstance(value, bool) else str(value)
+
+
 def matches(record: Record, where: list[str], ref: str | None, kind: str | None) -> bool:
     if kind and record.type != kind:
         return False
@@ -160,7 +165,7 @@ def matches(record: Record, where: list[str], ref: str | None, kind: str | None)
         value = record.fields.get(field)
         if value is None:
             return False  # a missing field matches no value, not the string "None"
-        values = [str(v) for v in value] if isinstance(value, list) else [str(value)]
+        values = [_text(v) for v in value] if isinstance(value, list) else [_text(value)]
         if not set(values) & set(wanted.split(",")):
             return False
     if ref:
@@ -275,6 +280,8 @@ def main(argv: list[str] | None = None) -> int:
             if matches(record, args.where, args.ref, args.type):
                 extra = record.fields.get("outcome") or record.fields.get("state") or \
                     record.fields.get("status") or record.fields.get("confidence") or ""
+                if record.fields.get("retracted"):
+                    extra += ", retracted"
                 print(f"{record.id}\t{record.type}\t{extra}\t{record.fields['title']}")
     elif args.command == "next":
         print(next_id(records, args.type))
