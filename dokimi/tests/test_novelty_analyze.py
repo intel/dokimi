@@ -557,10 +557,10 @@ def test_a_skill_s_own_evals_do_not_make_the_entry_point_run_warn(tmp_path):
 
 
 def test_a_tier_writes_its_forfeits_into_the_run_it_produced(tmp_path):
-    from dokimi.novelty.tiers import FORFEITS, TIERS, resolve
+    from dokimi.novelty.tiers import FORFEITS, TIERS, resolve_settings
 
-    resolved = resolve("triage", {})
-    result = _analyze(tmp_path, **resolved["settings"])
+    resolved = resolve_settings("triage", {})
+    result = _analyze(tmp_path, **resolved.config_fields())
     # The config the tier produced must be what the artifact reports back.
     assert result.artifact["run_config"]["max_atoms"] == 25
     assert result.artifact["run_config"]["stages"]["classify"] is False
@@ -571,10 +571,10 @@ def test_a_tier_writes_its_forfeits_into_the_run_it_produced(tmp_path):
     kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
     config = AnalyzeConfig(artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
                            description=description, frontmatter=frontmatter, concurrency=1,
-                           **resolved["settings"])
+                           **resolved.config_fields())
     extractor, answerer, judge = _clients()
-    artifact = analyze(body, config, extractor=extractor, answerer=answerer, judge=judge,
-                       tier=resolved["tier"]).artifact
+    artifact = analyze(body, config, extractor=extractor, answerer=answerer,
+                       judge=judge).artifact
     assert artifact["run_config"]["tier"]["name"] == "triage"
     forfeits = [w for w in artifact["warnings"] if w.startswith("tier `triage` forfeits:")]
     # Two atoms under a cap of 25: the run is not sampled, so the sampled-rate forfeits
@@ -594,10 +594,10 @@ def test_skipping_the_faithfulness_check_is_recorded_as_a_warning(tmp_path):
 
 
 def test_a_tier_overridden_by_flags_says_its_forfeits_may_not_be_this_run_s(tmp_path):
-    from dokimi.novelty.tiers import resolve
+    from dokimi.novelty.tiers import resolve_settings
 
-    resolved = resolve("triage", {"max_atoms": 90})
-    result = _analyze(tmp_path, **resolved["settings"])
+    resolved = resolve_settings("triage", {"max_atoms": 90})
+    result = _analyze(tmp_path, **resolved.config_fields())
     assert result.artifact["run_config"]["max_atoms"] == 90
     path = tmp_path / "o" / "SKILL.md"
     path.parent.mkdir(parents=True)
@@ -605,10 +605,10 @@ def test_a_tier_overridden_by_flags_says_its_forfeits_may_not_be_this_run_s(tmp_
     kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
     config = AnalyzeConfig(artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
                            description=description, frontmatter=frontmatter, concurrency=1,
-                           **resolved["settings"])
+                           **resolved.config_fields())
     extractor, answerer, judge = _clients()
-    artifact = analyze(body, config, extractor=extractor, answerer=answerer, judge=judge,
-                       tier=resolved["tier"]).artifact
+    artifact = analyze(body, config, extractor=extractor, answerer=answerer,
+                       judge=judge).artifact
     assert any("overridden by flags" in w for w in artifact["warnings"])
 
 

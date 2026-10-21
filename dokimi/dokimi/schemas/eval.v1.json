@@ -80,7 +80,7 @@
             "description": "Retrieval-outcome classification for the context arm (eval.diagnoser)."
           },
           "retrieval_hit": {
-            "description": "Whether retrieval put at least one document into the context-arm prompt (eval.diagnoser.retrieval_hit); null when the record has no context arm. Read by the trust gate."
+            "description": "Whether retrieval put at least one document into the context-arm prompt (dokimi.records, from the answer's retrieved_docs and doc_source); null when the record has no context arm. Read by the trust gate."
           }
         }
       }

@@ -13,10 +13,10 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.repos.arms import ArmError, Skill, check_arms, parse_arm, resolve_skills, skill_usage, tree_sha256
+from dokimi.repos.arms import ArmError, Skill, check_arms, resolve_skills, skill_usage, tree_sha256
 from dokimi.repos.events import convert
 from dokimi.repos.report import format_report, summarize
-from dokimi.repos.workspace import PrepError, Task, _install_skills
+from dokimi.repos.workspace import PrepError, Task, _install_skills, parse_arm
 from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo, write
 
 
@@ -49,12 +49,16 @@ def _run(s, *extra):
 
 def test_parse_arm_composes_guidance_and_skills():
     arm = parse_arm("guidance:none+skill:skills/c++/x+skill-catalog:/abs/cat")
-    assert arm.guidance == "guidance:none"
-    assert arm.skills == (("skill", "skills/c++/x"), ("skill-catalog", "/abs/cat")) and arm.catalog
-    assert parse_arm("skill:a").guidance == "guidance:raw" and parse_arm("guidance:bridge").skills == ()
-    for bad, why in (("main-raw", "unknown arm"), ("skill:", "needs a path"),
-                     ("guidance:none+guidance:raw", "more than one guidance")):
-        with pytest.raises(ArmError, match=why):
+    assert arm.base == "guidance:none"
+    assert arm.skills == (("skill", "skills/c++/x"), ("skill-catalog", "/abs/cat"))
+    assert str(arm) == "guidance:none+skill:x+skill-catalog:cat" and "/" not in arm  # `repo compare` reads BATCH/ARM
+    assert arm.spec == "guidance:none+skill:skills/c++/x+skill-catalog:/abs/cat"
+    alone = parse_arm("skill:a")
+    assert alone.base == "guidance:raw" and str(alone) == "skill:a"
+    assert parse_arm("guidance:bridge").skills == ()
+    for bad, why in (("main-raw", "unknown arm"), ("skill:", "needs the path"), ("skill:..", "needs the path"),
+                     ("guidance:none+guidance:raw+skill:x", "more than one guidance")):
+        with pytest.raises(PrepError, match=why):
             parse_arm(bad)
 
 
@@ -71,8 +75,8 @@ def test_resolve_skills_is_relative_to_eval_dir_and_stays_in_it(tmp_path):
             resolve_skills(parse_arm(spec), tmp_path)
     task = Task("t", {"expected_skill": "deploy"}, tmp_path)
     with pytest.raises(ArmError, match="expected_skill 'deploy'"):
-        check_arms(["skill-catalog:skills"], tmp_path, [task])
-    check_arms(["skill:skills/lint"], tmp_path, [task])  # one skill: no selection to check
+        check_arms([parse_arm("skill-catalog:skills")], tmp_path, [task])
+    check_arms([parse_arm("skill:skills/lint")], tmp_path, [task])  # one skill: no selection to check
 
 
 def test_skill_usage_from_skill_calls_and_skill_md_reads():
@@ -138,7 +142,7 @@ def test_trace_records_the_skill_and_cache_tokens():
                                                      "cache_read_input_tokens": 30, "cache_creation_input_tokens": 4}}])
     t = convert("claude-stream-json", raw, "/w")
     assert t.events == [{"t": None, "kind": "tool", "name": "Skill", "skill": "lint"}]
-    assert (t.cache_read_input_tokens, t.cache_creation_input_tokens) == (30, 4)
+    assert (t.cache_read_tokens, t.cache_write_tokens) == (30, 4)
 
 
 def test_catalog_arm_installs_every_skill_and_records_selection(setup, monkeypatch, capsys):
@@ -154,14 +158,14 @@ def test_catalog_arm_installs_every_skill_and_records_selection(setup, monkeypat
     assert result["arm"] == "guidance:none+skill-catalog:skills"
     assert result["skills"]["skills_used"] == ["format", "lint"] and result["skills"]["expected_skill"] == "lint"
     assert result["skills"]["skill_invoked"] is True and result["skills"]["skill_selected_correct"] is False
-    assert result["agent"]["cache_read_input_tokens"] == 100 and result["agent"]["cache_creation_input_tokens"] == 40
+    assert result["agent"]["cache_read_tokens"] == 100 and result["agent"]["cache_write_tokens"] == 40
     raw_rd = next(batch.glob("fix_lint__guidance-raw__*"))
     assert "skills" not in json.loads((raw_rd / "result.json").read_text())
 
     rows = {r["arm"]: r for r in summarize(batch)["rows"]}
     cat = rows["guidance:none+skill-catalog:skills"]
     assert cat["skill_invoked"] == 1 and cat["skill_selected_correct"] == 0
-    assert cat["cache_read_input_tokens"] == 100.0 and cat["cache_creation_input_tokens"] == 40.0
+    assert cat["cache_read_tokens"] == 100.0 and cat["cache_write_tokens"] == 40.0
     assert "skill_invoked" not in rows["guidance:raw"]
     assert "0/1 skill selected correct" in format_report(summarize(batch))
 
@@ -247,14 +251,15 @@ def test_unmeasured_skill_usage_is_left_out_of_the_counts(tmp_path):
 
 
 def test_arms_that_share_a_result_directory_are_refused(tmp_path):
-    _skill(tmp_path, "a/b", "x")
-    _skill(tmp_path, "a_b", "y")
+    _skill(tmp_path, "a/b", "b")
+    _skill(tmp_path, "x/b", "b")
+    _skill(tmp_path, "a_b", "a_b")
     _skill(tmp_path, "s/one", "one")
-    _skill(tmp_path, "catalog-s", "two")
+    _skill(tmp_path, "catalog-s", "catalog-s")
     with pytest.raises(ArmError, match="share one result directory"):
-        check_arms(["skill:a/b", "skill:a_b"], tmp_path, [])
+        check_arms([parse_arm("skill:a/b"), parse_arm("skill:x/b")], tmp_path, [])
     with pytest.raises(ArmError, match="share one result directory"):
-        check_arms(["skill-catalog:s", "skill:catalog-s"], tmp_path, [])
+        check_arms([parse_arm("skill-catalog:s"), parse_arm("skill:catalog-s")], tmp_path, [])
 
 
 def test_claude_code_gets_mcp_config_only_when_the_workspace_has_the_file(tmp_path, monkeypatch):

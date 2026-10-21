@@ -4,7 +4,7 @@
   skill under `.claude/skills/<name>/`, and `skill-catalog:<dir>` installs
   every skill in a directory. `result.json` records `skills`
   (`skills_used`, `skill_invoked`, `skill_selected_correct`) and the agent's
-  cache read/creation token counts. `repo tasks check --arm` rejects a skill
+  cache read/write token counts. `repo tasks check --arm` rejects a skill
   path that does not exist.
 - **`args_if_present` in harness profiles** — arguments appended only when a
   file exists in the workspace.

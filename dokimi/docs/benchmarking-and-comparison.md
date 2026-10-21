@@ -297,8 +297,8 @@ When a cell installs skills, its `result.json` gets a `skills` object:
 `skills_used` (the skills the agent called with the `Skill` tool, or whose
 `SKILL.md` it read), `skill_invoked`, and `skill_selected_correct` (the task's
 optional `expected_skill` was the first skill it used). `repo report` counts
-both per row. Every cell also records `cache_read_input_tokens` and
-`cache_creation_input_tokens` with the input and output tokens, and
+both per row. Every cell also records `cache_read_tokens` and
+`cache_write_tokens` with the input and output tokens, and
 `repo report --json` gives their means.
 
 ### Reading the significance tables
@@ -732,7 +732,8 @@ instead. A baseline saved before a default-model change is such a baseline. A pa
 artifact (`eval panel-score`) is compared by its set of judge models. A role either
 side does not record (an older artifact, or answers with no model) is named on
 stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
-vouch for that role.
+vouch for that role. A malformed record in either file (no `question_id`) exits 2,
+naming the record on stderr, so it never reads as a failed `--strict` check.
 
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.

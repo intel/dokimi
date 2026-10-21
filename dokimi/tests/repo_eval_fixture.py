@@ -72,7 +72,14 @@ assert os.environ.get("FAKE_CONFIG_DIR"), "config dir not set"
 assert "SECRET_NOT_ALLOWED" not in os.environ, "environment not scrubbed"
 action = os.environ.get("FAKE_ACTION", "fix")
 cwd = Path.cwd()
-lines = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3", "cwd": str(cwd)}]
+# Guard against --model missing or being the last arg
+try:
+    model_idx = args.index("--model")
+    model = args[model_idx + 1] if model_idx + 1 < len(args) else "unknown"
+except (ValueError, IndexError):
+    model = "unknown"
+answered = os.environ.get("FAKE_ANSWER_MODEL") or model  # a different model may answer the request
+lines = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3", "cwd": str(cwd), "model": answered}]
 if action == "sleep":
     time.sleep(60)
 if action == "fix":
@@ -92,17 +99,24 @@ if action == "tamper":  # leave state for the grader: a .pth in HOME, and an fsm
     hook.chmod(0o755)
     with open(cwd / ".git" / "config", "a") as f:
         f.write("[core]\n\tfsmonitor = " + str(hook) + "\n")
-lines.append({"type": "assistant", "message": {"content": [
+lines.append({"type": "assistant", "message": {"model": answered, "content": [
     {"type": "tool_use", "id": "t1", "name": "Edit",
      "input": {"file_path": os.environ.get("FAKE_CONTAINER_CWD", str(cwd)) + "/src/calc.py"}}]}})
 for name in filter(None, os.environ.get("FAKE_SKILLS", "").split(",")):  # use installed skills, in order
     if (cwd / ".claude/skills" / name / "SKILL.md").is_file():
         lines.append({"type": "assistant", "message": {"content": [
             {"type": "tool_use", "id": "s-" + name, "name": "Skill", "input": {"skill": name}}]}})
-lines.append({"type": "result", "subtype": "success", "result": "done: src/calc.py", "total_cost_usd": 0.01,
-              "num_turns": 3, "is_error": False,
-              "usage": {"input_tokens": 5, "output_tokens": 2, "cache_read_input_tokens": 100,
-                        "cache_creation_input_tokens": 40}})
+result = {"type": "result", "subtype": "success", "result": "done: src/calc.py", "total_cost_usd": 0.01,
+          "num_turns": 3, "is_error": False,
+          "usage": {"input_tokens": 5, "output_tokens": 2, "cache_read_input_tokens": 100,
+                    "cache_creation_input_tokens": 40}}
+if os.environ.get("FAKE_USAGE"):  # a subagent (Agent tool) and the token counts of the whole tree
+    lines.append({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t2", "name": "Agent", "input": {"prompt": "look around"}}]}})
+    result.update(usage={"input_tokens": 7, "output_tokens": 2},
+                  modelUsage={"m-main": {"inputTokens": 7, "outputTokens": 2, "cacheReadInputTokens": 100},
+                              "m-sub": {"inputTokens": 30, "outputTokens": 9, "cacheCreationInputTokens": 5}})
+lines.append(result)
 print("\n".join(json.dumps(x) for x in lines))
 '''
 
@@ -112,7 +126,7 @@ PROFILE = {
     "invoke": ["{bin}", "-p", "{prompt}", "--model", "{model}", "--max-turns", "{max_turns}",
                "--max-budget-usd", "{budget}", "{tools}"],
     "tools": {"none": ["--tools", ""], "read": ["--tools", "Read"], "all": []},
-    "config_dir_env": "FAKE_CONFIG_DIR", "env_allow": ["FAKE_ACTION", "FAKE_MARKER", "FAKE_SKILLS", "PATH"],
+    "config_dir_env": "FAKE_CONFIG_DIR", "env_allow": ["FAKE_ACTION", "FAKE_ANSWER_MODEL", "FAKE_MARKER", "FAKE_SKILLS", "FAKE_USAGE", "PATH"],
     "egress": ["api.example.com"], "trace": "claude-stream-json",
     "prompt_suffix": "Stay in the foreground.",
     "config_files": {"settings.json": '{"hook": "python3 {support_dir}/no_background.py"}'},

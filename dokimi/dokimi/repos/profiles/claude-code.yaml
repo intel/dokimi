@@ -76,6 +76,8 @@ guidance:
   names: [CLAUDE.md, CLAUDE.local.md, AGENTS.md]
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
+  # Memory docs (code.claude.com/docs/en/memory): imports recurse "with a maximum depth of four hops".
+  import_max_depth: 4
   notes: >-
     Measured on CLI 2.1.286: it reads AGENTS.md only
     when no CLAUDE.md is in the directory chain it starts in, and one CLAUDE.md

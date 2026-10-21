@@ -298,6 +298,69 @@ def test_claude_stream_json_to_events():
         convert("xml", "")
 
 
+def test_claude_stream_json_names_the_models_that_answered():
+    def reply(model, **kw):
+        return {"type": "assistant", "message": {"model": model, "content": []}, **kw}
+
+    init = {"type": "system", "subtype": "init", "model": "us.anthropic.claude-x"}
+    lines = [init, reply("claude-x"), reply("claude-y", parent_tool_use_id="t1"), reply("<synthetic>")]
+    trace = "\n".join(json.dumps(x) for x in lines)
+    assert convert("claude-stream-json", trace).model_resolved() == "claude-x"  # not the subagent's
+    assert convert("claude-stream-json", trace + "\n" + json.dumps(reply("claude-old"))).model_resolved() == [
+        "claude-old", "claude-x"]
+    assert convert("claude-stream-json", json.dumps(init)).model_resolved() == "us.anthropic.claude-x"  # no reply
+    assert convert("claude-stream-json", json.dumps(reply(None))).model_resolved() is None
+    assert convert("text", "hi").model_resolved() is None
+
+
+def test_tokens_cover_the_subagents_the_cost_covers():
+    lines = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Agent", "input": {"prompt": "find x"}}]}},
+        {"type": "assistant", "parent_tool_use_id": "t1", "message": {"content": [
+            {"type": "tool_use", "id": "c1", "name": "Read", "input": {"file_path": "/ws/a.c"}}]}},
+        {"type": "assistant", "parent_tool_use_id": "t1", "message": {"content": [
+            {"type": "tool_use", "id": "t2", "name": "Task", "input": {"prompt": "nested"}}]}},
+        {"type": "result", "result": "ok", "total_cost_usd": 0.5,
+         "usage": {"input_tokens": 7, "output_tokens": 2},
+         "modelUsage": {"m-main": {"inputTokens": 7, "outputTokens": 2, "cacheReadInputTokens": 100},
+                        "m-sub": {"inputTokens": 30, "outputTokens": 9, "cacheCreationInputTokens": 5}}},
+    ]
+    t = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
+    assert (t.input_tokens, t.output_tokens, t.cache_read_tokens, t.cache_write_tokens) == (37, 11, 100, 5)
+    assert t.usage_scope == "tree" and t.subagent_calls == 2
+    assert t.events[1] == {"t": None, "kind": "read", "path": "a.c", "agent": "t1"}
+    assert "agent" not in t.events[0]
+
+
+def test_tokens_without_model_usage_are_the_parents_only():
+    raw = json.dumps({"type": "result", "result": "ok", "usage": {"input_tokens": 7, "output_tokens": 2}})
+    t = convert("claude-stream-json", raw)
+    assert (t.input_tokens, t.output_tokens, t.usage_scope) == (7, 2, "main")
+    assert convert("claude-stream-json", json.dumps({"type": "result", "result": "ok"})).usage_scope is None
+
+
+def test_empty_usage_object_returns_none_not_zeros():
+    # Empty usage object should not report measured zeros (means no measurement).
+    t = convert("claude-stream-json", json.dumps({"type": "result", "result": "ok", "usage": {}}))
+    assert t.usage_scope is None
+    assert (t.input_tokens, t.output_tokens, t.cache_read_tokens, t.cache_write_tokens) == (None, None, None, None)
+
+
+def test_tokens_include_task_tool_and_cache_fields():
+    # Verify Task tool is counted in _AGENT_TOOLS and cache fields on main path.
+    lines = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Task", "input": {"prompt": "do work"}}]}},
+        {"type": "result", "result": "ok",
+         "usage": {"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 100,
+                   "cache_creation_input_tokens": 50}},
+    ]
+    t = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
+    assert (t.input_tokens, t.output_tokens, t.cache_read_tokens, t.cache_write_tokens) == (10, 5, 100, 50)
+    assert t.usage_scope == "main" and t.subagent_calls == 1
+
+
 @pytest.mark.parametrize("line", [
     {"type": "assistant", "message": "hi"},
     {"type": "result", "result": "x", "usage": "n/a"},

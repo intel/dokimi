@@ -1,14 +1,10 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Arms of ``repo run``: what step 5 of workspace preparation does to the workspace (contract §3).
+"""Skills of the ``repo run`` arms: what step 5 of workspace preparation installs (contract §3).
 
-An arm is one or more parts joined with ``+``, as in the Q&A ``--arms``
-(:mod:`dokimi.treatments.specs`):
+The arm grammar is :class:`dokimi.repos.workspace.Arm`; a guidance part may be joined with skill parts:
 
-- ``guidance:none`` | ``guidance:raw`` | ``guidance:bridge``: the repository's
-  own guidance files, removed, kept or bridged. At most one; ``guidance:raw``
-  when the arm names none;
 - ``skill:<path>``: one Claude Code skill directory (it holds ``SKILL.md``),
   installed at ``.claude/skills/<dir name>/``;
 - ``skill-catalog:<dir>``: every subdirectory of ``<dir>`` with a ``SKILL.md``,
@@ -16,8 +12,8 @@ An arm is one or more parts joined with ``+``, as in the Q&A ``--arms``
 
 A relative skill path is relative to the manifest's ``eval_dir`` (the exported
 ``{eval_dir}`` on the host) and must stay inside it; an absolute path is a host
-path. The arm string is recorded as it was written: ``guidance:raw+skill:x`` and
-``skill:x`` are two arms with the same workspace.
+path. The directory name of a skill is its name, and the name in its ``SKILL.md``
+frontmatter has to be the same.
 """
 
 from __future__ import annotations
@@ -29,10 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-GUIDANCE = ("guidance:none", "guidance:raw", "guidance:bridge")
 SKILL_KINDS = ("skill", "skill-catalog")
 SKILLS_DIR = ".claude/skills"
-COMBINE = "+"
 
 
 def slug(text: str) -> str:
@@ -56,55 +50,15 @@ class Skill:
         return f"{SKILLS_DIR}/{self.name}"
 
 
-@dataclass(frozen=True)
-class RepoArm:
-    spec: str
-    guidance: str
-    skills: tuple[tuple[str, str], ...] = ()  # (kind, path) as written
-
-    @property
-    def catalog(self) -> bool:
-        return any(kind == "skill-catalog" for kind, _ in self.skills)
-
-
-def parse_arm(spec: str) -> RepoArm:
-    """``spec`` as a :class:`RepoArm`. A ``+`` starts a new part only before a known kind, so a path may hold one."""
-    parts: list[str] = []
-    for piece in spec.split(COMBINE):
-        if parts and not _starts_kind(piece):
-            parts[-1] += COMBINE + piece
-        else:
-            parts.append(piece)
-    guidance, skills = [], []
-    for part in parts:
-        if part in GUIDANCE:
-            guidance.append(part)
-            continue
-        kind, sep, path = part.partition(":")
-        if kind not in SKILL_KINDS or not sep:
-            raise ArmError(f"unknown arm {spec!r} (known: {', '.join(GUIDANCE)}, skill:<path>, "
-                           f"skill-catalog:<dir>, joined with {COMBINE!r})")
-        if not path:
-            raise ArmError(f"arm {spec!r}: {kind}: needs a path")
-        skills.append((kind, path))
-    if len(guidance) > 1:
-        raise ArmError(f"arm {spec!r}: more than one guidance part")
-    return RepoArm(spec, guidance[0] if guidance else "guidance:raw", tuple(skills))
-
-
-def _starts_kind(text: str) -> bool:
-    return text in GUIDANCE or any(text.startswith(k + ":") for k in SKILL_KINDS)
-
-
-def resolve_skills(arm: RepoArm, content_dir: Path) -> list[Skill]:
-    """The skills ``arm`` installs, found on the host; two with one name are refused."""
+def resolve_skills(arm: Any, content_dir: Path) -> list[Skill]:
+    """The skills ``arm`` (a :class:`.workspace.Arm`) installs, found on the host; two with one name are refused."""
     found: list[Skill] = []
     for kind, path in arm.skills:
         root = _skill_path(path, content_dir)
         if kind == "skill":
             if not (root / "SKILL.md").is_file():
                 raise ArmError(f"arm {arm.spec!r}: no SKILL.md in {path}")
-            found.append(Skill(root.name, root))
+            found.append(_named(arm, root, path))
             continue
         if not root.is_dir():
             raise ArmError(f"arm {arm.spec!r}: skill-catalog {path} is not a directory")
@@ -114,7 +68,7 @@ def resolve_skills(arm: RepoArm, content_dir: Path) -> list[Skill]:
                 continue
             if not d.resolve().is_relative_to(root.resolve()):
                 raise ArmError(f"arm {arm.spec!r}: {d.name} in {path} links outside it")
-            subs.append(Skill(d.name, d))
+            subs.append(_named(arm, d, path))
         if not subs:
             raise ArmError(f"arm {arm.spec!r}: no subdirectory of {path} holds a SKILL.md")
         found += subs
@@ -128,6 +82,30 @@ def resolve_skills(arm: RepoArm, content_dir: Path) -> list[Skill]:
     if dupes:
         raise ArmError(f"arm {arm.spec!r}: more than one skill named {', '.join(dupes)}")
     return found
+
+
+def _named(arm: Any, directory: Path, written: str) -> Skill:
+    """The skill in ``directory``; its ``SKILL.md`` ``name`` (when it has one) has to be the directory's name,
+    as it is the name the agent's ``Skill`` call carries and the one the install path and usage match on."""
+    declared = _frontmatter_name(directory / "SKILL.md")
+    if declared is not None and declared != directory.name:
+        raise ArmError(f"arm {arm.spec!r}: the SKILL.md in {written} is named {declared!r}, but its directory "
+                       f"is {directory.name!r}; rename one, as the agent calls the skill by its name")
+    return Skill(directory.name, directory)
+
+
+def _frontmatter_name(skill_md: Path) -> str | None:
+    """``name`` in the YAML frontmatter of ``skill_md``, ``None`` without one."""
+    lines = skill_md.read_text(encoding="utf-8", errors="replace").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        key, sep, value = line.partition(":")
+        if sep and key.strip() == "name":
+            return value.strip().strip("\"'") or None
+    return None
 
 
 def _uncopyable(skill_dir: Path) -> tuple[Path, str] | None:
@@ -162,25 +140,21 @@ def _skill_path(path: str, content_dir: Path) -> Path:
     return full
 
 
-def check_arms(arms: list[str], content_dir: Path, tasks: list[Any]) -> list[RepoArm]:
-    """Parse every arm and find its skills before anything runs; a catalog must hold each task's
-    ``expected_skill``. Returns the parsed arms."""
-    parsed = []
-    cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm string that owns it
-    for spec in arms:
-        arm = parse_arm(spec)
-        cell = slug(spec.replace(":", "-"))
-        if cells.setdefault(cell, spec) != spec:
-            raise ArmError(f"arms {cells[cell]!r} and {spec!r} would share one result directory ({cell})")
+def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any]) -> None:
+    """Find the skills of every parsed arm before anything runs; a catalog must hold each task's
+    ``expected_skill``. Two arms that would share a name or a result directory are refused."""
+    cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm spec that owns it
+    for arm in arms:
+        cell = slug(str(arm).replace(":", "-"))
+        if cells.setdefault(cell, arm.spec) != arm.spec:
+            raise ArmError(f"arms {cells[cell]!r} and {arm.spec!r} would share one result directory ({cell})")
         names = {s.name for s in resolve_skills(arm, content_dir)}
-        if arm.catalog:
+        if any(kind == "skill-catalog" for kind, _ in arm.skills):
             for task in tasks:
                 expected = task.raw.get("expected_skill")
                 if expected and expected not in names:
-                    raise ArmError(f"arm {spec!r}: task {task.id}'s expected_skill {expected!r} is not installed "
+                    raise ArmError(f"arm {arm.spec!r}: task {task.id}'s expected_skill {expected!r} is not installed "
                                    f"(installed: {', '.join(sorted(names))})")
-        parsed.append(arm)
-    return parsed
 
 
 def tree_sha256(root: Path) -> str:

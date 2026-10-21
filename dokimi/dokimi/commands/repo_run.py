@@ -12,6 +12,10 @@ import math
 import shutil
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dokimi.repos.workspace import Arm
 
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
@@ -135,14 +139,14 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
     """Self-check (no LLM): null fails the gate, oracle passes it, the agent cannot see the tasks."""
     from dokimi.repos.arms import check_arms
     from dokimi.repos.selfcheck import run_check
-    from dokimi.repos.workspace import load_tasks
+    from dokimi.repos.workspace import load_tasks, parse_arm
 
     out = Path(args.out).resolve()
     try:
         ctx, _ = _context(args, out)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         arms = [a for spec in args.arm or () for a in spec.split(",") if a]
-        check_arms(arms, ctx.content_dir, tasks)  # skill paths exist, catalogs hold each expected_skill
+        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks)  # skill paths exist, catalogs hold each expected_skill
         if arms:
             print(f"{len(arms)} arm(s) ok: {', '.join(arms)}", file=sys.stderr)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
@@ -153,7 +157,11 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         sys.exit(1)
     bad = [r for r in results if r["verdict"] != "ok"]
     print(f"{len(results) - len(bad)}/{len(results)} ok; wrote {out / 'check' / 'check.json'}")
-    if bad:
+    allowed = [r for r in bad if args.allow_unsupported and r.get("unsupported_by") == "host"]
+    if allowed:
+        print(f"{len(allowed)} unsupported on this host, allowed by --allow-unsupported: "
+              + ", ".join(r["task"] for r in allowed))
+    if len(bad) > len(allowed):
         sys.exit(1)
 
 
@@ -166,23 +174,29 @@ def cmd_repo_run(args: argparse.Namespace) -> None:
 
 
 def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock: contextlib.ExitStack) -> None:
+    from dokimi.repos import RepoSource, open_source
+    from dokimi.repos.arms import check_arms
     from dokimi.repos.container import docker_network
     from dokimi.repos.harness_profile import load_profile
     from dokimi.repos.runner import (
-        AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps)
+        AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps, validate_tasks)
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
-    from dokimi.repos.arms import check_arms, parse_arm
-    from dokimi.repos.workspace import load_tasks
+    from dokimi.repos.workspace import load_tasks, parse_arm, source_git_dir
+
+    from .repo import _cache_dir
 
     try:
-        for arm in arms:
-            parse_arm(arm)
+        parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
         harness_bin = _harness_bin(args.bin or profile.bin)
+        source = RepoSource.parse(args.source)  # a misspelled revision fails before the build and the pin too
+        arms = _pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
+                         args.source)
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
-        check_arms(arms, ctx.content_dir, tasks)
+        check_arms(arms, ctx.content_dir, tasks)  # skill paths exist, catalogs hold each expected_skill
+        validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, timeout_s=args.timeout, max_turns=args.max_turns,
                                 budget_usd=args.budget) for m in args.model]
@@ -206,8 +220,40 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         sys.exit(1)
     print(f"{summary['ran']} ran, {summary['skipped']} already done, {len(summary['errors'])} crashed, "
           f"{summary['budget_stopped']} not started (batch budget); ${summary['spent_usd']:.4f}")
-    if summary["errors"] or summary["budget_stopped"]:
+    if summary["probe_failed"]:
+        print(f"✗ the host probe failed, so these tasks have cells that were not run: {', '.join(summary['probe_failed'])}",
+              file=sys.stderr)
+    if summary["errors"] or summary["budget_stopped"] or summary["probe_failed"]:
         sys.exit(1)
+
+
+def _pin_arms(arms: list[Arm], git_dir: Path, source: str) -> list[str]:
+    """Each arm under the name its cells get, resolved once for the whole batch (a revision to its
+    full SHA, so a branch that moves later names another arm); two spellings of one arm run once."""
+    from dokimi.repos import RepoSource
+    from dokimi.repos.workspace import pin_arm
+
+    parsed = RepoSource.parse(source)
+    remote = parsed.remote
+    worktree = None if remote else Path(parsed.location)  # HEAD of a linked worktree is not the main one's
+    pinned: list[str] = []  # Arm objects: run_batch hands each to prepare_workspace
+    first_path: dict[str, str | None] = {}
+    first_skills: dict[str, tuple[str, ...]] = {}
+    for arm in arms:
+        named = pin_arm(arm, git_dir, fetch=remote, worktree_dir=worktree)
+        if first_skills.setdefault(named, named.skills) != named.skills:  # skill arms are named by directory
+            raise ValueError(f"arms {named.spec!r} and another spelling of {named!r} name different skill paths "
+                             f"({named.skills} vs {first_skills[named]}) but would share one cell; "
+                             f"rename a directory or spell the path alike")
+        if named != named.spec:
+            detail = f"{named.patch_path}, sha256 {named.patch_sha256}" if named.patch is not None else named.spec
+            print(f"arm {named} = {detail}", file=sys.stderr)
+        first = first_path.setdefault(named, named.patch_path)
+        if first != named.patch_path:  # same bytes under another path: one cell, recorded under the first path
+            print(f"arm {named}: {named.patch_path} and {first} are the same patch and share one cell; "
+                  f"meta.json names {first}", file=sys.stderr)
+        pinned.append(named)
+    return list(dict.fromkeys(pinned))
 
 
 def _harness_bin(name: str) -> Path:
@@ -297,6 +343,10 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     check_p.add_argument("--arm", action="append", default=None,
                          help="Also check this `repo run` arm: its skill paths exist and a skill-catalog "
                          "holds each task's expected_skill; repeatable or comma-separated")
+    check_p.add_argument("--allow-unsupported", action="store_true", dest="allow_unsupported",
+                         help="Exit 0 when the only tasks that are not ok are unsupported because this host "
+                         "misses their task.json `host` requirements (still printed with the reason). Broken "
+                         "tasks, tasks that need egress and tasks whose host probe failed still exit 1")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
 
@@ -305,9 +355,14 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
         "result.json per cell, already finished cells skipped")
     _common(run_p, source_help, cache_help, positive_int)
     run_p.add_argument("--arm", action="append", default=None, required=True,
-                       help="guidance:none | guidance:raw | guidance:bridge | skill:<path> | skill-catalog:<dir>, "
-                       "parts joined with + (guidance:none+skill:skills/x); a relative path is in eval_dir. "
-                       "Repeatable or comma-separated")
+                       help="guidance:none | guidance:raw | guidance:bridge | guidance:rev:REV (the base with "
+                       "the guidance files of revision REV of the source; the arm is named by REV's full SHA, "
+                       "resolved once per batch) | patch:FILE (a unified diff on this host, applied with git "
+                       "apply on top of guidance:raw; named patch:<file name>@<sha256 prefix>, path and "
+                       "sha256 in meta.json) | skill:<dir> | skill-catalog:<dir> (skills installed in the "
+                       "workspace; a relative dir is in eval_dir; named by the directory, not the path). A "
+                       "guidance part and skills join with + (guidance:none+skill:skills/x); "
+                       "repeatable or comma-separated")
     run_p.add_argument("--model", action="append", required=True,
                        help="Model string passed to the harness as it is; repeatable")
     run_p.add_argument("--reps", type=positive_int, default=1)
