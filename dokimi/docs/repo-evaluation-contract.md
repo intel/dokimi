@@ -250,6 +250,7 @@ belongs to the repository's grader and is passed through unread.
 | `timeout_s`, `max_turns`, `budget_usd` | no | framework | per-task caps, overriding run defaults; each a finite number > 0 |
 | `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
+| `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. `result.json` `skills` records whether the agent used it and whether it used it first |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
 `setup_patch` (a single string) is accepted as a synonym for a one-element
@@ -383,6 +384,17 @@ reads the upstream base (`base_sha`) and the workspace start commit
 Code's `modelUsage`), `main` when the harness reported the parent's only, and
 `null` when it reported none. `subagent_calls` counts the parent's and
 subagents' `Agent`/`Task` calls; `null` when the harness wrote no result record.
+
+A cell of an arm that installs skills also has a `skills` object in
+`result.json`: `measured`, `skills_installed` (the installed skill names),
+`skills_used` (the installed skills the agent called with the `Skill` tool or
+whose `SKILL.md` it read, in order of first use), `expected_skill` (the task's,
+or `null`), `skill_invoked` (the expected skill was used; any installed skill
+when the task names none) and `skill_selected_correct` (the expected skill was
+the first one used; `null` when the task names none). When the trace could not
+be read (the harness never started), `measured` is `false` and `skill_invoked`
+and `skill_selected_correct` are `null`: the usage is unknown, not "did not use
+the skill". `repo report` leaves such cells out of its skill counts.
 
 ### 4.2 `grade.json` (written by `grade` to `{run_dir}/grade.json`)
 
