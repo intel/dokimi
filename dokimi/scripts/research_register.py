@@ -153,6 +153,14 @@ def check(records: dict[str, Record], schema: dict[str, Any]) -> list[str]:
             errors.append(f"{rid}: superseded_by is set but state is {state!r}, not 'superseded'")
         if record.fields.get("superseded_by") == rid:
             errors.append(f"{rid}: superseded_by names the record itself")
+        else:
+            seen = {rid}
+            step = record.fields.get("superseded_by")
+            while isinstance(step, str) and step in records and step not in seen:
+                seen.add(step)
+                step = records[step].fields.get("superseded_by")
+            if step == rid:
+                errors.append(f"{rid}: superseded_by chain loops back to {rid}")
         for target in ref_values(record, "experiments"):
             if target in records and records[target].fields.get("retracted"):
                 errors.append(f"{rid}.experiments: {target} is retracted")

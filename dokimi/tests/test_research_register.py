@@ -89,6 +89,15 @@ def test_bad_record_fails(root: Path, capsys: pytest.CaptureFixture[str],
     assert message in capsys.readouterr().out
 
 
+def test_supersession_cycle_fails(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _write(root, "decision", "D002", "title: T\nstate: superseded\nsuperseded_by: D003\n")
+    _write(root, "decision", "D003", "title: T\nstate: superseded\nsuperseded_by: D002\n")
+    assert rr.main(["--root", str(root), "check"]) == 1
+    out = capsys.readouterr().out
+    assert "D002: superseded_by chain loops back to D002" in out
+    assert "D003: superseded_by chain loops back to D003" in out
+
+
 @pytest.mark.parametrize("link", [
     "https://github.com/intel/x https://example.com/secret",
     "https://github.com/intel/../../other/repo",
