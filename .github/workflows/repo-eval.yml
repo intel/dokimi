@@ -376,16 +376,29 @@ jobs:
           warm=()
           if [ "$WARM" = true ]; then warm=(--warm); fi
           dokimi repo tasks check . --manifest "$MANIFEST" --task "$TASK" --out "$RUNNER_TEMP/repo-check" "${warm[@]}"
+      # always(): a hung oracle ends in the job timeout, which cancels the job; a
+      # cancelled job still runs these steps, so the run leaves a verdict.
       - name: Summary
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          TASK: ${{ matrix.task }}
         run: |
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json, os
           path = os.path.join(os.environ["RUNNER_TEMP"], "repo-check", "check", "check.json")
           if not os.path.isfile(path):
-              print("### repo tasks check", "", "No check.json: the check stopped before grading; see the job log.",
-                    sep="\n")
-              raise SystemExit
+              if os.environ["JOB_STATUS"] == "cancelled":
+                  # the job timeout (or a cancel) stopped the check before it wrote its verdict
+                  problem = "the job was cancelled (timeout-minutes?) before the check finished"
+                  os.makedirs(os.path.dirname(path), exist_ok=True)
+                  with open(path, "w", encoding="utf-8") as f:
+                      json.dump({"tasks": [{"task": os.environ["TASK"], "verdict": "timeout",
+                                            "problems": [problem]}]}, f)
+              else:
+                  print("### repo tasks check", "", "No check.json: the check stopped before grading; see the job log.",
+                        sep="\n")
+                  raise SystemExit
           for r in json.load(open(path, encoding="utf-8"))["tasks"]:
               print(f"### repo tasks check `{r['task']}`: {r['verdict'].upper()}", "", sep="\n")
               for kind in ("null", "oracle"):
@@ -396,7 +409,7 @@ jobs:
                   print(f"- problem: {p}")
           PY
       - name: Upload the check results
-        if: ${{ !cancelled() }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: repo-eval-check-${{ needs.validate.outputs.id }}-${{ matrix.task }}

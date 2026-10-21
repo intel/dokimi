@@ -17,6 +17,10 @@ on:
     paths:
       - '.agent-eval/**'
       - 'dokimi/dokimi/repos/**'
+      - 'dokimi/dokimi/commands/repo*.py'
+      - 'dokimi/dokimi/schemas/repo_*.json'
+      - 'dokimi/requirements.lock.txt'
+      - 'dokimi/pyproject.toml'
       - '.github/workflows/repo-eval.yml'
       - '.github/workflows/repo-eval-self.yml'
   workflow_dispatch:
