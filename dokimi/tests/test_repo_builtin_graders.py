@@ -447,6 +447,17 @@ def test_the_replay_oracle_reaches_full_recall_on_a_suggestion_comment(tmp_path)
     assert review.last_json(oracle)[0]["message"] == "```suggestion"
 
 
+def test_the_seeds_oracle_reaches_full_recall_when_oracle_json_quotes_a_fence(tmp_path):
+    d = _task_dir(tmp_path, "seeds_mul")
+    quoted = [{**f, "message": f["message"] + " ```suggestion x``` naming"} for f in ORACLE]
+    write(d, "oracle.json", json.dumps(quoted))
+    oracle = review.oracle_seeds({}, d)
+    assert review.grade_seeds({}, d, oracle)["recall"] == 1.0
+    assert review.last_json(oracle) == quoted
+    write(d, "oracle.json", json.dumps(ORACLE))  # no fence in it: the text is the file's, unchanged
+    assert review.oracle_seeds({}, d) == "```json\n" + json.dumps(ORACLE) + "\n```"
+
+
 def test_wildcard_seeds_and_absolute_paths_match_as_pinned(tmp_path):
     seeds = {"seeds": [{"id": "w", "class": "c", "file": "*", "lines": [5], "kw": "zzz"},
                        {"id": "s", "class": "c", "file": "src/calc.py", "lines": [9], "kw": "mul"}]}

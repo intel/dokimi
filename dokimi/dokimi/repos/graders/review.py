@@ -207,7 +207,8 @@ def grade_seeds(task, task_dir, answer):
 def oracle_seeds(task, task_dir):
     """The reference answer: ``oracle.json`` (a list of findings) in a fence."""
     with open(str(task_dir / task.get("oracle_answer", "oracle.json")), encoding="utf-8") as fh:
-        return "```json\n" + fh.read() + "\n```"
+        # ``` can only sit in a JSON string: escape it as oracle_replay does, or it closes the fence
+        return "```json\n" + fh.read().replace("```", "\\u0060\\u0060\\u0060") + "\n```"
 
 
 def _ratio(a, b):
