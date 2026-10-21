@@ -145,6 +145,9 @@ def test_tools_lock_has_every_requested_pin() -> None:
         if stripped and not PIN.match(stripped):
             # Only a bare name or an exact pin can be checked against the lock.
             assert BARE_NAME.match(stripped), f"requirements-ci.txt line not checked: {line!r}"
+            assert canonical(stripped) in locked, (
+                f"requirements-ci.txt lists {stripped} but requirements-ci.lock.txt has no pin for it"
+            )
         if m := PIN.match(line):
             assert m[2] in locked.get(canonical(m[1]), set()), (
                 f"requirements-ci.txt pins {m[1]}=={m[2]} but requirements-ci.lock.txt has "
