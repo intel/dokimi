@@ -65,12 +65,12 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.agent_profiles", "dokimi.gate", "dokimi.ingest", "dokimi.mcp",
         "dokimi.metrics", "dokimi.skills",
     )),
-    # What everything shares: defaults, registries, artifact I/O, the LLM and process
-    # chokepoints, console output.
+    # What everything shares: defaults, registries, artifact and record I/O, the LLM and
+    # process chokepoints, console output.
     ("foundation", (
         "dokimi", "dokimi._version", "dokimi.artifacts", "dokimi.caching", "dokimi.config",
         "dokimi.console", "dokimi.defaults", "dokimi.intents", "dokimi.llm",
-        "dokimi.process", "dokimi.registry", "dokimi.utils",
+        "dokimi.process", "dokimi.records", "dokimi.registry", "dokimi.utils",
         # Token/cost record the LLM chokepoint fills; it lives under metrics/ but
         # depends on nothing and is read by every LLM caller.
         "dokimi.metrics.usage",

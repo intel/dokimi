@@ -26,7 +26,7 @@ permissions:
 # (repository_owner is the base repository's); an outside contributor's runs
 # need a maintainer's approval first. A fork's own pushes fall back to
 # ubuntu-latest. release.yml and stack-health.yml, not PR checks, stay on
-# ubuntu-latest.
+# ubuntu-latest. windows-smoke, a PR check, runs on windows-latest.
 
 # A new push to a PR supersedes the run in flight. Every other run gets a group of its
 # own (run_id): in a shared group a third queued run cancels the pending second one
@@ -100,20 +100,25 @@ jobs:
       # Every tracked file carries the SPDX license header; scope and exceptions
       # are in .github/.licenserc.yaml. A `uses:` step, so `make ci-local` skips
       # it (the config's header comment has the docker command for a local run).
+      # The released image, not the apache/skywalking-eyes/header action, which
+      # installs Go and builds license-eye on every run. Log level error: the
+      # pattern-only config makes info level warn once per file type about a
+      # missing license template; invalid files are still listed at error.
       - name: License header check
         if: ${{ !cancelled() }}
-        uses: apache/skywalking-eyes/header@a196742f472feaffafea537ce5a2a4c3c53a8de4  # v0.9.0
+        uses: docker://apache/skywalking-eyes:0.9.0@sha256:cd89ccbbcba2e87d3fb0e34b156b1da208d6c5ac1ada4e2d335e920022c765b8
         with:
-          config: .github/.licenserc.yaml
-          mode: check
+          args: -v error -c .github/.licenserc.yaml header check
       # The hooks in .pre-commit-config.yaml, so they stay green on main: a change
       # that fails one fails here, not on the next contributor's commit. ruff-check
-      # and zizmor are skipped: the steps above run the same versions.
+      # and zizmor are skipped: the steps above run the same versions. gitleaks
+      # checks staged changes only, so it has nothing to do here; gitleaks.yml
+      # scans the PR's commits.
       - name: pre-commit
         if: ${{ !cancelled() }}
         working-directory: .
         env:
-          SKIP: ruff-check,zizmor
+          SKIP: ruff-check,zizmor,gitleaks
         run: pre-commit run --all-files --show-diff-on-failure --color always
       # bandit and pip-audit hold the baseline SECURITY.md describes: no
       # Medium/High Bandit finding, and no dependency advisory beyond the ones it
@@ -124,7 +129,8 @@ jobs:
       # The locks are the full closure (requirements-docs.lock.txt for the
       # documentation site), so --no-deps --disable-pip audits them as written
       # without resolving or installing anything. Each --ignore-vuln is
-      # an advisory SECURITY.md documents; add or drop them together.
+      # an advisory SECURITY.md documents and dokimi/osv-scanner.toml ignores;
+      # add or drop them together, in all three.
       # pip-audit skips a pin whose marker is false on this 3.13 runner (the
       # pins for older interpreters, for one), so markers are stripped, a pin
       # both locks share is kept once, and a name pinned twice goes to a second file.
@@ -315,3 +321,39 @@ jobs:
         run: |
           smoke="$PWD/scripts/smoke_installed.py"
           cd "$RUNNER_TEMP" && python "$smoke"
+
+  # Windows sanity check, not a full validation: the wheel builds, installs and
+  # passes the installed-package smoke test, and a few fast unit tests run. It
+  # catches path, encoding and console breakage on Windows without paying for
+  # the whole suite on a slower runner. GitHub-hosted: the Intel pool has no
+  # Windows runners.
+  windows-smoke:
+    name: Windows smoke test (py3.13)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: dokimi
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: dokimi/requirements.lock.txt
+      - name: Build and install the wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir "$RUNNER_TEMP/dist"
+          python -m pip install "$RUNNER_TEMP"/dist/*.whl
+      - name: Smoke-test the installed wheel
+        run: |
+          smoke="$PWD/scripts/smoke_installed.py"
+          cd "$RUNNER_TEMP" && python "$smoke"
+      - name: Install test deps
+        run: python -m pip install -r requirements.lock.txt
+      - name: Run a few fast tests
+        run: pytest -q tests/test_cli_help.py tests/test_console_encoding.py
