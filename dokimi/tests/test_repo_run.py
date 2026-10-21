@@ -132,6 +132,22 @@ def test_a_cell_is_reused_only_by_the_same_execution(setup, capsys):
     assert "--no-agents" in agent.argv
 
 
+def test_force_does_not_pool_executions_across_the_plan(setup, capsys):
+    raw = yaml.safe_load(setup["profile"].read_text())
+    raw["delegation"] = {"none": {"all": [*raw["tools"]["all"], "--no-agents"]}}
+    setup["profile"].write_text(yaml.safe_dump(raw))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2")
+    capsys.readouterr()
+    setup["runner"].specs.clear()
+    with pytest.raises(SystemExit):  # r2 stays native next to a new r1 under none
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "1", "--delegation", "none", "--force")
+    assert "holds cells of another execution" in capsys.readouterr().err
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
+    # the cells of the plan itself are still replaced
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2", "--delegation", "none", "--force")
+    assert "2 ran" in capsys.readouterr().out
+
+
 def test_a_result_from_before_execution_ids_is_not_reused(setup, capsys):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     rd = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"

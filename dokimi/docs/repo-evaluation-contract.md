@@ -658,6 +658,11 @@ bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
   above). A profile without `delegation.none` refuses `--delegation none`
   before anything runs. The default, `--delegation native`, runs the tool mode
   as written: under `all`, Claude Code may start subagents.
+  `--delegation none` limits the tools the agent is given, not the skills it
+  loads: a skill whose frontmatter says `context: fork` can still start a
+  subagent under `none`. Do not read a `none` cell as subagent-free when the
+  run's skills include one (tracked in intel/dokimi, "repo run: block
+  fork-context skills under --delegation none").
 
 Profiles for other harnesses (Codex, Gemini CLI, Copilot CLI, Cursor agent,
 Aider, OpenCode, in-house agents) follow the same shape. Their `guidance`
@@ -985,14 +990,21 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   `result.json`, the framework's verdict. A cell with `result.json` is skipped
   on a rerun unless `--force`; a cell without one is reported as missing, not
   failed, and the next run of the batch fills it. `meta.json` and
-  `result.json` record `execution`: the tool mode, the delegation mode and an
+  `result.json` record `execution`: the tool mode, the delegation mode (the one
+  whose arguments ran; a skill with `context: fork` can still start a subagent
+  under `none`) and an
   `id` hashing the profile's name, `invoke`, tool arguments, `env_set`,
   `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`,
   `bridge`, the SHA-256 of the harness executable (`--bin`) and harness version.
-  A rerun whose `id` differs (another `--tools`, `--delegation`, profile, harness binary or
-  harness version, or an edited `env_allow`, `egress`, `bridge` or similar profile field) does not reuse the cell: the cell is reported as crashed, and
-  `--force` or another `--batch` runs it. A result from before `execution` was
-  recorded counts as `--delegation native`. A batch stays on the eval tree it
+  A rerun whose `id` differs (another `--tools`, a `--delegation` that changes the tool arguments, profile,
+  harness binary or harness version, or an edited `env_allow`, `egress`, `bridge` or similar profile field) does not reuse the cell: the cell is reported as crashed, and
+  `--force` or another `--batch` runs it. `--force` replaces the cells of the
+  run's plan only: if the batch dir holds finished cells outside that plan
+  whose `id` differs from this run's (e.g. `--reps 2`, then `--reps 1
+  --delegation none --force`), the run is refused before anything runs, because
+  the report would pool both executions in one row; use another `--batch`. A result from before `execution` was
+  recorded is refused as `unrecorded`, not counted as native; `--force` or
+  another `--batch` runs it. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
   and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.

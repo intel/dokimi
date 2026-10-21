@@ -117,11 +117,16 @@ class ExecutionMismatch(PrepError):
     """A finished cell of the batch ran with another execution than the one asked for."""
 
 
-def check_batch_executions(batch_dir: Path, options: list[AgentOptions]) -> None:
-    """Refuse, before anything runs, a batch dir whose finished cells ran with another execution."""
+def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replacing: set[str] | None = None) -> None:
+    """Refuse, before anything runs, a batch dir whose finished cells ran with another execution.
+
+    ``replacing`` (the cells of a ``--force`` run) are skipped: ``--force`` rewrites those, but not the others,
+    which would stay in the report next to the new ones."""
     wanted = {execution_record(o)["id"] for o in options}
     found: set[str] = set()
     for path in sorted(batch_dir.glob("*/result.json")):
+        if replacing is not None and path.parent.name in replacing:
+            continue
         try:
             found.add((json.loads(path.read_text(encoding="utf-8")).get("execution") or {}).get("id", "unrecorded"))
         except (OSError, ValueError):
@@ -130,7 +135,8 @@ def check_batch_executions(batch_dir: Path, options: list[AgentOptions]) -> None
     if other:
         raise ExecutionMismatch(
             f"{batch_dir} holds cells of another execution ({', '.join(sorted(other))}) than this run "
-            f"({', '.join(sorted(wanted))}); use another --batch, or --force to replace them")
+            f"({', '.join(sorted(wanted))}); use another --batch, or --force to replace them"
+            + (" (--force replaces only the cells of this run's plan)" if replacing is not None else ""))
 
 
 def agent_network(opts: AgentOptions, ctx: EvalContext, task: Task) -> str:
@@ -308,9 +314,8 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     requirements it does not meet is marked unsupported instead of run. One that already has a
     ``result.json`` (from a host that met them) keeps it, even with ``force``."""
     validate_tasks(tasks)
-    if not force:
-        check_batch_executions(batch_dir, options)
     cells = [(t, a, o, r) for t in tasks for a in arms for o in options for r in range(1, reps + 1)]
+    check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None)
     _record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
