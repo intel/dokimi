@@ -353,7 +353,7 @@ criteria:
   # ---------------------------------------------------------------- J12
   AC-J12-001:
     delivery: proposed
-    gaps: ["baseline compare --strict exits 1 only on an unverified or mismatched model; a regression beyond a threshold exits 0 and no threshold is defined"]
+    gaps: ["baseline compare --strict adds a non-zero exit only on an unverified or mismatched model; a regression beyond a threshold exits 0 and no threshold is defined"]
   AC-J12-002:
     delivery: proposed
     gaps: ["no configurable policy decides whether an inconclusive or budget-stopped check blocks"]

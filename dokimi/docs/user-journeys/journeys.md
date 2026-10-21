@@ -660,9 +660,9 @@ cost.
 
 **Today.** Baselines exist (`python cli.py baseline save`,
 `python cli.py baseline compare --strict`), as do static gates
-(`python cli.py repo scan --fail-on-fail`). `baseline compare --strict` exits
-non-zero only when a model cannot be verified or differs from the baseline; a
-regression in the scores is printed and exits 0. Failing on a regression beyond
+(`python cli.py repo scan --fail-on-fail`). `baseline compare --strict` adds a
+non-zero exit only when a model cannot be verified or differs from the
+baseline; a regression in the scores is printed and exits 0. Failing on a regression beyond
 a threshold is **proposed** (AC-J12-001), and so is configurable blocking policy
 across check kinds (AC-J12-002).
 
