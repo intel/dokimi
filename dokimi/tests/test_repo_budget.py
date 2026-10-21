@@ -319,6 +319,17 @@ def test_cli_json_and_bad_source(tmp_path, capsys):
     assert exc.value.code == 1
 
 
+def test_cli_out_writes_the_inventory(tmp_path, capsys):
+    _tree(tmp_path, {"AGENTS.md": "a"})
+    dest = tmp_path / "budget.json"
+    out = _run(["repo", "budget", str(tmp_path), "--out", str(dest)], capsys).out
+    assert json.loads(dest.read_text(encoding="utf-8"))["totals"]["start"] == 1
+    assert "| start | guidance | AGENTS.md | 1 |" in out  # the table still prints
+    with pytest.raises(SystemExit) as exc:
+        _run(["repo", "budget", str(tmp_path), "--out", str(tmp_path / "no" / "dir" / "b.json")], capsys)
+    assert exc.value.code == 1
+
+
 def test_imports_must_exist_to_be_counted(tmp_path):
     """Real imports are counted; missing files and imports in code are not."""
     tree = _tree(tmp_path, {
