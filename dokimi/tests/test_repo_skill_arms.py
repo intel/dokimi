@@ -87,6 +87,31 @@ def test_skill_usage_from_skill_calls_and_skill_md_reads():
     assert used["skill_invoked"] is True and used["skill_selected_correct"] is False
     none = skill_usage([], ["lint"], None)
     assert none["skill_invoked"] is False and none["skill_selected_correct"] is None
+    wrong = skill_usage([{"kind": "tool", "name": "Skill", "skill": "format"}], ["format", "lint"], "lint")
+    assert wrong["skills_used"] == ["format"] and wrong["skill_invoked"] is False  # another skill is not it
+    plugin = skill_usage([{"kind": "tool", "name": "Skill", "skill": "plug:lint"}], ["lint"], "lint")
+    assert plugin["skill_invoked"] is True and plugin["skill_selected_correct"] is True
+
+
+def test_an_older_claude_code_names_the_skill_in_command():
+    raw = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "a", "name": "Skill", "input": {"command": "lint"}}]}})
+    assert convert("claude-stream-json", raw, "/w").events == [{"t": None, "kind": "tool", "name": "Skill",
+                                                                 "skill": "lint"}]
+
+
+def test_a_quoted_frontmatter_name_is_the_directory_name(tmp_path):
+    for quote in ('"', "'"):
+        write(tmp_path, "skills/lint/SKILL.md", f"---\nname: {quote}lint{quote}\ndescription: x\n---\nDo lint.\n")
+        assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]
+
+
+def test_a_task_without_expected_skill_reports_no_selection(setup, monkeypatch):
+    monkeypatch.setenv("FAKE_SKILLS", "lint")
+    _run(setup, "--arm", "skill:skills/lint", "--task", "fix_add")  # fix_add names no expected_skill
+    row = summarize(setup["out"] / "b1")["rows"][0]
+    assert (row["skill_measured"], row["skill_invoked"]) == (1, 1) and "skill_selected_correct" not in row
+    assert "skill selected correct" not in format_report(summarize(setup["out"] / "b1"))
 
 
 def test_catalog_arm_counts_the_expected_skill_picked_first(setup, monkeypatch):

@@ -176,6 +176,8 @@ def test_missing_and_non_yaml_manifest(tmp_path):
         ({"egress": ["*.org"]}, "egress must be a list"),
         ({"egress": ["pypi.*"]}, "egress must be a list"),
         ({"egress": ["py*.org"]}, "egress must be a list"),
+        ({"expected_skill": "skills/lint"}, "expected_skill must be a skill name"),  # a path never matches usage
+        ({"expected_skill": 3}, "expected_skill must be a skill name"),
     ],
 )
 def test_bad_task_is_reported(tmp_path, task_extra, needle):
