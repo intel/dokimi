@@ -83,6 +83,24 @@ jobs:
           echo "changed=$rc" >> "$GITHUB_OUTPUT"
           echo "file=$out/diff.md" >> "$GITHUB_OUTPUT"
           cat "$out/diff.md" >> "$GITHUB_STEP_SUMMARY"
+      # The result for the cli-interface-comment workflow (workflow_run, base-repo write
+      # token), which labels and comments for fork PRs this job's read-only token cannot.
+      # Plain data only: the poster treats it as untrusted and re-validates every field.
+      - name: Package the result
+        env:
+          CHANGED: ${{ steps.diff.outputs.changed }}
+          DIFF_FILE: ${{ steps.diff.outputs.file }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/cli-interface-result"
+          python -c 'import json, os; json.dump({"pr_number": int(os.environ["PR_NUMBER"]), "head_sha": os.environ["HEAD_SHA"], "changed": os.environ["CHANGED"], "diff": open(os.environ["DIFF_FILE"], encoding="utf-8").read()}, open(os.environ["RUNNER_TEMP"] + "/cli-interface-result/result.json", "w", encoding="utf-8"))'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: cli-interface-result
+          path: ${{ runner.temp }}/cli-interface-result/result.json
+          retention-days: 1
+          if-no-files-found: error
       # A fork PR's token is read-only: the diff is then in the job summary only.
       - name: Label and comment on the PR
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8.0.0
