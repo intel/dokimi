@@ -505,6 +505,7 @@ def test_no_assert_only_suppressed_by_bare_calls(check, expected_no_assert):
     "assert send.assert_called_once_with", "assert send.assert_called_with",
     "assert send.assert_any_call", "assert send.assert_has_calls",
     "assert (out == 5, 'msg')",  # the message inside the parens: a non-empty tuple never fails
+    "assert [out == 5]", "assert {out == 5}", "assert {'ok': out == 5}",
 ])
 def test_an_assert_that_is_always_true_is_no_check(check):
     flags = _flags(f"""
@@ -517,12 +518,13 @@ def test_an_assert_that_is_always_true_is_no_check(check):
     assert "no_assert" in flags["test_x"]
 
 
-def test_an_empty_tuple_assert_is_not_always_true():
-    """`assert ()` fails, so it is a check that can fail, not a no-op."""
-    flags = _flags("""
-        def test_x():
+@pytest.mark.parametrize("check", ["assert ()", "assert (*xs,)", "assert [*xs]", "assert {**d}"])
+def test_a_display_that_can_be_empty_is_not_always_true(check):
+    """`assert ()` fails, and `(*xs,)` fails for an empty `xs`: a check, not a no-op."""
+    flags = _flags(f"""
+        def test_x(xs, d):
             out = run()
-            assert ()
+            {check}
         """)
     assert "no_assert" not in flags["test_x"]
 

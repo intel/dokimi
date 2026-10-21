@@ -223,12 +223,16 @@ def _is_weak(node: ast.expr) -> bool:
 
 
 def _always_true(node: ast.expr) -> bool:
-    """``assert True``, ``assert x or True``, ``assert (x == 5, "msg")`` (a non-empty tuple is
-    truthy, so the comparison never runs), or ``assert m.assert_called_once_with`` (never called)."""
+    """``assert True``, ``assert x or True``, ``assert (x == 5, "msg")`` or ``[x == 5]`` (a
+    non-empty display is truthy, so the comparison never runs), or
+    ``assert m.assert_called_once_with`` (never called). ``(*xs,)`` and ``{**d}`` are empty
+    when ``xs`` or ``d`` is, so they can fail."""
     if isinstance(node, ast.Constant):
         return bool(node.value)
-    if isinstance(node, ast.Tuple):
-        return bool(node.elts)
+    if isinstance(node, ast.Tuple | ast.List | ast.Set):
+        return any(not isinstance(e, ast.Starred) for e in node.elts)
+    if isinstance(node, ast.Dict):
+        return any(k is not None for k in node.keys)
     if isinstance(node, ast.BoolOp):
         return (any if isinstance(node.op, ast.Or) else all)(map(_always_true, node.values))
     return isinstance(node, ast.Attribute) and node.attr in _MOCK_VERIFY_UNCALLED
