@@ -52,9 +52,13 @@ jobs:
         with:
           python-version: '3.13'
       # The micromamba binary only: no environment-name, so the action creates
-      # no environment and the solve below is a step of its own.
+      # no environment and the solve below is a step of its own. The binary is
+      # pinned too (the action's default is the latest release), so a new
+      # micromamba cannot turn the job red with nothing changed here; Renovate
+      # bumps it (.github/renovate.json5).
       - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39  # v3.2.1
         with:
+          micromamba-version: '2.9.0-0'
           init-shell: none
       - name: Build the wheel
         run: |
