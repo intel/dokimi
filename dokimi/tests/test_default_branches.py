@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.commands.novelty import _default_judge
+from dokimi.novelty.client import default_judge
 from dokimi.defaults import (
     DEFAULT_ANSWER_PROVIDER, DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER,
     DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER,
@@ -30,11 +30,11 @@ def test_tools_preference_provider_default_is_the_answer_provider():
     "anthropic/claude-sonnet-5-5", "openrouter/anthropic/claude-sonnet-5-5", "us.anthropic.claude-sonnet-5-5",
 ])
 def test_measuring_the_default_judge_under_any_prefix_moves_the_judge(measured):
-    assert _default_judge(measured) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
+    assert default_judge(measured) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
 
 
 def test_other_models_keep_the_default_judge():
-    assert _default_judge("gpt-6.1-sol") == (DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER)
+    assert default_judge("gpt-6.1-sol") == (DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER)
 
 
 def test_a_dotless_arn_is_never_rewritten(monkeypatch):

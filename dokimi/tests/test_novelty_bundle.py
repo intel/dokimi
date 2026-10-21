@@ -530,34 +530,98 @@ def _skill_with_evals(tmp_path, *, entry=400, refs=500, evals=1000):
     return root
 
 
-def test_the_gate_and_the_analyzer_read_one_coverage_on_named_bases(tmp_path):
+def _coverage_check(record):
+    from dokimi.gate.novelty_gate import evaluate_novelty
+
+    return next(c for c in evaluate_novelty({"bundle": record}).checks
+                if c.name == "artifact_coverage")
+
+
+def test_the_gate_judges_the_share_the_analyzer_warns_about(tmp_path):
     """400 entry words, 500 in a reference, 1,000 in the skill's own evals.
 
-    The analyzer warns "56% of this artifact's words were not measured" (readable basis:
-    500 / 900) while the gate judges 500 / 1,900 = 26% (all bundled words) and passes. Both
-    figures now come from the same `Coverage`, and the only difference is the basis each
-    surface names; moving the gate to `readable` changes its numbers and lands on its own.
+    The analyzer warns "56% of this artifact's words were not measured" (readable words:
+    500 / 900). The gate used to divide by every word on disk (500 / 1,900 = 26%) and pass.
+    A record now says it is on the readable basis, and the gate judges the same 56%.
     """
-    from dokimi.gate.novelty_gate import evaluate_novelty
-    from dokimi.novelty.bundle import GATE_COVERAGE_BASIS
-
     bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path)}")
-    coverage = bundle.coverage()
-    assert coverage.unmeasured_share("readable") == pytest.approx(500 / 900)
-    assert coverage.outside_share_on("readable") == coverage.measurable_outside_share
-    assert coverage.unmeasured_share("all_bundled_words") == pytest.approx(500 / 1900)
-    assert coverage.denominator("all_bundled_words") - coverage.denominator("readable") == 1000
+    record = bundle.summary()
+    assert record["coverage_basis"] == "readable" == bundle.coverage().basis
+    assert bundle.coverage().unmeasured_share("readable") == pytest.approx(500 / 900)
     assert any(w.startswith("56% ") for w in bundle.coverage_warnings())
-    assert GATE_COVERAGE_BASIS == "all_bundled_words"
-    check = next(c for c in evaluate_novelty({"bundle": bundle.summary()}).checks
-                 if c.name == "artifact_coverage")
-    assert (check.passed, check.value) == (True, round(500 / 1900, 4))
+    check = _coverage_check(record)
+    assert (check.passed, check.value, check.basis) == (False, round(500 / 900, 4), "readable")
+    assert check.as_dict()["basis"] == "readable"
+    assert "56% of this artifact's readable words were not read" in check.message
+
+
+def test_a_record_from_before_the_stamp_keeps_its_gate_value(tmp_path):
+    from dokimi.novelty.bundle import LEGACY_COVERAGE_BASIS
+
+    record = load_bundle(f"skill:{_skill_with_evals(tmp_path)}").summary()
+    del record["coverage_basis"]                  # as every artifact stored before it
+    check = _coverage_check(record)
+    assert LEGACY_COVERAGE_BASIS == "all_bundled_words"
+    assert (check.passed, check.value, check.basis) == (
+        True, round(500 / 1900, 4), "all_bundled_words")
+    assert "26% of this artifact's words were not read" in check.message
+
+
+def test_a_basis_this_version_does_not_know_is_not_judged(tmp_path):
+    bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path)}")
+    record = dict(bundle.summary(), coverage_basis="tokens")
+    check = _coverage_check(record)
+    assert (check.measured, check.passed, check.value, check.basis) == (
+        False, True, None, "tokens")
+    assert "'tokens' basis" in check.message
     with pytest.raises(ValueError, match="unknown coverage basis"):
-        coverage.denominator("on_disk")
+        bundle.coverage().denominator("tokens")
 
 
-def test_the_gate_names_every_excluded_file_except_non_text(tmp_path):
-    from dokimi.gate.novelty_gate import evaluate_novelty
+def test_as_dict_omits_basis_when_none(tmp_path):
+    """Checks without a basis (basis=None) should not serialize a basis key."""
+    from dokimi.gate.novelty_gate import NoveltyCheck
+
+    check = NoveltyCheck(
+        name="test_check",
+        passed=True,
+        value=None,
+        threshold=0.5,
+        message="test",
+        severity="info",
+        measured=False,
+        basis=None  # Explicitly None
+    )
+    assert "basis" not in check.as_dict()
+
+
+def test_as_dict_includes_basis_when_set(tmp_path):
+    """Checks with any basis value (including unknown) should serialize it."""
+    bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path)}")
+
+    # Test with an unknown basis (still non-measured but has basis field)
+    record_unknown = dict(bundle.summary(), coverage_basis="unknown")
+    check_unknown = _coverage_check(record_unknown)
+    assert check_unknown.as_dict()["basis"] == "unknown"
+
+    # Test with a known basis (measured)
+    record_readable = dict(bundle.summary(), coverage_basis="readable")
+    check_readable = _coverage_check(record_readable)
+    assert check_readable.as_dict()["basis"] == "readable"
+
+
+def test_an_explicit_none_coverage_basis_is_an_invalid_stamp(tmp_path):
+    bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path)}")
+    record = dict(bundle.summary(), coverage_basis=None)
+    check = _coverage_check(record)
+    assert (check.measured, check.passed, check.value, check.basis) == (
+        False, True, None, "None")
+    assert "'None' basis" in check.message
+    with pytest.raises(ValueError, match="unknown coverage basis"):
+        bundle.coverage().denominator("None")
+
+
+def test_the_gate_counts_only_gaps_as_excluded_files(tmp_path):
     from dokimi.novelty.bundle import named_exclusions
 
     root = _skill_with_evals(tmp_path, refs=50)
@@ -565,16 +629,59 @@ def test_the_gate_names_every_excluded_file_except_non_text(tmp_path):
     (root / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
     (root / "references" / "linked.md").symlink_to(root / "references" / "r.md")
     bundle = load_bundle(f"skill:{root}", include_resources=True, max_file_words=40)
-    check = next(c for c in evaluate_novelty({"bundle": bundle.summary()}).checks
-                 if c.name == "artifact_coverage")
-    # The over-budget reference, the evals and the symlink are named; the image is only
-    # counted. The analyzer's warning is about the one gap.
-    named, not_text = named_exclusions(bundle.excluded)
-    assert ([row["path"] for row in named], not_text) == (
-        ["evals/cases.md", "references/linked.md", "references/r.md"], 1)
-    assert "3 files excluded)" in check.message
+    record = bundle.summary()
+    # One over-budget reference is the gap. The evals are a decision, named separately;
+    # the image and the symlink are not content at all. The gate used to say "3 files
+    # excluded" here while the analyzer warned about 1.
+    check = _coverage_check(record)
+    assert "1 file excluded by the word budgets, 1 not measured by role" in check.message
+    assert "30 of 80 readable bundled words" in check.message
     assert len(excluded_of(bundle.excluded, "gap")) == 1
     assert sum("1 bundled files were excluded" in w for w in bundle.coverage_warnings()) == 1
+    # A record from before the stamp still gets the message it was gated with.
+    del record["coverage_basis"]
+    assert "30 of 1080 bundled words, 3 files excluded)" in _coverage_check(record).message
+    assert len(named_exclusions(bundle.excluded)[0]) == 3
+
+
+def test_the_gate_message_keeps_gaps_and_role_decisions_apart(tmp_path):
+    """3 word-budget gaps and 2 role decisions: no count can be swapped for the other."""
+    root = _skill_with_evals(tmp_path, refs=10)
+    for i in range(3):
+        (root / "references" / f"big{i}.md").write_text("w " * 30, encoding="utf-8")
+    (root / "evals" / "more.md").write_text("w " * 5, encoding="utf-8")
+    bundle = load_bundle(f"skill:{root}", include_resources=True, max_file_words=20)
+    record = bundle.summary()
+    assert len(excluded_of(bundle.excluded, "gap")) == 3
+    check = _coverage_check(record)
+    assert "3 files excluded by the word budgets, 2 not measured by role" in check.message
+
+
+def test_the_gate_message_omits_role_decisions_when_there_are_none(tmp_path):
+    root = tmp_path / "s"
+    (root / "references").mkdir(parents=True)
+    (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n" + "w " * 40,
+                                   encoding="utf-8")
+    (root / "references" / "big.md").write_text("w " * 30, encoding="utf-8")
+    bundle = load_bundle(f"skill:{root}", include_resources=True, max_file_words=20)
+    check = _coverage_check(bundle.summary())
+    assert len(excluded_of(bundle.excluded, "gap")) == 1
+    assert "1 file excluded by the word budgets): " in check.message
+    assert "not measured by role" not in check.message
+
+
+def test_a_stamped_record_validates(tmp_path):
+    from dokimi.artifacts import validate_artifact
+
+    from tests.test_novelty_cli import _minimal_artifact
+
+    record = load_bundle(f"skill:{_skill_with_evals(tmp_path)}").summary()
+    validate_artifact("novelty", dict(_minimal_artifact(), bundle=record,
+                                      schema_version="novelty.v1"))
+    with pytest.raises(Exception, match="tokens"):
+        validate_artifact("novelty", dict(_minimal_artifact(),
+                                          bundle=dict(record, coverage_basis="tokens"),
+                                          schema_version="novelty.v1"))
 
 
 def test_a_note_before_measuring_says_what_will_not_be_read(skill):

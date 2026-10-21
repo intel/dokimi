@@ -31,6 +31,7 @@ import yaml
 
 from dokimi.artifacts import schema_errors
 
+from .host_spec import HostSpecError, parse_host
 from .source import RepoTree
 
 SCHEMA_VERSION = "repo_manifest.v1"
@@ -483,6 +484,10 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
         if value is not None and not _positive(value):
             problems.append(f"{key} must be a positive, finite number")
 
+    try:
+        parse_host(raw.get("host"), name)
+    except HostSpecError as exc:
+        problems.append(str(exc).split("task.json ", 1)[-1])
     report.errors.extend(f"{where}: {p}" for p in problems)
     if not problems:
         report.tasks.append(TaskSummary(

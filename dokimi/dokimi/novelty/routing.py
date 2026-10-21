@@ -30,12 +30,14 @@ as a routing rate.
 
 from __future__ import annotations
 
+import json
 import math
 import random
 import re
 from collections import Counter
 from dataclasses import dataclass
 from functools import partial
+from pathlib import Path
 
 
 from .client import LLMClient, parse_json_object
@@ -315,3 +317,93 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     """
     headings = [h.strip() for h in re.findall(r"^#{2,3}\s+(.+)$", body, re.M)]
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
+
+
+class RoutingInputError(ValueError):
+    """A competitor field or query file in which selection is not a measurement."""
+
+
+def load_candidate(ref: str) -> tuple[Candidate, str, str | None]:
+    """An artifact as the selector sees it: ``(card, body, warning)``.
+
+    Raises:
+        FileNotFoundError, ValueError: The artifact cannot be loaded.
+    """
+    from .analyze import load_artifact_text
+
+    kind, name, description, _frontmatter, body = load_artifact_text(ref)
+    warning = (
+        f"{ref} has no description; its card is a name, which is all a tool schema "
+        "would show" if kind == "skill" and not description else None
+    )
+    return Candidate(name=name or ref, description=description), body, warning
+
+
+def catalog_competitors(root: str, exclude: set[str]) -> list[Candidate]:
+    """Every skill under ``root`` whose name is not in ``exclude``.
+
+    The field a harness would list next to the artifact, rather than one the caller picks.
+
+    Raises:
+        ValueError: ``root`` is not a directory, or a skill under it cannot be loaded.
+    """
+    from dokimi.skills import discover_skills
+
+    if not Path(root).is_dir():
+        raise ValueError(f"--catalog is not a directory: {root}")
+    return [Candidate(name=s.name, description=s.description)
+            for s in discover_skills(root) if s.name not in exclude]
+
+
+def check_field(gold: Candidate, competitors: list[Candidate]) -> None:
+    """Refuse a competitor field in which selection is not a measurement.
+
+    Raises:
+        RoutingInputError: No competitors (that measures whether the model uses a tool at
+            all); the artifact among its own competitors (the tie break puts the gold card
+            last, so it scores 0 against itself); a competitor named twice (counted twice
+            in "vs N competitors", and splitting the lexical tie-break between two copies
+            of one card, so the rates describe a different field).
+    """
+    if not competitors:
+        raise RoutingInputError(
+            "routing needs competitors (--competitors, or --catalog for a skill's siblings): "
+            "selecting from one candidate measures whether the model will use a tool at all, "
+            "not whether this artifact wins"
+        )
+    if any(c.name == gold.name for c in competitors):
+        raise RoutingInputError(
+            f"`{gold.name}` appears in --competitors as well as --artifact; selection "
+            "against itself is not a measurement. Drop it from the competitor list."
+        )
+    names = [c.name for c in competitors]
+    name_counts = Counter(names)
+    repeated = sorted({n for n, count in name_counts.items() if count > 1})
+    if repeated:
+        raise RoutingInputError(f"--competitors names {', '.join(f'`{n}`' for n in repeated)} "
+                                "more than once; pass each competitor once")
+
+
+def load_queries(path: str) -> list[str]:
+    """Queries from a JSON list, ``{"queries": [...]}``, or one query per line.
+
+    Blank queries are dropped, so the result can be empty.
+
+    Raises:
+        RoutingInputError: The file holds something other than a list of strings. A file
+            that cannot be read raises as reading it does.
+    """
+    raw = Path(path).read_text(encoding="utf-8-sig")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        data = None
+    if not isinstance(data, (list, dict)):      # one-per-line, e.g. "[urgent] build fails"
+        data = raw.splitlines()
+    listed = data if isinstance(data, list) else data.get("queries", [])
+    # A string here is iterable, so `{"queries": "a b"}` once became one query per
+    # character and a run over 0 scored queries exited 0.
+    if not isinstance(listed, list) or not all(isinstance(q, str) for q in listed):
+        raise RoutingInputError(f"{path}: queries must be a list of strings, "
+                                "or one query per line")
+    return [q for q in listed if q.strip()]

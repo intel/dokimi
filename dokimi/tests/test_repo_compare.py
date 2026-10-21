@@ -21,7 +21,7 @@ from dokimi.repos.compare import CompareError, compare, format_compare, parse_se
 
 def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = True, score: float | None = None,
           failure: bool = False, cost: float | None = 0.1, turns: int = 10, metrics: dict | None = None,
-          model: str = "m-1", harness_version: str = "1.0") -> None:
+          model: str = "m-1", harness_version: str = "1.0", model_resolved: str | list[str] | None = None) -> None:
     rd = batch / f"{task}__{arm.replace(':', '-')}__{model}__r{rep}"
     rd.mkdir(parents=True)
     score_task = score is not None
@@ -29,7 +29,7 @@ def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = 
              "success": False if failure else (None if score_task else success),
              "score": None if failure else score, "score_only": score_task and not failure, "reasons": []}
     rec = {"task": task, "arm": arm, "model": model, "rep": rep, "score_task": score_task, "grade": grade,
-           "harness_version": harness_version,
+           "harness_version": harness_version, "model_resolved": model_resolved,
            "agent": {"cost_usd": cost, "num_turns": turns, "timed_out": False, "is_error": False,
                      "over_budget": False, "network": "none"}}
     (rd / "meta.json").write_text("{}")
@@ -582,8 +582,95 @@ def test_cells_on_different_harness_versions_warn(tmp_path):
     s = compare([b], "guidance:none")
     assert s["warnings"] == ["guidance:raw vs guidance:none: cells ran on different harness versions "
                              "(2.1.286, 2.1.296)"]
-    assert s["stamps"] == {"b1": {"harness_versions": ["2.1.286", "2.1.296"]}}  # no batch.json: no pin keys
+    assert s["stamps"] == {"b1": {"harness_versions": ["2.1.286", "2.1.296"],  # no batch.json: no pin keys
+                                  "model_resolved": []}}
 
+
+def test_arms_answered_by_different_models_warn(tmp_path):
+    b = tmp_path / "b1"
+    _cell(b, "fix_a", "guidance:none", 1, model_resolved="m-1")
+    _cell(b, "fix_a", "guidance:raw", 1, model_resolved="m-0")
+    _cell(b, "fix_a", "guidance:skill", 1)  # an old cell, or a text trace: nothing to compare
+    s = compare([b], "guidance:none")
+    assert s["warnings"] == ["guidance:raw vs guidance:none: model m-1 was answered by m-1 in baseline, m-0 in "
+                             "treatment",
+                             "cells run with model m-1 were answered by m-0; check the harness's model aliases"]
+    assert s["stamps"]["b1"]["model_resolved"] == ["m-0", "m-1"]
+    assert "warning: cells run with model m-1 were answered by m-0" in format_compare(s)
+
+
+def test_model_warnings_follow_the_selected_model(tmp_path):
+    b = tmp_path / "b1"
+    for task in ("fix_a", "fix_b"):
+        _cell(b, task, "guidance:none", 1, model="m-2", model_resolved="m-2")
+        _cell(b, task, "guidance:raw", 1, model="m-2", model_resolved="m-2")
+        _cell(b, task, "guidance:none", 1, model="m-1", model_resolved="m-1")
+        _cell(b, task, "guidance:raw", 1, model="m-1", model_resolved="m-0")
+    assert compare([b], "guidance:none", models=["m-2"])["warnings"] == []
+    assert len(compare([b], "guidance:none", models=["m-1"])["warnings"]) == 2
+
+
+def test_model_matches_equivalence_does_not_warn(tmp_path):
+    """Equivalent model IDs (Bedrock provider-prefix variants) do not trigger a warning."""
+    b = tmp_path / "b1"
+    # Request: Bedrock-prefixed, baseline resolve: shorter form, treatment resolve: base form without version
+    _cell(b, "fix_a", "guidance:none", 1, model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+          model_resolved="anthropic.claude-haiku-4-5-20251001-v1:0")
+    _cell(b, "fix_a", "guidance:raw", 1, model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+          model_resolved="claude-haiku-4-5-20251001")
+    s = compare([b], "guidance:none")
+    # No warning about different resolved models—they are equivalent under model_matches()
+    assert [w for w in s["warnings"]
+            if "was answered by" in w and "baseline" in w and "treatment" in w] == []
+    # But cells mismatch still warns (the actual mismatch, not the compare mismatch)
+    assert s["stamps"]["b1"]["model_resolved"] == ["anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5-20251001"]
+
+
+def test_mixed_spellings_across_repetitions_do_not_warn(tmp_path):
+    b = tmp_path / "b1"
+    m = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    _cell(b, "fix_a", "guidance:none", 1, model=m, model_resolved=m)
+    _cell(b, "fix_a", "guidance:none", 2, model=m, model_resolved="claude-haiku-4-5-20251001")
+    _cell(b, "fix_a", "guidance:raw", 1, model=m, model_resolved="claude-haiku-4-5-20251001")
+    _cell(b, "fix_a", "guidance:raw", 2, model=m, model_resolved="claude-haiku-4-5-20251001")
+    assert [w for w in compare([b], "guidance:none")["warnings"] if "was answered by" in w] == []
+
+
+def test_compare_models_equivalent_pins_symmetric_coverage(tmp_path):
+    """Test that _models_equivalent checks both directions (baseline→treatment and treatment→baseline).
+
+    A baseline with resolved model 'a' and treatment with only 'b' (where b matches a) should pass,
+    but also: baseline with just 'a' and treatment with both 'a' and 'b' should still pass.
+    Without the symmetric check, the second case would not raise a warning when it should identify
+    that treatment has an extra model variant that baseline never produced.
+    """
+    b = tmp_path / "b1"
+    m = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    # Baseline: full Bedrock-prefixed model
+    _cell(b, "fix_a", "guidance:none", 1, model=m, model_resolved="us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    # Treatment: shorter form (treated as equivalent by model_matches)
+    _cell(b, "fix_a", "guidance:raw", 1, model=m, model_resolved="claude-haiku-4-5-20251001")
+    # No warning because both forms are equivalent
+    assert [w for w in compare([b], "guidance:none")["warnings"] if "was answered by" in w] == []
+    # Baseline {m, short}, treatment {short, other}: `other` has no baseline match, so it must warn
+    b2 = tmp_path / "b2"
+    _cell(b2, "fix_a", "guidance:none", 1, model=m, model_resolved=m)
+    _cell(b2, "fix_a", "guidance:none", 2, model=m, model_resolved="claude-haiku-4-5-20251001")
+    _cell(b2, "fix_a", "guidance:raw", 1, model=m, model_resolved="claude-haiku-4-5-20251001")
+    _cell(b2, "fix_a", "guidance:raw", 2, model=m, model_resolved="claude-opus-4-1")
+    assert [w for w in compare([b2], "guidance:none")["warnings"] if "was answered by" in w]
+
+
+def test_a_snapshot_only_the_baseline_got_warns(tmp_path):
+    b = tmp_path / "b1"
+    m = "claude-3-5-sonnet"
+    _cell(b, "fix_a", "guidance:none", 1, model=m, model_resolved=f"{m}-20240620")
+    _cell(b, "fix_a", "guidance:none", 2, model=m, model_resolved=f"{m}-20241022")
+    _cell(b, "fix_a", "guidance:raw", 1, model=m, model_resolved=f"{m}-20241022")
+    _cell(b, "fix_a", "guidance:raw", 2, model=m, model_resolved=f"{m}-20241022")
+    assert compare([b], "guidance:none")["warnings"] == [
+        f"guidance:raw vs guidance:none: model {m} was answered by {m}-20240620, {m}-20241022 in baseline, "
+        f"{m}-20241022 in treatment"]
 
 def test_an_unreadable_batch_stamp_is_no_stamp(tmp_path):
     b = tmp_path / "b1"
@@ -591,4 +678,4 @@ def test_an_unreadable_batch_stamp_is_no_stamp(tmp_path):
     (b / "_eval" / "batch.json").write_text("[1, 2]")
     _cell(b, "fix_a", "guidance:none", 1)
     _cell(b, "fix_a", "guidance:raw", 1)
-    assert compare([b], "guidance:none")["stamps"]["b1"] == {"harness_versions": ["1.0"]}
+    assert compare([b], "guidance:none")["stamps"]["b1"] == {"harness_versions": ["1.0"], "model_resolved": []}
