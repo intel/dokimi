@@ -14,7 +14,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.repos.container import CONTENT_DIR, HARNESS_DIR, RUN_DIR, SOURCE_DIR, WORKSPACE
-from dokimi.repos.report import summarize, wilson
+from dokimi.repos.report import format_report, model_matches, summarize, wilson
 from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo
 
 
@@ -51,7 +51,8 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
         assert (rd / name).is_file(), name
     meta = json.loads((rd / "meta.json").read_text())
     assert meta["arm"] == "guidance:none" and meta["harness"] == "fake" and meta["harness_version"] == "1.2.3"
-    assert meta["model"] == "m-1" and meta["rep"] == 1 and meta["agent_network"] == "host"
+    assert meta["model"] == "m-1" and meta["model_resolved"] == "m-1" and meta["rep"] == 1
+    assert meta["agent_network"] == "host"
     assert meta["egress_proxy"] is False and len(meta["start_sha"]) == 40
     events = [json.loads(line) for line in (rd / "events.jsonl").read_text().splitlines()]
     assert events == [{"kind": "edit", "path": "src/calc.py", "t": None}]  # relative to /eval/run/workspace
@@ -60,6 +61,7 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     result = json.loads((rd / "result.json").read_text())
     assert result["grade"]["status"] == "graded" and result["grade"]["success"] is True
     assert result["agent"]["cost_usd"] == 0.01 and result["agent"]["num_turns"] == 3
+    assert result["model_resolved"] == "m-1"
 
     agents = [s for s in setup["runner"].specs if s.argv and s.argv[0] == f"{HARNESS_DIR}/fake-agent"
               and "-p" in s.argv]
@@ -84,6 +86,18 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     raw = rows[("fix_add", "guidance:raw")]
     assert raw["n"] == 2 and raw["successes"] == 2 and raw["grader_failures"] == 0 and raw["cost_usd"] == 0.01
     assert summary["total_cost_usd"] == 0.04 and summary["unproxied_network"] == ["host"]
+    assert raw["model_resolved"] == ["m-1"] and summary["model_mismatch"] == {}
+
+
+def test_a_run_answered_by_another_model_is_recorded_and_reported(setup, monkeypatch, capsys):
+    # The record must carry what the harness reported, not the request, or the mismatch warning never fires.
+    monkeypatch.setenv("FAKE_ANSWER_MODEL", "m-0")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
+    assert rec["model_resolved"] == "m-0"
+    summary = _report(setup)
+    assert summary["rows"][0]["model_resolved"] == ["m-0"]
+    assert summary["model_mismatch"] == {"m-1": ["m-0"]}
 
 
 def test_already_graded_cells_are_skipped_unless_forced(setup, capsys):
@@ -131,6 +145,8 @@ def test_agent_timeout_is_killed_and_still_graded(setup, monkeypatch, capsys):
     rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
     assert rec["agent"]["timed_out"] is True and rec["agent"]["rc"] is None and rec["agent"]["wall_s"] < 30
     assert rec["grade"]["status"] == "graded" and rec["grade"]["success"] is False  # the bug is still there
+    unmeasured = {k: rec["agent"][k] for k in ("input_tokens", "cache_read_tokens", "usage_scope", "subagent_calls")}
+    assert unmeasured == {k: None for k in unmeasured}
 
 
 def test_run_refuses_to_open_the_network_silently(setup, capsys):
@@ -408,6 +424,15 @@ def _only_cell(setup):
     return json.loads(path.read_text())
 
 
+def test_result_json_carries_the_token_fields_of_the_whole_tree(setup, monkeypatch, capsys):
+    monkeypatch.setenv("FAKE_USAGE", "1")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    agent = _only_cell(setup)["agent"]
+    assert (agent["input_tokens"], agent["output_tokens"], agent["cache_read_tokens"],
+            agent["cache_write_tokens"]) == (37, 11, 100, 5)
+    assert agent["usage_scope"] == "tree" and agent["subagent_calls"] == 1
+
+
 def test_a_host_error_after_the_agent_is_a_charged_grader_failure(setup, monkeypatch, capsys):
     def boom(*a, **kw):
         raise PermissionError(13, "Permission denied", "workspace/.git/config")
@@ -432,6 +457,7 @@ def test_a_trace_that_cannot_be_converted_charges_the_cell_cap(setup, monkeypatc
     rec = _only_cell(setup)
     assert rec["grade"]["status"] == "grader_failure" and "unreadable trace" in rec["grade"]["reasons"][0]
     assert rec["agent"]["cost_usd"] is None and rec["agent"]["charged_usd"] == 0.5
+    assert all(rec["agent"][k] is None for k in ("input_tokens", "usage_scope", "subagent_calls"))
     assert "1 ran" in (out := capsys.readouterr().out) and "$0.5000" in out
 
 
@@ -507,6 +533,35 @@ def test_report_kind_is_the_runners_not_the_cells_task_json(setup, capsys):
     assert rec["score_task"] is False
     row = _report(setup)["rows"][0]
     assert row["kind"] == "gate" and row["successes"] == 1
+
+
+def test_report_warns_when_another_model_answered(setup, capsys):
+    _run(setup, "--arm", "guidance:none,guidance:raw", "--task", "fix_add")
+    path = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), "model_resolved": ["m-0", "m-1"]}))
+    summary = _report(setup)
+    assert [r["model_resolved"] for r in summary["rows"]] == [["m-1"], ["m-0", "m-1"]]
+    assert summary["model_mismatch"] == {"m-1": ["m-0"]}
+    assert ("warning: cells run with model m-1 were answered by m-0; check the harness's model aliases"
+            in format_report(summary).splitlines())
+
+
+@pytest.mark.parametrize("requested, resolved, same", [
+    ("m-1", "m-1", True), ("us.anthropic.claude-sonnet-5-5", "claude-sonnet-5-5", True),
+    ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5-20251001", True),
+    ("haiku", "claude-haiku-3", False), ("us.anthropic.claude-opus-5-5", "claude-opus-5", False),
+    ("claude-sonnet-4-5", "claude-sonnet-4-5-20250929", True), ("claude-sonnet-4-5", "claude-sonnet-4-5@20250929", True),
+    ("claude-sonnet-4-5-20250929", "claude-sonnet-4-5", True),
+    ("claude-3-5-sonnet-20240620", "claude-3-5-sonnet-20241022", False),
+    ("deepseek-v2", "deepseek-v3", False), ("x.claude-haiku", "haiku", False),
+    ("claude-sonnet-4-5@20250929", "claude-sonnet-4-5-20250929", True),
+    ("claude-sonnet-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", True),
+    ("claude-sonnet-4-5@20250929", "claude-sonnet-4-5-20241022", False),
+    ("us.anthropic.claude-x", "eu.anthropic.claude-x", True), ("apac.anthropic.claude-x-v1:0", "us-gov.anthropic.claude-x", True),
+    ("m-v1:0", "m-v3:0", True), ("gpt-4.1", "gpt-4.2", False), ("us.anthropic.claude-x", "eu.anthropic.claude-y", False),
+    ("vertex_ai/claude-x", "claude-x", True), ("claude-sonnet-4-5", "claude-sonnet-4-5-1", False)])
+def test_a_provider_prefix_is_not_another_model(requested, resolved, same):
+    assert model_matches(requested, resolved) is same
 
 
 @pytest.mark.parametrize("key, value", [("budget_usd", float("nan")), ("timeout_s", float("inf")),

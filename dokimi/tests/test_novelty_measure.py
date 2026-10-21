@@ -249,7 +249,7 @@ def test_a_failed_call_is_a_dropped_pair_not_a_graded_answer():
 
 
 def test_the_headline_pair_is_the_full_arm_whatever_the_arms_order():
-    from dokimi.commands.novelty import _arms
+    from dokimi.novelty.measure import parse_arms
 
     answerer = LLMClient(model="a", transport=lambda p, s: ("x", None))
     judge = LLMClient(model="b", transport=lambda p, s: ('{"verdict": "wrong_other"}', None))
@@ -258,5 +258,5 @@ def test_the_headline_pair_is_the_full_arm_whatever_the_arms_order():
     assert result.with_arm == "full"
     with pytest.raises(ValueError, match="full"):
         run_measurement([], [], "t", answerer=answerer, judge=judge, arms=(BASELINE_ARM,))
-    with pytest.raises(SystemExit, match="full"):
-        _arms("no_artifact,placebo")
+    with pytest.raises(ValueError, match="full"):
+        parse_arms("no_artifact,placebo")

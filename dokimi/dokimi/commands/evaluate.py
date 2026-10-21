@@ -6,11 +6,18 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from pathlib import Path
 
-from dokimi.defaults import DEFAULT_CONCURRENCY, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.defaults import (
+    DEFAULT_CONCURRENCY,
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_PROVIDER,
+    JUDGE_MODEL_FOR_PROVIDER,
+    JUDGE_MODEL_HELP,
+)
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 from dokimi.utils import normalize_model_ref
@@ -35,15 +42,27 @@ def _warn_judge_independence(
     return same
 
 
+def _load_answers(path: str):
+    """The answers artifact at ``path`` (read by dokimi/records.py), or a clean exit."""
+    from dokimi.records import RecordError, load
+
+    try:
+        return load(path, section="answers")
+    except RecordError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _require_ragas() -> None:
+    """Exit before any model call when the ragas extra is not installed."""
+    if importlib.util.find_spec("ragas") is None:
+        sys.exit("RAGAS meta-evaluation needs the ragas extra: pip install 'dokimi[ragas]'")
+
+
 def _run_ragas_eval(answers, output_path, args) -> None:
     """Run RAGAS meta-evaluation and save results alongside answers."""
     from dokimi.eval.question_text import EmptyQuestionError
-
-    try:
-        from dokimi.eval.ragas_eval import RagasEvaluator
-    except ImportError as e:
-        print(f"\n⚠️  RAGAS not available ({e}). Skipping meta-evaluation.")
-        return
+    from dokimi.eval.ragas_eval import RagasEvaluator
 
     ragas_model = getattr(args, "ragas_model", DEFAULT_JUDGE_MODEL)
     ragas_provider = getattr(args, "ragas_provider", DEFAULT_JUDGE_PROVIDER)
@@ -67,6 +86,8 @@ def _run_ragas_eval(answers, output_path, args) -> None:
 
     except EmptyQuestionError:
         raise  # a bad input record is a refusal, not a RAGAS failure: cli.main reports it (exit 2)
+    except ImportError as exc:
+        sys.exit(f"RAGAS meta-evaluation was requested but cannot run: {exc}")
     except Exception as exc:
         print(f"\n⚠️  RAGAS evaluation failed: {exc}")
 
@@ -105,18 +126,11 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
 
     panel = JudgePanel(judges=judges, concurrency=args.concurrency)
 
-    try:
-        answers_data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        print(f"Error: answers file not found: {args.answers}", file=sys.stderr)
-        sys.exit(1)
-    answers = answers_data.get("answers", answers_data) if isinstance(answers_data, dict) else answers_data
-    if not isinstance(answers, list):
-        print(f"Error: expected a list of answers in {args.answers}", file=sys.stderr)
-        sys.exit(1)
+    run = _load_answers(args.answers)
+    answers = list(run.records)
 
-    answer_model = answers_data.get("model", "unknown") if isinstance(answers_data, dict) else "unknown"
-    answer_provider = answers_data.get("provider", "unknown") if isinstance(answers_data, dict) else "unknown"
+    answer_model = run.meta.get("model", "unknown")
+    answer_provider = run.meta.get("provider", "unknown")
     if answer_model != "unknown" and answer_provider != "unknown":
         for cfg in judges:
             _warn_judge_independence(
@@ -138,12 +152,14 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
                                      run_metadata={"answer_model": answer_model,
                                                    "answer_provider": answer_provider})
 
-    # Summary
-    valid = [r for r in results if r.get("with_docs") and r["with_docs"].get("aggregate") is not None]
+    # Summary: the context arm's own quality, not a comparison.
+    from dokimi.records import CONTEXT, records
+
+    valid = [r.scores[CONTEXT] for r in records(results, kind="evaluations") if r.score(CONTEXT) is not None]
     if valid:
-        mean_score = sum(r["with_docs"]["aggregate"] for r in valid) / len(valid)
-        mean_agree = sum(r["with_docs"].get("agreement_score", 1) for r in valid) / len(valid)
-        flagged = sum(1 for r in valid if r["with_docs"].get("disagreement_flag", False))
+        mean_score = sum(s.aggregate or 0 for s in valid) / len(valid)
+        mean_agree = sum(s.raw.get("agreement_score", 1) for s in valid) / len(valid)
+        flagged = sum(1 for s in valid if s.raw.get("disagreement_flag", False))
         print(f"\n{'─'*50}")
         print(f"Panel score (context arm): {mean_score:.1f}/100")
         print(f"Mean agreement score:     {mean_agree:.3f}  (1.0 = perfect)")
@@ -157,23 +173,12 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
     from dokimi.eval import Judge
 
     # Load answers
-    try:
-        answers_data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        print(f"Error: answers file not found: {args.answers}", file=sys.stderr)
-        sys.exit(1)
-    except json.JSONDecodeError as exc:
-        print(f"Error: invalid JSON in {args.answers}: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-    answers = answers_data.get("answers", answers_data) if isinstance(answers_data, dict) else answers_data
-    if not isinstance(answers, list):
-        print(f"Error: expected a list of answers in {args.answers}", file=sys.stderr)
-        sys.exit(1)
+    run = _load_answers(args.answers)
+    answers = list(run.records)
     print(f"Loaded {len(answers)} answers from {args.answers}")
 
-    answer_model = answers_data.get("model", "unknown") if isinstance(answers_data, dict) else "unknown"
-    answer_provider = answers_data.get("provider", "unknown") if isinstance(answers_data, dict) else "unknown"
+    answer_model = run.meta.get("model", "unknown")
+    answer_provider = run.meta.get("provider", "unknown")
     same_model_warning = False
     if answer_model != "unknown" and answer_provider != "unknown":
         same_model_warning = _warn_judge_independence(
@@ -192,8 +197,8 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
         provider=args.judge_provider,
         temperature=args.judge_temperature,
         run_metadata={
-            "question_model": answers_data.get("question_model", "unknown") if isinstance(answers_data, dict) else "unknown",
-            "question_provider": answers_data.get("question_provider", "unknown") if isinstance(answers_data, dict) else "unknown",
+            "question_model": run.meta.get("question_model", "unknown"),
+            "question_provider": run.meta.get("question_provider", "unknown"),
             "answer_model": answer_model,
             "answer_provider": answer_provider,
             "judge_model": args.judge_model,
@@ -209,7 +214,14 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
     else:
         output_path = Path(f"eval/{args.product}.json")
 
-    evaluations = judge.evaluate_answers(args.product, answers, output_path=output_path, concurrency=args.concurrency)
+    from dokimi.records import RecordError
+
+    try:
+        evaluations = judge.evaluate_answers(args.product, answers, output_path=output_path,
+                                             concurrency=args.concurrency)
+    except RecordError as exc:
+        print(f"Error: {args.answers}: {exc}", file=sys.stderr)
+        sys.exit(2)
 
     judge.save_evaluations(evaluations, output_path)
     print(f"\n✅ Saved evaluations to {output_path}")
@@ -217,8 +229,8 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
 
 def cmd_eval_ragas(args: argparse.Namespace) -> None:
     """Run standalone RAGAS meta-evaluation on an answers JSON."""
-    answers_data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-    answers = answers_data.get("answers", answers_data)
+    _require_ragas()
+    answers = list(_load_answers(args.answers).records)
     print(f"Loaded {len(answers)} answers from {args.answers}")
 
     class _Args:
@@ -236,8 +248,7 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
 
     from dokimi.eval.grounding import evaluate_grounding
 
-    data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-    answers = data.get("answers", data) if isinstance(data, dict) else data
+    answers = _load_answers(args.answers).records
     result = evaluate_grounding(answers, threshold=args.threshold)
 
     summary = result["summary"]
@@ -272,9 +283,9 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     from dokimi.eval.judge import Judge
     from dokimi.eval.judge_validity import judge_scorer, run_validity
 
-    data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-    answers = data.get("answers", data) if isinstance(data, dict) else data
-    library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
+    run = _load_answers(args.answers)
+    answers = list(run.records)
+    library = args.product or run.meta.get("library_name") or "the library"
 
     variants = [v.strip() for v in args.variants.split(",")] if args.variants else list(DEGRADATIONS)
     unknown = sorted(set(variants) - set(DEGRADATIONS))
@@ -373,7 +384,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         result = {**report.to_dict(), "judge_temperature": args.judge_temperature}
         # Which answers the gate was measured on: a judge that passes on one
         # answer model's output is not thereby validated on another's.
-        result["summary"]["answers_model"] = data.get("model") if isinstance(data, dict) else None
+        result["summary"]["answers_model"] = run.meta.get("model")
         if typed is not None:
             result["summary"]["typed_arm"] = typed.report_fields()
         out.write_text(json.dumps(result, indent=2), encoding="utf-8")
@@ -433,7 +444,7 @@ def register(sub, positive_int) -> None:
     score_p.add_argument("--run-id", default=None, dest="run_id",
                          help="Run tag (e.g. gpt4o). Sets output to results/{product}_{run_id}/eval/{product}.json")
     score_p.add_argument("--output", default=None, help="Output file (default: eval/{product}.json)")
-    score_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="LLM model for judging")
+    score_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     score_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     score_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, help="Parallel judge calls (default: 5)")
     score_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
@@ -493,7 +504,7 @@ def register(sub, positive_int) -> None:
                             help="Also escalate pairs called TIE in both orders (default: only order-inconsistent)")
     validity_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY,
                             help=f"Parallel judge calls (default: {DEFAULT_CONCURRENCY})")
-    validity_p.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="LLM model for judging")
+    validity_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     validity_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     validity_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                             help="Judge sampling temperature; match arms run --judge-temperature to certify the same judge")
