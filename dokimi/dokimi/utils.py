@@ -26,10 +26,12 @@ def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
         return {}, ""
 
     stripped = text.lstrip("﻿")  # tolerate a UTF-8 BOM
-    if not stripped.startswith("---"):
+    lines = stripped.splitlines()
+    # Same rule as the closing fence: a line that is exactly ``---``. A thematic
+    # break (``-----``) or a ``--- title`` line opens nothing.
+    if not lines or lines[0].rstrip() != "---":
         return {}, stripped
 
-    lines = stripped.splitlines()
     # First line is the opening '---'; find the closing fence.
     for idx in range(1, len(lines)):
         if lines[idx].strip() == "---":
@@ -44,7 +46,7 @@ def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
             return meta, body
 
     # No closing fence — treat the whole thing as body.
-    return {}, text
+    return {}, stripped
 
 
 def digest_text(text: str) -> str:

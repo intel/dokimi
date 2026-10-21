@@ -7,10 +7,10 @@
 #
 # Each rev is a commit SHA with its tag in the `# frozen:` comment (what
 # `pre-commit autoupdate --freeze` writes); Renovate's pre-commit manager
-# bumps both. The ruff and zizmor revs are the versions ci.yml installs (ruff's
-# is also the dev extra's and .agent-eval/Dockerfile's), the gitleaks rev the
-# version gitleaks.yml downloads, and Renovate updates each tool's pins in one
-# PR (.github/renovate.json5).
+# bumps both. The ruff and zizmor revs are the versions dokimi/requirements-ci.txt
+# pins for the tools lock CI installs (ruff's is also the dev extra's), the gitleaks
+# rev the version gitleaks.yml downloads, and Renovate updates each tool's pins in
+# one PR (.github/renovate.json5).
 #
 # Not here, measured on the tree this was added to: end-of-file-fixer and
 # trailing-whitespace (they would rewrite 29 files, several touched by open

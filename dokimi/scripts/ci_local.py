@@ -13,11 +13,12 @@ a step added to CI is run here without anyone editing this file.
 
 Differences from CI, all printed as notices:
 
-- `uses:` steps (checkout, setup-python, upload-artifact) are skipped, and so
-  are `pip install` steps: the tools come from the venv `make dev` builds,
-  which installs exactly what those steps install (`tools` subcommand below).
-  Jobs that install the package itself (package-smoke, windows-smoke) run in a throwaway venv
-  on a copy of the tracked tree instead, so the dev venv stays as CI's.
+- `uses:` steps (checkout, setup-python, setup-micromamba, upload-artifact)
+  are skipped, and so are `pip install` steps: the tools come from the venv
+  `make dev` builds, which installs exactly what those steps install (`tools`
+  subcommand below). Jobs that install the package itself (package-smoke,
+  windows-smoke, conda-forge-deps) run in a throwaway venv on a copy of the
+  tracked tree instead, so the dev venv stays as CI's.
 - Every step runs even when an earlier one fails, so one failure does not hide
   the next (CI stops a job's checks at its first failing step, except
   `static`, whose steps after the install all run under
@@ -27,7 +28,8 @@ Differences from CI, all printed as notices:
   notice says so when that is not the Python CI's single-version jobs use.
 - An unknown --jobs id is an error, not an empty run.
 - Steps that need the network are skipped when PyPI is unreachable or with
-  --offline; the docker job runs only with --with-docker.
+  --offline; the docker job runs only with --with-docker; conda-forge-deps
+  runs only when micromamba is on PATH.
 - Semgrep Secrets is an org-level check with no workflow file here; it runs as
   `semgrep scan --config p/secrets` when semgrep is on PATH, else is skipped.
 - Steps that diff against `origin/$BASE_REF` (in CI, origin is intel/dokimi)
@@ -64,10 +66,13 @@ WORKFLOWS = REPO / ".github" / "workflows"
 
 # Jobs or steps that cannot run offline. Keyed by job id, or (job id, step name).
 # pre-commit clones its hook repositories on first use; gitleaks downloads its binary.
-NEEDS_NETWORK = {"package-smoke", "windows-smoke", "gitleaks", ("static", "pre-commit"), "pip-audit"}
+NEEDS_NETWORK = {"package-smoke", "windows-smoke", "conda-forge-deps", "gitleaks",
+                 ("static", "pre-commit"), "pip-audit"}
 NEEDS_DOCKER = {"external-catalog-smoke"}
+# Jobs that run a tool `make dev` does not install (a `uses:` step installs it in CI).
+NEEDS_TOOL = {"conda-forge-deps": "micromamba"}
 # Jobs that `pip install .`: run on a copy of the tree in a throwaway venv.
-ISOLATED = {"package-smoke", "windows-smoke"}
+ISOLATED = {"package-smoke", "windows-smoke", "conda-forge-deps"}
 PIP_INSTALL = re.compile(r"^\s*(python -m )?pip install\b")
 # pip options that take a value, by spelling, mapped to the short form `tools` emits.
 PAIRED = {"-r": "-r", "--requirement": "-r", "-c": "-c", "--constraint": "-c",
@@ -298,6 +303,9 @@ def run(args: argparse.Namespace) -> int:
                     continue
                 if job_id in NEEDS_NETWORK and not online:
                     record(label, "skip (needs network)")
+                    continue
+                if (tool := NEEDS_TOOL.get(job_id)) and not shutil.which(tool):
+                    record(label, f"skip ({tool} not on PATH)")
                     continue
                 wd = job.get("defaults", {}).get("run", {}).get("working-directory", default_wd)
                 root, env = REPO, base_env
