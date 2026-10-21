@@ -136,6 +136,24 @@ def test_changed_files_reports_both_sides_of_a_rename(tmp_path, monkeypatch):
     assert sorted(cdrt.changed_files("base", "HEAD")) == ["new.py", "old.py"]
 
 
+def test_changed_files_ignores_what_the_base_gained_after_branching(tmp_path, monkeypatch):
+    """`base...head` is the PR's own change; `base..head` would also list the files the
+    base branch added since the PR branched, and flag pages for changes that are not the PR's."""
+    _git_repo(tmp_path)
+    (tmp_path / "a.py").write_text("x", encoding="utf-8")
+    _commit(tmp_path, "root")
+    git = ["git", "-C", str(tmp_path)]
+    subprocess.run([*git, "branch", "-M", "main"], check=True)
+    subprocess.run([*git, "checkout", "-q", "-b", "pr"], check=True)
+    (tmp_path / "mine.py").write_text("x", encoding="utf-8")
+    _commit(tmp_path, "pr change")
+    subprocess.run([*git, "checkout", "-q", "main"], check=True)
+    (tmp_path / "landed.py").write_text("x", encoding="utf-8")  # main moves on after the branch point
+    _commit(tmp_path, "main advances")
+    monkeypatch.setattr(cdrt, "REPO", tmp_path)
+    assert cdrt.changed_files("main", "pr") == ["mine.py"]
+
+
 def test_main_exits_2_for_a_base_git_cannot_diff(tmp_path, monkeypatch, capsys):
     _git_repo(tmp_path)
     (tmp_path / "f").write_text("x", encoding="utf-8")
