@@ -177,6 +177,36 @@
                 "minimum": 0,
                 "description": "Invocations of the arm's treatment skill in this row's trajectory (not every skill loaded). Where a harness deploys a root of packs (benchflow-*), every pack in that root is treatment, a distractor placed there included. Written only by harnesses that can see skill use (null when they could not count); feeds summary skill_invocation_rate."
               },
+              "skill_notice": {
+                "type": "boolean",
+                "description": "Skill arms of the docker-claude family: whether the prompt opened with the treatment notice (false on the -skill-discover arms, which install the same skill and leave finding it to its description)."
+              },
+              "skill_listing": {
+                "type": "object",
+                "description": "Skill listing metrics for -skill and -skill-discover arms: description length budget and truncation status.",
+                "properties": {
+                  "description_chars": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Number of characters in the skill listing entry text shown to the model before truncation (description plus optional when_to_use with ' - ' separator)."
+                  },
+                  "max_desc_chars": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Per-skill cap on listing entry characters. An entry longer than this is cut to it."
+                  },
+                  "budget_chars": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Claude Code's whole-listing character limit, recorded for reference. Not used to compute truncated."
+                  },
+                  "truncated": {
+                    "type": "boolean",
+                    "description": "Whether the entry exceeded max_desc_chars and was cut to it. Only the per-skill cut sets this, never budget_chars."
+                  }
+                },
+                "additionalProperties": true
+              },
               "exploration_metrics": {
                 "type": "object",
                 "description": "Optional exploration-quality block. Emitted only when the operation stream contains read/search/subagent/edit signal. Metrics that cannot be derived from the available telemetry are null.",
@@ -505,7 +535,10 @@
                     ]
                   },
                   "ci_confidence": {
-                    "type": "number"
+                    "type": [
+                      "number",
+                      "null"
+                    ]
                   },
                   "p_exact": {
                     "type": [
@@ -569,6 +602,71 @@
                 "minimum": -1,
                 "maximum": 1,
                 "description": "The Marx & Cummings (2007) piecewise formula applied to aggregate pass rates, in [-1, 1]: equals normalized_gain for a gain; a loss is (pass_rate - base) / base, the share of the baseline's passes lost; 0 when the rates are equal. The halves are on different scales, so compare sign and bounds, not magnitudes across signs. Null when both rates are 0 or both 1 (M&C drop that case), or under the same rule as pass_rate_delta (the arms' errored cells differ)."
+              }
+            }
+          }
+        },
+        "discovery_gaps": {
+          "type": "object",
+          "description": "Per -skill-discover arm run beside its with-skill arm (same launch and skill): gap = with-skill pass rate - discovery pass rate. Present only when such a pair ran.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "with_skill_harness",
+              "gap"
+            ],
+            "properties": {
+              "with_skill_harness": {
+                "type": "string"
+              },
+              "with_skill_pass_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "discover_pass_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "gap": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": -1,
+                "maximum": 1,
+                "description": "Null when the two arms ran different cells (attempted_cells_match false) or lost different cells (errored_cells_match false), or one has none scored."
+              },
+              "attempted_cells_match": {
+                "type": "boolean",
+                "description": "Whether the two arms attempted the same (task, repeat) cells, errors included. False withholds the gap as 'ran different cells'. Absent in artifacts written before this field."
+              },
+              "errored_cells_match": {
+                "type": "boolean",
+                "description": "Whether the two arms errored on the same attempted cells. False withholds the gap as 'lost different cells'. Absent in artifacts written before this field."
+              },
+              "with_skill_invocation_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "discover_invocation_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
               }
             }
           }

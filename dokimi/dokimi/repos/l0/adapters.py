@@ -52,7 +52,8 @@ STARLARK_BUILTINS = frozenset({
 _TOKEN = re.compile(r"""(?P<comment>\#[^\n]*)
     |(?P<str>[rRbB]{0,2}(?:\"\"\"(?:\\.|[^\\])*?\"\"\"|'''(?:\\.|[^\\])*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'))
     |(?P<id>[A-Za-z_]\w*)|(?P<nl>\n)|(?P<op>\S)""", re.X | re.S)
-_MAKE_RULE = re.compile(r"^([^\s:#=][^:#=]*?)\s*::?(?!=)", re.M)
+# Greedy, one line per rule: a lazy group beside ``[ \t]*`` is quadratic. Callers split the group.
+_MAKE_RULE = re.compile(r"^([^\s:#=][^:#=\n]*)::?(?!=)", re.M)
 _MAKE_OPT_ARG = frozenset({"-f", "-C", "-I", "-o", "-W", "--file", "--directory", "--makefile"})
 _MAKE_OPT_NUM = frozenset({"-j", "-l", "--jobs", "--load-average"})  # take a number, which may be left out
 _PYTEST_OPT_ARG = frozenset({"-k", "-m", "-p", "-c", "-o", "-W", "-r", "--rootdir", "--confcutdir", "--basetemp", "-n",

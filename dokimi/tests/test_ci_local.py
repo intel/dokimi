@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -339,3 +340,134 @@ def test_needs_network_entries_match_real_jobs_and_steps() -> None:
                 f"NEEDS_NETWORK step name '{step_name}' not found in job '{job_id}'. "
                 f"Job has steps: {sorted(steps)}"
             )
+
+
+def test_gitleaks_job_in_needs_network() -> None:
+    """Regression: gitleaks job is in NEEDS_NETWORK so ci-local skips it offline."""
+    assert "gitleaks" in cl.NEEDS_NETWORK
+
+
+def test_gitleaks_scan_reports_each_line_once_under_its_own_commit(tmp_path: Path) -> None:
+    """The Scan commits step on a PR merge with a conflict, with a stub gitleaks that
+    runs the `git log -p -U0 <log-opts>` gitleaks runs: the PR's lines and its conflict
+    resolution are scanned, and a line from main only under main's own commit (where
+    its .gitleaksignore fingerprint points), on a PR and on a push."""
+    version = subprocess.run(["git", "--version"], capture_output=True, text=True, check=True).stdout
+    if tuple(int(n) for n in re.findall(r"\d+", version)[:2]) < (2, 36):
+        pytest.skip("--diff-merges=remerge needs git 2.36")
+    wf = dict(cl.load_workflows())["gitleaks.yml"]
+    step = next(s for s in wf["jobs"]["gitleaks"]["steps"] if s.get("name") == "Scan commits")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    env = {"PATH": os.environ["PATH"], "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t", "RUNNER_TEMP": str(tmp_path), "OUT": str(tmp_path / "out")}
+
+    def git(*args: str, check: bool = True) -> str:
+        return subprocess.run(["git", *args], cwd=repo, env=env, check=check,
+                              capture_output=True, text=True).stdout.strip()
+
+    def commit(path: str, text: str) -> str:
+        (repo / path).write_bytes(text.encode())
+        git("add", path)
+        git("commit", "-q", "-m", path)
+        return git("rev-parse", "HEAD")
+
+    git("init", "-q", "-b", "main")
+    base_sha = commit("c.txt", "base\n")
+    git("checkout", "-q", "-b", "feat")
+    commit("pr.txt", "PR_OWN\n")
+    commit("c.txt", "feat\n")
+    # A ref HEAD does not reach: only the push scan's --all covers it.
+    git("checkout", "-q", "-b", "other", base_sha)
+    commit("only.txt", "ONLY_ON_OTHER\n")
+    git("checkout", "-q", "main")
+    main_sha = commit("main.txt", "MAIN_ONLY\n")
+    commit("c.txt", "main\n")
+    git("update-ref", "refs/remotes/origin/main", "main")
+    git("checkout", "-q", "--detach", "main")
+    git("merge", "-q", "feat", check=False)  # conflicts in c.txt
+    commit("c.txt", "RESOLVED\n")
+    (tmp_path / "gitleaks").mkdir()
+    stub = tmp_path / "gitleaks" / "gitleaks"
+    # Exits 0 even when git log fails, as gitleaks does.
+    stub.write_bytes(b'#!/bin/sh\nprintf "%s\\n" "$@" > "$OUT.argv"\n'
+                     b'for a; do case $a in --log-opts=*) opts=${a#--log-opts=};; esac; done\n'
+                     b'git log -p -U0 $opts > "$OUT" 2>/dev/null\nexit 0\n')
+    stub.chmod(0o755)
+
+    def run_step(event: str, base: str = "main") -> int:
+        """The step's exit code, with its own env: mapping expanded as GitHub would."""
+        ctx = cl.Context(base, PYV, tmp_path)
+        ctx.values["github.event_name"] = event
+        step_env = {k: ctx.expand(str(v)) for k, v in step["env"].items()}
+        return subprocess.run(["bash", "-c", str(step["run"])], env={**env, **step_env}, cwd=repo,
+                              check=False).returncode
+
+    def scan(event: str) -> list[tuple[str, str]]:
+        """(commit, added line) pairs gitleaks would scan."""
+        assert run_step(event) == 0
+        assert "--redact" in (tmp_path / "out.argv").read_text(encoding="utf-8").splitlines()
+        pairs, sha = [], ""
+        for line in (tmp_path / "out").read_text(encoding="utf-8").splitlines():
+            if line.startswith("commit "):
+                sha = line.split()[1]
+            elif line.startswith("+") and not line.startswith("+++"):
+                pairs.append((sha, line[1:]))
+        return pairs
+
+    pr = scan("pull_request")
+    assert {"PR_OWN", "RESOLVED"} <= {line for _, line in pr}, pr
+    assert len([sha for sha, line in pr if line == "PR_OWN"]) == 1, pr  # once, under its own commit
+    assert [sha for sha, line in pr if line == "MAIN_ONLY"] == [], pr
+    assert "ONLY_ON_OTHER" not in {line for _, line in pr}, pr
+    push = scan("push")
+    assert "RESOLVED" in {line for _, line in push}, push
+    assert [sha for sha, line in push if line == "MAIN_ONLY"] == [main_sha], push
+    assert "ONLY_ON_OTHER" in {line for _, line in push}, push  # the push scan's --all
+    assert len([sha for sha, line in push if line == "PR_OWN"]) == 1, push  # remerge: not repeated
+    # A PR cut before main's newer commits: only its own commit is in the `..` range.
+    git("checkout", "-q", "-b", "early", base_sha)
+    commit("early.txt", "EARLY_OWN\n")
+    assert {line for _, line in scan("pull_request")} == {"EARLY_OWN"}
+    # A base that is not fetched fails the step instead of scanning nothing.
+    (tmp_path / "out").unlink()
+    assert run_step("pull_request", base="nomain") != 0
+    assert not (tmp_path / "out").exists()
+    checkout = next(s for s in wf["jobs"]["gitleaks"]["steps"] if "checkout" in str(s.get("uses")))
+    assert checkout["with"]["fetch-depth"] == 0  # the PR range needs the base branch's history
+
+
+def test_isolated_job_ids_match_real_jobs() -> None:
+    """Every job id in ISOLATED names a real job that pip-installs the built wheel."""
+    workflows = cl.load_workflows()
+    job_ids = {job_id for _, wf in workflows for job_id in wf["jobs"]}
+
+    for job_id in cl.ISOLATED:
+        assert job_id in job_ids, f"ISOLATED job id '{job_id}' does not exist in workflows"
+        # A `pip install` of a wheel: `pip install ... dist/*.whl`. A step that only
+        # installs requirements (`pip install -r requirements.lock.txt`) does not count.
+        found_wheel_install = False
+        for _, wf in workflows:
+            if job_id in wf["jobs"]:
+                job = wf["jobs"][job_id]
+                for step in job.get("steps", []):
+                    run = str(step.get("run", ""))
+                    if "pip install" in run and ".whl" in run:
+                        found_wheel_install = True
+                        break
+        assert found_wheel_install, (
+            f"ISOLATED job id '{job_id}' does not contain a pip install of a wheel"
+        )
+
+
+def test_tool_specs_carry_no_unexpanded_shell_syntax() -> None:
+    """A job that installs a wheel from $RUNNER_TEMP must be in ISOLATED. Otherwise tool_specs()
+    hands `make dev` a literal `$RUNNER_TEMP/dist/*.whl`, which nothing expands."""
+    bad = [spec for spec in cl.tool_specs() if "$" in spec or "*" in spec]
+    assert not bad, f"tool_specs() has unexpanded shell syntax; register the job in ISOLATED: {bad}"
+
+
+def test_isolated_jobs_also_need_network() -> None:
+    """An isolated job installs from the package index, so it is skipped offline like the other network jobs."""
+    assert cl.ISOLATED <= cl.NEEDS_NETWORK
