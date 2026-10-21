@@ -28,7 +28,7 @@ from dokimi.harnesses.docker_solver import (
     _task_build_timeout,
     _task_verify_timeout,
 )
-from dokimi.harnesses.registry import create_harness, known_harnesses
+from dokimi.harnesses.registry import create_harness, known_harnesses, with_skill_counterpart
 from dokimi.harnesses.runner import summarize_task_results
 
 # A representative `claude -p --output-format json` result line.
@@ -265,6 +265,74 @@ def test_registry_builds_docker_harnesses(tmp_path):
     skill = create_harness(f"docker-claude-skill:{tmp_path / 'SKILL.md'}")
     assert skill.skill_path == str(tmp_path / "SKILL.md")
     assert "docker-claude" in known_harnesses()
+
+
+@pytest.mark.parametrize("prefix", ["docker-claude", "docker-claude-host"])
+def test_registry_builds_the_discover_arm_beside_the_skill_arm(tmp_path, prefix):
+    skill_md = tmp_path / "SKILL.md"
+    skill_md.write_text("x", encoding="utf-8")
+    skill = create_harness(f"{prefix}-skill:{skill_md}")
+    discover = create_harness(f"{prefix}-skill-discover:{skill_md}")
+    assert skill.skill_notice is True and discover.skill_notice is False
+    assert (discover.skill_path, discover.agent_location) == (skill.skill_path, skill.agent_location)
+    assert f"{prefix}-skill-discover:<skill>" in known_harnesses()
+    assert with_skill_counterpart(f"{prefix}-skill-discover:{skill_md}") == f"{prefix}-skill:{skill_md}"
+    assert with_skill_counterpart(f"{prefix}-skill:{skill_md}") is None
+    with pytest.raises(ValueError, match="requires a skill path"):
+        create_harness(f"{prefix}-skill-discover:")
+    task = load_task(_fixture_task(tmp_path))
+    assert "--no-skill-notice" in discover.run(task, dry_run=True).command
+    assert "--no-skill-notice" not in skill.run(task, dry_run=True).command
+
+
+def _arm_row(task, harness, passed, *, invoked=None, error=None, repeat=1):
+    metrics: dict = {"operation_count": 0, "operations_by_type": {}}
+    if invoked is not None:
+        metrics["n_skill_invocations"] = invoked
+    if error:
+        metrics["solver_error"] = error
+    return {"task": task, "harness": harness, "passed": passed, "elapsed_sec": 1.0,
+            "reward": 1.0 if passed else 0.0, "repeat": repeat, "metrics": metrics}
+
+
+def test_summary_reports_the_discovery_gap_per_pair():
+    base, skill, disc = "docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"
+    rows = []
+    for rep in (1, 2):
+        rows += [_arm_row("a", base, False, repeat=rep),
+                 _arm_row("a", skill, True, invoked=1, repeat=rep),
+                 _arm_row("a", disc, rep == 1, invoked=0, repeat=rep)]
+    rows.append(_arm_row("a", "docker-claude-skill-discover:other", False, invoked=0))
+    summary = summarize_task_results(rows, baseline_harness=base)
+    assert summary["discovery_gaps"] == {disc: {
+        "with_skill_harness": skill, "with_skill_pass_rate": 1.0, "discover_pass_rate": 0.5,
+        "gap": 0.5, "attempted_cells_match": True, "errored_cells_match": True,
+        "with_skill_invocation_rate": 1.0, "discover_invocation_rate": 0.0}}
+    # The discovery arm is an arm of its own against the baseline, too.
+    assert summary["comparisons"][disc]["pass_rate_delta"] == 0.5
+    rows[-2]["metrics"]["solver_error"] = "boom"  # arms lost different cells: withheld
+    lost = summarize_task_results(rows)["discovery_gaps"][disc]
+    assert lost["gap"] is None
+    assert lost["attempted_cells_match"] is True and lost["errored_cells_match"] is False
+    assert "discovery_gaps" not in summarize_task_results(rows[:2])
+
+
+@pytest.mark.parametrize("skill, disc", [("s/SKILL.md", "s"), ("s", "./s/"),
+                                         ("s", "{cwd}/s"), ("s/", "s/SKILL.md")])
+def test_discovery_gap_pairs_spellings_of_one_skill(tmp_path, monkeypatch, skill, disc):
+    monkeypatch.chdir(tmp_path)
+    skill = f"docker-claude-skill:{skill}"
+    disc = f"docker-claude-skill-discover:{disc.format(cwd=tmp_path)}"
+    rows = [_arm_row("a", "docker-claude", False), _arm_row("a", skill, True, invoked=1),
+            _arm_row("a", disc, False, invoked=0),
+            _arm_row("a", "docker-claude-host-skill:s", True, invoked=1),
+            _arm_row("a", "docker-claude-skill:t", True, invoked=1)]
+    gap = summarize_task_results(rows, baseline_harness="docker-claude")["discovery_gaps"][disc]
+    assert (gap["with_skill_harness"], gap["gap"]) == (skill, 1.0)
+    # Another launch or another skill is not its pair, and an empty path pairs with nothing.
+    assert "discovery_gaps" not in summarize_task_results(rows[:1] + rows[2:])
+    empty = [_arm_row("a", "docker-claude", False), _arm_row("a", "docker-claude-skill-discover:", False)]
+    assert "discovery_gaps" not in summarize_task_results(empty)
 
 
 def test_docker_claude_skill_requires_a_path():

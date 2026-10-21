@@ -42,6 +42,7 @@
         "names": {"type": "array", "items": {"type": "string"}},
         "resolution": {"type": "string"},
         "imports": {"type": ["string", "null"]},
+        "import_max_depth": {"type": "integer", "minimum": 1, "description": "How many hops of @imports the harness follows from a guidance file; absent: unlimited."},
         "notes": {"type": "string"}
       }
     },

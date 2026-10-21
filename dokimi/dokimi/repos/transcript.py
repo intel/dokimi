@@ -29,11 +29,25 @@ class Transcript:
     num_turns: int | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    usage_scope: str | None = None  # "tree": tokens include subagents and helper models; "main": parent only
+    subagent_calls: int | None = None  # counted once the harness's result record is seen
     is_error: bool = False
     harness_version: str | None = None
     result_subtype: str | None = None
     plugins: list[str] = field(default_factory=list)  # loaders the harness reported at start-up
     errors: list[str] = field(default_factory=list)
+    init_model: str | None = None  # the model the harness says it starts with (``system``/``init``)
+    answered_by: set[str] = field(default_factory=set)  # ``message.model`` of the main thread's replies
+
+    def model_resolved(self) -> str | list[str] | None:
+        """The model that answered: one name, a sorted list when several did, ``None`` when the trace cannot tell.
+
+        The replies' own ``message.model`` wins; the harness's ``init`` model stands in for a run with no reply.
+        """
+        found = sorted(self.answered_by) or ([self.init_model] if self.init_model else [])
+        return (found[0] if len(found) == 1 else found) if found else None
 
     def reads(self) -> set[str]:
         return {e["path"] for e in self.events if e["kind"] == "read" and e.get("path")}

@@ -8,8 +8,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
+
+
+def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
+    """One line: whitespace runs become one space, control characters are escaped, then truncated."""
+    flat = re.sub(r"\s+", " ", text).strip()
+    printable = "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii") for c in flat)
+    return printable[:max_len]
 
 
 def cmd_repo_validate(args: argparse.Namespace) -> None:
@@ -104,6 +112,47 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_repo_inspect(args: argparse.Namespace) -> None:
+    """Static inspection: instruction files, check surfaces, launch risks, file inventory."""
+    from dokimi.artifacts import save_artifact, stamp
+    from dokimi.repos import RepoSource, SourceError, open_source
+    from dokimi.repos.environment import inspect_repo
+
+    try:
+        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
+    except SourceError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    payload = inspect_repo(tree, large=args.large_bytes)
+    if args.out:
+        try:
+            save_artifact("repo_environment", payload, Path(args.out))
+        except OSError as exc:
+            print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
+            sys.exit(1)
+    if args.json:
+        print(json.dumps(stamp("repo_environment", dict(payload)), indent=2))
+    else:
+        c = payload["counts"]
+        roots = sum(i["scope"] == "root" for i in payload["instructions"])
+        print(f"{payload['repo']['tree']}: {len(payload['instructions'])} instruction files ({roots} root), "
+              f"{len(payload['checks'])} check surfaces, risk {payload['risk']}")
+        for kind in ("build", "test", "lint", "typecheck"):
+            found = [x for x in payload["checks"] if x["kind"] == kind]
+            how = ", ".join(sorted({f"{x['ecosystem']} ({x['basis']})" for x in found})) or "none found"
+            print(f"  {kind}: {how}")
+        print(f"  findings: {c['error']} error, {c['warning']} warning, {c['info']} info")
+        for f in payload["findings"]:
+            if f["severity"] != "info":
+                where = f" {_normalize_whitespace(f['path'], max_len=None)}" if f["path"] else ""
+                print(f"  {f['severity'].upper()} {f['rule']}{where} -- {_normalize_whitespace(f['why'])}")
+        print("  stages: " + ", ".join(f"{s['stage']} {s['status']}" for s in payload["stages"]))
+        if args.out:
+            print(f"wrote {args.out}")
+    if args.fail_on_error and payload["counts"]["error"]:
+        sys.exit(1)
+
+
 def cmd_repo_fetch(args: argparse.Namespace) -> None:
     """Clone (once) and fetch a pinned remote source into the cache; print the SHA."""
     from dokimi.repos import RepoSource, SourceError, open_source
@@ -178,6 +227,39 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_repo_budget(args: argparse.Namespace) -> None:
+    """What the repository puts into an agent's context at start-up, lazily and on demand."""
+    from dokimi.repos import RepoSource, SourceError, open_source
+    from dokimi.repos.budget import budget
+    from dokimi.repos.harness_profile import ProfileError, load_profile
+
+    try:
+        profile = load_profile(args.harness)
+        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
+    except (SourceError, ProfileError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    payload = budget(tree, profile.guidance_names, profile.import_max_depth)
+    if args.json:
+        print(json.dumps(payload, indent=2))
+    else:
+        t = payload["totals"]
+        print(f"{payload['tree']}: start {t['start']:,} chars, lazy {t['lazy']:,}, "
+              f"on demand {t['on demand']:,}, off {t['off']:,}")
+        print("| when | kind | path | chars |")
+        print("|---|---|---|---|")
+        order = {"start": 0, "lazy": 1, "on demand": 2, "off": 3}
+        for e in sorted(payload["entries"], key=lambda e: (order[e["when"]], -e["chars"], e["path"])):
+            print(f"| {e['when']} | {e['kind']} | {e['path']} | {e['chars']:,} |")
+        if payload["mcp_servers"]:
+            print(f"MCP servers in .mcp.json: {', '.join(payload['mcp_servers'])} "
+                  "(their tools are listed by the server at start-up, not counted here)")
+        for warning in payload["warnings"]:
+            print(f"warning: {warning}")
+    if args.fail_on_warning and payload["warnings"]:
+        sys.exit(1)
+
+
 # The guidance `scan` and `reach` check in a repository that has no manifest yet.
 DEFAULT_GUIDANCE_GLOBS = (
     "**/AGENTS.md", "**/CLAUDE.md", ".github/copilot-instructions.md", ".github/instructions/*.md",
@@ -233,7 +315,7 @@ def register(sub, positive_int) -> None:
     """Add the `repo` subcommand group."""
     repo_p = sub.add_parser(
         "repo",
-        help="Repositories as evaluation subjects: validate repo-eval.yaml, L0 scan, fetch sources, reach probe, "
+        help="Repositories as evaluation subjects: validate repo-eval.yaml, L0 scan, fetch sources, reach probe, budget, "
         "task self-check, agent runs and their report",
     )
     repo_sub = repo_p.add_subparsers(dest="repo_cmd", required=True)
@@ -286,6 +368,22 @@ def register(sub, positive_int) -> None:
     scan_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     scan_p.set_defaults(func=cmd_repo_scan)
 
+    inspect_p = repo_sub.add_parser(
+        "inspect",
+        help="Static inspection of what the tree offers an agent: instruction files and their scope, ways to "
+        "build and check a change, launch risks (hooks, MCP, risky scripts), file inventory "
+        "(repo_environment.v1). No manifest, no LLM call, no repository build/test/script commands run.",
+    )
+    inspect_p.add_argument("source", help=source_help)
+    inspect_p.add_argument("--large-bytes", type=positive_int, default=100_000, dest="large_bytes",
+                           help="A file above this many bytes is reported as large (default: 100000, ~30k tokens)")
+    inspect_p.add_argument("--out", default=None, help="Write the repo_environment.v1 report to this file")
+    inspect_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
+    inspect_p.add_argument("--fail-on-error", action="store_true", dest="fail_on_error",
+                           help="Exit 1 when any finding has severity error (for a CI gate)")
+    inspect_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
+    inspect_p.set_defaults(func=cmd_repo_inspect)
+
     fetch_p = repo_sub.add_parser("fetch", help="Clone/fetch a pinned source and print its commit SHA")
     fetch_p.add_argument("source", help=source_help)
     fetch_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
@@ -326,6 +424,26 @@ def register(sub, positive_int) -> None:
                          help="Print the files and the exact argv of every scenario; run nothing")
     reach_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     reach_p.set_defaults(func=cmd_repo_reach)
+
+    budget_p = repo_sub.add_parser(
+        "budget",
+        help="What the repository puts into an agent's context when it starts at the root: guidance "
+        "files and their imports, the skill listing, lazily loaded and on-demand files, in characters; "
+        "warns on skills with no description and no body text, skills with near-duplicate descriptions (identical, or Jaccard "
+        "index >= 0.5 after removing stop words when both have 3+ words), AGENTS.md files a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md turns off "
+        "(Claude Code rules), unreadable files (non-UTF-8, dangling link), and imports past the harness's hop "
+        "limit. No LLM call.",
+    )
+    budget_p.add_argument("source", help=source_help)
+    budget_p.add_argument("--harness", default="claude-code",
+                          help="Built-in profile name or a harness_profile.v1 YAML path; its guidance names "
+                          "supply the file names, but the classification rules (root vs nested, off rule) are "
+                          "hardcoded to Claude Code until other harnesses are measured (default: claude-code)")
+    budget_p.add_argument("--json", action="store_true", help="Print the full inventory as JSON")
+    budget_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
+                          help="Exit 1 when any warning is printed (for a CI gate)")
+    budget_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
+    budget_p.set_defaults(func=cmd_repo_budget)
 
     from . import repo_run
 

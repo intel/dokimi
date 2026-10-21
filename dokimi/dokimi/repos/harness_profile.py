@@ -62,6 +62,12 @@ class HarnessProfile:
         """File names the harness is declared to load (verified only by the reach probe)."""
         return tuple(self.guidance.get("names") or ())
 
+    @property
+    def import_max_depth(self) -> int | None:
+        """Hops the harness follows ``@`` imports (``guidance.import_max_depth``); None: unlimited."""
+        depth = self.guidance.get("import_max_depth")
+        return int(depth) if depth is not None else None
+
     def argv(
         self,
         *,
