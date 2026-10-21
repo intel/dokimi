@@ -546,8 +546,10 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
 
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
 
-The harness stays in oneDAL and keeps working standalone. These changes make
-the same content runnable by the framework.
+oneDAL drops its standalone mode: the generic parts of its harness move into
+dokimi (#41), and `dev/agent_evals` keeps only its tasks, its image and the
+graders that know oneDAL. These changes make that content runnable by the
+framework.
 
 | Today | Change |
 |---|---|
@@ -555,10 +557,10 @@ the same content runnable by the framework.
 | `task.json` keys | already match the core keys. Add `gate: ["strict_pass"]` to fix tasks, so a hidden-test pass that breaks a regression suite is not counted as success. Add `score: {metric: recall, max: 1.0}` to review tasks with seeds or threads, not to clean-diff controls (§4.5) |
 | `base` is a 8–12 character SHA | expand to the full 40-character SHA (keep a trailing `^`) |
 | entry points call `dev/agent_evals/run.py` | call `{eval_dir}/run.py`; the graders must not assume they sit inside the workspace (§1.1) |
-| `prep()` in `common.py` | unchanged for standalone use; under the framework the same steps run framework-side (§3) |
+| `prep()` in `common.py` | goes: the framework prepares every workspace (§3) |
 | arms `none` / `main-raw` | become `guidance:none` / `guidance:raw`. `guidance:bridge` is framework-only (§3); oneDAL keeps no bridge arm |
-| graders read history from `ONEDAL_EVAL_SRC` | read `{source_dir}` under the framework; the variable stays for standalone runs |
-| `contract.py` derives the base when `meta.json` has none | diff from `meta.json` `start_sha`, and read `base_sha` / `base_rev` for the upstream commit (§4); derive only standalone |
+| graders read history from `ONEDAL_EVAL_SRC` | read `{source_dir}`, the only full-history source; the variable goes |
+| `contract.py` derives the base when `meta.json` has none | diff from `meta.json` `start_sha`, and read `base_sha` / `base_rev` for the upstream commit (§4); nothing derives it |
 | `build_make_gnu` pip-installs MKL and TBB | install them in the image, or give the task `egress: [pypi.org, files.pythonhosted.org]` |
 | Bazel install base in the container's `HOME` | put it on a declared cache (`bin/bazel --output_user_root`) |
 | `static_check.py --out` writes `files` / `counts` / `claims` | add `"schema": "repo_static.v1"`; the claim fields already fit §4.4 |

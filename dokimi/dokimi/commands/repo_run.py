@@ -29,6 +29,7 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     from dokimi.repos import RepoSource, open_source
     from dokimi.repos.container import DockerRunner
     from dokimi.repos.grading import EvalContext
+    from dokimi.repos.graders import graders_digest
     from dokimi.repos.runner import slug
     from dokimi.repos.source import default_cache_dir
     from dokimi.repos.workspace import export_build_context, export_eval_dir, source_git_dir
@@ -60,7 +61,8 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     elif not runner.image_exists(image):
         raise ValueError(f"--image {image} does not exist")
     if pin:
-        _pin_batch(out, {"tree": tree.label, "eval_dir": context_digest(staged), "image": image})
+        _pin_batch(out, {"tree": tree.label, "eval_dir": context_digest(staged), "image": image,
+                            "graders": graders_digest()})
         shutil.rmtree(content, ignore_errors=True)
         staged.rename(content)
     if not args.image and (args.rebuild_image or not runner.image_exists(image)):

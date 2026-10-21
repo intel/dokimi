@@ -33,3 +33,14 @@ def builtin_name(grader: object) -> str | None:
     if isinstance(grader, str) and grader.startswith(PREFIX):
         return grader[len(PREFIX):]
     return None
+
+
+def graders_digest() -> str:
+    """sha256 over the built-in grader sources: what a batch's score depends on beyond its ``eval_dir``."""
+    import hashlib
+
+    h = hashlib.sha256()
+    for path in sorted(HOST_DIR.glob("*.py")):
+        h.update(f"{path.name}\0".encode())
+        h.update(hashlib.sha256(path.read_bytes()).digest())
+    return h.hexdigest()

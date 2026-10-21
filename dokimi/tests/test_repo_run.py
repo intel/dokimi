@@ -328,7 +328,7 @@ def test_a_working_tree_batch_keeps_its_eval_dir(setup, capsys):
     grader.write_text(original)  # back on the tree the batch started with
     _run(setup, "--arm", "guidance:raw", "--task", "review_add", source=str(root))
     assert (batch / "review_add__guidance-raw__m-1__r1/result.json").is_file()
-    assert set(json.loads((batch / "_eval/batch.json").read_text())) == {"tree", "eval_dir", "image"}
+    assert set(json.loads((batch / "_eval/batch.json").read_text())) == {"tree", "eval_dir", "image", "graders"}
 
 
 def test_the_host_never_writes_or_reads_through_a_link_the_grader_left(setup, tmp_path, capsys):
@@ -594,3 +594,24 @@ def test_a_cell_whose_result_cannot_be_written_is_still_charged(setup, monkeypat
     assert "0 ran, 0 already done, 1 crashed" in out.out and "$0.0100" in out.out
     assert "cannot write result.json" in out.out + out.err
 
+
+
+def test_a_batch_refuses_resume_after_a_built_in_grader_changes(setup, monkeypatch, capsys):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    monkeypatch.setattr("dokimi.commands.repo_run.graders_digest", lambda: "edited", raising=False)
+    monkeypatch.setattr("dokimi.repos.graders.graders_digest", lambda: "edited")
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "review_add")
+    err = capsys.readouterr().err
+    assert "graders" in err and "use another --batch" in err
+    assert not list((setup["out"] / "b1").glob("review_add__*"))
+
+
+def test_graders_digest_follows_the_grader_sources(tmp_path, monkeypatch):
+    from dokimi.repos import graders
+
+    (tmp_path / "review.py").write_text("VERSION = '1'\n")
+    monkeypatch.setattr(graders, "HOST_DIR", tmp_path)
+    before = graders.graders_digest()
+    (tmp_path / "review.py").write_text("VERSION = '2'\n")
+    assert graders.graders_digest() != before
