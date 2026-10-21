@@ -85,7 +85,11 @@ Lives under `dokimi/{personas,questions,mcp,eval,report,dashboard,orchestrator}`
    custom registered client — see
    [adding-doc-source.md](adding-doc-source.md)).
 4. `eval/` runs answer generation (`llm.py`), single-judge scoring, the
-   multi-judge panel, and RAGAS meta-evaluation.
+   multi-judge panel, and RAGAS meta-evaluation. Every consumer of an
+   `answers.v1`/`eval.v1`/`arms.v1` record (judge, panel, RAGAS, grounding,
+   reports, gates) reads it through `dokimi/records.py`, the one module that
+   knows the binary (`with_docs`/`without_docs`) and N-arm (`arms`/`scores`)
+   shapes.
 5. `report/eval_report.py` produces the per-product Markdown analysis.
 6. `dashboard/` aggregates per-library results into a cross-library view
    (`DASHBOARD.md`, `dashboard.json`).
@@ -188,7 +192,8 @@ summarizes pass-rate deltas against a baseline harness. Entry point:
 - `harnesses/agent_sandbox.py` is the host launch for the `-host` variants,
   and holds the `docker-probe` isolation probe that measures both launches.
 - `harnesses/skill_treatment.py` installs the `docker-claude-skill:` arm's
-  skill as a plugin and reads skill reach from the agent's stream;
+  skill as a plugin (the `-skill-discover:` arm's too, without the notice) and
+  reads skill reach from the agent's stream;
   `harnesses/solver_stream.py` runs the solver and records that stream.
 - `harnesses/benchflow.py` hands a cell to BenchFlow's `bench eval run` (the
   `benchflow*:<agent>` harnesses, the only ones that run `task.md` tasks) and
@@ -238,6 +243,26 @@ next release.
   (no usable answer). Harness behaviour is data, not code:
   `dokimi/repos/profiles/claude-code.yaml` is a `harness_profile.v1`
   file and any other harness is another YAML.
+- `dokimi/repos/budget.py` — `repo budget`: what the tree puts into an
+  agent's context when it starts at the root, in characters, with no LLM call.
+  Root CLAUDE.md files and their `@` imports, the root AGENTS.md files and their `@` imports, and
+  the skill listing (without skills marked `disable-model-invocation: true`) load at start; nested
+  guidance and what nested CLAUDE.md and AGENTS.md files import load lazily;
+  skill bodies on demand; with a CLAUDE.md, `.claude/CLAUDE.md` or `CLAUDE.local.md` at the root, an
+  AGENTS.md no CLAUDE.md imports is reported off. A skill with no description is listed by its first
+  non-empty body line, as Claude Code does. It warns on skills with no description or body text,
+  skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
+  after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
+  unreadable files (non-UTF-8, dangling or out-of-tree link), and on imports past the harness's
+  hop limit, each of which also trips
+  `--fail-on-warning`. `start` is not an upper bound: it is too low by what it does not count
+  (`.claude/rules/*.md` files; only `@path.md` imports are followed, so `@notes.txt` adds nothing;
+  skills are read only from real `.claude/skills/*/SKILL.md` directories at the root, so a skill
+  behind a linked directory is not seen, and a nested `<subdir>/.claude/skills/` skill, which Claude
+  Code loads on the first read in that subdirectory, is not counted; and imports past the profile's `guidance.import_max_depth`,
+  four hops for Claude Code, which warn naming what was skipped). It is too high by whatever the
+  harness cuts from the skill listing: the listing is charged in full, and the harness cuts it past
+  its listing budget.
 - `dokimi/repos/static.py` — the `repo_static.v1` schema: what the
   repository's own `static` entry point writes, so its checks can be merged
   into L0.
@@ -248,6 +273,10 @@ next release.
 - `dokimi/repos/l0/` — `repo scan` (L0): checks the links, paths,
   identifiers, commands and build labels the guidance names against the same
   tree (`repo_readiness.v1`), with no LLM call.
+- `dokimi/repos/environment/` — `repo inspect`: instruction files and their
+  scope, check surfaces per project root, launch risks (hooks, MCP, risky
+  scripts) and the file inventory (`repo_environment.v1`), read from the tree
+  alone.
 - `dokimi/repos/workspace.py` — loads `task.json` files, exports the
   eval dir and the image build context (tasks removed), and prepares a cell's
   workspace: snapshot at `base`, setup patches, the guidance arm, and no
@@ -272,7 +301,7 @@ next release.
   isolation probe must not see the tasks or the source from the agent's
   container.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,tasks check,run,report}`
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
@@ -346,6 +375,9 @@ label.
 4. **package-smoke** — builds/installs the package with a fresh resolve of its
    dependency ranges (Python 3.11 and 3.13) and exercises the console and
    module entry points.
+
+   **windows-smoke** (a PR check on `windows-latest`) builds the wheel, installs
+   it, runs the installed-package smoke test and a few fast tests.
 
 **`agent-quality.yml`** — task and benchmark checks:
 

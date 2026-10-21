@@ -18,6 +18,7 @@ from dokimi.harnesses.skill_treatment import (
     build_plugin,
     check_skill,
     plugin_slug,
+    skill_listing,
     stream_stats,
     treatment_notice,
 )
@@ -480,3 +481,23 @@ def test_a_malformed_token_count_reads_as_zero():
     obj = {"type": "result", "modelUsage": {"m": {"inputTokens": "n/a", "outputTokens": 3}}}
     usage = _parse_claude_json(json.dumps(obj), "t", "", 1.0)
     assert usage is not None and (usage.prompt_tokens, usage.completion_tokens) == (0, 3)
+
+
+def test_skill_listing_counts_what_the_listing_shows(tmp_path):
+    short = _skill(tmp_path, name="a")
+    assert skill_listing(short) == {"description_chars": len("Use for a things."),
+                                    "max_desc_chars": 1536, "budget_chars": 8000,
+                                    "truncated": False}
+    long = _skill(tmp_path, name="b", extra=f"when_to_use: {'w' * 1530}\n")
+    listing = skill_listing(long)
+    assert listing["description_chars"] == len("Use for b things.") + 3 + 1530
+    assert listing["truncated"] is True
+
+
+@pytest.mark.parametrize("chars, truncated", [(1536, False), (1537, True)])
+def test_skill_listing_cuts_only_past_the_cap(tmp_path, chars, truncated):
+    skill = tmp_path / "s"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(f"---\nname: s\ndescription: {'x' * chars}\n---\n# B\n",
+                                    encoding="utf-8")
+    assert skill_listing(skill)["truncated"] is truncated

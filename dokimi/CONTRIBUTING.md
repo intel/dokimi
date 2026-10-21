@@ -31,7 +31,7 @@ not run this job; check locally with Docker, from the root of a clone (in a
 
 ```bash
 docker run --rm -v "$PWD:/github/workspace" -w /github/workspace \
-  apache/skywalking-eyes:0.9.0 -c .github/.licenserc.yaml header check
+  apache/skywalking-eyes:0.9.0 -v error -c .github/.licenserc.yaml header check
 ```
 
 ## Development setup
@@ -127,7 +127,8 @@ CI additionally holds a PR to:
 **pre-commit.** `.pre-commit-config.yaml` at the repo root runs the fast
 offline checks on the files a commit stages: `ruff check` (the version and
 config CI uses), zizmor on the workflows, YAML/JSON/TOML syntax, conflict
-markers and files over 500 KB. From the repo root:
+markers, files over 500 KB, and gitleaks on the staged changes (the
+`gitleaks` workflow scans a PR's commits the same way). From the repo root:
 
 ```bash
 pip install pre-commit && pre-commit install   # `make dev` already installs pre-commit
@@ -150,9 +151,9 @@ the main lock changes too.
 Renovate (`.github/renovate.json5`) proposes updates on Mondays for releases at
 least 7 days old: one grouped PR for all minor and patch updates, one PR per
 major, a monthly lock refresh, and security fixes as soon as an advisory
-appears. A pre-commit hook rev and the pin `ci.yml` installs for the same tool
-(ruff, zizmor) come in one PR of their own, with ruff's pins in the dev extra
-and `.agent-eval/Dockerfile`. Renovate does not update
+appears. A pre-commit hook rev and the CI pin for the same tool (ruff and
+zizmor in `ci.yml`, gitleaks in `gitleaks.yml`) come in one PR of their own, with
+ruff's pins in the dev extra and `.agent-eval/Dockerfile`. Renovate does not update
 `requirements-docs.lock.txt` yet; pip-audit in CI still audits it.
 
 Guidelines:

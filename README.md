@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 [![docs](https://github.com/intel/dokimi/actions/workflows/docs.yml/badge.svg?branch=main)](https://intel.github.io/dokimi/)
 [![codecov](https://codecov.io/gh/intel/dokimi/graph/badge.svg?branch=main)](https://codecov.io/gh/intel/dokimi)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/intel/dokimi/badge)](https://scorecard.dev/viewer/?uri=github.com/intel/dokimi)
 
 **Documentation: <https://intel.github.io/dokimi/>** — guides, plus a
 [CLI reference](https://intel.github.io/dokimi/reference/cli/) and an
@@ -88,8 +89,14 @@ manifest it owns:
 
 - `dokimi repo scan` (L0, no LLM): do the links, paths, identifiers, commands
   and build labels the guidance names exist in the tree?
+- `dokimi repo budget` (no LLM): how many characters of guidance and skill
+  listing every model call pays for at start-up, what loads lazily or on
+  demand, and which AGENTS.md files a CLAUDE.md turns off.
 - `dokimi repo reach` (L1): which guidance files does a given harness actually
   load?
+- `dokimi repo inspect` (static, no LLM): which instruction files, checks,
+  capability surfaces and risky hooks or scripts the repository offers an
+  agent, with findings per stage.
 - `dokimi repo run`: run an agent per (task, arm, model, repetition) inside the
   repository's image, grade each run with the repository's own tests, and
   `dokimi repo report` the per (task, arm, model) table. With the `guidance:*`
