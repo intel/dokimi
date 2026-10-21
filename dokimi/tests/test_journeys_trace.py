@@ -188,6 +188,16 @@ def test_a_ref_too_long_for_a_file_name_is_a_problem_not_a_crash(tmp_path):
     journeys.markdown(report)
 
 
+def test_a_key_given_twice_under_an_anchor_is_reported_once(tmp_path):
+    # Each alias is the anchored node again: a walk that follows aliases visits a node once per
+    # path to it, exponential in their nesting, and repeats the problem.
+    registry = _tree(tmp_path)
+    registry.write_text("schema: 1\ncriteria: {}\nx: &a {k: 1, k: 2}\ny: [*a, *a, *a]\n",
+                        encoding="utf-8")
+    report = journeys.check(registry, tmp_path, {}, _evidence({}), {}, plugin._anchors)
+    assert [p for p in report["problems"] if "given twice" in p] == ["journeys.yaml:3: k given twice"]
+
+
 def test_a_criterion_given_twice_in_the_registry_is_a_problem(tmp_path):
     """A second entry further down would otherwise replace an enforced one, unseen in the diff."""
     registry = _tree(tmp_path)

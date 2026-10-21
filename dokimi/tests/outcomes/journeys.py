@@ -251,8 +251,12 @@ def _repeated_keys(text: str, name: str) -> list[str]:
     """Keys given twice in one mapping: safe_load keeps the last copy without a word."""
     problems: list[str] = []
     todo = [yaml.compose(text, Loader=yaml.SafeLoader)]
+    seen: set[int] = set()  # an alias is the anchored node again: walk it once
     while todo:
         node = todo.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
         if isinstance(node, yaml.MappingNode):
             keys = set()
             for key, value in node.value:
