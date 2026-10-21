@@ -1,0 +1,15 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+#
+# Open intel/dokimi issues that are engineering work, not research: no idea,
+# experiment or decision behind them. `research_register.py gaps --live` does
+# not list them as missing from the register, and reports an entry here whose
+# issue has closed so the list does not go stale.
+- issue: 19
+  reason: docs build hook rewrites links on the element tree; docs tooling
+- issue: 30
+  reason: Renovate dependency dashboard
+- issue: 61
+  reason: hash the dependency lock; supply-chain hardening
+- issue: 136
+  reason: eval cross-judge drops the provider from the judge spec; a bug

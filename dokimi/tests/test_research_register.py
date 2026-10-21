@@ -419,6 +419,27 @@ def test_gaps_live_reports_drift_and_unlinked_issues(built: Path, capsys: pytest
     assert "Open intel/dokimi issues no record links to: 1\n  #7\tLoose end" in out
 
 
+def test_gaps_live_skips_untracked_and_reports_stale_entries(
+        built: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    (built / "untracked.yaml").write_text("- issue: 7\n  reason: chore\n- issue: 9\n  reason: done\n")
+    monkeypatch.setattr(rr, "github_state", lambda url: None)
+    monkeypatch.setattr(rr, "open_issues", lambda repo: [{"number": 7, "title": "Loose end"}])
+    assert rr.main(["--root", str(built), "gaps", "--live"]) == 0
+    out = capsys.readouterr().out
+    assert "no record links to: 0" in out
+    assert "untracked.yaml entries no longer open: 1\n  #9\tdone" in out
+
+
+def test_gaps_rejects_malformed_untracked(built: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (built / "untracked.yaml").write_text("- issue: seven\n")
+    assert rr.main(["--root", str(built), "gaps"]) == 1
+    assert "want a list of" in capsys.readouterr().err
+
+
+def test_repository_untracked_list_is_valid() -> None:
+    assert rr.untracked()
+
+
 def test_github_state_without_gh(monkeypatch: pytest.MonkeyPatch) -> None:
     def missing(*a: object, **k: object) -> None:
         raise FileNotFoundError("gh")

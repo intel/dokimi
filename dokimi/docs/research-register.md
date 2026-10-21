@@ -82,6 +82,11 @@ python scripts/research_register.py gaps --live
   every link, reports implrefs whose recorded status differs, and lists the open
   `intel/dokimi` issues that no record links to. It only reads: fix a stale status in a PR.
   `check` stays offline.
+- An open issue that is engineering work with no research behind it (a dependency
+  dashboard, a build chore, a bug) goes in `research/untracked.yaml` with its reason
+  instead of a record; `gaps --live` skips those and reports an entry whose issue has closed.
+  An implref may also point at the file that carries the change when it landed before the
+  public history and has no pull request.
 
 ## Adding a record
 

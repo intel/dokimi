@@ -268,7 +268,22 @@ def implementation(records: dict[str, Record], live: bool = False) -> dict[str, 
     return result
 
 
-def gaps(records: dict[str, Record], live: bool = False, repo: str = "intel/dokimi") -> str:
+def untracked(root: Path = RESEARCH) -> dict[int, str]:
+    """Issue number -> reason, from research/untracked.yaml: open issues that are not research."""
+    path = root / "untracked.yaml"
+    if not path.exists():
+        return {}
+    entries = yaml.safe_load(path.read_text(encoding="utf-8")) or []
+    if not isinstance(entries, list) or not all(
+            isinstance(e, dict) and isinstance(e.get("issue"), int) and isinstance(e.get("reason"), str)
+            for e in entries):
+        raise ValueError(f"{path}: want a list of {{issue: <number>, reason: <text>}}")
+    return {e["issue"]: e["reason"] for e in entries}
+
+
+def gaps(records: dict[str, Record], live: bool = False, repo: str = "intel/dokimi",
+         root: Path = RESEARCH) -> str:
+    skip = untracked(root)
     impl = implementation(records, live)
     lines = []
     todo = [(d, i) for d, i in impl.items() if i["state"] == "accepted" and i["summary"] != "merged"]
@@ -283,15 +298,22 @@ def gaps(records: dict[str, Record], live: bool = False, repo: str = "intel/doki
     if not live:
         lines.append("(recorded status only; --live asks GitHub for drift and open issues)")
         return "\n".join(lines) + "\n"
-    drift = [r for i in impl.values() for r in i["implrefs"] if r["live"] and r["live"] != r["status"]]
+    # "proposed" is how an open issue with no code yet is recorded, not drift.
+    drift = [r for i in impl.values() for r in i["implrefs"] if r["live"] and r["live"] != r["status"]
+             and (r["live"], r["status"]) != ("open", "proposed")]
     lines.append(f"Implrefs whose recorded status differs from GitHub: {len(drift)}")
     lines += [f"  {r['id']}\trecorded {r['status']}, GitHub {r['live']}\t{r['title']}" for r in drift]
     cited = {int(m.group(3)) for record in records.values()
              for url in record.fields.get("links", [])
              if (m := _GITHUB.match(url)) and m.group(1) == repo}
-    loose = [i for i in open_issues(repo) if i["number"] not in cited]
+    issues = open_issues(repo)
+    loose = [i for i in issues if i["number"] not in cited and i["number"] not in skip]
     lines.append(f"Open {repo} issues no record links to: {len(loose)}")
     lines += [f"  #{i['number']}\t{i['title']}" for i in loose]
+    if issues:  # an empty list means gh failed, not that every issue closed
+        gone = sorted(set(skip) - {i["number"] for i in issues})
+        lines.append(f"research/untracked.yaml entries no longer open: {len(gone)}")
+        lines += [f"  #{n}\t{skip[n]}" for n in gone]
     return "\n".join(lines) + "\n"
 
 
@@ -428,7 +450,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "render":
         sys.stdout.write(render(export(records, args.root)))
     elif args.command == "gaps":
-        sys.stdout.write(gaps(records, args.live))
+        try:
+            sys.stdout.write(gaps(records, args.live, root=args.root))
+        except (ValueError, yaml.YAMLError) as exc:
+            print(exc, file=sys.stderr)
+            return 1
     else:
         json.dump(export(records, args.root), sys.stdout, indent=1, ensure_ascii=False)
         print()
