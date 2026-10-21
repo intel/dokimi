@@ -10,6 +10,8 @@ name: cli-interface
 # sticky comment listing each added, removed or changed command and option.
 # The comment is updated on every push, and the label removed once the surface
 # matches the base again. The check reports; it never fails a PR for a change.
+# Fork PRs get a read-only token, so there the label and comment are skipped and
+# the CLI diff is shown only in the job summary.
 on:
   pull_request:
 

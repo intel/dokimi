@@ -123,8 +123,6 @@ def _value(value: Any, _seen: frozenset[int] = frozenset()) -> Any:
                         attrs.setdefault(k, v)  # the most derived definition wins
         bases = [f"{b.__module__}.{b.__qualname__}" for b in value.__mro__ if b.__module__ != "builtins"]
         src = repr(_value(dict(sorted(attrs.items())), seen)) + repr(bases)
-        if issubclass(value, enum.Enum):
-            src += repr([(m.name, _value(m.value)) for m in value])
         digest = hashlib.sha256(src.encode("utf-8")).hexdigest()[:12]
         return f"{value.__module__}.{value.__qualname__}#{digest}"
     if inspect.isfunction(value) and id(value) in _seen:  # reached again through its own closure
