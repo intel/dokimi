@@ -205,6 +205,96 @@ def _git(root: Path, *args: str) -> str:
         return ""  # git is not installed
 
 
+_GITHUB = re.compile(r"^https://github\.com/([^/]+/[^/]+)/(issues|pull)/([0-9]+)")
+
+
+def github_state(url: str) -> str | None:
+    """The live state of an issue or pull request: open, closed or merged; None if unknown."""
+    match = _GITHUB.match(url)
+    if not match:
+        return None
+    repo, _, number = match.groups()
+    try:
+        out = subprocess.run(["gh", "api", f"repos/{repo}/issues/{number}",
+                              "--jq", "[.state, .pull_request.merged_at] | @tsv"],
+                             capture_output=True, text=True, check=False, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None  # gh is not installed or the network is down
+    state, _, merged = out.stdout.strip().partition("\t")
+    if out.returncode or state not in ("open", "closed"):
+        return None
+    return "merged" if merged else state
+
+
+def open_issues(repo: str) -> list[dict[str, Any]]:
+    """Open issues (not pull requests) of a GitHub repository, as number and title."""
+    try:
+        out = subprocess.run(["gh", "api", "--paginate", f"repos/{repo}/issues?state=open&per_page=100",
+                              "--jq", ".[] | select(.pull_request == null) | [.number, .title] | @tsv"],
+                             capture_output=True, text=True, check=False, timeout=120)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    rows = [line.split("\t", 1) for line in out.stdout.splitlines() if "\t" in line]
+    return [{"number": int(n), "title": title} for n, title in rows]
+
+
+def implementation(records: dict[str, Record], live: bool = False) -> dict[str, dict[str, Any]]:
+    """Per decision: its implrefs with recorded and (with live) GitHub state, and a summary.
+
+    The summary is merged when any implref is merged, open when any is open or
+    proposed, closed when all are closed, and none without an implref.
+    """
+    refs: dict[str, list[dict[str, Any]]] = {}
+    for record in sorted(records.values(), key=lambda r: r.id):
+        if record.type != "implref":
+            continue
+        states = [github_state(u) for u in record.fields["links"]] if live else []
+        known = [s for s in states if s]
+        # Several links: the most advanced one says how far the work got.
+        live_state = next((s for s in ("merged", "open", "closed") if s in known), None)
+        refs.setdefault(record.fields["decision"], []).append(
+            {"id": record.id, "title": record.fields["title"], "status": record.fields["status"],
+             "live": live_state, "links": record.fields["links"]})
+    result = {}
+    for rid, record in sorted(records.items()):
+        if record.type != "decision":
+            continue
+        mine = refs.get(rid, [])
+        effective = {(ref["live"] or ref["status"]) for ref in mine}
+        summary = ("merged" if "merged" in effective else
+                   "open" if effective & {"open", "proposed"} else
+                   "closed" if effective else "none")
+        result[rid] = {"state": record.fields["state"], "summary": summary, "implrefs": mine}
+    return result
+
+
+def gaps(records: dict[str, Record], live: bool = False, repo: str = "intel/dokimi") -> str:
+    impl = implementation(records, live)
+    lines = []
+    todo = [(d, i) for d, i in impl.items() if i["state"] == "accepted" and i["summary"] != "merged"]
+    lines.append(f"Accepted decisions with nothing merged: {len(todo)}")
+    for did, info in todo:
+        refs = ", ".join(f"{r['id']} {r['live'] or r['status']}" for r in info["implrefs"]) or "no implref"
+        lines.append(f"  {did}\t{info['summary']}\t{records[did].fields['title']}\t({refs})")
+    pending = [r for i in impl.values() for r in i["implrefs"]
+               if (r["live"] or r["status"]) in ("open", "proposed")]
+    lines.append(f"Implrefs not done: {len(pending)}")
+    lines += [f"  {r['id']}\t{r['live'] or r['status']}\t{r['title']}" for r in pending]
+    if not live:
+        lines.append("(recorded status only; --live asks GitHub for drift and open issues)")
+        return "\n".join(lines) + "\n"
+    drift = [r for i in impl.values() for r in i["implrefs"] if r["live"] and r["live"] != r["status"]]
+    lines.append(f"Implrefs whose recorded status differs from GitHub: {len(drift)}")
+    lines += [f"  {r['id']}\trecorded {r['status']}, GitHub {r['live']}\t{r['title']}" for r in drift]
+    cited = {int(m.group(3)) for record in records.values()
+             for url in record.fields.get("links", [])
+             if (m := _GITHUB.match(url)) and m.group(1) == repo}
+    loose = [i for i in open_issues(repo) if i["number"] not in cited]
+    lines.append(f"Open {repo} issues no record links to: {len(loose)}")
+    lines += [f"  #{i['number']}\t{i['title']}" for i in loose]
+    return "\n".join(lines) + "\n"
+
+
 def export(records: dict[str, Record], root: Path = RESEARCH) -> dict[str, Any]:
     edges = [{"from": rid, "to": target, "rel": field}
              for rid, record in sorted(records.items())
@@ -271,6 +361,17 @@ def render(data: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+HTML_TEMPLATE = Path(__file__).with_name("research_map.html")
+
+
+def render_html(data: dict[str, Any], impl: dict[str, dict[str, Any]]) -> str:
+    """One self-contained page: collapsible map, search, filters, table. No network needed."""
+    payload = json.dumps({**data, "implementation": impl}, ensure_ascii=False)
+    # A record body cannot close the script element that carries it.
+    payload = payload.replace("</", "<\\/")
+    return HTML_TEMPLATE.read_text(encoding="utf-8").replace("/*DATA*/null", payload)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=RESEARCH, help=argparse.SUPPRESS)
@@ -283,7 +384,14 @@ def main(argv: list[str] | None = None) -> int:
     nxt = sub.add_parser("next", help="print the next free id for a record type")
     nxt.add_argument("type", choices=PREFIX)
     sub.add_parser("export", help="write records, edges and the theme tree as JSON")
-    sub.add_parser("render", help="write the theme tree as a Mermaid mindmap and table")
+    rend = sub.add_parser("render", help="write the map: Mermaid mindmap and table, or HTML")
+    rend.add_argument("--html", action="store_true",
+                      help="one self-contained HTML page with search and filters")
+    rend.add_argument("--live", action="store_true",
+                      help="ask GitHub (gh) for the state of every implref link")
+    gap = sub.add_parser("gaps", help="accepted decisions not yet built, pending implrefs")
+    gap.add_argument("--live", action="store_true",
+                     help="also GitHub drift and open issues no record links to (needs gh)")
     args = parser.parse_args(argv)
 
     records, errors = load(args.root)
@@ -315,8 +423,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{record.id}\t{record.type}\t{extra}\t{record.fields['title']}")
     elif args.command == "next":
         print(next_id(records, args.type))
+    elif args.command == "render" and args.html:
+        sys.stdout.write(render_html(export(records, args.root), implementation(records, args.live)))
     elif args.command == "render":
         sys.stdout.write(render(export(records, args.root)))
+    elif args.command == "gaps":
+        sys.stdout.write(gaps(records, args.live))
     else:
         json.dump(export(records, args.root), sys.stdout, indent=1, ensure_ascii=False)
         print()

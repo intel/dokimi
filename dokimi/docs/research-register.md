@@ -47,6 +47,8 @@ python scripts/research_register.py query --type experiment --ref I001 --where o
 python scripts/research_register.py query --type decision --where state=rejected
 python scripts/research_register.py export > register.json
 python scripts/research_register.py render > map.md
+python scripts/research_register.py render --html --live > map.html
+python scripts/research_register.py gaps --live
 ```
 
 - `check` validates every record against its schema, its path and id prefix, and every
@@ -68,6 +70,18 @@ python scripts/research_register.py render > map.md
   idea, experiments marked by outcome) and a table, as one Markdown file. It is generated on
   demand and not committed; open it in any Mermaid-aware viewer, such as GitHub or an editor
   preview.
+- `render --html` writes the same register as one self-contained page to open in a browser,
+  with no network and no library: a collapsible tree (theme, idea, experiment, finding,
+  decision, implref), a search box (`/` focuses it; every word must match the id, a field or
+  the body), filters for type, theme, outcome or state and implementation, a sortable table,
+  and a panel with the clicked record and the records that cite it. `#X003` in the URL opens
+  that record.
+- `gaps` lists accepted decisions with nothing merged and implrefs still `open` or
+  `proposed`. An implref's `status` is written by hand and goes stale when its pull request
+  merges, so `--live` (here and on `render --html`) asks GitHub through `gh` for the state of
+  every link, reports implrefs whose recorded status differs, and lists the open
+  `intel/dokimi` issues that no record links to. It only reads: fix a stale status in a PR.
+  `check` stays offline.
 
 ## Adding a record
 

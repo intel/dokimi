@@ -375,3 +375,67 @@ def test_render_flattens_multiline_title(root: Path, capsys: pytest.CaptureFixtu
     assert "X003[X003 - Run split]" in out
     assert all(line.count("[") == line.count("]") for line in out.splitlines())
     assert "| O | I002 | X003 | refuted | Run split |" in out
+
+
+def _implref(root: Path, rid: str, decision: str, status: str, number: int) -> None:
+    _write(root, "implref", rid, f"title: Build {rid}\ndecision: {decision}\nstatus: {status}\n"
+                                 f"links: [https://github.com/intel/dokimi/pull/{number}]\n")
+
+
+@pytest.fixture
+def built(root: Path) -> Path:
+    _write(root, "decision", "D002", "title: Do it\nfindings: [F001]\nstate: accepted\n")
+    _write(root, "decision", "D003", "title: Done\nfindings: [F001]\nstate: accepted\n")
+    _implref(root, "R001", "D002", "open", 1)
+    _implref(root, "R002", "D003", "merged", 2)
+    return root
+
+
+def test_implementation_summary(built: Path) -> None:
+    records, _ = rr.load(built)
+    impl = rr.implementation(records)
+    assert {d: i["summary"] for d, i in impl.items()} == {
+        "D001": "none", "D002": "open", "D003": "merged"}
+    assert impl["D002"]["implrefs"][0]["live"] is None
+
+
+def test_gaps_offline(built: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert rr.main(["--root", str(built), "gaps"]) == 0
+    out = capsys.readouterr().out
+    assert "Accepted decisions with nothing merged: 1\n  D002\topen\tDo it\t(R001 open)" in out
+    assert "Implrefs not done: 1\n  R001\topen\tBuild R001" in out
+    assert "--live asks GitHub" in out
+
+
+def test_gaps_live_reports_drift_and_unlinked_issues(built: Path, capsys: pytest.CaptureFixture[str],
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(rr, "github_state", lambda url: "merged")
+    monkeypatch.setattr(rr, "open_issues", lambda repo: [{"number": 1, "title": "linked"},
+                                                         {"number": 7, "title": "Loose end"}])
+    assert rr.main(["--root", str(built), "gaps", "--live"]) == 0
+    out = capsys.readouterr().out
+    assert "Accepted decisions with nothing merged: 0" in out
+    assert "R001\trecorded open, GitHub merged\tBuild R001" in out
+    assert "Open intel/dokimi issues no record links to: 1\n  #7\tLoose end" in out
+
+
+def test_github_state_without_gh(monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing(*a: object, **k: object) -> None:
+        raise FileNotFoundError("gh")
+    monkeypatch.setattr(rr.subprocess, "run", missing)
+    assert rr.github_state("https://github.com/intel/dokimi/pull/1") is None
+    assert rr.github_state("https://github.com/intel/dokimi/blob/main/x") is None
+    assert rr.open_issues("intel/dokimi") == []
+
+
+def test_render_html_embeds_data_safely(built: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _write(built, "experiment", "X009", "title: Run 9\nidea: I001\nhypothesis: H\noutcome: planned\n",
+           "</script><script>alert(1)</script>")
+    assert rr.main(["--root", str(built), "render", "--html"]) == 0
+    page = capsys.readouterr().out
+    assert page.count("</script>") == 2  # the data block and the code block, nothing from a body
+    data = page.split('type="application/json">', 1)[1].split("</script>", 1)[0]
+    loaded = json.loads(data)
+    assert loaded["implementation"]["D002"]["summary"] == "open"
+    assert next(r for r in loaded["records"] if r["id"] == "X009")["body"].startswith("</script>")
+    assert "/*DATA*/" not in page

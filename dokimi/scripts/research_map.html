@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+
+Template for `scripts/research_register.py render --html`; the script puts the
+register export in place of the DATA marker. Self-contained: no network, no library.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dokimi plans and research map</title>
+<style>
+  :root { --fg: #1f2328; --muted: #656d76; --line: #d0d7de; --bg: #fff; --hl: #fff8c5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e6edf3; --muted: #8d96a0; --line: #30363d; --bg: #0d1117; --hl: #3b2e00; }
+  }
+  body { font: 14px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); margin: 0; }
+  header { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--line);
+           padding: 8px 16px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; z-index: 1; }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; }
+  input, select, button { font: inherit; color: inherit; background: var(--bg);
+                          border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+  #q { width: 260px; }
+  #stamp, #count { color: var(--muted); font-size: 12px; }
+  main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; padding: 12px 16px; }
+  #tree details { margin-left: 16px; }
+  #tree > details { margin-left: 0; }
+  #tree summary { cursor: pointer; padding: 1px 0; }
+  .node { cursor: pointer; }
+  .node:hover { text-decoration: underline; }
+  .id { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+  .tag { font-size: 11px; border: 1px solid var(--line); border-radius: 10px; padding: 0 6px; margin-left: 4px; }
+  .supported, .merged, .accepted { color: #1a7f37; border-color: #1a7f37; }
+  .refuted, .rejected, .retracted { color: #cf222e; border-color: #cf222e; }
+  .inconclusive, .open, .proposed, .deferred { color: #9a6700; border-color: #9a6700; }
+  .none, .closed, .superseded, .aborted { color: var(--muted); }
+  .hit > summary .title, .hit.title { background: var(--hl); }
+  .hidden { display: none; }
+  #detail { position: sticky; top: 56px; align-self: start; border: 1px solid var(--line);
+            border-radius: 8px; padding: 12px; max-height: calc(100vh - 90px); overflow: auto; }
+  #detail pre { white-space: pre-wrap; font: 13px/1.45 ui-monospace, monospace; }
+  #detail dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; margin: 0 0 8px; }
+  #detail dt { color: var(--muted); }
+  #detail dd { margin: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 16px 24px; width: calc(100% - 32px); }
+  th, td { border-bottom: 1px solid var(--line); text-align: left; padding: 3px 6px; vertical-align: top; }
+  th { cursor: pointer; user-select: none; }
+  a { color: #0969da; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Plans and research map</h1>
+  <input id="q" type="search" placeholder="Search id, title, text…  ( / )" autofocus>
+  <select id="type"><option value="">all types</option></select>
+  <select id="theme"><option value="">all themes</option></select>
+  <select id="outcome"><option value="">any outcome / state</option></select>
+  <select id="impl"><option value="">any implementation</option></select>
+  <button id="expand">expand all</button><button id="collapse">collapse all</button>
+  <span id="count"></span>
+  <span id="stamp"></span>
+</header>
+<main>
+  <div id="tree"></div>
+  <aside id="detail"><p class="id">Click a record to see it here.</p></aside>
+</main>
+<table id="table"><thead><tr></tr></thead><tbody></tbody></table>
+<script id="data" type="application/json">/*DATA*/null</script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById("data").textContent);
+const REC = Object.fromEntries(DATA.records.map(r => [r.id, r]));
+const IMPL = DATA.implementation || {};
+const by = (rel, to) => DATA.edges.filter(e => e.rel === rel && e.to === to).map(e => e.from).sort();
+const el = (tag, attrs = {}, ...kids) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) k === "class" ? n.className = v : n.setAttribute(k, v);
+  for (const k of kids) n.append(k);
+  return n;
+};
+const state = r => r.outcome || r.state || r.status || r.confidence || "";
+const implOf = r => r.type === "decision" ? (IMPL[r.id] || {}).summary || "none"
+  : r.type === "implref" ? (implLive(r) || r.status) : "";
+function implLive(r) {
+  for (const d of Object.values(IMPL)) for (const i of d.implrefs) if (i.id === r.id) return i.live;
+  return null;
+}
+
+// --- header: stamp and filter options
+document.getElementById("stamp").textContent =
+  `commit ${(DATA.commit || "unknown").slice(0, 10)}${DATA.dirty ? " + uncommitted" : ""}` +
+  (Object.values(IMPL).some(d => d.implrefs.some(i => i.live)) ? " · live GitHub state" : " · recorded status");
+const opts = (id, values) => { const s = document.getElementById(id);
+  for (const v of values) s.append(el("option", {value: v}, v)); };
+opts("type", ["idea", "experiment", "finding", "decision", "implref"]);
+opts("theme", DATA.themes.filter(t => t.ideas.length).map(t => `${t.id} ${t.title}`));
+opts("outcome", [...new Set(DATA.records.map(state).concat(["retracted"]))].filter(Boolean).sort());
+opts("impl", ["merged", "open", "proposed", "closed", "none"]);
+
+// --- tree: theme > idea > experiment > finding > decision > implref
+function node(r, children) {
+  const s = state(r), im = implOf(r);
+  const label = el("span", {class: "node"}, el("span", {class: "id"}, r.id + " "),
+                   el("span", {class: "title"}, r.title),
+                   el("span", {class: "tag " + s}, s));
+  if (r.retracted) label.append(el("span", {class: "tag retracted"}, "retracted"));
+  if (im && r.type !== "implref") label.append(el("span", {class: "tag " + im}, "impl: " + im));
+  label.addEventListener("click", ev => { ev.preventDefault(); show(r.id); });
+  const d = el("details", {"data-id": r.id}, el("summary", {}, label));
+  for (const c of children) d.append(c);
+  return d;
+}
+const implrefs = did => by("decision", did).map(id => node(REC[id], []));
+const decisions = ids => ids.map(id => node(REC[id], implrefs(id)));
+function findingsOf(xid) { return by("experiments", xid).map(fid => node(REC[fid], decisions(by("findings", fid)))); }
+const tree = document.getElementById("tree");
+for (const t of DATA.themes) {
+  if (!t.ideas.length) continue;
+  const td = el("details", {open: "", "data-theme": `${t.id} ${t.title}`},
+                el("summary", {}, el("strong", {}, `${t.id} · ${t.title}`)));
+  for (const i of t.ideas) {
+    const direct = decisions(by("ideas", i.id));
+    td.append(node(REC[i.id], i.experiments.map(x => node(REC[x.id], findingsOf(x.id))).concat(direct)));
+  }
+  tree.append(td);
+}
+
+// --- detail panel
+function show(id) {
+  const r = REC[id], box = document.getElementById("detail");
+  box.replaceChildren();
+  box.append(el("h3", {}, `${r.id} · ${r.title}`));
+  const dl = el("dl");
+  for (const [k, v] of Object.entries(r)) {
+    if (["id", "title", "body"].includes(k)) continue;
+    const dd = el("dd");
+    for (const item of [].concat(v)) {
+      const sv = String(item);
+      if (REC[sv]) { const a = el("a", {href: "#"}, sv); a.onclick = e => { e.preventDefault(); show(sv); }; dd.append(a, " "); }
+      else if (sv.startsWith("https://")) dd.append(el("a", {href: sv, target: "_blank", rel: "noopener"}, sv), " ");
+      else dd.append(sv + " ");
+    }
+    dl.append(el("dt", {}, k), dd);
+  }
+  const back = DATA.edges.filter(e => e.to === id);
+  if (back.length) {
+    const dd = el("dd");
+    for (const e of back) { const a = el("a", {href: "#"}, `${e.from} (${e.rel})`); a.onclick = ev => { ev.preventDefault(); show(e.from); }; dd.append(a, " "); }
+    dl.append(el("dt", {}, "cited by"), dd);
+  }
+  if (r.type === "implref") dl.append(el("dt", {}, "GitHub"), el("dd", {}, implLive(r) || "not checked (render --live)"));
+  box.append(dl, el("pre", {}, r.body || ""));
+  history.replaceState(null, "", "#" + id);
+}
+
+// --- table
+const COLS = ["id", "type", "state", "impl", "title"];
+const head = document.querySelector("#table thead tr");
+let sortCol = "id", sortDir = 1;
+for (const c of COLS) { const th = el("th", {}, c); th.onclick = () => { sortDir = sortCol === c ? -sortDir : 1; sortCol = c; apply(); }; head.append(th); }
+const cell = (r, c) => c === "state" ? state(r) + (r.retracted ? ", retracted" : "") : c === "impl" ? implOf(r) : String(r[c] ?? "");
+
+// --- filtering: a record matches every filter; the tree keeps matches and their ancestors
+function themeOf(r) {
+  const idea = r.type === "idea" ? r : r.type === "experiment" ? REC[r.idea] : null;
+  return idea ? idea.theme : null;
+}
+function matches(r) {
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const f = id => document.getElementById(id).value;
+  if (q && !q.split(/\s+/).every(w => JSON.stringify(r).toLowerCase().includes(w))) return false;
+  if (f("type") && r.type !== f("type")) return false;
+  if (f("theme") && themeOf(r) !== f("theme").split(" ")[0]) return false;
+  if (f("outcome") === "retracted" ? !r.retracted : f("outcome") && state(r) !== f("outcome")) return false;
+  if (f("impl") && implOf(r) !== f("impl")) return false;
+  return true;
+}
+const active = () => ["q", "type", "theme", "outcome", "impl"].some(id => document.getElementById(id).value.trim());
+function apply() {
+  const on = active(), hits = new Set(DATA.records.filter(matches).map(r => r.id));
+  for (const d of tree.querySelectorAll("details[data-id]")) d.classList.toggle("hit", on && hits.has(d.dataset.id));
+  // bottom-up: keep a node when it or a descendant matches; open the path to every match
+  const all = [...tree.querySelectorAll("details[data-id]")].reverse();
+  for (const d of all) {
+    const hit = hits.has(d.dataset.id);
+    const kid = [...d.querySelectorAll(":scope > details")].some(k => !k.classList.contains("hidden"));
+    d.classList.toggle("hidden", on && !hit && !kid);
+    if (on) d.open = kid;
+  }
+  for (const t of tree.children) t.classList.toggle("hidden", on && ![...t.querySelectorAll(":scope > details")].some(k => !k.classList.contains("hidden")));
+  const rows = DATA.records.filter(r => hits.has(r.id))
+    .sort((a, b) => sortDir * cell(a, sortCol).localeCompare(cell(b, sortCol), undefined, {numeric: true}));
+  const body = document.querySelector("#table tbody");
+  body.replaceChildren(...rows.map(r => {
+    const tr = el("tr");
+    for (const c of COLS) {
+      const td = el("td", c === "state" || c === "impl" ? {class: cell(r, c).split(",")[0]} : {}, cell(r, c));
+      if (c === "id") { td.style.cursor = "pointer"; td.onclick = () => show(r.id); }
+      tr.append(td);
+    }
+    return tr;
+  }));
+  document.getElementById("count").textContent = `${hits.size} of ${DATA.records.length} records`;
+}
+for (const id of ["q", "type", "theme", "outcome", "impl"]) document.getElementById(id).addEventListener("input", apply);
+document.getElementById("expand").onclick = () => tree.querySelectorAll("details").forEach(d => d.open = true);
+document.getElementById("collapse").onclick = () => tree.querySelectorAll("details[data-id]").forEach(d => d.open = false);
+document.addEventListener("keydown", e => { if (e.key === "/" && document.activeElement.tagName !== "INPUT") { e.preventDefault(); document.getElementById("q").focus(); } });
+apply();
+if (location.hash && REC[location.hash.slice(1)]) show(location.hash.slice(1));
+</script>
+</body>
+</html>
