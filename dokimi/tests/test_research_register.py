@@ -124,6 +124,16 @@ def test_misplaced_record_fails(root: Path, capsys: pytest.CaptureFixture[str]) 
     assert "expected at records/idea/I002.md, found I002.md" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("where", ["X003.md", "experiment/sub/X003.md", "experiment/X003.markdown"])
+def test_file_outside_type_dir_fails(root: Path, capsys: pytest.CaptureFixture[str],
+                                     where: str) -> None:
+    path = root / "records" / where
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("---\nid: X003\n---\n")
+    assert rr.main(["--root", str(root), "check"]) == 1
+    assert "not a record, records live at records/<type>/<id>.md" in capsys.readouterr().out
+
+
 def test_wrong_filename_fails(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _write(root, "idea", "I002", "title: T\ntheme: O\nquestion: Q\nstatus: open\n")
     (root / "records" / "idea" / "I002.md").rename(root / "records" / "idea" / "I009.md")

@@ -96,7 +96,13 @@ def parse(path: Path) -> Record:
 def load(root: Path = RESEARCH) -> tuple[dict[str, Record], list[str]]:
     records: dict[str, Record] = {}
     errors: list[str] = []
-    for path in sorted((root / "records").glob("*/*.md")):
+    base = root / "records"
+    for path in sorted(base.rglob("*")):
+        if path.is_dir() or path.name.startswith("."):
+            continue
+        if path.suffix != ".md" or len(path.relative_to(base).parts) != 2:
+            errors.append(f"{path}: not a record, records live at records/<type>/<id>.md")
+            continue
         try:
             record = parse(path)
         except (ValueError, yaml.YAMLError) as exc:
