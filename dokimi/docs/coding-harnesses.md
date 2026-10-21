@@ -246,8 +246,11 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
       `unknown` (the sidecar's log timed out or failed at teardown). An
       `unknown` cell is not a clean one: its host sets are empty for lack of
       data, and `scripts/check_smoke_runs.py` fails the run on it. No
-      `egress.jsonl` is written for an `unknown` cell: a missing file means
-      unknown, not "no requests". `docker-probe` reads `violated` on a passing
+      `egress.jsonl` is written for an `unknown` cell: a missing file is not
+      "no requests". The file is also absent when no sandbox ran
+      (`docker-oracle`, the `-host` variants, a build failure), so use
+      `metrics.egress.status` to tell unknown from a cell that ran no sandbox.
+      `docker-probe` reads `violated` on a passing
       cell, because the probe requests denied hosts (`example.com`) by design;
       judge a probe by `isolation_probe.json`, not by `egress.status`.
 - **`network_mode = "public"`.** It applies to the verifier only. The
@@ -902,7 +905,7 @@ values of the agent's credential variables are redacted, also line by line and
 in their JSON-escaped form, but anything else the agent printed, such as a credential file's contents, is not, so do not share
 it),
 `prompt.txt`, `run.log`, `reward.txt`, the agent's final tree (`work/`),
-`egress.jsonl` for a container launch and `isolation_probe.json` for a probe.
+`egress.jsonl` for a container launch whose sidecar log was read and `isolation_probe.json` for a probe.
 
 ## Statistics on the execution-verified track
 
