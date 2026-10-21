@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "conda_forge_specs.py"
 _spec = importlib.util.spec_from_file_location("conda_forge_specs", _SCRIPT)
@@ -25,14 +26,20 @@ def _pyproject(tmp_path: Path, *deps: str) -> Path:
     return p
 
 
+def _conda_name(req: Requirement) -> str:
+    name = canonicalize_name(req.name)
+    return cfs.CONDA_NAMES.get(name, name)
+
+
 def test_every_runtime_dependency_has_a_spec() -> None:
-    """The real pyproject: one spec per dependency, each with the range pyproject gives it."""
+    """The real pyproject: each unconditional dependency is printed with its range, and nothing else is."""
     import tomllib
 
-    deps = tomllib.loads(cfs.PYPROJECT.read_text(encoding="utf-8"))["project"]["dependencies"]
-    out = cfs.specs(cfs.PYPROJECT, "3.11")
-    assert len(out) == len(deps)
-    assert "pyyaml<7,>=6.0.1" in out and "pygithub>=2.1.0" in out
+    listed = tomllib.loads(cfs.PYPROJECT.read_text(encoding="utf-8"))["project"]["dependencies"]
+    deps = [Requirement(d) for d in listed]
+    printed = {r.name: r.specifier for r in map(Requirement, cfs.specs(cfs.PYPROJECT, "3.11"))}
+    assert {_conda_name(r): r.specifier for r in deps if r.marker is None}.items() <= printed.items()
+    assert set(printed) <= {_conda_name(r) for r in deps}
 
 
 def test_names_are_canonical_and_mapped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
