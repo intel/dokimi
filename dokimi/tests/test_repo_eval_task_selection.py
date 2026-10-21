@@ -241,6 +241,22 @@ def test_a_push_without_a_previous_tip_checks_every_task(repo, tmp_path):
     assert _select(repo, tmp_path, EVENT="push", BEFORE="0" * 40) == ["my task", "t1"]
 
 
+def test_a_push_after_a_force_push_diffs_the_two_tips_directly(repo, tmp_path):
+    # the old tip is not an ancestor of the new HEAD: its own change counts too
+    _git(repo, "checkout", "-q", "-b", "old")
+    _write(repo, f"{TASKS}/t1/grader.py", "changed\n")
+    _git(repo, "commit", "-q", "-a", "-m", "old tip")
+    old = _git(repo, "rev-parse", "HEAD").strip()
+    _git(repo, "checkout", "-q", "main")
+    _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
+    assert _select(repo, tmp_path, EVENT="push", BEFORE=old) == ["my task", "t1"]
+
+
+def test_a_pull_request_without_a_base_sha_checks_every_task(repo, tmp_path):
+    _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
+    assert _select(repo, tmp_path, BASE_SHA="") == ["my task", "t1"]
+
+
 def test_a_merge_commit_ignores_what_the_base_gained_after_the_pr_opened(repo, tmp_path):
     # base.sha stays at the fork point while the checkout merges into the base's current tip
     fork = _git(repo, "rev-parse", "HEAD").strip()
