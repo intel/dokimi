@@ -408,3 +408,39 @@ def test_a_valid_frontmatter_name_is_read_from_the_top_level_key_only(tmp_path, 
 def test_a_nested_name_alone_is_not_the_skill_name(tmp_path):
     write(tmp_path, "skills/lint/SKILL.md", "---\nmetadata:\n  name: other\n---\nBody.\n")
     assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]
+
+
+def test_a_skill_the_task_base_already_ships_is_refused_before_any_cell(tmp_path, capsys):
+    _skill(tmp_path / "toy", ".claude/skills/lint", "lint")
+    root, base = make_repo(tmp_path)
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    task = Task("t", {"base": base}, root)
+    with pytest.raises(ArmError, match="base of task t already has .claude/skills/lint"):
+        check_arms([parse_arm("skill:skills/lint")], root / ".agent-eval", [task], root / ".git")
+    with pytest.raises(SystemExit):  # `repo tasks check --arm` goes through the same check
+        args = build_parser().parse_args(["repo", "tasks", "check", f"{root}@HEAD", "--out", str(tmp_path / "chk"),
+                                          "--cache-root", str(tmp_path / "caches"), "--arm", "skill:skills/lint"])
+        args.func(args)
+    assert "already has .claude/skills/lint" in capsys.readouterr().err
+
+
+def test_a_cell_records_the_optional_harness_arguments_it_ran_with(tmp_path, monkeypatch):
+    import yaml
+    from repo_eval_fixture import PROFILE
+    write(tmp_path / "toy", ".mcp.json", "{}")
+    root, _ = make_repo(tmp_path)
+    exe, profile = fake_harness(tmp_path)
+    profile.write_text(yaml.safe_dump({**PROFILE, "args_if_present": {".mcp.json": ["--mcp-config", ".mcp.json"]}}),
+                       encoding="utf-8")
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: FakeRunner())
+    monkeypatch.setenv("FAKE_ACTION", "fix")
+    out = tmp_path / "runs"
+    args = build_parser().parse_args(["repo", "run", f"{root}@HEAD", "--harness", str(profile), "--bin", str(exe),
+                                      "--model", "m-1", "--batch", "b1", "--out", str(out),
+                                      "--cache-root", str(out / "caches"), "--agent-network", "host",
+                                      "--arm", "guidance:none", "--task", "fix_add"])
+    args.func(args)
+    meta = json.loads(next((out / "b1").glob("fix_add__*")).joinpath("meta.json").read_text())
+    assert meta["args_if_present"] == [".mcp.json"]

@@ -146,7 +146,7 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         ctx, _ = _context(args, out)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         arms = [a for spec in args.arm or () for a in spec.split(",") if a]
-        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks)  # skill paths exist, catalogs hold each expected_skill
+        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks, ctx.git_dir)  # skill paths exist, catalogs hold each expected_skill
         if arms:
             print(f"{len(arms)} arm(s) ok: {', '.join(arms)}", file=sys.stderr)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
@@ -195,7 +195,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
-        check_arms(arms, ctx.content_dir, tasks)  # skill paths exist, catalogs hold each expected_skill
+        check_arms(arms, ctx.content_dir, tasks, ctx.git_dir)  # skill paths exist, catalogs hold each expected_skill
         skill_pin = _skill_pin(batch_dir, arms, ctx.content_dir)  # a resume may not swap an arm's skills
         validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,

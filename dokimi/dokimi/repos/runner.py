@@ -174,10 +174,11 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     env.update({k: v for k, v in harness_env.items() if k not in _HOST_ONLY_ENV and k not in passed})
     env["DOKIMI_HOOK_LOG"] = f"{CONFIG_DIR}/hook.log"
     opts.profile.write_config(rd / "config", {"config_dir": CONFIG_DIR, "support_dir": SUPPORT_DIR})
+    present = frozenset(n for n in opts.profile.args_if_present if (rd / "workspace" / n).exists())
+    meta["args_if_present"] = sorted(present)  # which optional harness arguments this cell ran with
     argv = opts.profile.argv(prompt=opts.profile.prompt(str(task.raw["prompt"])), model=opts.model,
                              tools=opts.tools, max_turns=int(caps["max_turns"]), budget_usd=caps["budget_usd"],
-                             bin_path=bin_in, present=frozenset(
-                                 n for n in opts.profile.args_if_present if (rd / "workspace" / n).exists()))
+                             bin_path=bin_in, present=present)
     spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts, env=env, pass_env=passed,
                          network=network, name=container_name(rd.name, "agent"))
     result = ctx.runner.run(spec, stdout=rd / "agent.stdout", stderr=rd / "agent.stderr",

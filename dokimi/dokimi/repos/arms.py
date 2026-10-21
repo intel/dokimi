@@ -27,6 +27,8 @@ from typing import Any
 
 import yaml
 
+from dokimi import process
+
 SKILL_KINDS = ("skill", "skill-catalog")
 SKILLS_DIR = ".claude/skills"
 
@@ -146,15 +148,23 @@ def _skill_path(path: str, content_dir: Path) -> Path:
     return full
 
 
-def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any]) -> None:
+def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Path | None = None) -> None:
     """Find the skills of every parsed arm before anything runs; a catalog must hold each task's
-    ``expected_skill``. Two arms that would share a name or a result directory are refused."""
+    ``expected_skill``. Two arms that would share a name or a result directory are refused, and so is a skill
+    the base of a task (in ``git_dir``) already ships, which preparing the workspace would refuse cell by cell."""
     cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm spec that owns it
     for arm in arms:
         cell = slug(str(arm).replace(":", "-"))
         if cells.setdefault(cell, arm.spec) != arm.spec:
             raise ArmError(f"arms {cells[cell]!r} and {arm.spec!r} would share one result directory ({cell})")
-        names = {s.name for s in resolve_skills(arm, content_dir)}
+        skills = resolve_skills(arm, content_dir)
+        names = {s.name for s in skills}
+        for task in tasks if git_dir else ():
+            for skill in skills:
+                proc = process.run(["git", "-C", str(git_dir), "cat-file", "-e", f"{task.base}:{skill.target}"],
+                                   env=process.GIT_ENV, timeout=60, capture_limit=None)
+                if proc.returncode == 0:
+                    raise ArmError(f"arm {arm.spec!r}: the base of task {task.id} already has {skill.target}")
         if any(kind == "skill-catalog" for kind, _ in arm.skills):
             for task in tasks:
                 expected = task.raw.get("expected_skill")
