@@ -21,4 +21,4 @@ deptry==0.25.1
 diff-cover
 build
 twine
-uv==0.13.0
+uv==0.13.4
