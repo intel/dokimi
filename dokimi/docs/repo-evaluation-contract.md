@@ -878,7 +878,9 @@ that runs the no-LLM checks on the caller's checkout and needs no secret.
   (report only: the claim counts and failing claims go to the job summary, the
   `repo_readiness.v1` report to an artifact); `tasks-check` runs `repo tasks check`
   for each selected task in a job of its own (docker; the image is built from the
-  manifest's Dockerfile), and uploads `check.json` and the grade logs.
+  manifest's Dockerfile), and uploads `check.json` and the grade logs. If the job is
+  cancelled by its `timeout-minutes` before the check finishes, the Summary step
+  writes a `check.json` with the verdict `timeout` for the task.
 - `tasks: changed` (the default, also for an empty value) checks, on a pull request, the tasks whose
   directories it touches, plus `smoke-tasks` (empty: every task) when it changes
   the eval directory outside its tasks (Markdown there is excepted, unless it is the manifest,
