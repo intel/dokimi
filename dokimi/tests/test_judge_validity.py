@@ -2084,6 +2084,27 @@ def test_sequential_refuses_an_arm_the_loop_never_scored():
                        store=JudgeContextStore.from_artifact(data))
 
 
+def test_sequential_unscored_arm_refusal_names_a_remedy_that_covers_the_arm():
+    """Past the pool size a higher --max-bases stops at the same place; the
+    fixed mode the message names does score the arm."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _baseline_heavy_arms()
+    store = JudgeContextStore.from_artifact(data)
+
+    def scorer(lib, question, answer, context=None):
+        return float(len(answer))
+
+    for max_bases in (200, 400):
+        with pytest.raises(NoUsablePairs, match=r"\['skill'\]") as exc:
+            run_sequential(data["answers"], scorer, max_bases=max_bases, variants=["truncate_20"], store=store)
+        assert "raise --max-bases" not in str(exc.value)
+        assert "without --sequential" in str(exc.value)
+    report = run_validity(data["answers"], scorer, n_bases=103, variants=["truncate_20"], store=store)
+    assert any(r.arm == "skill" for r in report.rows)
+
+
 @pytest.mark.parametrize("seed", range(4))
 def test_sequential_reports_a_fail_even_when_an_arm_was_never_scored(seed):
     """A judge that cannot tell a degraded answer apart fails on the bases it

@@ -205,8 +205,9 @@ def run_sequential(
         if unscored and report.summary()["passed"]:
             raise NoUsablePairs(
                 f"Arm(s) {unscored} have verified judge material but no base was scored "
-                "before the sequential test stopped, so the gate would not cover them: "
-                "raise --max-bases, or remove those arms from the answers file"
+                "before the sequential test stopped, so the gate would not cover them. A higher "
+                "--max-bases does not change where it stops: run without --sequential, or remove "
+                "those arms from the answers file"
             )
     report.wall_seconds = time.time() - started
     return report
