@@ -62,9 +62,36 @@ VERSION = "1"  # bump when a result for the same inputs changes; grade.json reco
 SEVERE = ("blocker", "major")
 
 
+MAX_DEPTH = 100  # json.loads' own limit is the interpreter's (3.14 parses what 3.13 refuses)
+
+
+def _too_deep(block):
+    """True when ``block`` nests arrays/objects deeper than MAX_DEPTH (brackets inside strings ignored)."""
+    depth, in_str, esc = 0, False, False
+    for ch in block:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in "[{":
+            depth += 1
+            if depth > MAX_DEPTH:
+                return True
+        elif ch in "]}":
+            depth -= 1
+    return False
+
+
 def last_json(text):
     """The last parseable ```` ```json ```` fenced block of ``text``, or None."""
     for block in reversed(re.findall(r"```json\s*(.*?)```", text or "", re.S)):
+        if _too_deep(block):
+            continue
         try:
             return json.loads(block)
         except (ValueError, RecursionError):  # a fence nested too deep is unreadable, like any other
