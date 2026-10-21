@@ -43,7 +43,9 @@ def _select_script() -> str:
 
 
 def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout
+    return subprocess.run(
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout
 
 
 def _write(repo: Path, rel: str, text: str = "x\n") -> None:
@@ -55,8 +57,12 @@ def _write(repo: Path, rel: str, text: str = "x\n") -> None:
 def repo(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     root.mkdir()
-    for cmd in (["init", "-q", "-b", "main"], ["config", "user.email", "t@example.com"],
-                ["config", "user.name", "t"], ["config", "commit.gpgsign", "false"]):
+    for cmd in (
+        ["init", "-q", "-b", "main"],
+        ["config", "user.email", "t@example.com"],
+        ["config", "user.name", "t"],
+        ["config", "commit.gpgsign", "false"],
+    ):
         _git(root, *cmd)
     for task in ("t1", "my task"):
         _write(root, f"{TASKS}/{task}/task.json", "{}")
@@ -69,34 +75,61 @@ def repo(tmp_path: Path) -> Path:
     return root
 
 
-def _run_step(repo: Path, tmp_path: Path, *, commit: bool = True, manifest_tasks: str | None = TASKS,
-              **overrides: str) -> tuple[subprocess.CompletedProcess, Path]:
+def _run_step(
+    repo: Path,
+    tmp_path: Path,
+    *,
+    commit: bool = True,
+    manifest_tasks: str | None = TASKS,
+    **overrides: str,
+) -> tuple[subprocess.CompletedProcess, Path]:
     """Commit the working tree (unless ``commit`` is false) and run the step on HEAD."""
     if commit:
         _git(repo, "add", "-A")
         _git(repo, "commit", "-q", "-m", "change", "--allow-empty")
     temp = tmp_path / "runner"
     temp.mkdir(exist_ok=True)
-    (temp / "validate.json").write_text(json.dumps({"manifest": {
-        "id": "demo", "tasks": manifest_tasks, "eval_dir": EVAL_DIR}}), encoding="utf-8")
+    (temp / "validate.json").write_text(
+        json.dumps({"manifest": {"id": "demo", "tasks": manifest_tasks, "eval_dir": EVAL_DIR}}),
+        encoding="utf-8",
+    )
     env = {
-        **os.environ, "RUNNER_TEMP": str(temp), "GITHUB_OUTPUT": str(temp / "out"),
-        "GITHUB_STEP_SUMMARY": str(temp / "summary"), "EVENT": "pull_request",
-        "BEFORE": "", "BASE_SHA": "origin/main", "WORKFLOW_REF": "o/r/.github/workflows/ci.yml@refs/heads/x",
+        **os.environ,
+        "RUNNER_TEMP": str(temp),
+        "GITHUB_OUTPUT": str(temp / "out"),
+        "GITHUB_STEP_SUMMARY": str(temp / "summary"),
+        "EVENT": "pull_request",
+        "BEFORE": "",
+        "BASE_SHA": "origin/main",
+        "WORKFLOW_REF": "o/r/.github/workflows/ci.yml@refs/heads/x",
         "REPOSITORY": "o/r",
-        "MANIFEST": f"{EVAL_DIR}/repo-eval.yaml", "TASKS": "changed", "SMOKE_TASKS": "t1",
-        "SMOKE_PATHS": "", "EXCLUDE_TASKS": "", **overrides,
+        "MANIFEST": f"{EVAL_DIR}/repo-eval.yaml",
+        "TASKS": "changed",
+        "SMOKE_TASKS": "t1",
+        "SMOKE_PATHS": "",
+        "EXCLUDE_TASKS": "",
+        **overrides,
     }
     (temp / "out").write_text("", encoding="utf-8")
-    result = subprocess.run([sys.executable, "-c", _select_script()], cwd=repo, env=env,
-                            capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        [sys.executable, "-c", _select_script()],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     return result, temp
 
 
 def _select(repo: Path, tmp_path: Path, **overrides: str) -> list[str]:
     result, temp = _run_step(repo, tmp_path, **overrides)
     assert result.returncode == 0, result.stdout + result.stderr
-    line = next(ln for ln in (temp / "out").read_text(encoding="utf-8").splitlines() if ln.startswith("tasks="))
+    line = next(
+        ln
+        for ln in (temp / "out").read_text(encoding="utf-8").splitlines()
+        if ln.startswith("tasks=")
+    )
     return json.loads(line.removeprefix("tasks="))
 
 
@@ -140,7 +173,9 @@ def test_a_harness_file_in_the_eval_dir_adds_the_smoke_set_to_the_changed_task(r
     assert _select(repo, tmp_path) == ["my task", "t1"]
 
 
-@pytest.mark.parametrize("manifest", [f"{EVAL_DIR}/repo-eval.yaml", f"./{EVAL_DIR}/../repo-eval.yaml"])
+@pytest.mark.parametrize(
+    "manifest", [f"{EVAL_DIR}/repo-eval.yaml", f"./{EVAL_DIR}/../repo-eval.yaml"]
+)
 def test_the_manifest_is_compared_normalised(repo, tmp_path, manifest):
     if manifest.startswith("./"):
         _write(repo, "repo-eval.yaml")
