@@ -4,15 +4,19 @@
 """Per-arm rollups over answer records: agentic tool use, cost, and latency.
 
 Split out of :mod:`dokimi.eval.arm_runner` to keep that module under
-the repo's 500-line ceiling. Both functions are pure aggregations over the
-records ``ArmRunner.run`` produced, and are re-attached to ``ArmRunner`` as
+the repo's 500-line ceiling. All are pure aggregations over the
+records ``ArmRunner.run`` produced, read through :mod:`dokimi.records`.
+Two are re-attached to ``ArmRunner`` as
 ``_summarize_agentic_usage`` / ``_cost_summary`` so existing call sites and
 tests keep working.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, Mapping
+
+from dokimi.records import RecordLike
+from dokimi.records import records as as_records
 
 #: Stamp on an agentic answer's ``tool_usage["counts"]``: its tool counts skip
 #: calls that failed (``error`` in the transcript). Unstamped answers counted
@@ -32,16 +36,17 @@ def _tool_counts_stamp(stamped: int, n: int) -> str | None:
     return TOOL_COUNTS if stamped == n else TOOL_COUNTS_MIXED
 
 
-def summarize_agentic_usage(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+def summarize_agentic_usage(records: Iterable[RecordLike]) -> Dict[str, Any]:
     """Aggregate tool-use/discoverability signals from answer records.
 
     Each arm carries ``tool_counts`` (see :func:`_tool_counts_stamp`) unless no
     answer of the arm was stamped, the protocol of runs before the stamp existed.
     """
     stats: Dict[str, Dict[str, Any]] = {}
-    for rec in records:
-        for arm_name, arm in rec.get("arms", {}).items():
-            if not isinstance(arm, dict) or not arm.get("agentic"):
+    for rec in as_records(records, source="answers", kind="answers"):
+        for arm_name, answer in rec.answers.items():
+            arm = answer.raw
+            if not arm.get("agentic"):
                 continue
             s = stats.setdefault(
                 arm_name,
@@ -103,7 +108,7 @@ def summarize_agentic_usage(records: List[Dict[str, Any]]) -> Dict[str, Any]:
 SKILL_ARM_KINDS = ("skill_agent", "skill_catalog")
 
 
-def _offers_skill(arm: Dict[str, Any]) -> bool:
+def _offers_skill(arm: Mapping[str, Any]) -> bool:
     """Whether an arm offered a skill tool, read from its tools or its arm kind.
 
     The kind covers a failure with no tool record (``prepare_failed``), and the
@@ -117,7 +122,7 @@ def _offers_skill(arm: Dict[str, Any]) -> bool:
     return any(k in SKILL_ARM_KINDS for k in kinds)
 
 
-def summarize_skill_selection(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+def summarize_skill_selection(records: Iterable[RecordLike]) -> Dict[str, Any]:
     """Score the skills each agentic arm loaded first against ``expected_skill``.
 
     Only records that carry an ``expected_skill`` key count. Its value is a skill
@@ -130,14 +135,12 @@ def summarize_skill_selection(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     show how far the strict figure depends on multi-loading.
     """
     stats: Dict[str, Dict[str, Any]] = {}
-    for rec in records:
-        if "expected_skill" not in rec:
+    for rec in as_records(records, source="answers", kind="answers"):
+        if rec.expected_skills is None:
             continue
-        expected = rec["expected_skill"]
-        ok = set(expected) if isinstance(expected, list) else ({expected} if expected else set())
-        for arm_name, arm in rec.get("arms", {}).items():
-            if not isinstance(arm, dict):
-                continue
+        ok = set(rec.expected_skills)
+        for arm_name, answer in rec.answers.items():
+            arm = answer.raw
             skill = (arm.get("tool_usage") or {}).get("skill") or {}
             # A failed run still belongs to a skill arm; dropping it silently
             # would score a 9-of-10 failure as 1/1 correct.
@@ -201,7 +204,7 @@ def summarize_skill_selection(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def cost_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:
+def cost_summary(records: Iterable[RecordLike]) -> Dict[str, Any]:
     """Per-arm rollup of cost, tokens, latency, TTFT, and cache-hit ratio.
 
     Aggregates the per-row ``metrics{}`` blocks. ``cost_usd`` is summed only
@@ -210,11 +213,9 @@ def cost_summary(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     dependent — here it is read cache tokens / prompt tokens.
     """
     per_arm: Dict[str, Dict[str, Any]] = {}
-    for rec in records:
-        for arm_name, arm in rec.get("arms", {}).items():
-            if not isinstance(arm, dict):
-                continue
-            m = arm.get("metrics")
+    for rec in as_records(records, source="answers", kind="answers"):
+        for arm_name, answer in rec.answers.items():
+            m = answer.raw.get("metrics")
             if not isinstance(m, dict):
                 continue
             acc = per_arm.setdefault(arm_name, {
