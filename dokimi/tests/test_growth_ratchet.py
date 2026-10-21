@@ -268,6 +268,20 @@ def test_update_lowers_and_removes_but_never_raises_or_adds(project):
     assert cg.load_baseline()["files"] == {"dokimi/big.py": {"lines": 21}}
 
 
+def test_seed_records_growth_and_new_entries_with_a_rationale(project):
+    (project / "dokimi" / "big.py").write_text("x = 1\n" * 24, encoding="utf-8")    # grew
+    (project / "dokimi" / "cx.py").write_text(_complex_fn("f", 3), encoding="utf-8")  # shrank
+    (project / "dokimi" / "new.py").write_text("x = 1\n" * 40, encoding="utf-8")    # new
+    assert cg.main(["--seed"]) == 0
+    why = cg.SEED_RATIONALE
+    assert cg.load_baseline() == {
+        "files": {"dokimi/big.py": {"lines": 24, "rationale": why},
+                  "dokimi/new.py": {"lines": 40, "rationale": why}},
+        "functions": {"dokimi/cx.py::f": {"complexity": 4}},
+    }
+    assert _found(project) == []
+
+
 def test_an_overlong_rationale_fails(project):
     cg.BASELINE.write_text(cg.dump_baseline({
         "files": {"dokimi/big.py": {"lines": 22, "rationale": "x" * (cg.RATIONALE_MAX + 1)}},

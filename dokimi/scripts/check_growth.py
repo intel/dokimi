@@ -25,8 +25,14 @@ slack that later growth could quietly use up. Anything new over a cap fails.
     python scripts/check_growth.py            # check; exit 1 on a violation
     python scripts/check_growth.py --update   # lower or drop entries the code
                                               # outgrew downwards; never raises
+    python scripts/check_growth.py --seed     # re-record every over-cap file and function
+                                              # at its current value (after merging a main
+                                              # that grew past the baseline; may raise)
     python scripts/check_growth.py --report [--markdown] [--json PATH]
                                               # totals and the most complex functions
+
+After rebasing onto or merging main, run ``python scripts/check_growth.py --update``
+to lower the entries that main's changes shrank.
 
 Raising an entry (or adding one) is a hand edit of the baseline with a
 ``"rationale"`` of at most ``RATIONALE_MAX`` characters on that entry; the test
@@ -60,6 +66,8 @@ TEST_LINE_CAP = 1000
 COMPLEXITY_CAP = 10
 #: A raised or added baseline entry says why in at most this many characters.
 RATIONALE_MAX = 300
+#: Rationale ``--seed`` gives an entry it raises or adds.
+SEED_RATIONALE = "pre-existing when the gate was introduced"
 
 ROOTS = ("dokimi", "scripts", "tests")
 TOP_FILES = ("cli.py",)
@@ -317,6 +325,26 @@ def tightened(m: Measurement, baseline: dict[str, dict[str, dict[str, Any]]]
     return new
 
 
+def seeded(m: Measurement, baseline: dict[str, dict[str, dict[str, Any]]]
+           ) -> dict[str, dict[str, dict[str, Any]]]:
+    """A baseline recording every over-cap file and function at its current value.
+    An entry the code did not outgrow keeps its text; one raised or added gets
+    ``SEED_RATIONALE``. Entries for code under the cap or gone are dropped."""
+    actual = {FILES: m.lines, FUNCTIONS: m.complexity}
+    over = m.over_cap()
+    new: dict[str, dict[str, dict[str, Any]]] = {FILES: {}, FUNCTIONS: {}}
+    for section in (FILES, FUNCTIONS):
+        metric = METRIC[section]
+        for key in over[section]:
+            now = actual[section][key]
+            old = baseline[section].get(key)
+            if old and isinstance(old.get(metric), int) and now <= old[metric]:
+                new[section][key] = {**old, metric: now}
+            else:
+                new[section][key] = {metric: now, "rationale": SEED_RATIONALE}
+    return new
+
+
 # ---------------------------------------------------------------------------
 # Report
 # ---------------------------------------------------------------------------
@@ -377,6 +405,8 @@ def main(argv: list[str] | None = None) -> int:
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--update", action="store_true",
                       help="lower or remove baseline entries to match the code; never raises")
+    mode.add_argument("--seed", action="store_true",
+                      help="record every over-cap entry at its current value (may raise)")
     mode.add_argument("--report", action="store_true",
                       help="print totals and the top offenders; always exits 0")
     ap.add_argument("--markdown", action="store_true", help="--report as Markdown")
@@ -395,6 +425,10 @@ def main(argv: list[str] | None = None) -> int:
             args.json.write_text(json.dumps(r, indent=2) + "\n", encoding="utf-8")
         return 0
     baseline = load_baseline()
+    if args.seed:
+        BASELINE.write_text(dump_baseline(seeded(m, baseline)), encoding="utf-8")
+        print(f"wrote {BASELINE.relative_to(PROJECT)}")
+        return 0
     if args.update:
         BASELINE.write_text(dump_baseline(tightened(m, baseline)), encoding="utf-8")
         remaining = violations(m, load_baseline())
