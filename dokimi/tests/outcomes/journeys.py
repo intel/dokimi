@@ -428,12 +428,14 @@ def check(registry_path: Path, repo_root: Path, contracts: dict[str, dict],
     catalog_path = repo_root / registry.get("catalog", CATALOG)
     try:
         catalog, catalog_problems = parse_catalog(catalog_path)
+        # Inside the guard: from Python 3.13 a NUL in the directory part raises here too.
+        pages = sorted(catalog_path.parent.glob("*.md"))
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         # Reported like any other broken link, so the report is still written.
         catalog = {"journeys": {}, "use_cases": {}, "criteria": {}}
         catalog_problems = [f"{CATALOG}: cannot read: {exc}"]
+        pages = []
     problems += catalog_problems
-    pages = sorted(catalog_path.parent.glob("*.md"))
     problems += dangling_ids(pages, catalog)
     problems += static_problems(registry, catalog, repo_root, contracts, anchors, root)
     entries = registry.get("criteria") or {}

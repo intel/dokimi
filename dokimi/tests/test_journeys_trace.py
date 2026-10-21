@@ -214,9 +214,10 @@ def test_a_registry_that_refers_to_itself_is_a_problem_not_a_hang(tmp_path, text
     journeys.markdown(report)
 
 
-def test_a_catalog_path_with_a_nul_byte_is_a_problem_not_a_crash(tmp_path):
+@pytest.mark.parametrize("catalog", ["a\\0b", "a\\0b/c"])
+def test_a_catalog_path_with_a_nul_byte_is_a_problem_not_a_crash(tmp_path, catalog):
     registry = _tree(tmp_path)
-    registry.write_text('schema: 1\ncatalog: "a\\0b"\ncriteria: {}\n', encoding="utf-8")
+    registry.write_text(f'schema: 1\ncatalog: "{catalog}"\ncriteria: {{}}\n', encoding="utf-8")
     report = journeys.check(registry, tmp_path, {}, _evidence({}), {}, plugin._anchors)
     assert report["verdict"] == "error"
     assert any("cannot read" in p for p in report["problems"]), report["problems"]
