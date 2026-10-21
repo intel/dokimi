@@ -31,8 +31,8 @@ An experiment that turns out wrong is not deleted: set `retracted: true` and say
 what was wrong with it. `retracted` means the whole experiment is invalid, so `check` fails
 any finding that still cites it; query, export and render keep it, marked. When only part of a
 result is withdrawn, keep the outcome, leave `retracted` unset and list the withdrawn claims
-under a `## Corrections` heading. Every record has a `date` (`YYYY-MM-DD`) and optional `links`, which
-must be public `github.com/intel/` or `github.com/napetrov/` URLs. The register is public:
+under a `## Corrections` heading. Every record has a `date` (`YYYY-MM-DD`) and optional `links` (required on
+`implref`), which must be public `github.com/intel/` or `github.com/napetrov/` URLs. The register is public:
 leave out internal hosts, paths, names and raw traces, and describe local evidence in words
 ("local run, 96 runs").
 
