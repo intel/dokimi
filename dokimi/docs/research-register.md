@@ -59,6 +59,8 @@ python scripts/research_register.py render > map.md
   `--where retracted=true`.
 - `export` writes all records, the reference edges and the ideas grouped by map theme as one
   JSON document, stamped with the commit, for the plans-and-research map and other views.
+  `dirty` is true when `research/` has uncommitted changes, and `render` says so next to the
+  commit.
 - `render` writes the plans-and-research map from the same tree: a Mermaid mindmap (theme,
   idea, experiments marked by outcome) and a table, as one Markdown file. It is generated on
   demand and not committed; open it in any Mermaid-aware viewer, such as GitHub or an editor

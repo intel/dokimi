@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -250,6 +251,26 @@ def test_citing_retracted_experiment_fails(root: Path, capsys: pytest.CaptureFix
            "title: Run 1\nidea: I001\nhypothesis: H\noutcome: refuted\nretracted: true\n")
     assert rr.main(["--root", str(root), "check"]) == 1
     assert "F001.experiments: X001 is retracted" in capsys.readouterr().out
+
+
+def test_export_marks_uncommitted_records(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("add", "-A")
+    git("commit", "-q", "-m", "records")
+    assert rr.main(["--root", str(root), "export"]) == 0
+    clean = json.loads(capsys.readouterr().out)
+    assert clean["commit"] and clean["dirty"] is False
+    _write(root, "experiment", "X002",
+           "title: Run 2\nidea: I001\nhypothesis: H\noutcome: refuted\n")
+    assert rr.main(["--root", str(root), "export"]) == 0
+    edited = json.loads(capsys.readouterr().out)
+    assert (edited["commit"], edited["dirty"]) == (clean["commit"], True)
+    assert rr.main(["--root", str(root), "render"]) == 0
+    assert f"`{clean['commit']}` (with uncommitted changes)." in capsys.readouterr().out
 
 
 def test_render_map(root: Path, capsys: pytest.CaptureFixture[str],
