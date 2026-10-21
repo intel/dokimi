@@ -48,6 +48,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
+from dokimi import process
+
 from . import egress_proxy
 from .agent_sandbox import (
     PROBE_DIRECT,
@@ -81,6 +83,8 @@ LABEL = "dokimi.run"  # on the network, sidecar and task container: find leftove
 _FILE_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE",
               "GOOGLE_APPLICATION_CREDENTIALS", "AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE")
 PROXY_PORT = 3128
+_PROBE_TIMEOUT_SEC = 120.0
+DOCKER_STEP_TIMEOUT = 600.0  # a docker step without a budget of its own (cp, exec, inspect, ...)
 # The sidecar needs only a Python 3 interpreter. Pinned by digest (a tag moves, and
 # the sidecar holds the upstream proxy URL); override for a mirror or an offline runner.
 PROXY_IMAGE = os.environ.get(
@@ -98,7 +102,7 @@ _HOST_ONLY = frozenset({"PATH", "SHELL", "USER", "LOGNAME", "TMPDIR", "SSL_CERT_
 _PROXY_NAMES = tuple(n for base in ("HTTPS", "HTTP", "ALL", "FTP", "NO")
                      for n in (f"{base}_PROXY", f"{base.lower()}_proxy"))
 
-Docker = Callable[..., subprocess.CompletedProcess]
+Docker = Callable[..., process.Completed]
 
 
 def claude_binary() -> Path:
@@ -125,12 +129,17 @@ class ContainerSandbox:
     # there (SkillsBench lean4-proof's /app/baseline), which a chown would hand over.
     workdir: str = "/app"
     _stopped: bool = False
+    # False when the sidecar's log could not be read at teardown (timed out or failed):
+    # the empty ``log`` then means "unknown", not "no requests".
+    log_known: bool = True
+    _log_read: bool = False  # a teardown read of the sidecar's log has succeeded
     _scratch: Optional[Path] = None
+    runner: process.Runner = field(default=process.run, repr=False)  # starts the probe's docker exec
 
     @classmethod
     def open(cls, run_id: str, docker: Docker, log, *, source_env: dict[str, str],
              task_egress: Optional[list[str] | str] = None,
-             with_agent: bool = True) -> "ContainerSandbox":
+             with_agent: bool = True, runner: process.Runner = process.run) -> "ContainerSandbox":
         if with_agent:
             preflight(source_env)
         binary = claude_binary() if with_agent else None
@@ -142,7 +151,7 @@ class ContainerSandbox:
                  if source_env.get(v) and Path(source_env[v]).is_file()}
         sandbox = cls(network=f"dokimi-net-{run_id}", proxy_name=f"dokimi-egress-{run_id}",
                       allow=sorted(set(allow)), binary=binary, files=files,
-                      label=f"{LABEL}={run_id}")
+                      label=f"{LABEL}={run_id}", runner=runner)
         # A crashed run with the same id may still hold the network: container first.
         for leftover in (run_id, sandbox.proxy_name):
             docker(["rm", "-f", leftover], log, check=False)
@@ -211,8 +220,10 @@ class ContainerSandbox:
         task joins for its verifier. ``kill -1`` as the agent uid reaches only
         that uid's processes; PID 1 belongs to root and stays.
         """
-        docker(["exec", "-u", AGENT_UID, container, "sh", "-c", "kill -9 -1 2>/dev/null; true"],
-               log, check=False)
+        ran = docker(["exec", "-u", AGENT_UID, container, "sh", "-c", "kill -9 -1 2>/dev/null; true"],
+                     log, check=False)
+        if ran.timed_out:  # survivors may still be running: the caller must not verify
+            raise subprocess.TimeoutExpired(ran.argv, DOCKER_STEP_TIMEOUT)
 
     def env(self, source: dict[str, str], extra: Optional[dict[str, str]] = None) -> dict[str, str]:
         """The agent's environment inside the container."""
@@ -277,8 +288,9 @@ class ContainerSandbox:
         env.update(probe_env(forbidden, env_fingerprints(source, deny), PROBE_URL, PROBE_DIRECT))
         env["PROBE_GATEWAY"] = self.gateway(docker, log)
         argv, client_env = self.exec_argv(container, env, ["sh", "-c", probe_script()])
-        proc = subprocess.run(argv, text=True, capture_output=True, timeout=120, check=False,
-                              env=client_env)
+        proc = self.runner(argv, timeout=_PROBE_TIMEOUT_SEC, env=process.Env.only((), client_env))
+        if proc.timed_out:  # a hung check showed nothing closed; the caller records it untested
+            raise subprocess.TimeoutExpired(argv, _PROBE_TIMEOUT_SEC, proc.stdout_bytes, proc.stderr_bytes)
         return parse_probe_output(proc.stdout)
 
     def gateway(self, docker: Docker, log) -> str:
@@ -312,29 +324,56 @@ class ContainerSandbox:
         (a public task's verifier joins bridge right after)."""
         if self._stopped:
             return
-        self._stopped = True
         logs = docker(["logs", self.proxy_name], log, check=False)
-        self.log = parse_log(getattr(logs, "stdout", "") or "")
-        docker(["rm", "-f", self.proxy_name], log, check=False)
+        # A retry after the sidecar is already gone (its first removal timed out) must not
+        # erase the decisions an earlier read got: the first successful read is kept.
+        if not logs.timed_out and logs.returncode == 0:
+            self.log = parse_log(getattr(logs, "stdout", "") or "")
+            self.log_known = True
+            self._log_read = True
+        elif not self._log_read:
+            self.log_known = False
+            if log is not None:
+                log.write(f"\n[sidecar logs] {self.proxy_name} could not be read; egress is unknown\n")
+        removed = docker(["rm", "-f", self.proxy_name], log, check=False)
+        if removed.timed_out:  # still running, with the credentials: not stopped, close() retries
+            raise subprocess.TimeoutExpired(removed.argv, DOCKER_STEP_TIMEOUT)
+        self._stopped = True
 
     def close(self, docker: Docker, log, output_dir: Optional[Path]) -> None:
-        """Stop the sidecar, save its decisions as ``egress.jsonl``, drop the network."""
-        self.stop_proxy(docker, log)
-        if output_dir is not None:
+        """Stop the sidecar, save its decisions as ``egress.jsonl``, drop the network.
+        No file when the log is unknown: an empty one would read as a clean run."""
+        try:
+            self.stop_proxy(docker, log)
+        except subprocess.TimeoutExpired as exc:  # teardown is best-effort: go on to the network
+            if log is not None:
+                log.write(f"\n[sidecar removal] timed out after {exc.timeout:g}s\n")
+        if output_dir is not None and self.log_known:
             with (output_dir / "egress.jsonl").open("w", encoding="utf-8") as fh:
                 for row in self.log:
                     fh.write(json.dumps(row) + "\n")
+        elif output_dir is not None:  # an earlier run's file in a reused dir is not this run's
+            (output_dir / "egress.jsonl").unlink(missing_ok=True)
         docker(["network", "rm", self.network], log, check=False)
         if self._scratch is not None:
             shutil.rmtree(self._scratch, ignore_errors=True)
 
-    def egress_summary(self) -> dict[str, list[str]]:
+    def egress_summary(self) -> dict[str, object]:
+        """What the sidecar decided, as ``status``: ``violated`` when it denied a request,
+        ``unknown`` when its log could not be read (the host sets are then empty and say
+        nothing), else ``ok``. Only ``ok`` shows that the agent stayed inside its allowlist."""
         def hosts(decision: str) -> list[str]:
             return sorted({r["host"] for r in self.log if r["decision"] == decision})
 
         denied_entries = sorted({f"{r['host']}:{r['port']}" for r in self.log if r["decision"] == "denied"})
-        return {"allowed": hosts("allowed"), "denied": hosts("denied"), "errors": hosts("error"),
-                "denied_entries": denied_entries}
+        if not self.log_known:
+            status = "unknown"
+        elif denied_entries:
+            status = "violated"
+        else:
+            status = "ok"
+        return {"status": status, "allowed": hosts("allowed"), "denied": hosts("denied"),
+                "errors": hosts("error"), "denied_entries": denied_entries}
 
 
 def preflight(env: dict[str, str]) -> None:

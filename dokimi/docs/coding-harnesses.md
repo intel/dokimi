@@ -241,7 +241,18 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
     - **Logging.** Every proxy decision is saved as `egress.jsonl` (an allowed
       one before the connect, so a pending CONNECT is logged too), and
       `metrics.egress` carries the `allowed`, `denied` and `errors` host sets
-      and `denied_entries` (`host:port`).
+      and `denied_entries` (`host:port`), and a tri-state `status`: `violated`
+      (a request was denied), `ok` (the log was read and nothing was denied), or
+      `unknown` (the sidecar's log timed out or failed at teardown). An
+      `unknown` cell is not a clean one: its host sets are empty for lack of
+      data, and `scripts/check_smoke_runs.py` fails the run on it. No
+      `egress.jsonl` is written for an `unknown` cell: a missing file is not
+      "no requests". The file is also absent when no sandbox ran
+      (`docker-oracle`, the `-host` variants, a build failure), so use
+      `metrics.egress.status` to tell unknown from a cell that ran no sandbox.
+      `docker-probe` reads `violated` on a passing
+      cell, because the probe requests denied hosts (`example.com`) by design;
+      judge a probe by `isolation_probe.json`, not by `egress.status`.
 - **`network_mode = "public"`.** It applies to the verifier only. The
   container joins the default bridge after the agent exits. Every
   uxlfoundation/skills task declares it, and none of their solutions or tests
@@ -525,8 +536,8 @@ McNemar pairing like a failed `docker build`:
 - a timeout before any model response reached the agent (a provider that never
   answers);
 - an `oracle` whose `solve.sh` overruns `agent.timeout_sec`: BenchFlow kills it
-  as an exec timeout and does not run the verifier (`docker-oracle` has no
-  limit on the oracle and would wait).
+  as an exec timeout and does not run the verifier (`docker-oracle` gives
+  `solve.sh` the same budget and scores an overrun as a failed cell, reward 0).
 
 A provider failure that starts after the agent's first model response and
 outlasts its budget (for example 429 backoff past the deadline) is a 0
@@ -924,7 +935,7 @@ values of the agent's credential variables are redacted, also line by line and
 in their JSON-escaped form, but anything else the agent printed, such as a credential file's contents, is not, so do not share
 it),
 `prompt.txt`, `run.log`, `reward.txt`, the agent's final tree (`work/`),
-`egress.jsonl` for a container launch and `isolation_probe.json` for a probe.
+`egress.jsonl` for a container launch whose sidecar log was read and `isolation_probe.json` for a probe.
 
 ## Statistics on the execution-verified track
 
@@ -961,11 +972,23 @@ An errored cell is one whose harness raised (`metrics.error`: a docker build
 failure or timeout, an exec failure, or a previous run's files in the cell's
 dir that could not be deleted), or whose solver CLI made no attempt
 (`metrics.solver_error`). It produced no verdict, so it is
-missing data, not a 0. Under the command harness, an agent that exceeds its
-timeout, or a verifier that does, is a failure (reward 0, returncode 124), not
-an error: otherwise an arm that hangs would score above one that fails fast.
-A Harbor trial that raised, an agent timeout included, is errored
-(`metrics.error`); only a lone verifier timeout is scored 0.
+missing data, not a 0. An agent that exceeds its timeout, or a verifier that
+does, is a failure (reward 0, returncode 124), not an error: otherwise an arm
+that hangs would score above one that fails fast. So is a `docker-oracle`
+`solve.sh` that exceeds the agent budget. A Harbor trial that raised, an agent
+timeout included, is errored (`metrics.error`); only a lone verifier timeout is
+scored 0. A `docker-*` step with no budget of
+its own (`docker cp`, `inspect`, the `exec`s that copy files in) gets 600 s; one
+that must succeed and runs out errors the cell. A timeout kills the step's whole process tree on
+the host (a host agent's tool processes too); in the container, whatever the
+agent uid left running is killed before the verifier starts.
+
+Some timeouts leave no verdict and are still scored as failures (reward 0,
+returncode 124, no `metrics.error`), so they count in pass-rate denominators:
+the pre-verifier reap, the recompile, the credential-file and plugin removals,
+the verifier's `reward.txt` copy-out, and the sidecar's removal. A slow daemon
+on one of these reads as a model failure; such a cell's run.log has a `TIMEOUT:`
+line, and the cell is not in `errored`.
 
 - `per_harness.<h>` carries `errored` and `scored = n - errored`, and
   `pass_rate = passed / scored`. `per_task` carries `errored` too.

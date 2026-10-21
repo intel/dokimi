@@ -205,6 +205,7 @@ def _staged_creator(seen: dict) -> Path:
     return Path(seen["cmd"][seen["cmd"].index("--skill-creator-dir") + 1])
 
 
+@pytest.mark.outcome("cjm-selfgen-named-creator")
 def test_named_creator_is_staged_alone_not_next_to_a_stock_one(tmp_path, monkeypatch):
     """BenchFlow prefers a `skill-creator` pack beside the one it is given."""
     task = load_task(_task(tmp_path))
@@ -418,6 +419,7 @@ def test_task_bundled_skills_without_packs_are_refused(tmp_path):
                                                 dry_run=True)
 
 
+@pytest.mark.outcome("cjm-selfgen-named-creator")
 def test_selfgen_refuses_a_creator_dir_benchflow_would_not_use(tmp_path, monkeypatch):
     task = load_task(_task(tmp_path))
     bench = _fake_bench(monkeypatch, _RESULT)
@@ -1123,8 +1125,12 @@ def test_sweep_stops_once_when_preflight_fails(tmp_path, monkeypatch):
 
 def test_dry_run_skips_the_preflight(tmp_path, monkeypatch):
     nothing = FakeRunner(lambda call: pytest.fail(f"a dry run ran {call.argv}"))
-    TaskSuiteRunner(tasks=[load_task(_task(tmp_path))], harnesses=["benchflow:oracle"],
-                    output_root=tmp_path / "runs", dry_run=True, runner=nothing).run()
+    out = TaskSuiteRunner(tasks=[load_task(_task(tmp_path))], harnesses=["benchflow:oracle"],
+                          output_root=tmp_path / "runs", dry_run=True, runner=nothing).run()
+    # A preflight would have spawned `bench --version` before the cell; the cell is a dry run.
+    assert nothing.calls == []
+    assert [(r["harness"], r["metrics"]["dry_run"]) for r in out["results"]] == [
+        ("benchflow:oracle", True)]
 
 
 def test_cli_prints_a_failed_preflight_as_one_line(tmp_path, monkeypatch):

@@ -40,11 +40,15 @@ def smoke_ok(data: dict[str, Any], out=sys.stdout) -> bool:
               f"errored={stats.get('errored', 0)} (rate={stats.get('pass_rate')})", file=out)
         ok = harness_ok(stats) and ok
     for row in data["results"]:
+        metrics = row.get("metrics") or {}
+        egress = metrics.get("egress") or {}
+        if egress.get("status") == "unknown":  # an unreadable sidecar log is not "no violation"
+            print(f"{row['harness']}: egress unknown (sidecar log could not be read)", file=out)
+            ok = False
         if row["harness"] == "docker-probe":
-            metrics = row.get("metrics") or {}
             print("isolation_probe:", json.dumps(metrics.get("isolation_probe")), file=out)
             print("egress:", json.dumps(metrics.get("egress")), file=out)
-            denied = set((metrics.get("egress") or {}).get("denied_entries", []))
+            denied = set(egress.get("denied_entries", []))
             ok = ok and {"example.com:443", "example.com:80"} <= denied
     return ok
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 from dokimi.artifacts import validate_artifact
 from dokimi.eval.panel import (
@@ -212,12 +213,15 @@ def test_evaluate_runs_all_judges():
 
 
 def test_evaluate_gemini_provider_accepted():
-    """Gemini provider config should not raise on construction."""
+    """A google judge is called as one and its vote is scored."""
     cfg = JudgeConfig(role="doc_reviewer", model="gemini-2.0-flash", provider="google")
     panel = JudgePanel(judges=[cfg])
-    with patch("dokimi.eval.panel.llm_call", return_value=FAKE_LLM_RESPONSE):
+    with patch("dokimi.eval.panel.llm_call", return_value=FAKE_LLM_RESPONSE) as call:
         verdict = panel.evaluate("q", "a", "oneTBB")
-    assert verdict.mean_aggregate is not None
+    assert (call.call_args.kwargs["model"], call.call_args.kwargs["provider"]) == (
+        "gemini-2.0-flash", "google")
+    assert [v.error for v in verdict.votes] == [None]
+    assert verdict.mean_aggregate == pytest.approx(78.5)
 
 
 # ── _verdict_to_dict ──────────────────────────────────────────────────────────
