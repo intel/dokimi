@@ -909,7 +909,7 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   failed, and the next run of the batch fills it. A batch stays on the eval
   tree it started with: its revision, or for a working tree the digests of
   its `eval_dir` and of the image build context. A batch with a task that
-  names a `dokimi:` grader also stays on the built-in graders' sources.
+  names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
 - The agent's container mounts the workspace, the per-run `home`, `config` and
   scratch directories (each `image.env` value under `{run_dir}/`), the caches,
   the harness executable (`--bin`, read-only at `/eval/harness`) and the
