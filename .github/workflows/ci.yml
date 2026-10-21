@@ -345,6 +345,6 @@ jobs:
           smoke="$PWD/scripts/smoke_installed.py"
           cd "$RUNNER_TEMP" && python "$smoke"
       - name: Install test deps
-        run: python -m pip install -r requirements.lock.txt
+        run: python -m pip install --require-hashes -r requirements.lock.txt
       - name: Run a few fast tests
         run: pytest -q tests/test_cli_help.py tests/test_console_encoding.py
