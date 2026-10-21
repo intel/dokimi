@@ -357,11 +357,13 @@ These GitHub Actions workflows run on PRs (see `.github/workflows/`):
 `contracts.yml`, which runs only when a PR touches `dokimi/schemas/`:
 `python -m dokimi.schema_compat` fails an in-place edit that narrows
 an existing schema version, unless a reviewer applies the `schema-break-ok`
-label. `conda-forge.yml` runs only when a PR touches `pyproject.toml` (or
-its own script): it solves the runtime dependencies from conda-forge alone
-(`scripts/conda_forge_specs.py` turns them into match specs) on Python 3.11 and
-3.14, installs the wheel into that environment with `--no-deps`, and runs
-`pip check` and the installed-package smoke test.
+label. `conda-forge.yml` runs only when a PR or a push to `main` changes
+`pyproject.toml`, one of the two scripts it runs or the workflow file (and by
+hand, `workflow_dispatch`): it solves the runtime dependencies from conda-forge
+alone (`scripts/conda_forge_specs.py` turns them into match specs) on Python
+3.11 and 3.14, installs the wheel into that environment with `--no-deps`, and
+runs `pip check` and the installed-package smoke test,
+`scripts/smoke_installed.py`.
 
 **`ci.yml`** — fast code checks:
 
