@@ -261,6 +261,30 @@ def test_a_change_to_the_calling_workflow_runs_the_smoke_set(repo, tmp_path):
     assert _select(repo, tmp_path) == ["t1"]
 
 
+def test_every_path_that_triggers_the_self_check_runs_the_smoke_set(repo, tmp_path):
+    self_check = WORKFLOW.with_name("repo-eval-self.yml")
+    doc = yaml.safe_load(self_check.read_text(encoding="utf-8"))
+    paths = doc[True]["pull_request"]["paths"]  # YAML 1.1 reads the `on` key as True
+    caller = f"o/r/.github/workflows/{self_check.name}@refs/pull/1/merge"
+    # a file each filter matches: `**` as a nested file, `*` as nothing and as a suffix
+    files = sorted(
+        {
+            p.replace("**", "x/y.py").replace("*", star)
+            for p in paths
+            if not p.startswith(f"{EVAL_DIR}/")
+            for star in ("", "_x")
+        }
+    )
+    missed = []
+    for f in files:
+        _write(repo, f, "changed\n")
+        smoke = doc["jobs"]["self"]["with"]["smoke-paths"]
+        if _select(repo, tmp_path, SMOKE_PATHS=smoke, WORKFLOW_REF=caller) != ["t1"]:
+            missed.append(f)
+        _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    assert files and not missed
+
+
 @pytest.mark.parametrize("smoke_paths", ["./vendor/", "vendor/,other/", "other/ vendor/"])
 def test_smoke_paths_are_normalised_and_split_like_ids(repo, tmp_path, smoke_paths):
     _write(repo, "vendor/grader/lib.py", "changed\n")
