@@ -658,7 +658,10 @@ appears as any string in the file (a source in `srcs`); otherwise it is
 `fail`. Labels of any other
 external repository stay `unresolved`. A `BUILD`, `.bzl`, `WORKSPACE` or `MODULE.bazel` file that was not read
 (binary, over the size limit, a dangling or escaping link) makes its `bazel_label` and `starlark_load` claims
-`unresolved`, with the reason (`X was not read (...)`).
+`unresolved`, with the reason (`X was not read (...)`). Such a file also adds the warning
+`build file not scanned: <path>: <why>` and makes the scan `incomplete`. Only these exact names count: `BUILD`,
+`BUILD.bazel`, `WORKSPACE`, `WORKSPACE.bazel`, `MODULE.bazel`, `*.bzl`, `*.bazelrc`, `*.BUILD` (and an unread
+`.bazelrc` import of any name); a file such as `BUILD_status.png` does not.
 
 L0 checks only what holds for any repository. The rules of oneDAL's own
 checker that are repository policy were not ported, and oneDAL dropped them
@@ -732,7 +735,8 @@ guidance file that cannot be read (a link that dangles or leaves the tree, a
 binary file, a file over 2 MB), named with the reason. An invalid `--static`
 document is not merged, and the command exits 1. `--fail-on-fail` also exits 1
 when any claim fails, an `also_scan` file is missing, a guidance file cannot be
-read, or no guidance file matched (`incomplete`). A glob that matches nothing
+read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
+(`incomplete`). A glob that matches nothing
 does not fail the gate, so a file the gate must see belongs in `also_scan`.
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;

@@ -364,7 +364,7 @@ def register(sub, positive_int) -> None:
     scan_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
     scan_p.add_argument("--fail-on-fail", action="store_true", dest="fail_on_fail",
                         help="Exit 1 when any claim fails, an also_scan file is missing, a guidance file "
-                        "cannot be read, or no guidance file matched (for a CI gate)")
+                        "or Bazel build input cannot be read, or no guidance file matched (for a CI gate)")
     scan_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     scan_p.set_defaults(func=cmd_repo_scan)
 

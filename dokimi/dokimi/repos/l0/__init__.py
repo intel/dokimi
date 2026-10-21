@@ -46,10 +46,10 @@ def _coverage_warnings(tree: RepoTree, manifest: RepoManifest, files: list[str])
 
 
 def _is_build_input(path: str) -> bool:
-    """A Bazel input (``.bzl``, BUILD, ``.bazelrc``, MODULE/WORKSPACE) whose text the claim checks rely on."""
+    """A Bazel input by exact name (``*.bzl``, ``*.bazelrc``, ``*.BUILD``, BUILD[.bazel], WORKSPACE[.bazel], MODULE.bazel) whose text the claim checks rely on."""
     name = posixpath.basename(path)
-    return (name.endswith((".bzl", ".bazelrc", ".BUILD", ".BUILD.bazel")) or name.startswith(("BUILD", "WORKSPACE"))
-            or name == "MODULE.bazel")
+    return (name.endswith((".bzl", ".bazelrc", ".BUILD", ".BUILD.bazel"))
+            or name in ("BUILD", "BUILD.bazel", "WORKSPACE", "WORKSPACE.bazel", "MODULE.bazel"))
 
 
 def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | None = None) -> dict[str, Any]:

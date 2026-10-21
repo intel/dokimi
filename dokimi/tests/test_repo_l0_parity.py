@@ -31,6 +31,7 @@ def _scan(
     files: dict[str, str],
     build_systems=ALL,
     links: dict[str, str] | None = None,
+    also_scan: list[str] | None = None,
 ):
     root = tmp_path / "r"
     for rel, text in {"AGENTS.md": agents, "ev/tasks/t/task.json": "{}", **files}.items():
@@ -54,7 +55,7 @@ def _scan(
             "id": "case",
             "source": {"url": "https://github.com/acme/case"},
             "eval_dir": "ev",
-            "guidance": {"globs": ["**/AGENTS.md"]},
+            "guidance": {"globs": ["**/AGENTS.md"], **({"also_scan": also_scan} if also_scan else {})},
             "entry_points": {"grade": "true"},
             "tasks": "ev/tasks",
             "build_systems": list(build_systems),
@@ -593,6 +594,29 @@ def test_unreadable_build_inputs_warn_and_mark_the_scan_incomplete(tmp_path):
     assert payload["incomplete"] is True
     assert any(w.startswith("build file not scanned: defs.bzl: ") and "binary" in w for w in payload["warnings"])
     assert any(w.startswith("build file not scanned: third_party/zlib.BUILD: ") for w in payload["warnings"])
+
+
+@pytest.mark.parametrize("path", ["a/BUILD", "WORKSPACE", "MODULE.bazel", "tools/x.bazelrc", "BUILD.bazel", "WORKSPACE.bazel"])
+def test_each_bazel_input_name_warns_when_unreadable(tmp_path, path):
+    payload = _scan(tmp_path, _fence("bash", "bazel build //a:b") + "\n`SOME_IDENT`\n", {path: "x\0"})
+    assert [w for w in payload["warnings"] if w.startswith("build file not scanned: ")] == [
+        f"build file not scanned: {path}: binary (a NUL byte)"
+    ]
+    assert payload["incomplete"] is True
+
+
+@pytest.mark.parametrize("path", ["BUILD_status.png", "WORKSPACE_logo.png", "BUILDING.md.bin", "a/MODULE.bazel.orig"])
+def test_a_file_that_only_starts_like_a_bazel_input_does_not_warn(tmp_path, path):
+    payload = _scan(tmp_path, "`SOME_IDENT`\n", {path: "x\0", "Makefile": "all:\n"})
+    assert not [w for w in payload["warnings"] if w.startswith("build file not scanned: ")]
+    assert payload["incomplete"] is False
+
+
+def test_a_guidance_file_that_is_also_a_build_input_warns_once(tmp_path):
+    payload = _scan(tmp_path, "see `x/BUILD`\n", {"x/BUILD": "y\0"}, also_scan=["x/BUILD"])
+    unread = [w for w in payload["warnings"] if "x/BUILD" in w and "not scanned" in w]
+    assert len(unread) == 1, unread
+    assert payload["incomplete"] is True
 
 
 def test_an_unread_bazelrc_import_of_any_name_marks_the_scan_incomplete(tmp_path):
