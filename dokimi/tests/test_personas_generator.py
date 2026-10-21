@@ -8,6 +8,7 @@ import types
 import pytest
 from unittest.mock import Mock, patch
 import json
+import logging
 from datetime import datetime
 
 # Provide mock langchain modules if not installed
@@ -162,8 +163,12 @@ class TestPersonaGenerator:
         assert "concerns" in personas[0]
         assert "typical_questions" in personas[0]
     
-    def test_generate_personas_clamps_count(self, sample_analysis, sample_llm_response):
-        """Test that persona count is clamped to 5-8 range."""
+    def test_generate_personas_clamps_count(self, sample_analysis, sample_llm_response, caplog):
+        """The clamped count (5-8) is what generate_personas logs it is generating.
+
+        ``target_count`` reaches only that log line today, not the LLM prompt, so the
+        log is the one place the clamp can be observed.
+        """
         mock_llm = Mock()
         mock_response = Mock()
         mock_response.content = json.dumps(sample_llm_response)
@@ -173,8 +178,12 @@ class TestPersonaGenerator:
         with patch('dokimi.personas.generator.ChatOpenAI', mock_cls, create=True), \
              patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
             generator = PersonaGenerator()
-            generator.generate_personas("oneTBB", sample_analysis, target_count=2)
-            generator.generate_personas("oneTBB", sample_analysis, target_count=20)
+            with caplog.at_level(logging.INFO, logger="dokimi.personas.generator"):
+                generator.generate_personas("oneTBB", sample_analysis, target_count=2)
+                generator.generate_personas("oneTBB", sample_analysis, target_count=20)
+        asked = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Generating ")]
+        assert asked == ["Generating 5 personas for oneTBB...",
+                         "Generating 8 personas for oneTBB..."]
     
     def test_generate_personas_invalid_json(self, sample_analysis):
         """Test handling of invalid JSON response from LLM."""

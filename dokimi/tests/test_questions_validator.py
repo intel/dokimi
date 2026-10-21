@@ -102,8 +102,14 @@ class TestQuestionValidatorInit:
              patch('dokimi.questions.validator.ChatOpenAI', Mock(), create=True), \
              patch('dokimi.questions.validator.OpenAI', Mock(), create=True):
             val = QuestionValidator(threshold=70, similarity_threshold=0.90)
-            assert val.threshold == 70
-            assert val.similarity_threshold == 0.90
+        # A 65 passes the default threshold of 60 but not a custom 70; the stats carry the
+        # custom similarity threshold rather than the backend default.
+        with patch.object(val, "_validate_question", return_value={"aggregate": 65}), \
+             patch.object(val, "_deduplicate", side_effect=lambda qs: (qs, [])):
+            validated, stats = val.validate_and_dedupe(
+                "oneTBB", [{"id": "q", "text": "How do I use parallel_for?"}])
+        assert (validated, stats["removed_low_score"]) == ([], 1)
+        assert stats["similarity_threshold"] == 0.90
     
     def test_init_no_langchain(self):
         with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', False), \

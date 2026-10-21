@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """The ``host`` block of a task.json: parsed and checked, nothing else.
 
 A leaf module (it imports no other repos module but ``errors``), so ``manifest`` can validate

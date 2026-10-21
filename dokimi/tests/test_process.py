@@ -835,3 +835,18 @@ def test_a_zombie_group_member_does_not_hold_the_grace_open(tmp_path):
     assert proc.returncode == 0, proc.stderr
     out = proc.stdout.split()
     assert out[0] == "True" and float(out[1]) < 1 + 4, out
+
+
+def test_nothing_else_in_the_package_spawns_a_process():
+    """Every spawn site states a timeout and an env policy and kills its tree, because
+    it goes through process.run; a direct subprocess call would get none of that."""
+    import re
+
+    package = Path(process.__file__).parent
+    spawn = re.compile(r"\b(subprocess\.(run|Popen|call|check_call|check_output)|os\.(system|popen|spawn\w*|exec\w*)"
+                       r"|asyncio\.create_subprocess_\w+|pty\.spawn)\(")
+    found = [f"{path.relative_to(package)}:{n}" for path in sorted(package.rglob("*.py"))
+             if path.name != "process.py"
+             for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+             if spawn.search(line) and not line.lstrip().startswith("#")]
+    assert found == []

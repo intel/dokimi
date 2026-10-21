@@ -27,6 +27,7 @@ from dokimi.cli import build_parser
 PROJECT = Path(__file__).resolve().parents[1]
 DOCS = [
     *sorted((PROJECT / "docs").glob("*.md")),
+    *sorted((PROJECT / "docs" / "user-journeys").glob("*.md")),
     PROJECT / "README.md",
     PROJECT / "CONTRIBUTING.md",
     PROJECT.parent / "README.md",

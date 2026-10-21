@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Collection
-from dataclasses import fields, replace
+from dataclasses import replace
 from pathlib import Path
 
 from dokimi import process
@@ -62,13 +62,10 @@ def create_harness(harness: str, *, command_template: str | None = None,
     probe), and verify
     locally while capturing LLM telemetry. A custom ``command:`` template may use
     placeholders ``{task_path}``, ``{task}``, ``{model}``, ``{output_dir}``,
-    ``{prompt}``. The ``docker-*`` adapters start theirs themselves and ignore
-    ``runner``.
+    ``{prompt}``.
     """
     adapter = _create(harness, command_template)
-    if runner is process.run or "runner" not in {f.name for f in fields(adapter)}:
-        return adapter
-    return replace(adapter, runner=runner)
+    return adapter if runner is process.run else replace(adapter, runner=runner)
 
 
 def _create(harness: str, command_template: str | None):

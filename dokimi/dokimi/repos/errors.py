@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Errors shared by the repos modules; a leaf, so any of them can import it."""
 
 from __future__ import annotations

@@ -99,7 +99,11 @@ CI additionally holds a PR to:
   fails, fails the job; if every claimed test is skipped, the job is inconclusive.
   `outcomes-result.json` says which. Changing a promised behaviour means changing
   the doc, the test and the contract together. `pytest --outcomes -m outcome` runs
-  only the evidence.
+  only the evidence. The same session checks the journey trace: each criterion
+  in `tests/outcomes/journeys.yaml` with `enforce: true` needs its `cjm-*`
+  evidence ids claimed by passing tests. It writes `--journeys-report`
+  (default `journeys-result.json`, plus `.md`); see
+  [traceability](docs/user-journeys/traceability.md#what-the-check-enforces).
 - **Docs build** — `mkdocs build --strict`, from `dokimi/`. `make dev` already
   installs its packages and `make ci-local` runs it; by hand, install them with
   `pip install -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
@@ -138,22 +142,26 @@ pre-commit run --all-files                     # the whole tree, as CI's pre-com
 mypy and pytest are not hooks: they need the full environment and pytest takes
 minutes. `make ci-local` runs both; `make hooks` runs mypy before a push.
 
-Dependencies install from `requirements.lock.txt`, and the docs build's from
-`requirements-docs.lock.txt` on top of it. When you change a range in
+Dependencies install from `requirements.lock.txt`; the docs build's from
+`requirements-docs.lock.txt` on top of it, and the tools CI, `make dev`, the
+release job and the eval image use (`requirements-ci.txt`) from
+`requirements-ci.lock.txt`. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
 from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
 keeps the current pins). The command's `--exclude-newer=P7D` skips releases
 less than 7 days old; if a security fix is newer than that, its vulnerability PR
 fails to resolve, so regenerate the lock by hand without the flag. The docs lock
-is constrained to the main one, so regenerate it (command in its header) after
-the main lock changes too.
+and the tools lock (`requirements-ci.lock.txt`) are constrained to the main one,
+so regenerate them (command in each header) after the main lock changes too;
+`tests/test_dependency_locks.py` fails while a pin they share differs.
 
 Renovate (`.github/renovate.json5`) proposes updates on Mondays for releases at
 least 7 days old: one grouped PR for all minor and patch updates, one PR per
 major, a monthly lock refresh, and security fixes as soon as an advisory
-appears. A pre-commit hook rev and the CI pin for the same tool (ruff and
-zizmor in `ci.yml`, gitleaks in `gitleaks.yml`) come in one PR of their own, with
-ruff's pins in the dev extra and `.agent-eval/Dockerfile`. Renovate does not update
+appears. A pre-commit hook rev and the tool's pin in `requirements-ci.txt` (the
+tools lock CI and `.agent-eval/Dockerfile` install) come in one PR of their own
+for ruff and zizmor, with ruff's pin in the dev extra too; gitleaks in
+`gitleaks.yml` follows the same rule. Renovate does not update
 `requirements-docs.lock.txt` yet; pip-audit in CI still audits it.
 
 Guidelines:

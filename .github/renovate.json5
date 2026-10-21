@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Dependency updates: the SHA-pinned actions in .github/workflows, the Python
-// lock (dokimi/requirements.lock.txt), the tool pins the workflows and the eval
-// image (.agent-eval/Dockerfile) install and the hook revs in .pre-commit-config.yaml.
+// lock (dokimi/requirements.lock.txt), the tools lock the workflows and the eval
+// image (.agent-eval/Dockerfile) install (dokimi/requirements-ci.lock.txt) and the
+// hook revs in .pre-commit-config.yaml.
 //
 // Once a week, every minor and patch update lands in one PR; a major update
 // gets a PR of its own. Advisories (vulnerabilityAlerts) skip the schedule.
@@ -37,19 +38,20 @@
   vulnerabilityAlerts: { enabled: true },
 
   // The lock is a uv --universal compile of requirements.txt +
-  // requirements-test.txt. pip-compile re-runs the command in its header with
-  // --upgrade-package, which keeps the per-interpreter markers; pip_requirements
-  // would edit the pins in place without re-resolving, so it is left off.
+  // requirements-test.txt; the tools lock compiles requirements-ci.txt against
+  // it. Both carry hashes (--generate-hashes in the header command). pip-compile
+  // re-runs the command in its header with --upgrade-package, which keeps the
+  // per-interpreter markers; pip_requirements would edit the pins in place without re-resolving, so it is left off.
   // pyproject.toml repeats the ranges of requirements.txt; pep621 keeps the two
   // in step when a range has to move (same dependency, same branch, one PR).
   // requirements-docs.lock.txt is not matched yet: its header is not uv's, and it
-  // is compiled against the main lock with -c. pip-audit in ci.yml audits it.
+  // is compiled against the main lock with -c. pip-audit.yml audits it.
   enabledManagers: ["github-actions", "pip-compile", "pep621", "custom.regex", "pre-commit"],
   // Off by default even when listed above. It reads `rev: <sha>  # frozen: vX`
   // and updates the SHA and the tag together.
   "pre-commit": { enabled: true },
   "pip-compile": {
-    managerFilePatterns: ["/(^|/)requirements\\.lock\\.txt$/"],
+    managerFilePatterns: ["/(^|/)requirements(-ci)?\\.lock\\.txt$/"],
   },
   // Inside a range: bump the lock only. Outside it: move the range too.
   rangeStrategy: "update-lockfile",
@@ -62,27 +64,6 @@
 
   customManagers: [
     {
-      // `pip install tool==X.Y.Z` in workflow steps (zizmor, bandit, pip-audit).
-      customType: "regex",
-      managerFilePatterns: ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
-      matchStringsStrategy: "recursive",
-      matchStrings: [
-        "pip install [^\\n]*",
-        "(?<depName>[A-Za-z0-9][A-Za-z0-9._-]*)==(?<currentValue>\\d[^\\s'\"]*)",
-      ],
-      datasourceTemplate: "pypi",
-    },
-    {
-      // The eval image's tool pins (`tool==X.Y.Z`, some on continuation lines
-      // of a `pip install`); ruff's has to move with the ruff group below.
-      customType: "regex",
-      managerFilePatterns: ["/^\\.agent-eval/Dockerfile$/"],
-      matchStrings: [
-        "(?<depName>[A-Za-z0-9][A-Za-z0-9._-]*)==(?<currentValue>\\d[^\\s'\"\\\\]*)",
-      ],
-      datasourceTemplate: "pypi",
-    },
-    {
       // The gitleaks release gitleaks.yml downloads. Its SHA-256 has no
       // datasource: the bump PR fails that workflow until GITLEAKS_SHA256 is
       // updated by hand from the release's checksums file.
@@ -93,8 +74,17 @@
       datasourceTemplate: "github-releases",
       extractVersionTemplate: "^v(?<version>.+)$",
     },
+    {
+      // The micromamba release conda-forge.yml installs. Its tags carry a
+      // build number (2.9.0-0), which semver would read as a prerelease.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/conda-forge\\.yml$/"],
+      matchStrings: ["micromamba-version: '?(?<currentValue>\\d+\\.\\d+\\.\\d+-\\d+)'?"],
+      depNameTemplate: "mamba-org/micromamba-releases",
+      datasourceTemplate: "github-releases",
+      versioningTemplate: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)$",
+    },
   ],
-
   packageRules: [
     {
       groupName: "non-major dependencies",
@@ -102,8 +92,8 @@
       matchUpdateTypes: ["minor", "patch", "pinDigest", "digest"],
     },
     {
-      // A pre-commit hook and the pins ci.yml, the dev extra and the eval image
-      // install for the same tool move in one PR, majors included, so the hook
+      // A pre-commit hook and the pins the tools lock and the dev extra carry
+      // for the same tool move in one PR, majors included, so the hook
       // never reports what CI does not (or the reverse). Later rules win, so these leave the non-major group.
       groupName: "ruff",
       groupSlug: "ruff",

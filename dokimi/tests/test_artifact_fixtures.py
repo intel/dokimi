@@ -60,9 +60,9 @@ def test_the_fixture_helper_rejects_a_schema_violation():
 def test_objects_without_declared_properties_are_not_checked():
     # with_docs / without_docs carry no `properties`: the helper cannot see inside them (the
     # retrieved_docs snippet/content half of the panel bug stays out of its reach).
-    artifact_fixture("answers", {"answers": [{
-        "question_id": "q", "with_docs": {"retrieved_docs": [{"content": "x"}]},
-    }]})
+    inner = {"retrieved_docs": [{"content": "x"}], "no_producer_writes_this": 1}
+    fixture = artifact_fixture("answers", {"answers": [{"question_id": "q", "with_docs": inner}]})
+    assert fixture["answers"][0]["with_docs"] == inner
 
 
 def _llm(prompt, **_kw):
