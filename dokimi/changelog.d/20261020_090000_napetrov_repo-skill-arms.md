@@ -3,8 +3,9 @@
 - **`repo run` skill arms** — `--arm guidance:none+skill:<path>` installs one
   skill under `.claude/skills/<name>/`, and `skill-catalog:<dir>` installs
   every skill in a directory. `result.json` records `skills`
-  (`skills_used`, `skill_invoked`, `skill_selected_correct`) and the agent's
-  cache read/write token counts. `repo tasks check --arm` rejects a skill
+  (`skills_used`, `skill_invoked`, `skill_selected_correct`).
+  `repo report --json` gives the mean input, output and cache token counts per row.
+  `repo tasks check --arm` rejects a skill
   path that does not exist, and a skill whose `SKILL.md` `name` differs from its
   directory name. The arm is named by the directory (`skill:lint`), so
   `repo compare` can select it. Resuming a batch with other skill content
