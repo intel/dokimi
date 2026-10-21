@@ -29,7 +29,7 @@ def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
     lines = stripped.splitlines()
     # Same rule as the closing fence: a line that is exactly ``---``. A thematic
     # break (``-----``) or a ``--- title`` line opens nothing.
-    if not lines or lines[0].strip() != "---":
+    if not lines or lines[0].rstrip() != "---":
         return {}, stripped
 
     # First line is the opening '---'; find the closing fence.

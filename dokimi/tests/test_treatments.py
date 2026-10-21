@@ -57,7 +57,7 @@ def test_parse_frontmatter_strips_bom_when_no_frontmatter():
 def test_parse_frontmatter_opening_fence_must_be_exactly_three_dashes():
     # A thematic break or a "--- title" line opens nothing: the closing-fence rule
     # is "exactly ---", and the opening line gets the same rule.
-    for first in ("-----", "--- not a fence", "---x"):
+    for first in ("-----", "--- not a fence", "---x", "  ---"):
         text = f"{first}\nintro paragraph\n---\nrest"
         meta, body = parse_frontmatter(text)
         assert meta == {}
