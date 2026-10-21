@@ -506,6 +506,7 @@ def test_no_assert_only_suppressed_by_bare_calls(check, expected_no_assert):
     "assert send.assert_any_call", "assert send.assert_has_calls",
     "assert (out == 5, 'msg')",  # the message inside the parens: a non-empty tuple never fails
     "assert [out == 5]", "assert {out == 5}", "assert {'ok': out == 5}",
+    "assert {**d, 'k': 1}", "assert {1: 2, **d}",
 ])
 def test_an_assert_that_is_always_true_is_no_check(check):
     flags = _flags(f"""
