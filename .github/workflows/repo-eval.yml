@@ -143,8 +143,9 @@ jobs:
           SHA: ${{ steps.ref.outputs.sha }}
           DOKIMI_REPO: ${{ inputs.dokimi-repository }}
         run: |
-          pip install -c "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt" \
-            "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
+          # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
+          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
+          pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
       - name: repo validate
         env:
           MANIFEST: ${{ inputs.manifest }}
@@ -294,8 +295,9 @@ jobs:
           SHA: ${{ needs.validate.outputs.dokimi-sha }}
           DOKIMI_REPO: ${{ inputs.dokimi-repository }}
         run: |
-          pip install -c "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt" \
-            "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
+          # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
+          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
+          pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
       # Report only: a failing claim does not fail the job (an unreadable
       # manifest still does). The table lists the failing claims.
       - name: repo scan
@@ -361,8 +363,9 @@ jobs:
           SHA: ${{ needs.validate.outputs.dokimi-sha }}
           DOKIMI_REPO: ${{ inputs.dokimi-repository }}
         run: |
-          pip install -c "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt" \
-            "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
+          # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
+          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
+          pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
       # Builds the image from the manifest's Dockerfile (the tree without its
       # tasks), then grades the null and the oracle workspace in it.
       - name: repo tasks check
