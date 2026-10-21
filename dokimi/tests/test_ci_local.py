@@ -107,9 +107,16 @@ def test_job_and_workflow_env_reach_the_step(env: dict[str, Any]) -> None:
 
 def test_unevaluable_condition_runs_step_with_notice(env: dict[str, Any], capsys: Any) -> None:
     """An `if:` outside the supported grammar does not crash the run."""
-    for expr in ("failure()", "github.ref == 'refs/heads/main'", "contains(github.event.labels.*.name, 'x')"):
+    for expr in ("github.ref == 'refs/heads/main'", "contains(github.event.labels.*.name, 'x')"):
         assert cl.Context("main", PYV, Path(".")).condition(expr) is True
     assert "NOTICE: cannot evaluate" in capsys.readouterr().out
+
+
+def test_failure_condition_is_false_locally() -> None:
+    """A local run has no failed job: pip-audit.yml's `report` job (which opens an issue) is skipped."""
+    ctx = cl.Context("main", PYV, Path("."))
+    assert ctx.condition("${{ failure() && github.event_name == 'schedule' }}") is False
+    assert ctx.condition("failure()") is False
 
 
 def test_tool_specs_keep_each_requirement_file_flagged(env: dict[str, Any]) -> None:
@@ -471,3 +478,22 @@ def test_tool_specs_carry_no_unexpanded_shell_syntax() -> None:
 def test_isolated_jobs_also_need_network() -> None:
     """An isolated job installs from the package index, so it is skipped offline like the other network jobs."""
     assert cl.ISOLATED <= cl.NEEDS_NETWORK
+
+
+def test_job_needing_a_missing_tool_is_skipped(env: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+                                               capsys: Any) -> None:
+    """conda-forge-deps runs only where micromamba is on PATH; elsewhere it is a skip, not a FAIL."""
+    wf = "on: pull_request\njobs:\n  conda-forge-deps:\n    steps:\n      - run: micromamba create\n"
+    (cl.WORKFLOWS / "x.yml").write_text(wf)
+    cl.run(ns())
+    assert not env["calls"]
+    assert "skip (micromamba not on PATH)" in capsys.readouterr().out
+    monkeypatch.setattr(cl.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    cl.run(ns())
+    assert env["calls"][0]["cmd"][-1] == "micromamba create"
+
+
+def test_needs_tool_job_ids_match_real_jobs() -> None:
+    """Every NEEDS_TOOL key names a real job, catching renames."""
+    job_ids = {job_id for _, wf in cl.load_workflows() for job_id in wf["jobs"]}
+    assert set(cl.NEEDS_TOOL) <= job_ids

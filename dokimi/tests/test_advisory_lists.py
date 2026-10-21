@@ -16,7 +16,7 @@ import pytest
 PROJECT = Path(__file__).resolve().parents[1]
 REPO = PROJECT.parent
 OSV_CONFIG = PROJECT / "osv-scanner.toml"
-CI_WORKFLOW = REPO / ".github" / "workflows" / "ci.yml"
+CI_WORKFLOW = REPO / ".github" / "workflows" / "pip-audit.yml"
 SECURITY = PROJECT / "SECURITY.md"
 
 

@@ -100,7 +100,7 @@ jobs:
           cache: pip
           cache-dependency-path: dokimi/requirements.lock.txt
       - name: Install deps
-        run: pip install -r requirements.lock.txt
+        run: pip install --require-hashes -r requirements.lock.txt
       - name: Clone uxlfoundation/skills (pinned commit, retried)
         run: |
           set -euo pipefail
@@ -156,7 +156,7 @@ jobs:
           cache: pip
           cache-dependency-path: dokimi/requirements.lock.txt
       - name: Install deps
-        run: pip install -r requirements.lock.txt
+        run: pip install --require-hashes -r requirements.lock.txt
       - name: Run benchmark
         run: |
           python cli.py run --root . --spec benchmarks/spec.v1.yaml \

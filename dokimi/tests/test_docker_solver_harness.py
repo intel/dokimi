@@ -3,20 +3,23 @@
 
 """Tests for the standalone Docker solver harness and its telemetry rollup.
 
-Docker itself is never invoked here: the pipeline steps are monkeypatched so the
-tests cover JSON-telemetry parsing, the reward contract, repeats, and the
-cost/per-task summary aggregation — the parts that turn raw runs into tracked,
-saved data.
+Docker itself is never invoked here: a :class:`DockerCLI` runner stands for the
+docker CLI and ``claude``, so the tests drive the real pipeline and cover the
+docker arguments, JSON-telemetry parsing, the reward and timeout contract,
+repeats, and the cost/per-task summary aggregation — the parts that turn raw
+runs into tracked, saved data.
 """
 
 from __future__ import annotations
 
+import io
 import json
-import subprocess
+import os
 from pathlib import Path
 
 import pytest
 
+from dokimi import process
 from dokimi.artifacts import validate_artifact
 from dokimi.harnesses import TaskSuiteRunner, load_task
 from dokimi.harnesses.docker_solver import (
@@ -30,6 +33,8 @@ from dokimi.harnesses.docker_solver import (
 )
 from dokimi.harnesses.registry import create_harness, known_harnesses, with_skill_counterpart
 from dokimi.harnesses.runner import summarize_task_results
+from dokimi.process import reply
+from docker_cli_fake import DockerCLI
 
 # A representative `claude -p --output-format json` result line.
 _CLAUDE_JSON = json.dumps(
@@ -50,6 +55,21 @@ _CLAUDE_JSON = json.dumps(
         },
     }
 )
+
+
+@pytest.fixture(autouse=True)
+def _hermetic(tmp_path, monkeypatch):
+    """No developer proxy, provider or Claude settings reach the launch; the host
+    `claude` the in-container agent copies is a path that is never run."""
+    import dokimi.harnesses.container_agent as container_mod
+
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "no-operator-config"))
+    for name in list(os.environ):
+        if name.lower() in ("http_proxy", "https_proxy", "no_proxy", "all_proxy") or name.startswith(
+                ("ANTHROPIC_", "CLAUDE_CODE_", "AWS_", "CLOUD_ML_", "GOOGLE_", "VERTEX_")):
+            monkeypatch.delenv(name)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(container_mod, "claude_binary", lambda: tmp_path / "claude")
 
 
 def _fixture_task(tmp_path: Path) -> Path:
@@ -136,30 +156,18 @@ def test_build_and_verify_timeouts_read_toml(tmp_path):
 # ── container network/resources from task.environment ────────────────────────
 
 
-def _capture_docker_calls(monkeypatch):
-    import dokimi.harnesses.docker_solver as mod
-
-    calls: list[list[str]] = []
-
-    def fake_docker(args, log, *, check=True, timeout=None):
-        calls.append(args)
-
-        class _Result:
-            returncode = 0
-
-        return _Result()
-
-    monkeypatch.setattr(mod, "_docker", fake_docker)
-    return calls
+def _start(task, container: str) -> list[list[str]]:
+    """The docker calls ``_start_container`` makes for ``task``."""
+    cli = DockerCLI()
+    DockerSolverHarness(harness_id="docker-oracle", mode="oracle", runner=cli)._start_container(
+        task, "img:latest", container, io.StringIO()
+    )
+    return cli.args
 
 
 def test_start_container_defaults_to_network_none(tmp_path, monkeypatch):
     task = load_task(_fixture_task(tmp_path))
-    calls = _capture_docker_calls(monkeypatch)
-
-    DockerSolverHarness(harness_id="docker-oracle", mode="oracle")._start_container(
-        task, "img:latest", "container-1", log=None
-    )
+    calls = _start(task, "container-1")
 
     run_call = next(c for c in calls if c[0] == "run")
     assert "--network" in run_call and run_call[run_call.index("--network") + 1] == "none"
@@ -175,11 +183,7 @@ def test_start_container_honors_public_network_mode(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     task = load_task(task_dir)
-    calls = _capture_docker_calls(monkeypatch)
-
-    DockerSolverHarness(harness_id="docker-oracle", mode="oracle")._start_container(
-        task, "img:latest", "container-2", log=None
-    )
+    calls = _start(task, "container-2")
 
     run_call = next(c for c in calls if c[0] == "run")
     # bridge, not host: outbound internet without exposing host-local
@@ -201,11 +205,7 @@ def test_start_container_zero_cpus_is_honored_not_defaulted(tmp_path, monkeypatc
         encoding="utf-8",
     )
     task = load_task(task_dir)
-    calls = _capture_docker_calls(monkeypatch)
-
-    DockerSolverHarness(harness_id="docker-oracle", mode="oracle")._start_container(
-        task, "img:latest", "container-4", log=None
-    )
+    calls = _start(task, "container-4")
 
     run_call = next(c for c in calls if c[0] == "run")
     assert run_call[run_call.index("--cpus") + 1] == "0"
@@ -223,11 +223,7 @@ def test_start_container_malformed_memory_falls_back_instead_of_crashing(tmp_pat
         encoding="utf-8",
     )
     task = load_task(task_dir)
-    calls = _capture_docker_calls(monkeypatch)
-
-    DockerSolverHarness(harness_id="docker-oracle", mode="oracle")._start_container(
-        task, "img:latest", "container-5", log=None
-    )
+    calls = _start(task, "container-5")
 
     run_call = next(c for c in calls if c[0] == "run")
     assert run_call[run_call.index("--memory") + 1] == "2g"
@@ -239,11 +235,11 @@ def test_solve_oracle_copies_the_whole_solution_directory(tmp_path, monkeypatch)
     # did `cp /solution/histogram.cpp ...` -- a sibling file that only
     # exists if the whole solution/ dir is copied in, not just solve.sh.
     task = load_task(_fixture_task(tmp_path))
-    calls = _capture_docker_calls(monkeypatch)
-
-    DockerSolverHarness(harness_id="docker-oracle", mode="oracle")._solve_oracle(
-        task, "container-3", log=None
+    cli = DockerCLI()
+    DockerSolverHarness(harness_id="docker-oracle", mode="oracle", runner=cli)._solve_oracle(
+        task, "container-3", io.StringIO(), timeout=30
     )
+    calls = cli.args
 
     cp_call = next(c for c in calls if c[0] == "cp")
     assert cp_call[1] == f"{task.path / 'solution'}/."
@@ -251,6 +247,8 @@ def test_solve_oracle_copies_the_whole_solution_directory(tmp_path, monkeypatch)
 
     exec_call = [c for c in calls if c[0] == "exec"][-1]
     assert exec_call[-1] == "chmod +x /solution/solve.sh && /solution/solve.sh"
+    # The oracle gets the agent's budget; before, solve.sh had none at all.
+    assert cli.calls[-1].timeout == 30
 
 
 # ── registry wiring ───────────────────────────────────────────────────────────
@@ -345,37 +343,16 @@ def test_docker_claude_skill_requires_a_path():
 # ── run contract (Docker steps patched out) ──────────────────────────────────
 
 
-def _patch_pipeline(monkeypatch, *, reward: float, usage_json: str | None):
-    """Stub the Docker-touching steps so run() exercises only host logic."""
-    import dokimi.harnesses.docker_solver as mod
-
-    # run()'s cleanup calls _docker(["rm", ...]); stub it so these stay
-    # Docker-free even on hosts without a `docker` binary.
-    monkeypatch.setattr(mod, "_docker", lambda *a, **k: None)
-    monkeypatch.setattr(mod.ContainerSandbox, "open", classmethod(lambda cls, *a, **k: None))
-    monkeypatch.setattr(DockerSolverHarness, "_build_image", lambda self, t, i, log: None)
-    monkeypatch.setattr(DockerSolverHarness, "_start_container", lambda self, t, i, c, log, sandbox=None: None)
-    monkeypatch.setattr(DockerSolverHarness, "_solve_oracle", lambda self, t, c, log: None)
-
-    def fake_verify(self, task, container, output_dir, log):
-        (output_dir / "reward.txt").write_text(str(reward), encoding="utf-8")
-        return reward
-
-    monkeypatch.setattr(DockerSolverHarness, "_verify", fake_verify)
-
-    if usage_json is not None:
-        def fake_solve_claude(self, task, container, output_dir, model, timeout,
-                              operations, log, extra_metrics, sandbox=None):
-            (output_dir / "solver.json").write_text(usage_json, encoding="utf-8")
-            return _parse_claude_json(usage_json, task.name, model or "", 1.0)
-
-        monkeypatch.setattr(DockerSolverHarness, "_solve_claude", fake_solve_claude)
+def _pipeline(*, reward: float | None, usage_json: str | None = None, answer=None) -> DockerCLI:
+    """A daemon whose verifier leaves ``reward`` and whose ``claude`` prints ``usage_json``."""
+    return DockerCLI(reward=None if reward is None else str(reward), solver=usage_json or "",
+                     answer=answer)
 
 
 def test_docker_claude_run_folds_cost_into_metrics(tmp_path, monkeypatch):
     task = load_task(_fixture_task(tmp_path))
-    _patch_pipeline(monkeypatch, reward=1.0, usage_json=_CLAUDE_JSON)
-    harness = create_harness("docker-claude")
+    cli = _pipeline(reward=1.0, usage_json=_CLAUDE_JSON)
+    harness = create_harness("docker-claude", runner=cli)
     result = harness.run(task, model="haiku", output_dir=tmp_path / "out")
 
     assert result.passed is True
@@ -387,8 +364,8 @@ def test_docker_claude_run_folds_cost_into_metrics(tmp_path, monkeypatch):
 
 def test_docker_oracle_run_has_no_llm_cost(tmp_path, monkeypatch):
     task = load_task(_fixture_task(tmp_path))
-    _patch_pipeline(monkeypatch, reward=0.0, usage_json=None)
-    result = create_harness("docker-oracle").run(task, output_dir=tmp_path / "out")
+    cli = _pipeline(reward=0.0, usage_json=None)
+    result = create_harness("docker-oracle", runner=cli).run(task, output_dir=tmp_path / "out")
     assert result.passed is False
     assert "cost_usd" not in result.metrics  # oracle = no LLM telemetry
 
@@ -452,13 +429,14 @@ def test_summary_cost_null_when_no_pricing():
 
 def test_repeats_produce_multiple_rows_and_validate(tmp_path, monkeypatch):
     task = load_task(_fixture_task(tmp_path))
-    _patch_pipeline(monkeypatch, reward=1.0, usage_json=_CLAUDE_JSON)
+    cli = _pipeline(reward=1.0, usage_json=_CLAUDE_JSON)
     suite = TaskSuiteRunner(
         tasks=[task],
         harnesses=["docker-claude"],
         model="haiku",
         output_root=tmp_path / "runs",
         repeats=3,
+        runner=cli,
     )
     output = suite.run()
     validate_artifact("task_runs", output)
@@ -480,23 +458,17 @@ def test_one_failing_cell_does_not_abort_the_sweep(tmp_path, monkeypatch):
     (bad / "instruction.md").write_text("x", encoding="utf-8")
     (bad / "task.toml").write_text('[metadata]\ntags = []\n', encoding="utf-8")
 
-    from dokimi.harnesses.command import CommandHarness
+    def bad_build(call):
+        if call.argv[1] == "build" and "dokimi/intel-perf-bad:latest" in call.argv:
+            return reply(stderr="boom", returncode=1)
+        return None
 
-    real_run = DockerSolverHarness.run
-
-    def flaky_run(self, task, *, model=None, output_dir=None, timeout_sec=None, dry_run=False):
-        if task.name == "intel-perf-bad":
-            raise RuntimeError("docker build failed (exit 1); see run.log")
-        # The good task: stub the Docker pipeline and run the real method.
-        _patch_pipeline(monkeypatch, reward=1.0, usage_json=_CLAUDE_JSON)
-        return real_run(self, task, model=model, output_dir=output_dir, dry_run=dry_run)
-
-    monkeypatch.setattr(DockerSolverHarness, "run", flaky_run)
     suite = TaskSuiteRunner(
         tasks=[load_task(bad), load_task(good)],
         harnesses=["docker-claude"],
         model="haiku",
         output_root=tmp_path / "runs",
+        runner=_pipeline(reward=1.0, usage_json=_CLAUDE_JSON, answer=bad_build),
     )
     output = suite.run()
 
@@ -507,58 +479,34 @@ def test_one_failing_cell_does_not_abort_the_sweep(tmp_path, monkeypatch):
     assert rows["intel-perf-bad"]["reward"] is None  # no verdict, not a verified 0
     assert "docker build failed" in rows["intel-perf-bad"]["metrics"]["error"]
     assert rows["intel-perf-toy"]["passed"] is True
-    assert CommandHarness  # keep import for the patched module path
 
 
-def test_recompile_failure_recorded_in_metrics(tmp_path, monkeypatch):
+def test_recompile_failure_recorded_in_metrics(tmp_path):
     """A failed in-container recompile is surfaced in metrics so the cell can be
     told apart from a genuine model miss (it is a tooling failure)."""
     task = load_task(_fixture_task(tmp_path))  # instruction has a `g++ ... -o /app/bench`
-    import dokimi.harnesses.docker_solver as mod
 
-    monkeypatch.setattr(mod, "_docker", lambda *a, **k: None)
-    monkeypatch.setattr(mod.ContainerSandbox, "open", classmethod(lambda cls, *a, **k: None))
-    monkeypatch.setattr(DockerSolverHarness, "_build_image", lambda self, t, i, log: None)
-    monkeypatch.setattr(DockerSolverHarness, "_start_container", lambda self, t, i, c, log, sandbox=None: None)
-    monkeypatch.setattr(DockerSolverHarness, "_verify", lambda self, t, c, o, log: 0.0)
+    def no_compiler(call):
+        return reply(stderr="g++: not found", returncode=127) if "g++" in call.argv[-1] else None
 
-    # Snapshot copy-out and the claude subprocess are stubbed; recompile "fails".
-    monkeypatch.setattr(DockerSolverHarness, "_recompile",
-                        lambda self, t, c, log: ["g++ -O3 bench.cpp -o /app/bench"])
-
-    def fake_solve(self, task, container, output_dir, model, timeout, operations, log, extra_metrics,
-                   sandbox=None):
-        failed = self._recompile(task, container, log)
-        if failed:
-            extra_metrics["recompile_failed"] = failed
-        return _parse_claude_json(_CLAUDE_JSON, task.name, model or "", 1.0)
-
-    monkeypatch.setattr(DockerSolverHarness, "_solve_claude", fake_solve)
-    result = create_harness("docker-claude").run(task, model="haiku", output_dir=tmp_path / "out")
+    cli = _pipeline(reward=0.0, usage_json=_CLAUDE_JSON, answer=no_compiler)
+    result = create_harness("docker-claude", runner=cli).run(task, model="haiku", output_dir=tmp_path / "out")
     assert result.metrics["recompile_failed"] == ["g++ -O3 bench.cpp -o /app/bench"]
     assert result.passed is False
 
 
-def test_api_error_is_recorded_as_a_solver_error(tmp_path, monkeypatch):
+def test_api_error_is_recorded_as_a_solver_error(tmp_path):
     """A refused or flagged request scores 0 like a miss; metrics must say it was not one."""
-    import dokimi.harnesses.docker_solver as mod
-
     flagged = json.dumps({"type": "result", "is_error": True, "terminal_reason": "api_error",
                           "num_turns": 2, "total_cost_usd": 0.07,
                           "result": "API Error: request flagged\nDetails: x"})
     task = load_task(_fixture_task(tmp_path))
-    monkeypatch.setattr(mod, "_docker", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
-    monkeypatch.setattr(mod.ContainerSandbox, "open", classmethod(lambda cls, *a, **k: None))
-    monkeypatch.setattr(DockerSolverHarness, "_build_image", lambda self, t, i, log: None)
-    monkeypatch.setattr(DockerSolverHarness, "_start_container", lambda self, t, i, c, log, sandbox=None: None)
-    monkeypatch.setattr(DockerSolverHarness, "_verify", lambda self, t, c, o, log: 0.0)
-    monkeypatch.setattr(DockerSolverHarness, "_recompile", lambda self, t, c, log: [])
-    real_run = subprocess.run
-    monkeypatch.setattr(mod.subprocess, "run", lambda cmd, **kw: (
-        subprocess.CompletedProcess(cmd, 0, flagged, "") if cmd[0] == "claude" else real_run(cmd, **kw)))
-    result = create_harness("docker-claude-host").run(task, model="haiku", output_dir=tmp_path / "out")
+    cli = _pipeline(reward=0.0, usage_json=flagged)
+    result = create_harness("docker-claude-host", runner=cli).run(task, model="haiku", output_dir=tmp_path / "out")
     assert result.metrics["solver_error"] == "api_error: API Error: request flagged"
     assert result.passed is False
+    (solve,) = cli.solver_calls()
+    assert solve.argv[0] == "claude" and solve.timeout == 30  # the task's agent.timeout_sec
 
 
 def test_a_completed_run_has_no_solver_error():
@@ -581,8 +529,8 @@ def test_the_model_used_is_recorded_in_metrics(tmp_path, monkeypatch):
     obj = json.loads(_CLAUDE_JSON)
     obj["modelUsage"] = {"claude-sonnet-4-5": {"costUSD": 0.07}}
     task = load_task(_fixture_task(tmp_path))
-    _patch_pipeline(monkeypatch, reward=1.0, usage_json=json.dumps(obj))
-    result = create_harness("docker-claude").run(task, output_dir=tmp_path / "out")
+    cli = _pipeline(reward=1.0, usage_json=json.dumps(obj))
+    result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
     assert result.metrics["model"] == "claude-sonnet-4-5"
 
 
@@ -643,22 +591,19 @@ def test_probe_and_oracle_rows_are_not_compared():
 # ── timeouts: build is errored, solve/verify is a reward-0 failure ────────────
 
 
-def test_build_timeout_raises_so_the_cell_is_errored(tmp_path, monkeypatch):
+def test_build_timeout_raises_so_the_cell_is_errored(tmp_path):
     """A build that exceeds build_timeout_sec never ran the agent, so it must
     be errored like a build that fails fast — not a reward-0 failure."""
     task = load_task(_fixture_task(tmp_path))
-    _patch_pipeline(monkeypatch, reward=1.0, usage_json=None)
-
-    def slow_build(self, t, i, log):
-        raise subprocess.TimeoutExpired(["docker", "build"], 900)
-
-    monkeypatch.setattr(DockerSolverHarness, "_build_image", slow_build)
-    with pytest.raises(RuntimeError, match="docker build timed out after 900"):
-        create_harness("docker-oracle").run(task, output_dir=tmp_path / "out")
+    budget = _task_build_timeout(task)
+    cli = _pipeline(reward=1.0, answer=lambda call: reply(timed_out=True) if call.argv[1] == "build" else None)
+    with pytest.raises(RuntimeError, match=f"docker build timed out after {budget}"):
+        create_harness("docker-oracle", runner=cli).run(task, output_dir=tmp_path / "out")
     assert "BUILD TIMEOUT" in (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
+    assert cli.calls[0].timeout == budget
 
     output = TaskSuiteRunner(
-        tasks=[task], harnesses=["docker-oracle"], output_root=tmp_path / "runs",
+        tasks=[task], harnesses=["docker-oracle"], output_root=tmp_path / "runs", runner=cli,
     ).run()
     row = output["results"][0]
     assert row["reward"] is None
@@ -666,17 +611,72 @@ def test_build_timeout_raises_so_the_cell_is_errored(tmp_path, monkeypatch):
     assert output["summary"]["per_harness"]["docker-oracle"]["errored"] == 1
 
 
-@pytest.mark.parametrize("step", ["_solve_oracle", "_verify"])
-def test_solve_or_verify_timeout_is_a_failed_cell(tmp_path, monkeypatch, step):
+@pytest.mark.parametrize("script", ["solve.sh", "test.sh"])
+def test_solve_or_verify_timeout_is_a_failed_cell(tmp_path, script):
     task = load_task(_fixture_task(tmp_path))
-    _patch_pipeline(monkeypatch, reward=1.0, usage_json=None)
-
-    def slow(self, *args):
-        raise subprocess.TimeoutExpired(["docker", "exec"], 30)
-
-    monkeypatch.setattr(DockerSolverHarness, step, slow)
-    result = create_harness("docker-oracle").run(task, output_dir=tmp_path / "out")
+    cli = _pipeline(reward=1.0, answer=lambda call: reply("partial", timed_out=True) if (
+        call.argv[1] == "exec" and script in call.argv[-1]) else None)
+    result = create_harness("docker-oracle", runner=cli).run(task, output_dir=tmp_path / "out")
     assert result.returncode == 124
     assert result.reward == 0.0
     assert result.passed is False
     assert "error" not in result.metrics
+    log = (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
+    assert "partial" in log and "TIMEOUT: after" in log  # what the step printed before the kill is kept
+
+
+def test_a_docker_step_without_a_budget_that_hangs_errors_the_cell(tmp_path):
+    """`docker cp` & co. get 600 s; one that runs out is a tooling failure, not a 0."""
+    task = load_task(_fixture_task(tmp_path))
+    cli = _pipeline(reward=1.0, answer=lambda call: reply(timed_out=True) if (
+        call.argv[1] == "cp" and call.argv[-1].endswith(":/solution")) else None)
+    with pytest.raises(RuntimeError, match=r"docker cp failed \(timed out after 600s\)"):
+        create_harness("docker-oracle", runner=cli).run(task, output_dir=tmp_path / "out")
+    hung = next(c for c in cli.calls if c.argv[1] == "cp")
+    assert hung.timeout == 600 and hung.env == dict(os.environ)  # the CLI keeps the caller's env
+
+
+@pytest.mark.parametrize("harness", ["docker-oracle", "docker-claude", "docker-claude-host"])
+def test_every_step_runs_with_a_budget(tmp_path, harness):
+    """build: build_timeout_sec; solve.sh and claude: the agent's; test.sh: the verifier's;
+    every other step 600 s. Before, only build, claude and test.sh had one."""
+    task = load_task(_fixture_task(tmp_path))
+    cli = _pipeline(reward=1.0, usage_json=_CLAUDE_JSON)
+    create_harness(harness, runner=cli).run(task, model="haiku", output_dir=tmp_path / "out")
+
+    def expected(argv: tuple[str, ...]) -> float:
+        if cli.is_solver(argv):
+            return task.timeout_sec
+        if argv[1] == "build":
+            return _task_build_timeout(task)
+        if argv[1] == "exec" and "solve.sh" in argv[-1]:
+            return task.timeout_sec
+        if argv[1] == "exec" and "test.sh" in argv[-1]:
+            return _task_verify_timeout(task)
+        return 600
+
+    assert task.timeout_sec == 30
+    assert [(c.argv[:2], c.timeout) for c in cli.calls] == [(c.argv[:2], expected(c.argv)) for c in cli.calls]
+    steps = {c.argv[-1] for c in cli.calls if c.argv[1] == "exec"}
+    assert any("test.sh" in s for s in steps) and (harness != "docker-oracle" or any("solve.sh" in s for s in steps))
+    assert any(cli.is_solver(c.argv) for c in cli.calls) == (harness != "docker-oracle")
+
+
+@pytest.mark.parametrize("harness", ["docker-claude", "docker-claude-host"])
+def test_a_stream_over_the_capture_limit_is_kept_whole(tmp_path, harness):
+    """The runner keeps only the head and tail of a captured stream by default; the
+    solver's stream and a docker step's output are kept whole (and in memory: neither
+    is on disk before it is redacted)."""
+    task = load_task(_fixture_task(tmp_path))
+    chunk = "x" * (process.CAPTURE_LIMIT // 2)
+    tool = json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t", "name": "Bash", "input": {"command": chunk}}]}})
+    stream = "\n".join([tool, tool, tool, _CLAUDE_JSON]) + "\n"
+    verifier_log = chunk + "MIDDLE-OF-THE-TEST-LOG" + chunk
+    cli = _pipeline(reward=1.0, usage_json=stream, answer=lambda call: reply(verifier_log) if (
+        call.argv[1] == "exec" and "test.sh" in call.argv[-1]) else None)
+    result = create_harness(harness, runner=cli).run(task, model="haiku", output_dir=tmp_path / "out")
+    assert result.metrics["tool_calls"] == {"Bash": 3}
+    assert (tmp_path / "out" / "solver.jsonl").read_text(encoding="utf-8") == stream
+    assert "MIDDLE-OF-THE-TEST-LOG" in (tmp_path / "out" / "run.log").read_text(encoding="utf-8")
+    assert all(c.capture_limit is None and c.stdout_to is None and c.stderr_to is None for c in cli.calls)

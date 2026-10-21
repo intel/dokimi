@@ -354,7 +354,7 @@ def test_odd_manifests_do_not_crash(tmp_path, files):
     """Large integers and invalid dates in manifests should not crash."""
     _repo(tmp_path, {"AGENTS.md": "x", **files})
     payload = inspect_repo(WorkTree(tmp_path))
-    assert payload is not None
+    validate_artifact("repo_environment", {"schema_version": "repo_environment.v1", **payload})
 
 
 @pytest.mark.parametrize("files", [
@@ -458,7 +458,7 @@ def test_deeply_nested_yaml_does_not_crash(tmp_path):
     """Deeply nested YAML should not cause RecursionError."""
     _repo(tmp_path, {"AGENTS.md": "x", ".pre-commit-config.yaml": "[" * 100000})
     payload = inspect_repo(WorkTree(tmp_path))
-    assert payload is not None  # Should not crash
+    validate_artifact("repo_environment", {"schema_version": "repo_environment.v1", **payload})
 
 
 def test_npm_install_1mb_completes_quickly(tmp_path):
@@ -1054,7 +1054,9 @@ def test_script_and_manifest_patterns_are_linear_on_hostile_strings(tmp_path, fi
     _repo(tmp_path, {"AGENTS.md": "x", **files})
     start = time.monotonic()
     inspect_repo(WorkTree(tmp_path))
-    assert time.monotonic() - start < 2
+    # Bounded, the `tsc` case takes ~0.4 s on a workstation and over 2 s on a loaded CI runner; unbounded,
+    # its pattern is quadratic (~150 s), so the limit leaves room for slow runners.
+    assert time.monotonic() - start < 15
 
 
 @pytest.mark.parametrize("body", ["{not json", "[1, 2]", ""])

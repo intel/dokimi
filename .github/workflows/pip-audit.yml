@@ -1,0 +1,95 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: pip-audit
+
+# Dependency advisories against the locks. An advisory is published against a
+# pin, not a change, so this gate runs where a pin can move (a PR or push that
+# edits a lock or a requirements file) and daily on main, where a new advisory
+# opens an issue. A PR that leaves the locks alone is not failed by an advisory
+# published since its base: the daily run reports it once, and the fix is a
+# lock PR. Until 2026-10 this was a step of ci.yml's `static` job, which failed
+# every open PR the day certifi and pillow advisories came out.
+on:
+  push:
+    branches: [ main ]
+    paths: &lock-paths
+      - 'dokimi/requirements*.txt'
+      - 'dokimi/pyproject.toml'
+      - '.github/workflows/pip-audit.yml'
+  pull_request:
+    paths: *lock-paths
+  workflow_dispatch:
+  schedule:
+    - cron: '41 4 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: dokimi
+
+jobs:
+  pip-audit:
+    name: pip-audit (locks)
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      # pip-audit comes from the hash-locked tools lock (requirements-ci.txt pins it).
+      - name: Install tools
+        run: pip install --require-hashes -r requirements-ci.lock.txt
+      # The locks are the full closure (requirements-docs.lock.txt for the
+      # documentation site, requirements-ci.lock.txt for the tools), so --no-deps --disable-pip audits them as written
+      # without resolving or installing anything. Each --ignore-vuln is
+      # an advisory SECURITY.md documents and dokimi/osv-scanner.toml ignores;
+      # add or drop them together, in all three.
+      # pip-audit skips a pin whose marker is false on this 3.13 runner (the
+      # pins for older interpreters, for one), so markers are stripped, a pin
+      # the locks share is kept once, a name pinned twice goes to a second file,
+      # and the trailing `\` of a hashed pin is dropped (its --hash lines are skipped).
+      - name: pip-audit
+        run: |
+          sed -e 's/ *\\$//' -e 's/ *;.*//' \
+              requirements.lock.txt requirements-docs.lock.txt requirements-ci.lock.txt | sort -u \
+            | awk -F'==' '/^[A-Za-z0-9]/ { print > (ENVIRON["RUNNER_TEMP"] "/pins" seen[$1]++ ".txt") }'
+          for f in "$RUNNER_TEMP"/pins*.txt; do
+            pip-audit -r "$f" --no-deps --disable-pip --progress-spinner off \
+              --ignore-vuln PYSEC-2026-2447 \
+              --ignore-vuln PYSEC-2026-3046
+          done
+
+  # A scheduled run that finds an advisory opens one issue (or comments on the
+  # open one), so the finding is seen without failing anyone's PR.
+  report:
+    name: Report a scheduled finding
+    needs: pip-audit
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the issue
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="pip-audit: new advisory against the dependency locks"
+          body="The daily pip-audit run failed: $RUN_URL. Bump the pin in a lock PR, or document the advisory in dokimi/SECURITY.md, dokimi/osv-scanner.toml and .github/workflows/pip-audit.yml."
+          num=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "Still failing: $RUN_URL"
+          else
+            gh issue create --title "$title" --body "$body" --label dependencies
+          fi

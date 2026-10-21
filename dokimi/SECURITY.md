@@ -44,8 +44,8 @@ The project is pre-1.0; only the latest `main` is supported. Fixes land on
 
 ## Known advisories in dependencies
 
-`pip-audit` against the locks (`requirements.lock.txt` and
-`requirements-docs.lock.txt`) reports two advisories with no
+`pip-audit` against the locks (`requirements.lock.txt`,
+`requirements-docs.lock.txt` and `requirements-ci.lock.txt`) reports two advisories with no
 upstream fix as of 2026-10-05:
 
 - **diskcache 5.6.3 — PYSEC-2026-2447** (CVE-2025-69872, GHSA-w8v5-vhqr-4h9v;
@@ -64,9 +64,11 @@ The `ragas>=0.3.0` floor keeps out 0.2.3–0.2.x, which are affected by
 CVE-2025-45691 (GHSA-v2xr-wvrv-p969, file read through `retrieved_contexts`,
 fixed in 0.3.0).
 
-The `static` job in `.github/workflows/ci.yml` runs `pip-audit` with exactly
-these two IDs ignored, and `bandit -ll` with no Medium or High finding allowed,
-so a new advisory or finding fails CI until it is fixed or listed here.
+`.github/workflows/pip-audit.yml` runs `pip-audit` with exactly these two IDs
+ignored, on every PR or push that changes a lock or requirements file and daily
+on `main`; a daily run that finds a new advisory opens an issue rather than
+failing unrelated PRs. The `static` job in `.github/workflows/ci.yml` runs
+`bandit -ll` with no Medium or High finding allowed.
 The same two IDs are ignored by osv-scanner through `dokimi/osv-scanner.toml`,
 which OpenSSF Scorecard runs. A removed advisory comes out of this section,
 the `pip-audit` step, and that file together.

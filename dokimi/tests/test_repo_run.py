@@ -100,6 +100,7 @@ def test_a_run_answered_by_another_model_is_recorded_and_reported(setup, monkeyp
     assert summary["model_mismatch"] == {"m-1": ["m-0"]}
 
 
+@pytest.mark.outcome("cjm-repo-run-resume")
 def test_already_graded_cells_are_skipped_unless_forced(setup, capsys):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     assert "1 ran, 0 already done" in capsys.readouterr().out
@@ -109,6 +110,7 @@ def test_already_graded_cells_are_skipped_unless_forced(setup, capsys):
     assert "1 ran, 0 already done" in capsys.readouterr().out
 
 
+@pytest.mark.outcome("cjm-repo-grader-crash")
 def test_a_grader_crash_is_a_failure_not_an_exclusion(setup, monkeypatch, capsys):
     monkeypatch.setenv("FAKE_ACTION", "break")  # the agent deletes src/calc.py, the grader cannot import it
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2")
@@ -119,6 +121,7 @@ def test_a_grader_crash_is_a_failure_not_an_exclusion(setup, monkeypatch, capsys
     assert row["n"] == 2 and row["successes"] == 0 and row["grader_failures"] == 2
 
 
+@pytest.mark.outcome("cjm-repo-run-resume")
 def test_score_only_task_and_missing_cells(setup, monkeypatch, capsys):
     _run(setup, "--arm", "guidance:raw", "--reps", "3")
     batch = setup["out"] / "b1"
@@ -157,6 +160,7 @@ def test_run_refuses_to_open_the_network_silently(setup, capsys):
     assert not list((setup["out"] / "b1").glob("*/meta.json"))
 
 
+@pytest.mark.outcome("cjm-repo-run-egress")
 def test_run_refuses_an_egress_task_before_any_cell(tmp_path, monkeypatch, capsys):
     root, _ = make_repo(tmp_path, {"fix_pip": {"family": "fix", "grader": "calc", "egress": ["pypi.org"],
                                                "prompt": "x"}})
@@ -167,6 +171,21 @@ def test_run_refuses_an_egress_task_before_any_cell(tmp_path, monkeypatch, capsy
         _run(s, "--arm", "guidance:raw", "--task", "fix_pip")  # --agent-network host does not open grading
     assert exc.value.code == 1 and "egress proxy not implemented" in capsys.readouterr().err
     assert not list((s["out"] / "b1").glob("*/meta.json"))
+
+
+@pytest.mark.outcome("cjm-repo-run-egress")
+def test_an_egress_task_refuses_a_batch_that_also_holds_ordinary_tasks(tmp_path, monkeypatch, capsys):
+    root, _ = make_repo(tmp_path, {"fix_pip": {"family": "fix", "grader": "calc", "egress": ["pypi.org"],
+                                               "prompt": "x"}})
+    exe, profile = fake_harness(tmp_path)
+    runner = FakeRunner()
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    s = {"root": root, "exe": exe, "profile": profile, "out": tmp_path / "runs"}
+    with pytest.raises(SystemExit) as exc:
+        _run(s, "--arm", "guidance:raw")  # no --task: fix_add and review_add run unless the batch is refused first
+    assert exc.value.code == 1 and "egress proxy not implemented" in capsys.readouterr().err
+    assert not runner.specs  # no ordinary cell started, so none spent
+    assert not [p for p in (s["out"] / "b1").glob("*") if p.name != "_eval"]  # only the batch's eval snapshot
 
 
 def test_a_batch_keeps_its_eval_tree(setup, capsys):

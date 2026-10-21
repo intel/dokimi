@@ -127,6 +127,8 @@ version = "literal: pyproject.toml: project.version"
 extend_exclude = [
   # The docs build's hooks: their deps are requirements-docs.txt, not the wheel's.
   "scripts/docs",
+  # Run by conda-forge.yml, which installs packaging for it.
+  "scripts/conda_forge_specs.py",
 ]
 # Tools in the dev extra (pytest and plugins, ruff, mypy, scriv), never imported by
 # the package. A dev dep imported from the package is DEP004.
@@ -159,8 +161,8 @@ extend-exclude = ["benchmarks", "data"]
 # rules are listed one by one, so a ruff upgrade cannot add style rules to it.
 # A whole family does gain rules with ruff releases (0.16.0 stabilized LOG004
 # and PLE0304, preview-only in 0.12), so ruff is pinned to one version here, in
-# ci.yml, in .pre-commit-config.yaml and in .agent-eval/Dockerfile, and
-# Renovate bumps all four in one PR that runs the new rules.
+# requirements-ci.txt (the tools lock CI installs) and in .pre-commit-config.yaml,
+# and Renovate bumps all three in one PR that runs the new rules.
 #
 # Not enabled yet, with their violation counts at ruff 0.17.0. These three are
 # autofixes across most files: they land in a PR of their own while few PRs

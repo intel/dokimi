@@ -3,7 +3,7 @@
 
 # Advisories osv-scanner (and OpenSSF Scorecard, which runs it) should not
 # report. The same IDs, and only these, are passed to pip-audit as
-# --ignore-vuln in .github/workflows/ci.yml; SECURITY.md ("Known advisories in
+# --ignore-vuln in .github/workflows/pip-audit.yml; SECURITY.md ("Known advisories in
 # dependencies") explains why each one does not affect Dokimi.
 
 [[IgnoredVulns]]

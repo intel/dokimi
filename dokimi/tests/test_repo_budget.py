@@ -287,7 +287,8 @@ def test_identical_two_word_descriptions_are_duplicates(tmp_path):
 
 def test_gate_passes_a_clean_tree(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, ".claude/skills/a/SKILL.md": _skill("a", "Format Python code.")})
-    _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys)  # no SystemExit
+    out = _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys).out  # no SystemExit
+    assert "start 40 chars, lazy 0, on demand 13, off 0" in out and "warning" not in out
 
 
 def _run(argv, capsys):
@@ -315,6 +316,17 @@ def test_cli_json_and_bad_source(tmp_path, capsys):
     assert data["totals"]["start"] == 1
     with pytest.raises(SystemExit) as exc:
         _run(["repo", "budget", str(tmp_path / "missing")], capsys)
+    assert exc.value.code == 1
+
+
+def test_cli_out_writes_the_inventory(tmp_path, capsys):
+    _tree(tmp_path, {"AGENTS.md": "a"})
+    dest = tmp_path / "budget.json"
+    out = _run(["repo", "budget", str(tmp_path), "--out", str(dest)], capsys).out
+    assert json.loads(dest.read_text(encoding="utf-8"))["totals"]["start"] == 1
+    assert "| start | guidance | AGENTS.md | 1 |" in out  # the table still prints
+    with pytest.raises(SystemExit) as exc:
+        _run(["repo", "budget", str(tmp_path), "--out", str(tmp_path / "no" / "dir" / "b.json")], capsys)
     assert exc.value.code == 1
 
 

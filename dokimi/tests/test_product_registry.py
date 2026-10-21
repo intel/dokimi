@@ -174,8 +174,12 @@ def test_default_registry_loads():
 
 
 def test_default_registry_onetbb_has_repo():
-    reg = ProductRegistry()
-    entry = reg.get("onetbb")
-    assert entry.repo is not None
-    assert entry.context7_id is not None
-    assert len(entry.doc_sources) >= 1
+    import dokimi.registry
+
+    bundled = Path(dokimi.registry.__file__).with_name("products.yaml")
+    raw = yaml.safe_load(bundled.read_text(encoding="utf-8"))["products"]["onetbb"]
+    entry = ProductRegistry().get("onetbb")
+    # The entry carries the bundled file's identity fields, each of which onetbb declares.
+    assert (entry.repo, entry.context7_id, entry.doc_sources) == (
+        raw["repo"], raw["context7_id"], raw["doc_sources"])
+    assert entry.repo == "uxlfoundation/oneTBB"

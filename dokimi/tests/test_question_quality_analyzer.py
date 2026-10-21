@@ -60,7 +60,8 @@ def test_classify_question_bad_json_returns_default():
     with _mock_llm("not json at all"):
         analyzer = QuestionQualityAnalyzer()
         result = analyzer.classify_question("Some question?", "oneTBB")
-    assert result.error is not None
+    assert (result.difficulty, result.trivial) == ("intermediate", False)
+    assert "No JSON object found" in result.error
 
 
 # ---------------------------------------------------------------------------

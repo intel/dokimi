@@ -28,6 +28,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from dokimi import process
 from dokimi.metrics.usage import UsageRecord
 
 from .claude_json import _parse_claude_json, result_event, solver_error, terminal_reason
@@ -39,19 +40,24 @@ _MIN_SECRET_LEN = 8  # shorter values ("1", a region) would mangle unrelated tex
 
 
 def run_solver(argv: list[str], output_dir: Path, extra_metrics: dict[str, Any],
-               treatment: Optional[Treatment], secrets: Iterable[str] = (),
-               **kwargs: Any) -> subprocess.CompletedProcess:
-    """``subprocess.run`` the solver; on timeout record the partial stream, then re-raise."""
-    try:
-        return subprocess.run(argv, text=True, capture_output=True, check=False,
-                              stdin=subprocess.DEVNULL, **kwargs)
-    except subprocess.TimeoutExpired as exc:
-        partial = exc.stdout or ""
-        if isinstance(partial, bytes):  # TimeoutExpired keeps bytes even with text=True
-            partial = partial.decode("utf-8", errors="replace")
-        record_stream(partial, output_dir, extra_metrics, treatment, timed_out=exc.timeout,
+               treatment: Optional[Treatment], secrets: Iterable[str] = (), *,
+               timeout: float, env: dict[str, str], cwd: Optional[str] = None,
+               runner: process.Runner = process.run) -> process.Completed:
+    """Run the solver with exactly ``env``, stdin closed; its whole process tree is killed
+    on a timeout, and its output is kept whole.
+
+    A timed-out solve records the stream it produced, then raises
+    :class:`subprocess.TimeoutExpired` (the cell is a reward-0 failure).
+    """
+    secrets = list(secrets)
+    # Whole, not the runner's 1 MiB head and tail: the stream is parsed for its telemetry
+    # and saved. In memory only, as before: it is redacted before it is written.
+    proc = runner(argv, timeout=timeout, env=process.Env.only((), env), cwd=cwd, capture_limit=None)
+    if proc.timed_out:
+        record_stream(proc.stdout, output_dir, extra_metrics, treatment, timed_out=timeout,
                       secrets=secrets)
-        raise
+        raise subprocess.TimeoutExpired(argv, timeout, proc.stdout_bytes, proc.stderr_bytes)
+    return proc
 
 
 def redact(text: str, secrets: Iterable[str]) -> str:
@@ -100,7 +106,7 @@ def record_stream(stdout: str, output_dir: Path, extra_metrics: dict[str, Any],
         extra_metrics["solver_error"] = error
 
 
-def record_solver(proc: subprocess.CompletedProcess, task: str, model: Optional[str],
+def record_solver(proc: process.Completed, task: str, model: Optional[str],
                   latency: float, output_dir: Path, operations: list[OperationRecord], log,
                   extra_metrics: dict[str, Any], treatment: Optional[Treatment] = None,
                   secrets: Iterable[str] = (), edited: bool = False) -> Optional[UsageRecord]:
