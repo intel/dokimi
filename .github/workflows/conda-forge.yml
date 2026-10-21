@@ -20,6 +20,10 @@ on:
   push:
     branches: [ main ]
     paths: *conda-forge-paths
+  # conda-forge moves with nothing changed here (a litellm build that moves to
+  # openai 3 makes the ranges unsolvable), so solve once a week too.
+  schedule:
+    - cron: '17 5 * * 1'
   workflow_dispatch:
 
 permissions:

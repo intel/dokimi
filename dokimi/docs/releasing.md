@@ -110,7 +110,7 @@ conda-forge packages are built by a feedstock repository under
 
 Every runtime dependency in `pyproject.toml` must be on conda-forge, in a
 version inside its range: the `conda-forge.yml` workflow checks this on every
-PR that changes `pyproject.toml`, so a dependency conda-forge lacks is found
+PR that changes `pyproject.toml`, and weekly for drift on conda-forge, so a dependency conda-forge lacks is found
 while the PR is open, not on the feedstock's version-bump PR after the release.
 A new dependency it fails on goes to staged-recipes first; one whose
 conda-forge name differs from its PyPI name goes in `CONDA_NAMES` of
