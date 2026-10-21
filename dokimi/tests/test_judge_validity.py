@@ -2118,3 +2118,66 @@ def test_sequential_reports_a_fail_even_when_an_arm_was_never_scored(seed):
     assert report.sequential["truncate_20"]["decision"] == "FAIL"
     assert report.summary()["passed"] is False
     assert report.by_arm["skill"]["scored"] == 0
+
+
+def _fenced_baseline_arms(n_skill):
+    """100 baseline answers with a code fence, ``n_skill`` skill answers without one."""
+    from dokimi.utils import digest_text
+
+    data = {"answers": [], "judge_materials": {}}
+    for i in range(100 + n_skill):
+        arm_name = "baseline" if i < 100 else "skill"
+        text = "" if arm_name == "baseline" else "SKILL"
+        digest = digest_text(text)
+        data["judge_materials"][digest] = text
+        body = ANSWER + f"Variant {i}. "
+        if arm_name == "skill":
+            body = body.replace("```", "")
+        data["answers"].append({
+            "question_id": f"Q{i}", "question_text": f"Question number {i}?",
+            "arms": {arm_name: {"answer": body, "judge_context_sha256": digest}},
+        })
+    return data
+
+
+@pytest.mark.parametrize("n_skill", [3, 1])
+def test_sequential_padding_alone_does_not_cover_an_arm(n_skill):
+    """A skill base scored only by the neutral ``padding`` variant has no graded
+    row, so the gate may not PASS on it, whatever the seed."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _fenced_baseline_arms(n_skill)
+    store = JudgeContextStore.from_artifact(data)
+    for seed in range(10):
+        with pytest.raises(NoUsablePairs, match=r"\['skill'\].*no base was scored"):
+            run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)),
+                           max_bases=120, seed=seed, variants=["strip_code", "padding"], store=store)
+
+
+def test_sequential_unscored_arm_refusal_names_every_arm_sorted():
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.utils import digest_text
+
+    data = {"answers": [], "judge_materials": {}}
+    for i in range(106):
+        arm_name = "baseline" if i < 100 else ("zeta" if i < 103 else "alpha")
+        text = "" if arm_name == "baseline" else arm_name
+        digest = digest_text(text)
+        data["judge_materials"][digest] = text
+        body = ANSWER + f"Variant {i}. "
+        if arm_name != "baseline":
+            body = body.replace("```", "")
+        data["answers"].append({
+            "question_id": f"Q{i}", "question_text": f"Question number {i}?",
+            "arms": {arm_name: {"answer": body, "judge_context_sha256": digest}},
+        })
+    store = JudgeContextStore.from_artifact(data)
+    messages = set()
+    for seed in range(10):
+        with pytest.raises(NoUsablePairs) as exc:
+            run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)), max_bases=120,
+                           seed=seed, variants=["strip_code", "padding"], store=store)
+        messages.add(str(exc.value))
+    assert any("['alpha', 'zeta']" in m for m in messages)

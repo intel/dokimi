@@ -166,7 +166,11 @@ def run_sequential(
             and (p["variant"] in open_variants
                  or (p["variant"] in NEUTRAL_VARIANTS and start < NEUTRAL_MAX_BASES))
         ]
-        scored_bases.update((p["base_id"], p.get("arm", "")) for p in todo)
+        # Only a graded pair covers an arm: a neutral variant (padding) feeds no
+        # gate decision, so a base scored by it alone leaves the arm unchecked.
+        scored_bases.update(
+            (p["base_id"], p.get("arm", "")) for p in todo if p["variant"] not in NEUTRAL_VARIANTS
+        )
         report.rows += _score_pairs(
             scorer, todo, intact_cache, concurrency=concurrency, progress=progress,
             done_offset=len(report.rows), total=len(pairs), pair_scorer=pair_scorer,
