@@ -444,3 +444,43 @@ def test_a_cell_records_the_optional_harness_arguments_it_ran_with(tmp_path, mon
     args.func(args)
     meta = json.loads(next((out / "b1").glob("fix_add__*")).joinpath("meta.json").read_text())
     assert meta["args_if_present"] == [".mcp.json"]
+
+
+def test_the_base_check_ignores_a_skill_the_guidance_arm_removes_and_reads_each_base_once(tmp_path, monkeypatch):
+    _skill(tmp_path / "toy", ".claude/skills/lint", "lint")
+    root, base = make_repo(tmp_path)
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    _skill(root, ".claude/skills/lint", "lint")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    tasks = [Task("t1", {"base": base}, root), Task("t2", {"base": base}, root)]
+    content, globs = root / ".agent-eval", ["**/AGENTS.md", ".claude/skills/**"]
+    check_arms([parse_arm("guidance:none+skill:skills/lint")], content, tasks, root / ".git", globs)  # removed first
+    for arm, given in (("guidance:raw+skill:skills/lint", globs), ("guidance:none+skill:skills/lint", ["**/AGENTS.md"])):
+        with pytest.raises(ArmError, match="already has .claude/skills/lint"):
+            check_arms([parse_arm(arm)], content, tasks, root / ".git", given)
+    from dokimi import process
+    calls = []
+    real = process.run
+    monkeypatch.setattr(process, "run", lambda cmd, **kw: calls.append(cmd) or real(cmd, **kw))
+    check_arms([parse_arm("guidance:none+skill:skills/lint")], content, tasks, root / ".git", globs)
+    assert len(calls) == 1  # two tasks on one base: one git process
+
+
+def test_the_selected_correct_rate_counts_only_cells_whose_task_names_a_skill(tmp_path):
+    batch = tmp_path / "b"
+    for name, expected, correct in (("c1", "lint", True), ("c2", "lint", False), ("c3", None, None), ("c4", None, None)):
+        rd = batch / name
+        rd.mkdir(parents=True)
+        (rd / "meta.json").write_text("{}")
+        skills = {"measured": True, "skills_installed": ["lint"], "skills_used": ["lint"], "expected_skill": expected,
+                  "skill_invoked": True, "skill_selected_correct": correct}
+        rec = {"task": "t", "arm": "skill:skills/lint", "model": "m", "score_task": False, "grade": {
+                   "status": "ok", "success": True, "score_only": False, "score": None},
+               "agent": {"timed_out": False, "is_error": False, "over_budget": False, "cost_usd": 0.1,
+                         "num_turns": 3, "network": "none"}, "skills": skills}
+        (rd / "result.json").write_text(json.dumps(rec))
+    summary = summarize(batch)
+    row = summary["rows"][0]
+    assert (row["skill_measured"], row["skill_expected"], row["skill_selected_correct"]) == (4, 2, 1)
+    assert "1/2 skill selected correct" in format_report(summary) and "4/4 skill invoked" in format_report(summary)

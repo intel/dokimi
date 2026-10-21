@@ -148,22 +148,38 @@ def _skill_path(path: str, content_dir: Path) -> Path:
     return full
 
 
-def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Path | None = None) -> None:
+def _base_skill_files(git_dir: Path, base: str) -> list[str]:
+    """The files the commit ``base`` tracks under ``.claude/skills`` (one ``git ls-tree`` per base)."""
+    proc = process.run(["git", "-C", str(git_dir), "ls-tree", "-r", "-z", "--name-only", base, "--", ".claude/skills"],
+                       env=process.GIT_ENV, timeout=60, capture_limit=None)
+    return [p for p in proc.stdout.split("\0") if p] if proc.returncode == 0 else []
+
+
+def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Path | None = None,
+               guidance_globs: tuple[str, ...] | list[str] = ()) -> None:
     """Find the skills of every parsed arm before anything runs; a catalog must hold each task's
     ``expected_skill``. Two arms that would share a name or a result directory are refused, and so is a skill
-    the base of a task (in ``git_dir``) already ships, which preparing the workspace would refuse cell by cell."""
+    the base of a task (in ``git_dir``) already ships, which preparing the workspace would refuse cell by cell.
+    As preparation does, a ``guidance:none`` or pinned-revision arm first drops the base's files that match
+    ``guidance_globs``: only what is left under the skill's directory counts as shipped."""
+    from dokimi.repos.manifest import match_glob
+
     cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm spec that owns it
+    shipped: dict[str, list[str]] = {}  # task base -> tracked files under .claude/skills
     for arm in arms:
         cell = slug(str(arm).replace(":", "-"))
         if cells.setdefault(cell, arm.spec) != arm.spec:
             raise ArmError(f"arms {cells[cell]!r} and {arm.spec!r} would share one result directory ({cell})")
         skills = resolve_skills(arm, content_dir)
         names = {s.name for s in skills}
-        for task in tasks if git_dir else ():
+        drops = arm.patch is None and (arm.base == "guidance:none" or arm.rev_sha is not None)
+        for task in tasks if git_dir and skills else ():
+            if task.base not in shipped:
+                shipped[task.base] = _base_skill_files(git_dir, task.base)
+            left = [p for p in shipped[task.base]
+                    if not (drops and any(match_glob(g, p) for g in guidance_globs))]
             for skill in skills:
-                proc = process.run(["git", "-C", str(git_dir), "cat-file", "-e", f"{task.base}:{skill.target}"],
-                                   env=process.GIT_ENV, timeout=60, capture_limit=None)
-                if proc.returncode == 0:
+                if any(p.startswith(skill.target.rstrip("/") + "/") or p == skill.target for p in left):
                     raise ArmError(f"arm {arm.spec!r}: the base of task {task.id} already has {skill.target}")
         if any(kind == "skill-catalog" for kind, _ in arm.skills):
             for task in tasks:

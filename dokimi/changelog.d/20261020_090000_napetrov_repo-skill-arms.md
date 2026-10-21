@@ -4,7 +4,8 @@
   skill under `.claude/skills/<name>/`, and `skill-catalog:<dir>` installs
   every skill in a directory. `result.json` records `skills`
   (`skills_used`, `skill_invoked`, `skill_selected_correct`).
-  `repo report --json` gives the mean input, output and cache token counts per row.
+  `repo report --json` gives, per row, the mean of the token fields `result.json` already has
+  (`input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`).
   `repo tasks check --arm` rejects a skill
   path that does not exist, and a skill whose `SKILL.md` `name` differs from its
   directory name. The arm is named by the directory (`skill:lint`), so

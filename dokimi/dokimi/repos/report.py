@@ -18,7 +18,8 @@
   finished cells, as the harness reported them.
 - skill arms add ``skill_invoked`` (cells whose agent used the expected skill,
   or any installed one when the task names none) and, when the task has an
-  ``expected_skill``, ``skill_selected_correct`` (cells that used it first).
+  ``expected_skill``, ``skill_selected_correct`` (cells that used it first; ``skill_expected``
+  counts the cells that have one).
   Cells whose trace could not be read, or holds no event and no result (the
   harness did not start), are left out of both (``skill_measured`` counts the rest).
 
@@ -110,8 +111,10 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
         if used:  # cells whose trace was unreadable are not counted: no rate from a missing measurement
             row["skill_measured"] = len(used)
             row["skill_invoked"] = sum(bool(u["skill_invoked"]) for u in used)
-            if any(u.get("expected_skill") for u in used):
-                row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in used)
+            expecting = [u for u in used if u.get("expected_skill")]  # a task naming no skill has nothing to select
+            if expecting:
+                row["skill_expected"] = len(expecting)
+                row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
         rows.append(row)
     return {"batch": str(batch_dir), "cells": len(cells), "missing": missing, "rows": rows,
             "unsupported": load_unsupported(batch_dir),
@@ -141,8 +144,9 @@ def format_report(summary: dict[str, Any]) -> str:
                      f"{result:<22}  {r['grader_failures']:>11}  {r['missing']:>7}  {cost:>8}  {turns:>6}")
         noted = ("agent_timeouts", "agent_errors", "over_budget", "cost_unknown")
         notes = [f"{r[k]} {k.replace('_', ' ')}" for k in noted if r[k]]
-        notes += [f"{r[k]}/{r['skill_measured']} {k.replace('_', ' ')}"
-                  for k in ("skill_invoked", "skill_selected_correct") if k in r]
+        notes += [f"{r[k]}/{r[d]} {k.replace('_', ' ')}"
+                  for k, d in (("skill_invoked", "skill_measured"), ("skill_selected_correct", "skill_expected"))
+                  if k in r]
         if notes:
             lines.append(" " * (width + 2) + "  " + ", ".join(notes))
     if summary["missing"]:
