@@ -272,6 +272,32 @@ def test_two_skill_paths_with_one_directory_name_in_one_run_are_refused(setup, c
     assert not list((setup["out"] / "b1").glob("fix_lint__*"))
 
 
+def test_a_resumed_batch_refuses_other_skills_under_one_arm_name(setup, tmp_path, capsys):
+    _skill(setup["root"], ".agent-eval/other/lint", "lint")  # same directory name, other bytes
+    write(setup["root"], ".agent-eval/other/lint/extra.md", "Other lint.\n")
+    git(setup["root"], "add", "-A")
+    git(setup["root"], "commit", "-qm", "other lint")
+    host = tmp_path / "host/lint"
+    _skill(tmp_path, "host/lint", "lint")
+    write(tmp_path, "host/lint/extra.md", "Host lint.\n")
+    batch = setup["out"] / "b1"
+    _run(setup, "--arm", "skill:skills/lint,skill-catalog:skills", "--task", "fix_lint")
+    _run(setup, "--arm", "skill:./skills/lint", "--task", "fix_lint", "--reps", "2")  # same bytes: one arm
+    cells = sorted(p.name for p in batch.glob("fix_lint__*"))
+    capsys.readouterr()
+    for arm in ("skill:other/lint", f"skill:{host}"):
+        with pytest.raises(SystemExit):
+            _run(setup, "--arm", arm, "--task", "fix_lint", "--reps", "3")
+        assert "ran arm skill:lint with skills lint " in capsys.readouterr().err
+    assert sorted(p.name for p in batch.glob("fix_lint__*")) == cells
+    _run(setup, "--batch", "b2", "--arm", f"skill:{host}", "--task", "fix_lint")
+    (host / "SKILL.md").write_text("---\nname: lint\ndescription: lint things\n---\nEdited.\n")
+    with pytest.raises(SystemExit):
+        _run(setup, "--batch", "b2", "--arm", f"skill:{host}", "--task", "fix_lint", "--reps", "2")
+    assert "use another --batch" in capsys.readouterr().err
+    assert not list((setup["out"] / "b2").glob("*__r2"))
+
+
 def test_claude_code_gets_mcp_config_only_when_the_workspace_has_the_file(tmp_path, monkeypatch):
     runner = FakeRunner()
     monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)

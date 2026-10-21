@@ -320,7 +320,9 @@ The `name` in a skill's `SKILL.md` has to equal its directory name. A skill is r
 any cell runs if it holds a link that copying cannot take (out of the skill,
 dangling, looping, to a directory) or a file that is not regular. Preparation
 also refuses to write through a `.claude` or `.claude/skills` the repository
-ships as a link.
+ships as a link. A batch records the content of each skill arm it ran
+(`_eval/skills.json`), so resuming it with another path of the same
+directory name, or with edited skill content, is refused.
 
 `meta.json` records the base (`base_rev`, `base_sha`, `base_date`), the arm,
 the SHA of every applied patch, and `start_sha`: the workspace `HEAD` after

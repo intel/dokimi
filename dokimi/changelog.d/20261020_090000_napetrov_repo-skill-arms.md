@@ -7,7 +7,8 @@
   cache read/write token counts. `repo tasks check --arm` rejects a skill
   path that does not exist, and a skill whose `SKILL.md` `name` differs from its
   directory name. The arm is named by the directory (`skill:lint`), so
-  `repo compare` can select it.
+  `repo compare` can select it. Resuming a batch with other skill content
+  under the same arm name is refused.
 - **`args_if_present` in harness profiles** — arguments appended only when a
   file exists in the workspace and the tool mode is `all`.
 

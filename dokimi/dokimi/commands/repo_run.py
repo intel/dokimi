@@ -196,6 +196,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         ctx, _ = _context(args, batch_dir, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         check_arms(arms, ctx.content_dir, tasks)  # skill paths exist, catalogs hold each expected_skill
+        skill_pin = _skill_pin(batch_dir, arms, ctx.content_dir)  # a resume may not swap an arm's skills
         validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, timeout_s=args.timeout, max_turns=args.max_turns,
@@ -213,6 +214,9 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
             raise ValueError("the agent's container is not isolated: " + "; ".join(problems))
         print(f"{profile.name} {version} in {ctx.image}; {len(tasks)} task(s) x {len(arms)} arm(s) x "
               f"{len(options)} model(s) x {args.reps} rep(s) -> {batch_dir}", file=sys.stderr)
+        if skill_pin is not None:
+            (batch_dir / "_eval" / SKILL_PIN).write_text(json.dumps(skill_pin, sort_keys=True) + "\n",
+                                                         encoding="utf-8")
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
                             max_batch_usd=args.max_batch_usd)
     except _errors() as exc:
@@ -225,6 +229,28 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
               file=sys.stderr)
     if summary["errors"] or summary["budget_stopped"] or summary["probe_failed"]:
         sys.exit(1)
+
+
+SKILL_PIN = "skills.json"
+
+
+def _skill_pin(batch_dir: Path, arms: list[str], content_dir: Path) -> dict[str, list[list[str]]] | None:
+    """The batch's ``_eval/skills.json`` with this run's skill arms added (``None``: nothing to add): arm name ->
+    [skill name, tree sha256] of each skill. A skill arm is named by its directories, so a resume with another
+    path or edited content would add cells of other skills to the arm's row; that is refused."""
+    from dokimi.repos.arms import resolve_skills, tree_sha256
+    from dokimi.repos.workspace import parse_arm
+
+    now = {str(a): [[s.name, tree_sha256(s.dir)] for s in resolve_skills(a, content_dir)]
+           for a in map(parse_arm, arms) if a.skills}
+    path = batch_dir / "_eval" / SKILL_PIN
+    old = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    for arm, skills in now.items():
+        if old.get(arm, skills) != skills:
+            was, new = (", ".join(f"{name} {sha[:12]}" for name, sha in pin) for pin in (old[arm], skills))
+            raise ValueError(f"batch {batch_dir.name} ran arm {arm} with skills {was}, not {new}; "
+                             f"use another --batch")
+    return {**old, **now} if now.keys() - old.keys() else None
 
 
 def _pin_arms(arms: list[Arm], git_dir: Path, source: str) -> list[str]:
