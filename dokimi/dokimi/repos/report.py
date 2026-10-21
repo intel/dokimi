@@ -19,8 +19,8 @@
 - skill arms add ``skill_invoked`` (cells whose agent used the expected skill,
   or any installed one when the task names none) and, when the task has an
   ``expected_skill``, ``skill_selected_correct`` (cells that used it first).
-  Cells whose trace could not be read are left out of both (``skill_measured``
-  counts the rest).
+  Cells whose trace could not be read, or holds no event and no result (the
+  harness did not start), are left out of both (``skill_measured`` counts the rest).
 
 A warning is printed when the trace says a model other than the requested one
 answered a cell (``model_resolved``): a harness alias can pin an older model.

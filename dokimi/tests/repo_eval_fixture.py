@@ -71,6 +71,9 @@ if args == ["--version"]:
 assert os.environ.get("FAKE_CONFIG_DIR"), "config dir not set"
 assert "SECRET_NOT_ALLOWED" not in os.environ, "environment not scrubbed"
 action = os.environ.get("FAKE_ACTION", "fix")
+if action == "startfail":  # the harness refuses its configuration before the first turn
+    sys.stderr.write("Error: Invalid MCP configuration\n")
+    sys.exit(1)
 cwd = Path.cwd()
 # Guard against --model missing or being the last arg
 try:

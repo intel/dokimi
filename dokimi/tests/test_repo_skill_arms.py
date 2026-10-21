@@ -250,6 +250,21 @@ def test_unmeasured_skill_usage_is_left_out_of_the_counts(tmp_path):
     assert "1/1 skill invoked" in format_report(summarize(batch))
 
 
+def test_a_harness_that_never_started_leaves_skill_usage_unmeasured(setup, monkeypatch):
+    monkeypatch.setenv("FAKE_ACTION", "startfail")  # exit 1, no trace: not "the agent ignored the skill"
+    _run(setup, "--arm", "guidance:raw+skill:skills/lint", "--task", "fix_lint", "--reps", "2")
+    monkeypatch.setenv("FAKE_ACTION", "fix")  # ran, used no skill: measured
+    _run(setup, "--batch", "b2", "--arm", "guidance:raw+skill:skills/lint", "--task", "fix_lint")
+    for batch, measured in (("b1", False), ("b2", True)):
+        cells = list((setup["out"] / batch).glob("fix_lint__*"))
+        assert cells
+        for rd in cells:
+            skills = json.loads((rd / "result.json").read_text())["skills"]
+            assert skills["measured"] is measured and skills["skill_invoked"] is (False if measured else None)
+    assert "skill invoked" not in format_report(summarize(setup["out"] / "b1"))
+    assert "0/1 skill invoked" in format_report(summarize(setup["out"] / "b2"))
+
+
 def test_arms_that_share_a_result_directory_are_refused(tmp_path):
     _skill(tmp_path, "a/b", "b")
     _skill(tmp_path, "x/b", "b")
