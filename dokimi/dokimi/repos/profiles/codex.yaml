@@ -42,6 +42,9 @@ env_allow:
   - LANG
   - SYSTEMROOT
   - CODEX_API_KEY
+  # OPENAI_API_KEY and OPENAI_BASE_URL are forwarded although `codex exec` may not read
+  # them directly: endpoint_env is OPENAI_BASE_URL (reach points it at a stub endpoint),
+  # and a key-based auth run needs the key.
   - OPENAI_API_KEY
   - OPENAI_BASE_URL
   - http_proxy

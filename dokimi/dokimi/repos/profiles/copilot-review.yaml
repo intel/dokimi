@@ -5,9 +5,10 @@ schema: harness_profile.v1
 name: copilot-review
 bin: copilot  # npm's copilot is a node launcher; mount the native one (@github/copilot-<platform>/copilot) with --bin
 version_cmd: ["{bin}", "--version"]
-# Copilot CLI's built-in code-review agent: the prompt starts with its /review command,
-# and the task prompt follows it. `copilot -p` is the non-interactive mode; --output-format json prints one event per
-# line. {max_turns} and {budget} have no flag and are not passed. The tool mode comes
+# A prompt variant of `copilot`, not Copilot's built-in review agent: under `-p`, the
+# leading "/review" reaches the model as plain text, with the same system prompt and
+# tools as `copilot`. The task prompt follows it. `copilot -p` is the non-interactive
+# mode; --output-format json prints one event per line. {max_turns} and {budget} have no flag and are not passed. The tool mode comes
 # last because --available-tools takes every argument after it.
 invoke:
   - "{bin}"

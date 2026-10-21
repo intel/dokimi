@@ -243,7 +243,7 @@ next release.
   (no usable answer). Harness behaviour is data, not code:
   `dokimi/repos/profiles/` holds `harness_profile.v1` files for Claude
   Code, the Codex CLI (`codex`, and its native review mode `codex-review`) and
-  the Copilot CLI (`copilot`, and its `/review` agent `copilot-review`); any
+  the Copilot CLI (`copilot`, and `copilot-review`, a `/review`-prefixed prompt variant of it); any
   other harness is another YAML.
 - `dokimi/repos/budget.py` — `repo budget`: what the tree puts into an
   agent's context when it starts at the root, in characters, with no LLM call.
