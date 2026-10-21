@@ -24,6 +24,8 @@ page whose ``depends_on`` is malformed (``::error file=<page>::``), or 2 for a
 
 Glob syntax: ``**`` matches any run of characters including ``/``, ``*`` and
 ``?`` stay inside one path segment, anything else is literal.
+The slashes around a ``**`` are literal too, so ``a/**/b`` does not match
+``a/b``; list both globs.
 
     python scripts/check_docs_review_triggers.py --base origin/main --head HEAD
 """
