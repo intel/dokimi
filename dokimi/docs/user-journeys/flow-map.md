@@ -70,7 +70,8 @@ flowchart LR
 flowchart LR
     pr([PR touches subject]) --> J12[J12 budgeted check]
     J12 --> base[Compare with saved baseline]
-    base -->|regression| fail[Fail with evidence]
+    base -->|regression| report[Report the delta, exit 0 today]
+    base -. proposed: regression fails the check .-> fail[Fail with evidence]
     base -->|no regression| pass[Pass with evidence]
     base -->|budget stop or inconclusive| inc[Inconclusive: policy decides, never pass]
     J12 -. proposed: configurable policy across check kinds .-> policy[Policy]
