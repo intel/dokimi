@@ -10,6 +10,7 @@ import shlex
 from pathlib import Path
 
 import pytest
+from packaging.markers import Marker
 
 ROOT = Path(__file__).resolve().parents[1]
 # The locks .github/renovate.json5 hands to the pip-compile manager.
@@ -25,6 +26,25 @@ PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;\\]+)")
 HASH = re.compile(r"--hash=sha256:[0-9a-f]{64}(?!\w)")
 BARE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 HASHED_LOCKS = ("requirements.lock.txt", "requirements-ci.lock.txt", "requirements-docs.lock.txt")
+# Where the stacked locks are installed: CI's Pythons, and make dev on any OS.
+ENVIRONMENTS = [
+    {
+        "implementation_name": "cpython",
+        "platform_python_implementation": "CPython",
+        "python_version": f"3.{minor}",
+        "python_full_version": f"3.{minor}.0",
+        "sys_platform": sys_platform,
+        "platform_system": system,
+        "os_name": os_name,
+        "platform_machine": machine,
+    }
+    for minor in (11, 12, 13, 14)
+    for sys_platform, system, os_name, machine in (
+        ("linux", "Linux", "posix", "x86_64"),
+        ("darwin", "Darwin", "posix", "arm64"),
+        ("win32", "Windows", "nt", "AMD64"),
+    )
+]
 
 
 def canonical(name: str) -> str:
@@ -60,6 +80,17 @@ def pins(name: str) -> dict[str, set[str]]:
     for line in (ROOT / name).read_text(encoding="utf-8").splitlines():
         if m := PIN.match(line):
             found.setdefault(canonical(m[1]), set()).add(m[2])
+    return found
+
+
+def installed_pins(name: str, env: dict[str, str]) -> dict[str, set[str]]:
+    """The pins pip takes from the lock on `env` (over the running interpreter's values)."""
+    found: dict[str, set[str]] = {}
+    for line in (ROOT / name).read_text(encoding="utf-8").splitlines():
+        if m := PIN.match(line):
+            marker = line.partition(";")[2].rstrip().removesuffix("\\").strip()
+            if not marker or Marker(marker).evaluate(env):
+                found.setdefault(canonical(m[1]), set()).add(m[2])
     return found
 
 
@@ -124,8 +155,12 @@ def test_tools_lock_has_every_requested_pin() -> None:
 @pytest.mark.parametrize(("base", "name"), STACKED_LOCKS)
 def test_stacked_lock_pins_agree(base: str, name: str) -> None:
     """A refresh of one lock alone makes `pip install -r <base> -r <name>` unresolvable."""
-    held = pins(base)
-    stacked = pins(name)
-    assert held and stacked, (base, name)
-    drift = {p: (v, held[p]) for p, v in stacked.items() if p in held and not v <= held[p]}
-    assert not drift, f"regenerate {name} after {base} with its header command: {drift}"
+    assert pins(base) and pins(name), (base, name)
+    for env in ENVIRONMENTS:
+        held = installed_pins(base, env)
+        stacked = installed_pins(name, env)
+        drift = {p: (v, held[p]) for p, v in stacked.items() if p in held and v != held[p]}
+        where = f"{env['sys_platform']}, Python {env['python_version']}"
+        assert not drift, (
+            f"regenerate {name} after {base} with its header command ({where}): {drift}"
+        )
