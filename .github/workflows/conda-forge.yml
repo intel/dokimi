@@ -1,0 +1,86 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: conda-forge
+
+# The conda-forge package (conda-forge/dokimi-feedstock) is built from the PyPI
+# sdist with the runtime dependencies resolved from conda-forge, not PyPI. A
+# dependency conda-forge does not have, or a range none of its builds meet,
+# fails the feedstock's version-bump PR after the release; adding a package to
+# conda-forge takes a staged-recipes review. This solves the ranges from
+# conda-forge alone and runs the installed wheel in that environment, on the
+# PRs that can change them.
+on:
+  pull_request:
+    paths:
+      - dokimi/pyproject.toml
+      - dokimi/scripts/conda_forge_specs.py
+      - dokimi/scripts/smoke_installed.py
+      - .github/workflows/conda-forge.yml
+  push:
+    branches: [ main ]
+    paths:
+      - dokimi/pyproject.toml
+      - dokimi/scripts/conda_forge_specs.py
+      - dokimi/scripts/smoke_installed.py
+      - .github/workflows/conda-forge.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: dokimi
+
+jobs:
+  # Linux only: the package is noarch, built and tested on Linux. The Pythons
+  # are the ones the recipe tests: python_min (requires-python) and the newest.
+  conda-forge-deps:
+    name: conda-forge dependency solve (py${{ matrix.python-version }})
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      # The micromamba binary only: no environment-name, so the action creates
+      # no environment and the solve below is a step of its own.
+      - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39  # v3.2.1
+        with:
+          init-shell: none
+      - name: Build the wheel
+        run: |
+          python -m pip install --upgrade pip build packaging
+          python -m build --wheel --outdir "$RUNNER_TEMP/dist"
+      # conda-forge only (--override-channels), with a fresh solve of the
+      # ranges: what a `conda install dokimi` resolves today.
+      - name: Solve the dependencies from conda-forge
+        env:
+          PY: ${{ matrix.python-version }}
+        run: |
+          specs=$(python scripts/conda_forge_specs.py --python "$PY")
+          mapfile -t specs <<< "$specs"
+          micromamba create -y -p "$RUNNER_TEMP/cf" -c conda-forge --override-channels \
+            "python=$PY" pip "${specs[@]}"
+      # --no-deps: every dependency comes from the solve; pip check fails on
+      # one the specs missed or a version outside a range.
+      - name: Install the wheel and check its dependencies
+        run: |
+          micromamba run -p "$RUNNER_TEMP/cf" python -m pip install --no-deps "$RUNNER_TEMP"/dist/*.whl
+          micromamba run -p "$RUNNER_TEMP/cf" python -m pip check
+      - name: Smoke-test the installed wheel
+        run: |
+          smoke="$PWD/scripts/smoke_installed.py"
+          cd "$RUNNER_TEMP" && micromamba run -p "$RUNNER_TEMP/cf" python "$smoke"

@@ -127,6 +127,8 @@ version = "literal: pyproject.toml: project.version"
 extend_exclude = [
   # The docs build's hooks: their deps are requirements-docs.txt, not the wheel's.
   "scripts/docs",
+  # Run by conda-forge.yml, which installs packaging for it.
+  "scripts/conda_forge_specs.py",
 ]
 # Tools in the dev extra (pytest and plugins, ruff, mypy, scriv), never imported by
 # the package. A dev dep imported from the package is DEP004.
