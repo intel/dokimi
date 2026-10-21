@@ -20,3 +20,6 @@
   `.mcp.json` ran with no MCP tools. It now passes `--mcp-config .mcp.json`
   when that file is present and `--tools all` is used (`--tools none`/`read` do not
   limit MCP tools, so they start no MCP server).
+  This shifts baselines: a repo that ships `.mcp.json` now starts its MCP
+  servers under `--tools all`, so its results differ from earlier runs of the
+  same repo and arm. Compare only batches run after this change.
