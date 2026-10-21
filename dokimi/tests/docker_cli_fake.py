@@ -13,6 +13,9 @@ started. It answers like a daemon with one healthy task container:
 - ``docker cp <c>:/logs/verifier/reward.txt <dst>`` writes ``reward`` to
   ``<dst>`` (``None``: no reward file, exit 1);
 - ``docker inspect -f {{.State.Running}}`` says ``true``;
+- ``harbor run ... --jobs-dir <d>`` leaves one trial's ``result.json`` under
+  ``<d>/job/trial/``, with ``reward`` as its verifier reward (``None``: no
+  ``result.json``), the file a Harbor cell is graded from;
 - the solver, ``claude -p`` on the host or ``docker exec ... claude -p`` in the
   container, prints ``solver`` (a stream-json string), or answers through
   ``solver`` when it is a callable taking the :class:`~dokimi.process.Call`.
@@ -26,6 +29,7 @@ used to record from ``_docker``).
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Callable, Optional, Union
 
@@ -69,6 +73,14 @@ class DockerCLI(FakeRunner):
                                cwd=call.cwd, input=call.input)
         if self.is_solver(call.argv):
             return self.solver(call) if callable(self.solver) else reply(self.solver)
+        if Path(call.argv[0]).name == "harbor" and "--jobs-dir" in call.argv:
+            if self.reward is not None:
+                argv = list(call.argv)
+                trial = Path(argv[argv.index("--jobs-dir") + 1]) / "job" / "trial" / "result.json"
+                trial.parent.mkdir(parents=True, exist_ok=True)
+                trial.write_text(json.dumps({"verifier_result": {"rewards": {"reward": float(self.reward)}},
+                                             "exception_info": None}), encoding="utf-8")
+            return None
         if call.argv[0] != "docker":
             return None
         args = call.argv[1:]
