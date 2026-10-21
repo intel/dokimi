@@ -27,7 +27,8 @@ slack that later growth could quietly use up. Anything new over a cap fails.
                                               # outgrew downwards; never raises
     python scripts/check_growth.py --seed     # re-record every over-cap file and function
                                               # at its current value (after merging a main
-                                              # that grew past the baseline; may raise)
+                                              # that grew past the baseline; may raise,
+                                              # passes only while main has no baseline)
     python scripts/check_growth.py --report [--markdown] [--json PATH]
                                               # totals and the most complex functions
 
@@ -66,7 +67,8 @@ TEST_LINE_CAP = 1000
 COMPLEXITY_CAP = 10
 #: A raised or added baseline entry says why in at most this many characters.
 RATIONALE_MAX = 300
-#: Rationale ``--seed`` gives an entry it raises or adds.
+#: Rationale ``--seed`` gives an entry it raises or adds. Once the base branch has
+#: a baseline it is no rationale: a raise then needs a hand-written one.
 SEED_RATIONALE = "pre-existing when the gate was introduced"
 
 ROOTS = ("dokimi", "scripts", "tests")
@@ -271,6 +273,8 @@ def raised_without_rationale(baseline: dict[str, dict[str, dict[str, Any]]],
             if before is not None and isinstance(value, int) and value <= before:
                 continue
             rationale = str(entry.get("rationale", "")).strip()
+            if rationale == SEED_RATIONALE:
+                rationale = ""
             if not rationale or (before is not None and rationale == str(old.get("rationale", "")).strip()):
                 change = "added" if before is None else f"raised from {before} to {value}"
                 found.append(f"{key}: {change} without a \"rationale\" (at most "

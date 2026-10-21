@@ -355,6 +355,25 @@ def test_the_base_baseline_is_read_from_git(project, monkeypatch):
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_seed_cannot_explain_growth_once_the_base_has_a_baseline(project):
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                       cwd=project, check=True, capture_output=True)
+
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    (project / "dokimi" / "big.py").write_text("x = 1\n" * 24, encoding="utf-8")
+    (project / "dokimi" / "new.py").write_text("x = 1\n" * 40, encoding="utf-8")
+    assert cg.main(["--seed"]) == 0
+    assert cg.main(["--base", "main"]) == 1
+    base = cg.load_base_baseline("main")
+    assert base is not None
+    found = cg.raised_without_rationale(cg.load_baseline(), base)
+    assert [f.split(":")[0] for f in found] == ["dokimi/big.py", "dokimi/new.py"]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 def test_the_base_baseline_is_read_when_the_project_is_a_subdirectory(tmp_path, monkeypatch):
     # The real layout: the git root holds the project in a subdirectory. The baseline path
     # is then only found through the "./" prefix, relative to the project.

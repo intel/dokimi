@@ -6,4 +6,5 @@
   `scripts/growth_baseline.json`; `python scripts/check_growth.py --update`
   lowers the baseline when code shrinks.
   After rebasing onto main, run it to lower shrunk entries; `--seed`
-  re-records every over-cap entry at its current value.
+  re-records every over-cap entry at its current value. Once main has a
+  baseline, a raised or added entry needs a hand-written rationale.
