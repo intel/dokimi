@@ -320,7 +320,9 @@ grader diffs the agent's changes from `start_sha`. With the arm come
 `arm_files`, the files it deleted, wrote or changed; for `guidance:rev:` an
 `arm_rev` object (`rev` as given, its `sha`, and `removed`: the base's guidance
 files with no counterpart at `<rev>`); for `patch:` an `arm_patch` object (the
-file's absolute `path` and full `sha256`).
+file's absolute `path` and full `sha256`, `added`: the files the patch added
+that the guidance globs do not match, and `mcp_servers`: the servers of a
+`.mcp.json` at the root the patch added or changed, read before the agent runs).
 
 Step 3 removes history only. A fix that landed upstream before a model's
 training cutoff may still be known to the model, so reports split results by
@@ -371,6 +373,17 @@ reads the upstream base (`base_sha`) and the workspace start commit
 Code's `modelUsage`), `main` when the harness reported the parent's only, and
 `null` when it reported none. `subagent_calls` counts the parent's and
 subagents' `Agent`/`Task` calls; `null` when the harness wrote no result record.
+
+For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
+`uptake` object: whether the agent used what the arm added. `commands` counts
+command events that name an added file as a workspace path (`tools/fmt`,
+`./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`), `reads`
+the read events of one, `mcp_calls` the calls of the servers' tools
+(`mcp__<server>__<tool>`); `used` is whether any is non-zero, and `measured` is
+`false` when the agent left no trace to count from. `repo report` shows the
+cells that used it per row, and `repo compare` warns about a treatment whose
+cells used none of it: its deltas then measure the patch's text, such as a
+guidance line, not the tool.
 
 ### 4.2 `grade.json` (written by `grade` to `{run_dir}/grade.json`)
 

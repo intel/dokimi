@@ -52,6 +52,7 @@ from .errors import PrepError
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
+from .uptake import mcp_servers
 
 ARMS = ("guidance:none", "guidance:raw", "guidance:bridge")
 REV_ARM, PATCH_ARM = "guidance:rev:", "patch:"
@@ -468,15 +469,22 @@ def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm
         except PrepError as exc:
             raise PrepError(f"arm {arm}: patch {arm.patch_path} does not apply: {exc}") from exc
     _git(ws, env, "add", "-A")
-    changed = sorted(p for p in _git(ws, env, "diff", "--cached", "--name-only", "--no-renames", "-z", before).split("\0")
-                     if p)
+    status = _git(ws, env, "diff", "--cached", "--name-status", "--no-renames", "-z", before).split("\0")
+    changed = sorted(p for p in status[1::2] if p)
     eval_dir = manifest.run_paths()[0]
     # the patch's own paths too: a file .gitignore hides is written but never staged
     inside = sorted(p for p in set(changed) | touched if _is_within(p, eval_dir))
     if inside:  # the agent must not see an eval_dir, not even a patched-in one
         raise PrepError(f"arm {arm}: patch {arm.patch_path} writes into eval_dir {eval_dir}: {', '.join(inside)}")
     # a written file .gitignore hides is in the workspace, not in start_sha: still a file the arm wrote
-    return sorted(set(changed) | touched), {"arm_patch": {"path": arm.patch_path, "sha256": arm.patch_sha256}}
+    files = sorted(set(changed) | touched)
+    # -z output ends in a NUL, so the split has one trailing "" the pairing drops
+    new = {p for k, p in zip(status[::2], status[1::2], strict=False) if k == "A"}
+    new |= {p for p in touched - set(changed) if (ws / p).is_file()}
+    # what an agent can use (uptake): a file the patch added, not a guidance file; the servers of its .mcp.json
+    added = sorted(p for p in new if not any(match_glob(g, p) for g in manifest.guidance_globs))
+    return files, {"arm_patch": {"path": arm.patch_path, "sha256": arm.patch_sha256, "added": added,
+                                 "mcp_servers": mcp_servers(ws, files)}}
 
 
 def _patch_paths(numstat: str) -> set[str]:

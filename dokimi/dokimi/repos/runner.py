@@ -60,6 +60,7 @@ from .container import (
     docker_network,
 )
 from .events import convert
+from .uptake import arm_uptake
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
 from .host import probe_host, unmet, validate_tasks
@@ -192,6 +193,9 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
         "cache_write_tokens": None, "usage_scope": None, "subagent_calls": None,
         "plugins": [], "over_budget": False, "caps": caps, "network": network, "trace_errors": []}
+    added = meta.get("arm_patch") or {}
+    uptake_of = (added.get("added") or [], added.get("mcp_servers") or [])
+    events = None  # the trace's events once it parsed; none: the uptake is unmeasured
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
@@ -201,6 +205,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         meta["harness_version"] = transcript.harness_version or opts.harness_version
         meta["model_resolved"] = transcript.model_resolved()  # an alias can map `model` to another one
         _write_json(rd / "meta.json", meta)
+        if transcript.events or transcript.num_turns is not None:  # else the agent never started
+            events = transcript.events
         cost = transcript.cost_usd
         agent.update(
             cost_usd=cost, charged_usd=cost if cost is not None else caps["budget_usd"],
@@ -217,10 +223,12 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         # Excluding the run would favour arms that break workspaces (contract §4.2): it fails the task.
         what = "grade run failed" if isinstance(exc, ContainerError) else f"host error after the agent ran ({type(exc).__name__})"
         grade = failed_outcome(f"{what}: {str(exc)[:300]}")
-    record = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model,
-              "model_resolved": meta.get("model_resolved"), "rep": rep,
-              "harness": opts.profile.name, "harness_version": meta["harness_version"],
-              "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "grade": grade}
+    record: dict[str, Any] = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model,
+                              "model_resolved": meta.get("model_resolved"), "rep": rep,
+                              "harness": opts.profile.name, "harness_version": meta["harness_version"],
+                              "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "grade": grade}
+    if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
+        record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
         _write_json(rd / "result.json", record)

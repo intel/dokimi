@@ -39,6 +39,10 @@ whatever else changed between the batches. A cell answered by another model
 than it asked for is warned about as in ``repo report``. An image ``repo run``
 tagged from the tree's own revision follows the tree, so it is compared only
 against an ``--image`` given explicitly.
+
+A treatment arm that added a file or an MCP server (``result.json``
+``uptake``) whose agents used it in none of their cells is warned about too: its
+deltas measure the patch's text (a guidance line, say), not the tool.
 """
 
 from __future__ import annotations
@@ -53,7 +57,7 @@ from typing import Any
 
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
-from .report import load_cells, mismatch_warnings, model_mismatch, model_matches, resolved_models
+from .report import load_cells, mismatch_warnings, model_mismatch, model_matches, resolved_models, uptake_counts
 
 #: Largest number of non-zero deltas whose sign-flip distribution is enumerated (2**16 patterns).
 EXACT_MAX = 16
@@ -150,7 +154,8 @@ def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, A
 
 def _provenance(batch_dirs: list[Path], cells: list[dict[str, Any]], baseline: str,
                 treatments: list[str], models: list[str] | None = None) -> dict[str, Any]:
-    """``sources`` (each selector's batches), ``stamps`` (each batch's pin and harness versions), ``warnings``."""
+    """``sources`` (each selector's batches), ``stamps`` (each batch's pin and harness versions), ``uptake`` (each
+    treatment's cells that used what its arm added), ``warnings``."""
     names = [d.resolve().name for d in batch_dirs]
     stamps = {name: {**batch_stamp(d), "harness_versions": sorted({str(c.get("harness_version"))
                                                                    for c in cells if c["batch"] == name}),
@@ -158,7 +163,9 @@ def _provenance(batch_dirs: list[Path], cells: list[dict[str, Any]], baseline: s
               for d, name in zip(batch_dirs, names, strict=True)}
     sources = {text: sorted({c["batch"] for c in cells if selector_matches(parse_selector(text), c)})
                for text in [baseline, *treatments]}
-    return {"sources": sources, "stamps": stamps,
+    uptake = {text: uptake_counts([c for c in cells if selector_matches(parse_selector(text), c)
+                                   and (not models or c["model"] in models)]) for text in treatments}
+    return {"sources": sources, "stamps": stamps, "uptake": {k: v for k, v in uptake.items() if v is not None},
             "warnings": _provenance_warnings(cells, baseline, treatments, sources, stamps, models)}
 
 
@@ -215,6 +222,10 @@ def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments:
             if base and treat and not _models_equivalent(base, treat):
                 out.append(f"{text} vs {baseline}: model {model} was answered by {', '.join(sorted(base))} in "
                            f"baseline, {', '.join(sorted(treat))} in treatment")
+        uptake = uptake_counts(arms[1])
+        if uptake and uptake["cells"] and not uptake["used"]:
+            out.append(f"{text}: the agent used none of what the arm added in {uptake['cells']} cell(s); "
+                       "a delta measures the patch's text, not the tool")
     compared = [c for c in cells if (not models or c["model"] in models)
                 and any(selector_matches(parse_selector(sel), c) for sel in (baseline, *treatments))]
     return out + mismatch_warnings(model_mismatch(compared))
@@ -404,6 +415,8 @@ def format_compare(summary: dict[str, Any]) -> str:
             + (f" and {len(summary['unpaired']) - len(shown)} more" if len(summary["unpaired"]) > 10 else ""))
     if summary["missing"]:
         lines.append(f"{len(summary['missing'])} cells missing (no result.json): `repo report` lists them")
+    lines += [f"uptake: {text} used what its arm added in {u['used']}/{u['cells']} cell(s)"
+              for text, u in summary.get("uptake", {}).items()]
     lines += [f"warning: {w}" for w in summary["warnings"]]
     return "\n".join(lines)
 
