@@ -355,7 +355,7 @@ def test_odd_manifests_do_not_crash(tmp_path, files):
     _repo(tmp_path, {"AGENTS.md": "x", **files})
     payload = inspect_repo(WorkTree(tmp_path))
     assert [i["path"] for i in payload["instructions"]] == ["AGENTS.md"]
-    assert "checks.test.missing" in {f["rule"] for f in payload["findings"]}
+    validate_artifact("repo_environment", {"schema_version": "repo_environment.v1", **payload})
 
 
 @pytest.mark.parametrize("files", [
@@ -460,7 +460,7 @@ def test_deeply_nested_yaml_does_not_crash(tmp_path):
     _repo(tmp_path, {"AGENTS.md": "x", ".pre-commit-config.yaml": "[" * 100000})
     payload = inspect_repo(WorkTree(tmp_path))
     assert [i["path"] for i in payload["instructions"]] == ["AGENTS.md"]
-    assert "checks.test.missing" in {f["rule"] for f in payload["findings"]}
+    validate_artifact("repo_environment", {"schema_version": "repo_environment.v1", **payload})
 
 
 def test_npm_install_1mb_completes_quickly(tmp_path):

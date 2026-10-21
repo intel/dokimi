@@ -1,0 +1,36 @@
+{
+    "id": "dc956a25-5ddc-4f9c-800f-631e455bd3ee",
+    "started_at": "2026-10-06T14:39:30.617217",
+    "finished_at": "2026-10-06T14:39:56.636837",
+    "n_total_trials": 1,
+    "stats": {
+        "n_completed_trials": 1,
+        "n_errored_trials": 1,
+        "n_running_trials": 0,
+        "n_pending_trials": 0,
+        "n_cancelled_trials": 0,
+        "n_retries": 0,
+        "evals": {
+            "claude-code__us.anthropic.claude-haiku-4-5-20251001-v1:0__adhoc": {
+                "n_trials": 0,
+                "n_errors": 1,
+                "metrics": [
+                    {
+                        "mean": 0.0
+                    }
+                ],
+                "pass_at_k": {},
+                "reward_stats": {},
+                "exception_stats": {
+                    "NonZeroAgentExitCodeError": [
+                        "onetbb-transpose__SizQxqz"
+                    ]
+                }
+            }
+        },
+        "n_input_tokens": null,
+        "n_cache_tokens": null,
+        "n_output_tokens": null,
+        "cost_usd": null
+    }
+}

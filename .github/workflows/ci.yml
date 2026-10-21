@@ -51,7 +51,7 @@ jobs:
   # install runs even when an earlier one fails (!cancelled()), so one finding
   # does not hide the next.
   static:
-    name: Static checks (ruff, schema, zizmor, license headers, pre-commit, bandit, pip-audit)
+    name: Static checks (ruff, schema, zizmor, license headers, pre-commit, bandit)
     runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -70,7 +70,7 @@ jobs:
       - name: Install tools
         run: |
           pip install ruff==0.17.0 zizmor==1.30.1 pre-commit==4.6.2
-          pip install bandit==1.9.4 pip-audit==2.10.1 PyYAML jsonschema
+          pip install bandit==1.9.4 PyYAML jsonschema
       # Lint only: most of the tree predates the formatter (205 of 276 files would
       # be rewritten), so a format gate would mean a repo-wide reformat first.
       - name: ruff check
@@ -114,30 +114,12 @@ jobs:
         env:
           SKIP: ruff-check,zizmor,gitleaks
         run: pre-commit run --all-files --show-diff-on-failure --color always
-      # bandit and pip-audit hold the baseline SECURITY.md describes: no
-      # Medium/High Bandit finding, and no dependency advisory beyond the ones it
-      # lists.
+      # bandit holds the baseline SECURITY.md describes: no Medium/High finding.
+      # The dependency audit is pip-audit.yml: it runs when a lock changes and
+      # daily, so a new advisory does not fail PRs that leave the locks alone.
       - name: bandit
         if: ${{ !cancelled() }}
         run: bandit -r . -ll -q
-      # The locks are the full closure (requirements-docs.lock.txt for the
-      # documentation site), so --no-deps --disable-pip audits them as written
-      # without resolving or installing anything. Each --ignore-vuln is
-      # an advisory SECURITY.md documents and dokimi/osv-scanner.toml ignores;
-      # add or drop them together, in all three.
-      # pip-audit skips a pin whose marker is false on this 3.13 runner (the
-      # pins for older interpreters, for one), so markers are stripped, a pin
-      # both locks share is kept once, and a name pinned twice goes to a second file.
-      - name: pip-audit
-        if: ${{ !cancelled() }}
-        run: |
-          sed 's/ *;.*//' requirements.lock.txt requirements-docs.lock.txt | sort -u \
-            | awk -F'==' '/^[A-Za-z0-9]/ { print > (ENVIRON["RUNNER_TEMP"] "/pins" seen[$1]++ ".txt") }'
-          for f in "$RUNNER_TEMP"/pins*.txt; do
-            pip-audit -r "$f" --no-deps --disable-pip --progress-spinner off \
-              --ignore-vuln PYSEC-2026-2447 \
-              --ignore-vuln PYSEC-2026-3046
-          done
 
   typecheck:
     name: mypy
@@ -200,7 +182,8 @@ jobs:
       # Offline by construction: pytest-socket (addopts in pyproject.toml) fails
       # any test that opens a network socket. --outcomes also checks the user
       # outcomes in tests/outcomes/: an evidence id that no test claims fails the
-      # job even when every test passes. -n auto: one pytest-xdist worker
+      # job even when every test passes. It also checks the journey trace
+      # (tests/outcomes/journeys.yaml) and writes the journey coverage report. -n auto: one pytest-xdist worker
       # per CPU. Coverage on the coverage leg only: one report is gated and
       # uploaded, and 3.14 traces through sys.monitoring, where the tracer costs
       # the least (the suite with --cov-branch takes about 40% longer on 3.11-3.13).
@@ -209,9 +192,9 @@ jobs:
           COVERAGE: ${{ matrix.coverage }}
         run: |
           if [ "$COVERAGE" = true ]; then
-            pytest -n auto --outcomes --outcomes-report=outcomes-result.json --cov=dokimi --cov-branch --cov-report=term --cov-report=xml
+            pytest -n auto --outcomes --outcomes-report=outcomes-result.json --journeys-report=journeys-result.json --cov=dokimi --cov-branch --cov-report=term --cov-report=xml
           else
-            pytest -n auto --outcomes --outcomes-report=outcomes-result.json
+            pytest -n auto --outcomes --outcomes-report=outcomes-result.json --journeys-report=journeys-result.json
           fi
       # Coverage of the lines this PR changes, not of the whole tree: the total
       # moves too little per PR to gate on, an untested new function does not.
@@ -245,6 +228,8 @@ jobs:
             dokimi/diff-cover.json
             dokimi/diff-cover.md
             dokimi/outcomes-result.json
+            dokimi/journeys-result.json
+            dokimi/journeys-result.md
           if-no-files-found: ignore
       # Trend, PR comment and badge. Informational only (codecov.yml): the gate
       # is the changed-lines step above, and a Codecov outage does not fail CI.
