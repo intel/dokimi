@@ -908,7 +908,8 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   on a rerun unless `--force`; a cell without one is reported as missing, not
   failed, and the next run of the batch fills it. A batch stays on the eval
   tree it started with: its revision, or for a working tree the digests of
-  its `eval_dir` and of the image build context.
+  its `eval_dir` and of the image build context. A batch with a task that
+  names a `dokimi:` grader also stays on the built-in graders' sources.
 - The agent's container mounts the workspace, the per-run `home`, `config` and
   scratch directories (each `image.env` value under `{run_dir}/`), the caches,
   the harness executable (`--bin`, read-only at `/eval/harness`) and the
@@ -947,10 +948,10 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   arm and score-only in the other, or a measure (such as a metric) one arm
   lacks. A metric's `n_baseline`/`n_treatment` count the cells that report it.
   The output names the batches behind each selector and each batch's pin
-  (`tree`, `eval_dir`, `image` from `_eval/batch.json`) with its cells'
+  (`tree`, `eval_dir`, `image`, `graders` from `_eval/batch.json`) with its cells'
   harness versions, and warns when a bare `ARM` pools several batches, when a
   batch of a comparison has no pin, or when the two arms ran from different
-  `eval_dir` or `image` pins or harness versions. An image `repo run` tagged
+  `eval_dir`, `image` or `graders` pins or harness versions. An image `repo run` tagged
   from the tree (`dokimi/<id>:<sha>`) follows the tree, so two revisions are
   not warned about it; an `--image` of its own is compared. `repo report` warns
   (`model_mismatch` in its summary) when a cell's `model_resolved` is another

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from dokimi.repos.manifest import RepoManifest
     from dokimi.repos.workspace import Arm
 
 
@@ -61,8 +62,10 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     elif not runner.image_exists(image):
         raise ValueError(f"--image {image} does not exist")
     if pin:
-        _pin_batch(out, {"tree": tree.label, "eval_dir": context_digest(staged), "image": image,
-                            "graders": graders_digest()})
+        stamp = {"tree": tree.label, "eval_dir": context_digest(staged), "image": image}
+        if _uses_builtin_graders(staged, manifest):  # else no score depends on them: an upgrade keeps the batch
+            stamp["graders"] = graders_digest()
+        _pin_batch(out, stamp)
         shutil.rmtree(content, ignore_errors=True)
         staged.rename(content)
     if not args.image and (args.rebuild_image or not runner.image_exists(image)):
@@ -104,6 +107,18 @@ def context_digest(root: Path) -> str:
         elif path.is_dir():
             h.update(f"D {rel}\0".encode())
     return h.hexdigest()
+
+
+def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
+    """Whether a task of the exported eval dir names a ``dokimi:`` grader; an unreadable task.json counts."""
+    from dokimi.repos.graders import builtin_name
+    from dokimi.repos.workspace import load_tasks
+
+    try:
+        tasks = load_tasks(content, manifest)
+    except (OSError, ValueError):
+        return True
+    return any(isinstance(t.raw, dict) and builtin_name(t.raw.get("grader")) is not None for t in tasks)
 
 
 def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:

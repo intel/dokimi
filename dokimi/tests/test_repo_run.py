@@ -328,7 +328,7 @@ def test_a_working_tree_batch_keeps_its_eval_dir(setup, capsys):
     grader.write_text(original)  # back on the tree the batch started with
     _run(setup, "--arm", "guidance:raw", "--task", "review_add", source=str(root))
     assert (batch / "review_add__guidance-raw__m-1__r1/result.json").is_file()
-    assert set(json.loads((batch / "_eval/batch.json").read_text())) == {"tree", "eval_dir", "image", "graders"}
+    assert set(json.loads((batch / "_eval/batch.json").read_text())) == {"tree", "eval_dir", "image"}
 
 
 def test_the_host_never_writes_or_reads_through_a_link_the_grader_left(setup, tmp_path, capsys):
@@ -596,15 +596,38 @@ def test_a_cell_whose_result_cannot_be_written_is_still_charged(setup, monkeypat
 
 
 
-def test_a_batch_refuses_resume_after_a_built_in_grader_changes(setup, monkeypatch, capsys):
+def test_a_batch_refuses_resume_after_a_built_in_grader_changes_only_if_a_task_names_one(setup, monkeypatch,
+                                                                                         capsys):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
-    monkeypatch.setattr("dokimi.commands.repo_run.graders_digest", lambda: "edited", raising=False)
     monkeypatch.setattr("dokimi.repos.graders.graders_digest", lambda: "edited")
+    _run(setup, "--arm", "guidance:none", "--task", "fix_add")  # no task names one: no score depends on them
+    assert "graders" not in json.loads((setup["out"] / "b1/_eval/batch.json").read_text())
+    root = setup["root"]
+    shutil.copytree(root / ".agent-eval/tasks/review_add", root / ".agent-eval/tasks/seeds_add")
+    task = root / ".agent-eval/tasks/seeds_add/task.json"
+    task.write_text(json.dumps({**json.loads(task.read_text()), "grader": "dokimi:review_seeds"}))
+    (task.parent / "manifest.json").write_text(json.dumps({"seeds": [], "decoys": []}))
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "a built-in task")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--batch", "b2")
+    assert json.loads((setup["out"] / "b2/_eval/batch.json").read_text())["graders"] == "edited"
+    monkeypatch.setattr("dokimi.repos.graders.graders_digest", lambda: "edited again")
     with pytest.raises(SystemExit):
-        _run(setup, "--arm", "guidance:raw", "--task", "review_add")
+        _run(setup, "--arm", "guidance:none", "--task", "fix_add", "--batch", "b2")
     err = capsys.readouterr().err
     assert "graders" in err and "use another --batch" in err
-    assert not list((setup["out"] / "b1").glob("review_add__*"))
+    assert not list((setup["out"] / "b2").glob("fix_add__guidance-none__*"))
+
+
+@pytest.mark.parametrize(("text", "pinned"), [("{", True), ("[]", False)])
+def test_a_task_json_the_pin_cannot_read_pins_the_graders_and_a_non_object_one_does_not(setup, text, pinned):
+    d = setup["root"] / ".agent-eval/tasks/zz_other"
+    d.mkdir()
+    (d / "task.json").write_text(text)
+    git(setup["root"], "add", "-A")
+    git(setup["root"], "commit", "-qm", "an unreadable task the batch does not run")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert ("graders" in json.loads((setup["out"] / "b1/_eval/batch.json").read_text())) is pinned
 
 
 def test_graders_digest_follows_the_grader_sources(tmp_path, monkeypatch):
