@@ -293,3 +293,35 @@ def test_reward_copy_timeout_does_not_fall_back_to_the_exit_code(tmp_path):
     result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
 
     assert (result.returncode, result.reward, result.passed) == (124, 0.0, False)
+
+
+def test_no_egress_file_when_sidecar_log_unknown(tmp_path):
+    """An unreadable sidecar log writes no egress.jsonl: an empty file reads as a clean run."""
+    def docker(args, log=None, *, check=True, timeout=None):
+        if args[0] == "logs":
+            return reply(stderr="boom", returncode=1)
+        return reply()
+
+    sandbox = container_mod.ContainerSandbox(network="dokimi-net-x", proxy_name="dokimi-egress-x",
+                                             allow=[], binary=None)
+    sandbox.stop_proxy(docker, None)
+    assert sandbox.log_known is False
+    sandbox.close(docker, None, tmp_path)
+
+    assert sandbox.egress_summary()["status"] == "unknown"
+    assert not (tmp_path / "egress.jsonl").exists()
+
+
+def test_stop_proxy_marks_log_known_after_unknown(tmp_path):
+    """A later successful read flips log_known back to True and the file is written."""
+    row = json.dumps({"host": "a.example", "port": 443, "decision": "allowed", "reason": "x"})
+    sandbox = container_mod.ContainerSandbox(network="n", proxy_name="p", allow=[], binary=None,
+                                             log_known=False)
+
+    def docker(args, log=None, *, check=True, timeout=None):
+        return reply(row + "\n") if args[0] == "logs" else reply()
+
+    sandbox.stop_proxy(docker, None)
+    assert sandbox.log_known is True
+    sandbox.close(docker, None, tmp_path)
+    assert "a.example" in (tmp_path / "egress.jsonl").read_text(encoding="utf-8")

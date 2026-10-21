@@ -341,13 +341,14 @@ class ContainerSandbox:
         self._stopped = True
 
     def close(self, docker: Docker, log, output_dir: Optional[Path]) -> None:
-        """Stop the sidecar, save its decisions as ``egress.jsonl``, drop the network."""
+        """Stop the sidecar, save its decisions as ``egress.jsonl``, drop the network.
+        No file when the log is unknown: an empty one would read as a clean run."""
         try:
             self.stop_proxy(docker, log)
         except subprocess.TimeoutExpired as exc:  # teardown is best-effort: go on to the network
             if log is not None:
                 log.write(f"\n[sidecar removal] timed out after {exc.timeout:g}s\n")
-        if output_dir is not None:
+        if output_dir is not None and self.log_known:
             with (output_dir / "egress.jsonl").open("w", encoding="utf-8") as fh:
                 for row in self.log:
                     fh.write(json.dumps(row) + "\n")

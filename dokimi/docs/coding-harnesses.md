@@ -245,7 +245,11 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
       (a request was denied), `ok` (the log was read and nothing was denied), or
       `unknown` (the sidecar's log timed out or failed at teardown). An
       `unknown` cell is not a clean one: its host sets are empty for lack of
-      data, and `scripts/check_smoke_runs.py` fails the run on it.
+      data, and `scripts/check_smoke_runs.py` fails the run on it. No
+      `egress.jsonl` is written for an `unknown` cell: a missing file means
+      unknown, not "no requests". `docker-probe` reads `violated` on a passing
+      cell, because the probe requests denied hosts (`example.com`) by design;
+      judge a probe by `isolation_probe.json`, not by `egress.status`.
 - **`network_mode = "public"`.** It applies to the verifier only. The
   container joins the default bridge after the agent exits. Every
   uxlfoundation/skills task declares it, and none of their solutions or tests
