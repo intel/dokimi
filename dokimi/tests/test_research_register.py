@@ -274,6 +274,23 @@ def test_export_marks_uncommitted_records(root: Path, capsys: pytest.CaptureFixt
     assert f"`{clean['commit']}` (with uncommitted changes)." in capsys.readouterr().out
 
 
+def test_export_and_render_mark_retracted(root: Path, capsys: pytest.CaptureFixture[str],
+                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(rr.subprocess, "run", lambda *a, **k: rr.subprocess.CompletedProcess(a, 0, ""))
+    _write(root, "experiment", "X003",
+           "title: Run [3] a|b\nidea: I001\nhypothesis: H\noutcome: supported\nretracted: true\n")
+    _write(root, "idea", "I002", "title: Bare (idea)\ntheme: O\nquestion: Q?\nstatus: open\n")
+    assert rr.main(["--root", str(root), "export"]) == 0
+    theme = next(t for t in json.loads(capsys.readouterr().out)["themes"] if t["id"] == "O")
+    assert theme["ideas"][0]["experiments"][2] == {"id": "X003", "outcome": "supported",
+                                                   "retracted": True}
+    assert rr.main(["--root", str(root), "render"]) == 0
+    out = capsys.readouterr().out
+    assert "        X003[X003 retracted Run 3 a|b]\n      I002[I002 Bare idea - open]\n" in out
+    assert "| O | I001 | X003 | supported, retracted | Run [3] a/b |" in out
+    assert "| O | I002 | | | Bare (idea) |" in out
+
+
 @pytest.mark.parametrize("command", ["export", "query", "render"])
 def test_output_is_utf8_under_a_legacy_code_page(root: Path, command: str) -> None:
     (root / "records" / "experiment" / "X002.md").write_text(
