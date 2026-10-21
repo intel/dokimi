@@ -158,3 +158,34 @@ def test_git_that_cannot_start_in_the_probe_workspace_is_a_reach_error(tmp_path)
     (tmp_path / "ws").mkdir()
     with pytest.raises(ReachError, match="git init in the probe workspace failed: .*git"):
         build_workspace(tree, ["CLAUDE.md"], tmp_path / "ws", "s", runner=process.FakeRunner(missing))
+
+
+# A Codex that prints AGENTS.md of its working directory with a shell command and lists its tokens.
+FAKE_CODEX_CAT = r'''
+import json, re, sys
+from pathlib import Path
+if sys.argv[1:] == ["--version"]:
+    print("codex-cli 0.160.0"); sys.exit(0)
+text = Path("AGENTS.md").read_text()
+print(json.dumps({"type": "item.completed", "item": {"id": "1", "type": "command_execution",
+      "command": "/bin/bash -lc 'cat AGENTS.md'", "exit_code": 0, "aggregated_output": text}}))
+print(json.dumps({"type": "item.completed", "item": {"id": "2", "type": "agent_message",
+      "text": "\n".join(re.findall(r"RC[0-9A-F]{6}", text))}}))
+print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1, "output_tokens": 1}}))
+'''
+
+
+def test_a_shell_read_in_a_cwd_scenario_is_the_file_of_that_directory(tmp_path):
+    # Codex and Copilot report `cat AGENTS.md` with no directory: in cwd=sub it printed sub/AGENTS.md
+    script = tmp_path / "fake_codex.py"
+    script.write_text(FAKE_CODEX_CAT, encoding="utf-8")
+    profile = _profile(tmp_path, trace="codex-json", guidance={"names": ["AGENTS.md"]},
+                       version_cmd=["{bin}", str(script), "--version"],
+                       invoke=["{bin}", str(script), "{prompt}", "{tools}"])
+    tree = WorkTree(_repo(tmp_path))
+    (tmp_path / "work").mkdir()
+    payload = run_reach(tree=tree, manifest=load_manifest(tree, "evals/repo-eval.yaml"),
+                        profile=load_profile(profile), model="m", out_dir=tmp_path / "out",
+                        work_dir=tmp_path / "work", salt="s", only=("cwd=sub",))
+    m = payload["summary"]["matrix"]
+    assert m["sub/AGENTS.md"] == {"cwd=sub": "fetched"} and m["AGENTS.md"] == {"cwd=sub": "not_loaded"}
