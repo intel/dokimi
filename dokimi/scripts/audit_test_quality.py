@@ -87,6 +87,8 @@ _MOCK_VERIFY_UNCALLED = _MOCK_VERIFY_METHODS | {
     "assert_called_with", "assert_called_once_with", "assert_any_call", "assert_has_calls",
 }
 # "It was called" checks no outcome; "it was not called" is an absence, which is one.
+# Deliberately not flagged: assert_not_called in a skip test, a bare ensure_* call (no
+# assert; the absence of an error is the outcome) and call_count on a real object (data).
 _CALL_ONLY_METHODS = _MOCK_VERIFY_METHODS - {"assert_not_called", "assert_not_awaited"}
 # len(x) > 0 and its spellings only say "x is non-empty".
 _NONEMPTY_LEN = frozenset({(ast.Gt, 0), (ast.GtE, 1), (ast.NotEq, 0)})
