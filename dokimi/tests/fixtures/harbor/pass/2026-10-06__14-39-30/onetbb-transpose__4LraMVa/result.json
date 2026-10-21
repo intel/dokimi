@@ -1,0 +1,37 @@
+{
+    "task_name": "onetbb-transpose",
+    "trial_name": "onetbb-transpose__4LraMVa",
+    "source": "tasks",
+    "agent_info": {
+        "name": "claude-code",
+        "version": "2.1.286",
+        "model_info": {
+            "name": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "provider": null
+        }
+    },
+    "agent_result": {
+        "n_input_tokens": 234573,
+        "n_cache_tokens": 231270,
+        "n_output_tokens": 2335,
+        "cost_usd": 0.03891800000000001,
+        "model_usage": {
+            "anthropic.claude-haiku-4-5-20251001-v1:0": {
+                "n_input_tokens": 234573,
+                "n_cache_tokens": 231270,
+                "n_output_tokens": 2335,
+                "cost_usd": 0.038918
+            }
+        },
+        "rollout_details": null,
+        "metadata": null
+    },
+    "verifier_result": {
+        "rewards": {
+            "reward": 1.0
+        }
+    },
+    "exception_info": null,
+    "started_at": "2026-10-06T21:39:12.373525Z",
+    "finished_at": "2026-10-06T21:42:12.312522Z"
+}

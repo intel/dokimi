@@ -123,6 +123,7 @@ def test_plugin_handles_no_terminal_reporter(tmp_path, monkeypatch):
     contract_dir = tmp_path / "contracts"
     contract_dir.mkdir()
     monkeypatch.setattr(plugin, "CONTRACT_DIR", contract_dir)
+    monkeypatch.setattr(plugin, "REGISTRY", None)
     monkeypatch.setattr(plugin, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(plugin, "_results", {"ev1": ["passed"]})
     (tmp_path / "doc.md").write_text("## Test", encoding="utf-8")
@@ -148,6 +149,7 @@ def test_inner_session_exit_code(pytester, monkeypatch, body, verdict, ret):
     (contracts / "c.json").write_text(json.dumps(
         {"id": "C", "intent_refs": ["doc.md#test"], "evidence_ids": ["ev"]}), encoding="utf-8")
     monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REGISTRY", None)
     monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
     monkeypatch.setattr(plugin, "_results", {})
     pytester.makepyfile(f"import pytest\n\n@pytest.mark.outcome('ev')\ndef test_a():\n    {body}\n")
@@ -163,6 +165,7 @@ def test_inner_session_unclaimed_id_is_error(pytester, monkeypatch):
     (contracts / "c.json").write_text(json.dumps(
         {"id": "C", "intent_refs": ["doc.md#test"], "evidence_ids": ["ev"]}), encoding="utf-8")
     monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REGISTRY", None)
     monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
     monkeypatch.setattr(plugin, "_results", {})
     pytester.makepyfile("def test_a():\n    assert True\n")
@@ -181,6 +184,7 @@ def test_contract_with_mixed_evidence_ids(pytester, monkeypatch):
         "evidence_ids": ["ev_a", "ev_b"]  # ev_a claimed+passing, ev_b unclaimed
     }), encoding="utf-8")
     monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REGISTRY", None)
     monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
     monkeypatch.setattr(plugin, "_results", {})
     pytester.makepyfile("import pytest\n\n@pytest.mark.outcome('ev_a')\ndef test_a():\n    assert True\n")
@@ -199,6 +203,7 @@ def test_passing_claimed_test_with_unrelated_failing_test(pytester, monkeypatch)
         "evidence_ids": ["ev"]
     }), encoding="utf-8")
     monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REGISTRY", None)
     monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
     monkeypatch.setattr(plugin, "_results", {})
     pytester.makepyfile(
@@ -225,6 +230,7 @@ def test_contract_with_missing_implementation_ref(pytester, monkeypatch):
         "implementation_refs": ["missing_file.py"]  # This file doesn't exist
     }), encoding="utf-8")
     monkeypatch.setattr(plugin, "CONTRACT_DIR", contracts)
+    monkeypatch.setattr(plugin, "REGISTRY", None)
     monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
     monkeypatch.setattr(plugin, "_results", {})
     pytester.makepyfile("import pytest\n\n@pytest.mark.outcome('ev')\ndef test_a():\n    assert True\n")
@@ -241,6 +247,7 @@ def _inner_session(pytester, monkeypatch, contracts, test_source):
     for n, contract in enumerate(contracts):
         (contract_dir / f"c{n}.json").write_text(json.dumps(contract), encoding="utf-8")
     monkeypatch.setattr(plugin, "CONTRACT_DIR", contract_dir)
+    monkeypatch.setattr(plugin, "REGISTRY", None)
     monkeypatch.setattr(plugin, "REPO_ROOT", pytester.path)
     monkeypatch.setattr(plugin, "_results", {})
     pytester.makepyfile(test_source)

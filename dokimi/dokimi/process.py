@@ -1,10 +1,10 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Run one external command, with the invariants every spawn site needs.
+"""Run one external command: the only place in the package that spawns a process.
 
-Callers (git, gh, a doc snippet, a harness profile's CLI) go through :func:`run`,
-which holds these invariants:
+Every caller (git, docker, claude, harbor, bench, gh, a user's command template,
+a doc snippet) goes through :func:`run`, which holds these invariants:
 
 * **Nothing the run started outlives it**, when the call returns or raises. The
   child leads its own process group (POSIX) or job object (Windows). When the

@@ -804,7 +804,7 @@ def test_empty_golden_set_fails_the_run_and_writes_no_cache(tmp_path, monkeypatc
     assert not pipeline.questions_path.exists()
 
 
-@pytest.mark.outcome("pinned-questions-root")
+@pytest.mark.outcome("pinned-questions-root", "cjm-question-cache")
 def test_cached_set_wins_over_questions_root_until_force_regen(tmp_path, monkeypatch):
     questions_root = tmp_path / "questions"
     _write_json(questions_root / "demo_golden.json", {"questions": [{"id": "g1", "question": "Golden?"}]})
@@ -852,7 +852,7 @@ def test_questions_from_does_not_warn_that_questions_are_generated(tmp_path, cap
     assert "questions will be generated" not in caplog.text
 
 
-@pytest.mark.outcome("pinned-questions-warn")
+@pytest.mark.outcome("pinned-questions-warn", "cjm-question-cache")
 def test_cached_questions_differing_from_golden_warns(tmp_path, monkeypatch, caplog):
     """When cached question ids differ from golden ids, a warning is logged."""
     _stub_expensive_steps(monkeypatch)
