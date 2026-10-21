@@ -12,18 +12,14 @@ name: conda-forge
 # PRs that can change them.
 on:
   pull_request:
-    paths:
+    paths: &conda-forge-paths
       - dokimi/pyproject.toml
       - dokimi/scripts/conda_forge_specs.py
       - dokimi/scripts/smoke_installed.py
       - .github/workflows/conda-forge.yml
   push:
     branches: [ main ]
-    paths:
-      - dokimi/pyproject.toml
-      - dokimi/scripts/conda_forge_specs.py
-      - dokimi/scripts/smoke_installed.py
-      - .github/workflows/conda-forge.yml
+    paths: *conda-forge-paths
   workflow_dispatch:
 
 permissions:
