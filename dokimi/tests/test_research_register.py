@@ -87,6 +87,30 @@ def test_bad_record_fails(root: Path, capsys: pytest.CaptureFixture[str],
     assert message in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("link", [
+    "https://github.com/intel/x https://example.com/secret",
+    "https://github.com/intel/../../other/repo",
+    "https://github.com/intel/x/..",
+    "https://github.com/intel/%2e%2e/other/repo",
+    "https://github.com/intel/..\\\\other/repo",
+    "https://github.com/intel/x\\nhttps://example.com/secret",
+])
+def test_link_outside_public_repos_fails(root: Path, capsys: pytest.CaptureFixture[str],
+                                         link: str) -> None:
+    _write(root, "idea", "I002",
+           f"title: T\ntheme: O\nquestion: Q\nstatus: open\nlinks: [\"{link}\"]\n")
+    assert rr.main(["--root", str(root), "check"]) == 1
+    assert "I002: $.links[0]: " in capsys.readouterr().out
+
+
+def test_public_repo_links_pass(root: Path) -> None:
+    _write(root, "idea", "I002", "title: T\ntheme: O\nquestion: Q\nstatus: open\nlinks: ["
+           "\"https://github.com/intel/dokimi/compare/main...napetrov:dokimi:research-records\", "
+           "\"https://github.com/intel/dokimi/pulls?q=is:pr+label:research#top\", "
+           "\"https://github.com/napetrov/dokimi/blob/main/docs/a_b-c.md#L1-L2\"]\n")
+    assert rr.main(["--root", str(root), "check"]) == 0
+
+
 def test_duplicate_id_fails(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (root / "records" / "idea" / "I001.md").rename(root / "records" / "idea" / "copy.md")
     _write(root, "idea", "I001", "title: Again\ntheme: O\nquestion: Q?\nstatus: open\n")
