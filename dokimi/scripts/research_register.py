@@ -162,6 +162,9 @@ def check(records: dict[str, Record], schema: dict[str, Any]) -> list[str]:
             if step == rid:
                 errors.append(f"{rid}: superseded_by chain loops back to {rid}")
         for target in ref_values(record, "experiments"):
+            if not isinstance(target, str):
+                errors.append(f"{rid}.experiments: {target!r} is not a record id")
+                continue
             if target in records and records[target].fields.get("retracted"):
                 errors.append(f"{rid}.experiments: {target} is retracted")
     return errors
@@ -233,8 +236,8 @@ OUTCOME_MARK = {"supported": "+", "refuted": "-", "inconclusive": "?", "aborted"
 
 
 def _label(text: str) -> str:
-    # Mermaid mindmap labels break on brackets and parentheses.
-    return re.sub(r"[()\[\]{}]", "", text)
+    # Mermaid mindmap labels break on brackets, parentheses and line breaks.
+    return " ".join(re.sub(r"[()\[\]{}]", "", text).split())
 
 
 def render(data: dict[str, Any]) -> str:
@@ -259,10 +262,10 @@ def render(data: dict[str, Any]) -> str:
                 lines.append(f"        {exp['id']}[{exp['id']} {mark} {_label(titles[exp['id']])}]")
                 outcome = exp["outcome"] + (", retracted" if exp["retracted"] else "")
                 rows.append(f"| {theme['id']} | {idea['id']} | {exp['id']} | {outcome} | "
-                            f"{titles[exp['id']].replace('|', '/')} |")
+                            f"{' '.join(titles[exp['id']].split()).replace('|', '/')} |")
             if not idea["experiments"]:
                 rows.append(f"| {theme['id']} | {idea['id']} | | | "
-                            f"{idea['title'].replace('|', '/')} |")
+                            f"{' '.join(idea['title'].split()).replace('|', '/')} |")
     lines += ["```", "", "| Theme | Idea | Experiment | Outcome | Title |",
               "|---|---|---|---|---|", *rows]
     return "\n".join(lines) + "\n"

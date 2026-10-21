@@ -52,7 +52,10 @@ python scripts/research_register.py render > map.md
 - `check` validates every record against its schema, its path and id prefix, and every
   reference. `tests/test_research_register.py` runs it in CI, so a broken record fails the PR.
 - `next` prints the next free id for a type. Two PRs can claim the same id; `check` reports
-  the duplicate on whichever merges second, which renumbers.
+  the duplicate on whichever merges second, which renumbers. To renumber: take the new id
+  from `next`, rename the file and change its `id:`, then rewrite every reference to the old
+  id in that PR's own records (`idea`, `experiments`, `findings`, `ideas`, `superseded_by`,
+  `decision`). Find them with `query --ref OLDID`; `check` must pass afterwards.
 - `query` lists the records matching every filter: `--where FIELD=V1,V2` matches any of the
   values, `--ref ID` keeps the records that point at `ID`. An unknown field, a clause
   without `=` or a missing `ID` exits 2. Booleans are spelled as in the records:

@@ -81,6 +81,28 @@ def test_valid_register_passes(root: Path, capsys: pytest.CaptureFixture[str]) -
     ("decision", "D002", "title: T\nstate: accepted\nextra: 1\n", "Unevaluated properties"),
     ("implref", "R001", "title: T\ndecision: D001\nstatus: open\nlinks: []\nextra: 1\n",
      "Unevaluated properties"),
+    ("finding", "F002", "title: T\nexperiments: [X009]\nconfidence: low\n", "no record X009"),
+    ("finding", "F002", "title: T\nexperiments: [I001]\nconfidence: low\n",
+     "I001 is idea, want experiment"),
+    ("finding", "F002", "title: T\nexperiments: [[X001]]\nconfidence: low\n",
+     "F002.experiments: ['X001'] is not a record id"),
+    ("finding", "F002", "title: T\nexperiments: [{a: 1}]\nconfidence: low\n",
+     "F002.experiments: {'a': 1} is not a record id"),
+    ("decision", "D002", "title: T\nfindings: [F009]\nstate: accepted\n", "no record F009"),
+    ("decision", "D002", "title: T\nfindings: [X001]\nstate: accepted\n",
+     "X001 is experiment, want finding"),
+    ("decision", "D002", "title: T\nideas: [I009]\nstate: accepted\n", "no record I009"),
+    ("decision", "D002", "title: T\nideas: [F001]\nstate: accepted\n",
+     "F001 is finding, want idea"),
+    ("decision", "D002", "title: T\nstate: superseded\nsuperseded_by: D009\n",
+     "no record D009"),
+    ("decision", "D002", "title: T\nstate: superseded\nsuperseded_by: F001\n",
+     "F001 is finding, want decision"),
+    ("implref", "R001", "title: T\ndecision: D009\nstatus: open\nlinks: []\n", "no record D009"),
+    ("implref", "R001", "title: T\ndecision: F001\nstatus: open\nlinks: []\n",
+     "F001 is finding, want decision"),
+    ("implref", "R001", "title: T\ndecision: [[D001]]\nstatus: open\nlinks: []\n",
+     "is not of type 'string'"),
 ])
 def test_bad_record_fails(root: Path, capsys: pytest.CaptureFixture[str],
                           kind: str, rid: str, front: str, message: str) -> None:
@@ -340,3 +362,16 @@ def test_render_map(root: Path, capsys: pytest.CaptureFixture[str],
            "        X002[X002 + Run 2]\n```" in out
     assert "| O | I001 | X001 | refuted | Run 1 |" in out
     assert "from commit `unknown`" in out
+
+
+def test_render_flattens_multiline_title(root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _write(root, "idea", "I002",
+           "title: >\n  Folded title\n  over lines\ntheme: O\nquestion: Q?\nstatus: open\n")
+    _write(root, "experiment", "X003",
+           "title: >\n  Run\n  split\nidea: I002\nhypothesis: H\noutcome: refuted\n")
+    assert rr.main(["--root", str(root), "render"]) == 0
+    out = capsys.readouterr().out
+    assert "I002[I002 Folded title over lines - open]" in out
+    assert "X003[X003 - Run split]" in out
+    assert all(line.count("[") == line.count("]") for line in out.splitlines())
+    assert "| O | I002 | X003 | refuted | Run split |" in out
