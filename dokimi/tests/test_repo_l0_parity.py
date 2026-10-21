@@ -595,6 +595,17 @@ def test_unreadable_build_inputs_warn_and_mark_the_scan_incomplete(tmp_path):
     assert any(w.startswith("build file not scanned: third_party/zlib.BUILD: ") for w in payload["warnings"])
 
 
+def test_an_unread_bazelrc_import_of_any_name_marks_the_scan_incomplete(tmp_path):
+    agents = _fence("bash", "bazel build --config=ci //:x") + "\n"
+    files = {"BUILD": "", ".bazelrc": "import %workspace%/tools/ci.rc\n", "tools/ci.rc": "build:ci --x\n\0"}
+    payload = _scan(tmp_path, agents, files)
+    assert _verdicts(payload)[("bazel_config", "ci")] == "unresolved"
+    assert payload["incomplete"] is True
+    assert [w for w in payload["warnings"] if w.startswith("build file not scanned: ")] == [
+        "build file not scanned: tools/ci.rc: binary (a NUL byte)"
+    ]
+
+
 @pytest.mark.parametrize(
     "cmd",
     [

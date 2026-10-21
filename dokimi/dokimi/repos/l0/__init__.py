@@ -90,7 +90,9 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
 
     warnings, incomplete = _coverage_warnings(tree, manifest, files)
     warnings += [f"guidance file not scanned: {f}: {why}" for f, why in skipped.items()]
-    unread = {f: why for f, why in sorted(scan.unread.items()) if f not in skipped and _is_build_input(f)}
+    rc_files = scan.cached("bazel", dict).get("unread", {})  # `.bazelrc` imports, whatever their names
+    unread = {f: why for f, why in sorted(scan.unread.items())
+              if f not in skipped and (_is_build_input(f) or f in rc_files)}
     warnings += [f"build file not scanned: {f}: {why}" for f, why in unread.items()]
     incomplete = incomplete or bool(skipped) or bool(unread)
     sha = getattr(tree, "sha", None)
