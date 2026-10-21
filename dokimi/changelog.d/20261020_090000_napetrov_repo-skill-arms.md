@@ -5,7 +5,9 @@
   every skill in a directory. `result.json` records `skills`
   (`skills_used`, `skill_invoked`, `skill_selected_correct`) and the agent's
   cache read/write token counts. `repo tasks check --arm` rejects a skill
-  path that does not exist.
+  path that does not exist, and a skill whose `SKILL.md` `name` differs from its
+  directory name. The arm is named by the directory (`skill:lint`), so
+  `repo compare` can select it.
 - **`args_if_present` in harness profiles** — arguments appended only when a
   file exists in the workspace and the tool mode is `all`.
 

@@ -285,3 +285,14 @@ def test_claude_code_gets_mcp_config_only_when_the_workspace_has_the_file(tmp_pa
         assert ("--mcp-config" in agent[0]) is with_mcp
         if with_mcp:
             assert agent[0][agent[0].index("--mcp-config") + 1] == ".mcp.json"
+
+
+def test_a_skill_whose_frontmatter_name_differs_from_its_directory_is_refused(tmp_path):
+    _skill(tmp_path, "skills/lint", "pretty-lint")  # the agent would call it pretty-lint; usage matches on "lint"
+    _skill(tmp_path, "skills/format", "format")
+    with pytest.raises(ArmError, match="named 'pretty-lint', but its directory is 'lint'"):
+        resolve_skills(parse_arm("skill:skills/lint"), tmp_path)
+    with pytest.raises(ArmError, match="named 'pretty-lint'"):
+        resolve_skills(parse_arm("skill-catalog:skills"), tmp_path)
+    write(tmp_path, "skills/bare/SKILL.md", "No frontmatter.\n")  # no name: the directory names it
+    assert [s.name for s in resolve_skills(parse_arm("skill:skills/bare"), tmp_path)] == ["bare"]
