@@ -1,0 +1,359 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Trace links for the acceptance criteria of docs/user-journeys/journeys.md.
+# The criterion text lives in that page only; this file says, per criterion,
+# what is delivered, which CLI surfaces serve it (resolved against
+# build_parser()), and which tests are its evidence (`@pytest.mark.outcome`
+# ids, the same mechanism as the *.json contracts beside this file).
+#
+# enforce: true makes `pytest --outcomes` fail when the evidence is missing,
+# fails, is all skipped, or (for a cli_scenario) never invoked the declared
+# surface. Only enforce what is implemented. A documented criterion with no
+# entry, or with enforce: false, is reported as unverified and fails nothing.
+# Field meanings: docs/user-journeys/traceability.md.
+schema: 1
+catalog: docs/user-journeys/journeys.md
+
+criteria:
+  # ---------------------------------------------------------------- J10
+  AC-J10-001:
+    delivery: available
+    enforce: true
+    capability: question-set-pinning
+    surfaces: ["benchmark run --questions-root", "benchmark run --multi-run"]
+    outcome: OUTCOME-PINNED-QUESTIONS
+    refs: [docs/user-flow.md#4-reuse-same-question-set-for-fair-comparison, dokimi/orchestrator/pipeline.py]
+    evidence:
+      - {id: pinned-questions-root, kind: integration, stubs: [persona discovery, answer and eval model calls]}
+      - {id: pinned-questions-reuse, kind: integration, stubs: [the per-run pipeline (its arguments are recorded)]}
+    scope: offline; the pipeline's model steps are stubbed, so this shows which questions reach them, not answer quality
+  AC-J10-002:
+    delivery: available
+    enforce: true
+    capability: question-set-pinning
+    surfaces: ["benchmark run --questions-from"]
+    outcome: OUTCOME-PINNED-QUESTIONS
+    evidence:
+      - {id: pinned-questions-from, kind: integration, stubs: [answer and eval model calls]}
+  AC-J10-003:
+    delivery: available
+    enforce: true
+    capability: question-set-pinning
+    surfaces: ["benchmark preflight --questions-from", "benchmark preflight --questions-root"]
+    outcome: OUTCOME-PINNED-QUESTIONS
+    evidence:
+      - {id: pinned-questions-preflight, kind: integration, stubs: [API key environment]}
+  AC-J10-004:
+    delivery: available
+    enforce: true
+    capability: question-set-pinning
+    outcome: OUTCOME-PINNED-QUESTIONS
+    evidence:
+      - {id: pinned-questions-warn, kind: integration, stubs: [question generation]}
+  AC-J10-005:
+    delivery: available
+    enforce: true
+    capability: run-comparability
+    surfaces: ["report model-compare --run-ids"]
+    refs: [dokimi/report/model_compare.py]
+    evidence:
+      - {id: cjm-question-set-hash-warn, kind: unit, stubs: []}
+    gaps: ["a warning, not a refusal; the CLI path that prints it is not exercised by this evidence"]
+  AC-J10-006:
+    delivery: available
+    enforce: true
+    capability: question-set-pinning
+    surfaces: ["benchmark run --force-regen"]
+    refs: [dokimi/orchestrator/pipeline.py]
+    evidence:
+      - {id: cjm-question-cache, kind: integration, stubs: [answer and eval model calls]}
+  AC-J10-007:
+    delivery: available
+    enforce: true
+    capability: run-comparability
+    refs: [dokimi/report/model_compare.py]
+    evidence:
+      - {id: cjm-arm-digest-refused, kind: unit, stubs: []}
+  AC-J10-008:
+    delivery: proposed
+    gaps: ["no experiment declaration with variants beyond arms and models; confounds are only the checks above"]
+
+  # ---------------------------------------------------------------- J4
+  AC-J04-001:
+    delivery: available
+    enforce: true
+    capability: guidance-static-check
+    surfaces: ["repo scan --fail-on-fail"]
+    refs: [docs/repo-evaluation-contract.md#8-l0-scan-repo_readinessv1, dokimi/commands/repo.py]
+    evidence:
+      - id: cjm-repo-scan
+        kind: cli_scenario
+        invokes: ["repo scan --manifest-file --out", "repo scan --fail-on-fail"]
+        stubs: []
+    scope: a toy git repository fixture; real scan code, no network
+  AC-J04-003:
+    delivery: available
+    enforce: true
+    capability: guidance-reach
+    surfaces: ["repo reach --dry-run", "repo reach --budget"]
+    refs: [docs/repo-evaluation-contract.md#7-reach-probe-guidance_reachv1]
+    evidence:
+      - id: cjm-repo-reach
+        kind: cli_scenario
+        invokes: ["repo reach --dry-run", "repo reach --scenarios --out", "repo reach --budget"]
+        stubs: [harness (fake executable behind a harness profile), model]
+    scope: the fake harness reads files by rule; this shows the measurement and artifact, not any real harness's loading behaviour
+  AC-J04-004:
+    delivery: partial
+    enforce: false
+    capability: guidance-reach
+    evidence:
+      - {id: cjm-repo-reach-harness-failure, kind: integration, stubs: [harness (fake executable)]}
+    gaps:
+      - a failed harness is recorded as error; a refusal is not
+      - "a token-free refusal is classified not_loaded (repos/reach.py classify), the same as a file that was not reached; the refusal test asserts only the prose warning"
+  AC-J04-006:
+    delivery: partial
+    enforce: false
+    capability: guidance-task-impact
+    surfaces: ["repo run --arm", "repo compare --baseline"]
+    gaps:
+      - no test or recorded run asserts an effect claim of guidance on tasks
+      - needs Docker, a harness and paid agent runs; not run to fill this row
+  AC-J04-005:
+    delivery: proposed
+    gaps: ["no adherence measurement exists"]
+
+  # ---------------------------------------------------------------- J3
+  AC-J03-001:
+    delivery: available
+    enforce: true
+    capability: guidance-static-check
+    surfaces: ["repo scan --fail-on-fail"]
+    evidence:
+      - id: cjm-repo-scan
+        kind: cli_scenario
+        invokes: ["repo scan --manifest-file --out", "repo scan --fail-on-fail"]
+        stubs: []
+  AC-J03-003:
+    delivery: available
+    enforce: true
+    capability: repo-batch-resume
+    surfaces: ["repo run --force"]
+    evidence:
+      - id: cjm-repo-run-resume
+        kind: cli_scenario
+        invokes: ["repo run --force"]
+        stubs: [Docker (FakeRunner), agent (fake harness executable)]
+  AC-J03-004:
+    delivery: available
+    enforce: true
+    capability: repo-environment-limits
+    evidence:
+      - id: cjm-repo-run-egress
+        kind: cli_scenario
+        invokes: ["repo run --task --arm"]
+        stubs: [Docker (FakeRunner), agent (fake harness executable)]
+    gaps: ["egress tasks cannot run at all until the egress proxy exists"]
+  AC-J03-002:
+    delivery: available
+    enforce: false
+    surfaces: ["repo validate --manifest"]
+    gaps: ["not yet bound to a test id"]
+
+  # ---------------------------------------------------------------- J7
+  AC-J07-001:
+    delivery: available
+    enforce: true
+    capability: task-self-check
+    surfaces: ["repo tasks check --warm"]
+    refs: [docs/repo-evaluation-contract.md#43-self-check-tasks-check-no-llm, dokimi/commands/repo_run.py]
+    evidence:
+      - id: cjm-tasks-check-graders
+        kind: cli_scenario
+        invokes: ["repo tasks check --manifest --out", "repo tasks check --warm"]
+        stubs: [Docker (FakeRunner runs the task scripts on the host)]
+    scope: verifier sanity on null and oracle; says nothing about task relevance or coverage (AC-J07-004)
+  AC-J07-002:
+    delivery: available
+    enforce: true
+    capability: task-self-check
+    evidence:
+      - id: cjm-tasks-check-graders
+        kind: cli_scenario
+        invokes: ["repo tasks check --manifest --out"]
+        stubs: [Docker (FakeRunner runs the task scripts on the host)]
+  AC-J07-003:
+    delivery: available
+    enforce: true
+    capability: task-self-check
+    evidence:
+      - id: cjm-tasks-check-isolation
+        kind: cli_scenario
+        invokes: ["repo tasks check --task"]
+        stubs: [Docker (FakeRunner, with a simulated leaky image)]
+    gaps: ["isolation is checked by name and mount, against a simulated image, not a real container escape",
+           "the probe's find root (/), its /proc /sys /dev prune and the source mount are not exercised: the shim searches a small tree"]
+  AC-J07-005:
+    delivery: partial
+    enforce: false
+    capability: judge-validity
+    surfaces: ["eval judge-validity --sequential"]
+    # The test pins what happens today, which is not what the criterion asks for.
+    evidence:
+      - {id: cjm-judge-cap-inconclusive, kind: unit, stubs: [judge scores (fixed function)]}
+    gaps:
+      - "a capped, undecided run above the gate prints RESULT: PASS (inconclusive ...) and exits 0 with a warning; the criterion asks for no pass"
+  AC-J07-006:
+    delivery: proposed
+  AC-J07-007:
+    delivery: proposed
+
+  # ---------------------------------------------------------------- J11
+  AC-J11-001:
+    delivery: available
+    enforce: true
+    capability: repo-batch-report
+    evidence:
+      - id: cjm-repo-grader-crash
+        kind: cli_scenario
+        invokes: ["repo run --reps"]
+        stubs: [Docker (FakeRunner), agent (fake harness executable)]
+  AC-J11-002:
+    delivery: partial
+    enforce: false
+    capability: judge-validity
+    evidence:
+      - {id: cjm-judge-cap-inconclusive, kind: unit, stubs: [judge scores (fixed function)]}
+    gaps:
+      - "a reached cap is flagged inconclusive (conclusive: false), but the verdict line still reads PASS (inconclusive ...) and the exit code is 0, so a script reading the result sees a pass"
+  AC-J11-003:
+    delivery: available
+    enforce: true
+    capability: repo-batch-resume
+    evidence:
+      - id: cjm-repo-run-resume
+        kind: cli_scenario
+        invokes: ["repo run --force"]
+        stubs: [Docker (FakeRunner), agent (fake harness executable)]
+
+  # ---------------------------------------------------------------- J14 / J2 (novelty)
+  AC-J14-001:
+    delivery: available
+    enforce: true
+    capability: novelty
+    surfaces: ["novelty analyze --max-usd", "novelty probe --max-usd", "novelty routing --max-usd"]
+    refs: [docs/skill-novelty.md#cost-and-how-it-is-kept-down, dokimi/commands/novelty.py]
+    evidence:
+      - {id: cjm-novelty-spend-cap, kind: unit, stubs: [model client prices]}
+  AC-J14-002:
+    delivery: available
+    enforce: true
+    capability: novelty
+    surfaces: ["novelty analyze --estimate-only"]
+    evidence:
+      - {id: cjm-novelty-estimate, kind: integration, stubs: []}
+    gaps: ["the estimate is a call count and price; its error against actual spend is not measured"]
+  AC-J14-003:
+    delivery: available
+    enforce: true
+    capability: novelty
+    refs: [docs/skill-novelty-walkthrough.md]
+    evidence:
+      - id: cjm-novelty-authoring-path
+        kind: cli_scenario
+        invokes:
+          - "novelty routing --artifact --competitors --queries"
+          - "novelty analyze --estimate-only"
+          - "novelty atoms --extract-model --out"
+          - "novelty probe --atoms --model --judge-model"
+          - "novelty shorten --atoms"
+          - "novelty view --novelty"
+        stubs: [every model client (scripted transport)]
+    scope: the CLI path and its intermediate artifacts on scripted models; novelty figures here are not measurements
+  AC-J14-004:
+    delivery: available
+    enforce: true
+    capability: novelty
+    evidence:
+      - id: cjm-novelty-stale-inventory
+        kind: cli_scenario
+        invokes: ["novelty atoms --out", "novelty probe --atoms"]
+        stubs: [every model client (scripted transport)]
+  AC-J14-005:
+    delivery: available
+    enforce: false
+    capability: context-trace
+    surfaces: ["context trace --json"]
+    refs: [docs/context-window.md]
+    gaps: ["not yet bound to a test id"]
+  AC-J14-007:
+    delivery: partial
+    enforce: false
+    surfaces: ["novelty view --novelty", "repo report --json"]
+    gaps: ["no common re-render for benchmark or arms runs"]
+  AC-J02-001:
+    delivery: available
+    enforce: true
+    capability: novelty
+    evidence:
+      - id: cjm-novelty-remeasure
+        kind: cli_scenario
+        invokes: ["novelty probe --atoms --artifact"]
+        stubs: [every model client (scripted transport)]
+  AC-J02-002:
+    delivery: available
+    enforce: true
+    capability: novelty
+    evidence:
+      - id: cjm-novelty-stale-inventory
+        kind: cli_scenario
+        invokes: ["novelty atoms --out"]
+        stubs: [every model client (scripted transport)]
+  AC-J02-004:
+    delivery: partial
+    enforce: false
+    refs: [docs/skill-novelty-walkthrough.md#what-this-path-does-not-tell-you]
+    gaps: ["stated in the docs; no report joins novelty to a task-level effect"]
+  AC-J02-005:
+    delivery: proposed
+    gaps: ["before/after task runs exist separately (arms run, tasks run) but are not one step"]
+
+  # ---------------------------------------------------------------- J15
+  AC-J15-001:
+    delivery: proposed
+    gaps: ["no command drafts tasks from a chat transcript"]
+  AC-J15-002:
+    delivery: proposed
+    gaps: ["no report marks the task the skill was written from apart from the held-out tasks"]
+  AC-J15-003:
+    delivery: available
+    enforce: false
+    capability: novelty
+    surfaces: ["novelty analyze --artifact"]
+    gaps: ["covered for any skill by the J14 novelty criteria; no test runs it on a draft written from a transcript"]
+  AC-J15-004:
+    delivery: partial
+    enforce: false
+    capability: arms
+    surfaces: ["tasks run --harnesses --baseline-harness"]
+    gaps:
+      - "the three arms run in one tasks run, but no test or recorded run compares a user's skill with a self-generated one against no skill"
+      - needs Docker, BenchFlow and paid agent runs; not run to fill this row
+  AC-J15-005:
+    delivery: available
+    enforce: true
+    capability: arms
+    surfaces: ["tasks run --harnesses"]
+    evidence:
+      - {id: cjm-selfgen-named-creator, kind: unit, stubs: [bench (fake executable)]}
+    scope: the staged creator directory and the refusal are checked; BenchFlow itself is not run
+
+  # ---------------------------------------------------------------- J12
+  AC-J12-001:
+    delivery: proposed
+    gaps: ["baseline compare --strict adds a non-zero exit only on an unverified or mismatched model; a regression beyond a threshold exits 0 and no threshold is defined"]
+  AC-J12-002:
+    delivery: proposed
+    gaps: ["no configurable policy decides whether an inconclusive or budget-stopped check blocks"]

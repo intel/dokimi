@@ -45,8 +45,8 @@
   // pyproject.toml repeats the ranges of requirements.txt; pep621 keeps the two
   // in step when a range has to move (same dependency, same branch, one PR).
   // requirements-docs.lock.txt is not matched yet: its header is not uv's, and it
-  // is compiled against the main lock with -c. pip-audit in ci.yml audits it.
-  enabledManagers: ["github-actions", "pip-compile", "pep621", "pre-commit"],
+  // is compiled against the main lock with -c. pip-audit.yml audits it.
+  enabledManagers: ["github-actions", "pip-compile", "pep621", "custom.regex", "pre-commit"],
   // Off by default even when listed above. It reads `rev: <sha>  # frozen: vX`
   // and updates the SHA and the tag together.
   "pre-commit": { enabled: true },

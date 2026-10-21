@@ -167,3 +167,16 @@ def test_stacked_lock_pins_agree(base: str, name: str) -> None:
         assert not drift, (
             f"regenerate {name} after {base} with its header command ({where}): {drift}"
         )
+
+
+@pytest.mark.parametrize("name", RENOVATE_LOCKS)
+def test_lock_refresh_keeps_the_seven_day_cooldown(name: str) -> None:
+    """A refresh (`--upgrade`) must not take a release younger than a week."""
+    assert "--exclude-newer=P7D" in header_command(name), name
+
+
+def test_tools_lock_exempts_only_pins_younger_than_the_cooldown() -> None:
+    """certifi comes from the main lock (a security bump) and uv is an exact pin in requirements-ci.txt."""
+    cmd = header_command("requirements-ci.lock.txt")
+    exempt = {a.split("=", 1)[1] for a in cmd if a.startswith("--exclude-newer-package=")}
+    assert exempt == {"certifi=false", "uv=false"}, exempt

@@ -18,17 +18,6 @@ from dokimi.cli import build_parser
 from dokimi.eval.judge import JUDGE_PROVIDERS, Judge
 
 
-def _score_choices() -> list[str]:
-    eval_p = build_parser()._subparsers._group_actions[0].choices["eval"]
-    score_p = eval_p._subparsers._group_actions[0].choices["score"]
-    return next(a.choices for a in score_p._actions if a.dest == "judge_provider")
-
-
-@pytest.mark.parametrize("provider", _score_choices())
-def test_every_eval_score_judge_provider_is_accepted_by_judge(provider):
-    Judge(model="m", provider=provider, api_key="k")
-
-
 def _judge_provider_actions(parser, path=()):
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
@@ -73,6 +62,7 @@ def test_benchmark_run_rejects_openai_codex_judge_at_parse_time(capsys):
     assert "invalid choice: 'openai-codex'" in capsys.readouterr().err
 
 
+# Together with the equality test above this covers `eval score` and every other flag.
 @pytest.mark.parametrize("provider", JUDGE_PROVIDERS)
-def test_every_listed_judge_provider_is_accepted_by_judge(provider):
+def test_every_listed_judge_provider_is_accepted_by_judge(provider):  # test-quality: ok must not raise (ValueError = unrouted)
     Judge(model="m", provider=provider, api_key="k")

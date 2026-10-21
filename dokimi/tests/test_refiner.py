@@ -236,8 +236,9 @@ def test_gap_filler_handles_llm_error_gracefully():
 def test_gap_filler_skips_zero_gaps():
     filler = GapFiller("oneTBB")
     with patch("dokimi.questions.refiner.llm_call") as mock_llm:
-        filler.fill([], gaps={"beginner": 0, "advanced": 0})
+        new_qs, filled = filler.fill([], gaps={"beginner": 0, "advanced": 0})
         mock_llm.assert_not_called()
+    assert (new_qs, filled) == ([], {})
 
 
 def test_refiner_fills_gaps_when_filler_provided():

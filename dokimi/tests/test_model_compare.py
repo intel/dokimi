@@ -105,10 +105,13 @@ def test_consistency_baseline_mismatch_raises():
         )
 
 
+@pytest.mark.outcome("cjm-question-set-hash-warn")
 def test_consistency_hash_mismatch_warns():
     runs = [_run_pair("a", model="m1", q_hash="aaaa"), _run_pair("b", model="m2", q_hash="bbbb")]
     warns = check_run_consistency(runs, "g")
-    assert any("question_set_hash" in w for w in warns)
+    (warning,) = [w for w in warns if "question_set_hash" in w]
+    assert "a=aaaa" in warning and "b=bbbb" in warning  # the hashes that differ are named
+    assert "common-question intersection will still be used" in warning
 
 
 def test_consistency_identical_model_is_an_error_unless_pooling():
@@ -360,6 +363,7 @@ def test_pinned_treatment_arm_exempts_multi_arm_runs():
     assert check_run_consistency(runs, "regular", treatment_arm="docs") == []
 
 
+@pytest.mark.outcome("cjm-arm-digest-refused")
 def test_consistency_rejects_one_arm_name_carrying_two_prompts():
     """Editing a profile in place keeps the arm name, so only the digest separates the cells."""
     runs = [
@@ -654,7 +658,10 @@ def test_significance_test_reports_t_stat_for_varying_deltas():
     from dokimi.report.model_compare import significance_test
 
     jittered = [w + (1 if i % 2 else -1) for i, w in enumerate(WITH)]
-    assert significance_test(jittered, WITHOUT)["t_stat"] is not None
+    sig = significance_test(jittered, WITHOUT)
+    # deltas 9, 11, 9, 11, 9, 11: mean 10, sample std 1.095, t = 10 / (1.095 / sqrt(6))
+    assert sig["t_stat"] == pytest.approx(22.361, abs=1e-3)
+    assert sig["significant"] is True
 
 
 def test_significance_test_requires_min_pairs():
