@@ -435,7 +435,7 @@ Usage comes from the trial's `agent_result` (for a multi-step trial, the sum ove
 `step_results[].agent_result`): `n_input_tokens` →
 `prompt_tokens` (Harbor's count includes the cached prompt, as BenchFlow's
 does), `n_output_tokens` → `completion_tokens`, `n_cache_tokens` →
-`cache_read_tokens`, their sum → `total_tokens`, and `cost_usd`; these feed
+`cache_read_tokens`, input + output → `total_tokens`, and `cost_usd`; these feed
 `summary.per_harness.<h>.cost`. A null count (the `oracle` agent, a trial that
 never ran its agent) is unknown and left out, not recorded as 0.
 
