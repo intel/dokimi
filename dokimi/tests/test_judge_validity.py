@@ -2052,3 +2052,26 @@ def test_refusal_still_says_raise_the_sample_when_a_kept_base_was_not_drawn():
     by_arm = {"skill": {"kept": 3, "dropped": 0, "sampled": 1}}
     with pytest.raises(NoUsablePairs, match=r"\['skill'\].*raise --bases"):
         refuse_unpaired_arms([], by_arm, "--bases")
+
+
+def test_sequential_refuses_an_arm_the_loop_never_scored():
+    """100 baseline + 3 skill answers: the SPRT can decide on baseline bases
+    alone and stop, leaving the skill arm with 0 scored bases."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.utils import digest_text
+
+    data = {"answers": [], "judge_materials": {}}
+    for i in range(103):
+        arm_name = "baseline" if i < 100 else "skill"
+        text = "" if arm_name == "baseline" else "SKILL"
+        digest = digest_text(text)
+        data["judge_materials"][digest] = text
+        data["answers"].append({
+            "question_id": f"Q{i}", "question_text": f"Question number {i}?",
+            "arms": {arm_name: {"answer": ANSWER + f"Variant {i}. ", "judge_context_sha256": digest}},
+        })
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*no base was scored"):
+        run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)),
+                       max_bases=50, variants=["truncate_20"],
+                       store=JudgeContextStore.from_artifact(data))

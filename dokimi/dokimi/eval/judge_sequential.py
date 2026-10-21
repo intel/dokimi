@@ -29,6 +29,7 @@ from dokimi.records import RecordLike
 from dokimi.eval.degrade import DEFAULT_MIN_CHARS, DEGRADATIONS, NEUTRAL_VARIANTS, _answer_pool
 from dokimi.eval.judge_validity import (
     DEFAULT_MIN_ACCURACY,
+    NoUsablePairs,
     PairScorer,
     Scorer,
     ValidityReport,
@@ -196,5 +197,15 @@ def run_sequential(
     # per arm the bases that were actually scored, not the pool that was built.
     for arm, counts in by_arm.items():
         counts["scored"] = sum(1 for _, a in scored_bases if a == arm)
+    if store is not None:
+        # The loop stops once every variant is decided, which can happen before
+        # an arm's bases are reached; the gate would then pass without covering it.
+        unscored = sorted(a for a, c in by_arm.items() if c.get("kept", 0) > 0 and c["scored"] == 0)
+        if unscored:
+            raise NoUsablePairs(
+                f"Arm(s) {unscored} have verified judge material but no base was scored "
+                "before the sequential test stopped, so the gate would not cover them: "
+                "raise --max-bases, or remove those arms from the answers file"
+            )
     report.wall_seconds = time.time() - started
     return report
