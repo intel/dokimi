@@ -13,7 +13,7 @@ name: cli-interface-comment
 # the PR number must be an integer, the PR's current head must be the commit the run was
 # for, and the text is only ever passed to the REST API as a body (no shell, no eval).
 on:
-  workflow_run:
+  workflow_run:  # zizmor: ignore[dangerous-triggers] -- intended: no checkout, untrusted artifact is validated (see above)
     workflows: [cli-interface]
     types: [completed]
 
