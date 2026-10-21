@@ -375,3 +375,10 @@ def test_render_flattens_multiline_title(root: Path, capsys: pytest.CaptureFixtu
     assert "X003[X003 - Run split]" in out
     assert all(line.count("[") == line.count("]") for line in out.splitlines())
     assert "| O | I002 | X003 | refuted | Run split |" in out
+
+
+def test_agents_exception_names_every_record_type() -> None:
+    text = " ".join((PROJECT.parent / "AGENTS.md").read_text(encoding="utf-8").split())
+    for word in ("idea", "experiment", "finding", "decision", "implementation link"):
+        assert word in text.split("research register", 1)[1].split("(", 1)[0], word
+    assert "add/add" in (PROJECT / "docs" / "research-register.md").read_text(encoding="utf-8")
