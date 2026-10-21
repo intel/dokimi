@@ -20,6 +20,15 @@ def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
     return printable[:max_len]
 
 
+def _write_json(path: str, payload: dict) -> None:
+    """Write a --out report as JSON, or exit 1 with `cannot write`."""
+    try:
+        Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        print(f"✗ cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_repo_validate(args: argparse.Namespace) -> None:
     """Validate a repository's repo-eval.yaml and its tasks against one snapshot."""
     from dokimi.repos import ManifestError, RepoSource, SourceError, check_repo, open_source
@@ -38,11 +47,7 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
         report.notes.append("task bases were not checked: the source has no git history")
 
     if args.out:
-        try:
-            Path(args.out).write_text(json.dumps(report.to_dict(), indent=2) + "\n", encoding="utf-8")
-        except OSError as exc:
-            print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
-            sys.exit(1)
+        _write_json(args.out, report.to_dict())
     if args.json:
         print(json.dumps(report.to_dict(), indent=2))
     else:
@@ -250,11 +255,7 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         sys.exit(1)
     payload = budget(tree, profile.guidance_names, profile.import_max_depth)
     if args.out:
-        try:
-            Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-        except OSError as exc:
-            print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
-            sys.exit(1)
+        _write_json(args.out, payload)
     if args.json:
         print(json.dumps(payload, indent=2))
     else:
