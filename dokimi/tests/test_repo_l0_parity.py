@@ -582,6 +582,19 @@ def test_unreadable_bzl_or_external_build_is_unresolved_with_the_reason(tmp_path
     assert label["status"] == "unresolved" and "not read" in label["why"], label
 
 
+def test_unreadable_build_inputs_warn_and_mark_the_scan_incomplete(tmp_path):
+    agents = _fence("starlark", 'load("//:defs.bzl", "m")') + "\n`@zlib//:zlib`\n"
+    files = {
+        **_EXTERNAL,
+        "defs.bzl": "def m(name):\n    pass\n\0",
+        "third_party/zlib.BUILD": 'cc_library(name = "zlib")\n\0',
+    }
+    payload = _scan(tmp_path, agents, files)
+    assert payload["incomplete"] is True
+    assert any(w.startswith("build file not scanned: defs.bzl: ") and "binary" in w for w in payload["warnings"])
+    assert any(w.startswith("build file not scanned: third_party/zlib.BUILD: ") for w in payload["warnings"])
+
+
 @pytest.mark.parametrize(
     "cmd",
     [
