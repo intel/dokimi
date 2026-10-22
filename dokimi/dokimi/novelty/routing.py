@@ -339,7 +339,7 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     relevance. Callers must stamp ``queries_self_derived`` on any result built from these.
     Headings inside fenced code blocks are not headings, so they are not offered.
     """
-    headings = [h.strip() for h in re.findall(r"^#{2,3}\s+(.+)$", _outside_fences(body), re.M)]
+    headings = [h.strip() for h in re.findall(r"^#{2,3}[ \t]+(.+)$", _outside_fences(body), re.M)]
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 

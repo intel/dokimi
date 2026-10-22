@@ -178,6 +178,11 @@ def test_a_heading_inside_a_code_fence_is_not_a_query(fence):
     assert headings_as_queries(body) == ["Recording a profile", "Reading the report"]
 
 
+def test_a_bare_hash_line_does_not_take_the_next_line_as_its_heading():
+    # "\s+" matched the newline, so "##" followed by "foo bar" read as the heading "foo bar".
+    assert headings_as_queries("##\nfoo bar\n") == []
+
+
 def test_a_fence_closes_only_on_its_own_character_and_length():
     body = "````md\n```\n## Still inside\n````\n## Real one here\n"
     assert headings_as_queries(body) == ["Real one here"]

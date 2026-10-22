@@ -8,3 +8,10 @@
 - **Every `novelty routing` rate line** prints its `n_queries`, and a self-derived rate
   carries `triage: self-derived` on the same line. A run that scores fewer than five
   queries prints a warning, since one query moves a rate by 20 points.
+
+### Changed
+
+- **`novelty routing` exits 1 when no query is scored** — a run whose queries are non-empty
+  but all filtered out (no content word left) now exits non-zero with `"status": "no_queries"`
+  and a `reason`, where it used to exit 0 with null rates. A script that read the null rates
+  as a result must check the exit code or `status` instead.
