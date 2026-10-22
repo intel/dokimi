@@ -1,3 +1,8 @@
+---
+depends_on:
+  - dokimi/dokimi/novelty/**
+  - dokimi/dokimi/commands/novelty.py
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

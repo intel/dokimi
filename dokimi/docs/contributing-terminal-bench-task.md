@@ -1,3 +1,8 @@
+---
+depends_on:
+  - dokimi/dokimi/harnesses/tasks.py
+  - dokimi/dokimi/harnesses/docker_solver.py
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

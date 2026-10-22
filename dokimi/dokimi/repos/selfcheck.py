@@ -47,9 +47,11 @@ for d in / /eval "$EVAL_RUN"; do
     if [ -e "$d/$n" ]; then echo "guidance above the workspace: $d/$n"; bad=1; fi
   done
 done
-printf '%s\n' $EVAL_TASKS > /tmp/dokimi-tasks
+names=$(mktemp) || { echo "probe: mktemp failed"; exit 1; }
+trap 'rm -f "$names"' EXIT
+printf '%s\n' $EVAL_TASKS > "$names"
 hits=$(find / -xdev \( -path /proc -o -path /sys -o -path /dev \) -prune -o -print 2>/dev/null \
-  | awk -F/ '{print $NF}' | grep -Fx -f /tmp/dokimi-tasks | sort -u | head -5)
+  | awk -F/ '{print $NF}' | grep -Fx -f "$names" | sort -u | head -5)
 if [ -n "$hits" ]; then echo "named like a task, in the image: $hits"; bad=1; fi
 exit $bad
 """

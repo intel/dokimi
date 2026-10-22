@@ -33,8 +33,14 @@ def tree(tmp_path: Path) -> Path:
     proj = tmp_path / "repo" / "proj"
     (proj / "docs" / "sub").mkdir(parents=True)
     (proj / "pkg").mkdir()
-    for f in ("mkdocs.yml", "docs/a.md", "docs/sub/b.md", "pkg/m.py", "pkg/x.png",
-              "pkg/my file.py"):
+    for f in (
+        "mkdocs.yml",
+        "docs/a.md",
+        "docs/sub/b.md",
+        "pkg/m.py",
+        "pkg/x.png",
+        "pkg/my file.py",
+    ):
         (proj / f).write_text("")
     (tmp_path / "repo" / "README.md").write_text("")
     (tmp_path / "other.md").write_text("")
@@ -42,8 +48,12 @@ def tree(tmp_path: Path) -> Path:
 
 
 def _config(tree: Path) -> dict:
-    return {"docs_dir": str(tree / "docs"), "config_file_path": str(tree / "mkdocs.yml"),
-            "repo_url": BASE + "/", "markdown_extensions": ["fenced_code"]}
+    return {
+        "docs_dir": str(tree / "docs"),
+        "config_file_path": str(tree / "mkdocs.yml"),
+        "repo_url": BASE + "/",
+        "markdown_extensions": ["fenced_code"],
+    }
 
 
 def _page(page: str = "a.md"):
@@ -79,23 +89,27 @@ def site_html(tree: Path, source: str, page: str = "a.md") -> str:
     return markdown.markdown(source, extensions=list(config["markdown_extensions"]))
 
 
-@pytest.mark.parametrize(("tag", "attr", "target", "out"), [
-    ("a", "href", "../pkg/m.py#L3", f"{BASE}/blob/main/proj/pkg/m.py#L3"),
-    ("a", "href", "../pkg/", f"{BASE}/tree/main/proj/pkg"),
-    ("img", "src", "../pkg/x.png", f"{BASE}/raw/main/proj/pkg/x.png"),
-    ("a", "href", "../pkg/x.png", f"{BASE}/blob/main/proj/pkg/x.png"),
-    ("a", "href", "../../README.md", f"{BASE}/blob/main/README.md"),
-    ("a", "href", "sub/b.md#h", "sub/b.md#h"),
-    ("a", "href", "https://e.com/a", "https://e.com/a"),
-    ("a", "href", "#h", "#h"),
-    ("a", "href", "../pkg/gone.py", "../pkg/gone.py"),
-    ("a", "href", "../pkg/m.py?plain=1#L3", f"{BASE}/blob/main/proj/pkg/m.py?plain=1#L3"),
-    ("a", "href", "../pkg/m.py?plain=1", f"{BASE}/blob/main/proj/pkg/m.py?plain=1"),
-    ("a", "href", "../pkg/my%20file.py", f"{BASE}/blob/main/proj/pkg/my%20file.py"),
-    ("a", "href", "../pkg/my file.py", f"{BASE}/blob/main/proj/pkg/my%20file.py"),
-])
+@pytest.mark.parametrize(
+    ("tag", "attr", "target", "out"),
+    [
+        ("a", "href", "../pkg/m.py#L3", f"{BASE}/blob/main/proj/pkg/m.py#L3"),
+        ("a", "href", "../pkg/", f"{BASE}/tree/main/proj/pkg"),
+        ("img", "src", "../pkg/x.png", f"{BASE}/raw/main/proj/pkg/x.png"),
+        ("a", "href", "../pkg/x.png", f"{BASE}/blob/main/proj/pkg/x.png"),
+        ("a", "href", "../../README.md", f"{BASE}/blob/main/README.md"),
+        ("a", "href", "sub/b.md#h", "sub/b.md#h"),
+        ("a", "href", "https://e.com/a", "https://e.com/a"),
+        ("a", "href", "#h", "#h"),
+        ("a", "href", "../pkg/gone.py", "../pkg/gone.py"),
+        ("a", "href", "../pkg/m.py?plain=1#L3", f"{BASE}/blob/main/proj/pkg/m.py?plain=1#L3"),
+        ("a", "href", "../pkg/m.py?plain=1", f"{BASE}/blob/main/proj/pkg/m.py?plain=1"),
+        ("a", "href", "../pkg/my%20file.py", f"{BASE}/blob/main/proj/pkg/my%20file.py"),
+        ("a", "href", "../pkg/my file.py", f"{BASE}/blob/main/proj/pkg/my%20file.py"),
+    ],
+)
 def test_links_out_of_docs_point_at_github(
-        tree: Path, tag: str, attr: str, target: str, out: str) -> None:
+    tree: Path, tag: str, attr: str, target: str, out: str
+) -> None:
     el = _element(tree, tag, attr, target)
     assert el is not None and el.get(attr) == out
 
@@ -116,7 +130,8 @@ def test_a_link_to_a_missing_file_is_left_for_mkdocs_to_report(tree: Path) -> No
 
 
 def test_a_link_out_of_the_repository_warns_with_the_page(
-        tree: Path, caplog: pytest.LogCaptureFixture) -> None:
+    tree: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     root = ET.fromstring('<div><a href="../../../../other.md">x</a></div>')  # nosec B314
     with caplog.at_level(logging.WARNING):
         hooks.rewrite_tree(root, _page("sub/b.md"), _config(tree))
@@ -141,6 +156,29 @@ def test_matching_lists_pass() -> None:
     src = "Text:\n\n- a\n    - b\n"
     site = "<p>Text:</p><ul><li>a<ul><li>b</li></ul></li></ul>"
     assert hooks.list_mismatch(src, site) is None
+
+
+def test_front_matter_list_is_not_a_page_list() -> None:
+    src = "---\ndepends_on:\n  - a/b.py\n---\n<!-- header -->\n\n- a\n"
+    assert hooks.list_mismatch(src, "<ul><li>a</li></ul>") is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "---\r\ndepends_on:\r\n  - a/**\r\n---\r\n- a\r\n",
+        "\ufeff---\ndepends_on:\n  - a/**\n---\n- a\n",
+        "---\ndepends_on:\n  - a/**\n---\n- a",
+        "\ufeff---\r\ndepends_on:\r\n  - a/**\r\n---\r\n- a\r\n",
+    ],
+)
+def test_front_matter_with_crlf_or_bom_is_not_a_page_list(text) -> None:
+    assert hooks.list_mismatch(text, "<ul><li>a</li></ul>") is None
+
+
+def test_front_matter_only_page_without_final_newline_is_stripped() -> None:
+    """The closing `---` is the last bytes of the file: no newline after it."""
+    assert hooks.list_mismatch("---\ndepends_on:\n  - a/**\n---", "") is None
 
 
 def test_a_link_inside_a_fence_is_not_rewritten(tree: Path) -> None:
@@ -191,29 +229,33 @@ def test_a_linked_image_uses_raw_for_the_image_and_blob_for_the_link(tree: Path)
     assert f'href="{BASE}/blob/main/proj/pkg/m.py"' in html
 
 
-def test_a_relative_link_in_raw_html_warns(
-        tree: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_a_relative_link_in_raw_html_warns(tree: Path, caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING):
         _convert(tree, '<a href="../pkg/m.py">x</a>\n')
     assert "raw HTML" in caplog.text and "'a.md'" in caplog.text
 
 
 def test_a_relative_link_in_raw_html_inside_an_admonition_warns(
-        tree: Path, caplog: pytest.LogCaptureFixture) -> None:
+    tree: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     with caplog.at_level(logging.WARNING):
         _convert(tree, '!!! note\n    <a href="../pkg/m.py">x</a>\n')
     assert "raw HTML" in caplog.text
 
 
-@pytest.mark.parametrize("src", [
-    '<span data-src="example">x</span>\n',
-    '<span title="href=example">x</span>\n',
-    '<!-- <a href="../pkg/m.py">x</a> -->\n',
-    '<a href="https://example.com/x">x</a>\n',
-    '<a href="#anchor">x</a>\n',
-])
+@pytest.mark.parametrize(
+    "src",
+    [
+        '<span data-src="example">x</span>\n',
+        '<span title="href=example">x</span>\n',
+        '<!-- <a href="../pkg/m.py">x</a> -->\n',
+        '<a href="https://example.com/x">x</a>\n',
+        '<a href="#anchor">x</a>\n',
+    ],
+)
 def test_markup_that_is_not_a_relative_link_does_not_warn(
-        tree: Path, caplog: pytest.LogCaptureFixture, src: str) -> None:
+    tree: Path, caplog: pytest.LogCaptureFixture, src: str
+) -> None:
     with caplog.at_level(logging.WARNING):
         _convert(tree, src)
     assert "raw HTML" not in caplog.text
@@ -224,21 +266,22 @@ def test_the_rewriter_is_registered_above_mkdocs_relpath(tree: Path) -> None:
     config = _config(tree)
     hooks.on_config(config)
     md = markdown.Markdown(extensions=list(config["markdown_extensions"]))
-    priority = next(item.priority for item in md.treeprocessors._priority
-                    if item.name == "dokimi_github_links")
+    priority = next(
+        item.priority for item in md.treeprocessors._priority if item.name == "dokimi_github_links"
+    )
     assert priority > 0  # mkdocs registers relpath at 0; higher runs first
 
 
 def test_raw_html_inside_a_fence_does_not_warn(
-        tree: Path, caplog: pytest.LogCaptureFixture) -> None:
-    src = "```\n<a href=\"../pkg/m.py\">x</a>\n```\n"
+    tree: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    src = '```\n<a href="../pkg/m.py">x</a>\n```\n'
     with caplog.at_level(logging.WARNING):
         _convert(tree, src)
     assert "raw HTML" not in caplog.text
 
 
-def test_a_relative_img_src_in_raw_html_warns(
-        tree: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_a_relative_img_src_in_raw_html_warns(tree: Path, caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.WARNING):
         _convert(tree, '<img src="../pkg/x.png">\n')
     assert "relative src in raw HTML" in caplog.text and "'a.md'" in caplog.text
@@ -252,5 +295,6 @@ def test_markdown_rendered_after_the_page_does_not_use_the_stale_page(tree: Path
     hooks.on_page_markdown("", page, config, None)
     hooks.on_page_content("", page, config, None)
     html = md_lib.Markdown(extensions=list(config["markdown_extensions"])).convert(
-        "[x](../pkg/m.py)")
+        "[x](../pkg/m.py)"
+    )
     assert "github.com" not in html and 'href="../pkg/m.py"' in html

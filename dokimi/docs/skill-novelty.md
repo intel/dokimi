@@ -1,3 +1,10 @@
+---
+depends_on:
+  - dokimi/dokimi/novelty/**
+  - dokimi/dokimi/commands/novelty.py
+  - dokimi/dokimi/gate/novelty_gate.py
+  - dokimi/dokimi/schemas/novelty.v1.json
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
