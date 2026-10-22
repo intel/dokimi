@@ -19,7 +19,7 @@ and stays out of paid runs. A task whose network needs the egress proxy is
 ``unsupported`` until the proxy exists, and so is a task whose ``host``
 requirements (:mod:`.host`) the evaluation's containers do not meet: its bug
 cannot show here, so null and oracle would say nothing. ``--warm`` runs null
-and oracle with network so the caches fill before offline runs (§2).
+and oracle with network so the caches fill before offline runs (§2), and judges the host the same way.
 """
 
 from __future__ import annotations
