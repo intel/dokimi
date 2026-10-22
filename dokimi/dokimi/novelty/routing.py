@@ -251,7 +251,8 @@ def model_routing(
     sample (``draw``), so with the response cache on a repeat is not a replay.
 
     Returns:
-        ``selection_rate``, ``n_queries``, ``n_abstained``, ``n_failed``, the per-query pick
+        ``selection_rate``, ``n_queries``, ``n_calls`` (queries x repeats; ``n_abstained`` and
+        ``n_failed`` count calls), ``n_abstained``, ``n_failed``, the per-query pick
         with the position the gold card was shown at, the raw reply of every abstention or
         unparseable pick, and the caveat that this bounds harness behaviour from above.
         With ``repeats > 1``, ``noise`` holds each query's agreement across its repeats and
@@ -311,6 +312,7 @@ def model_routing(
         "n_candidates": len(candidates),
         "n_queries": len(queries),
         "repeats": repeats,
+        "n_calls": len(picks),
         "n_abstained": sum(1 for p in picks if p.get("abstained")),
         "n_failed": sum(1 for p in picks if p.get("error")),
         "seed": seed,

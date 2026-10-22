@@ -362,8 +362,9 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
               f"({row['selection_rate_among_answered']} among answered; "
               f"{row['n_abstained']} abstained, {row['n_failed']} failed)  [{row['model']}]")
         if row["n_abstained"]:
-            print(f"{row['n_abstained']} abstained or unparseable: the raw reply is under "
-                  "per_query[].raw_reply in the output")
+            of_calls = f" of {row['n_calls']} calls" if row["repeats"] > 1 else ""
+            print(f"{row['n_abstained']}{of_calls} abstained or unparseable: the raw reply "
+                  "is under per_query[].raw_reply in the output")
         if row["noise"]:
             noise = row["noise"]
             print(f"noise    {row['repeats']} repeats per query: mean agreement "
