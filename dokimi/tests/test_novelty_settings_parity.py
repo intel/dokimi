@@ -111,14 +111,46 @@ def _kept(argv: list[str], work: Path) -> dict[str, Any]:
     return {}
 
 
+COVERAGE_LINES = ("coverage: ", "WARNING: only ")
+
+
 def _without_coverage_headline(text: str) -> str:
     """Drop the stdout lines the coverage headline added after main.
 
     They say how much of the artifact was read, which is neither a setting, a bill nor a
-    tier record, so this module does not compare them; ``test_novelty_journey`` pins them.
+    tier record, so the comparison with main leaves them out. They cannot be in main's
+    golden, so ``_headline_coverage`` checks them against the record they were printed from.
     """
     return "".join(line for line in text.splitlines(keepends=True)
-                   if not line.startswith(("coverage: ", "WARNING: only ")))
+                   if not line.startswith(COVERAGE_LINES))
+
+
+def _headline_coverage(text: str, work: Path) -> dict[str, Any]:
+    """The coverage lines stdout printed, beside the ``bundle`` figures in the record."""
+    printed = [line for line in text.splitlines() if line.startswith(COVERAGE_LINES)]
+    record = work / "out" / "novelty.json"
+    bundle = (
+        json.loads(record.read_text(encoding="utf-8")).get("bundle") or {}
+        if record.exists()
+        else {}
+    )
+    return {"printed": printed, "measured_share": bundle.get("measured_share")}
+
+
+def _check_headline(coverage: dict[str, Any]) -> None:
+    """Each dropped line agrees with the measured share the same run stamped in its record."""
+    printed, share = coverage["printed"], coverage["measured_share"]
+    if share is None:
+        # No record to check against (an estimate, or a run that wrote none): nothing printed.
+        assert printed == []
+        return
+    pct = f"{int(share * 100)}%"
+    assert printed, "a run with a record must print its coverage line"
+    assert printed[0].startswith(
+        f"coverage: {pct} of the artifact's readable words were measured"
+    ), printed
+    warned = [line.startswith(f"WARNING: only {pct} ") for line in printed[1:]]
+    assert warned == ([True] if share <= 0.5 else []), printed
 
 
 def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
@@ -155,6 +187,8 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
                 "status": status,
                 "stdout": (_without_coverage_headline(out.getvalue())
                            if argv[1] == "analyze" else None),
+                "coverage": (_headline_coverage(out.getvalue(), work)
+                             if argv[1] == "analyze" else None),
                 "stderr": err.getvalue().replace(str(work), "<work>"),
                 "calls": [[c.role, c.calls] for c in clients],
                 **_kept(argv, work),
@@ -168,7 +202,12 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
 @pytest.mark.parametrize("name", list(CASES))
 def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    assert _capture(name, tmp_path) == golden[name]
+    steps = _capture(name, tmp_path)
+    coverage = [step.pop("coverage") for step in steps]
+    assert steps == golden[name]
+    for step_coverage in coverage:
+        if step_coverage is not None:
+            _check_headline(step_coverage)
 
 
 def test_the_golden_cases_are_the_ones_this_module_runs():
@@ -180,7 +219,10 @@ if __name__ == "__main__" and sys.argv[1:] == ["--write"]:
     import tempfile
 
     tmp = Path(tempfile.mkdtemp())
-    captured = {name: _capture(name, tmp) for name in CASES}
+    captured = {
+        name: [{k: v for k, v in step.items() if k != "coverage"} for step in _capture(name, tmp)]
+        for name in CASES
+    }
     GOLDEN.write_text(json.dumps(captured, indent=1, sort_keys=True, ensure_ascii=False)
                       + "\n", encoding="utf-8")
     print(f"{len(captured)} cases -> {GOLDEN}")

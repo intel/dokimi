@@ -489,8 +489,8 @@ Things to know before reading a bundle result:
   deliver if the agent read all of it. Whether the agent chooses to load `references/x.md`
   at runtime is the agentic track's question (`skill-agent:`), not this one.
 - **The two modes are different cells.** `include_resources` is recorded in `run_config`;
-  an entry-point run and a bundle run of the same skill are not comparable numbers, and an
-  run that read half or less of the readable words says so on stdout (the `coverage:` line
+  an entry-point run and a bundle run of the same skill are not comparable numbers. A run
+  that read half or less of the readable words says so on stdout (the `coverage:` line
   and a `WARNING`); an entry-point run also says so in `warnings`. The share is
   `bundle.measured_share` (for an entry-point run, `1 - measurable_outside_share`,
   which nets out the role decisions below; `outside_share` is the
