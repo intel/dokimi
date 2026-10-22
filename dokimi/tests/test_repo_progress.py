@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Progress lines of `repo tasks check` / `repo run` are flushed one by one, not at exit."""
 
 import subprocess
@@ -17,6 +20,8 @@ def test_progress_line_is_flushed_under_a_pipe():
     finally:
         proc.kill()
         proc.wait()
+        if proc.stdout is not None:
+            proc.stdout.close()
 
 
 def test_commands_hand_the_flushing_logger_to_the_runners():
