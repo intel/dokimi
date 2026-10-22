@@ -289,6 +289,9 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
         if b != t:  # batches of different eval trees: the primary result of this task has no pair
             unpaired.append(_unpaired(treatment, model, task, None, f"{b} task in baseline, {t} in treatment"))
     for measure in measures:
+        if measure.startswith(("process:", "counter:")) and not all(
+                any(vals[(model, t)]["values"].get(measure) is not None for t in shared) for vals in (base_vals, treat_vals)):
+            continue  # an arm that reports no such count at all (an older batch) leaves no task out of a pair
         pairs = []
         for task in shared:
             base, treat = base_vals[(model, task)], treat_vals[(model, task)]

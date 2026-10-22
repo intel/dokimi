@@ -65,6 +65,42 @@ def test_process_absent_or_null_is_skipped(tmp_path):
     assert {(u["task"], u["measure"]) for u in summary["unpaired"]} == {("a", "process:tool_calls")}
 
 
+def test_process_on_one_arm_only_does_not_flood_unpaired(tmp_path):
+    # The baseline batch predates `process`: each shared task would otherwise be unpaired once per measure.
+    for task in ("a", "b", "zz"):
+        _cell(tmp_path, task, "guidance:raw", 1)
+        if task != "zz":
+            _cell(tmp_path, task, "guidance:none", 1)
+    _with_process(tmp_path, lambda name: {"tool_calls": 3, "counters": {"bazel": 1}}
+                  if "__guidance-raw__" in name else None)
+    summary = compare([tmp_path], "guidance:none")
+    assert not any(r["measure"].startswith(("process:", "counter:")) for r in summary["comparisons"])
+    assert [(u["task"], u["measure"]) for u in summary["unpaired"]] == [("zz", None)]
+
+
+def test_a_missing_process_value_in_a_task_is_not_zero(tmp_path):
+    for rep in (1, 2, 3):
+        _cell(tmp_path, "a", "guidance:none", rep)
+        _cell(tmp_path, "a", "guidance:raw", rep)
+    counts = {"guidance-none": 10, "guidance-raw": 4}
+
+    def process(name):  # rep 3 has no process at all
+        return None if name.endswith("r3") else {"tool_calls": counts[name.split("__")[1]] + int(name[-1])}
+
+    _with_process(tmp_path, process)
+    row = _row(compare([tmp_path], "guidance:none"), "process:tool_calls")
+    assert (row["baseline_mean"], row["treatment_mean"]) == (11.5, 5.5)
+
+
+def test_process_measures_come_only_from_the_compared_arms(tmp_path):
+    for arm in ("guidance:none", "guidance:raw", "guidance:other"):
+        _cell(tmp_path, "a", arm, 1)
+    _with_process(tmp_path, lambda name: {"tool_calls": 1, "counters": {"only_other": 1}}
+                  if "__guidance-other__" in name else {"tool_calls": 1})
+    summary = compare([tmp_path], "guidance:none", ["guidance:raw"])
+    assert [r["measure"] for r in summary["comparisons"]][3:] == ["process:tool_calls"]
+
+
 def test_report_shows_mean_process_counters(tmp_path):
     for rep in (1, 2, 3):
         _cell(tmp_path, "a", "guidance:raw", rep)
