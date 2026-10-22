@@ -345,20 +345,23 @@ def _check_mcp_at_tree(tree: RepoTree, report: RepoCheckReport) -> None:
 
 def _check_eval_paths(tree: RepoTree, manifest: RepoManifest, report: RepoCheckReport) -> None:
     """The eval_dir, image Dockerfile and explore_tasks the manifest names exist, and stay inside eval_dir."""
-    if not tree.is_dir(manifest.eval_dir):
-        report.errors.append(f"eval_dir does not exist: {manifest.eval_dir}")
-    elif not _is_within(manifest.path, manifest.eval_dir):
+    eval_dir = manifest.eval_dir
+    if eval_dir is None:
+        return
+    if not tree.is_dir(eval_dir):
+        report.errors.append(f"eval_dir does not exist: {eval_dir}")
+    elif not _is_within(manifest.path, eval_dir):
         report.warnings.append(
-            f"manifest {manifest.path} is outside eval_dir {manifest.eval_dir}, "
+            f"manifest {manifest.path} is outside eval_dir {eval_dir}, "
             "so it stays visible to the agent"
         )
     if manifest.image is not None and not tree.is_file(manifest.image.dockerfile):
         report.errors.append(f"image/dockerfile does not exist: {manifest.image.dockerfile}")
     if manifest.explore_tasks and not tree.is_dir(manifest.explore_tasks):
         report.errors.append(f"explore_tasks does not exist: {manifest.explore_tasks}")
-    elif manifest.explore_tasks and not _is_within(manifest.explore_tasks, manifest.eval_dir):
+    elif manifest.explore_tasks and not _is_within(manifest.explore_tasks, eval_dir):
         report.errors.append(
-            f"explore_tasks {manifest.explore_tasks} is outside eval_dir {manifest.eval_dir}; "
+            f"explore_tasks {manifest.explore_tasks} is outside eval_dir {eval_dir}; "
             "its reference answers would be visible to the agent"
         )
 
@@ -431,6 +434,13 @@ def _glob_regex(pattern: str) -> re.Pattern[str]:
     return re.compile("".join(out))
 
 
+def _expected_skill_problems(raw: dict) -> list[str]:
+    expected = raw.get("expected_skill")
+    if expected is not None and not (isinstance(expected, str) and expected and "/" not in expected):
+        return ["expected_skill must be a skill name (its directory name)"]
+    return []
+
+
 def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     name = PurePosixPath(task_dir).name
     where = f"{task_dir}/task.json"
@@ -499,9 +509,7 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     if not (isinstance(egress, list) and all(isinstance(h, str) and _HOST_RE.match(h) for h in egress)):
         problems.append("egress must be a list of hosts (DNS labels, `*` for one whole label, the last two literal, optional :port)")
         egress = []
-    expected = raw.get("expected_skill")
-    if expected is not None and not (isinstance(expected, str) and expected and "/" not in expected):
-        problems.append("expected_skill must be a skill name (its directory name)")
+    problems += _expected_skill_problems(raw)
     for key in ("timeout_s", "max_turns", "budget_usd"):
         value = raw.get(key)
         if value is not None and not _positive(value):
