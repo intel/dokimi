@@ -101,7 +101,6 @@
     "dokimi/subjects/loader.py::_parse_subject": {"complexity": 13},
     "dokimi/tool_preference.py::summarize": {"complexity": 12},
     "scripts/audit_test_quality.py::_constructor_inputs": {"complexity": 27, "rationale": "pre-existing when the gate was introduced"},
-    "scripts/audit_test_quality.py::_is_mock_verify": {"complexity": 11, "rationale": "pre-existing when the gate was introduced"},
     "scripts/check_treatment_batch.py::check_file": {"complexity": 36},
     "scripts/check_treatment_batch.py::main": {"complexity": 17},
     "scripts/ci_local.py::run": {"complexity": 29, "rationale": "grew on main in #146 (conda-forge dependency solve) before the ratchet landed; split it in its own PR"},
