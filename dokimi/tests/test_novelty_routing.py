@@ -988,6 +988,33 @@ def test_all_vs_all_exits_nonzero_when_every_model_call_fails(tmp_path, capsys, 
     assert "2 model call(s) failed" in captured.err and "boom" in captured.err
 
 
+def test_all_vs_all_stops_at_the_max_usd_cap_the_docs_point_to(tmp_path, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+    from dokimi.novelty.client import SpendCap
+    from dokimi.metrics.usage import UsageRecord
+
+    calls: list[str] = []
+
+    def transport(prompt: str, system: str | None = None):
+        calls.append(prompt)
+        return "none", UsageRecord(cost_usd=0.6)
+
+    cap = SpendCap(limit_usd=1.0)
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role, transport=transport, cap=cap))
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
+    _catalog_skill(root, "db", "tune a slow database query with an index")
+    queries = _write_queries(tmp_path, {"perf": ["profile a slow program", "find hot functions"],
+                                        "db": ["add an index"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m", "--max-usd", "1")
+    with pytest.raises(SystemExit, match=r"\$1\.20 of \$1\.00"):
+        args.func(args)
+    assert len(calls) == 2  # the third request was refused before it reached the provider
+
+
 @pytest.mark.parametrize("make", ["missing", "not_utf8"])
 def test_an_unreadable_queries_file_is_a_message_not_a_traceback(tmp_path, make):
     root = tmp_path / "catalog"
