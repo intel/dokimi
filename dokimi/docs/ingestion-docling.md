@@ -1,3 +1,8 @@
+---
+depends_on:
+  - dokimi/dokimi/ingest/docling_loader.py
+  - dokimi/dokimi/commands/ingest.py
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

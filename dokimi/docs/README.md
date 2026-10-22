@@ -324,3 +324,5 @@ code.
   metric extracts and runs fenced code examples in isolation.
 - [ingestion-docling.md](ingestion-docling.md) — ingesting non-Markdown
   documents (PDF, HTML, …) via Docling, installed with the optional `ocr` extra.
+- [research-register.md](research-register.md) — the register of Dokimi's own
+  ideas, experiments (negative ones included), findings and decisions.

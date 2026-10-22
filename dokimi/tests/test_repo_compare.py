@@ -558,7 +558,7 @@ def test_an_unstamped_batch_beside_a_stamped_one_is_named(tmp_path):
     _cell(old, "fix_a", "guidance:raw", 1)
     _cell(new, "fix_a", "guidance:raw", 1)
     s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
-    assert s["warnings"] == ["batch new has no stamp (_eval/batch.json); its eval_dir and image are not compared"]
+    assert s["warnings"] == ["batch new has no stamp (_eval/batch.json); its eval_dir, image and graders are not compared"]
 
 
 def test_images_built_from_each_tree_follow_the_tree(tmp_path):
@@ -750,3 +750,13 @@ def test_cli_prints_pass_k_and_path_distance(tmp_path, capsys):
     args.func(args)
     out = capsys.readouterr().out
     assert "pass^2" in out and "path_distance" in out
+
+
+def test_arms_from_batches_with_different_built_in_graders_warn(tmp_path):
+    old, new = tmp_path / "old", tmp_path / "new"
+    _stamp(old, tree="repo@abc", eval_dir="e1", image="img:1", graders="g1")
+    _stamp(new, tree="repo@abc", eval_dir="e1", image="img:1", graders="g2")
+    _cell(old, "fix_a", "guidance:raw", 1)
+    _cell(new, "fix_a", "guidance:raw", 1)
+    s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
+    assert s["warnings"] == ["new/guidance:raw vs old/guidance:raw: the batches ran from different graders (g1, g2)"]
