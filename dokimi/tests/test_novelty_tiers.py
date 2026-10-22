@@ -387,6 +387,28 @@ _MODELS = {"extractor": ("us.anthropic.claude-sonnet-5-5", "amazon-bedrock"),
            "judge": ("us.anthropic.claude-sonnet-5-5", "amazon-bedrock")}
 _BUDGETS = (0.75, 0.5)
 
+#: The list prices of the two models in ``_MODELS``, as litellm's bundled price map has them.
+#: The dollar checks read the price map, and conftest keeps litellm on its bundled copy, so
+#: the map is whichever release is installed: the locked litellm 1.105.0 has no entry for
+#: ``us.anthropic.claude-haiku-5-5`` and the answerer priced to None. Pinned here, the checks
+#: give the same figures on every release.
+_PINNED_LIST_PRICES = {
+    "us.anthropic.claude-sonnet-5-5": {"litellm_provider": "bedrock_converse", "mode": "chat",
+                                       "input_cost_per_token": 2.2e-06,
+                                       "output_cost_per_token": 1.1e-05},
+    "us.anthropic.claude-haiku-5-5": {"litellm_provider": "bedrock_converse", "mode": "chat",
+                                      "input_cost_per_token": 1.1e-07,
+                                      "output_cost_per_token": 5.5e-07},
+}
+
+
+@pytest.fixture
+def pinned_list_prices(monkeypatch):
+    from litellm import model_cost
+
+    for name, entry in _PINNED_LIST_PRICES.items():
+        monkeypatch.setitem(model_cost, name, entry)
+
 
 def _projection(tier, spans, tokens):
     """The estimate a run at this tier on this artifact prints, and its dollar figure."""
@@ -418,14 +440,14 @@ def test_held_out_atoms_within_35_percent():
         assert abs(estimate["n_atoms"] - atoms) <= TOLERANCE * atoms, name
 
 
-def test_held_out_dollars_within_35_percent():
+def test_held_out_dollars_within_35_percent(pinned_list_prices):
     for name, spans, tokens, tier, _, _, usd in MEASURED_RUNS:
         _, priced = _projection(tier, spans, tokens)
         assert priced is not None, name
         assert abs(priced - usd) <= TOLERANCE * usd, name
 
 
-def test_held_out_triage_dollars_within_35_percent():
+def test_held_out_triage_dollars_within_35_percent(pinned_list_prices):
     # The triage runs are the ones the extractor's output per call is for: a flat profile
     # priced them 21-43% low before the per-tier extractor profile.
     triage = [row for row in MEASURED_RUNS if row[3] == "triage"]
