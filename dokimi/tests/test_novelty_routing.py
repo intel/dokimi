@@ -170,6 +170,19 @@ def test_headings_are_offered_only_as_self_derived_queries():
     assert headings_as_queries(body) == ["Recording a profile", "Reading the report"]
 
 
+@pytest.mark.parametrize("fence", ["```", "~~~"])
+def test_a_heading_inside_a_code_fence_is_not_a_query(fence):
+    # A shell comment such as "## Not a heading" is a line of code, not a request.
+    body = (f"# Title\n\n## Recording a profile\n\n{fence}bash\n## Not a heading here\n"
+            f"perf record\n{fence}\n\n## Reading the report\n")
+    assert headings_as_queries(body) == ["Recording a profile", "Reading the report"]
+
+
+def test_a_fence_closes_only_on_its_own_character_and_length():
+    body = "````md\n```\n## Still inside\n````\n## Real one here\n"
+    assert headings_as_queries(body) == ["Real one here"]
+
+
 def _parse(*argv):
     return build_parser().parse_args(list(argv))
 
@@ -473,3 +486,71 @@ def test_catalog_competitors_with_name_in_competitors_excludes_it_from_catalog(t
     assert names.count("perf") == 0, "perf should be excluded from catalog"
     assert set(names) == {"xpu", "cache"}, f"Expected xpu and cache, got {names}"
 
+
+def test_headings_inside_code_only_refuse_the_run_and_say_why(tmp_path):
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary",
+                                       body="```\n## only in code\n```\n"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries-from-headings", "--out", str(out))
+    with pytest.raises(SystemExit, match="code fences.*--queries"):
+        args.func(args)
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["status"] == "no_queries"
+    assert "code fences" in payload["reason"]
+
+
+def test_a_query_file_with_nothing_in_it_refuses_the_run(tmp_path):
+    queries = tmp_path / "q.txt"
+    queries.write_text("\n   \n", encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--out", str(out))
+    with pytest.raises(SystemExit, match="no non-blank query"):
+        args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["status"] == "no_queries"
+
+
+def test_queries_without_a_content_word_refuse_the_run(tmp_path):
+    queries = tmp_path / "q.txt"
+    queries.write_text("the of a\nhow do I\n", encoding="utf-8")
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--out", str(tmp_path / "routing.json"))
+    with pytest.raises(SystemExit, match="has a content word"):
+        args.func(args)
+
+
+def test_every_rate_line_carries_its_query_count_and_triage_tag(tmp_path, capsys):
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary",
+                                       body="# B\n\n## Recording a profile\n\n"
+                                            "## Reading the report\n"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries-from-headings", "--out", str(out))
+    args.func(args)
+    lines = capsys.readouterr().out.splitlines()
+    lexical = next(line for line in lines if line.startswith("lexical"))
+    assert "n_queries 2 of 2" in lexical
+    assert "triage: self-derived" in lexical
+
+
+def test_fewer_than_five_scored_queries_are_warned_about_on_stdout(tmp_path, capsys):
+    def run(count):
+        queries = tmp_path / f"q{count}.txt"
+        queries.write_text("\n".join(f"profile a binary run {i}" for i in range(count)),
+                           encoding="utf-8")
+        args = _parse("novelty", "routing",
+                      "--artifact", _skill(tmp_path, f"a{count}", "profile a binary"),
+                      "--competitors", _skill(tmp_path, f"b{count}", "tune a database"),
+                      "--queries", str(queries), "--out", str(tmp_path / f"r{count}.json"))
+        args.func(args)
+        return capsys.readouterr().out
+
+    assert "WARNING: only 2 queries scored" in run(2)
+    assert "WARNING" not in run(5)
