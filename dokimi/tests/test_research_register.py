@@ -487,3 +487,10 @@ def test_live_warns_when_github_gives_no_state(built: Path, capsys: pytest.Captu
     rr.implementation(records, live=True)
     assert "--live got no state from GitHub" in capsys.readouterr().err
     assert len(calls) == len(set(calls))  # one lookup per URL
+
+
+def test_agents_exception_names_every_record_type() -> None:
+    text = " ".join((PROJECT.parent / "AGENTS.md").read_text(encoding="utf-8").split())
+    for word in ("idea", "experiment", "finding", "decision", "implementation link"):
+        assert word in text.split("research register", 1)[1].split("(", 1)[0], word
+    assert "add/add" in (PROJECT / "docs" / "research-register.md").read_text(encoding="utf-8")

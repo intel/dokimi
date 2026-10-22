@@ -53,8 +53,9 @@ python scripts/research_register.py gaps --live
 
 - `check` validates every record against its schema, its path and id prefix, and every
   reference. `tests/test_research_register.py` runs it in CI, so a broken record fails the PR.
-- `next` prints the next free id for a type. Two PRs can claim the same id; `check` reports
-  the duplicate on whichever merges second, which renumbers. To renumber: take the new id
+- `next` prints the next free id for a type. Two PRs can claim the same id; both add the same
+  file, so the second PR to merge gets an add/add conflict (`check` never sees a duplicate)
+  and renumbers then. To renumber: take the new id
   from `next`, rename the file and change its `id:`, then rewrite every reference to the old
   id in that PR's own records (`idea`, `experiments`, `findings`, `ideas`, `superseded_by`,
   `decision`). Find them with `query --ref OLDID`; `check` must pass afterwards.
