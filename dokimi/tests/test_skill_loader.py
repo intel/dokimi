@@ -5,7 +5,7 @@
 
 import pytest
 
-from dokimi.skills.loader import load_skill
+from dokimi.skills.loader import discover_skills, load_skill
 from dokimi.treatments.tools import ViewSkillTool
 
 SKILL_BODY = """---
@@ -78,3 +78,60 @@ def test_single_file_skill_takes_no_parameters(tmp_path):
     (root / "SKILL.md").write_text(SKILL_BODY, encoding="utf-8")
     tool = ViewSkillTool(load_skill(root))
     assert tool.parameters == {"type": "object", "properties": {}}
+
+
+def _write_skill(directory, name, description="Use when testing discovery."):
+    directory.mkdir(parents=True)
+    text = f"---\nname: {name}\ndescription: {description}\n---\n# {name}\n"
+    (directory / "SKILL.md").write_text(text, encoding="utf-8")
+    return directory / "SKILL.md"
+
+
+@pytest.mark.parametrize("dirname", ["template", "templates"])
+def test_discovery_skips_a_template_directory(tmp_path, dirname):
+    root = tmp_path / "catalog"
+    _write_skill(root / dirname, "template-skill", "Replace with description of the skill.")
+    _write_skill(root / "linux-perf", "linux-perf", "Profile Linux programs.")
+    assert [s.name for s in discover_skills(root)] == ["linux-perf"]
+
+
+def test_discovery_reports_a_skipped_template(tmp_path):
+    root = tmp_path / "catalog"
+    _write_skill(root / "template", "template-skill", "Replace with description of the skill.")
+    notes: list[str] = []
+    assert discover_skills(root, notes=notes) == []
+    assert len(notes) == 1 and "template" in notes[0]
+
+
+def test_discovery_counts_a_mirror_once(tmp_path):
+    root = tmp_path / "repo"
+    original = _write_skill(root / "skills" / "linux-perf", "linux-perf", "Profile Linux programs.")
+    mirror = root / "plugins" / "perf" / "skills" / "linux-perf"
+    mirror.mkdir(parents=True)
+    (mirror / "SKILL.md").write_bytes(original.read_bytes())
+    skills = discover_skills(root)
+    assert [s.path for s in skills] == [original]
+
+
+def test_discovery_reports_a_mirror_it_leaves_out(tmp_path):
+    root = tmp_path / "repo"
+    _write_skill(root / "skills" / "linux-perf", "linux-perf", "Profile Linux programs.")
+    _write_skill(
+        root / "plugins" / "perf" / "skills" / "linux-perf", "linux-perf", "Profile Linux programs."
+    )
+    notes: list[str] = []
+    skills = discover_skills(root, notes=notes)
+    assert len(skills) == 1
+    assert len(notes) == 1
+    assert "plugins" in notes[0] and "identical to" in notes[0]
+
+
+def test_discovery_keeps_same_named_skills_whose_text_differs(tmp_path):
+    root = tmp_path / "repo"
+    _write_skill(root / "skills" / "linux-perf", "linux-perf", "Profile Linux programs.")
+    _write_skill(
+        root / "plugins" / "perf" / "skills" / "linux-perf",
+        "linux-perf",
+        "A different, older description.",
+    )
+    assert len(discover_skills(root)) == 2

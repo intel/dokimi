@@ -11,11 +11,15 @@ live alongside it and are recorded but not executed by the loader — executing
 bundled scripts is the job of the agentic task track, not this loader.
 """
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 
 from dokimi.utils import parse_frontmatter
+
+# Directory names that hold a scaffold to copy, not a skill to use (see discover_skills).
+TEMPLATE_DIR_NAMES = frozenset({"template", "templates"})
 
 
 @dataclass
@@ -145,10 +149,50 @@ def load_skill(path) -> Skill:
     )
 
 
-def discover_skills(root) -> List[Skill]:
-    """Load every skill under *root* (each subdirectory with a ``SKILL.md``)."""
+def discover_skills(root, *, notes: Optional[List[str]] = None) -> List[Skill]:
+    """Load every skill under *root* (each subdirectory with a ``SKILL.md``).
+
+    Two kinds of ``SKILL.md`` are not skills of *root* and are left out:
+
+    - one under a ``template`` or ``templates`` directory, a scaffold to copy
+      (anthropics/skills keeps a blank one at ``template/SKILL.md``);
+    - a mirror, a ``SKILL.md`` byte-identical to another one under *root* (a plugin's
+      copy of the ``skills/`` tree). The copy with the fewest path parts stands for
+      the group; ties go to the path that sorts first.
+
+    Args:
+        root: Directory to scan.
+        notes: When given, one line per skipped template or mirror is appended to it.
+
+    Returns:
+        The skills, in path order.
+    """
     root = Path(root)
-    skills: List[Skill] = []
+    skill_files: List[Path] = []
     for skill_file in sorted(root.rglob("SKILL.md")):
+        if TEMPLATE_DIR_NAMES.intersection(skill_file.relative_to(root).parts[:-1]):
+            if notes is not None:
+                notes.append(f"left out {skill_file}: a template, not a skill")
+            continue
+        skill_files.append(skill_file)
+
+    digest_of: Dict[Path, str] = {}
+    copies_of: Dict[str, List[Path]] = {}
+    for skill_file in skill_files:
+        digest = hashlib.sha256(skill_file.read_bytes()).hexdigest()
+        digest_of[skill_file] = digest
+        copies_of.setdefault(digest, []).append(skill_file)
+    keeper = {
+        digest: min(copies, key=lambda p: (len(p.parts), p.as_posix()))
+        for digest, copies in copies_of.items()
+    }
+
+    skills: List[Skill] = []
+    for skill_file in skill_files:
+        kept = keeper[digest_of[skill_file]]
+        if kept != skill_file:
+            if notes is not None:
+                notes.append(f"left out {skill_file}: identical to {kept}")
+            continue
         skills.append(load_skill(skill_file))
     return skills
