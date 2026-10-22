@@ -635,15 +635,52 @@ in one request.
 | Check | Claims |
 |---|---|
 | generic | Markdown links (inline and reference definitions, `<angle-bracket>` targets; relative, and blob/tree links to `source.url`), paths and globs in code spans (see below), identifiers (a word in some tracked file that is not prose; a missing ALL_CAPS name is `unresolved`, since a tool outside the tree may read it), `python <script>` paths, a command wrapped in backticks inside a shell fence |
-| `bazel` | `--config` values against `.bazelrc` and its imports, flag aliases, labels against the target and output names (`name`, `outs`) that the package's `BUILD.bazel`, else `BUILD`, spells out in either quote style (a package that calls a macro or computes a name, `"t_" + s` or a comprehension, gives `unresolved`, not `fail`), macros and keyword arguments in Starlark fences against tracked `.bzl` files |
+| `bazel` | `--config` values against `.bazelrc` and its imports, flag aliases, labels against the target and output names (`name`, `outs`, and the files of a top-level `exports_files([...])`) that the package's `BUILD.bazel`, else `BUILD`, spells out in either quote style (a package that calls a macro or computes a name, `"t_" + s`, a comprehension or `exports_files(glob(...))`, gives `unresolved`, not `fail`), macros and keyword arguments in Starlark fences against tracked `.bzl` files, `load()` symbols against the public top-level names (a `def` or an assignment) of the in-tree `.bzl` an absolute label names, labels of an external repository against its BUILD file when the tree holds one (see below), and `@<module>//` alone as this repository |
 | `make` | targets against the rules of every makefile (a `%:` catch-all or a rule named by a variable gives `unresolved`), `VAR=value` against the makefiles |
-| `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json` |
+| `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json`, `-S <dir>` against a `CMakeLists.txt` in that directory (`ok` when any ancestor directory of the guidance file holds it; `fail` only after a literal `cd`, and there a miss inside a declared submodule is `unresolved`; without a `cd` the directory the command runs in is not known, so a miss is `unresolved`; a glob such as `examples/*` is not a literal directory and gets no claim; a `%VAR%`, a drive path such as `C:/x`, and a `-S` word holding a backslash get no claim) |
 | `pytest` | path arguments and `::test` nodes |
 | `pre-commit` | `pre-commit run <hook>` against hook ids and aliases |
 
 `build_systems` picks the adapters. Without it they are detected from the
 files at the root (any `conftest.py` or a pytest section also selects
 `pytest`), and the report says so.
+
+Starlark is a Python dialect, so guidance often fences a BUILD snippet as
+`python`. With the `bazel` adapter on, such a fence is checked as Starlark when
+it reads as BUILD code: it loads a label, or a line starts a call to a native
+rule only Bazel has (`cc_library`, `http_archive`). A call to a macro of a
+tracked `.bzl` file does not count (`run(` and `build(` are as often plain
+Python), nor does `test_suite(`. Any other `python` fence is not checked.
+Every string of a checked fence that is a label is looked up, in either quote
+style; a string such as `//cdn.example.com/x.tar` (a host name) is not a label. An
+external repository's BUILD file is in the tree when a tracked file is named
+for the repository (`zlib.BUILD`, `BUILD.zlib`, `mkl.tpl.BUILD`,
+`mkl_win.tpl.BUILD`, with an optional `.bazel`) and a `.bzl` file,
+`MODULE.bazel` or `WORKSPACE` names that file, as a `build_file` or a
+template, and `MODULE.bazel` does not take the repository from a registry
+with `bazel_dep` (its `repo_name`, else its `name`). A label in the root package of such a repository is `ok` when one of
+those files spells the name out (or lists it in `exports_files([...])`), or
+the target is `all`, `*` or `all-targets`. It is `unresolved` when one of those
+files computes names (a macro, `exports_files(glob(...))`, or a template's
+`%{...}` substitution), when the target contains a `.`, or when the name
+appears as any string in the file (a source in `srcs`); otherwise it is
+`fail`. Labels of any other
+external repository stay `unresolved`. A `BUILD`, `.bzl`, `WORKSPACE` or `MODULE.bazel` file that was not read
+(binary, over the size limit, a dangling or escaping link) makes its `bazel_label` and `starlark_load` claims
+`unresolved`, with the reason (`X was not read (...)`). Such a file also adds the warning
+`build file not scanned: <path>: <why>` and makes the scan `incomplete`. Only these exact names count: `BUILD`,
+`BUILD.*` (`BUILD.bazel`, an external `BUILD.zlib`), `WORKSPACE`, `WORKSPACE.bazel`, `MODULE.bazel`, `*.bzl`, `*.bazelrc`, `*.BUILD` (and an unread
+`.bazelrc` import of any name); a file such as `BUILD_status.png` does not, and none counts unless `bazel` is a build system of the scan.
+
+L0 checks only what holds for any repository. The rules of oneDAL's own
+checker that are repository policy were not ported, and oneDAL dropped them
+along with that checker: `bazel test` and `bazel run` without `--config`, the
+refusal of `//...` and of bare `cc_library`/`cc_test`, a Starlark call to
+anything not defined in its three `.bzl` files, `PLAT=`/`COMPILER=` values
+from its `dev/make` tree, and a label or make target that the build files do
+not spell out literally (L0 reports that one `unresolved`, because a macro or a
+computed rule name may make it). A repository that wants rules like these adds
+them through its own `static` entry point (§4.4), merged as described below.
 
 `--static <file>` merges the output of the repository's `static` entry point
 (§4.4). A repository claim replaces the framework claim on the same file, line
@@ -658,7 +695,9 @@ line ends a continuation, and the body of a heredoc is not a command. A word
 that holds an expansion (`$VAR`, `${VAR}`, `$(cmd)`, a backtick substitution)
 is never looked up: not as a make target, a `-D` variable, a preset, a
 `--config` value, a hook id, a path or a label. The literal key of
-`VAR=$(cmd)` is still checked.
+`VAR=$(cmd)` is still checked. A `<placeholder>` inside a word
+(`//pkg/<algo>:tests`, `make <target>`) is one too, not a pair of
+redirections.
 A literal `cd dir` moves the relative paths of the later commands in the same
 fence or span, and a subshell ends at its closing parenthesis. After a `cd` to a
 directory the tree lacks or to a non-literal one, after `pushd`/`popd`, and
@@ -705,7 +744,8 @@ guidance file that cannot be read (a link that dangles or leaves the tree, a
 binary file, a file over 2 MB), named with the reason. An invalid `--static`
 document is not merged, and the command exits 1. `--fail-on-fail` also exits 1
 when any claim fails, an `also_scan` file is missing, a guidance file cannot be
-read, or no guidance file matched (`incomplete`). A glob that matches nothing
+read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
+(`incomplete`). A glob that matches nothing
 does not fail the gate, so a file the gate must see belongs in `also_scan`.
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
