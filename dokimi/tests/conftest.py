@@ -59,3 +59,34 @@ def fake_llm():
     fake = llm.FakeAdapter()
     with llm.use_adapter(fake):
         yield fake
+
+
+@pytest.fixture
+def provider_calls(monkeypatch):
+    """Records every provider call a path makes and answers it (``tests/provider_calls.py``).
+
+    The ``dokimi.llm`` adapter seam and the validator's embeddings client both write
+    to one ledger, ``provider_calls.calls``. A request that skips the seam and calls
+    litellm directly fails the test. The response cache is off (a test turns it on
+    with ``DOKIMI_RESPONSE_CACHE``) and retry backoff does not sleep; the delays
+    land in ``provider_calls.sleeps``.
+    """
+    import litellm
+
+    from dokimi import caching, llm
+    from tests.provider_calls import FakeOpenAI, ProviderCalls
+
+    ledger = ProviderCalls()
+
+    def bypass(*_a, **_kw):
+        raise AssertionError("a provider call bypassed the dokimi.llm adapter")
+
+    monkeypatch.setattr(litellm, "completion", bypass)
+    monkeypatch.setattr(litellm, "embedding", bypass)
+    monkeypatch.setattr(
+        "dokimi.questions.validator.OpenAI", lambda **kw: FakeOpenAI(ledger, **kw), raising=False
+    )
+    monkeypatch.setattr("time.sleep", ledger.sleeps.append)
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    with llm.use_adapter(ledger):
+        yield ledger
