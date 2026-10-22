@@ -125,6 +125,12 @@ def _pair(text: str) -> tuple[str, str]:
     return name, path
 
 
+def _progress(line: str) -> None:
+    """One progress line, flushed: under a pipe (CI) stdout is block-buffered and the per-task
+    lines would otherwise all appear when the command exits."""
+    print(line, flush=True)
+
+
 def _errors():
     from dokimi.repos import ManifestError, SourceError
     from dokimi.repos.container import ContainerError
@@ -145,7 +151,7 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
               file=sys.stderr)
-        results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs)
+        results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs, log=_progress)
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -206,7 +212,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         print(f"{profile.name} {version} in {ctx.image}; {len(tasks)} task(s) x {len(arms)} arm(s) x "
               f"{len(options)} model(s) x {args.reps} rep(s) -> {batch_dir}", file=sys.stderr)
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
-                            max_batch_usd=args.max_batch_usd)
+                            max_batch_usd=args.max_batch_usd, log=_progress)
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)

@@ -643,3 +643,18 @@ def test_a_mistyped_manifest_path_is_an_error_not_a_default_scan(tmp_path, capsy
         args.func(args)
     assert exc.value.code == 1
     assert "manifest not found" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("rev", ["origin/main", "refs/heads/x", "HEAD~1", "v1.2", "a492e703^"])
+def test_source_parse_takes_a_rev_with_a_slash(tmp_path, rev):
+    src = RepoSource.parse(f"{tmp_path}@{rev}")
+    assert (src.location, src.rev, src.remote) == (str(tmp_path), rev, False)
+    remote = RepoSource.parse(f"git@github.com:o/r.git@{rev}")
+    assert (remote.location, remote.rev) == ("git@github.com:o/r.git", rev)
+
+
+@pytest.mark.parametrize("rev", ["a..b", "origin//main", "origin/"])
+def test_source_parse_leaves_a_non_rev_suffix_in_the_path(tmp_path, rev):
+    (tmp_path / f"d@{rev}").mkdir(parents=True)
+    src = RepoSource.parse(f"{tmp_path}/d@{rev}")
+    assert src.rev is None and src.location == f"{tmp_path}/d@{rev}"
