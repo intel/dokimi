@@ -590,10 +590,11 @@ python cli.py novelty routing --artifact skill:path/to/skill \
     --queries queries.json [--model M]
 ```
 
-`--catalog <dir>` (also `--competitors-from-catalog <dir>`) takes the competitors from a skill
-directory instead: every skill the catalog lists except the artifact itself. A `skills.yaml`
-at the root decides what the catalog lists; without one, every `SKILL.md` under it counts. A
-declared skill that cannot be loaded is skipped with a warning.
+`--catalog <dir>` takes the competitors from a skill directory instead: every skill the catalog
+lists except the artifact itself. A `skills.yaml` at the root decides what the catalog lists;
+without one, every `SKILL.md` under it counts. A declared skill that cannot be loaded is skipped
+with a warning. Two catalog skills with the same name and different content are refused, with
+both paths named: rename one, or delete the copy you do not mean to route against.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning, so a shell glob over a skills directory can be passed as it is.
 A skill that sets `disable-model-invocation` is left out of the field, both from a catalog
@@ -632,6 +633,16 @@ own rate per skill, and an attractor table: a skill picked for other skills' que
 `wrongly_picked` of `sibling_queries` and the skills whose queries it took (`from`). It takes no
 `--artifact`. It is refused with fewer than two skills, a name repeated in the field, a query
 file that names a skill outside the field, or no queries at all.
+
+**Cost of `--model` in all-vs-all.** The model arm makes one selector call per query, across
+every skill in the field: the call count is the total number of requests in `queries.json`, and
+a failed call still counts. Each call sends the whole field's cards, so a large field costs
+more per call as well as in calls. Before the first call the run prints that count to stderr
+(`all-vs-all: --model makes N model calls, one per query, ...`). The run does not pause for it
+and routing has no `--max-usd` cap, so count the queries first and stop the run (Ctrl-C) if the
+number is more than you meant to spend. A lexical-only run (no `--model`) makes no model calls.
+A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
+fewer calls than the printed count.
 
 Three properties worth knowing before quoting either: before quoting either:
 

@@ -395,6 +395,8 @@ def catalog_competitors(root: str, exclude: set[str],
     Raises:
         ValueError: ``root`` is not a directory, or a skill under it cannot be loaded (with
             no manifest every ``SKILL.md`` is read, and one that is broken still raises).
+        RoutingInputError: Two skills in the field share a name with different content; the
+            message names both paths.
     """
     from dokimi.external.catalog import read_skill_manifest
 
@@ -415,6 +417,21 @@ def catalog_competitors(root: str, exclude: set[str],
                              "disable-model-invocation (--include-disabled keeps it)")
             continue
         eligible.append((skill, hashlib.sha256(skill.path.read_bytes()).hexdigest()))
+
+    # Two skills with one name and different bytes cannot both stand for the card, and
+    # check_field would only say "pass each competitor once", which is not the problem.
+    copies_by_name: dict[str, list[tuple[str, str]]] = {}
+    for skill, digest in eligible:
+        copies_by_name.setdefault(skill.name, []).append((skill.path.as_posix(), digest))
+    for name in sorted(copies_by_name):
+        copies = sorted(copies_by_name[name])
+        first_path, first_digest = copies[0]
+        other = next((path for path, digest in copies if digest != first_digest), None)
+        if other is not None:
+            raise RoutingInputError(
+                f"catalog has {name} at {first_path} and {other} with "
+                "different content; dedupe or rename"
+            )
 
     # The copy with the fewest path parts stands for each byte-identical group; ties go to
     # the path that sorts first, so the choice does not depend on directory order.

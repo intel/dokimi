@@ -330,11 +330,21 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
         raise SystemExit("--all-vs-all needs --out <file>")
     try:
         field = _routing_field(args, set())
+    except RoutingInputError as exc:
+        raise SystemExit(str(exc)) from None
     except (FileNotFoundError, ValueError) as exc:
         raise SystemExit(f"cannot load the field: {exc}") from None
     try:
         queries_by_skill = load_queries_by_skill(args.queries_by_skill)
         selector = _client(args.model, args.provider, "selector", args) if args.model else None
+        if selector is not None:
+            # One selector call per query, each sending every card in the field.
+            calls = sum(len(queries) for queries in queries_by_skill.values())
+            print(
+                f"all-vs-all: --model makes {calls} model calls, one per query, over "
+                f"{len(field)} cards each",
+                file=sys.stderr,
+            )
         result = all_vs_all(field, queries_by_skill, client=selector, seed=args.seed)
     except RoutingInputError as exc:
         raise SystemExit(str(exc)) from None
@@ -387,6 +397,8 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
                   "it and the model cannot select it; its routing rate is not a harness rate",
                   file=sys.stderr)
         competitors = _routing_field(args, {gold.name})
+    except RoutingInputError as exc:
+        raise SystemExit(str(exc)) from None
     except (FileNotFoundError, ValueError) as exc:
         raise SystemExit(f"cannot load an artifact: {exc}") from None
     # Checked before the query file is read, so the message is about the real problem.
@@ -683,8 +695,7 @@ def register(sub, positive_int) -> None:
                            help="Other artifacts the selector sees. Selection among one "
                                 "candidate is not routing: the sibling confusion is the "
                                 "failure mode (every `dpnp-*` skill scored 0.0 lexically)")
-    routing_p.add_argument("--catalog", "--competitors-from-catalog", default=None,
-                           dest="catalog",
+    routing_p.add_argument("--catalog", default=None,
                            help="Directory of skills to take the competitors from: every "
                                 "skill the catalog lists (skills.yaml when present, else every "
                                 "SKILL.md under it) except the artifact itself, i.e. the "

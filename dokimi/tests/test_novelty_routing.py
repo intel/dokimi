@@ -500,12 +500,6 @@ def test_the_catalog_is_the_skills_yaml_manifest_when_there_is_one(tmp_path):
     assert len(notes) == 1 and "ghost" in notes[0]
 
 
-def test_competitors_from_catalog_is_the_same_flag_as_catalog(tmp_path):
-    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
-                  "--competitors-from-catalog", str(tmp_path))
-    assert args.catalog == str(tmp_path)
-
-
 def test_a_non_skill_file_among_competitors_is_skipped_with_a_warning(tmp_path, capsys):
     # A shell glob over a skills directory passes the helper scripts and an empty directory
     # too; that used to abort the whole run on the first .mjs file.
@@ -635,6 +629,43 @@ def test_the_mirror_kept_is_the_copy_nearest_the_catalog_root(tmp_path):
     assert "plugins" in notes[0] and "identical to" in notes[0]
 
 
+def test_two_catalog_skills_with_one_name_and_different_content_are_refused_by_name(
+    tmp_path, capsys
+):
+    # Not "pass each competitor once": the catalog holds two different cards under one name,
+    # and the refusal names both copies rather than the duplicate-competitor check.
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf")
+    _catalog_skill(root, "db", "tune a slow database query")
+    fork = root / "plugins" / "x" / "skills" / "db"
+    fork.mkdir(parents=True)
+    (fork / "SKILL.md").write_text(
+        "---\nname: db\ndescription: a different card\n---\n\n# B\n", encoding="utf-8"
+    )
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["my binary is slow"]), encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse(
+        "novelty",
+        "routing",
+        "--artifact",
+        f"skill:{root / 'skills' / 'perf'}",
+        "--catalog",
+        str(root),
+        "--queries",
+        str(queries),
+        "--out",
+        str(out),
+    )
+    with pytest.raises(SystemExit) as refused:
+        args.func(args)
+    message = str(refused.value)
+    assert message.startswith("catalog has db at ") and "dedupe or rename" in message
+    assert str(root / "skills" / "db" / "SKILL.md") in message
+    assert str(fork / "SKILL.md") in message
+    assert "more than once" not in message and not out.exists()
+
+
 def _write_queries(tmp_path, by_skill):
     path = tmp_path / "queries_by_skill.json"
     path.write_text(json.dumps(by_skill), encoding="utf-8")
@@ -735,6 +766,71 @@ def test_all_vs_all_writes_the_matrix_and_prints_the_attractors(tmp_path, capsys
     stdout = capsys.readouterr().out
     assert "all-vs-all: 3 skills in the field, 4 queries" in stdout
     assert "lexical: hub picked for 1 of 4 sibling queries (from perf)" in stdout
+
+
+def test_all_vs_all_with_model_names_its_model_calls_on_stderr(tmp_path, capsys, monkeypatch):
+    # One selector call per query: 2 + 2 queries, so 4 calls, each over the 3 cards.
+    import dokimi.commands.novelty as novelty_cmd
+
+    def transport(prompt: str, system: str | None):
+        return json.dumps({"pick": 1}), None
+
+    monkeypatch.setattr(
+        novelty_cmd,
+        "_client",
+        lambda model, provider, role, args: LLMClient(
+            model=model, provider=provider, role=role, transport=transport
+        ),
+    )
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
+    _catalog_skill(root, "db", "tune a slow database query with an index")
+    _catalog_skill(root, "hub", "general advice for slow programs and slow queries")
+    queries = _write_queries(
+        tmp_path,
+        {
+            "perf": ["my slow program needs advice", "profile a slow program"],
+            "db": ["my database query is slow", "add an index to speed up a query"],
+        },
+    )
+    args = _parse(
+        "novelty",
+        "routing",
+        "--all-vs-all",
+        "--catalog",
+        str(root),
+        "--queries-by-skill",
+        str(queries),
+        "--out",
+        str(tmp_path / "o.json"),
+        "--model",
+        "m",
+    )
+    args.func(args)
+    assert (
+        "all-vs-all: --model makes 4 model calls, one per query, over 3 cards each"
+        in capsys.readouterr().err
+    )
+
+
+def test_all_vs_all_without_model_says_nothing_about_model_calls(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
+    _catalog_skill(root, "db", "tune a slow database query with an index")
+    queries = _write_queries(tmp_path, {"perf": ["profile a slow program"]})
+    args = _parse(
+        "novelty",
+        "routing",
+        "--all-vs-all",
+        "--catalog",
+        str(root),
+        "--queries-by-skill",
+        str(queries),
+        "--out",
+        str(tmp_path / "o.json"),
+    )
+    args.func(args)
+    assert "model calls" not in capsys.readouterr().err
 
 
 def test_all_vs_all_takes_no_artifact(tmp_path):
