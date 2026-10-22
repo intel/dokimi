@@ -791,8 +791,8 @@ price. The constants were fitted on 13 of the 25 measured runs; the other 12 are
 On those 12 every projection landed within 35%: calls within 13%, atoms within 11%, dollars
 within 33%. Every dollar projection came out high, not low. Only three of the 12 are standard
 runs, so the standard profile rests on little data. An explicit flag always beats the tier,
-and the override is recorded — a `--tier triage --max-atoms 90` run is not a stock triage run and does not get
-to be read as one.
+and the override is recorded — a `--tier triage --max-atoms 90` run is not a stock triage
+run and does not get to be read as one.
 
 Each tier carries the **claims it forfeits**, and those strings are written into
 `run_config.tier` *and* appended to the artifact's warnings. They follow the settings the
