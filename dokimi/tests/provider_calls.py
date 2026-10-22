@@ -120,6 +120,7 @@ class ProviderCalls:
         self.fake = llm.FakeAdapter(respond=lambda r: canned_reply(purpose_of(llm.prompt_text(r))))
         self.calls: List[ProviderCall] = []
         self.sleeps: List[float] = []
+        self.bypasses: List[str] = []
         self._lock = threading.Lock()
 
     def __call__(self, request: llm.Request) -> llm.Reply:

@@ -82,7 +82,9 @@ def provider_calls(monkeypatch):
     ledger = ProviderCalls()
 
     def bypass(*_a, **_kw):
-        raise AssertionError("a provider call bypassed the dokimi.llm adapter")
+        message = "a provider call bypassed the dokimi.llm adapter"
+        ledger.bypasses.append(message)
+        raise AssertionError(message)
 
     monkeypatch.setattr(litellm, "completion", bypass)
     monkeypatch.setattr(litellm, "embedding", bypass)
@@ -94,3 +96,4 @@ def provider_calls(monkeypatch):
     monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
     with llm.use_adapter(ledger):
         yield ledger
+    assert not ledger.bypasses, ledger.bypasses
