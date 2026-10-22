@@ -105,7 +105,7 @@ def read_skill_manifest(root: Path) -> list[SkillCatalogEntry]:
         for skill_file in sorted(root.rglob("SKILL.md")):
             try:
                 skill = load_skill(skill_file)
-            except (FileNotFoundError, ValueError) as exc:
+            except (OSError, ValueError) as exc:
                 found.append(
                     SkillCatalogEntry(
                         name=skill_file.parent.name,
@@ -201,7 +201,7 @@ def _skill_entry(root: Path, item: dict, name: str, list_shape: bool) -> SkillCa
         return failed(f"{source} escapes root: {catalog_path!r}")
     try:
         skill = load_skill(path)
-    except (FileNotFoundError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         return failed(str(exc), path)
     # The directory is inside the root; a SKILL.md symlinked out of it is not.
     if not _within(skill.path, root):
