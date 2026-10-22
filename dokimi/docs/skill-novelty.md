@@ -590,8 +590,10 @@ python cli.py novelty routing --artifact skill:path/to/skill \
     --queries queries.json [--model M]
 ```
 
-`--catalog <dir>` takes the competitors from a skill directory instead: every `SKILL.md`
-under it except the artifact itself.
+`--catalog <dir>` (also `--competitors-from-catalog <dir>`) takes the competitors from a skill
+directory instead: every skill the catalog lists except the artifact itself. A `skills.yaml`
+at the root decides what the catalog lists; without one, every `SKILL.md` under it counts. A
+declared skill that cannot be loaded is skipped with a warning.
 
 Two numbers, reported side by side and never merged:
 

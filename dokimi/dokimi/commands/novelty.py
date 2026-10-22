@@ -286,8 +286,11 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         gold, body = card(args.artifact)
         competitors = [card(ref)[0] for ref in args.competitors or []]
         if args.catalog:
+            notes: list[str] = []
             catalog = catalog_competitors(args.catalog,
-                                          {gold.name, *(c.name for c in competitors)})
+                                          {gold.name, *(c.name for c in competitors)}, notes)
+            for note in notes:
+                print(f"WARNING: {note}", file=sys.stderr)
             no_description = [c.name for c in catalog if not c.description]
             if no_description:
                 print(f"WARNING: {len(no_description)} catalog skill(s) have no description, "
@@ -582,9 +585,11 @@ def register(sub, positive_int) -> None:
                            help="Other artifacts the selector sees. Selection among one "
                                 "candidate is not routing: the sibling confusion is the "
                                 "failure mode (every `dpnp-*` skill scored 0.0 lexically)")
-    routing_p.add_argument("--catalog", default=None,
+    routing_p.add_argument("--catalog", "--competitors-from-catalog", default=None,
+                           dest="catalog",
                            help="Directory of skills to take the competitors from: every "
-                                "SKILL.md under it except the artifact itself, i.e. the "
+                                "skill the catalog lists (skills.yaml when present, else every "
+                                "SKILL.md under it) except the artifact itself, i.e. the "
                                 "siblings a harness lists next to it. Combines with "
                                 "--competitors")
     routing_p.add_argument("--queries", default=None,

@@ -473,3 +473,31 @@ def test_catalog_competitors_with_name_in_competitors_excludes_it_from_catalog(t
     assert names.count("perf") == 0, "perf should be excluded from catalog"
     assert set(names) == {"xpu", "cache"}, f"Expected xpu and cache, got {names}"
 
+
+
+def _catalog_skill(root, name, description):
+    skill_dir = root / "skills" / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n\n# B\n", encoding="utf-8")
+
+
+def test_the_catalog_is_the_skills_yaml_manifest_when_there_is_one(tmp_path):
+    # A manifest decides which skills the catalog has: a SKILL.md it does not list is not a
+    # sibling, and a listed skill with no directory is reported rather than aborting the run.
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "xpu", "profile a slow GPU kernel")
+    _catalog_skill(root, "db", "tune a slow database query")
+    _catalog_skill(root, "unlisted", "profile a slow thing")
+    (root / "skills.yaml").write_text("- name: xpu\n- name: db\n- name: ghost\n",
+                                      encoding="utf-8")
+    notes: list[str] = []
+    names = [c.name for c in catalog_competitors(str(root), {"perf"}, notes)]
+    assert names == ["xpu", "db"]
+    assert len(notes) == 1 and "ghost" in notes[0]
+
+
+def test_competitors_from_catalog_is_the_same_flag_as_catalog(tmp_path):
+    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
+                  "--competitors-from-catalog", str(tmp_path))
+    assert args.catalog == str(tmp_path)

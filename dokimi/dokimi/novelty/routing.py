@@ -339,20 +339,33 @@ def load_candidate(ref: str) -> tuple[Candidate, str, str | None]:
     return Candidate(name=name or ref, description=description), body, warning
 
 
-def catalog_competitors(root: str, exclude: set[str]) -> list[Candidate]:
+def catalog_competitors(root: str, exclude: set[str],
+                        notes: list[str] | None = None) -> list[Candidate]:
     """Every skill under ``root`` whose name is not in ``exclude``.
 
     The field a harness would list next to the artifact, rather than one the caller picks.
+    Skills come from the catalog reader, so a ``skills.yaml`` manifest decides which skills
+    the catalog has. A declared skill that cannot be loaded is left out and described in
+    ``notes`` (when given) rather than aborting the run.
 
     Raises:
-        ValueError: ``root`` is not a directory, or a skill under it cannot be loaded.
+        ValueError: ``root`` is not a directory, or a skill under it cannot be loaded (with
+            no manifest every ``SKILL.md`` is read, and one that is broken still raises).
     """
-    from dokimi.skills import discover_skills
+    from dokimi.external.catalog import read_skill_manifest
 
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
-    return [Candidate(name=s.name, description=s.description)
-            for s in discover_skills(root) if s.name not in exclude]
+    candidates: list[Candidate] = []
+    for entry in read_skill_manifest(Path(root)):
+        skill = entry.skill
+        if skill is None or not entry.loaded:
+            if notes is not None:
+                notes.append(f"skipped catalog entry {entry.name!r}: {entry.error}")
+            continue
+        if skill.name not in exclude:
+            candidates.append(Candidate(name=skill.name, description=skill.description))
+    return candidates
 
 
 def check_field(gold: Candidate, competitors: list[Candidate]) -> None:

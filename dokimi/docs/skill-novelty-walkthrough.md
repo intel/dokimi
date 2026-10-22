@@ -39,9 +39,9 @@ python cli.py novelty routing --artifact skill:skills/my-skill \
     --queries queries.json
 ```
 
-The competitors are the skills a harness lists next to this one: `--catalog <dir>` takes
-every other `SKILL.md` under the directory, and `--competitors` adds or names them one by
-one. With no real siblings at hand, skip this step and say so; a field of competitors made
+The competitors are the skills a harness lists next to this one: `--catalog <dir>` (or
+`--competitors-from-catalog <dir>`) takes every other skill the catalog lists, and
+`--competitors` adds or names them one by one. With no real siblings at hand, skip this step and say so; a field of competitors made
 up for the run measures nothing.
 
 Read `recall@1` against the competitors, not alone. Measured on the study corpus, every
