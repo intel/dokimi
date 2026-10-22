@@ -196,13 +196,19 @@ class ArmRunner:
         non-deterministic by default, so a pinned run and a free-sampling one are
         differently reproducible and should not be silently pooled as replicates.
         """
-        return {
+        config: Dict[str, Any] = {
             "max_tokens": self.max_tokens,
             "max_iterations": self.max_iterations,
             "grounded_from_topics": self.grounded_from_topics,
             "temperature": self.temperature,
             "seed": self.seed,
         }
+        # A session run and a single-turn run answer different questions of the model (the
+        # history grows), so the pairing checks must be able to tell them apart.
+        if self.session_turns is not None:
+            config["session_turns"] = self.session_turns
+            config["turn_reminder"] = self.turn_reminder
+        return config
 
     def run(
         self,
@@ -449,6 +455,15 @@ class ArmRunner:
             logger.error("Arm %s session failed for %s: %s", treatment.name,
                          question_id, session["error"])
             return {"error": f"generation_failed: {session['error']}", "answer": None,
+                    **self._session_spend(session),
+                    "session": session_block, "metadata": cfg_metadata}
+
+        if session["stopped_reason"] == "empty_reply":
+            # The session ended short of the turns asked for. Recording it as a success
+            # would mix 2-turn and 3-turn sessions in one arm's totals; the usage stays.
+            error = f"empty_reply: turn {len(session['turns']) - 1}"
+            logger.error("Arm %s session stopped for %s: %s", treatment.name, question_id, error)
+            return {"error": error, "answer": None, **self._session_spend(session),
                     "session": session_block, "metadata": cfg_metadata}
 
         raw_answer = session["answer"]
@@ -478,6 +493,19 @@ class ArmRunner:
             "metadata": cfg_metadata,
             "elapsed_sec": round(time.time() - t0, 2),
         }
+
+    @staticmethod
+    def _session_spend(session: Dict[str, Any]) -> Dict[str, Any]:
+        """Token usage and metrics of the turns a failed session did complete.
+
+        The calls were paid for, so the cost rollup must count them; an arm without
+        ``metrics`` is skipped by it.
+        """
+        if not session["turns"]:
+            return {}
+        usage = session["usage"]
+        return {"token_usage": usage.as_token_usage_dict(),
+                "metrics": usage.as_metrics_dict(answer_chars=0, final_chars=0)}
 
     @staticmethod
     def _apply_shapers(shapers, answer_text):

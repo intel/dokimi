@@ -145,17 +145,21 @@ def test_a_question_short_of_follow_ups_fails_before_any_answer_is_paid(fake_llm
     assert fake_llm.requests == []
 
 
-def test_an_empty_reply_ends_the_session(fake_llm):
-    fake_llm.push("", "never sent")
-    runner = ArmRunner([BaselineTreatment()], session_turns=2)
+def test_an_empty_reply_ends_the_session_and_is_a_failed_arm_that_keeps_its_spend(fake_llm):
+    fake_llm.push("a1", "", "never sent")
+    runner = ArmRunner([BaselineTreatment()], session_turns=3)
 
     records = runner.run("oneTBB", [SESSION_Q], concurrency=1)
 
     arm = records[0]["arms"]["baseline"]
-    assert len(fake_llm.requests) == 1
+    assert len(fake_llm.requests) == 2
     assert arm["session"]["stopped_reason"] == "empty_reply"
-    assert len(arm["session"]["turns"]) == 1
-    assert arm["answer"] == ""
+    assert len(arm["session"]["turns"]) == 2
+    # Not a success: its totals would cover fewer turns than the other questions' rows.
+    assert arm["error"] == "empty_reply: turn 1"
+    assert arm["answer"] is None
+    assert arm["metrics"]["n_calls"] == 2
+    assert cost_summary(records)["baseline"]["total_llm_calls"] == 2
 
 
 def test_a_failing_turn_keeps_the_completed_turns(fake_llm):
@@ -170,6 +174,29 @@ def test_a_failing_turn_keeps_the_completed_turns(fake_llm):
     assert arm["session"]["stopped_reason"] == "error"
     assert [t["answer"] for t in arm["session"]["turns"]] == ["a1"]
     assert len(fake_llm.requests) == 2
+
+
+def test_a_failed_session_still_counts_the_turns_already_paid_for(fake_llm):
+    fake_llm.push(Reply(text="a1", usage=UsageRecord(prompt_tokens=100, completion_tokens=10,
+                                                     total_tokens=110, cost_usd=0.01)),
+                  ValueError("boom"))
+    runner = ArmRunner([BaselineTreatment()], session_turns=3)
+
+    records = runner.run("oneTBB", [SESSION_Q], concurrency=1)
+
+    arm = records[0]["arms"]["baseline"]
+    assert arm["token_usage"]["total_tokens"] == 110
+    summary = cost_summary(records)["baseline"]
+    assert summary["total_llm_calls"] == 1
+    assert summary["total_cost_usd"] == pytest.approx(0.01)
+
+
+def test_a_session_that_fails_on_its_first_turn_has_no_spend_to_report(fake_llm):
+    fake_llm.push(ValueError("boom"))
+    records = ArmRunner([BaselineTreatment()], session_turns=2).run(
+        "oneTBB", [SESSION_Q], concurrency=1)
+    arm = records[0]["arms"]["baseline"]
+    assert "metrics" not in arm and "token_usage" not in arm
 
 
 class _Noop(Tool):
@@ -237,3 +264,141 @@ def test_the_cli_refuses_judge_with_session_before_any_answer(fake_llm):
     with pytest.raises(ValueError, match="measurement-only"):
         _build_arms_output(args, ["baseline"], [SESSION_Q])
     assert fake_llm.requests == []
+
+
+class _SystemPromptTreatment(Treatment):
+    name = "sys"
+
+    def prepare(self, question_text, library_name, library_id=None):
+        return AgentConfig(system_prompt="You are terse.")
+
+
+class _BigContextTreatment(Treatment):
+    name = "big"
+
+    def prepare(self, question_text, library_name, library_id=None):
+        return AgentConfig(injected_context=[{"content": "\u00a7" * 40_000, "source": "s"}])
+
+
+def test_every_request_of_a_session_carries_the_sampling_options_and_system_prompt(fake_llm):
+    fake_llm.push("a1", "a2", "a3")
+    runner = ArmRunner([_SystemPromptTreatment()], session_turns=3, temperature=0.3, seed=7,
+                       max_tokens=50)
+
+    runner.run("oneTBB", [SESSION_Q], concurrency=1)
+
+    assert len(fake_llm.requests) == 3
+    for req in fake_llm.requests:
+        assert (req.temperature, req.seed, req.max_tokens) == (0.3, 7, 50)
+        assert req.messages[0] == {"role": "system", "content": "You are terse."}
+
+
+def test_the_opening_turn_caps_injected_context_as_the_plain_run_does(fake_llm):
+    from dokimi.eval.arm_runner import MAX_CONTEXT_CHARS
+
+    fake_llm.push("a1", "a2")
+    ArmRunner([_BigContextTreatment()], session_turns=2).run(
+        "oneTBB", [SESSION_Q], concurrency=1)
+
+    opening = fake_llm.requests[0].messages[-1]["content"]
+    assert opening.count("\u00a7") == MAX_CONTEXT_CHARS
+
+
+def test_opening_is_prepared_from_the_first_turn_not_the_last(fake_llm):
+    seen = []
+
+    class _Spy(Treatment):
+        name = "spy"
+
+        def prepare(self, question_text, library_name, library_id=None):
+            seen.append(question_text)
+            return AgentConfig()
+
+    fake_llm.push("a1", "a2", "a3")
+    ArmRunner([_Spy()], session_turns=3).run("oneTBB", [SESSION_Q], concurrency=1)
+    assert seen == [SESSION_Q["question"]]
+
+
+def test_output_shapers_apply_to_the_session_answer_but_not_the_raw_one(fake_llm):
+    from dokimi.plugins import create_plugins, plugin_set_metadata, wrap_treatments
+
+    plugins = create_plugins(["truncate:5"])
+    treatments = wrap_treatments([BaselineTreatment()], plugins)
+    fake_llm.push("a1", "a long final answer")
+    runner = ArmRunner(treatments, session_turns=2, plugin_set=plugin_set_metadata(plugins))
+
+    arm = runner.run("oneTBB", [SESSION_Q], concurrency=1)[0]["arms"]["baseline"]
+
+    assert arm["raw_answer"] == "a long final answer"
+    assert arm["answer"] != arm["raw_answer"] and len(arm["answer"]) == 5
+
+
+def _parse_arms_run(argv):
+    from dokimi.cli import build_parser
+
+    return build_parser().parse_args(
+        ["arms", "run", "--product", "oneTBB", "--questions", "q.json",
+         "--arms", "baseline"] + argv)
+
+
+def test_arms_run_wires_the_session_flags_into_the_run(fake_llm, monkeypatch):
+    import dokimi.commands.arms as arms_mod
+    from dokimi.commands.arms import _build_arms_output
+
+    monkeypatch.setattr(arms_mod, "_check_sampling_support", lambda args: None)
+    fake_llm.push("a1", "a2", "r1", "r2")
+    args = _parse_arms_run(["--session-turns", "2", "--turn-reminder", "BE TERSE"])
+
+    out = _build_arms_output(args, ["baseline"], [SESSION_Q])
+
+    assert out["session"] == {"turns": 2, "turn_reminder": "BE TERSE"}
+    assert out["arms"] == ["baseline", "baseline+reminder"]
+    assert out["run_config"]["session_turns"] == 2
+    assert len(fake_llm.requests) == 4
+
+
+def test_arms_run_without_session_flags_runs_single_turn(fake_llm, monkeypatch):
+    import dokimi.commands.arms as arms_mod
+    from dokimi.commands.arms import _build_arms_output
+
+    monkeypatch.setattr(arms_mod, "_check_sampling_support", lambda args: None)
+    fake_llm.push("a1")
+    out = _build_arms_output(_parse_arms_run([]), ["baseline"], [SESSION_Q])
+    assert "session" not in out and "session_turns" not in out["run_config"]
+
+
+def test_session_flags_parse_to_ints_and_text():
+    args = _parse_arms_run(["--session-turns", "3", "--turn-reminder", "X"])
+    assert (args.session_turns, args.turn_reminder) == (3, "X")
+    assert _parse_arms_run([]).session_turns is None
+
+
+def _artifact(session_turns=None, plugin_set="none"):
+    out = {"schema_version": "arms.v1", "library_name": "L", "model": "m", "provider": "p",
+           "harness": "h", "arms": ["baseline"], "baseline_arm": "baseline",
+           "total_questions": 1, "plugin_set": plugin_set, "answers": [],
+           "run_config": {"max_tokens": None}}
+    if session_turns is not None:
+        out["run_config"]["session_turns"] = session_turns
+        out["run_config"]["turn_reminder"] = None
+    return out
+
+
+def test_a_session_run_is_not_paired_with_a_single_turn_run():
+    from dokimi.eval.plugin_delta import PluginDeltaError, compare_plugin_runs
+
+    with pytest.raises(PluginDeltaError, match="different session_turns: None vs 3"):
+        compare_plugin_runs(_artifact(), _artifact(session_turns=3, plugin_set="caveman"))
+
+
+def test_the_matrix_pairing_key_separates_session_runs():
+    from dokimi.eval.matrix_rollup import _pair_key
+
+    assert _pair_key(_artifact()) != _pair_key(_artifact(session_turns=3))
+    assert _pair_key(_artifact(session_turns=3)) == _pair_key(_artifact(session_turns=3))
+
+
+def test_the_run_config_records_the_session_settings_only_when_set(fake_llm):
+    assert "session_turns" not in ArmRunner([BaselineTreatment()])._run_config()
+    config = ArmRunner([BaselineTreatment()], session_turns=2, turn_reminder="R")._run_config()
+    assert (config["session_turns"], config["turn_reminder"]) == (2, "R")

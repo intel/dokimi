@@ -73,6 +73,15 @@ def _validate_pair(control: Dict[str, Any], plugin: Dict[str, Any]) -> None:
                 f"cannot compute plugin delta across different {field}: "
                 f"{control.get(field)!r} vs {plugin.get(field)!r}"
             )
+    for field in ("session_turns", "turn_reminder"):
+        # Request-shaping settings of a multi-turn session run; absent on a single-turn run.
+        before = (control.get("run_config") or {}).get(field)
+        after = (plugin.get("run_config") or {}).get(field)
+        if before != after:
+            raise PluginDeltaError(
+                f"cannot compute plugin delta across different {field}: "
+                f"{before!r} vs {after!r}"
+            )
     if control.get("plugin_set") == plugin.get("plugin_set"):
         raise PluginDeltaError(
             "cannot compute plugin delta for identical plugin_set values "
