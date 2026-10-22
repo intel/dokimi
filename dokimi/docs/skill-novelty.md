@@ -794,7 +794,9 @@ the two totals (stages, every probe, and half the oracle pairs, split by `by_rol
 `expected_usd`: those calls priced at list prices by role, `null` when a model has no
 price. The constants were fitted on 13 of the 25 measured runs; the other 12 are held out.
 On those 12 every projection landed within 35%: calls within 13%, atoms within 11%, dollars
-within 33%. Every dollar projection came out high, not low. Only three of the 12 are standard
+within 33%. The dollar projections ran high on 5 runs (up to +29%) and low on 7 (down to
+-33%), so `expected_usd` is not a ceiling; the triage projection ran lower the larger the
+artifact was (-4% at 1,153 tokens, -33% at 6,723). Only three of the 12 are standard
 runs, so the standard profile rests on little data. An explicit flag always beats the tier,
 and the override is recorded — a `--tier triage --max-atoms 90` run is not a stock triage
 run and does not get to be read as one.

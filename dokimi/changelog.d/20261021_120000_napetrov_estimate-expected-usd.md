@@ -8,5 +8,6 @@
   with the extractor's output per call set per tier, and is `null` when a model has no
   price. The constants were fitted on 13 of 25 measured runs; on the other 12 (held out)
   calls landed within 13%, atoms within 11% and dollars within 33%, all within the 35%
-  tolerance, and dollars came out high, never low. `total_calls` and
+  tolerance. Dollars ran high on 5 runs and low on 7 (worst -33%), so `expected_usd` is not a
+  ceiling. `total_calls` and
   `total_calls_if_every_pair_escalates` are unchanged.

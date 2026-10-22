@@ -497,3 +497,35 @@ def test_estimate_only_prints_the_expected_calls_and_a_dollar_figure(tmp_path, c
     assert payload["estimate"]["expected_calls"] == sum(payload["estimate"]["by_role"].values())
     assert payload["expected_usd"] > 0  # default models are priced; null would be a regression
     assert payload["tokens"] > 0
+
+
+def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_path, capsys):
+    from dokimi.commands.novelty import _role_models
+
+    root = tmp_path / "s"
+    root.mkdir()
+    (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                   encoding="utf-8")
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+                  "--estimate-only")
+    args.func(args)
+    payload = json.loads(capsys.readouterr().out)
+    by_role, tokens = payload["estimate"]["by_role"], payload["tokens"]
+    models = _role_models(args)
+    triage = estimate_usd(by_role, tokens, models, "triage")
+    assert payload["expected_usd"] == triage
+    assert triage != estimate_usd(by_role, tokens, models, None)
+
+
+def test_list_cost_usd_distinguishes_an_unpriced_model_from_a_free_one(monkeypatch):
+    import litellm
+
+    from dokimi.llm import list_cost_usd
+
+    # cost_per_token prices a model it has no entry for at 0.0 when the route is known.
+    monkeypatch.setattr(litellm, "cost_per_token", lambda **_: (0.0, 0.0))
+    assert list_cost_usd("not-in-the-price-map-xyz", "openai", 100, 10) is None
+    monkeypatch.setitem(litellm.model_cost, "free-in-the-price-map-xyz",
+                        {"litellm_provider": "openai", "mode": "chat",
+                         "input_cost_per_token": 0.0, "output_cost_per_token": 0.0})
+    assert list_cost_usd("free-in-the-price-map-xyz", "openai", 100, 10) == 0.0
