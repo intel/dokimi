@@ -86,10 +86,6 @@ LAYER_BASELINE: dict[tuple[str, str], str] = {
 
 #: Import cycles that exist today, each the exact module set of one SCC: reason.
 CYCLE_BASELINE: dict[frozenset[str], str] = {
-    frozenset({"dokimi.eval.judge", "dokimi.eval.panel"}):
-        "panel imports Judge lazily; judge imports the panel's numeric-claim prompts",
-    frozenset({"dokimi.eval.interactions", "dokimi.eval.stats"}):
-        "stats re-exports interactions at its end, which imports stats' private helpers",
     frozenset({"dokimi.eval.judge_sequential", "dokimi.eval.judge_validity"}):
         "judge_validity imports the SPRT bounds lazily from judge_sequential",
     frozenset({"dokimi.harnesses.exploration", "dokimi.harnesses.models"}):
