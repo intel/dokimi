@@ -679,3 +679,74 @@ def test_an_unreadable_batch_stamp_is_no_stamp(tmp_path):
     _cell(b, "fix_a", "guidance:none", 1)
     _cell(b, "fix_a", "guidance:raw", 1)
     assert compare([b], "guidance:none")["stamps"]["b1"] == {"harness_versions": ["1.0"], "model_resolved": []}
+
+
+def _events(batch: Path, task: str, arm: str, rep: int, *commands: str) -> None:
+    rd = batch / f"{task}__{arm.replace(':', '-')}__m-1__r{rep}"
+    (rd / "events.jsonl").write_text("".join(json.dumps({"kind": "command", "text": c, "rc": 0}) + "\n"
+                                             for c in commands))
+
+
+def test_pass_k_says_whether_a_task_passes_every_time(tmp_path):
+    b = tmp_path / "b"
+    # Same gate rate (2/3) on t1 in both arms; the treatment passes t2 every time instead of 2/3.
+    for arm, t1, t2 in (("none", [1, 1, 0], [1, 1, 0]), ("guidance:raw", [1, 0, 1], [1, 1, 1])):
+        for rep, (x, y) in enumerate(zip(t1, t2, strict=True)):
+            _cell(b, "t1", arm, rep, success=bool(x))
+            _cell(b, "t2", arm, rep, success=bool(y))
+    summary = compare([b], "none", pass_k=3)
+    row = _row(summary, "pass^3")
+    assert row["baseline_mean"] == 0.0 and row["treatment_mean"] == 0.5 and row["p_holm"] is None
+    assert {t["task"]: t["delta"] for t in row["tasks"]} == {"t1": 0.0, "t2": 1.0}
+    two = compare([b], "none", pass_k=2)
+    assert _row(two, "pass^2")["baseline_mean"] == round(1 / 3, 6)
+    short = compare([b], "none", pass_k=4)
+    assert not [r for r in short["comparisons"] if r["measure"] == "pass^4"]
+    assert {u["reason"] for u in short["unpaired"] if u["measure"] == "pass^4"} == {"no pass^4 in baseline or treatment"}
+    assert "pass^3" not in {r["measure"] for r in compare([b], "none")["comparisons"]}
+
+
+def test_path_stability_compares_how_much_the_cells_paths_differ(tmp_path):
+    b = tmp_path / "b"
+    for rep in range(2):
+        _cell(b, "t1", "none", rep)
+        _cell(b, "t1", "guidance:raw", rep)
+    _events(b, "t1", "none", 0, "grep -r x .", "pytest -q")
+    _events(b, "t1", "none", 1, "git status && make check")
+    _events(b, "t1", "guidance:raw", 0, "grep -r x . && pytest -q")  # one call, the same two steps
+    _events(b, "t1", "guidance:raw", 1, "grep -rn y src", "pytest -q tests")
+    row = _row(compare([b], "none", path_stability=True), "path_distance")
+    assert row["baseline_mean"] == 1.0 and row["treatment_mean"] == 0.0 and row["delta"]["mean"] == -1.0
+    assert row["tasks"][0]["n_baseline"] == 2
+
+
+def test_path_stability_needs_two_traced_cells(tmp_path):
+    b = tmp_path / "b"
+    for rep in range(2):
+        _cell(b, "t1", "none", rep)
+        _cell(b, "t1", "guidance:raw", rep)
+    _events(b, "t1", "none", 0, "pytest")
+    summary = compare([b], "none", path_stability=True)
+    assert not [r for r in summary["comparisons"] if r["measure"] == "path_distance"]
+    assert [u["reason"] for u in summary["unpaired"] if u["measure"] == "path_distance"] == [
+        "no path_distance in baseline or treatment"]
+
+
+def test_pass_k_must_be_positive(tmp_path):
+    _cell(tmp_path / "b", "t1", "none", 0)
+    with pytest.raises(CompareError, match="at least 1"):
+        compare([tmp_path / "b"], "none", pass_k=0)
+
+
+def test_cli_prints_pass_k_and_path_distance(tmp_path, capsys):
+    b = tmp_path / "b"
+    for rep in range(2):
+        _cell(b, "t1", "none", rep)
+        _cell(b, "t1", "guidance:raw", rep, success=rep == 0)
+        for arm in ("none", "guidance:raw"):
+            _events(b, "t1", arm, rep, "pytest -q")
+    args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "none", "--pass-k", "2",
+                                      "--path-stability"])
+    args.func(args)
+    out = capsys.readouterr().out
+    assert "pass^2" in out and "path_distance" in out

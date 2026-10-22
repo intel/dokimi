@@ -858,6 +858,15 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   unpaired with the reason: no cells in one arm, a task that is gated in one
   arm and score-only in the other, or a measure (such as a metric) one arm
   lacks. A metric's `n_baseline`/`n_treatment` count the cells that report it.
+  With `--reps N`, two descriptive measures read the repetitions themselves:
+  `--pass-k K` adds `pass^K`, the chance K of a task's cells all pass its gate
+  (`C(c,K)/C(n,K)`; a task with fewer than K cells has none), so an arm that
+  moves a task from 2/3 to 3/3 is told apart from one that moves the rate
+  without making any task reliable; `--path-stability` adds `path_distance`,
+  the mean order distance of the cells' tool paths from `events.jsonl` (0 same
+  steps in the same order, 1 nothing in common; see
+  [run-consistency.md](run-consistency.md)). A steadier path is not a better
+  one: read it beside the gate.
   The output names the batches behind each selector and each batch's pin
   (`tree`, `eval_dir`, `image` from `_eval/batch.json`) with its cells'
   harness versions, and warns when a bare `ARM` pools several batches, when a
