@@ -17,9 +17,7 @@ def list_cost_usd(model: str, provider: str, prompt_tokens: int,
     been made: an estimate prices a token profile rather than a response. ``None`` when the
     model has no entry, for the same reason as there.
     """
-    from litellm import cost_per_token
-
-    from dokimi.llm import _has_price_entry, resolve_model
+    from dokimi.llm import _has_price_entry, cost_per_token, resolve_model
 
     litellm_model = resolve_model(model, provider)
     # litellm prints a "Provider List" help banner to stdout before it raises for a model
