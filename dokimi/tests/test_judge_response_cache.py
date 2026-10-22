@@ -319,6 +319,19 @@ def test_cache_off_skips_the_replay_probe(monkeypatch):
     assert asked == []
 
 
+def test_replay_probe_lets_a_non_miss_error_propagate(cache_dir):
+    asked = []
+
+    def ask(attempt):
+        asked.append(attempt)
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        caching.first_replayed(3, ask)
+    assert asked == [0]
+    assert not caching.replaying_only()
+
+
 def test_replay_only_raises_on_a_miss_and_sends_nothing(cache_dir, fake_llm):
     from dokimi.llm import LLM
 
