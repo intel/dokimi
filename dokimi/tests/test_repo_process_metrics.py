@@ -124,3 +124,24 @@ def test_validate_reports_a_bad_task_host(tmp_path):
     tree = WorkTree(root)
     report = check_repo(tree, load_manifest(tree, "dev/evals/repo-eval.yaml"))
     assert any(e.startswith("dev/evals/tasks/needs_cpus/task.json:") and "min_cpus" in e for e in report.errors)
+
+
+def test_any_matches_the_output_when_the_text_does_not():
+    counters = _counters(out_only={"regex": "is not found", "match": "any"},
+                         text_only={"regex": "is not found", "match": "text"})
+    got = process_metrics(EVENTS, _guidance, counters)["counters"]
+    assert got == {"out_only": 1, "text_only": 0}
+
+
+def test_counters_search_command_events_only():
+    events = [{"kind": "read", "path": "a", "text": "bazel", "output": "bazel"},
+              {"kind": "tool", "name": "WebFetch", "text": "bazel", "output": "bazel"},
+              {"kind": "command", "text": "bazel build", "rc": 0}]
+    counters = _counters(bazel={"regex": "bazel", "match": "any"})
+    assert process_metrics(events, _guidance, counters)["counters"] == {"bazel": 1}
+
+
+@pytest.mark.parametrize("rc, failed", [(1, 1), (2, 1), (-9, 1), (137, 1), (0, 0), (None, 0)])
+def test_failed_commands_counts_every_non_zero_rc(rc, failed):
+    events = [{"kind": "command", "text": "x", "rc": rc}]
+    assert process_metrics(events, _guidance)["failed_commands"] == failed

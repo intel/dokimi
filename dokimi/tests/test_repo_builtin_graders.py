@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from dokimi.cli import build_parser
 from dokimi.repos.container import CONTENT_DIR, GRADERS_DIR, SOURCE_DIR, ContainerError, ContainerResult
@@ -583,3 +584,26 @@ def test_a_replay_window_is_checked_only_for_replay_and_defaults_to_five(tmp_pat
     out = capsys.readouterr().out
     errors = json.loads(out).get("errors", []) if out.strip() else []
     assert not any(t in e for e in errors for t in ("replay_nowin", "replay_win3", "seeds_strwin")), errors
+
+
+def test_a_cell_graded_by_a_builtin_grader_needs_no_grade_entry_point(tmp_path, monkeypatch):
+    # `repo validate` accepts a manifest without entry_points.grade when every grader is `dokimi:`;
+    # `repo run` must then grade with the built-in one instead of failing every cell.
+    root = _repo(tmp_path)
+    manifest = {**MANIFEST, "entry_points": {}}
+    write(root, ".agent-eval/repo-eval.yaml", yaml.safe_dump(manifest))
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "no grade entry point")
+    exe, profile = fake_harness(tmp_path)
+    runner = FakeRunner()
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    monkeypatch.setenv("FAKE_ACTION", "fix")
+    out = tmp_path / "runs"
+    args = build_parser().parse_args(
+        ["repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
+         "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(out), "--cache-root", str(out / "caches"),
+         "--agent-network", "host", "--arm", "guidance:raw", "--task", "seeds_mul"])
+    args.func(args)
+    rec = json.loads((out / "b1/seeds_mul__guidance-raw__m-1__r1/result.json").read_text())
+    assert rec["grade"]["status"] == "graded", rec["grade"]["reasons"]
+    assert any(f"{GRADERS_DIR}/main.py" in s.argv for s in runner.specs)
