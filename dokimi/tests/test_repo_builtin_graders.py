@@ -87,6 +87,15 @@ def test_fence_nesting_cap_is_exactly_max_depth():
     assert review.last_json("```json\n[7]\n```" + nested(cap + 1)) == [7]
 
 
+def test_the_nesting_cap_counts_open_brackets_not_brackets_seen(tmp_path):
+    d = _task_dir(tmp_path, "seeds_mul")
+    cap = review.MAX_DEPTH
+    many = ORACLE + [_f(90 + i, message=f"note {i}") for i in range(2 * cap)]  # more objects than the cap
+    assert review.grade_seeds({}, d, fence(many))["recall"] == 1.0
+    quoted = [{**f, "message": 'quotes "' + "[" * (2 * cap) + '"'} for f in ORACLE]  # \" stays in the string
+    assert review.grade_seeds({}, d, fence(quoted))["recall"] == 1.0
+
+
 def test_norm_path_cuts_at_workspace_and_repo_and_drops_leading_dots_and_slashes():
     # workspace path (agent's working directory in container)
     assert review.norm_path("/eval/run/workspace/src/calc.py") == "src/calc.py"
