@@ -253,10 +253,12 @@ def test_artifact_from_another_run_is_ignored(tmp_path):
     assert "download" not in _names(calls)
 
 
-def test_many_mentions_cannot_push_the_body_past_githubs_limit(tmp_path):
-    calls = _run(tmp_path, _good(diff="@" * 60000))
+@pytest.mark.parametrize("char", ["@", "`"])
+def test_many_mentions_cannot_push_the_body_past_githubs_limit(tmp_path, char):
+    calls = _run(tmp_path, _good(diff=char * 60000))
     body = next(a for n, a in calls if n == "createComment")["body"]
     assert len(body) < 65536 and "truncated" in body
+    assert len(body.split("\n")[1]) <= len("````````diff")
 
 
 def test_diff_is_fenced_so_links_and_references_do_not_render(tmp_path):

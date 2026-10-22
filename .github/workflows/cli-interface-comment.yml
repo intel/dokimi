@@ -93,9 +93,11 @@ jobs:
             // broken in one pass, so a nested marker cannot reassemble), no mentions, and it is shown
             // verbatim in a code fence (longer than any backtick run inside) so links,
             // images, HTML and #N references do not render. The cap is applied after
-            // the mention rewrite, which adds characters, so the body stays under
-            // GitHub's 65,536 limit.
-            let text = res.diff.replace(/<!--/g, '<!\u200b--').replace(/@/g, '@\u200b');
+            // the mention and backtick rewrites, which add characters, so the body stays
+            // under GitHub's 65,536 limit; runs of 8+ backticks are split so the fence
+            // stays at most 8 long.
+            let text = res.diff.replace(/<!--/g, '<!\u200b--').replace(/@/g, '@\u200b')
+              .replace(/`{8,}/g, (m) => m.match(/`{1,7}/g).join('\u200b'));
             if (text.length > MAX_DIFF_CHARS) {
               text = text.slice(0, MAX_DIFF_CHARS).replace(/[\ud800-\udbff]$/, '') +
                 '\n... (truncated)';
