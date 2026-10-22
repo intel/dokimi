@@ -84,6 +84,30 @@ def test_prep_records_the_added_files_that_are_not_guidance_and_the_mcp_servers(
     assert meta["arm_patch"]["mcp_servers"] == ["code.graph"]
 
 
+def _mcp_link_patch(target, extra=""):
+    return ("diff --git a/.mcp.json b/.mcp.json\nnew file mode 120000\n--- /dev/null\n+++ b/.mcp.json\n"
+            f"@@ -0,0 +1 @@\n+{target}\n\\ No newline at end of file\n{extra}")
+
+
+@pytest.mark.parametrize("where", ["host", "loop"])
+def test_a_mcp_json_linked_out_of_the_workspace_or_in_a_loop_is_not_read(toy, where):  # noqa: F811
+    host = toy["tmp"] / "host.json"  # outside the workspace: what the agent's harness would not find
+    host.write_text('{"mcpServers": {"host-only": {}}}')
+    patch = toy["tmp"] / "link.diff"
+    patch.write_text(_mcp_link_patch(host if where == "host" else ".mcp.json"))
+    meta, ws = _prep(toy, parse_arm(f"patch:{patch}"))
+    assert (ws / ".mcp.json").is_symlink() and meta["arm_patch"]["mcp_servers"] == []
+
+
+def test_a_mcp_json_linked_inside_the_workspace_names_its_servers(toy):  # noqa: F811
+    patch = toy["tmp"] / "link.diff"
+    patch.write_text(_mcp_link_patch("tools/mcp.json", "diff --git a/tools/mcp.json b/tools/mcp.json\n"
+                                     "new file mode 100644\n--- /dev/null\n+++ b/tools/mcp.json\n@@ -0,0 +1 @@\n"
+                                     '+{"mcpServers": {"code.graph": {}}}\n'))
+    meta, _ = _prep(toy, parse_arm(f"patch:{patch}"))
+    assert meta["arm_patch"]["mcp_servers"] == ["code.graph"]
+
+
 def _run(s, batch, *arms):
     argv = ["repo", "run", f"{s['root']}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
             str(s["profile"]), "--bin", str(s["exe"]), "--model", "m-1", "--batch", batch, "--out", str(s["out"]),

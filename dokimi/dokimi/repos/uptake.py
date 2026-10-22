@@ -36,12 +36,16 @@ MCP_CONFIG = ".mcp.json"
 
 def mcp_servers(ws: Path, arm_files: list[str]) -> list[str]:
     """The server names of the ``.mcp.json`` at the workspace root, when the arm wrote it; read at prep, before
-    the agent can change it. A file that does not parse names no server."""
+    the agent can change it. A file that does not parse names no server, nor does a link out of the workspace
+    or to anything but a regular file: it is not read."""
     if MCP_CONFIG not in arm_files:
         return []
     try:
-        servers = json.loads((ws / MCP_CONFIG).read_text(encoding="utf-8")).get("mcpServers")
-    except (OSError, ValueError, AttributeError):
+        path = (ws / MCP_CONFIG).resolve()
+        if not path.is_relative_to(ws.resolve()) or not path.is_file():
+            return []
+        servers = json.loads(path.read_text(encoding="utf-8")).get("mcpServers")
+    except (OSError, RuntimeError, ValueError, AttributeError):  # RuntimeError: a link loop, before Python 3.13
         return []
     return sorted(str(k) for k in servers) if isinstance(servers, dict) else []
 
