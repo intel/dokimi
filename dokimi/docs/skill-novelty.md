@@ -599,7 +599,7 @@ A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is s
 warning, so a shell glob over a skills directory can be passed as it is.
 A skill that sets `disable-model-invocation` is left out of the field, both from a catalog
 and as `--competitors`: no harness lists it, so the model cannot select it. Pass
-`--include-disabled` to keep it. The same flag goes on a disabled artifact warning.
+`--include-disabled` to keep it. A disabled artifact is still routed, with a warning; the flag does not change that.
 A catalog that holds the same `SKILL.md` under two paths (a plugin copy of its `skills/`
 tree) counts it once: the copy nearest the catalog root stands for the card, and the
 others are named on stderr.
@@ -644,7 +644,7 @@ number is more than you meant to spend. A lexical-only run (no `--model`) makes 
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 
-Three properties worth knowing before quoting either: before quoting either:
+Three properties worth knowing before quoting either:
 
 - **Competitors are mandatory.** The existing `skill-agent:` arm offers one skill, which
   makes selection a binary did-it-load question. The real failure is picking the wrong
