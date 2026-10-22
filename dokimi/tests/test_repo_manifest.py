@@ -653,8 +653,39 @@ def test_source_parse_takes_a_rev_with_a_slash(tmp_path, rev):
     assert (remote.location, remote.rev) == ("git@github.com:o/r.git", rev)
 
 
-@pytest.mark.parametrize("rev", ["a..b", "origin//main", "origin/"])
+@pytest.mark.parametrize("rev", ["a..b", "origin//main", "origin/", "-x"])
 def test_source_parse_leaves_a_non_rev_suffix_in_the_path(tmp_path, rev):
     (tmp_path / f"d@{rev}").mkdir(parents=True)
     src = RepoSource.parse(f"{tmp_path}/d@{rev}")
     assert src.rev is None and src.location == f"{tmp_path}/d@{rev}"
+
+
+@pytest.mark.parametrize("url", ["ssh://git@github.com/o/r.git", "https://user@github.com/o/r.git"])
+def test_an_unpinned_remote_url_with_a_user_is_not_split_at_its_at_sign(url):
+    with pytest.raises(SourceError, match="must be pinned"):
+        RepoSource.parse(url)
+
+
+@pytest.mark.parametrize("url", ["ssh://git@github.com/o/r.git", "https://user@github.com/o/r.git"])
+def test_a_pinned_remote_url_with_a_user_splits_at_the_last_at_sign(url):
+    src = RepoSource.parse(f"{url}@origin/main")
+    assert (src.location, src.rev, src.remote) == (url, "origin/main", True)
+
+
+@pytest.mark.parametrize("rev", ["a..b", "x//y", "y/", "-x"])
+def test_resolve_rev_refuses_what_is_no_revision(tmp_path, rev):
+    from dokimi.repos.source import resolve_rev
+
+    root = _repo(tmp_path)
+    _git_commit(root)
+    with pytest.raises(SourceError, match="invalid revision"):
+        resolve_rev(root, rev)
+
+
+def test_resolve_rev_takes_a_branch_with_a_slash(tmp_path):
+    from dokimi.repos.source import resolve_rev
+
+    root = _repo(tmp_path)
+    sha = _git_commit(root)
+    subprocess.run(["git", "-C", str(root), "branch", "origin/main"], check=True)
+    assert resolve_rev(root, "origin/main") == sha

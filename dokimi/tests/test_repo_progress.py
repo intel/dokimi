@@ -3,6 +3,7 @@
 
 """Progress lines of `repo tasks check` / `repo run` are flushed one by one, not at exit."""
 
+import select
 import subprocess
 import sys
 
@@ -16,7 +17,10 @@ def test_progress_line_is_flushed_under_a_pipe():
                             env={"PATH": "", "PYTHONPATH": ":".join(sys.path)})
     try:
         assert proc.stdout is not None
-        assert proc.stdout.readline() == "t1: OK\n"  # would block 30 s if buffered
+        # A flushed line arrives at once; a buffered one stays in the child until it exits (30 s).
+        ready, _, _ = select.select([proc.stdout], [], [], 5)
+        assert ready, "no progress line within 5 s: the line was not flushed"
+        assert proc.stdout.readline() == "t1: OK\n"
     finally:
         proc.kill()
         proc.wait()

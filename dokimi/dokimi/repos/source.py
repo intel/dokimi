@@ -25,9 +25,10 @@ from typing import Callable, Protocol
 
 from dokimi import process
 
-# A revision is a SHA, tag or single-segment branch, optionally with ^ / ~N
-# suffixes. No "/" (so "user@host:path" URLs are not split) and no leading "-"
-# (so a revision can never be read as a git option).
+# A revision is a SHA, tag or branch (a "/" is allowed: origin/main, refs/heads/x), optionally
+# with ^ / ~N suffixes. No leading "-" (so a revision can never be read as a git option);
+# _is_rev also refuses "..", "//" and a trailing "/". A "user@host" URL is kept whole by
+# _has_location_path, which splits at the last "@" only when what is left is still a location.
 _REV_RE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/^~-]*$")  # "/" for origin/main, refs/heads/x
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _REMOTE_PREFIXES = ("https://", "ssh://", "file://", "git@")
@@ -54,7 +55,7 @@ class RepoSource:
             raise SourceError(f"invalid repository source: {spec!r}")
         location, rev = spec, None
         head, sep, tail = spec.rpartition("@")
-        if sep and head and _is_rev(tail):
+        if sep and head and _is_rev(tail) and _has_location_path(head):
             location, rev = head, tail
         remote = location.startswith(_REMOTE_PREFIXES)
         if location.startswith("http://"):
@@ -428,6 +429,15 @@ def ensure_rev(git_dir: Path, rev: str) -> str:
 def _fetch_refs(git_dir: Path) -> None:
     _git(git_dir, "fetch", "--filter=blob:none", "origin",
          "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
+
+
+def _has_location_path(head: str) -> bool:
+    """False for the head of an unpinned remote URL cut at its ``user@``: ``ssh://git`` in
+    ``ssh://git@github.com/o/r.git`` has no path, so the tail is a host and not a revision."""
+    for prefix in ("https://", "ssh://", "file://"):
+        if head.startswith(prefix):
+            return "/" in head[len(prefix):]
+    return True
 
 
 def _is_rev(rev: str) -> bool:
