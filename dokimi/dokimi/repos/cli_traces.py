@@ -354,13 +354,15 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
                 if item.get("aggregated_output"):
                     event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
                 del by_id[item_key]
-                if event["rc"] not in (None, 0):  # a failed read did not read: drop its derived read events
-                    dropped = {id(e) for e in event_reads.get(id(event), [])}
+                derived = event_reads.get(id(event), [])
+                if _failed_read(str(event["text"]), derived, event["rc"]):  # drop the read events derived from it
+                    dropped = {id(e) for e in derived}
                     out.events[:] = [e for e in out.events if id(e) not in dropped]
             else:
                 # Fallback for item.completed without item.started
-                if item.get("exit_code") in (None, 0):
-                    for path in shell_reads(script, cwd):
+                paths = shell_reads(script, cwd)
+                if not _failed_read(script, paths, item.get("exit_code")):
+                    for path in paths:
                         out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
                 event = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
                 if item.get("aggregated_output"):
@@ -373,6 +375,15 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
         elif itype in ("mcp_tool_call", "web_search"):
             name = f"{item.get('server')}.{item.get('tool')}" if itype == "mcp_tool_call" else "web_search"
             out.events.append({"t": None, "kind": "tool", "name": name})
+
+
+def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
+    """A non-zero exit of a command that is one part naming one file: that file was not read.
+
+    Otherwise the exit code does not say which read failed (``cat a missing`` prints ``a`` and
+    exits 1), so the reads are kept.
+    """
+    return rc not in (None, 0) and len(reads) == 1 and len(_split_script(script)) == 1
 
 
 def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 
 import pytest
@@ -302,6 +303,22 @@ def test_codex_failed_command_does_not_count_as_a_read():
     t = convert("codex-json", raw, None)
     assert [e["path"] for e in t.events if e["kind"] == "read"] == ["AGENTS.md"]
     assert [e["rc"] for e in t.events if e["kind"] == "command"] == [1, 0, 2]
+
+
+def test_codex_failed_command_keeps_the_reads_it_may_have_made():
+    """``cat a missing`` prints ``a`` and exits 1 (codex-cli 0.163): the exit code does not say which read failed."""
+    def cmd(i, script):
+        return {"id": i, "type": "command_execution", "command": f"/bin/bash -lc {shlex.quote(script)}"}
+    raw = _jsonl(
+        {"type": "item.started", "item": cmd("a", "cat sub/AGENTS.md sub/CLAUDE.md")},
+        {"type": "item.completed", "item": {**cmd("a", "cat sub/AGENTS.md sub/CLAUDE.md"), "exit_code": 1,
+                                            "aggregated_output": "TOKEN\ncat: sub/CLAUDE.md: No such file or directory\n"}},
+        {"type": "item.started", "item": cmd("b", "cat b.md; false")},
+        {"type": "item.completed", "item": {**cmd("b", "cat b.md; false"), "exit_code": 1}},
+        {"type": "item.completed", "item": {**cmd("c", "head c.md d.md"), "exit_code": 1}},
+    )
+    reads = [e["path"] for e in convert("codex-json", raw, None).events if e["kind"] == "read"]
+    assert reads == ["sub/AGENTS.md", "sub/CLAUDE.md", "b.md", "c.md", "d.md"]
 
 
 def test_answer_format_lists_agree():

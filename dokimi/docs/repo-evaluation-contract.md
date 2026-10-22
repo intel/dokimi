@@ -653,8 +653,10 @@ per scenario).
     - `truncated`: one token reported;
     - `fetched`: reported only after the agent read the file with a tool. For the
       Codex and Copilot profiles a shell read counts only as a bare `cat`, `head`,
-      `tail`, `nl` or `sed -n` that exited 0; a read through a pipe, `grep` or
-      `rg` is not seen, so such a file can be classed `loaded`;
+      `tail`, `nl` or `sed -n`; for Codex, a command that is one such read of one
+      file and exits non-zero is not a read (the exit code of `cat a missing` does
+      not say which file failed, so both stay reads). A read through a pipe, `grep`
+      or `rg` is not seen, so such a file can be classed `loaded`;
     - `not_loaded`;
     - `error`: the scenario produced no usable answer: no answer, a non-zero
       exit, or an error result.
