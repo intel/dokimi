@@ -65,7 +65,7 @@ EPS = 1e-9
 PRIMARY = ("gate", "score")
 #: Batch stamp keys that must agree between the arms of a comparison; ``tree`` is shown but may differ (another
 #: revision of the repository is a treatment of its own).
-STAMP_KEYS = ("eval_dir", "image")
+STAMP_KEYS = ("eval_dir", "image", "graders")
 
 
 class CompareError(ValueError):
@@ -196,7 +196,7 @@ def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments:
         for b in batches if len(batches) > 1 else ():  # the arms of one batch share its pin
             if b not in unstamped and not any(k in stamps[b] for k in STAMP_KEYS):
                 unstamped.add(b)
-                out.append(f"batch {b} has no stamp (_eval/batch.json); its eval_dir and image are not compared")
+                out.append(f"batch {b} has no stamp (_eval/batch.json); its eval_dir, image and graders are not compared")
         for key in STAMP_KEYS:
             pinned = [b for b in batches if key in stamps[b]]
             if key == "image" and all(_built_from_tree(stamps[b]) for b in pinned):
@@ -414,7 +414,7 @@ def _format_header(summary: dict[str, Any]) -> list[str]:
     for text, batches in summary["sources"].items():
         lines.append(f"  {text}: {', '.join(batches)}")
     for name, stamp in summary["stamps"].items():
-        shown = [f"{k} {stamp[k][:12] if k == 'eval_dir' else stamp[k]}" for k in ("tree", *STAMP_KEYS) if k in stamp]
+        shown = [f"{k} {stamp[k][:12] if k in ('eval_dir', 'graders') else stamp[k]}" for k in ("tree", *STAMP_KEYS) if k in stamp]
         lines.append(f"  batch {name}: " + ", ".join([*shown, "harness " + ", ".join(stamp["harness_versions"])]))
     return lines
 

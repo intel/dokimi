@@ -7,6 +7,9 @@ import itertools
 import pytest
 
 from dokimi.eval import stats
+from dokimi.eval.interactions import (
+    detect_factorial_cells, interaction_significance, interaction_test,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -249,23 +252,23 @@ def test_arm_significance_bh_correction_selectable():
 
 def test_detect_factorial_cells_finds_combined_arm():
     arms = ["baseline", "docs", "skill:demo-skill", "docs+skill:demo-skill"]
-    assert stats.detect_factorial_cells(arms) == [
+    assert detect_factorial_cells(arms) == [
         ("docs", "skill:demo-skill", "docs+skill:demo-skill")
     ]
 
 
 def test_detect_factorial_cells_requires_both_standalone_arms():
     # "docs" is present but the standalone skill arm is not -> not a 2x2 cell.
-    assert stats.detect_factorial_cells(["baseline", "docs", "docs+skill:x"]) == []
+    assert detect_factorial_cells(["baseline", "docs", "docs+skill:x"]) == []
 
 
 def test_detect_factorial_cells_ignores_three_way_combinations():
     arms = ["baseline", "a", "b", "c", "a+b+c"]
-    assert stats.detect_factorial_cells(arms) == []
+    assert detect_factorial_cells(arms) == []
 
 
 def test_interaction_test_reports_negative_interference():
-    res = stats.interaction_test(
+    res = interaction_test(
         _factorial_evaluations(),
         arm_a="docs",
         arm_b="skill:x",
@@ -287,7 +290,7 @@ def test_interaction_test_is_zero_for_perfectly_additive_arms():
         _ev(baseline=b, docs=b + 3, **{"skill:x": b + 7, "docs+skill:x": b + 10})
         for b in base
     ]
-    res = stats.interaction_test(
+    res = interaction_test(
         evaluations,
         arm_a="docs",
         arm_b="skill:x",
@@ -305,7 +308,7 @@ def test_interaction_test_needs_all_four_cells_per_question():
         _ev(baseline=52, docs=54, **{"skill:x": 64, "docs+skill:x": 58}),
         _ev(baseline=48, docs=50, **{"skill:x": 60}),  # combined missing
     ]
-    res = stats.interaction_test(
+    res = interaction_test(
         evaluations,
         arm_a="docs",
         arm_b="skill:x",
@@ -318,7 +321,7 @@ def test_interaction_test_needs_all_four_cells_per_question():
 def test_interaction_test_returns_none_without_enough_complete_cases():
     evaluations = [_ev(baseline=50, docs=52, **{"skill:x": 62, "docs+skill:x": 56})]
     assert (
-        stats.interaction_test(
+        interaction_test(
             evaluations,
             arm_a="docs",
             arm_b="skill:x",
@@ -476,7 +479,7 @@ def test_detect_factorial_cells_handles_a_plus_inside_an_arm_name():
     guard silently reports no interaction for an ordinary arm name.
     """
     arms = ["baseline", "docs", "skill:c++-guide", "docs+skill:c++-guide"]
-    assert stats.detect_factorial_cells(arms) == [
+    assert detect_factorial_cells(arms) == [
         ("docs", "skill:c++-guide", "docs+skill:c++-guide")
     ]
 
@@ -484,7 +487,7 @@ def test_detect_factorial_cells_handles_a_plus_inside_an_arm_name():
 def test_interaction_significance_corrects_within_its_own_family():
     evaluations = _factorial_evaluations()
     arms = ["baseline", "docs", "skill:x", "docs+skill:x"]
-    results = stats.interaction_significance(evaluations, arms, "baseline")
+    results = interaction_significance(evaluations, arms, "baseline")
     assert len(results) == 1
     res = results[0]
     assert res["correction_family"] == "interactions"
@@ -499,7 +502,7 @@ def test_interaction_family_is_not_pooled_with_the_arm_family():
     evaluations = _factorial_evaluations()
     arms = ["baseline", "docs", "skill:x", "docs+skill:x"]
     per_arm = stats.arm_significance(evaluations, "baseline", arms)
-    interactions = stats.interaction_significance(evaluations, arms, "baseline")
+    interactions = interaction_significance(evaluations, arms, "baseline")
     assert per_arm["docs"]["family_size"] == 3
     assert per_arm["docs"]["correction_family"] == "arms"
     assert interactions[0]["family_size"] == 1
@@ -507,7 +510,7 @@ def test_interaction_family_is_not_pooled_with_the_arm_family():
 
 def test_interaction_test_alone_reports_no_adjusted_keys():
     """One cell in isolation carries no multiplicity to correct for."""
-    res = stats.interaction_test(
+    res = interaction_test(
         _factorial_evaluations(),
         arm_a="docs",
         arm_b="skill:x",

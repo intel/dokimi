@@ -5,9 +5,9 @@
 
 Pure-Python by default: bootstrap CIs, effect sizes, and multiple-comparison
 correction need no third-party packages. The parametric/rank hypothesis tests
-(:func:`paired_test`, :func:`interaction_test`) additionally use SciPy and
-return ``p_*`` keys of ``None`` when it is not installed — everything else in
-the result stays populated.
+(:func:`paired_test`, and :func:`dokimi.eval.interactions.interaction_test`)
+additionally use SciPy and return ``p_*`` keys of ``None`` when it is not
+installed — everything else in the result stays populated.
 
 Public API
 ----------
@@ -30,14 +30,9 @@ arm_significance(evaluations, baseline_arm, ...)
     Every non-baseline arm tested against one *shared* baseline, with
     family-wise correction across the arms.
 
-Re-exported from :mod:`dokimi.eval.interactions`:
-
-detect_factorial_cells(arms)
-    Find ``(a, b, a+b)`` triples among arm names, per ``CombinedTreatment``.
-interaction_test(evaluations, ...)
-    Properly paired 2x2 interaction contrast ``AB - A - B + baseline``.
-interaction_significance(evaluations, arms, baseline_arm, ...)
-    Every detected 2x2 cell, corrected as its own hypothesis family.
+The 2x2 interaction contrasts between arms (``detect_factorial_cells``,
+``interaction_test``, ``interaction_significance``) are built on these helpers
+in :mod:`dokimi.eval.interactions`; import them from there.
 
 Everything here assumes a continuous outcome (the judge's 0–100 aggregate).
 Paired **binary** outcomes — the execution-verified task track, where a cell
@@ -560,18 +555,3 @@ def _apply_correction(
             None if adj is None
             else bool(adj < ALPHA and (p_w is None or p_w < ALPHA))
         )
-
-
-# ---------------------------------------------------------------------------
-# Factorial interaction
-# ---------------------------------------------------------------------------
-
-# Implemented in eval/interactions.py (this module is at the repo's 500-line
-# ceiling) and re-exported here so existing `from eval.stats import ...` and
-# `stats.interaction_test(...)` call sites keep working. Imported at the bottom
-# because interactions.py imports the private helpers defined above.
-from dokimi.eval.interactions import (  # noqa: E402,F401  (deliberate re-export)
-    detect_factorial_cells,
-    interaction_significance,
-    interaction_test,
-)

@@ -244,6 +244,24 @@ def test_base_steps_use_the_resolved_remote(env: dict[str, Any]) -> None:
     ]
 
 
+def test_dokimi_growth_base_env_is_passed_to_steps(env: dict[str, Any]) -> None:
+    """ci_local.py passes the resolved base_ref as DOKIMI_GROWTH_BASE env var."""
+    (cl.WORKFLOWS / "x.yml").write_text(BASE_WF)
+    assert cl.run(ns(remote="intel", base="dev")) == 0
+    # All steps should receive DOKIMI_GROWTH_BASE in their env
+    for call in env["calls"]:
+        assert call["env"]["DOKIMI_GROWTH_BASE"] == "intel/dev"
+
+
+def test_dokimi_growth_base_reaches_isolated_jobs(env: dict[str, Any]) -> None:
+    """An isolated job (`package-smoke`) runs in its own env; DOKIMI_GROWTH_BASE is still set there."""
+    (cl.WORKFLOWS / "x.yml").write_text(BASE_WF.replace("  a:\n", "  package-smoke:\n"))
+    assert cl.run(ns(remote="intel", base="dev")) == 0
+    assert env["calls"], "the isolated job's steps should run"
+    for call in env["calls"]:
+        assert call["env"]["DOKIMI_GROWTH_BASE"] == "intel/dev"
+
+
 def test_unusable_base_fails_its_steps_without_running_them(
     env: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: Any
 ) -> None:
@@ -473,6 +491,32 @@ def test_tool_specs_carry_no_unexpanded_shell_syntax() -> None:
     hands `make dev` a literal `$RUNNER_TEMP/dist/*.whl`, which nothing expands."""
     bad = [spec for spec in cl.tool_specs() if "$" in spec or "*" in spec]
     assert not bad, f"tool_specs() has unexpanded shell syntax; register the job in ISOLATED: {bad}"
+
+
+def test_tool_specs_come_only_from_hashed_locks() -> None:
+    """`make dev` installs tool_specs() with `uv pip install --require-hashes`, which
+    rejects any requirement without a hash, `==` pin or not. So a workflow outside
+    ISOLATED installs only from a lock compiled with --generate-hashes; a bare
+    `pip install PyYAML` step broke `make dev` in every fresh checkout."""
+    specs = cl.tool_specs()
+    assert "--require-hashes" in specs
+    bad, i = [], 0
+    while i < len(specs):
+        flag = specs[i]
+        if flag in ("-r", "-c"):
+            path = Path(specs[i + 1])
+            head = path.read_text(encoding="utf-8")[:2000] if path.is_file() else ""
+            if "--generate-hashes" not in head:
+                bad.append(f"{flag} {path}")
+            i += 2
+            continue
+        if flag == "-e" or not flag.startswith("-"):
+            bad.append(flag if flag != "-e" else f"-e {specs[i + 1]}")
+        i += 2 if flag == "-e" else 1
+    assert not bad, (
+        "a CI install step outside ISOLATED installs a requirement without a hash; "
+        f"add it to requirements-ci.txt and install requirements-ci.lock.txt instead: {bad}"
+    )
 
 
 def test_isolated_jobs_also_need_network() -> None:
