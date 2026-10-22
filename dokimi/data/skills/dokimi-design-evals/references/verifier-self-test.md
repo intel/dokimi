@@ -89,7 +89,7 @@ A rubric judge must tell good answers from degraded ones before its scores
 count. It costs model calls; the sequential mode stops early.
 
 ```bash
-python cli.py eval judge-validity --answers <answers.json> --sequential
+python cli.py eval judge-validity --answers <answers.json> --sequential --strict
 ```
 
 Then have a person review a sample of judged cells against the rubric and
