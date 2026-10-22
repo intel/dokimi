@@ -334,6 +334,20 @@ class TestWhatTheChecksCount:
         evals = _evals(10) + [{"question_id": "q", "with_docs": {"aggregate": 90}}]
         assert _check(evaluate_trust(evals), "min_questions").value == 10
 
+    def test_a_question_scored_in_the_baseline_only_is_not_counted(self):
+        # The other half of the both-arms filter: a baseline score with no context score
+        # would otherwise count, and its missing context score read as 0.
+        evals = _evals(10) + [{"question_id": "q", "without_docs": {"aggregate": 50}}]
+        v = evaluate_trust(evals)
+        assert _check(v, "min_questions").value == 10
+        assert _check(v, "zero_score_fraction").value == 0.0
+
+    def test_coverage_below_the_default_floor_is_not_measured(self):
+        # 15 of 20 record a retrieval outcome: 75%, under the 80% default floor.
+        v = evaluate_trust([_row(70, 50, hit=True)] * 15 + [_row(70, 50)] * 5)
+        assert not _check(v, "retrieval_hit_rate").measured
+        assert v.not_measured == ["retrieval_hit_rate"]
+
     def test_a_zero_baseline_counts_as_zero(self):
         check = _check(evaluate_trust(_evals(10, with_score=40, without_score=0)), "min_delta")
         assert check.value == 40.0

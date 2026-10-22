@@ -377,6 +377,7 @@ def test_bootstrap_ci_is_pinned_to_its_seed():
     assert ci["method"] == "percentile_bootstrap"
     assert ci["mean"] == pytest.approx(13.3333, abs=0.0001)
     pinned = (ci["lo"], ci["hi"])
+    assert pinned == (9.1667, 20.0)
     # A different seed must move the interval; identical bounds would mean the
     # seed never reaches the resampler.
     other = stats.bootstrap_ci(vals, seed=7, n_resamples=1000)
@@ -550,6 +551,16 @@ def test_a_wilcoxon_above_alpha_vetoes_a_significant_t_test():
     assert res["significant"] is False
 
 
+def test_min_pairs_for_test_is_the_smallest_n_that_can_be_significant():
+    """An exact two-sided Wilcoxon cannot reach 0.05 at five pairs (smallest p 0.0625)."""
+    pytest.importorskip("scipy")
+    assert stats.MIN_PAIRS_FOR_TEST == 6
+    five = stats.paired_test([1.0, 2.0, 3.0, 4.0, 5.0], [0.0] * 5)
+    assert (five["n"], five["p_ttest"], five["p_wilcoxon"], five["significant"]) == (5, None, None, None)
+    six = stats.paired_test([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], [0.0] * 6)
+    assert six["p_wilcoxon"] == 0.0312
+
+
 def test_below_min_pairs_no_test_runs():
     pytest.importorskip("scipy")
     n = stats.MIN_PAIRS_FOR_TEST - 1
@@ -571,6 +582,16 @@ def test_bootstrap_interval_uses_the_two_sided_alpha():
     # resampled means are both 0.5 at confidence 0.4.
     res = stats.bootstrap_ci([0, 1], confidence=0.4)
     assert (res["lo"], res["hi"]) == (0.5, 0.5)
+
+
+def test_bootstrap_interval_pins_the_tail_indices_and_the_seed():
+    # A sample whose resampled means spread out, so a one-index shift in either tail, a
+    # one-sided alpha, or another seed each moves the bounds (for [0, 1] they would not).
+    # 100 resamples at 0.8: alpha * 99 = 9.9, so the low index rounds to 10, not 9.
+    ci = stats.bootstrap_ci([0, 1, 2, 3, 10, 4.5, 7.5], confidence=0.8, n_resamples=100, seed=7)
+    assert (ci["lo"], ci["hi"]) == (2.0714, 5.7857)
+    wide = stats.bootstrap_ci([0, 1, 2, 3, 10], confidence=0.8, n_resamples=200, seed=7)
+    assert (wide["lo"], wide["hi"]) == (1.2, 5.0)
 
 
 def test_bootstrap_with_one_resample_collapses_to_it():

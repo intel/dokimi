@@ -172,6 +172,11 @@ def test_spec_critical_thresholds_replace_the_defaults():
         ("score", -0.08, "CRITICAL"),
         ("coverage", -0.05, "WARN"),
         ("coverage", -0.12, "CRITICAL"),
+        # Just under each default: a default lowered by 0.01 would classify these higher.
+        ("score", -0.029, "OK"),
+        ("score", -0.079, "WARN"),
+        ("coverage", -0.049, "OK"),
+        ("coverage", -0.119, "WARN"),
     ],
 )
 def test_default_thresholds_apply_at_their_exact_values(key, delta, severity):
@@ -179,6 +184,16 @@ def test_default_thresholds_apply_at_their_exact_values(key, delta, severity):
 
     found = result.score_regression if key == "score" else result.metric_regressions[0]
     assert (found.metric, found.severity) == (key, severity)
+
+
+def test_a_score_drop_alone_sets_the_summary_flags():
+    critical = detect_regressions({"score": -0.5}, {})
+    assert critical.has_critical
+    assert not critical.has_warnings  # a CRITICAL is not a WARN
+
+    warn = detect_regressions({"score": -0.04}, {})
+    assert warn.has_warnings
+    assert not warn.has_critical
 
 
 @pytest.mark.parametrize("name", ["coverage", "freshness_lite", "readability", "example_pass_rate"])
