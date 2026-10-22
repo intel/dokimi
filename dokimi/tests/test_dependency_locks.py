@@ -176,7 +176,8 @@ def test_lock_refresh_keeps_the_seven_day_cooldown(name: str) -> None:
 
 
 def test_tools_lock_exempts_only_pins_younger_than_the_cooldown() -> None:
-    """certifi comes from the main lock (a security bump) and uv is an exact pin in requirements-ci.txt."""
+    """certifi comes from the main lock (a security bump), uv is an exact pin in requirements-ci.txt,
+    and virtualenv is a security bump (CVE-2026-113722)."""
     cmd = header_command("requirements-ci.lock.txt")
     exempt = {a.split("=", 1)[1] for a in cmd if a.startswith("--exclude-newer-package=")}
-    assert exempt == {"certifi=false", "uv=false"}, exempt
+    assert exempt == {"certifi=false", "uv=false", "virtualenv=false"}, exempt

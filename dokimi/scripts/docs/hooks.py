@@ -168,11 +168,16 @@ def list_items(html: str) -> list[tuple[int, str]]:
 
 
 _COMMONMARK = MarkdownIt("commonmark").enable("table")
+# YAML front matter (a page's `depends_on`): mkdocs drops it and GitHub shows it as
+# a table, so its list is neither side's list items. Supports optional UTF-8 BOM,
+# flexible line endings (LF/CRLF), and handles pages ending without a final newline.
+_FRONT_MATTER = re.compile(r"\A\ufeff?---[ \t]*\r?\n.*?\n---[ \t]*(?:\r?\n|$)", re.DOTALL)
 
 
 def list_mismatch(source: str, html: str) -> str | None:
     """How the site's lists differ from CommonMark's for ``source``; None if they match."""
-    github, site = list_items(_COMMONMARK.render(source)), list_items(html)
+    github = list_items(_COMMONMARK.render(_FRONT_MATTER.sub("", source, count=1)))
+    site = list_items(html)
     for i, (g, s) in enumerate(zip(github, site, strict=False)):
         if g[1][:25] != s[1][:25]:
             return f"list item {i + 1} on GitHub, {g[1]!r}, is not a list item on the site"
