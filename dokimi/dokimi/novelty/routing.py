@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+from dokimi.utils import parse_frontmatter
 
 from .client import LLMClient, parse_json_object
 
@@ -337,6 +338,25 @@ def non_skill_reason(ref: str) -> str | None:
     return None
 
 
+def skill_file(ref: str) -> Path | None:
+    """The ``SKILL.md`` a ``skill:`` reference names, or ``None`` for any other reference."""
+    if not ref.startswith("skill:"):
+        return None
+    path = Path(ref.removeprefix("skill:"))
+    return path / "SKILL.md" if path.is_dir() else path
+
+
+def disables_model_invocation(skill_md: Path) -> bool:
+    """Whether a ``SKILL.md`` sets ``disable-model-invocation``, so no harness lists it.
+
+    The model cannot select such a skill, so a card for it measures a choice that does not
+    exist. The truthy spellings are the ones ``repos.budget`` reads, so the two agree.
+    """
+    meta, _body = parse_frontmatter(skill_md.read_text(encoding="utf-8"))
+    return str(meta.get("disable-model-invocation", "")).strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 class RoutingInputError(ValueError):
     """A competitor field or query file in which selection is not a measurement."""
 
@@ -358,13 +378,15 @@ def load_candidate(ref: str) -> tuple[Candidate, str, str | None]:
 
 
 def catalog_competitors(root: str, exclude: set[str],
-                        notes: list[str] | None = None) -> list[Candidate]:
+                        notes: list[str] | None = None, *,
+                        include_disabled: bool = False) -> list[Candidate]:
     """Every skill under ``root`` whose name is not in ``exclude``.
 
     The field a harness would list next to the artifact, rather than one the caller picks.
     Skills come from the catalog reader, so a ``skills.yaml`` manifest decides which skills
     the catalog has. A declared skill that cannot be loaded is left out and described in
-    ``notes`` (when given) rather than aborting the run.
+    ``notes`` (when given) rather than aborting the run. A skill with
+    ``disable-model-invocation`` is left out too, unless ``include_disabled``.
 
     Raises:
         ValueError: ``root`` is not a directory, or a skill under it cannot be loaded (with
@@ -381,8 +403,14 @@ def catalog_competitors(root: str, exclude: set[str],
             if notes is not None:
                 notes.append(f"skipped catalog entry {entry.name!r}: {entry.error}")
             continue
-        if skill.name not in exclude:
-            candidates.append(Candidate(name=skill.name, description=skill.description))
+        if skill.name in exclude:
+            continue
+        if not include_disabled and disables_model_invocation(skill.path):
+            if notes is not None:
+                notes.append(f"left out catalog skill {skill.name!r}: "
+                             "disable-model-invocation (--include-disabled keeps it)")
+            continue
+        candidates.append(Candidate(name=skill.name, description=skill.description))
     return candidates
 
 

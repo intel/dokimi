@@ -273,8 +273,10 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         lexical_routing,
         load_candidate,
         load_queries,
+        disables_model_invocation,
         model_routing,
         non_skill_reason,
+        skill_file,
     )
 
     def card(ref: str) -> tuple[Candidate, str]:
@@ -285,17 +287,30 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
 
     try:
         gold, body = card(args.artifact)
+        artifact_file = skill_file(args.artifact)
+        if artifact_file and disables_model_invocation(artifact_file):
+            print(f"WARNING: {args.artifact} sets disable-model-invocation, so no harness lists "
+                  "it and the model cannot select it; its routing rate is not a harness rate",
+                  file=sys.stderr)
         competitors = []
         for ref in args.competitors or []:
             reason = non_skill_reason(ref)
             if reason:
                 print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
                 continue
-            competitors.append(card(ref)[0])
+            candidate = card(ref)[0]
+            ref_file = skill_file(ref)
+            if (ref_file and not args.include_disabled
+                    and disables_model_invocation(ref_file)):
+                print(f"WARNING: skipped competitor {ref}: disable-model-invocation "
+                      "(--include-disabled keeps it)", file=sys.stderr)
+                continue
+            competitors.append(candidate)
         if args.catalog:
             notes: list[str] = []
             catalog = catalog_competitors(args.catalog,
-                                          {gold.name, *(c.name for c in competitors)}, notes)
+                                          {gold.name, *(c.name for c in competitors)}, notes,
+                                          include_disabled=args.include_disabled)
             for note in notes:
                 print(f"WARNING: {note}", file=sys.stderr)
             no_description = [c.name for c in catalog if not c.description]
@@ -599,6 +614,11 @@ def register(sub, positive_int) -> None:
                                 "SKILL.md under it) except the artifact itself, i.e. the "
                                 "siblings a harness lists next to it. Combines with "
                                 "--competitors")
+    routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",
+                           help="Keep skills that set disable-model-invocation in the field. "
+                                "Off by default: no harness lists them, so the model cannot "
+                                "select them and a card for one measures a choice that does "
+                                "not exist")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")

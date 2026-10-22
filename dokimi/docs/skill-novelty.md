@@ -596,6 +596,9 @@ at the root decides what the catalog lists; without one, every `SKILL.md` under 
 declared skill that cannot be loaded is skipped with a warning.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning, so a shell glob over a skills directory can be passed as it is.
+A skill that sets `disable-model-invocation` is left out of the field, both from a catalog
+and as `--competitors`: no harness lists it, so the model cannot select it. Pass
+`--include-disabled` to keep it. The same flag goes on a disabled artifact warning.
 
 Two numbers, reported side by side and never merged:
 

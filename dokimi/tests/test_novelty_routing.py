@@ -16,6 +16,7 @@ from dokimi.novelty.routing import (
     RoutingInputError,
     catalog_competitors,
     check_field,
+    disables_model_invocation,
     headings_as_queries,
     lexical_routing,
     load_queries,
@@ -533,3 +534,69 @@ def test_a_non_skill_artifact_is_still_refused(tmp_path):
                   "--queries", "x")
     with pytest.raises(SystemExit, match="cannot load an artifact"):
         args.func(args)
+
+
+def _model_hidden_skill(root, name, description):
+    skill_dir = root / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n"
+        "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    return f"skill:{skill_dir}"
+
+
+def test_a_disable_model_invocation_skill_is_not_a_competitor_unless_asked(tmp_path, capsys):
+    # ultracave and megacave set the flag: no harness lists them, so a card for them scores a
+    # choice the model cannot make.
+    catalog = tmp_path / "skills"
+    catalog.mkdir()
+    gold = _skill(catalog, "perf", "profile a slow binary with perf")
+    _skill(catalog, "db", "tune a slow database query")
+    _model_hidden_skill(catalog, "ultra", "compress output hard")
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["my binary is slow"]), encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing", "--artifact", gold, "--catalog", str(catalog),
+                  "--queries", str(queries), "--out", str(out))
+    args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 2
+    assert "left out catalog skill 'ultra'" in capsys.readouterr().err
+
+    kept = tmp_path / "kept.json"
+    args = _parse("novelty", "routing", "--artifact", gold, "--catalog", str(catalog),
+                  "--queries", str(queries), "--out", str(kept), "--include-disabled")
+    args.func(args)
+    assert json.loads(kept.read_text(encoding="utf-8"))["n_candidates"] == 3
+
+
+def test_an_explicit_disabled_competitor_is_skipped_with_a_warning(tmp_path, capsys):
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
+    hidden = _model_hidden_skill(tmp_path, "ultra", "compress output hard")
+    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", hidden, _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--out", str(tmp_path / "r.json"))
+    args.func(args)
+    assert json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))["n_candidates"] == 2
+    assert f"skipped competitor {hidden}: disable-model-invocation" in capsys.readouterr().err
+
+
+def test_a_disabled_artifact_is_still_routed_but_warned_about(tmp_path, capsys):
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
+    artifact = _model_hidden_skill(tmp_path, "ultra", "compress output hard")
+    args = _parse("novelty", "routing", "--artifact", artifact,
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--out", str(tmp_path / "r.json"))
+    args.func(args)
+    assert "the model cannot select it" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("line, hidden", [
+    ("disable-model-invocation: true", True), ("disable-model-invocation: false", False),
+    ("disable-model-invocation: yes", True), ("description: x", False),
+])
+def test_the_disable_flag_is_read_the_way_the_repo_budget_reads_it(tmp_path, line, hidden):
+    path = tmp_path / "SKILL.md"
+    path.write_text(f"---\nname: x\ndescription: x\n{line}\n---\n\nbody\n", encoding="utf-8")
+    assert disables_model_invocation(path) is hidden
