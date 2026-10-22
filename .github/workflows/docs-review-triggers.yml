@@ -39,7 +39,7 @@ jobs:
       # PyYAML from the hashed tools lock, like every other install (#135).
       # `make dev` reads this line through scripts/ci_local.py tools, and its
       # uv --require-hashes rejects a bare requirement.
-      - name: Install PyYAML
+      - name: Install the CI tools (PyYAML)
         run: pip install --require-hashes -r requirements-ci.lock.txt
       # The base branch's current tip (fetched by the checkout), as in changelog.yml.
       - name: Pages to review
