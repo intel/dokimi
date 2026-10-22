@@ -183,3 +183,22 @@ def test_the_mirror_note_names_the_dropped_and_the_kept_path(tmp_path):
     notes: list[str] = []
     discover_skills(root, notes=notes)
     assert notes == [f"left out {mirror}: identical to {original}"]
+
+
+def test_the_skill_catalog_arm_prints_what_discovery_left_out_to_stderr(tmp_path, capsys):
+    """A template or mirror dropped from a `skill-catalog:` arm is named on stderr."""
+    from dokimi.treatments.factory import create_treatment
+
+    real = tmp_path / "skills" / "web"
+    real.mkdir(parents=True)
+    (real / "SKILL.md").write_text("---\nname: web\ndescription: build web pages\n---\n\n# Web\n",
+                                   encoding="utf-8")
+    template = tmp_path / "template"
+    template.mkdir()
+    (template / "SKILL.md").write_text("---\nname: blank\ndescription: scaffold\n---\n\n# B\n",
+                                       encoding="utf-8")
+
+    create_treatment(f"skill-catalog:{tmp_path}")
+
+    err = capsys.readouterr().err
+    assert f"left out {template / 'SKILL.md'}: a template, not a skill" in err
