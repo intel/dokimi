@@ -555,4 +555,3 @@ def _apply_correction(
             None if adj is None
             else bool(adj < ALPHA and (p_w is None or p_w < ALPHA))
         )
-
