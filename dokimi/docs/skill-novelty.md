@@ -612,7 +612,9 @@ Two numbers, reported side by side and never merged:
   repeats is the model's own sampling noise. The result's `noise` block gives each query's
   agreement across its repeats (`per_query`), the selection rate of each repeat, and
   `half_range`, half the gap between the highest and lowest of those rates: a crude noise
-  floor. Each repeat is a fresh sample, so under `DOKIMI_RESPONSE_CACHE` a repeat is not a
+  floor. The rates cover only the queries with no failed call in any repeat
+  (`n_queries_compared`), so a transient error is not read as noise. Each repeat is a
+  fresh sample, so under `DOKIMI_RESPONSE_CACHE` a repeat is not a
   replay. Repeats need `--model`, and cost N times the calls.
 
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
