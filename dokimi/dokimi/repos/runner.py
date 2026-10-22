@@ -113,6 +113,12 @@ def execution_record(opts: AgentOptions) -> dict[str, str]:
             "tools": opts.tools, "delegation": opts.profile.effective_delegation(opts.tools, opts.delegation)}
 
 
+def recorded_execution(result: Any) -> dict[str, Any]:
+    """The ``execution`` record of a parsed ``result.json``; empty when there is none or it is not an object."""
+    ran = result.get("execution") if isinstance(result, dict) else None
+    return ran if isinstance(ran, dict) else {}
+
+
 class ExecutionMismatch(PrepError):
     """A finished cell of the batch ran with another execution than the one asked for."""
 
@@ -128,9 +134,10 @@ def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replaci
         if replacing is not None and path.parent.name in replacing:
             continue
         try:
-            found.add((json.loads(path.read_text(encoding="utf-8")).get("execution") or {}).get("id", "unrecorded"))
+            ran = recorded_execution(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             continue
+        found.add(ran["id"] if isinstance(ran.get("id"), str) else "unrecorded")
     other = found - wanted
     if other:
         raise ExecutionMismatch(
@@ -200,7 +207,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     execution = execution_record(opts)
     if (rd / "result.json").is_file() and not force:
         done = json.loads((rd / "result.json").read_text(encoding="utf-8"))
-        ran = done.get("execution") or {}
+        ran = recorded_execution(done)
         # A result from before execution ids carries none: nothing says how it ran, so it is not reused.
         if ran.get("id") != execution["id"]:
             raise ExecutionMismatch(
