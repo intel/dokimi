@@ -320,14 +320,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     """Every skill in the field is the gold in turn: confusion matrix and attractors."""
     from dokimi.novelty.routing import RoutingInputError, all_vs_all, load_queries_by_skill
 
-    if args.artifact:
-        raise SystemExit("--all-vs-all takes no --artifact: every skill in the field is the "
-                         "gold in turn")
-    if not args.queries_by_skill:
-        raise SystemExit("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
-                         "name to the requests that should select it")
-    if not args.out:
-        raise SystemExit("--all-vs-all needs --out <file>")
+    _check_all_vs_all_args(args)
     try:
         field = _routing_field(args, set())
     except RoutingInputError as exc:
@@ -374,6 +367,23 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     print(f"OK Saved all-vs-all routing: {out}")
     print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
           f"{len(queries_by_skill)} skills with queries")
+    _print_attractors(result)
+
+
+def _check_all_vs_all_args(args: argparse.Namespace) -> None:
+    """Refuse the flag combinations ``--all-vs-all`` cannot run with."""
+    if args.artifact:
+        raise SystemExit("--all-vs-all takes no --artifact: every skill in the field is the "
+                         "gold in turn")
+    if not args.queries_by_skill:
+        raise SystemExit("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
+                         "name to the requests that should select it")
+    if not args.out:
+        raise SystemExit("--all-vs-all needs --out <file>")
+
+
+def _print_attractors(result: dict) -> None:
+    """The top five attractors of each arm, one line each."""
     for arm in ("lexical", "model"):
         if arm not in result:
             continue

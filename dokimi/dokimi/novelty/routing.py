@@ -398,10 +398,27 @@ def catalog_competitors(root: str, exclude: set[str],
         RoutingInputError: Two skills in the field share a name with different content; the
             message names both paths.
     """
-    from dokimi.external.catalog import read_skill_manifest
-
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
+    eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled)
+    _refuse_conflicting_names(eligible)
+    keeper = _keepers_by_digest(eligible)
+    candidates: list[Candidate] = []
+    for skill, digest in eligible:
+        if keeper[digest] is not skill:
+            if notes is not None:
+                notes.append(f"left out catalog skill {skill.name!r} at {skill.path}: "
+                             f"identical to {keeper[digest].path}")
+            continue
+        candidates.append(Candidate(name=skill.name, description=skill.description))
+    return candidates
+
+
+def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | None,
+                             include_disabled: bool) -> list[tuple[Skill, str]]:
+    """Each loadable, non-excluded catalog skill with the sha256 of its ``SKILL.md``."""
+    from dokimi.external.catalog import read_skill_manifest
+
     eligible: list[tuple[Skill, str]] = []
     for entry in read_skill_manifest(Path(root)):
         skill = entry.skill
@@ -417,9 +434,14 @@ def catalog_competitors(root: str, exclude: set[str],
                              "disable-model-invocation (--include-disabled keeps it)")
             continue
         eligible.append((skill, hashlib.sha256(skill.path.read_bytes()).hexdigest()))
+    return eligible
 
-    # Two skills with one name and different bytes cannot both stand for the card, and
-    # check_field would only say "pass each competitor once", which is not the problem.
+
+def _refuse_conflicting_names(eligible: list[tuple[Skill, str]]) -> None:
+    """Two skills with one name and different bytes cannot both stand for the card.
+
+    check_field would only say "pass each competitor once", which is not the problem.
+    """
     copies_by_name: dict[str, list[tuple[str, str]]] = {}
     for skill, digest in eligible:
         copies_by_name.setdefault(skill.name, []).append((skill.path.as_posix(), digest))
@@ -433,23 +455,19 @@ def catalog_competitors(root: str, exclude: set[str],
                 "different content; dedupe or rename"
             )
 
-    # The copy with the fewest path parts stands for each byte-identical group; ties go to
-    # the path that sorts first, so the choice does not depend on directory order.
+
+def _keepers_by_digest(eligible: list[tuple[Skill, str]]) -> dict[str, Skill]:
+    """The copy with the fewest path parts stands for each byte-identical group.
+
+    Ties go to the path that sorts first, so the choice does not depend on directory order.
+    """
     keeper: dict[str, Skill] = {}
     for skill, digest in eligible:
         best = keeper.get(digest)
         if best is None or (len(skill.path.parts), skill.path.as_posix()) < (
                 len(best.path.parts), best.path.as_posix()):
             keeper[digest] = skill
-    candidates: list[Candidate] = []
-    for skill, digest in eligible:
-        if keeper[digest] is not skill:
-            if notes is not None:
-                notes.append(f"left out catalog skill {skill.name!r} at {skill.path}: "
-                             f"identical to {keeper[digest].path}")
-            continue
-        candidates.append(Candidate(name=skill.name, description=skill.description))
-    return candidates
+    return keeper
 
 
 def check_field(gold: Candidate, competitors: list[Candidate]) -> None:
@@ -558,7 +576,21 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
             query file that names a skill outside the field; no skill with any queries.
     """
     names = [c.name for c in candidates]
-    if len(candidates) < 2:
+    _check_all_vs_all_input(names, queries_by_skill)
+    result: dict = {
+        "n_skills": len(candidates),
+        "n_queries": sum(len(q) for q in queries_by_skill.values()),
+        "lexical": _attractor_table(_lexical_picks(candidates, queries_by_skill, names),
+                                    queries_by_skill, names),
+    }
+    if client is not None:
+        result["model"] = _model_arm(candidates, queries_by_skill, names, client, seed)
+    return result
+
+
+def _check_all_vs_all_input(names: list[str], queries_by_skill: dict[str, list[str]]) -> None:
+    """Refuse a field or query file :func:`all_vs_all` cannot measure."""
+    if len(names) < 2:
         raise RoutingInputError("all-vs-all needs at least two skills in the field")
     if len(set(names)) != len(names):
         raise RoutingInputError("all-vs-all: the field names a skill more than once")
@@ -569,6 +601,10 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     if not queries_by_skill:
         raise RoutingInputError("no skill in the field has queries to route")
 
+
+def _lexical_picks(candidates: list[Candidate], queries_by_skill: dict[str, list[str]],
+                   names: list[str]) -> dict[str, Counter]:
+    """The lexical arm of :func:`all_vs_all`: picks per gold skill."""
     bm25 = BM25([tokenize(c.card) for c in candidates])
     lexical: dict[str, Counter] = {}
     for name, queries in queries_by_skill.items():
@@ -584,30 +620,28 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
             else:
                 picks[candidates[best].name] += 1
         lexical[name] = picks
-    result: dict = {
-        "n_skills": len(candidates),
-        "n_queries": sum(len(q) for q in queries_by_skill.values()),
-        "lexical": _attractor_table(lexical, queries_by_skill, names),
-    }
-    if client is not None:
-        model: dict[str, Counter] = {}
-        n_failed = n_abstained = 0
-        first_error = None
-        for index, name in enumerate(names):
-            if name not in queries_by_skill:
-                continue
-            routed = model_routing(candidates, queries_by_skill[name], client=client,
-                                   gold=index, seed=seed + index)
-            rows = routed["per_query"]
-            n_failed += routed["n_failed"]
-            n_abstained += routed["n_abstained"]
-            if first_error is None:
-                first_error = next((r["error"] for r in rows if r.get("error")), None)
-            model[name] = Counter(row.get("picked") or NO_PICK for row in rows)
-        result["model"] = dict(_attractor_table(model, queries_by_skill, names), seed=seed,
-                               n_failed=n_failed, n_abstained=n_abstained,
-                               first_error=first_error)
-    return result
+    return lexical
+
+
+def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str]],
+               names: list[str], client: LLMClient, seed: int) -> dict:
+    """The model arm of :func:`all_vs_all`: attractor table plus failure counts."""
+    model: dict[str, Counter] = {}
+    n_failed = n_abstained = 0
+    first_error = None
+    for index, name in enumerate(names):
+        if name not in queries_by_skill:
+            continue
+        routed = model_routing(candidates, queries_by_skill[name], client=client,
+                               gold=index, seed=seed + index)
+        rows = routed["per_query"]
+        n_failed += routed["n_failed"]
+        n_abstained += routed["n_abstained"]
+        if first_error is None:
+            first_error = next((r["error"] for r in rows if r.get("error")), None)
+        model[name] = Counter(row.get("picked") or NO_PICK for row in rows)
+    return dict(_attractor_table(model, queries_by_skill, names), seed=seed,
+                n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
 
 
 def _attractor_table(picks_by_gold: dict[str, Counter], queries_by_skill: dict[str, list[str]],
