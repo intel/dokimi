@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import shutil
@@ -602,3 +603,93 @@ def test_a_read_of_a_skills_directory_is_not_a_use_of_a_skill():
               {"kind": "read", "path": ""}]
     used = skill_usage(events, ["lint"], "lint")
     assert used["skills_used"] == [] and used["skill_invoked"] is False
+
+
+def _claude_run(tmp_path, monkeypatch, mcp_json, *extra, patch=None):
+    """`repo run` with the built-in claude-code profile on a base that ships `mcp_json`; the agent specs."""
+    runner = FakeRunner()
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    monkeypatch.setenv("FAKE_ACTION", "fix")
+    profile = Path(__file__).resolve().parents[1] / "dokimi/repos/profiles/claude-code.yaml"
+    exe, _ = fake_harness(tmp_path)
+    if mcp_json is not None:
+        write(tmp_path / "toy", ".mcp.json", mcp_json)
+    root, _ = make_repo(tmp_path)
+    argv = ["repo", "run", f"{root}@HEAD", "--harness", str(profile), "--bin", str(exe), "--model", "m-1",
+            "--batch", "b1", "--out", str(tmp_path / "runs"), "--cache-root", str(tmp_path / "caches"),
+            "--agent-network", "host", "--task", "fix_add", *extra]
+    args = build_parser().parse_args(argv)
+    try:
+        args.func(args)
+        code = 0
+    except SystemExit as exc:
+        code = exc.code
+    return code, [s for s in runner.specs if "--strict-mcp-config" in s.argv]
+
+
+@pytest.mark.parametrize("text", ["{", "[]", '{"mcpServers": "x"}'])
+def test_run_refuses_a_malformed_mcp_json_before_any_cell_when_the_agent_is_given_it(tmp_path, monkeypatch, capsys,
+                                                                                    text):
+    code, agents = _claude_run(tmp_path, monkeypatch, text, "--arm", "guidance:raw", "--tools", "all")
+    err = capsys.readouterr().err
+    assert code == 1 and agents == []
+    assert ".mcp.json" in err and "--tools read/none" in err
+    assert not list((tmp_path / "runs" / "b1").glob("fix_add__*"))  # no cell was even prepared
+
+
+def test_run_leaves_a_malformed_mcp_json_alone_when_the_agent_is_not_given_it(tmp_path, monkeypatch):
+    code, agents = _claude_run(tmp_path, monkeypatch, "{", "--arm", "guidance:raw", "--tools", "read")
+    assert code in (0, None) and len(agents) == 1 and "--mcp-config" not in agents[0].argv
+
+
+def test_run_refuses_a_malformed_mcp_json_that_an_arms_patch_wrote(tmp_path, monkeypatch, capsys):
+    patch = tmp_path / "mcp.diff"
+    patch.write_text("diff --git a/.mcp.json b/.mcp.json\nnew file mode 100644\n--- /dev/null\n+++ b/.mcp.json\n"
+                     "@@ -0,0 +1 @@\n+{\n")
+    code, agents = _claude_run(tmp_path, monkeypatch, None, "--arm", f"patch:{patch}", "--tools", "all")
+    assert code == 1 and agents == []
+    out = capsys.readouterr()
+    assert ".mcp.json in the workspace is not valid JSON" in out.out + out.err
+
+
+def test_a_guidance_none_arm_installs_a_skill_the_base_ships_under_the_guidance_globs(tmp_path):
+    _skill(tmp_path / "toy", ".claude/skills/lint", "lint")
+    root, base = make_repo(tmp_path)
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    from dokimi.repos import RepoSource, load_manifest as load, open_source
+    from dokimi.repos.workspace import load_tasks, prepare_workspace
+
+    source = RepoSource.parse(f"{root}@HEAD")
+    manifest = load(open_source(source), ".agent-eval/repo-eval.yaml")
+    manifest = dataclasses.replace(manifest, guidance_globs=(*manifest.guidance_globs, ".claude/skills/**"))
+    content = root / ".agent-eval"
+    task = load_tasks(content, manifest, ["fix_add"])[0]
+    arm = "guidance:none+skill:skills/lint"
+    check_arms([parse_arm(arm)], content, [task], root / ".git", manifest.guidance_globs)
+    rd = tmp_path / "rd"
+    rd.mkdir()
+    meta = prepare_workspace(root / ".git", manifest, task, arm, rd, None, content)
+    assert (rd / "workspace/.claude/skills/lint/SKILL.md").is_file() and meta["skills"][0]["name"] == "lint"
+
+
+@pytest.mark.parametrize("link", [".claude", ".claude/skills"])
+def test_the_base_check_refuses_a_tracked_symlink_at_claude_or_its_skills(tmp_path, link):
+    root, base = make_repo(tmp_path)
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    (root / "shared").mkdir()
+    if link == ".claude/skills":
+        (root / ".claude").mkdir()
+    (root / link).symlink_to("../shared" if "/" in link else "shared")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "link")
+    task = Task("t", {"base": git(root, "rev-parse", "HEAD")}, root)
+    with pytest.raises(ArmError, match=rf"tracks {link} as a symlink"):
+        check_arms([parse_arm("skill:skills/lint")], root / ".agent-eval", [task], root / ".git")
+    check_arms([parse_arm("guidance:raw")], root / ".agent-eval", [task], root / ".git")  # no skill: nothing to refuse
+
+
+def test_a_frontmatter_name_that_yaml_reads_as_an_impossible_date_is_the_directory_name_not_a_crash(tmp_path):
+    write(tmp_path, "skills/lint/SKILL.md", "---\nname: 2024-13-45\n---\nBody.\n")
+    assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]

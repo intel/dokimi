@@ -176,6 +176,7 @@ def cmd_repo_run(args: argparse.Namespace) -> None:
 def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock: contextlib.ExitStack) -> None:
     from dokimi.repos import RepoSource, open_source
     from dokimi.repos.arms import check_arms
+    from dokimi.repos.bases import check_mcp_configs
     from dokimi.repos.container import docker_network
     from dokimi.repos.harness_profile import load_profile
     from dokimi.repos.runner import (
@@ -196,6 +197,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         ctx, _ = _context(args, batch_dir, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs)  # skill paths exist, catalogs hold each expected_skill
+        check_mcp_configs(ctx.git_dir, tasks, profile, args.tools)  # a malformed .mcp.json fails here, not in every cell
         skill_pin = _skill_pin(batch_dir, arms, ctx.content_dir)  # a resume may not swap an arm's skills
         validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,

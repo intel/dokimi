@@ -113,7 +113,7 @@ def _frontmatter_name(skill_md: Path) -> str | None:
         block.append(line)
     try:
         meta = yaml.safe_load("\n".join(block))
-    except yaml.YAMLError:
+    except (yaml.YAMLError, ValueError):  # ValueError: `name: 2024-13-45` resolves as a timestamp that does not exist
         return None
     name = meta.get("name") if isinstance(meta, dict) else None
     return str(name).strip() or None if name is not None else None
@@ -151,11 +151,21 @@ def _skill_path(path: str, content_dir: Path) -> Path:
     return full
 
 
-def _base_skill_files(git_dir: Path, base: str) -> list[str]:
-    """The files the commit ``base`` tracks under ``.claude/skills`` (one ``git ls-tree`` per base)."""
-    proc = process.run(["git", "-C", str(git_dir), "ls-tree", "-r", "-z", "--name-only", base, "--", ".claude/skills"],
+def _base_skill_files(git_dir: Path, base: str) -> tuple[list[str], list[str]]:
+    """The files the commit ``base`` tracks under ``.claude/skills``, and which of ``.claude`` and
+    ``.claude/skills`` it tracks as a symlink (one ``git ls-tree`` per base)."""
+    proc = process.run(["git", "-C", str(git_dir), "ls-tree", "-r", "-z", base, "--", ".claude", ".claude/skills"],
                        env=process.GIT_ENV, timeout=60, capture_limit=None)
-    return [p for p in proc.stdout.split("\0") if p] if proc.returncode == 0 else []
+    if proc.returncode != 0:
+        return [], []
+    files, links = [], []
+    for entry in proc.stdout.split("\0"):  # `<mode> <type> <sha>\t<path>`; -r lists a link, never what is behind it
+        meta, _, path = entry.partition("\t")
+        if meta.startswith("120000 ") and path in (".claude", ".claude/skills"):
+            links.append(path)
+        elif path.startswith(".claude/skills/"):
+            files.append(path)
+    return files, links
 
 
 def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Path | None = None,
@@ -171,7 +181,7 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
     from dokimi.repos.manifest import match_glob
 
     cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm spec that owns it
-    shipped: dict[str, list[str]] = {}  # task base -> tracked files under .claude/skills
+    shipped: dict[str, tuple[list[str], list[str]]] = {}  # base -> (tracked files under .claude/skills, its links)
     for arm in arms:
         cell = slug(str(arm).replace(":", "-"))
         if cells.setdefault(cell, arm.spec) != arm.spec:
@@ -186,9 +196,12 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
             for commit in (task.base, rev):
                 if commit is not None and commit not in shipped:
                     shipped[commit] = _base_skill_files(git_dir, commit)
-            left = [p for p in shipped[task.base]
+            left = [p for p in shipped[task.base][0]
                     if not (drops and any(match_glob(g, p) for g in guidance_globs))]
-            written = [p for p in shipped[rev] if any(match_glob(g, p) for g in guidance_globs)] if rev else []
+            written = [p for p in shipped[rev][0] if any(match_glob(g, p) for g in guidance_globs)] if rev else []
+            for link in shipped[task.base][1]:  # preparation refuses to install through a link, cell by cell
+                raise ArmError(f"arm {arm.spec!r}: the base of task {task.id} tracks {link} as a symlink; "
+                               f"refusing to install {skills[0].name} through it")
             for skill in skills:
                 for where, files in ((f"the base of task {task.id}", left), (f"guidance revision {rev}", written)):
                     if any(p.startswith(skill.target.rstrip("/") + "/") or p == skill.target for p in files):

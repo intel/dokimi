@@ -339,6 +339,12 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
         report.errors.append(f"tasks directory does not exist: {manifest.tasks}")
     if open_base is None:
         report.warnings.extend(f"guidance glob matches no file: {p}" for p in unmatched)
+        from .bases import MCP_CONFIG, tree_mcp_error
+
+        problem = tree_mcp_error(tree)  # no task base to read: the snapshot's own
+        if problem:
+            report.errors.append(f"{MCP_CONFIG} at the eval tree is {problem}; `repo run --tools all` would fail "
+                                 "every cell as a task failure")
     else:
         from .bases import check_bases
 

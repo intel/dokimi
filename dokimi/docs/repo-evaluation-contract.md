@@ -563,9 +563,14 @@ args_if_present:                     # argv added after the "{tools}" element wh
 - `args_if_present` checks that the file exists, not that the harness accepts
   it. The built-in `claude-code` profile passes `.mcp.json` as `--mcp-config`
   in the `all` tool mode, and the CLI exits 1 before its first turn on a file
-  that is not valid MCP configuration (`{` for one). Every such cell is then
-  graded as a task failure, not reported as an agent error. Fix or remove the
-  file in the task base, or run the repository with `--tools read` or `none`.
+  that is not valid MCP configuration (`{` for one). So a `.mcp.json` that is
+  not a JSON object, or whose `mcpServers` is not an object, is refused up
+  front: `repo validate` reports an error for the one at each task base (at
+  the eval tree when the source has no git history), `repo run --tools all`
+  exits 1 before the image build and any cell, and a cell whose arm wrote
+  such a file (a `patch:` arm) is a cell error, not a graded run. Fix or remove
+  the file in the task base; `--tools read` or `none` do not pass it, so
+  `repo run` does not check it there.
 
 Profiles for other harnesses (Codex, Gemini CLI, Copilot CLI, Cursor agent,
 Aider, OpenCode, in-house agents) follow the same shape. Their `guidance`

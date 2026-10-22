@@ -389,6 +389,13 @@ def _content_dir(manifest: RepoManifest, task: Task) -> Path:
     return task.dir.parents[len(PurePosixPath(tasks).relative_to(eval_dir).parts)]
 
 
+def _only_empty_dirs(path: Path) -> bool:
+    """``path`` is a real directory with nothing but real directories under it."""
+    if path.is_symlink() or not path.is_dir():
+        return False
+    return all(not f and not any(Path(d, n).is_symlink() for n in dn) for d, dn, f in os.walk(path))
+
+
 def _install_skills(ws: Path, task: Task, skills: list[Skill]) -> list[dict[str, str]]:
     """Copy each skill to ``.claude/skills/<name>/``; a skill the repository already has there is refused,
     as replacing it would change what the guidance arm measures."""
@@ -399,7 +406,9 @@ def _install_skills(ws: Path, task: Task, skills: list[Skill]) -> list[dict[str,
             if part.is_symlink():
                 raise PrepError(f"task {task.id}: {part.relative_to(ws)} is a symlink in the repository; "
                                 f"refusing to install {skill.name} through it")
-        if dest.exists():
+        if _only_empty_dirs(dest):
+            shutil.rmtree(dest)  # what dropping the guidance of a skill the base ships left: its emptied directory
+        if dest.exists() or dest.is_symlink():
             raise PrepError(f"task {task.id}: the workspace already has {skill.target}")
         if not dest.parent.resolve().is_relative_to(ws.resolve()):
             raise PrepError(f"task {task.id}: {skill.target} resolves outside the workspace")

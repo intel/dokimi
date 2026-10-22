@@ -179,3 +179,41 @@ def test_work_tree_lists_what_git_shows(tmp_path):
     plain = tmp_path / "plain"
     _write(plain, ".venv/AGENTS.md", "no git here, so every file counts\n")
     assert WorkTree(plain).files() == [".venv/AGENTS.md"]
+
+
+@pytest.mark.parametrize(("text", "why"), [("{", "not valid JSON"), ("[]", "not a JSON object"),
+                                          ('{"mcpServers": []}', "`mcpServers` is not an object"),
+                                          pytest.param("[" * 100000, "not valid JSON", id="deeply-nested")])
+def test_validate_refuses_a_malformed_mcp_json_at_a_task_base_and_at_a_tree_without_history(tmp_path, capsys,
+                                                                                            text, why):
+    root = tmp_path / "toy"
+    _write(root, ".mcp.json", text)
+    _write(root, "src/lib.c", "int f(void);\n")
+    base = _commit_all(root, "code")
+    _write(root, "dev/evals/Dockerfile", "FROM scratch\n")
+    _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump(MANIFEST))
+    _task(root, "fix_one", base)
+    _commit_all(root, "evals")
+    for source in (f"{root}@HEAD", str(root)):  # with git history (the task base), and a plain work tree
+        if source == str(root):
+            subprocess.run(["rm", "-rf", str(root / ".git")], check=True)
+        with pytest.raises(SystemExit):
+            _run_cli(["repo", "validate", source, "--manifest", "dev/evals/repo-eval.yaml", "--json"])
+        out = json.loads(capsys.readouterr().out)
+        assert out["ok"] is False
+        assert any(".mcp.json" in e and why in e for e in out["errors"]), out["errors"]
+
+
+def test_validate_accepts_a_valid_or_absent_mcp_json(tmp_path, capsys):
+    for name, text in (("valid", '{"mcpServers": {"a": {}}}'), ("no_servers", "{}"), ("absent", None)):
+        root = tmp_path / name
+        if text is not None:
+            _write(root, ".mcp.json", text)
+        _write(root, "src/lib.c", "int f(void);\n")
+        base = _commit_all(root, "code")
+        _write(root, "dev/evals/Dockerfile", "FROM scratch\n")
+        _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump(MANIFEST))
+        _task(root, "fix_one", base)
+        _commit_all(root, "evals")
+        _run_cli(["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
+        assert json.loads(capsys.readouterr().out)["ok"] is True, name

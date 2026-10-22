@@ -60,6 +60,7 @@ from .container import (
     docker_network,
 )
 from .arms import skill_unmeasured, skill_usage, slug
+from .bases import MCP_CONFIG, mcp_config_error
 from .events import convert
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
@@ -162,6 +163,11 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                 batch=batch_dir.name, agent_network=network, egress_proxy=False, host=host)
     present = frozenset(n for n in opts.profile.args_if_present if (rd / "workspace" / n).exists())
     meta["args_if_present"] = opts.profile.applied_args(opts.tools, present)  # the ones the cell runs with
+    if MCP_CONFIG in meta["args_if_present"]:  # the arm may have written it: check what the agent is given
+        problem = mcp_config_error((rd / "workspace" / MCP_CONFIG).read_text(encoding="utf-8", errors="replace"))
+        if problem:
+            raise PrepError(f"task {task.id}: {MCP_CONFIG} in the workspace is {problem}; the agent's CLI would exit "
+                            "on it before its first turn")
     _write_json(rd / "meta.json", meta)
     skills: dict[str, Any] | None = None
 
