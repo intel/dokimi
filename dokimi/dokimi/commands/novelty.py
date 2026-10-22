@@ -347,10 +347,15 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"OK Saved routing measurement: {out}")
 
+    _print_routing_summary(payload, len(competitors), self_derived)
+
+
+def _print_routing_summary(payload: dict, n_competitors: int, self_derived: bool) -> None:
+    """The lexical line, the model line and its caveats, printed after a routing run."""
     lexical = payload["lexical"]
     print(f"lexical  R@1 {lexical['recall_at_1']}  R@3 {lexical['recall_at_3']}  "
           f"MRR {lexical['mrr']}  over {lexical['n_queries_scored']} of "
-          f"{lexical['n_queries_given']} queries vs {len(competitors)} competitors"
+          f"{lexical['n_queries_given']} queries vs {n_competitors} competitors"
           + ("  (R@3 needs more than 3 candidates to mean anything)"
              if lexical["recall_at_3"] is None else ""))
     if "model" in payload:
