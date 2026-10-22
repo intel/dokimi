@@ -36,8 +36,9 @@ score past ``score.max`` is an effect, not a top. ``ceiling``: both arms at the 
 ``floor``: both arms at 0 on every paired task; ``near_ceiling``: neither, at least 2 paired tasks, the
 baseline at the top on all but at most one, and the treatment nowhere below the baseline, so at most one task
 can improve and a gain resting on one task has a sign-flip p of 1. A pair whose baseline and treatment tops
-differ is on two scales, a grader failure in either arm scores a 0 that says the measurement failed, not that
-the task had no room, and any other case has no flag: ``None``. The flag is a note; p and Holm are unchanged.
+differ is on two scales, a grader failure or an agent outage (an error result with no turn count or at most
+one turn) in either arm scores a 0 that says the measurement failed, not that the task had no room, and any
+other case has no flag: ``None``. The flag is a note; p and Holm are unchanged.
 
 Each selector's batches are reported with the stamp ``repo run`` pins a batch
 to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
