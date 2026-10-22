@@ -1,3 +1,9 @@
+---
+depends_on:
+  - dokimi/dokimi/novelty/**
+  - dokimi/dokimi/metrics/bundle_coverage.py
+  - dokimi/dokimi/commands/novelty.py
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

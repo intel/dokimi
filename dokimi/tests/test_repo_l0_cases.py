@@ -200,6 +200,15 @@ CASES = [
      {("bazel_label", "//:one"): "ok", ("bazel_label", "//:one_tset"): "fail"}),
     ("a name in a comment is not a name", "`//:b`", {"BUILD": 'cc_library(name = "a")  # name = "b"\n'},
      {("bazel_label", "//:b"): "fail"}),
+    ("exports_files(glob) may export any file", "`//:LICENSE` `//:x`",
+     {"BUILD": 'exports_files(glob(["*"]))\ncc_library(name = "x")\n'},
+     {("bazel_label", "//:LICENSE"): "unresolved", ("bazel_label", "//:x"): "ok"}),
+    ("exports_files lists every file", "`//:LICENSE` `//:NOTICE` `//:OTHER`",
+     {"BUILD": 'exports_files(["LICENSE", "NOTICE"])\n'},
+     {("bazel_label", "//:LICENSE"): "ok", ("bazel_label", "//:NOTICE"): "ok", ("bazel_label", "//:OTHER"): "fail"}),
+    ("exports_files with metadata argument parses only positional", "`//:notice`",
+     {"BUILD": 'exports_files(["LICENSE"], licenses = ["notice"])\n', "LICENSE": ""},
+     {("bazel_label", "//:notice"): "fail"}),
     ("comments between def parameters",
      f"{FENCE}starlark\nm(\n    name = \"x\",\n    srcs = [],\n    flags = {{}},\n    nme = 1,\n)\n{FENCE}\n",
      {"BUILD": "", "a.bzl": 'def m(\n    name,  # the target (required):\n    srcs = [],  # inputs, if any\n'
@@ -209,6 +218,9 @@ CASES = [
     ("macro defined twice", f"{FENCE}starlark\nm(\n    name = \"x\",\n    extra = 1,\n)\n{FENCE}\n",
      {"BUILD": "", "a.bzl": "def m(name):\n    pass\n", "b.bzl": "def m(name, extra):\n    pass\n"},
      {("starlark_kwarg", "m(extra=)"): "unresolved"}),
+    ("definitions in docstrings are not public", f"{FENCE}starlark\nload(\"//:defs.bzl\", \"removed\", \"actual\")\n{FENCE}\n",
+     {"BUILD": "", "defs.bzl": '"""Example module.\n\ndef removed(name):\n    pass\n\ngone = rule()\n"""\n\ndef actual(name):\n    pass\n'},
+     {("starlark_load", "removed from //:defs.bzl"): "fail", ("starlark_load", "actual from //:defs.bzl"): "ok"}),
     # links to this repository by URL: a ref may hold slashes
     ("slash branch, file found", f"[a]({U}/blob/release/1.0/src/a.py)", {"src/a.py": ""},
      {("link", f"{U}/blob/release/1.0/src/a.py"): "ok"}),
@@ -420,3 +432,12 @@ def test_gate_fails_when_globbed_guidance_deleted(tmp_path, monkeypatch, capsys)
         args.func(args)
     assert exc.value.code == 1
     assert "guidance/also_scan matches no file: AGENTS.md" in capsys.readouterr().out
+
+
+def test_unreadable_guidance_that_detect_also_reads_keeps_its_warning(tmp_path):
+    # detect() reads setup.cfg before the guidance files are preloaded: its failed read must still be reported
+    for payload in _both(tmp_path, {"AGENTS.md": "x\n"}, {"setup.cfg": "nowhere.cfg"}, build_systems=[],
+                         also_scan=["setup.cfg"]):
+        warning = next((w for w in payload["warnings"] if "setup.cfg" in w), "")
+        assert warning.startswith("guidance file not scanned: setup.cfg") and "links to nothing" in warning, payload
+        assert payload["incomplete"]

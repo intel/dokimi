@@ -1,3 +1,10 @@
+---
+depends_on:
+  - dokimi/dokimi/metrics/**
+  - dokimi/dokimi/runner/run.py
+  - dokimi/dokimi/runner/spec.py
+  - dokimi/dokimi/runner/spec.schema.json
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
