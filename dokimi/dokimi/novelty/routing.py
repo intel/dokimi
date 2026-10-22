@@ -487,3 +487,126 @@ def load_queries(path: str) -> list[str]:
         raise RoutingInputError(f"{path}: queries must be a list of strings, "
                                 "or one query per line")
     return [q for q in listed if q.strip()]
+
+
+NO_PICK = "(none)"
+
+
+def load_queries_by_skill(path: str) -> dict[str, list[str]]:
+    """Queries per skill, from a JSON object ``{"<skill name>": ["request", ...]}``.
+
+    Each request is one the named skill should be selected for, written independently of
+    it. Blank requests are dropped, and a skill left with none is dropped with them.
+
+    Raises:
+        RoutingInputError: The file is not JSON, is not an object, or a value is not a list
+            of strings.
+    """
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise RoutingInputError(f"{path}: not JSON: {exc}") from None
+    if not isinstance(data, dict):
+        raise RoutingInputError(f"{path}: expected an object of skill name to query list")
+    by_skill: dict[str, list[str]] = {}
+    for name, listed in data.items():
+        if not isinstance(listed, list) or not all(isinstance(q, str) for q in listed):
+            raise RoutingInputError(f"{path}: the queries for {name!r} must be a list of strings")
+        queries = [q for q in listed if q.strip()]
+        if queries:
+            by_skill[name] = queries
+    return by_skill
+
+
+def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str]], *,
+               client: LLMClient | None = None, seed: int = 0) -> dict:
+    """Each skill's queries, routed against the whole field: a confusion matrix and attractors.
+
+    Every skill that has queries is the gold in turn. Its queries go to the whole field, and
+    the pick is recorded. The lexical arm always runs (free); the model arm runs when
+    ``client`` is given. A query no card shares a word with is ``(none)``, not the first card:
+    the tie-break in ``lexical_routing`` would otherwise name a card that matched nothing.
+
+    An attractor is a skill picked for queries written for other skills. ``wrongly_picked``
+    counts those queries, ``sibling_queries`` is how many queries the other skills have, and
+    ``from`` names the skills whose queries it took.
+
+    Returns:
+        ``n_skills``, ``n_queries``, and per arm (``lexical``, ``model``): ``confusion`` (gold
+        skill to picked skill to count, ``(none)`` included), ``own_rate`` per gold skill, and
+        ``attractors`` ordered by ``wrongly_picked``. The model arm also records ``seed``.
+
+    Raises:
+        RoutingInputError: Fewer than two skills in the field; a name repeated in the field; a
+            query file that names a skill outside the field; no skill with any queries.
+    """
+    names = [c.name for c in candidates]
+    if len(candidates) < 2:
+        raise RoutingInputError("all-vs-all needs at least two skills in the field")
+    if len(set(names)) != len(names):
+        raise RoutingInputError("all-vs-all: the field names a skill more than once")
+    unknown = sorted(set(queries_by_skill) - set(names))
+    if unknown:
+        raise RoutingInputError("the queries name skills that are not in the field: "
+                                + ", ".join(f"`{n}`" for n in unknown))
+    if not queries_by_skill:
+        raise RoutingInputError("no skill in the field has queries to route")
+
+    bm25 = BM25([tokenize(c.card) for c in candidates])
+    lexical: dict[str, Counter] = {}
+    for name, queries in queries_by_skill.items():
+        picks: Counter = Counter()
+        for query in queries:
+            tokens = tokenize(query)
+            order = bm25.rank(tokens) if tokens else []
+            best = order[0] if order else None
+            if best is None or bm25.score(tokens, best) <= 0:
+                picks[NO_PICK] += 1
+            else:
+                picks[candidates[best].name] += 1
+        lexical[name] = picks
+    result: dict = {
+        "n_skills": len(candidates),
+        "n_queries": sum(len(q) for q in queries_by_skill.values()),
+        "lexical": _attractor_table(lexical, queries_by_skill, names),
+    }
+    if client is not None:
+        model: dict[str, Counter] = {}
+        for index, name in enumerate(names):
+            if name not in queries_by_skill:
+                continue
+            rows = model_routing(candidates, queries_by_skill[name], client=client, gold=index,
+                                 seed=seed + index)["per_query"]
+            model[name] = Counter(row.get("picked") or NO_PICK for row in rows)
+        result["model"] = dict(_attractor_table(model, queries_by_skill, names), seed=seed)
+    return result
+
+
+def _attractor_table(picks_by_gold: dict[str, Counter], queries_by_skill: dict[str, list[str]],
+                     names: list[str]) -> dict:
+    """The confusion matrix, own rate and attractor table for one arm of :func:`all_vs_all`."""
+    attractors: list[dict] = []
+    for name in names:
+        wrong = {gold: picks[name] for gold, picks in picks_by_gold.items()
+                 if gold != name and picks[name]}
+        if not wrong:
+            continue
+        sibling_queries = sum(len(queries_by_skill[gold]) for gold in picks_by_gold
+                              if gold != name)
+        attractors.append({
+            "skill": name,
+            "wrongly_picked": sum(wrong.values()),
+            "sibling_queries": sibling_queries,
+            "rate": round(sum(wrong.values()) / sibling_queries, 4) if sibling_queries else None,
+            "from": sorted(wrong, key=lambda gold: (-wrong[gold], gold)),
+        })
+    attractors.sort(key=lambda row: (-row["wrongly_picked"], row["skill"]))
+    return {
+        "confusion": {gold: dict(sorted(picks.items()))
+                      for gold, picks in sorted(picks_by_gold.items())},
+        "own_rate": {gold: round(picks[gold] / len(queries_by_skill[gold]), 4)
+                     for gold, picks in sorted(picks_by_gold.items())},
+        "attractors": attractors,
+        "note": (f"{NO_PICK} counts a query no card shares a word with; in the model arm it "
+                 "also counts an abstention and a failed call."),
+    }

@@ -14,12 +14,14 @@ from dokimi.novelty.client import LLMClient
 from dokimi.novelty.routing import (
     Candidate,
     RoutingInputError,
+    all_vs_all,
     catalog_competitors,
     check_field,
     disables_model_invocation,
     headings_as_queries,
     lexical_routing,
     load_queries,
+    load_queries_by_skill,
     model_routing,
 )
 
@@ -631,3 +633,119 @@ def test_the_mirror_kept_is_the_copy_nearest_the_catalog_root(tmp_path):
     notes: list[str] = []
     assert [c.name for c in catalog_competitors(str(root), set(), notes)] == ["db"]
     assert "plugins" in notes[0] and "identical to" in notes[0]
+
+
+def _write_queries(tmp_path, by_skill):
+    path = tmp_path / "queries_by_skill.json"
+    path.write_text(json.dumps(by_skill), encoding="utf-8")
+    return path
+
+
+# hub's card shares "slow" with the others' queries, so it takes them. Lexically it picks
+# linux-perf's two queries and nothing of mkl-advisor's; the model arm (below) picks it for all.
+HUB = Candidate(name="hub", description="slow programs and slow queries advice")
+ALL_FIELD = [PERF, HUB, MKL]
+ALL_QUERIES = {
+    "linux-perf": ["my slow program needs advice", "profile a slow program"],
+    "mkl-advisor": ["choose blas routines for dense linear algebra", "zzz unrelated words"],
+}
+
+
+def test_all_vs_all_names_the_skill_that_takes_the_queries_of_others():
+    confusion = all_vs_all(ALL_FIELD, ALL_QUERIES)["lexical"]["confusion"]
+    assert confusion["linux-perf"] == {"hub": 2}
+
+
+def test_an_attractor_row_says_how_many_sibling_queries_it_took_and_from_whom():
+    result = all_vs_all(ALL_FIELD, ALL_QUERIES)
+    assert result["n_skills"] == 3 and result["n_queries"] == 4
+    (row,) = result["lexical"]["attractors"]
+    assert row == {"skill": "hub", "wrongly_picked": 2, "sibling_queries": 4, "rate": 0.5,
+                   "from": ["linux-perf"]}
+
+
+def test_a_query_no_card_shares_a_word_with_is_none_not_the_first_card():
+    # linux-perf is first in the field, so the lexical tie-break would name it here.
+    lexical = all_vs_all(ALL_FIELD, ALL_QUERIES)["lexical"]
+    assert lexical["confusion"]["mkl-advisor"] == {"mkl-advisor": 1, "(none)": 1}
+    assert lexical["own_rate"]["mkl-advisor"] == 0.5
+
+
+def test_the_model_arm_is_reported_only_when_a_client_is_given():
+    assert "model" not in all_vs_all(ALL_FIELD, ALL_QUERIES)
+
+
+def test_the_model_arm_attractor_is_the_skill_the_selector_always_picks():
+    def transport(prompt: str, system: str | None):
+        lines = prompt.split("TOOLS:", 1)[1].strip().splitlines()
+        return json.dumps({"pick": next(i + 1 for i, line in enumerate(lines)
+                                        if "hub" in line)}), None
+
+    client = LLMClient(model="m", role="selector", transport=transport)
+    model = all_vs_all(ALL_FIELD, ALL_QUERIES, client=client, seed=7)["model"]
+    assert model["seed"] == 7
+    (row,) = model["attractors"]
+    assert (row["skill"], row["wrongly_picked"], row["sibling_queries"]) == ("hub", 4, 4)
+    assert row["from"] == ["linux-perf", "mkl-advisor"]
+
+
+@pytest.mark.parametrize("field, queries, message", [
+    ([PERF], {"linux-perf": ["q"]}, "at least two skills"),
+    ([PERF, PERF], {"linux-perf": ["q"]}, "more than once"),
+    ([PERF, TBB], {"mkl-advisor": ["q"]}, "not in the field: `mkl-advisor`"),
+    ([PERF, TBB], {}, "no skill in the field has queries"),
+])
+def test_all_vs_all_refuses_a_field_where_it_would_not_measure_selection(field, queries,
+                                                                         message):
+    with pytest.raises(RoutingInputError, match=message):
+        all_vs_all(field, queries)
+
+
+def test_a_queries_file_names_skills_by_object_and_drops_blank_requests(tmp_path):
+    path = _write_queries(tmp_path, {"linux-perf": ["  ", "profile it"], "db": [" "]})
+    assert load_queries_by_skill(str(path)) == {"linux-perf": ["profile it"]}
+
+
+@pytest.mark.parametrize("payload", ['["a list"]', '{"linux-perf": "one string"}',
+                                     '{"linux-perf": [1]}'])
+def test_a_queries_file_that_is_not_an_object_of_string_lists_is_refused(tmp_path, payload):
+    path = tmp_path / "q.json"
+    path.write_text(payload, encoding="utf-8")
+    with pytest.raises(RoutingInputError):
+        load_queries_by_skill(str(path))
+
+
+def test_all_vs_all_writes_the_matrix_and_prints_the_attractors(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
+    _catalog_skill(root, "db", "tune a slow database query with an index")
+    _catalog_skill(root, "hub", "general advice for slow programs and slow queries")
+    queries = _write_queries(tmp_path, {
+        "perf": ["my slow program needs advice", "profile a slow program"],
+        "db": ["my database query is slow", "add an index to speed up a query"],
+    })
+    out = tmp_path / "all_vs_all.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out))
+    args.func(args)
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["mode"] == "all_vs_all" and payload["n_candidates"] == 3
+    assert payload["result"]["lexical"]["confusion"]["db"]["db"] == 2
+    assert payload["result"]["lexical"]["confusion"]["perf"] == {"perf": 1, "hub": 1}
+    stdout = capsys.readouterr().out
+    assert "all-vs-all: 3 skills in the field, 4 queries" in stdout
+    assert "lexical: hub picked for 1 of 4 sibling queries (from perf)" in stdout
+
+
+def test_all_vs_all_takes_no_artifact(tmp_path):
+    queries = _write_queries(tmp_path, {"linux-perf": ["q"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--artifact", "skill:/x",
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit, match="takes no --artifact"):
+        args.func(args)
+
+
+def test_a_single_routing_run_still_needs_an_artifact(tmp_path):
+    args = _parse("novelty", "routing", "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit, match="--all-vs-all for the whole field"):
+        args.func(args)

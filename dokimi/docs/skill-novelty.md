@@ -622,7 +622,18 @@ and the figure would be a structural 1.0. The lexical arm also reports `n_querie
 next to `n_queries_scored`, since a query with no content words is dropped rather than
 counted as a miss.
 
-Three properties worth knowing before quoting either:
+**All skills against each other.** `novelty routing --all-vs-all --catalog <dir>
+--queries-by-skill queries.json --out routing.json` (add `--model M` for the model arm) makes
+every skill that has queries the gold in turn, routed against the whole field. The file is a
+JSON object of skill name to the requests that should select it, each written without the
+skill's own text. The output has a confusion matrix (gold to picked to count, with `(none)` for
+a query no card shares a word with, or an abstention or failed call in the model arm), an
+own rate per skill, and an attractor table: a skill picked for other skills' queries, with
+`wrongly_picked` of `sibling_queries` and the skills whose queries it took (`from`). It takes no
+`--artifact`. It is refused with fewer than two skills, a name repeated in the field, a query
+file that names a skill outside the field, or no queries at all.
+
+Three properties worth knowing before quoting either: before quoting either:
 
 - **Competitors are mandatory.** The existing `skill-agent:` arm offers one skill, which
   makes selection a binary did-it-load question. The real failure is picking the wrong
