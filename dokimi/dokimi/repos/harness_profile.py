@@ -156,6 +156,19 @@ def load_profile(name_or_path: str | Path) -> HarnessProfile:
     return parse_profile(raw, str(path))
 
 
+def _check_config_placeholders(raw: dict[str, Any], path: str) -> None:
+    """A config file of the profile uses only the placeholders a config file may."""
+    for name, content in (raw.get("config_files") or {}).items():
+        unknown = set(_PLACEHOLDER_RE.findall(content)) - CONFIG_PLACEHOLDERS
+        if unknown:
+            raise ProfileError(f"{path}: config_files/{name} uses unknown placeholder(s) {sorted(unknown)}")
+
+
+def _check_tools_element(raw: dict[str, Any], path: str) -> None:
+    if raw["invoke"].count(TOOLS_ELEMENT) != 1:
+        raise ProfileError(f"{path}: invoke must have exactly one {TOOLS_ELEMENT} element")
+
+
 def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
     errors = schema_errors("harness_profile.v1", raw)
     if errors:
@@ -169,10 +182,7 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
             unknown = set(_PLACEHOLDER_RE.findall(element)) - (PLACEHOLDERS if key == "invoke" else {"bin"})
             if unknown:
                 raise ProfileError(f"{path}: {key} uses unknown placeholder(s) {sorted(unknown)}")
-    for name, content in (raw.get("config_files") or {}).items():
-        unknown = set(_PLACEHOLDER_RE.findall(content)) - CONFIG_PLACEHOLDERS
-        if unknown:
-            raise ProfileError(f"{path}: config_files/{name} uses unknown placeholder(s) {sorted(unknown)}")
+    _check_config_placeholders(raw, path)
     passes_prompt = any("{prompt}" in element for element in raw["invoke"])
     if raw.get("native_prompt"):
         if passes_prompt:
@@ -182,8 +192,7 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
     elif not passes_prompt:
         raise ProfileError(f"{path}: invoke never passes {{prompt}} (set native_prompt for a harness that "
                            "uses its own)")
-    if raw["invoke"].count(TOOLS_ELEMENT) != 1:
-        raise ProfileError(f"{path}: invoke must have exactly one {TOOLS_ELEMENT} element")
+    _check_tools_element(raw, path)
     return HarnessProfile(
         name=raw["name"],
         bin=raw["bin"],
