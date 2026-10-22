@@ -608,11 +608,45 @@ def _all_value_asserts(t: _Facts, pred: Callable[[ast.expr], bool]) -> bool:
     return all(pred(a.test) for a in t.value_asserts)
 
 
+def _outer_mocks(tree: ast.Module) -> dict[int, frozenset[str]]:
+    """``id(test) -> names`` of mocks the test gets from outside its body.
+
+    ``self.m = MagicMock()`` in a ``setUp`` (or any other non-test method of the class), and a
+    parameter named like a fixture of the same file whose body builds a mock or a patch. A
+    fixture of a ``conftest.py`` is not seen: its mock is tracked only by a ``mock`` in its name.
+    """
+    def builds_mock(fn: _FuncDef) -> bool:
+        return any(isinstance(n, ast.Call) and (_call_name(n) in _MOCK_FACTORIES or _is_patching_call(n))
+                   for n in _own_nodes(fn.body))
+
+    def is_fixture(fn: _FuncDef) -> bool:
+        return any("fixture" in _dotted(d.func if isinstance(d, ast.Call) else d) for d in fn.decorator_list)
+
+    fixtures = {f.name for f in ast.walk(tree)
+                if isinstance(f, _FuncDef) and is_fixture(f) and builds_mock(f)}
+    found: dict[int, frozenset[str]] = {}
+    for fn in ast.walk(tree):
+        if isinstance(fn, _FuncDef) and fn.name.startswith("test_"):
+            a = fn.args
+            found[id(fn)] = frozenset(p.arg for p in (*a.posonlyargs, *a.args, *a.kwonlyargs)) & fixtures
+    for cls in ast.walk(tree):
+        if not isinstance(cls, ast.ClassDef):
+            continue
+        held: set[str] = set()
+        for m in cls.body:
+            if isinstance(m, _FuncDef) and not m.name.startswith("test_"):
+                held |= _mock_names(m, list(_own_nodes(m.body)))
+        for m in cls.body:
+            if isinstance(m, _FuncDef) and m.name.startswith("test_"):
+                found[id(m)] = found.get(id(m), frozenset()) | held
+    return found
+
+
 def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str],
-                 value_helpers: frozenset[str]) -> set[str]:
+                 value_helpers: frozenset[str], outer: frozenset[str] = frozenset()) -> set[str]:
     t = _collect(fn)
     inputs = _constructor_inputs(t.nodes)
-    mocks = _mock_names(fn, t.nodes)
+    mocks = _mock_names(fn, t.nodes) | outer
     checks = bool(t.asserts or t.raises or t.assert_calls)
     # A test that calls a helper with a behavioral assert has behavioral checks even if its
     # direct asserts are weak; a helper that only checks a shape does not count.
@@ -704,9 +738,10 @@ def audit_source(source: str, file: str = "<source>") -> list[Audit]:
     marker_lines = _marker_lines(source)
     tests = _test_functions(tree)
     duplicates = _duplicates(tests)
+    outer = _outer_mocks(tree)
     audits = []
     for qualname, fn in tests:
-        found = _shape_flags(fn, names, helpers, value_helpers)
+        found = _shape_flags(fn, names, helpers, value_helpers, outer.get(id(fn), frozenset()))
         if qualname in duplicates:
             found.add("duplicate")
         flags = tuple(f for f in FLAGS if f in found)
