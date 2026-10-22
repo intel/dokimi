@@ -784,7 +784,12 @@ python cli.py novelty analyze --artifact skill:s --tier study --estimate-only
 ```
 
 `--estimate-only` prints the projected bill and exits without constructing a client, so
-the decision costs nothing. Its payload has `expected_calls`, the point figure between
+the decision costs nothing. Pricing imports litellm, which tries to fetch its price map
+from the network before it falls back to the copy bundled with the package; on a host
+with no network that is a pause of a few seconds and a warning. Setting
+`LITELLM_LOCAL_MODEL_COST_MAP=True` skips the fetch and uses the bundled prices.
+
+The estimate payload has `expected_calls`, the point figure between
 the two totals (stages, every probe, and half the oracle pairs, split by `by_role`), and
 `expected_usd`: those calls priced at list prices by role, `null` when a model has no
 price. The constants were fitted on 13 of the 25 measured runs; the other 12 are held out.
