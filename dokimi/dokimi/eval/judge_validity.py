@@ -493,7 +493,10 @@ def refuse_unpaired_arms(
 ) -> None:
     """Refuse before scoring if an arm with kept material has no pair left: the
     sample can leave it out, or every one of its variants can be a no-op."""
-    paired_arms = {p.get("arm", "") for p in pairs}
+    # Only a graded pair covers an arm: padding feeds no gate decision. A run
+    # that requests no graded variant is left to fail as unmeasured.
+    graded = [v for v in (variants or DEGRADATIONS) if v not in NEUTRAL_VARIANTS]
+    paired_arms = {p.get("arm", "") for p in pairs if not graded or p["variant"] not in NEUTRAL_VARIANTS}
     starved = sorted(a for a, c in by_arm.items() if c.get("kept", 0) > 0 and a not in paired_arms)
     if not starved:
         return
@@ -505,8 +508,8 @@ def refuse_unpaired_arms(
             f"so the gate would not cover them: raise {flag}, or remove those arms from the answers file"
         )
     raise NoUsablePairs(
-        f"Arm(s) {starved} have every kept base sampled, and every requested variant "
-        f"({', '.join(variants) if variants else 'all'}) left its text unchanged: a higher {flag} "
+        f"Arm(s) {starved} have every kept base sampled, and every requested graded variant "
+        f"({', '.join(graded or variants) if variants else 'all'}) left its text unchanged: a higher {flag} "
         "cannot help; use other degradations, or remove those arms from the answers file"
     )
 

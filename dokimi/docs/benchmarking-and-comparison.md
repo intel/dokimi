@@ -464,7 +464,7 @@ passes no context by default (`eval pairwise` and `eval checklist` never pass
 one), so it validates a judge in the no-context setting; `judge-validity --context
 stored` on an arms artifact gates it with each arm's stored material instead. That
 run exits 2 with a typed scorer or `--mode pairwise`, on a file with no non-empty
-verified material, when an arm loses all its bases or gets none sampled by
+verified material, when an arm loses all its bases, has only `padding` pairs or gets none sampled by
 `--bases`, when a `--sequential` run would pass with none of an arm's bases
 scored, or when no pair is usable. A label whose
 significant measures all rest on one judge says `(one judge)`; an escalated

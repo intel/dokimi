@@ -2102,7 +2102,7 @@ def test_sequential_unscored_arm_refusal_names_a_remedy_that_covers_the_arm():
         assert "raise --max-bases" not in str(exc.value)
         assert "without --sequential" in str(exc.value)
     report = run_validity(data["answers"], scorer, n_bases=103, variants=["truncate_20"], store=store)
-    assert any(r.arm == "skill" for r in report.rows)
+    assert any(r.arm == "skill" and not r.neutral for r in report.rows)
 
 
 @pytest.mark.parametrize("seed", range(4))
@@ -2150,7 +2150,7 @@ def test_sequential_padding_alone_does_not_cover_an_arm(n_skill):
     data = _fenced_baseline_arms(n_skill)
     store = JudgeContextStore.from_artifact(data)
     for seed in range(10):
-        with pytest.raises(NoUsablePairs, match=r"\['skill'\].*no base was scored"):
+        with pytest.raises(NoUsablePairs, match=r"\['skill'\]"):
             run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)),
                            max_bases=120, seed=seed, variants=["strip_code", "padding"], store=store)
 
@@ -2181,3 +2181,55 @@ def test_sequential_unscored_arm_refusal_names_every_arm_sorted():
                            seed=seed, variants=["strip_code", "padding"], store=store)
         messages.add(str(exc.value))
     assert any("['alpha', 'zeta']" in m for m in messages)
+
+
+@pytest.mark.parametrize("n_skill", [3, 1])
+def test_fixed_mode_refuses_an_arm_whose_only_pairs_are_padding(n_skill):
+    """The remedy the sequential refusal names: with every base sampled, a
+    skill arm that only padding changes has no graded row, so it is refused
+    before any call instead of passing on baseline rows alone."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _fenced_baseline_arms(n_skill)
+    store = JudgeContextStore.from_artifact(data)
+    calls = []
+
+    def scorer(lib, question, answer, context=None):
+        calls.append(1)
+        return float(len(answer))
+
+    n = len(data["answers"])
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*variant \(strip_code\) left") as exc:
+        run_validity(data["answers"], scorer, n_bases=n, variants=["strip_code", "padding"], store=store)
+    assert "raise --bases" not in str(exc.value)
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*use other degradations"):
+        run_sequential(data["answers"], scorer, max_bases=n, variants=["strip_code", "padding"], store=store)
+    assert calls == []
+    # A run that requests no graded variant is not refused here; it fails as unmeasured.
+    report = run_validity(data["answers"], scorer, n_bases=n, variants=["padding"], store=store)
+    assert report.summary()["passed"] is False
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2, 5])
+def test_sequential_padding_after_a_graded_variant_closed_does_not_cover_an_arm(seed):
+    """The skill arm has truncate_20 pairs, but truncate_20 is decided before its
+    bases come up; strip_code (a no-op on it) stays open, so only its padding
+    pair is scored. That row is not a graded one: the PASS is refused."""
+    import re
+
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _fenced_baseline_arms(3)
+
+    def scorer(lib, question, answer, context=None):
+        # truncate_20 cuts the "Variant i." tail; such a text is scored by length.
+        m = re.search(r"Variant (\d+)\. ", answer)
+        i = int(m.group(1)) if m else -1
+        return 1e6 if "```" not in answer and i % 6 == 0 and i < 100 else float(len(answer))
+
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*before the sequential test stopped"):
+        run_sequential(data["answers"], scorer, max_bases=120, seed=seed,
+                       variants=["truncate_20", "strip_code", "padding"],
+                       store=JudgeContextStore.from_artifact(data))

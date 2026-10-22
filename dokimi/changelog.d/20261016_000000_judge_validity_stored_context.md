@@ -6,7 +6,7 @@
   `--max-bases` sampling; the summary reports `n_without_context` and per-arm
   kept/dropped counts in `by_arm` (with `scored` bases in `--sequential` mode). The run exits 2 with a typed scorer or
   `--mode pairwise`, on a file with no non-empty verified material, if an arm
-  loses all its bases or gets none sampled, if a `--sequential` run would pass
+  loses all its bases, has only `padding` pairs or gets none sampled, if a `--sequential` run would pass
   with none of an arm's bases scored, or if no pair is usable.
 
 ### Changed

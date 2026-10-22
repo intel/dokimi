@@ -523,7 +523,7 @@ def register(sub, positive_int) -> None:
                                  "the arm's treatment material from the artifact's judge_materials, the "
                                  "setting an arms run scores skill and docs arms in. Exits 2 with a typed "
                                  "scorer or --mode pairwise, with no verified material, when an arm "
-                                 "loses all its bases or gets none sampled, when a --sequential run "
+                                 "loses all its bases, has only padding pairs or gets none sampled, when a --sequential run "
                                  "would pass with none of an arm's bases scored, or when no pair is usable")
     validity_p.add_argument("--mode", choices=["absolute", "pairwise"], default="absolute",
                             help="absolute: score each member 0-100 (the shipped judge); pairwise: show "
