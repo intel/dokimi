@@ -327,6 +327,13 @@ def _probe_failed(batch_dir: Path, cells: list, verdicts: dict) -> list[str]:
                     for t, a, o, r in cells if t.id == task_id)]
 
 
+def _clear_unsupported_markers(batch_dir: Path, cells: list, unsupported: dict) -> None:
+    """This host meets the requirements of the other tasks: an old marker would hide a cell this run never reaches."""
+    for t, a, o, r in cells:
+        if t.id not in unsupported:
+            (batch_dir / cell_name(t.id, a, o.model, r) / UNSUPPORTED_FILE).unlink(missing_ok=True)
+
+
 def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: list[AgentOptions], reps: int,
               batch_dir: Path, jobs: int = 1, force: bool = False, max_batch_usd: float | None = None,
               log=print) -> dict[str, Any]:
@@ -349,9 +356,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     probe_failed = _probe_failed(batch_dir, cells, verdicts)
     for task_id, why in unsupported.items():
         log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
-    for t, a, o, r in cells:  # this host meets them: an old marker would hide a cell this run never reaches
-        if t.id not in unsupported:
-            (batch_dir / cell_name(t.id, a, o.model, r) / UNSUPPORTED_FILE).unlink(missing_ok=True)
+    _clear_unsupported_markers(batch_dir, cells, unsupported)
     lock = threading.Lock()
     state: dict[str, Any] = {"spent": 0.0, "ran": 0, "skipped": 0, "errors": [], "budget_stopped": 0,
                              "unsupported": 0}
