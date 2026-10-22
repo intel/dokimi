@@ -127,6 +127,13 @@ def test_panel_judge_with_unparseable_replies_makes_3_provider_calls(provider_ca
     assert verdict.mean_aggregate is None and verdict.votes[0].error
 
 
+def test_panel_one_redraw_makes_2_provider_calls_per_judge(provider_calls):
+    provider_calls.push(UNPARSEABLE)
+    verdict = _panel(1).evaluate("q", "a", "lib")
+    assert provider_calls.by_purpose() == Counter({"panel:technical_expert": 2})
+    assert verdict.mean_aggregate is not None
+
+
 # ── response cache ───────────────────────────────────────────────────────────
 
 
@@ -166,6 +173,22 @@ def test_judge_rerun_after_an_unparseable_reply_makes_1_provider_call(provider_c
         assert row["delta"] == 0.0
 
 
+def test_panel_rerun_after_an_unparseable_reply_makes_1_provider_call(provider_calls, cache_on):
+    # Same leak as the single judge, pinned as it is today. It also pins both cache
+    # keys of the panel's redraw loop: the draw index (draw=0 for every attempt would
+    # replay the parsed redraw at attempt 0: 0 calls) and cache_if (without it the
+    # unparseable reply is stored and replayed: 0 calls).
+    provider_calls.push(UNPARSEABLE)
+    _panel(1).evaluate("q", "a", "lib")
+    assert len(provider_calls.calls) == 2
+    for _ in range(2):  # every rerun, not only the first
+        provider_calls.reset()
+        provider_calls.push(UNPARSEABLE)
+        verdict = _panel(1).evaluate("q", "a", "lib")
+        assert provider_calls.by_purpose() == Counter({"panel:technical_expert": 1})
+        assert verdict.mean_aggregate is not None
+
+
 def test_panel_rerun_on_a_cache_hit_makes_0_provider_calls(provider_calls, cache_on):
     _panel(3).evaluate_answers(ANSWERS, "lib")
     assert len(provider_calls.calls) == 6
@@ -191,6 +214,15 @@ def test_judge_transient_error_makes_4_provider_calls_then_fails_the_record(
     assert provider_calls.by_purpose() == Counter(judge=4)
     assert provider_calls.sleeps == [2.0, 4.0, 8.0]
     assert "rate limit" in row["error"]
+
+
+def test_judge_non_retryable_error_makes_1_provider_call_and_no_backoff(provider_calls):
+    # A bad request or key will not succeed on a retry: one request, no sleeps.
+    provider_calls.push(ValueError("bad request"))
+    (row,) = _judge().evaluate_answers("lib", ANSWERS)
+    assert provider_calls.by_purpose() == Counter(judge=1)
+    assert provider_calls.sleeps == []
+    assert "bad request" in row["error"]
 
 
 def test_judge_one_transient_error_makes_3_provider_calls_per_record(provider_calls):
