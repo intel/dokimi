@@ -89,12 +89,13 @@ jobs:
             if (pr.base.repo.full_name !== `${owner}/${repo}`) return bad('PR is not in this repository');
             if (pr.head.sha !== run.head_sha) { core.info('A newer commit was pushed; skipping the stale result.'); return; }
 
-            // Text derived from the PR: no forged marker, no mentions, and it is shown
+            // Text derived from the PR: no forged marker (every HTML-comment opener is
+            // broken in one pass, so a nested marker cannot reassemble), no mentions, and it is shown
             // verbatim in a code fence (longer than any backtick run inside) so links,
             // images, HTML and #N references do not render. The cap is applied after
             // the mention rewrite, which adds characters, so the body stays under
             // GitHub's 65,536 limit.
-            let text = res.diff.split(marker).join('').replace(/@/g, '@\u200b');
+            let text = res.diff.replace(/<!--/g, '<!\u200b--').replace(/@/g, '@\u200b');
             if (text.length > MAX_DIFF_CHARS) {
               text = text.slice(0, MAX_DIFF_CHARS).replace(/[\ud800-\udbff]$/, '') +
                 '\n... (truncated)';

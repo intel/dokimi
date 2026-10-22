@@ -200,6 +200,13 @@ def test_mentions_and_forged_markers_in_the_diff_are_neutralised(tmp_path):
     assert body.count(MARKER) == 1 and "@octocat" not in body
 
 
+def test_nested_marker_cannot_reassemble_after_stripping(tmp_path):
+    nested = "<!-- cli-" + MARKER + "interface-diff -->"
+    calls = _run(tmp_path, _good(diff=nested))
+    body = next(a for n, a in calls if n == "createComment")["body"]
+    assert body.count(MARKER) == 1
+
+
 @pytest.mark.parametrize(
     "bad",
     [
