@@ -499,7 +499,8 @@ takes no `score`; its gate is the default `["pass"]`. The manifest's
 task uses a built-in grader.
 
 Both review graders read the answer the same way. Its last parseable
-` ```json ` fence must be an array of findings
+` ```json ` fence (one nesting arrays or objects more than 100 deep counts
+as unparseable, whatever `json.loads` accepts) must be an array of findings
 `{"file", "line", "severity", "rule", "message"}`; entries that are not
 objects are dropped. `file` is made repository-relative: a path is cut after
 `/eval/run/workspace/`, then after the last `/repo/` (a standalone oneDAL
