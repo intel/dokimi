@@ -475,6 +475,32 @@ def test_tool_specs_carry_no_unexpanded_shell_syntax() -> None:
     assert not bad, f"tool_specs() has unexpanded shell syntax; register the job in ISOLATED: {bad}"
 
 
+def test_tool_specs_come_only_from_hashed_locks() -> None:
+    """`make dev` installs tool_specs() with `uv pip install --require-hashes`, which
+    rejects any requirement without a hash, `==` pin or not. So a workflow outside
+    ISOLATED installs only from a lock compiled with --generate-hashes; a bare
+    `pip install PyYAML` step broke `make dev` in every fresh checkout."""
+    specs = cl.tool_specs()
+    assert "--require-hashes" in specs
+    bad, i = [], 0
+    while i < len(specs):
+        flag = specs[i]
+        if flag in ("-r", "-c"):
+            path = Path(specs[i + 1])
+            head = path.read_text(encoding="utf-8")[:2000] if path.is_file() else ""
+            if "--generate-hashes" not in head:
+                bad.append(f"{flag} {path}")
+            i += 2
+            continue
+        if flag == "-e" or not flag.startswith("-"):
+            bad.append(flag if flag != "-e" else f"-e {specs[i + 1]}")
+        i += 2 if flag == "-e" else 1
+    assert not bad, (
+        "a CI install step outside ISOLATED installs a requirement without a hash; "
+        f"add it to requirements-ci.txt and install requirements-ci.lock.txt instead: {bad}"
+    )
+
+
 def test_isolated_jobs_also_need_network() -> None:
     """An isolated job installs from the package index, so it is skipped offline like the other network jobs."""
     assert cl.ISOLATED <= cl.NEEDS_NETWORK
