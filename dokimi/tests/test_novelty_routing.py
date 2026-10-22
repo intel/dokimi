@@ -502,6 +502,13 @@ def test_a_very_long_declined_reply_is_cut_at_the_recording_limit():
     assert len(row["raw_reply"]) == 2000
 
 
+def test_a_long_declined_reply_keeps_its_head_not_its_tail():
+    reply = "a" * 2000 + "b" * 3000
+    client = LLMClient(model="m", role="selector", transport=lambda p, s: (reply, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert row["raw_reply"] == reply[:2000]
+
+
 def test_repeats_below_one_are_refused():
     client = LLMClient(model="m", role="selector",
                        transport=lambda p, s: (json.dumps({"pick": 1}), None))
@@ -549,6 +556,7 @@ def test_a_query_that_failed_on_every_repeat_has_no_agreement_to_report():
     assert noise == {
         "mean_agreement": None, "unstable_queries": 0,
         "selection_rate_by_repeat": [None, None], "half_range": None,
+        "n_queries_compared": 0,
         "per_query": [{"query": "q1", "modal_pick": None, "agreement": None, "picks": [],
                        "n_correct": 0}],
     }
@@ -648,3 +656,63 @@ def test_a_declining_model_is_named_on_the_cli_with_where_its_replies_are(
     model = json.loads(out.read_text(encoding="utf-8"))["model"]
     assert model["per_query"][0]["raw_reply"] == "I would rather not choose."
     assert "1 abstained or unparseable" in capsys.readouterr().out
+
+
+class _Boom(Exception):
+    pass
+
+
+def _scripted(script):
+    """A selector whose n-th call answers a card name, abstains ("-"), or fails ("!")."""
+    calls = iter(script)
+
+    def transport(prompt: str, system: str | None):
+        step = next(calls)
+        if step == "!":
+            raise _Boom("provider down")
+        if step == "-":
+            return json.dumps({"pick": 0}), None
+        return _answer_as(step)(prompt), None
+
+    return LLMClient(model="m", role="selector", transport=transport)
+
+
+def test_a_failed_repeat_is_not_reported_as_sampling_noise():
+    # q1 is wrong in both repeats. q2 fails in repeat 0 and is right in repeat 1. Per-repeat
+    # rates over each repeat's own answered rows would be [0.0, 0.5]: a half range of 0.25
+    # from an error, not from the model.
+    client = _scripted([TBB.name, TBB.name, "!", PERF.name])
+    noise = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=2)["noise"]
+    assert noise["selection_rate_by_repeat"] == [0.0, 0.0]
+    assert noise["half_range"] == 0.0
+    assert noise["n_queries_compared"] == 1
+
+
+def test_noise_counts_an_abstention_as_a_pick_and_an_error_as_no_answer():
+    # One query, three repeats: PERF, abstained, failed. Agreement is over the two answered
+    # repeats (1/2), not the three calls (1/3), and the abstention has its own label.
+    client = _scripted([PERF.name, "-", "!"])
+    noise = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"]
+    (query,) = noise["per_query"]
+    assert query["picks"] == [PERF.name, "(abstained)"]
+    assert query["agreement"] == 0.5
+    assert noise["mean_agreement"] == 0.5 and noise["unstable_queries"] == 1
+    assert noise["n_queries_compared"] == 0
+    assert noise["selection_rate_by_repeat"] == [None, None, None]
+    assert noise["half_range"] is None
+
+
+def test_an_abstention_can_be_the_modal_pick():
+    client = _scripted(["-", "-", PERF.name])
+    (query,) = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"][
+        "per_query"]
+    assert query["modal_pick"] == "(abstained)"
+    assert query["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+
+
+def test_a_single_usable_repeat_has_no_half_range():
+    from dokimi.novelty.routing import _noise
+
+    noise = _noise([[{"query": "q", "repeat": 0, "picked": PERF.name, "correct": True}]])
+    assert noise["selection_rate_by_repeat"] == [1.0]
+    assert noise["half_range"] is None
