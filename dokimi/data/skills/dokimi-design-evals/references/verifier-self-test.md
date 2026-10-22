@@ -11,8 +11,12 @@ Repository tasks (`repo-eval.yaml` + `task.json`):
 python cli.py repo validate <source> --manifest <path/to/repo-eval.yaml> --fail-on-warning
 ```
 
-Harbor tasks: discovery is the check. A task missing from the list, or listed
-with an error, is not runnable.
+Harbor tasks: there is no validate command. `tasks list` only shows that the
+task was discovered (it reads `task.toml` and `instruction.md`); it never prints
+an error row, and it lists a task that has no `tests/test.sh`, `solution/` or
+`environment/`. A task without `instruction.md` aborts the listing with a
+traceback. So a listed task is not known to be runnable: the first check that
+the files Harbor needs exist is the `docker-oracle` run in step 2.
 
 ```bash
 python cli.py tasks list --tasks-root <tasks-root>
