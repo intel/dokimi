@@ -752,7 +752,7 @@ def _estimate_usd(
     The reason goes to stderr: a role whose model does not resolve, or a role with no list
     price, makes the figure unavailable, and the note names it.
     """
-    from dokimi.llm import list_cost_usd
+    from dokimi.llm_pricing import list_cost_usd
     from dokimi.novelty.tiers import estimate_usd
 
     try:

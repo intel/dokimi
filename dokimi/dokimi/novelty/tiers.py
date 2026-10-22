@@ -331,7 +331,7 @@ def estimate_usd(
 ) -> float | None:
     """The expected dollar cost of ``by_role`` calls at list prices.
 
-    Prices come from litellm's price map (:func:`dokimi.llm.list_cost_usd`), the same map a
+    Prices come from litellm's price map (:func:`dokimi.llm_pricing.list_cost_usd`), the same map a
     run's own ``cost_usd`` uses, so the figure is the run's price applied to a token profile.
     ``None`` when any role's model has no price: an unpriced call is unknown, not free.
 
@@ -341,7 +341,7 @@ def estimate_usd(
         models: ``(model, provider)`` per role.
         tier: The run's tier; it sets the extractor's output (see :func:`call_tokens`).
     """
-    from dokimi.llm import list_cost_usd
+    from dokimi.llm_pricing import list_cost_usd
 
     total = 0.0
     for role, calls in by_role.items():

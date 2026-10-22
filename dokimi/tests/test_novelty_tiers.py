@@ -520,7 +520,7 @@ def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_
 def test_list_cost_usd_distinguishes_an_unpriced_model_from_a_free_one(monkeypatch):
     import litellm
 
-    from dokimi.llm import list_cost_usd
+    from dokimi.llm_pricing import list_cost_usd
 
     # cost_per_token prices a model it has no entry for at 0.0 when the route is known.
     monkeypatch.setattr(litellm, "cost_per_token", lambda **_: (0.0, 0.0))
