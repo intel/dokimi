@@ -19,7 +19,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_HELP,
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
-from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
+from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
 from dokimi.utils import normalize_model_ref
 
 
@@ -298,14 +298,20 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     # the length-only one, not a judge replacement.
     # Built once and passed to both modes, so a new scorer kind is a change to
     # this block, not to each run path.
+    if args.scorer not in ("judge", "typed") and not args.scorer.startswith("typed:"):
+        print(f"Error: unknown --scorer {args.scorer!r}; use 'judge' or 'typed:<backend>'", file=sys.stderr)
+        sys.exit(2)
+    if args.context == "stored" and (args.scorer != "judge" or args.mode == "pairwise"):
+        # Refused before any model is loaded: neither scorer has a context slot.
+        what = "the typed scorer" if args.scorer != "judge" else "--mode pairwise"
+        print(f"Error: --context stored needs a judge that takes context; {what} does not",
+              file=sys.stderr)
+        sys.exit(2)
     typed = None
     if args.scorer == "judge":
         judge = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature)
         scorer = judge_scorer(judge)
         label = f"{args.judge_provider}/{args.judge_model}"
-    elif args.scorer != "typed" and not args.scorer.startswith("typed:"):
-        print(f"Error: unknown --scorer {args.scorer!r}; use 'judge' or 'typed:<backend>'", file=sys.stderr)
-        sys.exit(2)
     elif args.mode == "pairwise":
         # _score_pairs gives pair_scorer precedence, so the pairwise judge would grade
         # the pairs and the report would carry the typed arm's label.
@@ -346,6 +352,20 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         # The budget is part of what was measured: one checkpoint at 512 and at
         # 2048 tokens is two arms.
         label = typed.name + (f" max_len={typed.effective_max_len}" if typed.effective_max_len else "")
+    store = None
+    if args.context == "stored":
+        # The gate in the setting arms runs score in: each answer with its arm's
+        # treatment material, from the artifact's judge_materials.
+        from dokimi.eval.judge_context import JudgeContextStore
+
+        # from_artifact reads the file's judge_materials, which the Run records do not keep.
+        data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
+        store = JudgeContextStore.from_artifact(data) if isinstance(data, dict) else None
+        if store is None or not any(store.materials().values()):
+            print("Error: --context stored needs an arms artifact with non-empty stored judge "
+                  "material; this file has none (judge_materials missing, or no record cites a "
+                  "digest that matches)", file=sys.stderr)
+            sys.exit(2)
     pair_scorer = None
     if args.mode == "pairwise":
         from dokimi.commands.judge_reliability import pairwise_judge
@@ -369,13 +389,18 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         # overstates the cost per score by the pool size.
         concurrency=1 if typed is not None else args.concurrency,
         pair_scorer=pair_scorer,
+        store=store,
     )
-    if args.sequential:
-        from dokimi.eval.judge_sequential import run_sequential
+    try:
+        if args.sequential:
+            from dokimi.eval.judge_sequential import run_sequential
 
-        report = run_sequential(answers, scorer, max_bases=args.max_bases, **common)
-    else:
-        report = run_validity(answers, scorer, n_bases=args.bases, **common)
+            report = run_sequential(answers, scorer, max_bases=args.max_bases, **common)
+        else:
+            report = run_validity(answers, scorer, n_bases=args.bases, **common)
+    except NoUsablePairs as exc:  # none long enough, all no-ops, none with material
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
 
     # Written before anything is printed: a console that cannot encode the summary must not lose the run.
     if args.output:
@@ -493,6 +518,13 @@ def register(sub, positive_int) -> None:
                                  "it PASS or FAIL (ignores --bases; see --max-bases)")
     validity_p.add_argument("--max-bases", type=positive_int, default=120, dest="max_bases",
                             help="Cap on base answers in --sequential mode (default: 120)")
+    validity_p.add_argument("--context", choices=["none", "stored"], default="none",
+                            help="What the judge sees with each answer: none (default), or 'stored' — "
+                                 "the arm's treatment material from the artifact's judge_materials, the "
+                                 "setting an arms run scores skill and docs arms in. Exits 2 with a typed "
+                                 "scorer or --mode pairwise, with no verified material, when an arm "
+                                 "loses all its bases, has only padding pairs or gets none sampled, when a --sequential run "
+                                 "would pass with none of an arm's bases scored, or when no pair is usable")
     validity_p.add_argument("--mode", choices=["absolute", "pairwise"], default="absolute",
                             help="absolute: score each member 0-100 (the shipped judge); pairwise: show "
                                  "the judge both members, in both orders, and ask which is better")
