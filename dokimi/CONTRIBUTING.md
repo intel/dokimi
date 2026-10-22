@@ -144,7 +144,8 @@ minutes. `make ci-local` runs both; `make hooks` runs mypy before a push.
 
 **Mutation pilot.** mutmut (pinned in `requirements-ci.txt`) mutates the
 measurement core: the statistics in `dokimi/eval/stats.py` and
-`binary_stats.py`, the gates in `dokimi/gate/` and the response-cache key in
+`binary_stats.py`, the score, regression, critical-band and trust gates in
+`dokimi/gate/` (not `novelty_gate.py`) and the response-cache key in
 `dokimi/caching.py` (the list is `only_mutate` under `[tool.mutmut]` in
 `pyproject.toml`). A mutant that survives is a change to that code, such as
 a flipped comparison, an off-by-one or a dropped term, that no test notices.
