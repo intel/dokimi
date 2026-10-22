@@ -356,8 +356,8 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
         print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
               f"compete: {', '.join(sorted(without))}", file=sys.stderr)
 
-    model_arm = result.get("model")
-    failed = model_arm["n_failed"] if model_arm else 0
+    model_arm = result.get("model") or {}
+    failed = model_arm.get("n_failed", 0)
     if failed:
         print(f"WARNING: {failed} model call(s) failed (first error: "
               f"{model_arm['first_error']}); a failed call is counted as (none) in the model "
