@@ -28,6 +28,12 @@ from typing import Any, Dict, List, Optional
 from dokimi.llm import llm_call
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.question_text import require_question_texts
+# The panel had no numeric-claims criterion (see `eval/rubric.py`) until it was
+# measured against the gate's own `wrong_numbers` degradation (Haiku 4.5, 3
+# roles, 60 bases): 0.604 -> 0.792 on Sonnet's answers and 0.590 -> 0.795 on
+# Opus's, pooled +25/-8 pairs, McNemar p = 0.0046. `wrong_tools` dipped in both
+# runs (0.947 -> 0.895, 0.942 -> 0.904; pooled +5/-10, p = 0.30) — not
+# significant, and reported, not hidden.
 from dokimi.eval.rubric import (
     FORMAT_REMINDER, NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS,
     cap_for_wrong_figures,
@@ -58,13 +64,6 @@ ROLE_WEIGHTS: Dict[str, Dict[str, float]] = {
     "developer_advocate": {"correctness": 1.0, "completeness": 1.0, "specificity": 1.0, "code_quality": 1.5, "actionability": 2.0},
     "doc_reviewer":       {"correctness": 1.0, "completeness": 2.0, "specificity": 1.5, "code_quality": 1.0, "actionability": 1.0},
 }
-
-# The panel had no numeric-claims criterion (see `eval/rubric.py`) until it was
-# measured against the gate's own `wrong_numbers` degradation (Haiku 4.5, 3
-# roles, 60 bases): 0.604 -> 0.792 on Sonnet's answers and 0.590 -> 0.795 on
-# Opus's, pooled +25/-8 pairs, McNemar p = 0.0046. `wrong_tools` dipped in both
-# runs (0.947 -> 0.895, 0.942 -> 0.904; pooled +5/-10, p = 0.30) — not
-# significant, and reported, not hidden.
 
 # ── Judge role prompts ────────────────────────────────────────────────────────
 
