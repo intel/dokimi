@@ -1,6 +1,6 @@
 {
   "files": {
-    "dokimi/commands/novelty.py": {"lines": 827},
+    "dokimi/commands/novelty.py": {"lines": 864, "rationale": "W5 adds a novelty flag; file split tracked separately to avoid conflicts across the W-series"},
     "dokimi/harnesses/benchflow.py": {"lines": 869},
     "dokimi/harnesses/docker_solver.py": {"lines": 927, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/llm.py": {"lines": 1112},
