@@ -612,6 +612,12 @@ def test_a_file_that_only_starts_like_a_bazel_input_does_not_warn(tmp_path, path
     assert payload["incomplete"] is False
 
 
+def test_an_unreadable_bazel_named_file_is_ignored_when_bazel_is_not_a_build_system(tmp_path):
+    payload = _scan(tmp_path, "`SOME_IDENT`\n", {"BUILD": "x\0", "a.bzl": "y\0"}, build_systems=["make"])
+    assert not [w for w in payload["warnings"] if w.startswith("build file not scanned: ")]
+    assert payload["incomplete"] is False
+
+
 def test_a_guidance_file_that_is_also_a_build_input_warns_once(tmp_path):
     payload = _scan(tmp_path, "see `x/BUILD`\n", {"x/BUILD": "y\0"}, also_scan=["x/BUILD"])
     unread = [w for w in payload["warnings"] if "x/BUILD" in w and "not scanned" in w]
