@@ -154,6 +154,38 @@ def parse_run(raw: str, name: str = "", shell: str = "split") -> Run:
     return run
 
 
+def run_from_events(events: list[dict[str, Any]], name: str = "") -> Run:
+    """A run from the normalized ``events.jsonl`` of ``repo run`` (any harness), main thread only.
+
+    A command is split as a ``Bash`` call is; a read is ``Read``, an edit ``Edit``, another tool its
+    name. A command with a non-zero ``rc`` fails every command it chains, as a failed call does.
+    """
+    run = Run(name)
+    for ev in events:
+        if not isinstance(ev, dict) or ev.get("agent"):
+            continue
+        kind = ev.get("kind")
+        if kind == "command":
+            evs = _events("Bash", {"command": str(ev.get("text") or "")})
+            for e in evs:
+                e.failed = isinstance(ev.get("rc"), int) and ev["rc"] != 0
+            run.events.extend(evs)
+        elif kind in ("read", "edit"):
+            tool = "Read" if kind == "read" else "Edit"
+            path = str(ev.get("path") or "")
+            run.events.append(Event(tool, tool, f"{tool}({Path(path).name})" if path else tool,
+                                    {"file_path": path} if path else {}))
+        elif kind == "tool" and ev.get("name"):
+            tool = str(ev["name"])
+            run.events.append(Event(tool, tool, tool, {}, failed=bool(ev.get("denied"))))
+    return run
+
+
+def order_distance(runs: list[Run]) -> float | None:
+    """Mean order distance of the kind sequences over every pair of runs; ``None`` under two runs."""
+    return _mean([seq_distance(a.kinds(), b.kinds()) for a, b in combinations(runs, 2)])
+
+
 def _text(block: Any) -> str:
     return str(block.get("text") or "") if isinstance(block, dict) and block.get("type") == "text" else ""
 
