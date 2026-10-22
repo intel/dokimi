@@ -509,7 +509,8 @@ def test_a_model_run_records_its_calls_tokens_and_cost(tmp_path, monkeypatch, ca
     assert payload["cost"]["cache_read_tokens"] == 120
     assert payload["cost"]["cache_write_tokens"] == 60
     assert payload["cost"]["usd"] == 0.004
-    assert "$0.0040" in capsys.readouterr().out
+    assert ("cost     2 calls, 200 input / 10 output tokens, cache read 120 / write 60, "
+            "$0.0040") in capsys.readouterr().out
 
 
 def test_a_model_run_with_an_unpriced_call_reports_no_usd_figure(tmp_path, monkeypatch, capsys):
@@ -518,7 +519,7 @@ def test_a_model_run_with_an_unpriced_call_reports_no_usd_figure(tmp_path, monke
     _stub_provider(monkeypatch, UsageRecord(prompt_tokens=10, completion_tokens=1))
     payload = _model_run(tmp_path)
     assert payload["cost"]["usd"] is None   # one unpriced call must not be read as free
-    assert "no price" in capsys.readouterr().out
+    assert "USD not known: a call had no price or no usage" in capsys.readouterr().out
 
 
 def test_a_lexical_run_spends_nothing_and_has_no_cost_block(tmp_path):
@@ -531,3 +532,43 @@ def test_a_lexical_run_spends_nothing_and_has_no_cost_block(tmp_path):
                   "--queries", str(queries), "--out", str(out))
     args.func(args)
     assert "cost" not in json.loads(out.read_text(encoding="utf-8"))
+
+
+def test_a_model_run_whose_every_call_fails_prints_no_price_blame(tmp_path, monkeypatch, capsys):
+    from dokimi import llm
+
+    def failing(prompt, model, **_kwargs):
+        raise RuntimeError("provider refused")
+
+    monkeypatch.setattr(llm, "llm_call_with_usage", failing)
+    payload = _model_run(tmp_path)
+    assert payload["cost"]["llm_calls"] == 0
+    out = capsys.readouterr().out
+    assert "cost     0 calls\n" in out
+    assert "USD not known" not in out
+
+
+def test_a_call_with_no_usage_makes_the_total_unknown_not_the_priced_subset(
+        tmp_path, monkeypatch, capsys):
+    from dokimi import llm
+    from dokimi.metrics.usage import UsageRecord
+
+    replies = iter([None, UsageRecord(prompt_tokens=10, completion_tokens=1, cost_usd=0.001)])
+    monkeypatch.setattr(llm, "llm_call_with_usage",
+                        lambda prompt, model, **_kw: ('{"pick": 1}', next(replies)))
+    payload = _model_run(tmp_path)
+    assert payload["cost"]["llm_calls"] == 2
+    assert payload["cost"]["usd"] is None
+    assert "$0.0010" not in capsys.readouterr().out
+
+
+def test_replayed_calls_are_counted_apart_and_not_billed(tmp_path, monkeypatch, capsys):
+    from dokimi.metrics.usage import UsageRecord
+
+    _stub_provider(monkeypatch, UsageRecord(prompt_tokens=100, completion_tokens=5,
+                                            cost_usd=0.002, replayed=True))
+    payload = _model_run(tmp_path)
+    cost = payload["cost"]
+    assert (cost["llm_calls"], cost["replayed_calls"]) == (2, 2)
+    assert (cost["input_tokens"], cost["output_tokens"], cost["usd"]) == (0, 0, 0.0)
+    assert "2 replayed from the cache and not counted" in capsys.readouterr().out
