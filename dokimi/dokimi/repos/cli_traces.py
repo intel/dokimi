@@ -23,6 +23,7 @@ import json
 import posixpath
 import re
 import shlex
+from datetime import datetime
 from typing import Any
 
 from .transcript import Transcript, _parse_time, clip_output, relative_path
@@ -470,7 +471,7 @@ class _CopilotRun:
     answer (the final one, else the last message) and the turn count."""
 
     def __init__(self) -> None:
-        self.start = None
+        self.start: datetime | None = None
         self.by_id: dict[str, list[dict[str, Any]]] = {}
         self.final = self.last = ""
         self.turns = 0
@@ -480,7 +481,8 @@ class _CopilotRun:
         stamp = _parse_time(rec.get("timestamp"))
         if stamp is None:
             return None
-        self.start = self.start or stamp
+        if self.start is None:
+            self.start = stamp
         return round((stamp - self.start).total_seconds(), 3)
 
     def message(self, data: dict[str, Any]) -> None:
