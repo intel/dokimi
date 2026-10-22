@@ -607,6 +607,10 @@ Two numbers, reported side by side and never merged:
   `selection_rate_among_answered` beside it; a failed call is excluded from both and
   counted, and one failed query does not lose the rest.
 
+A `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
+write tokens, and `usd`, which is `null` when any call had no known price) and prints the
+same totals on stdout. A run without `--model` makes no calls and has no `cost` block.
+
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
 next to `n_queries_scored`, since a query with no content words is dropped rather than

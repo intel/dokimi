@@ -166,6 +166,8 @@ class LLMClient:
         """
         input_tokens = sum(u.prompt_tokens for u in self.usage)
         output_tokens = sum(u.completion_tokens for u in self.usage)
+        cache_read = sum(u.cache_read_tokens for u in self.usage)
+        cache_write = sum(u.cache_write_tokens for u in self.usage)
         costs = [u.cost_usd for u in self.usage]
         priced = costs and None not in costs
         usd = round(sum(c for c in costs if c is not None), 6) if priced else None
@@ -176,6 +178,8 @@ class LLMClient:
             "llm_calls": self.calls,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read,
+            "cache_write_tokens": cache_write,
             "usd": usd,
         }
 
@@ -230,6 +234,8 @@ def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:
         "llm_calls": sum(row["llm_calls"] for row in per_role),
         "input_tokens": sum(row["input_tokens"] for row in per_role),
         "output_tokens": sum(row["output_tokens"] for row in per_role),
+        "cache_read_tokens": sum(row["cache_read_tokens"] for row in per_role),
+        "cache_write_tokens": sum(row["cache_write_tokens"] for row in per_role),
         "usd": round(sum(p for p in usd_parts if p is not None), 6)
         if usd_parts and None not in usd_parts
         else None,

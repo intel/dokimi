@@ -473,3 +473,61 @@ def test_catalog_competitors_with_name_in_competitors_excludes_it_from_catalog(t
     assert names.count("perf") == 0, "perf should be excluded from catalog"
     assert set(names) == {"xpu", "cache"}, f"Expected xpu and cache, got {names}"
 
+
+
+def _stub_provider(monkeypatch, usage):
+    """Replace the provider call the --model path makes; every reply picks card 1."""
+    from dokimi import llm
+
+    def stub(prompt, model, **_kwargs):
+        return '{"pick": 1}', usage
+
+    monkeypatch.setattr(llm, "llm_call_with_usage", stub)
+
+
+def _model_run(tmp_path):
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary", "tune a slow query"]), encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--model", "selector-m", "--out", str(out))
+    args.func(args)
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+def test_a_model_run_records_its_calls_tokens_and_cost(tmp_path, monkeypatch, capsys):
+    from dokimi.metrics.usage import UsageRecord
+
+    _stub_provider(monkeypatch, UsageRecord(prompt_tokens=100, completion_tokens=5,
+                                            cache_read_tokens=60, cost_usd=0.002))
+    payload = _model_run(tmp_path)
+    assert payload["cost"]["llm_calls"] == 2
+    assert payload["cost"]["input_tokens"] == 200
+    assert payload["cost"]["output_tokens"] == 10
+    assert payload["cost"]["cache_read_tokens"] == 120
+    assert payload["cost"]["cache_write_tokens"] == 0
+    assert payload["cost"]["usd"] == 0.004
+    assert "$0.0040" in capsys.readouterr().out
+
+
+def test_a_model_run_with_an_unpriced_call_reports_no_usd_figure(tmp_path, monkeypatch, capsys):
+    from dokimi.metrics.usage import UsageRecord
+
+    _stub_provider(monkeypatch, UsageRecord(prompt_tokens=10, completion_tokens=1))
+    payload = _model_run(tmp_path)
+    assert payload["cost"]["usd"] is None   # one unpriced call must not be read as free
+    assert "no price" in capsys.readouterr().out
+
+
+def test_a_lexical_run_spends_nothing_and_has_no_cost_block(tmp_path):
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--out", str(out))
+    args.func(args)
+    assert "cost" not in json.loads(out.read_text(encoding="utf-8"))

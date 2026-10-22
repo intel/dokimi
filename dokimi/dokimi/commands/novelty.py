@@ -333,11 +333,14 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         "lexical": lexical,
     }
     if args.model:
+        from dokimi.novelty.client import roll_up_cost
+
         selector = _client(args.model, args.provider, "selector", args)
         payload["model"] = dict(
             model_routing(candidates, queries, client=selector, gold=0, seed=args.seed),
             queries_self_derived=self_derived,
         )
+        payload["cost"] = roll_up_cost([selector])
 
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "routing.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -357,6 +360,12 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
               f"{row['n_abstained']} abstained, {row['n_failed']} failed)  [{row['model']}]")
         print("The model figure is an upper bound on harness behaviour: a harness that "
               "truncates descriptions in its own listing selects on less text.")
+        cost = payload["cost"]
+        spent = (f"${cost['usd']:.4f}" if cost["usd"] is not None
+                 else "USD not known: a call had no price")
+        print(f"cost     {cost['llm_calls']} calls, {cost['input_tokens']} input / "
+              f"{cost['output_tokens']} output tokens, cache read {cost['cache_read_tokens']} "
+              f"/ write {cost['cache_write_tokens']}, {spent}  [{row['model']}]")
     if self_derived:
         print("Self-derived queries: read as triage only.")
 
