@@ -73,6 +73,7 @@ import json
 import logging
 import os
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field, replace
@@ -346,13 +347,16 @@ def list_cost_usd(model: str, provider: str, prompt_tokens: int,
     from litellm import cost_per_token
 
     litellm_model = resolve_model(model, provider)
-    try:
-        prompt, completion = cost_per_token(model=litellm_model, prompt_tokens=prompt_tokens,
-                                            completion_tokens=completion_tokens)
-    except Exception:
-        return None
-    if prompt + completion == 0.0 and not _has_price_entry(litellm_model, model):
-        return None
+    # litellm prints a "Provider List" help banner to stdout before it raises for a model
+    # it cannot route. ``--estimate-only`` prints JSON on stdout, so keep that out of it.
+    with contextlib.redirect_stdout(sys.stderr):
+        try:
+            prompt, completion = cost_per_token(model=litellm_model, prompt_tokens=prompt_tokens,
+                                                completion_tokens=completion_tokens)
+        except Exception:
+            return None
+        if prompt + completion == 0.0 and not _has_price_entry(litellm_model, model):
+            return None
     return float(prompt + completion)
 
 

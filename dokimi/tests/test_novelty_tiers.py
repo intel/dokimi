@@ -529,3 +529,25 @@ def test_list_cost_usd_distinguishes_an_unpriced_model_from_a_free_one(monkeypat
                         {"litellm_provider": "openai", "mode": "chat",
                          "input_cost_per_token": 0.0, "output_cost_per_token": 0.0})
     assert list_cost_usd("free-in-the-price-map-xyz", "openai", 100, 10) == 0.0
+
+
+def test_estimate_only_stdout_stays_json_for_a_model_litellm_cannot_route(tmp_path, capsys):
+    # litellm prints a "Provider List" banner to stdout before it raises for such a model.
+    root = tmp_path / "s"
+    root.mkdir()
+    (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                   encoding="utf-8")
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "standard",
+                  "--estimate-only", "--model", "foo-bar-9", "--provider", "openai")
+    args.func(args)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["expected_usd"] is None
+
+
+def test_call_tokens_never_goes_negative_for_a_tiny_artifact():
+    # The answerer's base is negative (-38 + 0.789 per artifact token), so a 10-token
+    # artifact would price a negative prompt without the floor.
+    for role in ("extractor", "answerer", "judge"):
+        for tier in (None, "triage", "standard"):
+            assert min(call_tokens(role, 10, tier)) >= 0
+    assert call_tokens("answerer", 10)[0] == 0
