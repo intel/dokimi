@@ -71,13 +71,16 @@ const rest = {
   actions: { listWorkflowRunArtifacts: 'list', downloadArtifact: async (a) => {
     calls.push(['download', a]); return { data: fs.readFileSync(c.zip) }; } },
   pulls: { get: async (a) => { calls.push(['pulls.get', a]); return { data: c.pr }; } },
-  issues: { listComments: 'comments', createLabel: rec('createLabel'), addLabels: rec('addLabels'),
+  repos: { listPullRequestsAssociatedWithCommit: 'assoc' },
+  issues: { listComments: 'comments',
+    createLabel: c.fail_create_label ? async () => { throw new Error('422'); } : rec('createLabel'), addLabels: rec('addLabels'),
     removeLabel: c.fail_labels ? async () => { throw new Error('404'); } : rec('removeLabel'), createComment: rec('createComment'),
     updateComment: rec('updateComment') },
 };
-const github = { rest, paginate: async (fn, a) => fn === 'list' ? c.artifacts : c.comments };
+const github = { rest, paginate: async (fn, a) =>
+  fn === 'list' ? c.artifacts : fn === 'assoc' ? c.assoc : c.comments };
 const context = { repo: { owner: 'intel', repo: 'dokimi' },
-  payload: { workflow_run: { id: 7, head_sha: c.run_sha } } };
+  payload: { workflow_run: { id: 7, head_sha: c.run_sha, html_url: 'https://x/run/7' } } };
 const core = { warning: (m) => calls.push(['warning', m]), info: () => {} };
 const script = JSON.parse(fs.readFileSync(scriptFile, 'utf8'));
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -98,12 +101,14 @@ def _run(
     pr_repo: str = "intel/dokimi",
     artifact_run: int = 7,
     fail_labels: bool = False,
+    fail_create_label: bool = False,
+    assoc=None,
 ):
     node = shutil.which("node")
     if not (node and shutil.which("unzip")):
         pytest.skip("needs node and unzip")
     buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as z:
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("result.json", result if isinstance(result, str) else json.dumps(result))
     zpath = tmp_path / "a.zip"
     zpath.write_bytes(buf.getvalue())
@@ -115,6 +120,8 @@ def _run(
         "run_sha": run_sha,
         "comments": list(comments),
         "fail_labels": fail_labels,
+        "fail_create_label": fail_create_label,
+        "assoc": [_assoc()] if assoc is None else assoc,
         "pr": {"head": {"sha": pr_sha}, "base": {"repo": {"full_name": pr_repo}}},
         "artifacts": [
             {
@@ -139,6 +146,22 @@ def _run(
         text=True,
     )
     return json.loads(out.stdout)
+
+
+def _assoc(**kw):
+    return {"number": 12, "state": "open", "head": {"sha": SHA}, "base": {"repo": {"full_name": "intel/dokimi"}}, **kw}
+
+
+def _fence(body: str) -> tuple[str, str]:
+    """The opening and closing fence lines of a comment body."""
+    lines = body.split("\n")
+    start = next(i for i, ln in enumerate(lines) if ln.startswith("```"))
+    end = max(i for i, ln in enumerate(lines) if re.fullmatch(r"`+", ln))
+    return lines[start], lines[end]
+
+
+def _bodies(calls):
+    return [a["body"] for n, a in calls if n in ("createComment", "updateComment")]
 
 
 def _names(calls):
@@ -227,7 +250,6 @@ def test_nested_marker_cannot_reassemble_after_stripping(tmp_path):
         _good(changed="yes"),
         _good(changed=1),
         _good(diff=None),
-        _good(diff="x" * 60001),
         [1, 2],
         "not json",
         "null",
@@ -266,18 +288,88 @@ def test_many_mentions_cannot_push_the_body_past_githubs_limit(tmp_path, char):
     calls = _run(tmp_path, _good(diff=char * 60000))
     body = next(a for n, a in calls if n == "createComment")["body"]
     assert len(body) < 65536 and "truncated" in body
-    assert len(body.split("\n")[1]) <= len("````````diff")
+    assert len(_fence(body)[0]) <= len("````````diff")
 
 
 def test_diff_is_fenced_so_links_and_references_do_not_render(tmp_path):
     diff = "[x](http://evil) ![i](http://t/p.png) intel/dokimi#1 ``` break out"
     body = next(a for n, a in _run(tmp_path, _good(diff=diff)) if n == "createComment")["body"]
-    lines = body.split("\n")
-    assert lines[1].startswith("````diff") and lines[-2].startswith("````")
-    assert not lines[-2].startswith("`````")
+    opening, closing = _fence(body)
+    assert opening == "````diff" and closing == "````"
 
 
 def test_concurrency_is_per_pr_branch_not_per_commit():
     group = _wf()["concurrency"]["group"]
     assert "head_branch" in group and "head_repository.full_name" in group
     assert "head_sha" not in group
+
+
+OLD_COMMENT = [{"id": 99, "user": {"login": "github-actions[bot]"}, "body": MARKER + "\nold diff"}]
+
+
+def test_a_diff_over_the_cap_is_truncated_and_its_label_and_comment_follow_the_result(tmp_path):
+    big = _run(tmp_path, _good(diff="+ x\n" * 20000), comments=OLD_COMMENT)
+    assert "addLabels" in _names(big) and "truncated" in _bodies(big)[0] and "old diff" not in _bodies(big)[0]
+    gone = _run(tmp_path, _good(changed="0", diff="+ x\n" * 20000), comments=OLD_COMMENT)
+    assert "removeLabel" in _names(gone) and "addLabels" not in _names(gone)
+    assert "matches the base branch" in _bodies(gone)[0]
+
+
+def test_a_result_over_the_size_cap_replaces_the_stale_comment_and_leaves_the_label(tmp_path):
+    calls = _run(tmp_path, _good(diff="+ x\n" * 100000), comments=OLD_COMMENT)  # result.json over 200 KiB
+    assert not {"addLabels", "removeLabel", "createComment"} & set(_names(calls)) and "warning" in _names(calls)
+    update = next(a for n, a in calls if n == "updateComment")
+    assert update["comment_id"] == 99 and "too large" in update["body"] and update["body"].startswith(MARKER)
+    assert "old diff" not in update["body"] and "https://x/run/7" in update["body"]
+
+
+def test_an_artifact_over_the_size_cap_replaces_the_stale_comment_without_a_download(tmp_path):
+    calls = _run(tmp_path, _good(), size=10**9, comments=OLD_COMMENT)
+    assert "download" not in _names(calls) and "too large" in _bodies(calls)[0]
+
+
+@pytest.mark.parametrize("pr", [_assoc(state="closed"), _assoc(head={"sha": "c" * 40}),
+                                _assoc(base={"repo": {"full_name": "other/repo"}})])
+def test_a_too_large_result_is_reported_only_on_an_open_pr_of_this_repository_at_the_run_head(tmp_path, pr):
+    calls = _run(tmp_path, _good(), size=10**9, comments=OLD_COMMENT, assoc=[pr])
+    assert not {"createComment", "updateComment"} & set(_names(calls))
+
+
+def test_a_label_that_already_exists_does_not_stop_the_comment(tmp_path):
+    calls = _run(tmp_path, _good(), fail_create_label=True)
+    assert "throw" not in _names(calls) and {"addLabels", "createComment"} <= set(_names(calls))
+
+
+def test_a_cut_through_an_emoji_leaves_no_lone_surrogate(tmp_path):
+    body = _bodies(_run(tmp_path, _good(diff="a" * 59999 + "\U0001f600" * 5)))[0]
+    assert "truncated" in body and not re.search("[\ud800-\udbff](?![\udc00-\udfff])", body)
+
+
+def test_a_backtick_run_longer_than_seven_is_split_so_the_fence_stays_short(tmp_path):
+    body = _bodies(_run(tmp_path, _good(diff="`" * 12)))[0]
+    assert _fence(body)[0] == "````````diff" and "`" * 8 not in body.split("diff\n", 1)[1].split("\n")[0]
+
+
+def test_a_diff_with_no_backticks_gets_a_three_backtick_fence(tmp_path):
+    assert _fence(_bodies(_run(tmp_path, _good(diff="+ plain")))[0]) == ("```diff", "```")
+
+
+def test_the_producers_markdown_is_unwrapped_and_the_heading_is_written_outside_the_fence(tmp_path):
+    produced = ("## CLI interface change detected\n\nThis PR changes dokimi's user-facing CLI surface "
+                "(commands and/or options):\n\n```diff\n+ `repo run` --x\n```\n")
+    body = _bodies(_run(tmp_path, _good(diff=produced)))[0]
+    lines = body.split("\n")
+    assert lines[:2] == [MARKER, "## CLI interface change detected"] and lines[2] == ""
+    assert body.count("```diff") == 1 and body.count("## CLI interface change detected") == 1
+    assert "+ `repo run` --x" in body and _fence(body) == ("```diff", "```")
+
+
+def test_the_error_comment_is_the_jobs_own_text_not_the_artifacts(tmp_path):
+    body = _bodies(_run(tmp_path, _good(changed="error", diff="## x\n![i](http://t/p.png)")))[0]
+    assert "could not run" in body and "http://t" not in body and "https://x/run/7" in body
+
+
+def test_the_workflow_never_cancels_a_running_post_and_posts_only_after_a_successful_run():
+    wf = _wf()
+    assert wf["concurrency"]["cancel-in-progress"] is False
+    assert "github.event.workflow_run.conclusion == 'success'" in wf["jobs"]["post"]["if"]
