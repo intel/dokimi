@@ -47,6 +47,7 @@ CONTENT_DIR = "/eval/content"
 SOURCE_DIR = "/eval/source"
 HARNESS_DIR = "/eval/harness"
 SUPPORT_DIR = "/eval/support"
+GRADERS_DIR = "/eval/graders"  # the built-in graders, mounted read-only into the grading container only
 NETWORKS = ("none", "bridge", "host")
 # Predefined docker build args: passed by name when set, so a build behind a proxy works
 # and the values stay out of the image history.

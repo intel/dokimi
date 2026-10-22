@@ -613,3 +613,69 @@ def test_a_cell_whose_result_cannot_be_written_is_still_charged(setup, monkeypat
     assert "0 ran, 0 already done, 1 crashed" in out.out and "$0.0100" in out.out
     assert "cannot write result.json" in out.out + out.err
 
+
+
+def test_a_batch_refuses_resume_after_a_built_in_grader_changes_only_if_a_task_names_one(setup, monkeypatch,
+                                                                                         capsys):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    monkeypatch.setattr("dokimi.repos.graders.graders_digest", lambda: "edited")
+    _run(setup, "--arm", "guidance:none", "--task", "fix_add")  # no task names one: no score depends on them
+    assert "graders" not in json.loads((setup["out"] / "b1/_eval/batch.json").read_text())
+    root = setup["root"]
+    shutil.copytree(root / ".agent-eval/tasks/review_add", root / ".agent-eval/tasks/seeds_add")
+    task = root / ".agent-eval/tasks/seeds_add/task.json"
+    task.write_text(json.dumps({**json.loads(task.read_text()), "grader": "dokimi:review_seeds"}))
+    (task.parent / "manifest.json").write_text(json.dumps({"seeds": [], "decoys": []}))
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "a built-in task")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--batch", "b2")
+    assert json.loads((setup["out"] / "b2/_eval/batch.json").read_text())["graders"] == "edited"
+    monkeypatch.setattr("dokimi.repos.graders.graders_digest", lambda: "edited again")
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:none", "--task", "fix_add", "--batch", "b2")
+    err = capsys.readouterr().err
+    assert "graders" in err and "use another --batch" in err
+    assert not list((setup["out"] / "b2").glob("fix_add__guidance-none__*"))
+
+
+@pytest.mark.parametrize(("text", "pinned"), [("{", True), ("[]", False)])
+def test_a_task_json_the_pin_cannot_read_pins_the_graders_and_a_non_object_one_does_not(setup, text, pinned):
+    d = setup["root"] / ".agent-eval/tasks/zz_other"
+    d.mkdir()
+    (d / "task.json").write_text(text)
+    git(setup["root"], "add", "-A")
+    git(setup["root"], "commit", "-qm", "an unreadable task the batch does not run")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert ("graders" in json.loads((setup["out"] / "b1/_eval/batch.json").read_text())) is pinned
+
+
+def test_graders_digest_follows_the_grader_sources(tmp_path, monkeypatch):
+    from dokimi.repos import graders
+
+    (tmp_path / "review.py").write_text("VERSION = '1'\n")
+    monkeypatch.setattr(graders, "HOST_DIR", tmp_path)
+    before = graders.graders_digest()
+    (tmp_path / "review.py").write_text("VERSION = '2'\n")
+    assert graders.graders_digest() != before
+
+
+def test_graders_digest_covers_main_and_pairs_names_with_contents(tmp_path, monkeypatch):
+    from dokimi.repos import graders
+
+    monkeypatch.setattr(graders, "HOST_DIR", tmp_path)
+    (tmp_path / "main.py").write_text("ENTRY = 1\n")
+    (tmp_path / "review.py").write_text("VERSION = 1\n")
+    base = graders.graders_digest()
+    assert graders.graders_digest() == base  # deterministic
+    (tmp_path / "main.py").write_text("ENTRY = 2\n")  # the entry point is part of the score
+    edited = graders.graders_digest()
+    assert edited != base
+    (tmp_path / "main.py").write_text("VERSION = 1\n")  # swap the contents between the files
+    (tmp_path / "review.py").write_text("ENTRY = 1\n")
+    swapped = graders.graders_digest()
+    assert swapped not in (base, edited)
+    (tmp_path / "main.py").write_text("ENTRY = 1\n")  # same contents, names swapped back and forth
+    (tmp_path / "review.py").write_text("VERSION = 1\n")
+    assert graders.graders_digest() == base
+    (tmp_path / "main.py").rename(tmp_path / "other.py")  # same bytes under another name
+    assert graders.graders_digest() != base
