@@ -154,8 +154,9 @@ def discover_skills(root, *, notes: Optional[List[str]] = None) -> List[Skill]:
 
     Two kinds of ``SKILL.md`` are not skills of *root* and are left out:
 
-    - one under a ``template`` or ``templates`` directory, a scaffold to copy
-      (anthropics/skills keeps a blank one at ``template/SKILL.md``);
+    - one under a ``template`` or ``templates`` directory at any depth below *root*, a
+      scaffold to copy (anthropics/skills keeps a blank one at ``template/SKILL.md``).
+      A real skill kept under such a directory is left out too;
     - a mirror, a ``SKILL.md`` byte-identical to another one under *root* (a plugin's
       copy of the ``skills/`` tree). The copy with the fewest path parts stands for
       the group; ties go to the path that sorts first.

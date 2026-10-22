@@ -283,7 +283,8 @@ artifact per cell, a `matrix_rollup.v1` JSON/Markdown report, and paired
   instructions on demand (progressive disclosure).
 - **`skill-catalog:<dir>`** — skill selection. Every skill under `<dir>` is offered
   the same way, so the question is answered among its rivals. A `SKILL.md` under a
-  `template/` or `templates/` directory is not a skill and is skipped, and a `SKILL.md`
+  `template/` or `templates/` directory, at any depth below `<dir>`, is not a skill and is
+  skipped (a real skill kept under such a directory is skipped too), and a `SKILL.md`
   byte-identical to another under `<dir>` (a plugin's copy of `skills/`) is offered
   once. Questions that carry `expected_skill` are scored on the skill loaded first; see
   [Skill selection](#skill-selection-does-the-agent-load-the-right-skill).

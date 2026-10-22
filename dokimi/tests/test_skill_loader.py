@@ -135,3 +135,51 @@ def test_discovery_keeps_same_named_skills_whose_text_differs(tmp_path):
         "A different, older description.",
     )
     assert len(discover_skills(root)) == 2
+
+
+def test_discovery_skips_a_template_directory_at_any_depth(tmp_path):
+    root = tmp_path / "catalog"
+    _write_skill(root / "a" / "templates" / "b", "nested", "Replace with description.")
+    _write_skill(root / "real", "real", "Profile Linux programs.")
+    assert [s.name for s in discover_skills(root)] == ["real"]
+
+
+def test_a_root_under_a_templates_directory_is_still_discovered(tmp_path):
+    root = tmp_path / "templates" / "cat"
+    _write_skill(root / "linux-perf", "linux-perf", "Profile Linux programs.")
+    assert [s.name for s in discover_skills(root)] == ["linux-perf"]
+
+
+def test_a_directory_merely_containing_template_is_not_a_template(tmp_path):
+    root = tmp_path / "catalog"
+    _write_skill(root / "my-template-tool", "my-template-tool", "Tool for templates.")
+    assert [s.name for s in discover_skills(root)] == ["my-template-tool"]
+
+
+def test_identical_copies_at_equal_depth_keep_the_path_that_sorts_first(tmp_path):
+    root = tmp_path / "repo"
+    first = _write_skill(root / "a" / "perf", "perf", "Profile Linux programs.")
+    _write_skill(root / "b" / "perf", "perf", "Profile Linux programs.")
+    notes: list[str] = []
+    assert [s.path for s in discover_skills(root, notes=notes)] == [first]
+    assert notes == [f"left out {root / 'b' / 'perf' / 'SKILL.md'}: identical to {first}"]
+
+
+def test_copies_differing_only_by_line_endings_are_both_kept(tmp_path):
+    root = tmp_path / "repo"
+    original = _write_skill(root / "a" / "perf", "perf", "Profile Linux programs.")
+    crlf = root / "b" / "perf"
+    crlf.mkdir(parents=True)
+    (crlf / "SKILL.md").write_bytes(original.read_bytes().replace(b"\n", b"\r\n"))
+    assert len(discover_skills(root)) == 2
+
+
+def test_the_mirror_note_names_the_dropped_and_the_kept_path(tmp_path):
+    root = tmp_path / "repo"
+    original = _write_skill(root / "skills" / "perf", "perf", "Profile Linux programs.")
+    mirror = _write_skill(
+        root / "plugins" / "p" / "skills" / "perf", "perf", "Profile Linux programs."
+    )
+    notes: list[str] = []
+    discover_skills(root, notes=notes)
+    assert notes == [f"left out {mirror}: identical to {original}"]
