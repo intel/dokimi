@@ -248,7 +248,9 @@ class JudgeContextStore:
         if bad:
             logger.warning(
                 "%d arm records cite judge material that is missing from the artifact "
-                "or does not match its digest; those answers fall back to snippets.", bad,
+                "or does not match its digest; those answers have no verified material "
+                "(callers that fall back use the report snippets; judge-validity "
+                "--context stored drops them).", bad,
             )
         return store
 
@@ -262,8 +264,9 @@ class JudgeContextStore:
                 self._warned = True
                 logger.warning(
                     "No stored judge context for %s/%s (the run did not keep it, or the text "
-                    "failed its digest), so judging falls back to 200-char report snippets, which under-scores "
-                    "arms that cite their own material.",
+                    "failed its digest). Callers that fall back judge the 200-char report "
+                    "snippets, which under-scores arms that cite their own material; "
+                    "judge-validity --context stored drops such bases instead.",
                     question_id, arm_name,
                 )
         return hit
