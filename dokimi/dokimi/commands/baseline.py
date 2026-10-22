@@ -230,6 +230,7 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
     print(f"Comparing against baseline: {entry['name']} (saved {entry.get('saved_at', '?')})\n")
 
     deltas_changed = []
+    n_compared = 0  # questions scored on both sides: the only ones a "no change" can be about
     for e in current_evals:
         q_id = e.question_id
         base_e = baseline_evals.get(e.key)
@@ -238,6 +239,7 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
         cur_delta = e.delta
         base_delta = base_e.delta
         if cur_delta is not None and base_delta is not None:
+            n_compared += 1
             moved = cur_delta - base_delta
             if abs(moved) >= 1:
                 deltas_changed.append((q_id, base_delta, cur_delta, moved, e.question_text[:60]))
@@ -263,8 +265,11 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
         print("  " + "─" * 80)
         for q_id, bd, cd, ch, txt in sorted(deltas_changed, key=lambda x: -abs(x[3])):
             print(f"  {q_id:<20} {bd:>7} {cd:>7} {ch:>+7}  {txt}")
+    elif not n_compared:
+        print(f"\n⚪ Nothing to compare (0 scored): no question is scored in both the baseline and "
+              f"the current eval ({len(current_evals)} current, {len(baseline_evals)} baseline evaluations).")
     else:
-        print("\n✅ No notable changes vs baseline.")
+        print(f"\n✅ No notable changes vs baseline ({n_compared} of {len(current_evals)} questions compared).")
 
 
 def register(sub, positive_int) -> None:

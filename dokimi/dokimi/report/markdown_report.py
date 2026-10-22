@@ -65,8 +65,12 @@ def write_compare_report(compare_data: dict, path: Path) -> None:
         reg = compare_data["regressions"]
         lines.extend(["", "## Regression Analysis"])
         
-        # Overall status
-        if reg["has_critical"]:
+        # Overall status. A snapshot with no doc scored nothing: a zero diff against it is not "no regressions".
+        unscored = [side for side in ("base", "candidate")
+                    if side in compare_data and not compare_data[side].get("docs")]
+        if unscored:
+            lines.append(f"⚪ **Nothing to compare (0 scored)**: no document in {' and '.join(unscored)}")
+        elif reg["has_critical"]:
             lines.append("🔴 **CRITICAL regressions detected**")
         elif reg["has_warnings"]:
             lines.append("🟡 **Warnings detected**")

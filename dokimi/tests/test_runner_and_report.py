@@ -244,6 +244,17 @@ def test_write_compare_report_no_regressions(tmp_path):
     assert "No regressions" in text
 
 
+def test_write_compare_report_with_no_scored_doc_is_not_no_regressions(tmp_path):
+    # Two 0-doc snapshots diff to 0 everywhere: that read "No regressions".
+    out = tmp_path / "compare.md"
+    data = _compare_data(with_regressions=True)
+    data["base"], data["candidate"] = _snapshot(docs=0)["summary"], _snapshot(docs=0)["summary"]
+    write_compare_report(data, out)
+    text = out.read_text(encoding="utf-8")
+    assert "Nothing to compare (0 scored)**: no document in base and candidate" in text
+    assert "No regressions" not in text
+
+
 def test_write_compare_report_critical_regressions(tmp_path):
     out = tmp_path / "compare.md"
     write_compare_report(_compare_data(with_regressions=True, has_critical=True), out)

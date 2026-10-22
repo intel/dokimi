@@ -125,10 +125,16 @@ class NoveltyVerdict:
 
     @property
     def status(self) -> str:
-        """``PASS`` / ``WARN`` / ``FAIL``, without a build meaning attached."""
+        """``PASS`` / ``WARN`` / ``FAIL`` / ``NOT MEASURED``, without a build meaning attached.
+
+        ``NOT MEASURED`` when no check was measured: every check passes unmeasured, so
+        ``PASS`` would be read off a run that cleared nothing.
+        """
         if self.blocking:
             return "FAIL"
-        return "WARN" if self.warnings else "PASS"
+        if self.warnings:
+            return "WARN"
+        return "PASS" if any(c.measured for c in self.checks) else "NOT MEASURED"
 
     @property
     def not_measured(self) -> list[str]:

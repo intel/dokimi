@@ -153,6 +153,12 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
         cost_delta = cmp_row.get("cost_delta_usd")
         cost_s = "" if cost_delta is None else f", cost delta ${cost_delta:+.4f}"
         print(f"{harness} vs {cmp_row['baseline_harness']}: pass-rate delta {delta_s}{cost_s}")
+    per_harness = output["summary"]["per_harness"].values()
+    cells = sum(s["n"] for s in per_harness)
+    errored = sum(s.get("errored", 0) for s in per_harness)
+    if cells and errored == cells:  # no cell has a verdict: "0/0 pass (n/a)" is not a result
+        print(f"✗ incomplete: every cell errored (0 scored, {errored} errored of {cells} cells)", file=sys.stderr)
+        sys.exit(1)
 
 
 def register(sub, positive_int) -> None:
