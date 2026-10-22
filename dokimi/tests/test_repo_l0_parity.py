@@ -596,6 +596,19 @@ def test_unreadable_build_inputs_warn_and_mark_the_scan_incomplete(tmp_path):
     assert any(w.startswith("build file not scanned: third_party/zlib.BUILD: ") for w in payload["warnings"])
 
 
+@pytest.mark.parametrize("name", ["zlib.BUILD", "BUILD.zlib", "BUILD.zlib.bazel"])
+def test_an_unread_external_build_file_of_either_naming_marks_the_scan_incomplete(tmp_path, name):
+    files = {f: t for f, t in _EXTERNAL.items() if f != "third_party/zlib.BUILD"}
+    files["third_party/repos.bzl"] = f'def deps():\n    zlib_repo(name = "zlib", build_file = "//third_party:{name}")\n'
+    files[f"third_party/{name}"] = 'cc_library(name = "zlib")\n\0'
+    payload = _scan(tmp_path, "`@zlib//:zlib`\n", files)
+    assert _verdicts(payload)[("bazel_label", "@zlib//:zlib")] == "unresolved"
+    assert [w for w in payload["warnings"] if w.startswith("build file not scanned: ")] == [
+        f"build file not scanned: third_party/{name}: binary (a NUL byte)"
+    ]
+    assert payload["incomplete"] is True
+
+
 @pytest.mark.parametrize("path", ["a/BUILD", "WORKSPACE", "MODULE.bazel", "tools/x.bazelrc", "BUILD.bazel", "WORKSPACE.bazel"])
 def test_each_bazel_input_name_warns_when_unreadable(tmp_path, path):
     payload = _scan(tmp_path, _fence("bash", "bazel build //a:b") + "\n`SOME_IDENT`\n", {path: "x\0"})

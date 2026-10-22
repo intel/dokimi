@@ -660,7 +660,7 @@ external repository stay `unresolved`. A `BUILD`, `.bzl`, `WORKSPACE` or `MODULE
 (binary, over the size limit, a dangling or escaping link) makes its `bazel_label` and `starlark_load` claims
 `unresolved`, with the reason (`X was not read (...)`). Such a file also adds the warning
 `build file not scanned: <path>: <why>` and makes the scan `incomplete`. Only these exact names count: `BUILD`,
-`BUILD.bazel`, `WORKSPACE`, `WORKSPACE.bazel`, `MODULE.bazel`, `*.bzl`, `*.bazelrc`, `*.BUILD` (and an unread
+`BUILD.*` (`BUILD.bazel`, an external `BUILD.zlib`), `WORKSPACE`, `WORKSPACE.bazel`, `MODULE.bazel`, `*.bzl`, `*.bazelrc`, `*.BUILD` (and an unread
 `.bazelrc` import of any name); a file such as `BUILD_status.png` does not, and none counts unless `bazel` is a build system of the scan.
 
 L0 checks only what holds for any repository. The rules of oneDAL's own
