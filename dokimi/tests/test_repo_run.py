@@ -211,6 +211,34 @@ def test_a_batch_dir_with_cells_of_another_execution_is_refused_up_front(setup, 
     assert not [s for s in setup["runner"].specs if "-p" in s.argv]
 
 
+def test_the_cell_records_the_tools_mode_it_ran_with(setup):
+    rd = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--tools", "read")
+    for name in ("result.json", "meta.json"):
+        assert json.loads((rd / name).read_text())["execution"]["tools"] == "read", name
+
+
+def test_an_unreadable_or_unparsable_result_does_not_stop_the_batch_check(setup, capsys):
+    from dokimi.repos.harness_profile import load_profile
+    from dokimi.repos.runner import AgentOptions, ExecutionMismatch, check_batch_executions
+
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    batch = setup["out"] / "b1"
+    (batch / "broken").mkdir()
+    (batch / "broken" / "result.json").write_text("{not json", encoding="utf-8")  # ValueError
+    (batch / "adir").mkdir()
+    (batch / "adir" / "result.json").mkdir()  # OSError (a directory)
+    options = [AgentOptions(profile=load_profile(setup["profile"]), model="m-1", harness_bin=setup["exe"],
+                            harness_version="1.2.3")]
+    check_batch_executions(batch, options)  # skipped, not raised
+    (batch / "fix_add__guidance-raw__m-1__r1" / "result.json").unlink()
+    (batch / "other").mkdir()
+    (batch / "other" / "result.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ExecutionMismatch, match="unrecorded"):  # a parsable one is still checked
+        check_batch_executions(batch, options)
+
+
 def test_a_refused_delegation_none_starts_no_harness_version_probe(setup, monkeypatch, capsys):
     probes = []
     monkeypatch.setattr("dokimi.repos.runner.harness_version", lambda *a, **k: probes.append(a) or "1")

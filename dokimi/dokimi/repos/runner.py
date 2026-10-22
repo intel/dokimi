@@ -312,6 +312,21 @@ def _own_dir(path: Path) -> None:
         os.chmod(path, stat.S_IMODE(mode) | stat.S_IRWXU)
 
 
+def _log_cell(log, name: str, rec: dict[str, Any]) -> None:
+    g, a = rec["grade"], rec["agent"]
+    verdict = ("GRADER FAILURE" if g["status"] == "grader_failure"
+               else f"score {g['score']}" if g["score_only"] else "pass" if g["success"] else "fail")
+    log(f"{name}: {verdict}; ${a['cost_usd'] or 0:.4f}, {a['num_turns']} turns, {a['wall_s']}s"
+        + (" (agent timed out)" if a["timed_out"] else ""))
+
+
+def _probe_failed(batch_dir: Path, cells: list, verdicts: dict) -> list[str]:
+    """Tasks whose host probe failed and that still have an unrun cell: a finished cell keeps its result."""
+    return [task_id for task_id, (_, by) in verdicts.items() if by == "host-probe"
+            and any(not _done(batch_dir / cell_name(t.id, a, o.model, r))
+                    for t, a, o, r in cells if t.id == task_id)]
+
+
 def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: list[AgentOptions], reps: int,
               batch_dir: Path, jobs: int = 1, force: bool = False, max_batch_usd: float | None = None,
               log=print) -> dict[str, Any]:
@@ -331,10 +346,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells
                                                     if t.id not in unsupported})
     _record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
-    # A probe failure only costs the run when a cell of the task is left unrun: a finished cell keeps its result.
-    probe_failed = [task_id for task_id, (_, by) in verdicts.items() if by == "host-probe"
-                    and any(not _done(batch_dir / cell_name(t.id, a, o.model, r))
-                            for t, a, o, r in cells if t.id == task_id)]
+    probe_failed = _probe_failed(batch_dir, cells, verdicts)
     for task_id, why in unsupported.items():
         log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
     for t, a, o, r in cells:  # this host meets them: an old marker would hide a cell this run never reaches
@@ -377,11 +389,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
                 return
             state["ran"] += 1
             state["spent"] += rec["agent"].get("charged_usd", rec["agent"]["cost_usd"]) or 0.0
-        g, a = rec["grade"], rec["agent"]
-        verdict = ("GRADER FAILURE" if g["status"] == "grader_failure"
-                   else f"score {g['score']}" if g["score_only"] else "pass" if g["success"] else "fail")
-        log(f"{name}: {verdict}; ${a['cost_usd'] or 0:.4f}, {a['num_turns']} turns, {a['wall_s']}s"
-            + (" (agent timed out)" if a["timed_out"] else ""))
+        _log_cell(log, name, rec)
 
     with ThreadPoolExecutor(max(1, jobs)) as pool:
         list(pool.map(one, cells))
