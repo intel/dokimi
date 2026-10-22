@@ -60,6 +60,7 @@ class Event:
     action: str
     input: dict[str, Any]
     failed: bool = False
+    masked: bool = False  # piped without pipefail: the status is the last stage's, not this command's
 
 
 @dataclass
@@ -109,7 +110,7 @@ def parse_run(raw: str, name: str = "", shell: str = "split") -> Run:
     passed leaves nothing in the trace.
     """
     run = Run(name)
-    by_id: dict[str, Event] = {}
+    by_id: dict[str, list[Event]] = {}
     seen_messages: dict[str, int] = {}
     for line in raw.split(chr(10)):
         try:
@@ -136,14 +137,15 @@ def parse_run(raw: str, name: str = "", shell: str = "split") -> Run:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     evs = _events(str(block.get("name") or ""), block.get("input"), shell)
                     run.events.extend(evs)
-                    by_id[str(block.get("id") or "")] = evs[-1]  # the shell's status is its last command's
+                    by_id[str(block.get("id") or "")] = evs
         elif kind == "user":
             if main and any(_text(b).startswith("Stop hook feedback") for b in content):
                 run.events.append(Event("Hook", "Hook:Stop", "Hook:Stop", {}, failed=True))
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error"):
-                    hit = by_id.get(str(block.get("tool_use_id") or ""))
-                    if hit is not None:
+                    # The trace does not say which chained command failed, so all of them may have:
+                    # a failed `make check && git diff` must not read as a passing `git diff`.
+                    for hit in by_id.get(str(block.get("tool_use_id") or ""), []):
                         hit.failed = True
         elif kind == "result":
             run.num_turns = rec.get("num_turns") if isinstance(rec.get("num_turns"), int) else None
@@ -160,21 +162,25 @@ def _events(tool: str, args: Any, shell: str = "split") -> list[Event]:
     args = args if isinstance(args, dict) else {}
     if tool == "Bash":
         command = str(args.get("command") or "")
+        pipefail = bool(re.search(r"\bpipefail\b", command))
+        segments = _segments(command)
         if shell == "split":
             out = []
-            for seg in _segments(command):
+            for seg in segments:
                 program = _program(seg)
                 if not program:
                     continue
                 written = _written(seg)
                 ev_input = {**args, "command": seg, **({"file_path": written} if written else {})}
                 target = Path(written).name if written else seg.strip()
-                out.append(Event(tool, f"Bash:{program}", f"Bash:{program}({target})", ev_input))
+                out.append(Event(tool, f"Bash:{program}", f"Bash:{program}({target})", ev_input,
+                                 masked=not pipefail and "|" in _tokens(seg)))
             if out:
                 return out
         program = _program(command)
         kind = f"Bash:{program}" if program else "Bash"
-        return [Event(tool, kind, f"{kind}({command.strip()})" if command.strip() else kind, args)]
+        masked = not pipefail and any("|" in _tokens(seg) for seg in segments)
+        return [Event(tool, kind, f"{kind}({command.strip()})" if command.strip() else kind, args, masked=masked)]
     kind, target = tool, ""
     for key in _TARGET_KEYS:
         if args.get(key):
@@ -214,21 +220,37 @@ def _segments(command: str) -> list[str]:
     return [seg.strip() for seg in out if seg.strip() and not seg.strip().startswith("#")]
 
 
+def _tokens(segment: str) -> list[str]:
+    """Shell words with unquoted operators (``|``, ``>``, ``>>``, ``2>&1``) as their own tokens, so a
+    ``>`` or ``|`` inside quotes stays part of a word."""
+    lex = shlex.shlex(segment, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    try:
+        return list(lex)
+    except ValueError:
+        return segment.split()
+
+
 def _written(segment: str) -> str:
     """The file a shell command writes, if it is one of the plain ways to write one."""
-    try:
-        words = shlex.split(segment)
-    except ValueError:
-        words = segment.split()
+    words = _tokens(segment)
     if words and Path(words[0]).name in ("sed", "perl") and any(re.match(r"^-\w*i", w) for w in words[1:]):
-        files = [w for w in words[1:] if not w.startswith("-")]
+        files = [w for w in words[1:] if not w.startswith("-") and w not in _OPERATORS]
         if len(files) >= 2:
             return files[-1]
-    m = re.search(r"(?<![0-9&>])>>?\s*([^\s&|;<>]+)", segment)
-    if m and m.group(1) != "/dev/null":
-        return m.group(1)
-    m = re.search(r"\btee\s+(?:-a\s+)?([^\s&|;<>]+)", segment)
-    return m.group(1) if m else ""
+    for i, w in enumerate(words[:-1]):
+        if w in (">", ">>", ">|") and not (i and words[i - 1].isdigit() and words[i - 1] != "1"):
+            target = words[i + 1]
+            if target not in _OPERATORS and target != "/dev/null":
+                return target
+        if w == "tee" and (i == 0 or words[i - 1] == "|"):
+            rest = [x for x in words[i + 1:] if not x.startswith("-")]
+            if rest and rest[0] not in _OPERATORS:
+                return rest[0]
+    return ""
+
+
+_OPERATORS = {"|", "||", "&&", ";", "&", ">", ">>", ">|", ">&", "<", "<<", "&>", "&>>", "(", ")"}
 
 
 def _program(command: str) -> str:
@@ -329,6 +351,7 @@ def check_contract(run: Run, contract: dict[str, Any]) -> list[str]:
     for kind, names in contract["rules"]:
         a = hits[names[0]]
         b = hits[names[1]] if len(names) > 1 else []
+        last = None
         if kind == "requires":
             ok = bool(a)
         elif kind == "forbids":
@@ -337,10 +360,12 @@ def check_contract(run: Run, contract: dict[str, Any]) -> list[str]:
             ok = not b or (bool(a) and a[0] < b[0])
         elif kind == "after_last":  # some b after the last a; vacuous with no a
             ok = not a or any(j > a[-1] for j in b)
-        else:  # last_ok: the last a did not fail
-            ok = not a or not run.events[a[-1]].failed
+        else:  # last_ok: the last a did not fail, and its status was not hidden by a pipe
+            last = run.events[a[-1]] if a else None
+            ok = last is None or not (last.failed or last.masked)
         if not ok:
-            broken.append(f"{kind}: {' -> '.join(names)}")
+            masked = kind == "last_ok" and last is not None and not last.failed
+            broken.append(f"{kind}: {' -> '.join(names)}" + (" (status hidden by a pipe)" if masked else ""))
     return broken
 
 

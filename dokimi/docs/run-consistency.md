@@ -28,6 +28,12 @@ one step, its path looks perfectly stable and a contract sees no edit and no
 check. `--shell call` keeps one step per tool call. Subagent calls are left
 out; a `Task` call is one step.
 
+A failed shell call marks every command it chains as failed: the trace does not
+say which one failed, and a failed `make check && git diff` must not read as a
+passing `git diff`. A command piped into another (`pytest | tail`) without
+`set -o pipefail` has its status hidden: the call's status is the last stage's.
+`last_ok` does not accept such a step as a passing check.
+
 A Stop hook that blocked the stop is a failed `Hook:Stop` step. A hook that
 passed leaves nothing in the trace, so a check the harness enforces is not
 visible as a step; count it from the harness configuration.
