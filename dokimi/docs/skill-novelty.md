@@ -490,8 +490,10 @@ Things to know before reading a bundle result:
   at runtime is the agentic track's question (`skill-agent:`), not this one.
 - **The two modes are different cells.** `include_resources` is recorded in `run_config`;
   an entry-point run and a bundle run of the same skill are not comparable numbers, and an
-  entry-point run whose *measurable* outside share is ≥ 0.5 says so in `warnings`
-  (`measurable_outside_share` nets out the role decisions below; `outside_share` is the
+  run that read half or less of the readable words says so on stdout (the `coverage:` line
+  and a `WARNING`); an entry-point run also says so in `warnings`. The share is
+  `bundle.measured_share` (for an entry-point run, `1 - measurable_outside_share`,
+  which nets out the role decisions below; `outside_share` is the
   on-disk figure, and the two differ for a skill whose only resources are its evals).
 - **A skill's own `evals/` are not content.** They are the question/answer keys for
   testing the skill, so extracting atoms from them would credit the skill with delivering

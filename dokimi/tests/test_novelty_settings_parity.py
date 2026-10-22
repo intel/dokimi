@@ -111,6 +111,16 @@ def _kept(argv: list[str], work: Path) -> dict[str, Any]:
     return {}
 
 
+def _without_coverage_headline(text: str) -> str:
+    """Drop the stdout lines the coverage headline added after main.
+
+    They say how much of the artifact was read, which is neither a setting, a bill nor a
+    tier record, so this module does not compare them; ``test_novelty_journey`` pins them.
+    """
+    return "".join(line for line in text.splitlines(keepends=True)
+                   if not line.startswith(("coverage: ", "WARNING: only ")))
+
+
 def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
     work = tmp_path / name.replace("/", "-")
     (work / "accel-tuning").mkdir(parents=True)
@@ -143,7 +153,8 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
                     status = exc.code if isinstance(exc.code, int) else str(exc.code)
             steps.append({
                 "status": status,
-                "stdout": out.getvalue() if argv[1] == "analyze" else None,
+                "stdout": (_without_coverage_headline(out.getvalue())
+                           if argv[1] == "analyze" else None),
                 "stderr": err.getvalue().replace(str(work), "<work>"),
                 "calls": [[c.role, c.calls] for c in clients],
                 **_kept(argv, work),

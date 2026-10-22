@@ -823,5 +823,33 @@ def _print_headline(artifact: dict) -> None:
         f"degraded: {paired['lenient']['degraded']}, "
         f"dead tokens: {artifact['spans'].get('frac_carrying_nothing')}"
     )
+    _print_coverage(artifact.get("bundle") or {})
     for warning in artifact.get("warnings", []):
         print(f"WARNING {warning}", file=sys.stderr)
+
+
+def _print_coverage(bundle: dict) -> None:
+    """How much of the artifact's readable words this run read, on stdout.
+
+    The share is stated on stdout because the headline is what a user copies. A run under
+    the floor also says so on stdout: a stderr-only warning is one a user piping the
+    headline never sees, and a rate quoted off half-read skill is not a property of it.
+    """
+    from dokimi.novelty.bundle import MEASURED_SHARE_WARN_AT, Coverage
+
+    coverage = Coverage.from_record(bundle)
+    if coverage is None or not coverage.denominator("readable"):
+        return
+    share = coverage.measured_share
+    if share is None:
+        print("coverage: unknown (a bundled file did not decode, so its words are not counted)")
+        return
+    # Truncated, not rounded: 49.99% must not print as "50%" beside a "below 50%" warning.
+    pct = f"{int(share * 100)}%"
+    scope = "" if coverage.include_resources else " (entry point only)"
+    print(f"coverage: {pct} of the artifact's readable words were measured{scope}")
+    if share <= MEASURED_SHARE_WARN_AT:
+        rerun = ("" if coverage.include_resources or not coverage.measurable_resource_words
+                 else "; pass --include-resources to measure the bundled files")
+        print(f"WARNING: only {pct} of the artifact's readable words were measured, so every "
+              f"rate here describes that part, not the artifact{rerun}")

@@ -990,3 +990,24 @@ def test_measured_digest_format_is_pinned(tmp_path):
     ref.write_text("Modified reference text.", encoding="utf-8")
     bundle3 = load_bundle(f"skill:{skill.parent}", include_resources=True)
     assert bundle3.measured_digest() != digest
+
+
+def test_the_record_states_the_share_of_readable_words_this_run_read(tmp_path):
+    """100 entry words and 300 measurable reference words: an entry-point run read a quarter."""
+    bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path, entry=100, refs=300)}")
+    assert bundle.coverage().measured_share == 0.25
+    assert bundle.summary()["measured_share"] == 0.25
+    assert any(w.startswith("75% ") for w in bundle.coverage_warnings())
+
+
+def test_exactly_half_the_readable_words_read_is_warned_as_the_analyzer_always_has_been(tmp_path):
+    """The warning line is unchanged: a run that read half the readable words still warns."""
+    bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path, entry=300, refs=300)}")
+    assert bundle.coverage().measured_share == 0.5
+    assert any(w.startswith("50% ") for w in bundle.coverage_warnings())
+
+
+def test_a_bundle_run_that_read_everything_it_could_measures_all_of_it(tmp_path):
+    bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path, entry=100, refs=300)}",
+                         include_resources=True)
+    assert bundle.summary()["measured_share"] == 1.0
