@@ -226,3 +226,13 @@ def test_compare_with_nothing_scored_on_both_sides_is_not_no_change(compare, cap
 def test_compare_with_a_scored_pair_and_no_move_says_how_many_it_compared(compare, capsys):
     compare(_eval(), _eval(delta=2.5))
     assert "No notable changes vs baseline (1 of 1 questions compared)" in capsys.readouterr().out
+
+
+def test_compare_counts_only_questions_scored_on_both_sides(compare, capsys):
+    base, cur = _eval(), _eval(delta=2.5)
+    extra = [{**cur["evaluations"][0], "question_id": f"extra{i}", "delta": 1.0} for i in range(2)]
+    for e in extra:
+        e.pop("key", None)
+    cur["evaluations"] += extra
+    compare(base, cur)
+    assert "(1 of 3 questions compared)" in capsys.readouterr().out
