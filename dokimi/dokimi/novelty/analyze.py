@@ -447,5 +447,3 @@ def _outcomes_by_source(
             row["n_atoms"] = None
             row["unread"] = True
     return sorted(rows.values(), key=lambda r: (-r.get("added", 0), r["source"]))
-
-
