@@ -898,7 +898,8 @@ that runs the no-LLM checks on the caller's checkout and needs no secret.
   same framework and dependencies. Moving the pin is a change to the calling
   workflow, so it runs the smoke set.
 - Other inputs: `manifest`, `max-parallel` (4), `warm` (`--warm`, for a cache that
-  starts empty on every runner), `runs-on` (`ubuntu-latest`), `timeout-minutes`
+  starts empty on every runner), `allow-unsupported` (`--allow-unsupported`: a
+  task whose `host` requirements the runner misses passes its job), `runs-on` (`ubuntu-latest`), `timeout-minutes`
   (180, per task) and `dokimi-repository` (`intel/dokimi`).
 
 ```yaml
