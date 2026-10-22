@@ -46,6 +46,8 @@ FORWARDED_RUN_CONFIG_FIELDS = (
     "judge_panel",
     "concurrency",
     "stats_correction",
+    "session_turns",
+    "turn_reminder",
 )
 
 
@@ -289,6 +291,14 @@ def register(sub, positive_int) -> None:
                                  "'technical_expert,developer_advocate,doc_reviewer'). When "
                                  "set, --judge scores each answer with a panel and records "
                                  "grader spread and agreement instead of one opinion.")
+    arms_run_p.add_argument("--session-turns", type=positive_int, default=None, dest="session_turns",
+                            help="Measure multi-turn sessions: each question is asked as its question "
+                                 "followed by the first N-1 entries of its 'follow_ups' list, with the "
+                                 "history kept, and each turn's token and cache usage recorded. Non-agentic "
+                                 "arms only. Measurement only: refused with --judge")
+    arms_run_p.add_argument("--turn-reminder", default=None, dest="turn_reminder",
+                            help="With --session-turns, also run each arm as '<arm>+reminder', with this "
+                                 "text appended to every user turn in a <system-reminder> block")
     arms_run_p.add_argument("--concurrency", type=positive_int, default=5)
     arms_run_p.add_argument("--out-json", default=None, dest="out_json",
                             help="Output JSON path (default: results/arms/{product}.json)")
@@ -574,6 +584,10 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
     )
     from dokimi.treatments import create_treatments
 
+    session_turns = getattr(args, "session_turns", None)
+    if session_turns is not None and args.judge:
+        # Refused before any answer is paid for: a session is measured, not judged.
+        raise ValueError("--session-turns is measurement-only; drop --judge")
     treatments = create_treatments(specs, top_k=args.top_k, rerank_threshold=args.rerank_threshold)
     _validate_expected_skills(questions, treatments)
     try:
@@ -657,6 +671,8 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
         stats_correction=getattr(args, "stats_correction", "holm"),
         temperature=getattr(args, "temperature", None),
         seed=getattr(args, "seed", None),
+        session_turns=session_turns,
+        turn_reminder=getattr(args, "turn_reminder", None),
     )
     records = runner.run(
         library_name=args.product,

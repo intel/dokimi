@@ -36,6 +36,7 @@ from dokimi.eval.judge_context import JudgeContextStore
 from dokimi.eval.judge_context import build as build_judge_context
 from dokimi.eval.judge_context import cite as cite_judge_materials
 from dokimi.eval.judge_context import join_injected
+from dokimi.eval.session import REMINDER_ARM_SUFFIX, run_session, session_turns_of
 from dokimi.metrics.usage import to_record
 from dokimi.treatments.base import Treatment
 
@@ -132,9 +133,17 @@ class ArmRunner:
         stats_correction: str = "holm",
         temperature: Optional[float] = None,
         seed: Optional[int] = None,
+        session_turns: Optional[int] = None,
+        turn_reminder: Optional[str] = None,
     ):
         if not treatments:
             raise ValueError("ArmRunner requires at least one treatment arm")
+        if session_turns is not None and session_turns < 2:
+            raise ValueError(
+                f"session_turns must be at least 2 (one turn is the plain run), got {session_turns}"
+            )
+        if turn_reminder is not None and (session_turns is None or not turn_reminder.strip()):
+            raise ValueError("turn_reminder needs session_turns and non-blank text")
         # Rejected here rather than at summarize time: the correction is only
         # applied after every arm has been answered and judged, so a typo would
         # otherwise surface after the whole run has been paid for.
@@ -152,6 +161,8 @@ class ArmRunner:
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.seed = seed
+        self.session_turns = session_turns
+        self.turn_reminder = turn_reminder
         self.grounded_from_topics = grounded_from_topics
         self.harness = harness
         self.matrix_cell = matrix_cell
@@ -167,7 +178,10 @@ class ArmRunner:
 
     @property
     def arm_names(self) -> List[str]:
-        return [t.name for t in self.treatments]
+        names = [t.name for t in self.treatments]
+        if self.turn_reminder is not None:
+            names += [name + REMINDER_ARM_SUFFIX for name in names]
+        return names
 
     def _run_config(self) -> Dict[str, Any]:
         """Request-shaping settings, recorded so a run stays interpretable later.
@@ -199,6 +213,12 @@ class ArmRunner:
     ) -> List[Dict[str, Any]]:
         """Answer every question under every arm. Returns one record per question."""
         n = len(questions)
+        if self.session_turns is not None:
+            # Before any answer is paid for: a question short of follow-ups fails the run.
+            for i, q in enumerate(questions):
+                qid = question_id(q)
+                session_turns_of(q, question_text_of(q), self.session_turns,
+                                 label=f"#{i}" if qid is None else str(qid))
         results: Dict[int, Dict[str, Any]] = {}
         lock = threading.Lock()
         done = [0]
@@ -229,11 +249,25 @@ class ArmRunner:
         if qid is None:
             qid = "unknown_q"
 
+        turns = None
+        if self.session_turns is not None:
+            turns = session_turns_of(q, question_text, self.session_turns, label=qid)
+
         arms: Dict[str, Any] = {}
         for treatment in self.treatments:
-            arms[treatment.name] = self._answer_one_arm(
-                treatment, question_text, library_name, library_id, qid
+            if turns is None:
+                arms[treatment.name] = self._answer_one_arm(
+                    treatment, question_text, library_name, library_id, qid
+                )
+                continue
+            arms[treatment.name] = self._answer_session_arm(
+                treatment, turns, library_name, library_id, qid
             )
+            if self.turn_reminder is not None:
+                arms[treatment.name + REMINDER_ARM_SUFFIX] = self._answer_session_arm(
+                    treatment, turns, library_name, library_id, qid,
+                    reminder=self.turn_reminder,
+                )
 
         rec = {
             "question_id": qid,
@@ -244,6 +278,8 @@ class ArmRunner:
             "persona": q.get("persona"),
             "arms": arms,
         }
+        if turns is not None:
+            rec["session_turns"] = len(turns)
         # Selection label: present-and-None means "no skill should load", which is
         # why presence is tested rather than truthiness.
         if "expected_skill" in q:
@@ -360,6 +396,85 @@ class ArmRunner:
             ],
             "token_usage": rec.as_token_usage_dict(),
             "metrics": rec.as_metrics_dict(answer_chars=raw_chars, final_chars=final_chars),
+            "metadata": cfg_metadata,
+            "elapsed_sec": round(time.time() - t0, 2),
+        }
+
+    def _answer_session_arm(
+        self,
+        treatment: Treatment,
+        turns: List[str],
+        library_name: str,
+        library_id: Optional[str],
+        question_id: str,
+        reminder: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Answer one arm's multi-turn session; see :mod:`dokimi.eval.session`."""
+        t0 = time.time()
+        try:
+            cfg = treatment.prepare(turns[0], library_name, library_id)
+        except Exception as exc:
+            logger.exception("Arm %s prepare() failed", treatment.name)
+            return {"error": f"prepare_failed: {exc}", "answer": None,
+                    "metadata": _static_arm_kind(treatment)}
+
+        from dokimi.plugins import take_output_shapers
+        shapers, cfg_metadata = take_output_shapers(cfg)
+        if cfg.is_agentic:
+            return {"error": "session_unsupported: an agentic arm (tools) is answered in one "
+                             "turn only", "answer": None, "metadata": cfg_metadata}
+
+        # The opening message is the single-turn prompt, context included, so turn 1 of
+        # a session is the answer the plain run would have given.
+        if cfg.has_context:
+            context = join_injected(cfg.injected_context)
+            opening = (CONTEXT_PROMPT_PREFIX.format(context=context[:MAX_CONTEXT_CHARS])
+                       + CONTEXT_PROMPT_SUFFIX.format(question=turns[0]))
+        else:
+            opening = ANSWER_PROMPT_PLAIN.format(question=turns[0])
+
+        session = run_session(
+            model=self.model, provider=self.provider, api_key=self.api_key,
+            opening=opening, follow_ups=turns[1:], system=cfg.system_prompt,
+            max_tokens=self.max_tokens, temperature=self.temperature, seed=self.seed,
+            reminder=reminder,
+        )
+        session_block = {
+            "turns_requested": len(turns),
+            "turns": session["turns"],
+            "stopped_reason": session["stopped_reason"],
+            "reminder": reminder is not None,
+        }
+        if session["error"] is not None:
+            logger.error("Arm %s session failed for %s: %s", treatment.name,
+                         question_id, session["error"])
+            return {"error": f"generation_failed: {session['error']}", "answer": None,
+                    "session": session_block, "metadata": cfg_metadata}
+
+        raw_answer = session["answer"]
+        final_text = self._apply_shapers(shapers, raw_answer)
+        usage = session["usage"]
+        return {
+            "answer": final_text,
+            "raw_answer": raw_answer if shapers else None,
+            "model": self.model,
+            "harness": self.harness,
+            "plugin_set": self.plugin_set["plugin_set"],
+            "plugin_set_id": self.plugin_set["plugin_set_id"],
+            "used_system_prompt": bool(cfg.system_prompt),
+            "context_chunks": [
+                {
+                    "source": c.get("source", "unknown"),
+                    "snippet": (c["content"][:200] + "…") if len(c["content"]) > 200 else c["content"],
+                    "relevance_score": c.get("relevance_score"),
+                }
+                for c in cfg.injected_context
+            ],
+            # Whole-session totals, so the cost and token rollups read this arm like any other.
+            "token_usage": usage.as_token_usage_dict(),
+            "metrics": usage.as_metrics_dict(
+                answer_chars=len(raw_answer or ""), final_chars=len(final_text or "")),
+            "session": session_block,
             "metadata": cfg_metadata,
             "elapsed_sec": round(time.time() - t0, 2),
         }
@@ -496,6 +611,11 @@ class ArmRunner:
         recs = as_records(records, source="answers", kind="answers")
         # Before any judge call: refuse, do not grade against "".
         require_question_texts(r.raw for r in recs)
+        if any(r.raw.get("session_turns") for r in recs):
+            raise ValueError(
+                "Session records are measurement-only: the judge would score a session's last "
+                "answer against its first question. Judge a single-turn run instead."
+            )
         n = len(recs)
         out: Dict[int, Dict[str, Any]] = {}
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -538,6 +658,8 @@ class ArmRunner:
             "agentic_usage_summary": self._summarize_agentic_usage(records),
             "skill_selection_summary": summarize_skill_selection(records),
         }
+        if self.session_turns is not None:
+            out["session"] = {"turns": self.session_turns, "turn_reminder": self.turn_reminder}
         # One copy of each judge context the arm records cite, written whether or
         # not the run was judged, so an answers-only artifact can be judged later.
         materials = cite_judge_materials(records, self.judge_context)
