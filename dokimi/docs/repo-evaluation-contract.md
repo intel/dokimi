@@ -560,6 +560,12 @@ args_if_present:                     # argv added after the "{tools}" element wh
   directory, with `{config_dir}` and `{support_dir}` (the framework's helper
   scripts) as the agent's container sees them. The built-in `claude-code`
   profile uses them for a hook that refuses backgrounded shell commands.
+- `args_if_present` checks that the file exists, not that the harness accepts
+  it. The built-in `claude-code` profile passes `.mcp.json` as `--mcp-config`
+  in the `all` tool mode, and the CLI exits 1 before its first turn on a file
+  that is not valid MCP configuration (`{` for one). Every such cell is then
+  graded as a task failure, not reported as an agent error. Fix or remove the
+  file in the task base, or run the repository with `--tools read` or `none`.
 
 Profiles for other harnesses (Codex, Gemini CLI, Copilot CLI, Cursor agent,
 Aider, OpenCode, in-house agents) follow the same shape. Their `guidance`

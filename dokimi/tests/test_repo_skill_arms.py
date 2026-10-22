@@ -533,3 +533,72 @@ def test_the_base_check_drops_guidance_for_an_unpinned_revision_arm(tmp_path):
     with pytest.raises(ArmError, match=f"guidance revision {base} already has .claude/skills/lint"):
         check_arms([parse_arm(f"guidance:rev:{base}+skill:skills/lint")], root / ".agent-eval", tasks,
                    root / ".git", [".claude/skills/**"])  # ... and then writes the revision's own back
+
+
+def test_the_base_check_matches_a_skill_directory_not_a_name_prefix(tmp_path):
+    _skill(tmp_path / "toy", ".claude/skills/linter", "linter")  # the base ships linter, the arm installs lint
+    root, base = make_repo(tmp_path)
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    check_arms([parse_arm("skill:skills/lint")], root / ".agent-eval", [Task("t", {"base": base}, root)],
+               root / ".git")
+
+
+def test_the_base_check_counts_only_the_files_the_revision_writes_back(tmp_path):
+    root, base = make_repo(tmp_path)
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    write(root, ".claude/skills/lint/helper.py", "x = 1\n")  # tracked at HEAD, matched by no guidance glob
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "helper")
+    tasks = [Task("t", {"base": base}, root)]
+    arm = parse_arm("guidance:rev:HEAD+skill:skills/lint")
+    check_arms([arm], root / ".agent-eval", tasks, root / ".git", ["**/AGENTS.md"])  # preparation writes no helper
+    with pytest.raises(ArmError, match="guidance revision HEAD already has .claude/skills/lint"):
+        check_arms([arm], root / ".agent-eval", tasks, root / ".git", [".claude/skills/**"])
+
+
+def test_the_base_check_reads_the_pinned_commit_of_a_revision_arm_not_the_moved_branch(tmp_path):
+    from dokimi.repos.workspace import pin_arm
+
+    root, base = make_repo(tmp_path)
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    git(root, "branch", "guide")
+    pinned = pin_arm(parse_arm("guidance:rev:guide+skill:skills/lint"), root / ".git")
+    git(root, "checkout", "-q", "guide")
+    _skill(root, ".claude/skills/lint", "lint")  # the branch moves to a commit that ships the skill
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "moved")
+    tasks = [Task("t", {"base": base}, root)]
+    check_arms([pinned], root / ".agent-eval", tasks, root / ".git", [".claude/skills/**"])  # checked at the pin
+    with pytest.raises(ArmError, match="already has .claude/skills/lint"):
+        check_arms([parse_arm("guidance:rev:guide+skill:skills/lint")], root / ".agent-eval", tasks,
+                   root / ".git", [".claude/skills/**"])
+
+
+@pytest.mark.parametrize(("head", "name"), [
+    ("﻿---\nname: other\n---\nBody.\n", "a BOM"),
+    ("---   \nname: other\n---\nBody.\n", "trailing spaces after the fence"),
+])
+def test_a_frontmatter_with_a_bom_or_a_padded_fence_is_still_read(tmp_path, head, name):
+    (tmp_path / "skills" / "lint").mkdir(parents=True)
+    (tmp_path / "skills" / "lint" / "SKILL.md").write_bytes(head.encode("utf-8"))
+    with pytest.raises(ArmError, match="named 'other', but its directory is 'lint'"):
+        resolve_skills(parse_arm("skill:skills/lint"), tmp_path)
+
+
+def test_a_frontmatter_that_is_not_a_mapping_has_no_name(tmp_path):
+    for body in ("- a\n- b", "just text", ""):
+        write(tmp_path, "skills/lint/SKILL.md", f"---\n{body}\n---\nBody.\n")
+        assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]
+
+
+def test_a_read_of_a_skills_directory_is_not_a_use_of_a_skill():
+    events = [{"kind": "read", "path": ".claude/skills/lint"}, {"kind": "read", "path": ".claude/skills"},
+              {"kind": "read", "path": ""}]
+    used = skill_usage(events, ["lint"], "lint")
+    assert used["skills_used"] == [] and used["skill_invoked"] is False
