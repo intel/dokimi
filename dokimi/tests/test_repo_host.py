@@ -595,12 +595,17 @@ def test_a_host_miss_still_probes_isolation_and_skips_only_null(tmp_path, monkey
     assert "isolation" in race and "oracle" in race and "null" not in race
 
 
-def test_warm_does_not_judge_the_host(tmp_path, monkeypatch, capsys):
+def test_warm_judges_the_host_like_an_offline_check(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     runner = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
-    _check(root, tmp_path / "a", runner, monkeypatch, "--task", "fix_race", "--warm")
+    with pytest.raises(SystemExit) as exc:
+        _check(root, tmp_path / "a", runner, monkeypatch, "--task", "fix_race", "--warm")
+    assert exc.value.code == 1  # unsupported, not a passing null reported as broken
     race = json.loads((tmp_path / "a/check/check.json").read_text())["tasks"][0]
-    assert race["verdict"] != "unsupported" and "null" in race and race["warm"] is True
+    assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host" and race["warm"] is True
+    assert "null" not in race
+    _check(root, tmp_path / "b", runner, monkeypatch, "--task", "fix_race", "--warm", "--allow-unsupported")
+    assert "allowed by --allow-unsupported: fix_race" in capsys.readouterr().out
 
 
 def test_a_probe_failure_leaves_no_marker_for_report_to_count(tmp_path, monkeypatch, capsys):
