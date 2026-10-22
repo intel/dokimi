@@ -7,7 +7,6 @@ import hashlib
 import logging
 import json
 import math
-import re
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,7 +25,10 @@ from dokimi.records import BASELINE, CONTEXT, Record, RecordLike, records
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
-from dokimi.eval.panel import NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS
+from dokimi.eval.rubric import (
+    FORMAT_REMINDER, NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS,
+    cap_for_wrong_figures,
+)
 
 # The output format below uses N placeholders on purpose. Concrete example
 # scores anchor the model: a prompt that shows 85/90/80/85/90 gets those exact
@@ -36,7 +38,7 @@ _NO_EXAMPLE_SCORES = """- Replace every N with an integer 0-100, picked from the
 - Score each dimension independently; do not round them toward each other"""
 
 # The numeric-claims criterion, its enumeration step and output slot are shared
-# with the panel and live next to the shared score anchors in `eval/panel.py`,
+# with the panel and live next to the shared score anchors in `eval/rubric.py`,
 # with the measurements behind them.
 _NUMERIC_CLAIMS = NUMERIC_CLAIMS
 _NUMERIC_INSTRUCTION = NUMERIC_INSTRUCTION
@@ -157,14 +159,6 @@ JUDGE_PROMPT_SHA256 = "sha256:" + hashlib.sha256(
 ).hexdigest()
 
 MAX_GROUND_TRUTH_CHARS = 4000
-
-#: Appended to the prompt of a re-draw at pinned sampling, where the plain prompt
-#: would return the same malformed reply. Numbered so every re-draw differs.
-_FORMAT_REMINDER = (
-    "\n\nReminder (re-draw {n} of 2): your previous reply could not be parsed. "
-    "Reply with the JSON object only, in exactly the output format above, with "
-    "every listed key and an integer for every score."
-)
 
 #: Providers ``Judge.__init__`` accepts; CLI ``--judge-provider`` choices read this.
 JUDGE_PROVIDERS = ("openai", "anthropic", "google", "google-vertex", "openrouter", "amazon-bedrock")
@@ -446,86 +440,6 @@ class Judge:
     #: with an excerpt to check against, faithfulness to it *is* correctness.
     _GROUNDED_WEIGHTS = {**_STANDARD_WEIGHTS, "factual_grounding": 2.0}
 
-    #: A verdict after a colon, a dash or an opening parenthesis, optionally
-    #: qualified: "64 B: wrong", "64 B - wrong", "64 B (wrong)", "64 B: partially wrong".
-    #: It is tried first, so every claim it reads keeps its reading.
-    _VERDICT = re.compile(
-        r"(?::|\s[-\u2013\u2014]|\()\s*(?:[a-z]+ly\s+)?(wrong|incorrect|right|correct)\b", re.I
-    )
-    #: Gate for the fallback: the claim must contain a ``:``, a dash after whitespace (``-``,
-    #: en or em dash) or ``(`` somewhere (it may be inside the figure). The fallback searches
-    #: the whole claim; its end-anchor, not a start offset, is what keeps a ``/`` or ``,`` in
-    #: the figure from being read as the verdict.
-    _VERDICT_PART = re.compile(r":|\s[-\u2013\u2014]|\(")
-    #: Fallback for a claim ``_VERDICT`` cannot read. The verdict word must end the claim (only
-    #: whitespace, ``.`` and ``)`` may follow) and come after a separator or a ``,``, either
-    #: directly (``reasonable, not wrong``) or behind single-token ``/`` qualifiers that start
-    #: right there (``misleading/wrong``, ``L2/wrong``). A ``/`` deeper in prose or a path
-    #: (``see docs/wrong``, ``see section 4.2/wrong``) is not a verdict, so the claim stays
-    #: unread. A path right after the separator (``ref: tests/wrong``) reads like ``L2/wrong``;
-    #: only a path after a word, as in ``see docs/wrong``, stays unread. ``not`` flips it.
-    #: A ``/`` or ``,`` right after another verdict word (``right/wrong``, ``correct, wrong``)
-    #: is an alternative, not a verdict, so the claim stays unread; ``(?<!correct)`` also
-    #: covers ``incorrect``. Only the intensifiers in ``_INTENSIFIERS`` may qualify the word
-    #: here; any other ``-ly`` adverb (``hardly``, ``possibly``, ``formerly``) hedges or
-    #: dates the verdict and leaves the claim unread. A negated intensifier hedges in both
-    #: directions (``not entirely correct``, ``not entirely wrong``) and stays unread, while a
-    #: bare ``not correct`` is wrong. A verdict word with no separator in front stays unread on
-    #: purpose: ``correctly marked as WRONG to claim`` says the answer flagged a bad claim,
-    #: not that its figure is wrong.
-    _QUALIFIED_VERDICT = re.compile(
-        r"(?:(?::|\s[-\u2013\u2014]|\(|(?<!wrong)(?<!right)(?<!correct),)\s*"
-        r"(?:(?!(?:wrong|right|correct|incorrect)/)[\w.+-]+/)*)"
-        r"(not\s+)?(?:([a-z]+ly)\s+)?(wrong|incorrect|right|correct)[\s.)]*$",
-        re.I,
-    )
-    #: Adverbs that strengthen a fallback verdict instead of hedging it.
-    _INTENSIFIERS = frozenset({
-        "partially", "mostly", "largely", "completely", "totally", "entirely",
-    })
-
-    @classmethod
-    def _is_wrong_figure(cls, claim: Any) -> Optional[bool]:
-        """True for a claim judged wrong, None for one with no readable verdict."""
-        text = f": {claim.get('verdict')}" if isinstance(claim, dict) else claim
-        if not isinstance(text, str):
-            return None
-        match = cls._VERDICT.search(text)
-        if match is not None:
-            return match.group(1).lower() in ("wrong", "incorrect")
-        match = cls._QUALIFIED_VERDICT.search(text) if cls._VERDICT_PART.search(text) else None
-        if match is None:
-            return None
-        negated, adverb, word = match.groups()
-        if adverb and adverb.lower() not in cls._INTENSIFIERS:
-            return None
-        is_wrong_word = word.lower() in ("wrong", "incorrect")
-        if adverb and negated:
-            return None  # "not entirely correct" and "not entirely wrong" both hedge
-        if negated:
-            return not is_wrong_word
-        return is_wrong_word
-
-    @classmethod
-    def _cap_for_wrong_figures(cls, scores: Dict[str, Any]) -> None:
-        """Hold the prompt's promise: one wrong figure in `numeric_claims` caps correctness at 40.
-
-        The judged score is kept under `caps`, so a capped 40 can be told from a judged 40,
-        and the indexes of claims with no readable verdict under `unread_claims`.
-        """
-        claims = scores.get("numeric_claims")
-        if not isinstance(claims, list):
-            return
-        verdicts = [cls._is_wrong_figure(c) for c in claims]
-        unread = [i for i, wrong in enumerate(verdicts) if wrong is None]
-        if unread:
-            scores["unread_claims"] = unread
-        if any(verdicts):
-            judged = float(scores["correctness"])
-            if judged > 40.0:
-                scores["correctness"] = 40.0
-                scores["caps"] = {"correctness": {"judged": judged, "rule": "wrong_figure"}}
-
     @staticmethod
     def _check_scores(scores: Dict[str, Any], dims: Iterable[str]) -> None:
         """Make each of *dims* in *scores* a float on the 0-100 scale, in place.
@@ -613,7 +527,7 @@ class Judge:
             if missing:
                 raise ValueError(f"Missing keys in judge response: {missing}")
             self._check_scores(scores, weights.keys() | {"specificity"})
-            self._cap_for_wrong_figures(scores)
+            cap_for_wrong_figures(scores)
             return scores, self._compute_aggregate(scores, weights)
 
         def parses(raw: str) -> bool:
@@ -631,7 +545,7 @@ class Judge:
         def ask(attempt: int) -> Any:
             attempt_prompt = prompt
             if attempt and pinned:
-                attempt_prompt = prompt + _FORMAT_REMINDER.format(n=attempt)
+                attempt_prompt = prompt + FORMAT_REMINDER.format(n=attempt)
             return self.llm.invoke(attempt_prompt, draw=draw * 3 + attempt, cache_if=parses)
 
         # A rerun starts at the attempt whose reply is stored: the unparseable

@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 import dokimi.mcp.factory as mcp_factory
-from dokimi.eval.stats import detect_factorial_cells
+from dokimi.eval.interactions import detect_factorial_cells
 from dokimi.subjects.scorecard import _digest_arm_spec
 from dokimi.treatments import create_treatment
 from dokimi.treatments.specs import (

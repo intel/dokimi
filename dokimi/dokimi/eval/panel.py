@@ -29,6 +29,16 @@ from dokimi import caching
 from dokimi.llm import llm_call
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.question_text import require_question_texts
+# The panel had no numeric-claims criterion (see `eval/rubric.py`) until it was
+# measured against the gate's own `wrong_numbers` degradation (Haiku 4.5, 3
+# roles, 60 bases): 0.604 -> 0.792 on Sonnet's answers and 0.590 -> 0.795 on
+# Opus's, pooled +25/-8 pairs, McNemar p = 0.0046. `wrong_tools` dipped in both
+# runs (0.947 -> 0.895, 0.942 -> 0.904; pooled +5/-10, p = 0.30) — not
+# significant, and reported, not hidden.
+from dokimi.eval.rubric import (
+    FORMAT_REMINDER, NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS,
+    cap_for_wrong_figures,
+)
 from dokimi.records import BASELINE, CONTEXT, Answer, RecordLike, records
 
 logger = logging.getLogger(__name__)
@@ -55,72 +65,6 @@ ROLE_WEIGHTS: Dict[str, Dict[str, float]] = {
     "developer_advocate": {"correctness": 1.0, "completeness": 1.0, "specificity": 1.0, "code_quality": 1.5, "actionability": 2.0},
     "doc_reviewer":       {"correctness": 1.0, "completeness": 2.0, "specificity": 1.5, "code_quality": 1.0, "actionability": 1.0},
 }
-
-# ── Calibration anchors (shared) ──────────────────────────────────────────────
-
-SCORE_ANCHORS = """
-Score anchors — interpolate between these points:
-  100 = perfect: complete, accurate, specific, immediately usable
-   90 = excellent: tiny wording issues or one minor omission, no impact on usability
-   80 = good: correct and useful, one noticeable gap or slight imprecision
-   70 = acceptable: core answer is right, but missing some context or steps
-   60 = partial: answers part of the question well, ignores another part
-   50 = mediocre: significant gaps, or correct but too vague to act on
-   40 = weak: some useful info but notable inaccuracies or missing key details
-   30 = poor: mostly off-target or incorrect, one or two correct points
-   20 = very poor: nearly all wrong or irrelevant, misleads the user
-   10 = almost useless: one marginally correct detail in an otherwise wrong answer
-    0 = completely wrong, irrelevant, or harmful to follow
-"""
-
-# ── Numeric claims (shared with the single judge) ─────────────────────────────
-#
-# Wrong *magnitudes* were invisible to every judge measured: the judge-validity
-# gate's `wrong_numbers` degradation — which scales figures by 10x and swaps
-# units, leaving the prose intact and the length unchanged — scored 0.60 on the
-# shipped prompt (Haiku, 4 seeds, 156 pairs; 27% ties, mean score drop 1.9
-# points), i.e. the judge barely saw the edit. A single 20-base run of the full
-# 9-variant gate put it at 0.71; run-to-run spread on this gate is wide. It is attached to `correctness` rather than
-# given its own dimension because that is where a wrong number belongs, and
-# because `correctness` already carries double weight in the aggregate; a sixth
-# dimension would both re-dilute the weighting and break score comparability
-# with stored runs a second time.
-#
-# The wording names the *class* of error and deliberately no example of it. An
-# earlier version listed "ms where ns is meant, MB/s where GB/s, Hz where MHz"
-# and "off by an order of magnitude" — which are, verbatim, the substitutions and
-# the 10x scaling the gate's `wrong_numbers` generator applies, so its measured
-# gain was taken on the same perturbations the prompt described.
-NUMERIC_CLAIMS = """   Check the answer's *numbers*, not only its prose: every quoted magnitude,
-   unit, size, width, latency, rate or ratio is a factual claim. A figure that
-   is wrong for this question — wrong value or wrong unit — is a factual error
-   even when the sentence around it is fluent and confident, and caps
-   correctness at 40."""
-
-# Listed first in the output so the figures are written out before any score
-# is. Criterion + enumeration moved `wrong_numbers` significantly where the
-# criterion alone did not; the two were not compared head-to-head, so this is
-# the best reading, not an isolated effect. Putting it in the JSON makes the
-# enumeration visible in every stored judgement instead of asserted.
-NUMERIC_INSTRUCTION = """- First fill `numeric_claims`: copy out every figure the answer quotes, with
-  its unit (at most 20), and mark each right or wrong for this question. Then
-  score correctness; a single wrong figure caps it at 40"""
-
-# A JSON array, one entry per figure. A semicolon-separated string was tried to
-# cut malformed replies (with an array first, the model sometimes closes the
-# later `reasoning` object with `]`): it did — 9 extra calls per 247 judgements
-# instead of 26, against 5 for the stock prompt — but it scored lower on every
-# numeric variant in two independent runs, and in the replication it no longer
-# beat the old wording anywhere while the array did on all three (paired
-# McNemar p = 0.016 / 0.035 / 0.039). The malformed replies are retried by
-# `Judge._judge_answer` and `JudgePanel._call_judge`; 0-1 judgements per 247 still fail all three attempts.
-NUMERIC_OUTPUT = """  "numeric_claims": ["<figure with unit>: right|wrong", ...],"""
-
-# The panel had none of this until it was measured against the gate's own
-# `wrong_numbers` degradation (Haiku 4.5, 3 roles, 60 bases): 0.604 -> 0.792 on
-# Sonnet's answers and 0.590 -> 0.795 on Opus's, pooled +25/-8 pairs, McNemar
-# p = 0.0046. `wrong_tools` dipped in both runs (0.947 -> 0.895, 0.942 -> 0.904;
-# pooled +5/-10, p = 0.30) — not significant, and reported, not hidden.
 
 # ── Judge role prompts ────────────────────────────────────────────────────────
 
@@ -348,9 +292,6 @@ class JudgePanel:
                 return False
             return True
 
-        # judge.py imports this module, so its helpers are read here, not at import.
-        from dokimi.eval.judge import _FORMAT_REMINDER, Judge
-
         pinned = config.temperature is not None or config.seed is not None
         try:
             # Retry an unparseable reply rather than losing this role's vote to a
@@ -361,7 +302,7 @@ class JudgePanel:
             def ask(attempt: int) -> str:
                 attempt_prompt = prompt
                 if attempt and pinned:
-                    attempt_prompt = prompt + _FORMAT_REMINDER.format(n=attempt)
+                    attempt_prompt = prompt + FORMAT_REMINDER.format(n=attempt)
                 return llm_call(attempt_prompt, model=config.model, provider=config.provider,
                                 temperature=config.temperature, seed=config.seed,
                                 draw=attempt, cache_if=parses)
@@ -388,7 +329,7 @@ class JudgePanel:
             # judge's own rule, so the two cannot disagree about what it means.
             capped: Dict[str, Any] = {"correctness": scores["correctness"],
                                       "numeric_claims": data.get("numeric_claims")}
-            Judge._cap_for_wrong_figures(capped)
+            cap_for_wrong_figures(capped)
             scores["correctness"] = capped["correctness"]
             # Python computes aggregate (ignores any aggregate LLM might have returned)
             agg = self._compute_aggregate(config.role, scores) if scores else None
