@@ -166,7 +166,12 @@ def _cases() -> dict:
         "zero_scores": ([("z", _run(_Z))], ["z"], {}),
         # A baseline-only bucket whose only score is 0 prints 0.0, not a dash.
         "baseline_zero": (
-            [("a", _run([(0, ...), (40, ...), (50, ...)], difficulties=["easy", "medium", "hard"]))],
+            [
+                (
+                    "a",
+                    _run([(0, ...), (40, ...), (50, ...)], difficulties=["easy", "medium", "hard"]),
+                )
+            ],
             ["a"],
             {},
         ),
@@ -174,8 +179,22 @@ def _cases() -> dict:
         # 5 calls with the count read from ``n``, and one covering all 5.
         "unscored_and_arms": (
             [
-                ("u", _run(_U, arm=["docs", "skill:x"], cost_summary=_cost(total_cost_usd=2.0, cost_known_n=4, n=5))),
-                ("v", _run(_U, arm="docs", cost_summary=_cost(total_cost_usd=3.0, cost_known_n=5, total_llm_calls=5))),
+                (
+                    "u",
+                    _run(
+                        _U,
+                        arm=["docs", "skill:x"],
+                        cost_summary=_cost(total_cost_usd=2.0, cost_known_n=4, n=5),
+                    ),
+                ),
+                (
+                    "v",
+                    _run(
+                        _U,
+                        arm="docs",
+                        cost_summary=_cost(total_cost_usd=3.0, cost_known_n=5, total_llm_calls=5),
+                    ),
+                ),
             ],
             ["u", "v"],
             {},
@@ -184,7 +203,18 @@ def _cases() -> dict:
         "pooled_singletons_cost": (
             [
                 ("x", _run(_A, model="x", cost_summary=_FULL_COST)),
-                ("y", _run(_B, model="y", baseline_arm="control", cost_summary={"control": {"total_cost_usd": 0.5}, "baseline": {"total_cost_usd": 9.0}})),
+                (
+                    "y",
+                    _run(
+                        _B,
+                        model="y",
+                        baseline_arm="control",
+                        cost_summary={
+                            "control": {"total_cost_usd": 0.5},
+                            "baseline": {"total_cost_usd": 9.0},
+                        },
+                    ),
+                ),
             ],
             ["x", "y"],
             {"pool_replicates": True},
