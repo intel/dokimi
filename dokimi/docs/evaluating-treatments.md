@@ -588,6 +588,40 @@ Two things decide whether such a number means anything:
 - **Repeats.** Selection varies run to run; use `--attempts 3` or more and read the
   noise floor `reach diff` reports before calling a description change an improvement.
 
+### How to measure tool choice
+
+The same rules hold for skills, MCP tools and plain function tools.
+
+- **Score the calls, not the judge.** Which tool the agent called is in the
+  trace: the *Skill selection* table, `tool_preference.v1` `results`, a
+  transcript's `tool_usage` (the turn is in `first_call_iteration_by_name`, and
+  for skill tools in `skill.first_call_iteration`). A judge score mixes two things: whether
+  the tool was picked and whether its content helped. A better answer can come
+  from a tool the agent should not have needed. A call with arguments that do not
+  fit the tool's schema is not run. It is kept with its `error` and counted in
+  `tool_usage.call_errors`, and the other counters leave it out. Report it on its
+  own line: the agent picked the tool and could not use it.
+- **Compare against an equal alternative.** A choice tells you something only
+  when another offered tool would have done the job just as well. Otherwise it
+  measures whether the model can see that the task needs a tool. `tools
+  preference` builds such pairs (twins) and controls that need no tool, and it
+  swaps which twin is listed first. With both twins neutral, the first-listed one
+  is still not chosen exactly half the time, so a comparison that never swaps the
+  order mixes the position effect into the effect you are measuring.
+- **Repeat; do not pin.** Current reasoning models accept only `temperature=1`
+  ([Pinning sampling](benchmarking-and-comparison.md#pinning-sampling)), so the
+  choice varies from run to run. Run 3 or more repeats (`tools preference --reps 3`,
+  `reach eval --attempts 3`); for the other proxies, repeat the run. Read `same_choice_rate`, or the noise floor `reach diff` reports, before you read
+  an effect. A change smaller than the variation between repeats of one setting
+  is not an effect.
+- **Treat a proxy as an upper bound on effect size.** A one-call proxy (the
+  `skill-catalog:` arm, `tools preference`, `novelty routing`) shows every
+  description in full and gives the model no reason to explore first. In one
+  measured case the effect kept its direction on Claude Code but was about half
+  as large (−0.42 on the proxy, −0.20 on the harness;
+  [Tool preference](tool-preference.md)). Use the proxy to find and rank changes,
+  then confirm the ones you ship on the real harness with a pinned listing budget.
+
 ## Comparing cells across runs
 
 One treatment measured over several models is many artifacts, one per cell. Two tools read
