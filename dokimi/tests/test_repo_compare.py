@@ -233,7 +233,7 @@ def test_score_headroom_is_measured_against_score_max(tmp_path):
     assert _row(compare([e], "guidance:none"), "score")["headroom"] is None
 
 
-@pytest.mark.parametrize("turns,expected", [(None, None), (1, None), (5, "floor")])
+@pytest.mark.parametrize("turns,expected", [(None, None), (1, None), (5, "floor"), ("1", None)])
 def test_an_agent_outage_is_unmeasured_not_a_floor(tmp_path, turns, expected):
     b = tmp_path / "b1"
     for i in range(3):

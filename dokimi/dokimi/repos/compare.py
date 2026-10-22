@@ -526,8 +526,8 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
 def _agent_outage(rec: dict[str, Any]) -> bool:
     """A cell whose agent never ran: an error result with no turn count or at most one turn."""
     agent = rec.get("agent") or {}
-    turns = agent.get("num_turns")
-    return bool(agent.get("is_error")) and (turns is None or turns <= 1)
+    turns = _finite([agent.get("num_turns")])  # a count that is not a number is no count, as in the turns row
+    return bool(agent.get("is_error")) and (not turns or turns[0] <= 1)
 
 
 def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
