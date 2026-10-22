@@ -34,11 +34,13 @@ import json
 import math
 import random
 import re
+import hashlib
 from collections import Counter
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+from dokimi.skills import Skill
 from dokimi.utils import parse_frontmatter
 
 from .client import LLMClient, parse_json_object
@@ -386,7 +388,9 @@ def catalog_competitors(root: str, exclude: set[str],
     Skills come from the catalog reader, so a ``skills.yaml`` manifest decides which skills
     the catalog has. A declared skill that cannot be loaded is left out and described in
     ``notes`` (when given) rather than aborting the run. A skill with
-    ``disable-model-invocation`` is left out too, unless ``include_disabled``.
+    ``disable-model-invocation`` is left out too, unless ``include_disabled``. A mirror, a
+    byte-identical ``SKILL.md`` under another path (a plugin copy of the ``skills/`` tree), is
+    left out too: the copy nearest the catalog root stands for the card.
 
     Raises:
         ValueError: ``root`` is not a directory, or a skill under it cannot be loaded (with
@@ -396,7 +400,7 @@ def catalog_competitors(root: str, exclude: set[str],
 
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
-    candidates: list[Candidate] = []
+    eligible: list[tuple[Skill, str]] = []
     for entry in read_skill_manifest(Path(root)):
         skill = entry.skill
         if skill is None or not entry.loaded:
@@ -409,6 +413,23 @@ def catalog_competitors(root: str, exclude: set[str],
             if notes is not None:
                 notes.append(f"left out catalog skill {skill.name!r}: "
                              "disable-model-invocation (--include-disabled keeps it)")
+            continue
+        eligible.append((skill, hashlib.sha256(skill.path.read_bytes()).hexdigest()))
+
+    # The copy with the fewest path parts stands for each byte-identical group; ties go to
+    # the path that sorts first, so the choice does not depend on directory order.
+    keeper: dict[str, Skill] = {}
+    for skill, digest in eligible:
+        best = keeper.get(digest)
+        if best is None or (len(skill.path.parts), skill.path.as_posix()) < (
+                len(best.path.parts), best.path.as_posix()):
+            keeper[digest] = skill
+    candidates: list[Candidate] = []
+    for skill, digest in eligible:
+        if keeper[digest] is not skill:
+            if notes is not None:
+                notes.append(f"left out catalog skill {skill.name!r} at {skill.path}: "
+                             f"identical to {keeper[digest].path}")
             continue
         candidates.append(Candidate(name=skill.name, description=skill.description))
     return candidates

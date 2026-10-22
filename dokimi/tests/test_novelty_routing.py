@@ -600,3 +600,34 @@ def test_the_disable_flag_is_read_the_way_the_repo_budget_reads_it(tmp_path, lin
     path = tmp_path / "SKILL.md"
     path.write_text(f"---\nname: x\ndescription: x\n{line}\n---\n\nbody\n", encoding="utf-8")
     assert disables_model_invocation(path) is hidden
+
+
+def test_a_mirror_of_a_catalog_skill_is_counted_once(tmp_path, capsys):
+    # A plugin copy of the skills/ tree: byte-identical SKILL.md, same name. It used to make
+    # the field name db twice and refuse the run.
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf")
+    _catalog_skill(root, "db", "tune a slow database query")
+    mirror = root / "plugins" / "x" / "skills" / "db"
+    mirror.mkdir(parents=True)
+    (mirror / "SKILL.md").write_bytes((root / "skills" / "db" / "SKILL.md").read_bytes())
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["my binary is slow"]), encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
+                  "--catalog", str(root), "--queries", str(queries), "--out", str(out))
+    args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 2
+    err = capsys.readouterr().err
+    assert "identical to" in err and "skills" in err
+
+
+def test_the_mirror_kept_is_the_copy_nearest_the_catalog_root(tmp_path):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "db", "tune a slow database query")
+    deep = root / "plugins" / "x" / "skills" / "db"
+    deep.mkdir(parents=True)
+    (deep / "SKILL.md").write_bytes((root / "skills" / "db" / "SKILL.md").read_bytes())
+    notes: list[str] = []
+    assert [c.name for c in catalog_competitors(str(root), set(), notes)] == ["db"]
+    assert "plugins" in notes[0] and "identical to" in notes[0]

@@ -599,6 +599,9 @@ warning, so a shell glob over a skills directory can be passed as it is.
 A skill that sets `disable-model-invocation` is left out of the field, both from a catalog
 and as `--competitors`: no harness lists it, so the model cannot select it. Pass
 `--include-disabled` to keep it. The same flag goes on a disabled artifact warning.
+A catalog that holds the same `SKILL.md` under two paths (a plugin copy of its `skills/`
+tree) counts it once: the copy nearest the catalog root stands for the card, and the
+others are named on stderr.
 
 Two numbers, reported side by side and never merged:
 
