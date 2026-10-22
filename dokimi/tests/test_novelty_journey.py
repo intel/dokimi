@@ -13,6 +13,7 @@ re-render. A break between two steps -- a file one command writes and the next c
 from __future__ import annotations
 
 import json
+from decimal import ROUND_FLOOR, Decimal
 import re
 import shlex
 from pathlib import Path
@@ -165,7 +166,7 @@ def test_the_stdout_headline_says_how_much_of_the_artifact_was_read(tmp_path, sk
     measured = json.loads((entry_out / "novelty.json").read_text(encoding="utf-8"))[
         "bundle"]["measured_share"]
     assert measured < 0.5
-    assert f"coverage: {int(measured * 100)}% of the artifact's readable words were measured " \
+    assert f"coverage: {int(Decimal(str(measured)).scaleb(2).to_integral_value(ROUND_FLOOR))}% of the artifact's readable words were measured " \
            "(entry point only)" in printed
     assert "WARNING: only" in printed and "pass --include-resources" in printed
 

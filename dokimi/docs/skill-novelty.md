@@ -492,7 +492,10 @@ Things to know before reading a bundle result:
 - **The two modes are different cells.** `include_resources` is recorded in `run_config`;
   an entry-point run and a bundle run of the same skill are not comparable numbers. A run
   that read half or less of the readable words says so on stdout (the `coverage:` line
-  and a `WARNING`); an entry-point run also says so in `warnings`. The share is
+  and a `WARNING`), a bundle run held back by the word budgets included; an entry-point run
+  also says so in `warnings`. When a bundled file did not decode the share is unknowable:
+  stdout prints `coverage: unknown` (still warning if the entry point is half or less of
+  the readable words) and `bundle.measured_share` is `null`. The share is
   `bundle.measured_share` (for an entry-point run, `1 - measurable_outside_share`,
   which nets out the role decisions below; `outside_share` is the
   on-disk figure, and the two differ for a skill whose only resources are its evals).

@@ -841,15 +841,24 @@ def _print_coverage(bundle: dict) -> None:
     if coverage is None or not coverage.denominator("readable"):
         return
     share = coverage.measured_share
-    if share is None:
-        print("coverage: unknown (a bundled file did not decode, so its words are not counted)")
-        return
-    # Truncated, not rounded: 49.99% must not print as "50%" beside a "below 50%" warning.
-    pct = f"{int(share * 100)}%"
     scope = "" if coverage.include_resources else " (entry point only)"
+    rerun = ("" if coverage.include_resources or not coverage.measurable_resource_words
+             else "; pass --include-resources to measure the bundled files")
+    if share is None:
+        print("coverage: unknown (a bundled file did not decode, so its words are not "
+              f"counted){scope}")
+        # The share is unknowable, but the entry point's part of the readable words is not:
+        # the stderr warning fires on it, so stdout says it too.
+        if (not coverage.include_resources
+                and coverage.outside_share_on("readable") >= 1 - MEASURED_SHARE_WARN_AT):
+            print("WARNING: the entry point is half or less of the artifact's readable words, "
+                  f"so every rate here describes that part, not the artifact{rerun}")
+        return
+    # Floored on the 4-place share, in integers: a float product floors 0.29 to 28, and
+    # 49.99% must not print as "50%" beside a "below 50%" warning. A true 49.996% is already
+    # 0.5 by the time it is stored.
+    pct = f"{round(share * 10000) // 100}%"
     print(f"coverage: {pct} of the artifact's readable words were measured{scope}")
     if share <= MEASURED_SHARE_WARN_AT:
-        rerun = ("" if coverage.include_resources or not coverage.measurable_resource_words
-                 else "; pass --include-resources to measure the bundled files")
         print(f"WARNING: only {pct} of the artifact's readable words were measured, so every "
               f"rate here describes that part, not the artifact{rerun}")

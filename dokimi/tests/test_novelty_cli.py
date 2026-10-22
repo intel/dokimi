@@ -636,8 +636,44 @@ def test_the_headline_states_the_measured_share_and_warns_on_stdout_at_half_or_l
     out = capsys.readouterr().out
     assert "coverage: 50%" in out and "WARNING: only" not in out
 
-    # A file that did not decode leaves the share unknowable, and the headline says so.
+    # A file that did not decode leaves the share unknowable, and the headline says so,
+    # with the scope and, while the entry point is half or less of the words, the warning.
     novelty_cmd._print_headline(dict(artifact, bundle=dict(record, unreadable_files=1)))
     out = capsys.readouterr().out
-    assert "coverage: unknown" in out
-    assert "WARNING: only" not in out
+    assert "coverage: unknown" in out and out.count("(entry point only)") == 1
+    assert "WARNING: the entry point is half or less" in out
+    assert "pass --include-resources" in out
+    # An entry point that is most of the words does not warn, as the stderr warning does not.
+    novelty_cmd._print_headline(dict(artifact, bundle=dict(record, unreadable_files=1,
+                                                           entry_point_words=90,
+                                                           resource_words_on_disk=10)))
+    out = capsys.readouterr().out
+    assert "coverage: unknown" in out and "WARNING" not in out
+
+
+@pytest.mark.parametrize("entry, printed", [(29, "29%"), (57, "57%"), (58, "58%"),
+                                            (49, "49%"), (1, "1%")])
+def test_the_printed_percentage_is_the_share_not_a_float_product(capsys, entry, printed):
+    # 29 entry words in 100: 0.29 * 100 is 28.999999999999996, which int() floors to 28.
+    record = {"include_resources": False, "n_files": 1, "entry_point_words": entry,
+              "resource_words_measured": 0, "resource_words_on_disk": 100 - entry,
+              "policy_excluded_words": 0, "unreadable_files": 0, "excluded": [],
+              "coverage_basis": "readable"}
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record))
+    out = capsys.readouterr().out
+    assert f"coverage: {printed} of the artifact's readable words" in out
+
+
+def test_a_bundle_run_capped_by_the_budget_warns_without_advising_the_flag_it_passed(capsys):
+    # --include-resources was passed; the budget left most of the reference unread. The
+    # stderr warning list is silent about this, the stdout line is not, and it must not tell
+    # the user to pass a flag they already passed.
+    record = {"include_resources": True, "n_files": 2, "entry_point_words": 100,
+              "resource_words_measured": 50, "resource_words_on_disk": 500,
+              "policy_excluded_words": 0, "unreadable_files": 0, "excluded": [],
+              "coverage_basis": "readable"}
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record))
+    out = capsys.readouterr().out
+    assert "coverage: 25% of the artifact's readable words were measured\n" in out
+    assert "WARNING: only 25%" in out
+    assert "--include-resources" not in out

@@ -23,6 +23,7 @@ import io
 import json
 import os
 import sys
+from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -144,7 +145,8 @@ def _check_headline(coverage: dict[str, Any]) -> None:
         # No record to check against (an estimate, or a run that wrote none): nothing printed.
         assert printed == []
         return
-    pct = f"{int(share * 100)}%"
+    # An integer floor of the decimal share, not a float product (0.29 * 100 < 29).
+    pct = f"{int(Decimal(str(share)).scaleb(2).to_integral_value(ROUND_FLOOR))}%"
     assert printed, "a run with a record must print its coverage line"
     assert printed[0].startswith(
         f"coverage: {pct} of the artifact's readable words were measured"

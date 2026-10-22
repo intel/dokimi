@@ -684,6 +684,21 @@ def test_a_stamped_record_validates(tmp_path):
                                           schema_version="novelty.v1"))
 
 
+def test_a_record_with_an_unknowable_share_validates(tmp_path):
+    from dokimi.artifacts import validate_artifact
+
+    from tests.test_novelty_cli import _minimal_artifact
+
+    record = dict(load_bundle(f"skill:{_skill_with_evals(tmp_path)}").summary(),
+                  measured_share=None)
+    validate_artifact("novelty", dict(_minimal_artifact(), bundle=record,
+                                      schema_version="novelty.v1"))
+    with pytest.raises(Exception, match="measured_share"):
+        validate_artifact("novelty", dict(_minimal_artifact(),
+                                          bundle=dict(record, measured_share="most"),
+                                          schema_version="novelty.v1"))
+
+
 def test_a_note_before_measuring_says_what_will_not_be_read(skill):
     assert "will not be measured" in load_bundle(f"skill:{skill}").coverage_note()
     assert "--include-resources" in load_bundle(f"skill:{skill}").coverage_note()
