@@ -484,3 +484,23 @@ def test_the_selected_correct_rate_counts_only_cells_whose_task_names_a_skill(tm
     row = summary["rows"][0]
     assert (row["skill_measured"], row["skill_expected"], row["skill_selected_correct"]) == (4, 2, 1)
     assert "1/2 skill selected correct" in format_report(summary) and "4/4 skill invoked" in format_report(summary)
+
+
+def test_a_skill_path_whose_leaf_is_not_its_directory_name_is_refused(tmp_path):
+    _skill(tmp_path, "skills/lint-v2", "lint-v2")
+    (tmp_path / "skills" / "current").symlink_to("lint-v2")  # the arm would be skill:current, the install lint-v2
+    with pytest.raises(ArmError, match="resolves to a directory named 'lint-v2', not 'current'"):
+        resolve_skills(parse_arm("skill:skills/current"), tmp_path)
+    assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint-v2"), tmp_path)] == ["lint-v2"]
+
+
+def test_the_base_check_drops_guidance_for_an_unpinned_revision_arm(tmp_path):
+    _skill(tmp_path / "toy", ".claude/skills/lint", "lint")
+    root, base = make_repo(tmp_path)
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    _skill(root, ".claude/skills/lint", "lint")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    tasks = [Task("t1", {"base": base}, root)]
+    check_arms([parse_arm(f"guidance:rev:{base}+skill:skills/lint")], root / ".agent-eval", tasks, root / ".git",
+               [".claude/skills/**"])  # repo run pins the arm and removes the base's skill first

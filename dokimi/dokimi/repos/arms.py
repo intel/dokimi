@@ -59,6 +59,9 @@ def resolve_skills(arm: Any, content_dir: Path) -> list[Skill]:
     found: list[Skill] = []
     for kind, path in arm.skills:
         root = _skill_path(path, content_dir)
+        if PurePosixPath(path).name != root.name:  # the arm is named from the written leaf, the install from root
+            raise ArmError(f"arm {arm.spec!r}: {path} resolves to a directory named {root.name!r}, not "
+                           f"{PurePosixPath(path).name!r}; point at the directory itself, as its name names the arm")
         if kind == "skill":
             if not (root / "SKILL.md").is_file():
                 raise ArmError(f"arm {arm.spec!r}: no SKILL.md in {path}")
@@ -172,7 +175,7 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
             raise ArmError(f"arms {cells[cell]!r} and {arm.spec!r} would share one result directory ({cell})")
         skills = resolve_skills(arm, content_dir)
         names = {s.name for s in skills}
-        drops = arm.patch is None and (arm.base == "guidance:none" or arm.rev_sha is not None)
+        drops = arm.patch is None and (arm.base == "guidance:none" or arm.rev is not None)
         for task in tasks if skills else ():
             if git_dir is None:
                 break
