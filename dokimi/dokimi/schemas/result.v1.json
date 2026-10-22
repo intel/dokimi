@@ -16,6 +16,7 @@
       "items": {
         "type": "object",
         "required": ["cell_id", "status"],
+        "additionalProperties": false,
         "properties": {
           "cell_id": {"type": "string", "minLength": 1},
           "status": {"enum": ["pass", "fail", "inconclusive", "invalid", "infra_error", "not_run"]},

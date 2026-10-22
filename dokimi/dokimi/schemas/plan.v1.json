@@ -16,6 +16,7 @@
       "items": {
         "type": "object",
         "required": ["id", "sha", "fingerprint"],
+        "additionalProperties": false,
         "properties": {
           "id": {"type": "string", "minLength": 1},
           "kind": {"type": "string"},
@@ -30,6 +31,7 @@
       "items": {
         "type": "object",
         "required": ["id", "hash", "reasons"],
+        "additionalProperties": false,
         "properties": {
           "id": {"type": "string", "minLength": 1},
           "hash": {"type": "string", "minLength": 1, "description": "digest of the suite's task/question content"},
@@ -44,6 +46,7 @@
     "grader": {
       "type": "object",
       "required": ["id", "digest"],
+      "additionalProperties": false,
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "digest": {"type": ["string", "null"], "description": "digest of the verifier or judge prompt the run grades with"}
@@ -76,6 +79,7 @@
     "budget": {
       "type": "object",
       "required": ["cells"],
+      "additionalProperties": false,
       "properties": {
         "cells": {"type": "integer", "minimum": 0},
         "agent_calls": {"type": ["integer", "null"], "minimum": 0},
