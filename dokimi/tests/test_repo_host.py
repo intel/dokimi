@@ -33,7 +33,7 @@ from dokimi.repos.host import (
 from dokimi.repos.manifest import parse_manifest
 from dokimi.repos.report import format_report, load_cells, load_unsupported, summarize
 from dokimi.repos.runner import UNSUPPORTED_FILE, _mark_unsupported, run_batch
-from dokimi.repos.workspace import Task
+from dokimi.repos.workspace import PrepError, Task, prepare_workspace
 from repo_eval_fixture import MANIFEST, FakeRunner, fake_harness, make_repo
 
 INTEL_CPUINFO = ("processor\t: 0\nvendor_id\t: GenuineIntel\nmodel name\t: Intel(R) Xeon(R) Platinum 8480+\n"
@@ -606,6 +606,54 @@ def test_warm_judges_the_host_like_an_offline_check(tmp_path, monkeypatch, capsy
     assert "null" not in race
     _check(root, tmp_path / "b", runner, monkeypatch, "--task", "fix_race", "--warm", "--allow-unsupported")
     assert "allowed by --allow-unsupported: fix_race" in capsys.readouterr().out
+
+
+def test_a_prepare_error_on_the_null_step_is_a_problem_and_the_oracle_still_runs(tmp_path, monkeypatch):
+    root = _repo(tmp_path)
+    real = prepare_workspace
+
+    def prepare(git_dir, manifest, task, arm, rd):
+        if rd.name.endswith("__null"):
+            raise PrepError("no such revision")
+        return real(git_dir, manifest, task, arm, rd)
+
+    monkeypatch.setattr("dokimi.repos.selfcheck.prepare_workspace", prepare)
+    with pytest.raises(SystemExit) as exc:
+        _check(root, tmp_path / "a", HostRunner(_probe_out()), monkeypatch, "--task", "fix_add")
+    assert exc.value.code == 1
+    add = json.loads((tmp_path / "a/check/check.json").read_text())["tasks"][0]
+    assert add["verdict"] == "broken" and add["problems"] == ["null: no such revision"]
+    assert "null" not in add and "oracle" in add
+
+
+def test_an_oracle_that_exits_non_zero_is_a_problem_and_its_grade_is_not_run(tmp_path, monkeypatch):
+    class FailingOracle(HostRunner):
+        def run(self, spec, *, stdout, stderr, timeout_s):
+            if (spec.name or "").split("-")[-2] == "oracle":
+                stdout.write_text("")
+                stderr.write_text("")
+                return ContainerResult(returncode=3, timed_out=False, wall_s=0.0)
+            return super().run(spec, stdout=stdout, stderr=stderr, timeout_s=timeout_s)
+
+    root = _repo(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        _check(root, tmp_path / "a", FailingOracle(_probe_out()), monkeypatch, "--task", "fix_add")
+    assert exc.value.code == 1
+    add = json.loads((tmp_path / "a/check/check.json").read_text())["tasks"][0]
+    assert add["verdict"] == "broken" and len(add["problems"]) == 1
+    assert add["problems"][0].startswith("oracle exited 3; see ")
+    assert add["oracle_run"]["rc"] == 3 and "oracle" not in add and "null" in add
+
+
+def test_warm_runs_the_grade_with_the_bridge_network(tmp_path, monkeypatch):
+    root = _repo(tmp_path)
+    runner = HostRunner(_probe_out())
+    _check(root, tmp_path / "a", runner, monkeypatch, "--task", "fix_add", "--warm")
+    grades = [s for s in runner.specs if (s.name or "").split("-")[-2] == "grade"]
+    assert len(grades) == 2 and {s.network for s in grades} == {"bridge"}
+    plain = HostRunner(_probe_out())
+    _check(root, tmp_path / "b", plain, monkeypatch, "--task", "fix_add")
+    assert {s.network for s in plain.specs if (s.name or "").split("-")[-2] == "grade"} == {"none"}
 
 
 def test_a_probe_failure_leaves_no_marker_for_report_to_count(tmp_path, monkeypatch, capsys):
