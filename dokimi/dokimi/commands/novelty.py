@@ -379,7 +379,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         print(f"model    selection {row['selection_rate']}  "
               f"({row['selection_rate_among_answered']} among answered; "
               f"{row['n_abstained']} abstained, {row['n_failed']} failed)  "
-              f"[{row['model']}]  n_queries {row['n_queries']}{tag}")
+              f"[{row['model']}]  n_queries {row['n_queries']} given{tag}")
         print("The model figure is an upper bound on harness behaviour: a harness that "
               "truncates descriptions in its own listing selects on less text.")
     if self_derived:

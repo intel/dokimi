@@ -559,3 +559,64 @@ def test_fewer_than_five_scored_queries_are_warned_about_on_stdout(tmp_path, cap
 
     assert "WARNING: only 2 queries scored" in run(2)
     assert "WARNING" not in run(5)
+
+
+@pytest.mark.parametrize("opener", ["```js `x`", "\t```"])
+def test_a_line_that_is_not_a_fence_does_not_hide_the_headings_after_it(opener):
+    # An info string with a backtick, or a tab indent, is not a fence by CommonMark's rules.
+    assert headings_as_queries(f"{opener}\n## Real heading one\n") == ["Real heading one"]
+
+
+def test_a_four_space_indented_fence_is_indented_code_not_a_fence():
+    assert headings_as_queries("    ```\n## Real heading one\n") == ["Real heading one"]
+
+
+def test_a_tilde_line_does_not_close_a_backtick_block():
+    body = "```\n~~~\n## Hidden heading one\n```\n## Real heading one\n"
+    assert headings_as_queries(body) == ["Real heading one"]
+
+
+def test_a_fence_with_an_info_string_does_not_close_a_block():
+    body = "```\n```js\n## Hidden heading one\n```\n## Real heading one\n"
+    assert headings_as_queries(body) == ["Real heading one"]
+
+
+def _routing_with_model(tmp_path, monkeypatch, queries_text):
+    from dokimi.commands import novelty as novelty_cmd
+
+    calls = []
+
+    def transport(prompt, system):
+        calls.append(prompt)
+        return json.dumps({"pick": 1}), None
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model="fake", role=role, transport=transport))
+    queries = tmp_path / "q.txt"
+    queries.write_text(queries_text, encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary run"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--model", "m", "--out", str(out))
+    return args, calls
+
+
+def test_the_model_row_says_its_query_count_is_of_all_given(tmp_path, monkeypatch, capsys):
+    args, calls = _routing_with_model(tmp_path, monkeypatch,
+                                      "profile a binary run\nthe of a\nhow do I\n")
+    args.func(args)
+    lines = capsys.readouterr().out.splitlines()
+    lexical = next(line for line in lines if line.startswith("lexical"))
+    model = next(line for line in lines if line.startswith("model"))
+    assert "n_queries 1 of 3 given" in lexical
+    assert "n_queries 3 given" in model
+    assert len(calls) == 3
+
+
+def test_a_run_with_no_scorable_query_makes_no_model_call(tmp_path, monkeypatch):
+    args, calls = _routing_with_model(tmp_path, monkeypatch, "the of a\nhow do I\n")
+    with pytest.raises(SystemExit, match="no usable queries"):
+        args.func(args)
+    assert calls == []
+    assert json.loads((tmp_path / "routing.json").read_text())["status"] == "no_queries"

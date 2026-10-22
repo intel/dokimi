@@ -309,7 +309,9 @@ def model_routing(
     }
 
 
-_FENCE = re.compile(r"\s{0,3}(`{3,}|~{3,})")
+# Only spaces indent a fence (a tab is four columns, so it makes indented code), and a
+# backtick opener may not carry a backtick in its info string; both are CommonMark rules.
+_FENCE = re.compile(r" {0,3}(`{3,}(?!.*`)|~{3,})")
 
 
 def _outside_fences(body: str) -> str:
