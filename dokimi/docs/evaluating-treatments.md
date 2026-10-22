@@ -575,9 +575,10 @@ Two things decide whether such a number means anything:
 
 The same rules hold for skills, MCP tools and plain function tools.
 
-- **Score the calls, not the judge.** Which tool the agent called, and in which
-  turn, is in the trace: the *Skill selection* table, `tool_preference.v1`
-  `results`, a transcript's `tool_usage`. A judge score mixes two things: whether
+- **Score the calls, not the judge.** Which tool the agent called is in the
+  trace: the *Skill selection* table, `tool_preference.v1` `results`, a
+  transcript's `tool_usage` (the turn is in `first_call_iteration_by_name`, and
+  for skill tools in `skill.first_call_iteration`). A judge score mixes two things: whether
   the tool was picked and whether its content helped. A better answer can come
   from a tool the agent should not have needed. A call with arguments that do not
   fit the tool's schema is not run. It is kept with its `error` and counted in
