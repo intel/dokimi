@@ -1,3 +1,7 @@
+---
+depends_on:
+  - dokimi/dokimi/metrics/example_runner.py
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

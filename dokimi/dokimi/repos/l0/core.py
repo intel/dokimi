@@ -15,12 +15,13 @@ import fnmatch
 import posixpath
 import re
 import shlex
+import textwrap
 from urllib.parse import unquote
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..source import RepoTree, SourceError
-from .markdown import SHELL_LANGS, STARLARK_LANGS, Fence, split
+from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 
 # Files whose words are prose, not code: an identifier found only there is not in the code.
 # Build inputs that happen to end in .txt are code.
@@ -50,6 +51,10 @@ _WRAPPED = re.compile(r"^`([^`]+)`(\s+#.*)?$")  # a whole command in backticks, 
 # `2>&1`, `> log`, `>>log`, `&>/dev/null`, `< in`: a redirection and its target, not arguments.
 _REDIRECT = re.compile(r"(?:(?<=\s)|^)[0-9]?(?:&>>?|>>?|<)(?:&[0-9]+|\s*[^\s|;&<>]+)")
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)")
+# `<name>`, `<path/to/src>` or `<source dir>`: a placeholder to fill in, not redirections. Its first word is a name
+# (`<in.txt scripts/x.py 2>` is an input redirection: a dot ends the first word), and it does not end in a space, in a
+# file descriptor (`2>`) or before `&` (`2>&1`); a heredoc `<<EOF>` is not a placeholder either.
+_FILL_IN = re.compile(r"(?<!<)<[A-Za-z_][\w/-]*(?:[ \t][^<>\n;&|]*[^\s<>;&|])?(?<!\s\d)>(?!&)")
 _CONTROL = frozenset({"&&", "||", "|", ";", "&", "|&", ";;", "(", ")"})
 _CONTROL_RUN = re.compile(r"&&|\|\||\|&|;;|[;&|()]")
 # A ref that is one path segment: a default branch, a commit or a version tag. Any other ref may hold slashes.
@@ -124,6 +129,7 @@ class Scan:
         for x in sorted(self.file_set | (self.dir_set - {"."})):
             self.by_name.setdefault(posixpath.basename(x), []).append(x)
         self._texts: dict[str, str] = {}
+        self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
         self._words: set[str] | None = None
         self._cache: dict[str, Any] = {}  # adapter facts
         self.submodules = self._submodules()
@@ -134,14 +140,24 @@ class Scan:
 
     # ---------- reading ----------
     def preload(self, paths: list[str], skipped: dict[str, str] | None = None) -> None:
-        missing = [p for p in paths if p not in self._texts and p in self.file_set]
+        # a path already found unreadable (by detect, say) is not read again, but the caller still learns why
+        if skipped is not None:
+            skipped.update({p: self.unread[p] for p in paths if p in self.unread})
+        missing = [p for p in paths if p not in self._texts and p not in self.unread and p in self.file_set]
         if missing:
-            self._texts.update(self.tree.read_many(missing, skipped=skipped))
+            skip = {} if skipped is None else skipped
+            self._texts.update(self.tree.read_many(missing, skipped=skip))
+            self.unread.update(skip)
 
     def text(self, path: str) -> str:
         if path not in self._texts and path in self.file_set:
             self.preload([path])
         return self._texts.get(path, "")
+
+    def unread_reason(self, path: str) -> str | None:
+        """Why ``path`` is in the tree but its text was not read; None when it was read (or never was)."""
+        self.text(path)
+        return self.unread.get(path)
 
     def words(self) -> set[str]:
         """Every word in tracked non-doc text files, for identifier claims."""
@@ -252,11 +268,7 @@ class Scan:
         p = raw.strip().rstrip(".,:;")
         if not p or p.startswith(("http", "~", "-", "%")) or dynamic(p) or "=" in p or " " in p:
             return None
-        bases = [""]
-        d = posixpath.dirname(file)
-        while d:
-            bases.append(d)
-            d = posixpath.dirname(d)
+        bases = ancestors(file)
         head, _, rest = p.partition("/")
         if rest and _PLACEHOLDER.match(head):
             return self._under_placeholder(head, rest.rstrip("/"))
@@ -412,6 +424,12 @@ class Scan:
             if entry is not None and entry[0] in self.adapters:
                 entry[1](self, file, line, toks, text)
 
+    @property
+    def cd_dirs(self) -> list[str] | None:
+        """Where a literal ``cd`` in this fence or span moved to (``""`` is the root); ``[]`` after a ``cd`` that
+        cannot be followed, ``None`` when there was no ``cd``."""
+        return None if self._cd is None else list(self._cd)
+
     def _scope(self, control: str) -> None:
         """A `(` saves the directory a subshell starts in, a `)` restores it."""
         if control == "(":
@@ -432,14 +450,7 @@ class Scan:
                 or before in ("||", "|", "|&", "&") or after in ("|", "|&", "&")):
             self._cd = []
             return
-        if self._cd is None:
-            bases = [""]
-            d = posixpath.dirname(file)
-            while d:
-                bases.append(d)
-                d = posixpath.dirname(d)
-        else:
-            bases = self._cd
+        bases = ancestors(file) if self._cd is None else self._cd
         dirs = dict.fromkeys(posixpath.normpath(posixpath.join(b, target)) for b in bases)
         self._cd = ["" if d == "." else d for d in dirs
                     if not d.startswith("..") and self.exists(d) and not self.is_file(d)]
@@ -447,8 +458,10 @@ class Scan:
     def check_fence(self, file: str, fence: Fence) -> None:
         from . import adapters
 
-        if fence.lang in STARLARK_LANGS:
-            if "bazel" in self.adapters:
+        if fence.lang in STARLARK_LANGS or fence.lang in PYTHON_LANGS:
+            code = textwrap.dedent("\n".join(text for _, text in fence.lines)).split("\n")
+            fence = Fence(fence.line, fence.lang, [(n, t) for (n, _), t in zip(fence.lines, code, strict=True)])  # in a list item
+            if "bazel" in self.adapters and (fence.lang in STARLARK_LANGS or adapters.reads_as_build(self, fence)):
                 adapters.check_starlark(self, file, fence)
             return
         if fence.lang not in SHELL_LANGS:
@@ -475,6 +488,16 @@ class Scan:
             self.check_span(file, n, span, ctx)
         for fence in pieces.fences:
             self.check_fence(file, fence)
+
+
+def ancestors(file: str) -> list[str]:
+    """The root, then the directory of ``file`` and each directory above it: where a relative path in it is tried."""
+    bases = [""]
+    d = posixpath.dirname(file)
+    while d:
+        bases.append(d)
+        d = posixpath.dirname(d)
+    return bases
 
 
 def _heredoc_tag(text: str) -> str:
@@ -567,9 +590,10 @@ def shell_items(text: str) -> list[list[str] | str]:
     """The simple commands of a shell line, with the operators between them as strings.
 
     Redirections and their targets are dropped, and so are leading ``VAR=value``
-    assignments and ``sudo`` / ``env`` / ``time``.
+    assignments and ``sudo`` / ``env`` / ``time``. A ``<placeholder>`` becomes ``$_``, like an
+    expansion: the word it is in is not literal text.
     """
-    text = _REDIRECT.sub(" ", _substitutions(text))
+    text = _REDIRECT.sub(" ", _FILL_IN.sub("$_", _substitutions(text)))
     lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     lexer.commenters = ""

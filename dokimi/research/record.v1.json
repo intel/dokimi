@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/research/record.v1.json",
+  "title": "Research register record (front matter of research/records/<type>/<id>.md)",
+  "description": "One schema per record type under $defs; scripts/research_register.py picks it by `type`. References are ids; the register checks they resolve to a record of the right type.",
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Z]+[0-9]{3}$"},
+    "ids": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+    "text": {"type": "string", "minLength": 1},
+    "date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "url": {"type": "string", "pattern": "^https://github\\.com/(intel|napetrov)/(?!(.*/)?\\.\\.(/|$))[A-Za-z0-9_./#?=&~+:@,-]+$"},
+    "theme": {
+      "description": "Branch of the plans-and-research map.",
+      "enum": ["P", "E", "V", "K", "G", "O", "C", "D", "W"]
+    },
+    "common": {
+      "type": "object",
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "type": {"type": "string"},
+        "title": {"$ref": "#/$defs/text"},
+        "date": {"$ref": "#/$defs/date"},
+        "links": {"type": "array", "items": {"$ref": "#/$defs/url"}, "uniqueItems": true}
+      },
+      "required": ["id", "type", "title", "date"]
+    },
+    "idea": {
+      "$ref": "#/$defs/common",
+      "properties": {
+        "type": {"const": "idea"},
+        "theme": {"$ref": "#/$defs/theme"},
+        "question": {"$ref": "#/$defs/text"},
+        "status": {"enum": ["open", "parked", "closed"]}
+      },
+      "required": ["theme", "question", "status"],
+      "unevaluatedProperties": false
+    },
+    "experiment": {
+      "$ref": "#/$defs/common",
+      "properties": {
+        "type": {"const": "experiment"},
+        "idea": {"$ref": "#/$defs/id"},
+        "hypothesis": {"$ref": "#/$defs/text"},
+        "outcome": {
+          "description": "What the evidence showed. planned/running: no result yet. Negative and inconclusive outcomes stay in the register.",
+          "enum": ["planned", "running", "supported", "refuted", "inconclusive", "aborted"]
+        },
+        "retracted": {"type": "boolean"}
+      },
+      "required": ["idea", "hypothesis", "outcome"],
+      "unevaluatedProperties": false
+    },
+    "finding": {
+      "$ref": "#/$defs/common",
+      "properties": {
+        "type": {"const": "finding"},
+        "experiments": {"$ref": "#/$defs/ids", "minItems": 1},
+        "confidence": {"enum": ["low", "med", "high"]}
+      },
+      "required": ["experiments", "confidence"],
+      "unevaluatedProperties": false
+    },
+    "decision": {
+      "$ref": "#/$defs/common",
+      "properties": {
+        "type": {"const": "decision"},
+        "findings": {"$ref": "#/$defs/ids"},
+        "ideas": {"$ref": "#/$defs/ids"},
+        "state": {"enum": ["accepted", "rejected", "deferred", "superseded"]},
+        "superseded_by": {"$ref": "#/$defs/id"}
+      },
+      "required": ["state"],
+      "unevaluatedProperties": false
+    },
+    "implref": {
+      "$ref": "#/$defs/common",
+      "properties": {
+        "type": {"const": "implref"},
+        "decision": {"$ref": "#/$defs/id"},
+        "status": {
+          "description": "Implementation state, kept apart from the decision state.",
+          "enum": ["proposed", "open", "merged", "closed"]
+        }
+      },
+      "required": ["decision", "status", "links"],
+      "unevaluatedProperties": false
+    }
+  }
+}

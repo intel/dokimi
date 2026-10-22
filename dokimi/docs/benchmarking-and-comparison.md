@@ -474,19 +474,30 @@ under several judges (absolute, and with `--grounded` against each question's
 measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` or
 `NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote. With
 `--validity` reports, a judge that failed its gate is shown but does not vote
-(its grounded and checklist measures included); `--require-validated` leaves
-only judges that passed. The stored scores are labelled from the file's
-`judge_provider`/`judge_model` (`provider/model (stored)`), so a `--validity`
-report for that judge reaches them and a verdict resting on it alone reads
-`(one judge)`. Re-scoring resolves each arm's context the way the arms run does,
-from the file's `judge_materials`, so a `--judges` judge sees what the stored
-judge saw. A file written before `judge_materials` has only the report snippets;
-with stored scores on such material, `--judges` refuses (exit 2), and
-`--pairwise` or `--checklist` always do, since those judges see only the answers.
-`--no-stored` compares those judges with each other. The gate itself (and `eval pairwise` / `eval checklist`) passes no
-context, so it validates a judge only in the no-context setting. A label whose significant measures all rest on one judge says `(one judge)`; an escalated pairwise measure counts as its cheap judge's. Gate a judge on
-answers from the same answer model it will judge: `cross-judge` warns when the
-validity report was measured on another model's answers.
+(its grounded and checklist measures included, in any context);
+`--require-validated` leaves only judges that passed. The stored measure is
+named `provider/model (stored)` from the file's `judge_provider`/`judge_model`,
+and a validity report names `provider/model`. A PASS validates only measures of
+the same context: a `--context stored` report for measures scored with material,
+a `--context none` report (or one without `context`) for the rest. A stored file
+whose scores all fell back to snippets counts as `none`; one that mixes stored and
+snippet scores counts as `mixed`, which no PASS validates (a FAIL still reaches it). Re-scoring resolves each arm's
+context the way the arms run does, from the file's `judge_materials`, so a `--judges`
+judge sees what the stored judge saw. A file written before `judge_materials` has
+only the report snippets; with stored scores on such material, `--judges` refuses
+(exit 2), and `--pairwise` or `--checklist` always do, since those judges see only
+the answers. `--no-stored` compares those judges with each other. The gate itself
+passes no context by default (`eval pairwise` and `eval checklist` never pass
+one), so it validates a judge in the no-context setting; `judge-validity --context
+stored` on an arms artifact gates it with each arm's stored material instead. That
+run exits 2 with a typed scorer or `--mode pairwise`, on a file with no non-empty
+verified material, when an arm loses all its bases, has only `padding` pairs or gets none sampled by
+`--bases`, when a `--sequential` run would pass with none of an arm's bases
+scored, or when no pair is usable. A label whose
+significant measures all rest on one judge says `(one judge)`; an escalated
+pairwise measure counts as its cheap judge's. Gate a judge on answers from the
+same answer model it will judge: `cross-judge` warns when the validity report was
+measured on another model's answers.
 
 ```bash
 python cli.py eval cross-judge --answers run.json --questions golden.json --grounded --both \
@@ -676,7 +687,11 @@ same cached reply read again. Draw 0 adds nothing to the key, so entries written
 before draws existed still hit. A judge reply that does not parse is neither
 stored nor, if an older run stored it, replayed; otherwise a question whose three
 attempts all failed once would fail on every later run without calling the
-model. A cold cache is therefore not needed for the retry to be real.
+model. A cold cache is therefore not needed for the retry to be real. A rerun of
+an answer the judge (single or panel) already scored makes no provider call even
+when the score came from a retry: the judge looks up the stored entry of every
+attempt before it asks the model, so the unparseable first reply, which was never
+stored, is not asked again.
 
 The cache is not judge-only. It applies to every caller of `llm_call` and
 `utils.get_llm`, which includes question generation (`questions/llm_gen.py`),

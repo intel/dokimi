@@ -31,6 +31,7 @@ import yaml
 
 from dokimi.artifacts import schema_errors
 
+from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFIX
 from .host_spec import HostSpecError, parse_host
 from .source import RepoTree
 
@@ -469,6 +470,9 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
             problems.append(f"patch {patch!r}: {problem}")
         elif not tree.is_file(f"{task_dir}/{patch}"):
             problems.append(f"patch file does not exist: {patch}")
+    grader = raw.get("grader")
+    if isinstance(grader, str) and grader.startswith(BUILTIN_PREFIX):
+        problems += _builtin_problems(tree, task_dir, raw, grader[len(BUILTIN_PREFIX):])
 
     base = raw.get("base")
     if isinstance(base, str) and base.strip():
@@ -539,6 +543,25 @@ def _is_number(value: Any) -> bool:
 def _positive(value: Any) -> bool:
     """A finite number > 0: JSON ``NaN`` passes ``<= 0`` checks and would disable a cap."""
     return _is_number(value) and math.isfinite(value) and value > 0
+
+
+def _builtin_problems(tree: RepoTree, task_dir: str, raw: dict[str, Any], name: str) -> list[str]:
+    """A ``dokimi:`` grader must be one the framework has, and its data file must be in the task directory."""
+    if name not in BUILTIN_NAMES:
+        return [f"unknown built-in grader {BUILTIN_PREFIX + name!r}; known: "
+                + ", ".join(BUILTIN_PREFIX + n for n in BUILTIN_NAMES)]
+    key, default = DATA_FILES[name]
+    path = raw.get(key, default)
+    if not isinstance(path, str):
+        return [f"{key} must be a path"]
+    problem = _path_problem(path)
+    if problem:
+        return [f"{key} {path!r}: {problem}"]
+    if not tree.is_file(f"{task_dir}/{path}"):
+        return [f"{key} file does not exist: {path}"]
+    if name == "review_replay" and not _positive(raw.get("window", 5)):  # review.py compares lines to it
+        return [f"window must be a positive number, not {raw.get('window')!r}"]
+    return []
 
 
 def _path_fields(raw: dict[str, Any]) -> list[tuple[str, str]]:

@@ -74,6 +74,9 @@ class Measure:
     scores: Dict[Tuple[Union[str, int], str], Optional[float]] = field(default_factory=dict)
     #: "PASS" / "FAIL" from this judge's own judge-validity run; None = not validated.
     gate: Optional[str] = None
+    #: "stored" when every score saw the stored material, "none" when none did,
+    #: "mixed" when a stored measure's scores differ (no PASS validates it).
+    context: str = "none"
 
     def versus(self, arm: str, baseline: str) -> Dict[str, Any]:
         pairs = [
@@ -212,10 +215,17 @@ def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional
     binary file's condition scores are not this measure.
     """
     m = Measure(name=name or stored_label(data), kind="aggregate")
+    sources = set()
     for r in _unjoined(data, "evaluations"):
         for arm, s in arm_scores(r).items():
             if s.aggregate is not None:
                 m.scores[(r.question_id, arm)] = float(s.aggregate)
+                sources.add(s.raw.get("judge_context_source") == SOURCE_STORED)
+    # Per score: "stored" only when every score saw the stored material, "none"
+    # when none did (snippet_fallback, pre-judge_context files). A file mixing
+    # both is "mixed": no single-context PASS describes it, so none validates it
+    # (a FAIL of the judge still reaches it).
+    m.context = {frozenset({True}): "stored", frozenset({False}): "none"}.get(frozenset(sources), "mixed")
     return m if m.scores else None
 
 
@@ -276,11 +286,12 @@ def score_measure(
     what a run before ``judge_context`` showed its judge.
     """
     store = store if store is not None else JudgeContextStore()
-    jobs = [
-        (r.question_id, arm, question, a.text,
-         store.resolve_with_source(r.question_id, arm, dict(a.raw))[0])
-        for r, arm, a, question in scored_answers(records, arms)
-    ]
+    jobs = []
+    stored_flags: set = set()  # per answer: True if the judge saw stored material
+    for r, arm, a, question in scored_answers(records, arms):
+        context, source = store.resolve_with_source(r.question_id, arm, dict(a.raw))
+        stored_flags.add(source == SOURCE_STORED)
+        jobs.append((r.question_id, arm, question, a.text, context))
 
     def one(job):
         qid, arm, question, answer, context = job
@@ -291,7 +302,15 @@ def score_measure(
         except Exception:  # an unscored answer drops out of the pairing, it does not kill the run
             return (qid, arm), None
 
-    m = Measure(name=name, kind="grounded" if ground_truth else "aggregate")
+    if not stored_flags:
+        context_label = "none"
+    elif stored_flags == {True}:
+        context_label = "stored"
+    elif stored_flags == {False}:
+        context_label = "none"
+    else:
+        context_label = "mixed"  # some answers fell back to snippets: no single-context PASS describes it
+    m = Measure(name=name, kind="grounded" if ground_truth else "aggregate", context=context_label)
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         for i, (key, value) in enumerate(pool.map(one, jobs), 1):
             m.scores[key] = value
@@ -318,32 +337,51 @@ class CrossJudgeReport:
     def apply_validity(self, validity: Sequence[Dict[str, Any]]) -> List[str]:
         """Mark measures with their judge's gate result; returns validity labels that matched nothing.
 
-        ``validity`` holds ``eval judge-validity`` summaries. A summary marks
-        the absolute or pairwise measure of the same judge label PASS or FAIL.
-        A FAIL also reaches that judge's grounded and checklist-coverage
-        measures — the gate tested neither, but a judge that cannot order
-        damaged answers is not trusted to vote just because it was handed
-        reference points or a list of them. A PASS does not carry over: those
-        measures stay unvalidated.
+        ``validity`` holds ``eval judge-validity`` summaries. A PASS marks the
+        absolute or pairwise measure of the same judge label and the same
+        context (``none`` or ``stored``; a report without ``context`` counts as
+        ``none``): the gate only validated the setting it ran in. A FAIL reaches
+        every measure of that judge label, in any context, including its
+        grounded and checklist-coverage measures — a judge that cannot order
+        damaged answers in one setting is not trusted to vote in another. A
+        PASS does not carry over to grounded or coverage measures: those stay
+        unvalidated. A label that matched a measure only in another context is
+        returned with a note naming both contexts. A FAIL is never overwritten
+        by a PASS, so the result does not depend on the order of ``validity``.
         """
         unmatched = []
         for v in validity:
             passed = bool(v.get("passed"))
+            v_context = v.get("context", "none")
+            v_judge = v.get("judge")
             hits = 0
+            other_contexts = set()
             for m in self.measures:
-                if m.name.removesuffix(STORED) != v.get("judge"):
+                m_name = m.name.removesuffix(STORED)
+                if m_name != v_judge:
                     continue
-                if m.kind in ("aggregate", "pairwise"):
-                    m.gate = "PASS" if passed else "FAIL"
-                    hits += 1
-                elif not passed:
-                    # Independent of whether the same judge also has an aggregate measure
-                    # in this report: --grounded without --both, or --checklist alone, leaves
-                    # only these, and a FAIL has to reach them all the same.
+                if not passed:
+                    # Every kind and context, independent of whether the same judge also has
+                    # an aggregate measure here: --grounded without --both, or --checklist
+                    # alone, leaves only those, and a FAIL has to reach them all the same.
                     m.gate = "FAIL"
                     hits += 1
+                elif m.kind not in ("aggregate", "pairwise"):
+                    # A PASS never validates grounded or coverage measures, so their context
+                    # says nothing about this PASS.
+                    continue
+                elif m.context != v_context:
+                    # A PASS validates only the (label, context) it was measured in.
+                    other_contexts.add(m.context)
+                elif m.kind in ("aggregate", "pairwise"):
+                    # A FAIL is final: a PASS never lifts it, whichever report came first.
+                    if m.gate != "FAIL":
+                        m.gate = "PASS"
+                    hits += 1
             if not hits:
-                unmatched.append(str(v.get("judge")))
+                unmatched.append(
+                    f"{v_judge} (report context {v_context}; its measures are "
+                    f"{', '.join(sorted(other_contexts))})" if other_contexts else str(v_judge))
         return unmatched
 
     def summary(self) -> Dict[str, Any]:
