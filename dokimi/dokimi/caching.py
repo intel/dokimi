@@ -48,13 +48,17 @@ import hashlib
 import json
 import logging
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypeVar
 
 from dokimi.metrics.usage import UsageRecord
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 #: Environment switch for provider prompt caching (on unless explicitly off).
 PROMPT_CACHE_ENV = "DOKIMI_PROMPT_CACHE"
@@ -283,6 +287,51 @@ def keeps(cache_if: Optional[Callable[[str], bool]], text: str) -> bool:
     entries stored before the check existed stop poisoning the run.
     """
     return cache_if is None or cache_if(text)
+
+
+class CacheMiss(LookupError):
+    """Raised by :meth:`dokimi.llm.LLM.complete` on a miss inside :func:`replay_only`."""
+
+
+_REPLAY_ONLY: ContextVar[bool] = ContextVar("dokimi_response_replay_only", default=False)
+
+
+@contextmanager
+def replay_only() -> Iterator[None]:
+    """Serve completions from the response cache only: a miss raises :class:`CacheMiss`."""
+    token = _REPLAY_ONLY.set(True)
+    try:
+        yield
+    finally:
+        _REPLAY_ONLY.reset(token)
+
+
+def replaying_only() -> bool:
+    """Whether the calling context is inside :func:`replay_only`."""
+    return _REPLAY_ONLY.get()
+
+
+def first_replayed(attempts: int, ask: Callable[[int], T]) -> Optional[Tuple[int, T]]:
+    """``(i, ask(i))`` for the first of *attempts* answered from the cache, else ``None``.
+
+    For a redraw loop that caches only accepted replies (``cache_if``). Its rejected
+    attempts are never stored, so a rerun that walked the attempts in order asked the
+    first one live again on every run before the stored accepted one replayed. Probing
+    every attempt's entry first makes a rerun of an already-accepted judgement free,
+    with the keys unchanged. Returns ``None`` at once when the cache is off. A
+    stored entry *ask*'s ``cache_if`` rejects is a miss. An *ask* that does not go
+    through :meth:`dokimi.llm.LLM.complete` cannot miss: its first answer is
+    returned as attempt 0, as the plain loop would have asked it.
+    """
+    if response_cache_dir() is None:
+        return None
+    with replay_only():
+        for attempt in range(attempts):
+            try:
+                return attempt, ask(attempt)
+            except CacheMiss:
+                continue
+    return None
 
 
 def response_cache_key(
