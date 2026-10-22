@@ -109,3 +109,49 @@ def test_a_plan_with_two_free_variables_needs_the_tuple_form(tmp_path):
     _plan(tmp_path, varied_variable=["code", "guidance"])
     with pytest.raises(ArtifactValidationError):
         _plan(tmp_path, varied_variable=[])
+
+
+def test_an_empty_plan_is_incomplete_not_complete():
+    empty = {"cells": []}
+    got = completeness(empty, {"plan_digest": plan_digest(empty), "cells": []})
+    assert got.state == "incomplete"
+    assert not got.complete
+
+
+def test_a_plan_that_repeats_a_cell_is_invalid(tmp_path):
+    plan = _plan(tmp_path)
+    plan["cells"] = [*plan["cells"], plan["cells"][0]]
+    got = completeness(plan, _result(plan, ["pass"] * 7))
+    assert got.state == "invalid"
+    assert "plan repeats" in got.problems[0]
+
+
+def test_planned_counts_distinct_cells_when_the_plan_repeats_one():
+    cell = {"cell_id": "c-1"}
+    plan = {"cells": [cell, cell]}
+    got = completeness(plan, {"plan_digest": plan_digest(plan), "cells": []})
+    assert got.planned == 1
+
+
+@pytest.mark.parametrize("bad", [{"cell_id": "c-1"}, {"status": "pass"}, {"cell_id": "c-1", "status": ["pass"]},
+                                 {"cell_id": "c-1", "status": "PASS"}, {"cell_id": 3, "status": "pass"}])
+def test_a_malformed_result_cell_is_invalid_not_an_exception(tmp_path, bad):
+    plan = _plan(tmp_path)
+    result = _result(plan, ["pass"] * 6)
+    result["cells"].append(bad)
+    got = completeness(plan, result)
+    assert got.state == "invalid"
+    assert got.problems
+
+
+def test_a_plan_cell_without_an_id_is_invalid():
+    plan = {"cells": [{"arm": "a"}]}
+    got = completeness(plan, {"plan_digest": plan_digest(plan), "cells": []})
+    assert got.state == "invalid"
+
+
+def test_an_invalid_result_reports_no_measured_cells(tmp_path):
+    plan = _plan(tmp_path)
+    got = completeness(plan, _result(plan, ["pass"] * 6, plan_digest="sha256:other"))
+    assert got.state == "invalid"
+    assert got.measured == 0

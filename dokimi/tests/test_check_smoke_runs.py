@@ -76,8 +76,9 @@ def test_a_cell_that_failed_without_erroring_fails():
 def test_an_unreadable_sidecar_log_fails_even_when_every_cell_passed():
     """An empty egress record from a timed-out docker logs is unverified, not clean."""
     data = _runs()
-    data["results"].append({"harness": "docker-claude", "metrics": {"egress": {
-        "status": "unknown", "denied_entries": []}}})
+    probe = next(r for r in data["results"] if r["harness"] == "docker-probe")
+    probe["metrics"]["egress"] = {
+        "status": "unknown", "denied_entries": ["example.com:443", "example.com:80"]}
     assert not csr.smoke_ok(data, out=io.StringIO())
 
 

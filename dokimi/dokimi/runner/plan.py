@@ -78,28 +78,52 @@ def completeness(plan: Mapping[str, Any], result: Mapping[str, Any]) -> Complete
     """Planned minus completed cells of ``result`` against ``plan``.
 
     - ``invalid``: the result's ``plan_digest`` is not this plan's, the plan repeats a cell
-      id, or the result names a cell the plan lacks or gives one cell two statuses.
+      id, a cell has no string ``cell_id`` or a result cell has a status outside
+      :data:`STATUSES`, or the result names a cell the plan lacks or gives one cell two
+      statuses. An ``invalid`` result reports ``measured=0``.
     - ``incomplete``: some planned cell has no measured status (absent, ``not_run``,
       ``infra_error`` or ``invalid``); those ids are in ``missing``, in plan order.
     - ``complete``: every planned cell is ``pass``, ``fail`` or ``inconclusive``. Complete
       says nothing about whether the run passed; that is a gate's call.
     """
-    planned = [c["cell_id"] for c in plan.get("cells", [])]
     problems: list[str] = []
+
+    def _ids(side: str, cells: Any) -> list[str]:
+        """The string ``cell_id`` of each cell; a cell without one is a problem, not a crash."""
+        ids: list[str] = []
+        for cell in cells if isinstance(cells, list) else []:
+            cid = cell.get("cell_id") if isinstance(cell, Mapping) else None
+            if isinstance(cid, str):
+                ids.append(cid)
+            else:
+                problems.append(f"{side} has a cell without a string cell_id: {cell!r}")
+        return ids
+
+    planned = _ids("plan", plan.get("cells", []))
     expected, actual = plan_digest(plan), result.get("plan_digest")
     if actual != expected:
         problems.append(f"result is for plan {actual}, not {expected}")
     dup_planned = sorted(k for k, n in Counter(planned).items() if n > 1)
     if dup_planned:
         problems.append(f"plan repeats cell ids: {dup_planned}")
-    seen = Counter(c["cell_id"] for c in result.get("cells", []))
+    result_cells = result.get("cells", [])
+    seen = Counter(_ids("result", result_cells))
     dup_result = sorted(k for k, n in seen.items() if n > 1)
     if dup_result:
         problems.append(f"result gives more than one status to cells: {dup_result}")
     unplanned = sorted(set(seen) - set(planned))
     if unplanned:
         problems.append(f"result has cells the plan does not: {unplanned}")
-    status = {c["cell_id"]: c["status"] for c in result.get("cells", [])}
+    status: dict[str, str] = {}
+    for cell in result_cells if isinstance(result_cells, list) else []:
+        cid = cell.get("cell_id") if isinstance(cell, Mapping) else None
+        st = cell.get("status") if isinstance(cell, Mapping) else None
+        if not isinstance(cid, str):
+            continue  # reported above
+        if isinstance(st, str) and st in STATUSES:
+            status[cid] = st
+        else:
+            problems.append(f"result cell {cid} has an unknown status: {st!r}")
     counts = Counter(status.get(cid, "not_run") for cid in dict.fromkeys(planned))
     missing = tuple(cid for cid in dict.fromkeys(planned) if status.get(cid, "not_run") not in MEASURED)
     if problems:
@@ -108,6 +132,7 @@ def completeness(plan: Mapping[str, Any], result: Mapping[str, Any]) -> Complete
         state = "incomplete"
     else:
         state = "complete"
-    return Completeness(state=state, planned=len(set(planned)), measured=len(set(planned)) - len(missing),
+    measured = 0 if problems else len(set(planned)) - len(missing)
+    return Completeness(state=state, planned=len(set(planned)), measured=measured,
                         missing=missing, statuses={s: counts[s] for s in STATUSES if counts[s]},
                         problems=tuple(problems))
