@@ -22,9 +22,9 @@
   version (the executable's content, not its path). Rerunning a batch with
   another `--tools`, `--delegation`, edited profile, harness binary, or harness
   upgrade no longer counts cells from
-  the old one as done: those cells are reported as crashed, and `--force` or a
+  the old one as done: the run is refused before any agent starts, and `--force` or a
   new `--batch` runs them. A batch dir that already holds cells of another
-  execution is refused before anything runs (unless `--force`), and so is a
+  execution is refused before any agent starts (unless `--force`), and so is a
   result from earlier versions, which carries no `execution`: it is not
   reused.
 - `--force` is refused when the batch dir holds finished cells outside the run's plan, or of a task the host cannot run (which `--force` keeps), whose execution id differs, so one report row never pools two executions. `--delegation none` does not stop a skill with `context: fork` from starting a subagent.

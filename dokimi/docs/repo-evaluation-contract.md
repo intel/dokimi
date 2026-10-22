@@ -997,11 +997,11 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`,
   `bridge`, the SHA-256 of the harness executable (`--bin`) and harness version.
   A rerun whose `id` differs (another `--tools`, a `--delegation` that changes the tool arguments, profile,
-  harness binary or harness version, or an edited `env_allow`, `egress`, `bridge` or similar profile field) does not reuse the cell: the cell is reported as crashed, and
+  harness binary or harness version, or an edited `env_allow`, `egress`, `bridge` or similar profile field) is refused before any agent starts, and
   `--force` or another `--batch` runs it. `--force` replaces the cells of the
   run's plan only: if the batch dir holds finished cells outside that plan
   whose `id` differs from this run's (e.g. `--reps 2`, then `--reps 1
-  --delegation none --force`), the run is refused before anything runs, because
+  --delegation none --force`), the run is refused before any agent starts, because
   the report would pool both executions in one row; use another `--batch`. The
   same goes for the finished cells of a task this host cannot run, which
   `--force` keeps; that refusal comes after the host probe, before any agent starts. A result from before `execution` was
