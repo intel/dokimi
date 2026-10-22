@@ -1158,7 +1158,7 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   unpaired with the reason: no cells in one arm, a task that is gated in one
   arm and score-only in the other, or a measure (such as a metric) one arm
   lacks. A metric's `n_baseline`/`n_treatment` count the cells that report it.
-  With `--reps N`, two descriptive measures read the repetitions themselves:
+  With repeated cells per task (from `repo run --reps N`), two descriptive measures read the repetitions themselves:
   `--pass-k K` adds `pass^K`, the chance K of a task's cells all pass its gate
   (`C(c,K)/C(n,K)`; a task with fewer than K cells has none), so an arm that
   moves a task from 2/3 to 3/3 is told apart from one that moves the rate
