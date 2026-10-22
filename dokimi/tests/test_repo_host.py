@@ -227,6 +227,31 @@ def test_allow_unsupported_lets_host_unsupported_tasks_pass_the_exit_code(tmp_pa
     assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host"
 
 
+def _taskless_repo(tmp_path):
+    from repo_eval_fixture import git
+
+    root, _ = make_repo(tmp_path)
+    git(root, "rm", "-rqf", ".agent-eval/tasks")
+    (root / ".agent-eval/tasks").mkdir(parents=True)
+    (root / ".agent-eval/tasks/.keep").write_text("")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "no tasks")
+    return root
+
+
+def test_tasks_check_with_no_task_checked_is_not_a_pass(tmp_path, monkeypatch, capsys):
+    # No task at all: 0/0 ok was exit 0.
+    with pytest.raises(SystemExit) as exc:
+        _check(_taskless_repo(tmp_path / "e"), tmp_path / "a", HostRunner(_probe_out()), monkeypatch)
+    assert exc.value.code == 1 and "no task under" in capsys.readouterr().err
+    # Every task unsupported and allowed: 0/1 ok was exit 0, with nothing self-checked.
+    with pytest.raises(SystemExit) as exc:
+        _check(_repo(tmp_path), tmp_path / "b", HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)),
+               monkeypatch, "--allow-unsupported", "--task", "fix_race")
+    assert exc.value.code == 1
+    assert "incomplete: no task passed the self-check (0 ok, 1 unsupported)" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("extra, why", [
     ({"fix_nobug": {"family": "fix", "grader": "calc", "gate": ["tests_pass"], "prompt": "x"}}, "broken"),
     ({"fix_pip": {"family": "fix", "grader": "calc", "egress": ["pypi.org"], "prompt": "x"}}, "egress"),
@@ -301,10 +326,26 @@ def test_run_skips_unsupported_cells_and_the_report_shows_them(tmp_path, monkeyp
     assert len(load_cells(batch)[0]) == 4 and not list(batch.glob("*/unsupported.json"))
 
 
+def test_a_run_with_no_cell_result_is_not_a_pass(tmp_path, monkeypatch, capsys):
+    # No task at all: this crashed with IndexError in the isolation probe.
+    with pytest.raises(SystemExit) as exc:
+        _run(_taskless_repo(tmp_path / "e"), tmp_path / "e/runs", HostRunner(_probe_out()), monkeypatch)
+    assert exc.value.code == 1 and "no task under" in capsys.readouterr().err
+    # Every cell unsupported on this host: "0 ran, 0 already done, 0 crashed" was exit 0.
+    with pytest.raises(SystemExit) as exc:
+        _run(_repo(tmp_path), tmp_path / "runs", HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)),
+             monkeypatch, "--task", "fix_race")
+    assert exc.value.code == 1
+    logged = capsys.readouterr()
+    assert "0 ran, 0 already done, 0 crashed, 0 not started (batch budget), 2 unsupported" in logged.out
+    assert "incomplete: no cell has a result (2 cells, 2 unsupported)" in logged.err
+
+
 def test_a_capable_run_that_stops_early_leaves_the_unreached_cells_missing(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     out = tmp_path / "runs"
-    _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
+    with pytest.raises(SystemExit):  # every cell unsupported: no result
+        _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
     with pytest.raises(SystemExit):  # the budget stops it after one cell
         _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race",
              "--max-batch-usd", "0.005")
@@ -588,8 +629,9 @@ def test_a_host_miss_still_checks_the_oracle_when_only_cpus_are_short(tmp_path, 
 
 def test_a_host_miss_still_probes_isolation_and_skips_only_null(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path, host={"min_cpus": 4})
-    _check(root, tmp_path / "a", HostRunner(_probe_out(affinity=2)), monkeypatch, "--task", "fix_race",
-           "--allow-unsupported")
+    with pytest.raises(SystemExit):  # the only task is unsupported: nothing was self-checked
+        _check(root, tmp_path / "a", HostRunner(_probe_out(affinity=2)), monkeypatch, "--task", "fix_race",
+               "--allow-unsupported")
     race = json.loads((tmp_path / "a/check/check.json").read_text())["tasks"][0]
     assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host"
     assert "isolation" in race and "oracle" in race and "null" not in race

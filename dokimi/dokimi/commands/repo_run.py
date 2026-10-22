@@ -157,6 +157,9 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
               + ", ".join(r["task"] for r in allowed))
     if len(bad) > len(allowed):
         sys.exit(1)
+    if len(bad) == len(results):  # --allow-unsupported passed every task by: none was checked
+        print(f"✗ incomplete: no task passed the self-check (0 ok, {len(allowed)} unsupported)", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_repo_run(args: argparse.Namespace) -> None:
@@ -211,11 +214,16 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     print(f"{summary['ran']} ran, {summary['skipped']} already done, {len(summary['errors'])} crashed, "
-          f"{summary['budget_stopped']} not started (batch budget); ${summary['spent_usd']:.4f}")
+          f"{summary['budget_stopped']} not started (batch budget), {summary['unsupported']} unsupported; "
+          f"${summary['spent_usd']:.4f}")
     if summary["probe_failed"]:
         print(f"✗ the host probe failed, so these tasks have cells that were not run: {', '.join(summary['probe_failed'])}",
               file=sys.stderr)
     if summary["errors"] or summary["budget_stopped"] or summary["probe_failed"]:
+        sys.exit(1)
+    if not summary["ran"] and not summary["skipped"]:  # every cell unsupported: the batch holds no result
+        print(f"✗ incomplete: no cell has a result ({summary['cells']} cells, {summary['unsupported']} unsupported)",
+              file=sys.stderr)
         sys.exit(1)
 
 

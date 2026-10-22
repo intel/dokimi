@@ -87,3 +87,20 @@ def test_runner_passes_soft_kind(tmp_path):
             for p in ps:
                 p.stop()
     assert spy.call_args.args[2] == "soft"
+
+
+def test_strict_exit_1_when_no_document_was_measured(tmp_path, capsys):
+    # A gate at 0 (or a disabled one) passes a score over nothing.
+    for future in ({"hard_gate": G(0.0)}, {}):
+        with patch("dokimi.runner.run.discover_markdown", return_value=[]):
+            sp = tmp_path / "spec.yaml"
+            sp.write_text(yaml.safe_dump(dict(SPEC, future=future)))
+            args = argparse.Namespace(root=str(tmp_path), spec=str(sp), out_json=str(tmp_path / "o.json"),
+                                      out_md=str(tmp_path / "o.md"), strict=True)
+            try:
+                cmd_run(args)
+                code = 0
+            except SystemExit as e:
+                code = e.code
+        assert code == 1
+        assert "incomplete: no document was measured" in capsys.readouterr().err

@@ -449,6 +449,13 @@ apart, neither failed nor missing. If the probe itself fails, a task with
 `host` requirements is not run either, and `repo run` exits 1 when one of its
 cells is left unrun; a cell that already has a `result.json` keeps it.
 
+Nothing checked is not a pass. Both commands refuse an export with no task, and
+exit 1 as `incomplete` when nothing was measured: `tasks check` when no task
+passed the self-check (every one unsupported, even with `--allow-unsupported`),
+`repo run` when no cell of the batch has a result (every one unsupported). The
+`repo run` summary line counts unsupported cells beside ran, done, crashed and
+not started.
+
 Each task runs with its own network (`image.network` plus its `egress`).
 `tasks check --warm` runs the same null and oracle steps with network and
 writable caches, to fill the caches before offline runs (§2).
@@ -851,7 +858,7 @@ prompts disabled`) and the fix; any other git failure shows its last `fatal:`
 line, else its last `error:` line, else its last line.
 
 ```bash
-# self-check: no LLM; exits 1 if any task is broken or unsupported
+# self-check: no LLM; exits 1 if any task is broken or unsupported, or none is ok
 python cli.py repo tasks check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
     --task fix_finiteness_mut --build-network host --cache bazel-repo-cache=/cache/bazel-repo -j 3
 
