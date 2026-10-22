@@ -274,6 +274,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         load_candidate,
         load_queries,
         model_routing,
+        non_skill_reason,
     )
 
     def card(ref: str) -> tuple[Candidate, str]:
@@ -284,7 +285,13 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
 
     try:
         gold, body = card(args.artifact)
-        competitors = [card(ref)[0] for ref in args.competitors or []]
+        competitors = []
+        for ref in args.competitors or []:
+            reason = non_skill_reason(ref)
+            if reason:
+                print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
+                continue
+            competitors.append(card(ref)[0])
         if args.catalog:
             notes: list[str] = []
             catalog = catalog_competitors(args.catalog,

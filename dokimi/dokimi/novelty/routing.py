@@ -319,6 +319,24 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 
+def non_skill_reason(ref: str) -> str | None:
+    """Why a ``skill:`` reference names something other than a skill, or ``None``.
+
+    A shell glob over a skills directory hands the field every file beside the skills (a
+    ``.mjs`` helper, a ``registry.json``), and a directory with no ``SKILL.md`` in it is not a
+    skill either. Only ``skill:`` references are checked: a ``text:`` or plain path is a text
+    artifact, which is a legitimate competitor.
+    """
+    if not ref.startswith("skill:"):
+        return None
+    path = Path(ref.removeprefix("skill:"))
+    if path.is_file() and path.name != "SKILL.md":
+        return f"{path.name} is not a SKILL.md"
+    if path.is_dir() and not (path / "SKILL.md").is_file():
+        return "the directory has no SKILL.md"
+    return None
+
+
 class RoutingInputError(ValueError):
     """A competitor field or query file in which selection is not a measurement."""
 

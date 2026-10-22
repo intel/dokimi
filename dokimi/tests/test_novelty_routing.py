@@ -501,3 +501,35 @@ def test_competitors_from_catalog_is_the_same_flag_as_catalog(tmp_path):
     args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
                   "--competitors-from-catalog", str(tmp_path))
     assert args.catalog == str(tmp_path)
+
+
+def test_a_non_skill_file_among_competitors_is_skipped_with_a_warning(tmp_path, capsys):
+    # A shell glob over a skills directory passes the helper scripts and an empty directory
+    # too; that used to abort the whole run on the first .mjs file.
+    helper = tmp_path / "activation-rule.mjs"
+    helper.write_text("export {}\n", encoding="utf-8")
+    empty = tmp_path / "generated"
+    empty.mkdir()
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
+                  "--competitors", f"skill:{helper}", f"skill:{empty}",
+                  _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--out", str(out))
+    args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 2
+    err = capsys.readouterr().err
+    assert "skipped competitor" in err and "activation-rule.mjs is not a SKILL.md" in err
+    assert "the directory has no SKILL.md" in err
+
+
+def test_a_non_skill_artifact_is_still_refused(tmp_path):
+    helper = tmp_path / "activation-rule.mjs"
+    helper.write_text("export {}\n", encoding="utf-8")
+    args = _parse("novelty", "routing", "--artifact", f"skill:{helper}",
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", "x")
+    with pytest.raises(SystemExit, match="cannot load an artifact"):
+        args.func(args)
