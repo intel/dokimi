@@ -174,6 +174,14 @@ def test_existing_sticky_comment_is_updated_not_duplicated(tmp_path):
     assert next(a for n, a in calls if n == "updateComment")["comment_id"] == 99
 
 
+@pytest.mark.parametrize("changed", ["1", "0", "error"])
+def test_marker_comment_by_another_user_is_never_rewritten(tmp_path, changed):
+    comments = [{"id": 5, "user": {"login": "mallory"}, "body": MARKER + " hi"}]
+    calls = _run(tmp_path, _good(changed=changed), comments=comments)
+    assert "updateComment" not in _names(calls)
+    assert ("createComment" in _names(calls)) == (changed != "0")
+
+
 def test_unchanged_result_removes_the_label(tmp_path):
     calls = _run(tmp_path, _good(changed="0"))
     assert "removeLabel" in _names(calls) and "addLabels" not in _names(calls)
