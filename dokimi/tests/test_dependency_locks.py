@@ -157,6 +157,13 @@ def test_mutation_tool_stays_out_of_the_shared_tools_lock() -> None:
     assert "mutmut==3.8.0" in requested
 
 
+@pytest.mark.parametrize("name", HASHED_LOCKS)
+def test_pip_audit_audits_every_lock(name: str) -> None:
+    """A lock the audit job does not list ships its pins unchecked against advisories."""
+    workflow = (ROOT.parent / ".github/workflows/pip-audit.yml").read_text(encoding="utf-8")
+    assert name in workflow
+
+
 def test_tools_lock_has_every_requested_pin() -> None:
     """An exact pin in requirements-ci.txt (ruff, zizmor, ...) must be the version the tools lock resolves."""
     locked = pins("requirements-ci.lock.txt")

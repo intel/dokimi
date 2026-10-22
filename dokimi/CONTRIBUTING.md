@@ -162,7 +162,7 @@ Dependencies install from `requirements.lock.txt`; the docs build's from
 release job and the eval image use (`requirements-ci.txt`) from
 `requirements-ci.lock.txt`; the mutation workflow adds mutmut's closure
 (`requirements-mutation.txt`) from `requirements-mutation.lock.txt`, which
-nothing else installs and pip-audit does not audit. When you change a range in
+nothing else installs, and pip-audit audits with the others. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
 from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
 keeps the current pins). The command's `--exclude-newer=P7D` skips releases
