@@ -38,12 +38,16 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
-      # The runtime lock for the tests, the tools lock for mutmut (pinned in
-      # requirements-ci.txt).
+      # The runtime lock for the tests, and mutmut's own lock (requirements-mutation.txt),
+      # which no other workflow installs.
       - name: Install deps
-        run: pip install --require-hashes -r requirements.lock.txt -r requirements-ci.lock.txt
+        run: pip install --require-hashes -r requirements.lock.txt -r requirements-mutation.lock.txt
       - name: Run mutmut
-        # A crash or a timeout of the run is reported below, not failed on.
+        # A crash of the run is reported below, not failed on. The step's own timeout
+        # sits inside the job's 90 minutes: a run that outlives the step is cancelled
+        # as a failed step, which continue-on-error absorbs, and the summary step
+        # still gets its time. A job-level timeout would fail the whole job instead.
+        timeout-minutes: 75
         continue-on-error: true
         run: mutmut run --max-children "$(nproc)"
       - name: Score and survivors

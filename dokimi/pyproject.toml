@@ -263,7 +263,7 @@ filterwarnings = [
 # test that leans on another's leftovers fails. The header prints the seed;
 # `--randomly-seed=<seed>` replays that order, `-p no:randomly` keeps file order.
 
-# Mutation pilot (mutmut 3.x, pinned in requirements-ci.txt; run by
+# Mutation pilot (mutmut 3.x, pinned in requirements-mutation.txt; run by
 # .github/workflows/mutation.yml, not by CI). The measurement core: the
 # statistics, the gate decisions and the cache key, where a surviving mutant is
 # a wrong number that ships silently. `source_paths` is what mutmut copies into

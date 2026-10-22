@@ -1,7 +1,7 @@
 ### Added
 
 - **Mutation pilot over the measurement core** — `.github/workflows/mutation.yml`
-  runs mutmut 3.8.0 (hash-pinned in the tools lock) weekly and on demand over
+  runs mutmut 3.8.0 (hash-pinned in its own `requirements-mutation.lock.txt`, installed by that workflow alone) weekly and on demand over
   `eval/stats.py`, `eval/binary_stats.py`, the score, regression, critical-band and
   trust gates and `caching.py`, and writes the score per module and the surviving
   mutants to the job summary. It never fails a build. New tests kill the survivors

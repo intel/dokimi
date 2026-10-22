@@ -45,6 +45,7 @@ header:
     - 'dokimi/requirements.lock.txt'
     - 'dokimi/requirements-docs.lock.txt'
     - 'dokimi/requirements-ci.lock.txt'
+    - 'dokimi/requirements-mutation.lock.txt'
     # Read by agents verbatim: a header would become part of the instructions,
     # persona prompt or skill being measured.
     - 'AGENTS.md'

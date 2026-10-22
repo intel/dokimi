@@ -22,6 +22,3 @@ diff-cover
 build
 twine
 uv==0.13.4
-# mutmut: the mutation pilot (.github/workflows/mutation.yml). An exact pin:
-# its config keys changed incompatibly between 2.x and 3.x.
-mutmut==3.8.0
