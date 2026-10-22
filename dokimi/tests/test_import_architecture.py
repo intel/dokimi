@@ -78,11 +78,8 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 #: Imports that already cross a layer upward, (importer, imported): reason.
-LAYER_BASELINE: dict[tuple[str, str], str] = {
-    ("dokimi.gate.novelty_gate", "dokimi.novelty.bundle"):
-        "the novelty gate reads Coverage and its basis from the bundle; the bundle "
-        "record belongs below gate (and closes the novelty cycle below)",
-}
+#: Empty: the novelty gate reads coverage from dokimi.metrics.bundle_coverage.
+LAYER_BASELINE: dict[tuple[str, str], str] = {}
 
 #: Import cycles that exist today, each the exact module set of one SCC: reason.
 CYCLE_BASELINE: dict[frozenset[str], str] = {
@@ -94,10 +91,6 @@ CYCLE_BASELINE: dict[frozenset[str], str] = {
         "judge_validity imports the SPRT bounds lazily from judge_sequential",
     frozenset({"dokimi.harnesses.exploration", "dokimi.harnesses.models"}):
         "models imports summarize_exploration lazily; exploration needs OperationRecord",
-    frozenset({"dokimi.gate.novelty_gate", "dokimi.novelty.analyze", "dokimi.novelty.bundle",
-               "dokimi.novelty.report"}):
-        "bundle imports load_artifact_text lazily from analyze; analyze imports the gate "
-        "DEFAULTS lazily; the gate imports the bundle",
     frozenset({"dokimi.repos.bases", "dokimi.repos.manifest"}):
         "manifest imports check_bases lazily; bases needs RepoCheckReport",
     frozenset({"dokimi.repos.l0.adapters", "dokimi.repos.l0.core"}):

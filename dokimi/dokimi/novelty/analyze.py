@@ -25,6 +25,7 @@ from . import atoms as atoms_mod
 from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, report, retention, shorten, spans
+from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
 from .client import LLMClient, roll_up_cost
 from .retention import RetentionOracle
 from .tiers import DEFAULT_SETTINGS, RunSettings
@@ -448,25 +449,3 @@ def _outcomes_by_source(
     return sorted(rows.values(), key=lambda r: (-r.get("added", 0), r["source"]))
 
 
-def load_artifact_text(ref: str) -> tuple[str, str, str, str, str]:
-    """Resolve an artifact reference to ``(kind, name, description, frontmatter, body)``.
-
-    Supported today: ``skill:<path>`` (a ``SKILL.md`` or its directory) and
-    ``text:<path>`` for any other context artifact. A plain path is treated as text, and
-    a text artifact has no description — which means its need graph, and therefore its
-    relevance weighting, is weaker. The analyzer says so in a warning rather than
-    pretending the two cases are equivalent.
-    """
-    if ref.startswith("skill:"):
-        from dokimi.skills.loader import load_skill
-
-        skill = load_skill(ref.removeprefix("skill:"))
-        # Verbatim, as shorten.render promises: a rebuilt `description: a: b` is not YAML.
-        lines = skill.path.read_text(encoding="utf-8").lstrip("﻿").splitlines()
-        end = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
-        frontmatter = "\n".join(lines[: end + 1])
-        return "skill", skill.name, skill.description, frontmatter, skill.body
-    path = Path(ref.removeprefix("text:"))
-    if not path.is_file():
-        raise FileNotFoundError(f"artifact not found: {path}")
-    return "text", path.stem, "", "", path.read_text(encoding="utf-8")
