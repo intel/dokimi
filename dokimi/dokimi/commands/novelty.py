@@ -64,18 +64,24 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     if args.estimate_only:
         spans = segment(artifact_bundle.text)
         n_tokens = sum(span.tokens for span in spans)
-        estimate = settings.estimate(len(spans), n_tokens=n_tokens,
-                                     budgets=tuple(args.budgets), n_arms=len(_arms(args.arms)))
-        estimate["expected_usd"] = _estimate_usd(args, n_tokens, estimate["estimate"]["by_role"])
+        estimate = settings.estimate(
+            len(spans), n_tokens=n_tokens, budgets=tuple(args.budgets), n_arms=len(_arms(args.arms))
+        )
+        estimate["expected_usd"] = _estimate_usd(
+            args, n_tokens, estimate["estimate"]["by_role"], settings.tier
+        )
         print(json.dumps(estimate, indent=2))
         print("Estimate only, nothing was measured. ~4 calls per paired probe is the "
               "measured shape; batch sizes and retries move the real figure.",
               file=sys.stderr)
         if args.max_usd is None:
-            print("expected_usd prices the calls by role at list prices, with a token profile "
-                  "measured on five runs: a longer artifact or longer answers cost more, and "
-                  "a model with no price gives null. Pass --max-usd to stop the run at a "
-                  "dollar figure.", file=sys.stderr)
+            print(
+                "expected_usd prices the calls by role at list prices, from a token profile "
+                "fitted on measured runs: a longer artifact or longer answers cost more, and "
+                "a model with no price gives null. Pass --max-usd to stop the run at a "
+                "dollar figure.",
+                file=sys.stderr,
+            )
         return
 
     extractor, answerer, judge = _clients(args)
@@ -738,15 +744,35 @@ def _role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
     }
 
 
-def _estimate_usd(args: argparse.Namespace, n_tokens: int, by_role: dict[str, int]) -> float | None:
-    """The estimate's dollar figure; ``None`` when a role's model cannot be resolved or priced."""
+def _estimate_usd(
+    args: argparse.Namespace, n_tokens: int, by_role: dict[str, int], tier: str | None
+) -> float | None:
+    """The estimate's dollar figure; ``None`` when a role's model cannot be resolved or priced.
+
+    The reason goes to stderr: a role whose model does not resolve, or a role with no list
+    price, makes the figure unavailable, and the note names it.
+    """
+    from dokimi.llm import list_cost_usd
     from dokimi.novelty.tiers import estimate_usd
 
     try:
         models = _role_models(args)
-    except SystemExit:
+    except SystemExit as exc:
+        print(f"The USD estimate is unavailable: {exc}", file=sys.stderr)
         return None
-    return estimate_usd(by_role, n_tokens, models)
+    usd = estimate_usd(by_role, n_tokens, models, tier)
+    if usd is None:
+        unpriced = sorted(
+            f"{role} ({model})"
+            for role, (model, provider) in models.items()
+            if list_cost_usd(model, provider, 1, 1) is None
+        )
+        print(
+            "The USD estimate is unavailable: no list price in the litellm price map for "
+            + ", ".join(unpriced),
+            file=sys.stderr,
+        )
+    return usd
 
 
 def _clients(args: argparse.Namespace):

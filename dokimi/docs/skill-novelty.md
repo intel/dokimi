@@ -787,9 +787,11 @@ python cli.py novelty analyze --artifact skill:s --tier study --estimate-only
 the decision costs nothing. Its payload has `expected_calls`, the point figure between
 the two totals (stages, every probe, and half the oracle pairs, split by `by_role`), and
 `expected_usd`: those calls priced at list prices by role, `null` when a model has no
-price. Against five measured standard runs the calls landed within 25% and the dollars
-within 25%; triage dollars run low, because its extraction output is not modelled. An explicit flag always beats the tier, and the override is
-recorded — a `--tier triage --max-atoms 90` run is not a stock triage run and does not get
+price. The constants were fitted on 13 of the 25 measured runs; the other 12 are held out.
+On those 12 every projection landed within 35%: calls within 13%, atoms within 11%, dollars
+within 33%. Every dollar projection came out high, not low. Only three of the 12 are standard
+runs, so the standard profile rests on little data. An explicit flag always beats the tier,
+and the override is recorded — a `--tier triage --max-atoms 90` run is not a stock triage run and does not get
 to be read as one.
 
 Each tier carries the **claims it forfeits**, and those strings are written into

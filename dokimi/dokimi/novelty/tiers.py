@@ -278,37 +278,57 @@ def resolve_settings(tier: str | None, flags: dict) -> RunSettings:
     return RunSettings(values=values, tier=tier, overrides=overrides)
 
 
-#: Atoms per artifact token for the atom count when the artifact's size is known. Measured
-#: on five standard runs (atoms per token: 1/17 to 1/40, median 1/25); the span rule alone
-#: gave 7 atoms for a 198-token skill that yielded 8, and 11 for one that yielded 18.
-TOKENS_PER_ATOM = 25
+#: Atoms per artifact token for the atom count when the artifact's size is known. Fitted on
+#: the fit half of the 25 measured skill-scan runs (the uncapped runs of that half: 9 to 40
+#: tokens per atom, median 22.8); the span rule alone undercounts short-span artifacts.
+TOKENS_PER_ATOM = 23
 
 #: The share of oracle pairs (carrier confirmation and shortening candidates) that the
-#: oracle escalated to a model. Measured on five standard runs: 0.32-0.70, median 0.51.
+#: oracle escalated to a model. Fitted on the fit half's standard runs: 0.11 (a one-atom
+#: artifact) to 0.60, median 0.505.
 ESCALATION_SHARE = 0.5
 
-#: Per call, by role: (input tokens besides the artifact, input tokens per artifact token,
-#: output tokens). Measured on the same five runs: the extractor and the answerer send the
-#: artifact with every call, the judge sends the answer and the question only.
-CALL_TOKENS: dict[str, tuple[int, int, int]] = {
-    "extractor": (130, 1, 190),
-    "answerer": (20, 1, 240),
-    "judge": (460, 0, 85),
+#: Per call, for the roles whose calls do not depend on the tier: (input tokens besides the
+#: artifact, input tokens per artifact token, output tokens). The answerer's input carries the
+#: artifact on the paired arm; the judge sees the answer and the question only. Pooled over the
+#: fit half.
+CALL_TOKENS: dict[str, tuple[float, float, int]] = {
+    "answerer": (-38, 0.789, 284),
+    "judge": (468, 0.004, 89),
+}
+
+#: The extractor's calls, by tier, in the same shape. A triage extraction packs the capped
+#: atom set into each of its calls and writes about 2,360 output tokens per call, where a
+#: standard extraction writes about 195; the input follows the same split. Study and an
+#: untiered run have no measurement of their own and take the standard profile.
+EXTRACTOR_TOKENS: dict[str, tuple[float, float, int]] = {
+    "triage": (971, 0.045, 2359),
+    "standard": (267, 0.651, 195),
 }
 
 
-def call_tokens(role: str, n_tokens: int) -> tuple[int, int]:
+def call_tokens(role: str, n_tokens: int, tier: str | None = None) -> tuple[int, int]:
     """Input and output tokens of one call of ``role`` on an artifact of ``n_tokens``.
 
-    The extractor's output is a flat figure: on a triage run its extraction calls write
-    about 1,700 tokens each, which this does not model, so the dollar figure runs low there.
+    Args:
+        role: ``extractor``, ``answerer`` or ``judge``.
+        n_tokens: Tokens in the artifact.
+        tier: The run's tier, which picks the extractor's profile (see
+            :data:`EXTRACTOR_TOKENS`).
     """
-    base, per_token, out = CALL_TOKENS[role]
-    return base + per_token * n_tokens, out
+    if role == "extractor":
+        base, per_token, out = EXTRACTOR_TOKENS.get(tier or "", EXTRACTOR_TOKENS["standard"])
+    else:
+        base, per_token, out = CALL_TOKENS[role]
+    return max(0, round(base + per_token * n_tokens)), out
 
 
-def estimate_usd(by_role: dict[str, int], n_tokens: int,
-                 models: dict[str, tuple[str, str]]) -> float | None:
+def estimate_usd(
+    by_role: dict[str, int],
+    n_tokens: int,
+    models: dict[str, tuple[str, str]],
+    tier: str | None = None,
+) -> float | None:
     """The expected dollar cost of ``by_role`` calls at list prices.
 
     Prices come from litellm's price map (:func:`dokimi.llm.list_cost_usd`), the same map a
@@ -319,13 +339,14 @@ def estimate_usd(by_role: dict[str, int], n_tokens: int,
         by_role: Calls per role, as :func:`estimate_calls` reports them.
         n_tokens: Tokens in the artifact.
         models: ``(model, provider)`` per role.
+        tier: The run's tier; it sets the extractor's output (see :func:`call_tokens`).
     """
     from dokimi.llm import list_cost_usd
 
     total = 0.0
     for role, calls in by_role.items():
         model, provider = models[role]
-        tokens_in, tokens_out = call_tokens(role, n_tokens)
+        tokens_in, tokens_out = call_tokens(role, n_tokens, tier)
         cost = list_cost_usd(model, provider, tokens_in, tokens_out)
         if cost is None:
             return None
@@ -343,8 +364,8 @@ def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2) -> dict:
     counting client over three real skills at all three tiers: the projection came within
     1-3% of the counted total at every point (see the PR that introduced tiers).
 
-    The oracle's pairs are the other term. Five measured standard runs escalated 36-73% of
-    them (median 51%) and the extractor's count equals the stage calls plus those
+    The oracle's pairs are the other term. The fit half's standard runs escalated 0.11 to
+    0.60 of them (median 0.505), and the extractor's count equals the stage calls plus those
     escalations, so ``expected_calls`` counts :data:`ESCALATION_SHARE` of the oracle pairs.
 
     Args:

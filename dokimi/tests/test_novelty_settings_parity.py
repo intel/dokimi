@@ -15,9 +15,10 @@ JSON copied in::
 
     python -m tests.test_novelty_settings_parity --write
 
-The one intended change to an estimate is its bill (``estimate``, ``expected_usd``, the atom
-count it projects) and the stderr note that explains it; ``_kept_estimate`` compares
-everything else an estimate prints, which is the part a tier or a flag decides.
+The one intended change to an estimate is its bill: ``tokens``, ``expected_usd``, ``by_role``,
+``expected_calls``, and the atom count and totals that the projected atoms move. ``_kept_estimate``
+drops exactly those and compares the rest of the payload, the settings echo on stderr and the
+tier record with its overrides included.
 """
 
 from __future__ import annotations
@@ -158,20 +159,37 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
     return steps
 
 
-# The stderr note the estimate prints, which W2 rewrote; everything before it is main's.
+# The stderr note the estimate prints: the one whose wording changed is cut from both sides.
 _ESTIMATE_NOTES = ("The estimate counts calls", "expected_usd prices")
+# The bill the estimate now projects, and the atom count and totals that move with it.
+_BILL_KEYS = ("tokens", "expected_usd")
+_ESTIMATE_BILL_KEYS = (
+    "by_role",
+    "expected_calls",
+    "n_atoms",
+    "total_calls",
+    "total_calls_if_every_pair_escalates",
+)
 
 
 def _kept_estimate(step: dict) -> dict:
-    """An estimate step without the bill and the note W2 changed; a refusal is kept whole."""
+    """An estimate step with only the bill removed; the rest of the payload is compared whole.
+
+    The settings echo on stderr, the tier record with its overrides, the forfeits and the
+    caveat all stay. A refusal has no payload and is kept whole.
+    """
     if not step["stdout"]:
         return step
     payload = json.loads(step["stdout"])
+    for key in _BILL_KEYS:
+        payload.pop(key, None)
+    payload["estimate"] = {
+        key: value for key, value in payload["estimate"].items() if key not in _ESTIMATE_BILL_KEYS
+    }
     stderr = step["stderr"]
     for note in _ESTIMATE_NOTES:
         stderr = stderr.split(note)[0]
-    return {"status": step["status"], "calls": step["calls"], "stderr": stderr,
-            **{key: payload[key] for key in ("spans", "atom_cap", "tier", "caveat")}}
+    return {**step, "stdout": payload, "stderr": stderr}
 
 
 @pytest.mark.parametrize("name", list(CASES))
