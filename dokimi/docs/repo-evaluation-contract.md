@@ -1014,7 +1014,8 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   task), `floor` (both at 0 on every one), `near_ceiling` (the baseline at
   the top on all but at most one of 2+ tasks and the treatment nowhere below
   it), else `null`; a grader failure in either arm also gives `null`, as does an agent
-  outage (an error result with no turn count or at most one turn): neither is a measurement. A pair
+  outage (an error result with no turn count or at most one turn, or a harness that exited
+  non-zero without reporting a turn and was not killed at its timeout): neither is a measurement. A pair
   is at the top only when both arms reach it and tie: a score past `score.max`
   is an effect, not a top. The text prints a note under a flagged comparison. A
   zero delta there means no room to move, not no effect. Cost, turns and

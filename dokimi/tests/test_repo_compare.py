@@ -22,7 +22,8 @@ from dokimi.repos.compare import CompareError, compare, format_compare, parse_se
 def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = True, score: float | None = None,
           failure: bool = False, cost: float | None = 0.1, turns: int = 10, metrics: dict | None = None,
           model: str = "m-1", harness_version: str = "1.0", score_max: float | None = 1.0,
-          model_resolved: str | list[str] | None = None, is_error: bool = False) -> None:
+          model_resolved: str | list[str] | None = None, is_error: bool = False, rc: int | None = None,
+          timed_out: bool = False) -> None:
     rd = batch / f"{task}__{arm.replace(':', '-')}__{model}__r{rep}"
     rd.mkdir(parents=True)
     score_task = score is not None
@@ -32,7 +33,7 @@ def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = 
     rec = {"task": task, "arm": arm, "model": model, "rep": rep, "score_task": score_task, "grade": grade,
            "harness_version": harness_version, "score_max": score_max if score_task else None,
            "model_resolved": model_resolved,
-           "agent": {"cost_usd": cost, "num_turns": turns, "timed_out": False, "is_error": is_error,
+           "agent": {"cost_usd": cost, "num_turns": turns, "timed_out": timed_out, "is_error": is_error, "rc": rc,
                      "over_budget": False, "network": "none"}}
     (rd / "meta.json").write_text("{}")
     (rd / "result.json").write_text(json.dumps(rec))
@@ -240,6 +241,25 @@ def test_an_agent_outage_is_unmeasured_not_a_floor(tmp_path, turns, expected):
         for arm in ("guidance:none", "guidance:raw"):
             _cell(b, f"fix_{i}", arm, 1, success=False, turns=turns, is_error=True)
     assert _row(compare([b], "guidance:none"), "gate")["headroom"] == expected
+
+
+@pytest.mark.parametrize("rc,turns,timed_out,expected", [
+    (1, None, False, None), (137, None, False, None),  # exited non-zero, no result record: the agent never ran
+    (0, None, False, "floor"), (None, None, False, "floor"),  # exit 0 or no rc recorded: not an outage
+    (1, 5, False, "floor"),  # it reported turns: an attempt
+    (137, None, True, "floor"),  # killed at its timeout: an attempt
+])
+def test_a_harness_that_exits_non_zero_with_no_result_is_an_agent_outage(tmp_path, rc, turns, timed_out, expected):
+    b = tmp_path / "b1"
+    for i in range(3):
+        for arm in ("guidance:none", "guidance:raw"):
+            _cell(b, f"fix_{i}", arm, 1, success=False, turns=turns, rc=rc, timed_out=timed_out)
+    assert _row(compare([b], "guidance:none"), "gate")["headroom"] == expected
+    b2 = tmp_path / "b2"
+    for i in range(3):
+        for arm in ("guidance:none", "guidance:raw"):
+            _cell(b2, f"r_{i}", arm, 1, score=0.0, turns=turns, rc=rc, timed_out=timed_out)
+    assert _row(compare([b2], "guidance:none"), "score")["headroom"] == expected
 
 
 def test_score_headroom_is_unknown_when_the_arms_have_different_score_max(tmp_path):

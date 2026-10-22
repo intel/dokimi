@@ -37,7 +37,7 @@ score past ``score.max`` is an effect, not a top. ``ceiling``: both arms at the 
 baseline at the top on all but at most one, and the treatment nowhere below the baseline, so at most one task
 can improve and a gain resting on one task has a sign-flip p of 1. A pair whose baseline and treatment tops
 differ is on two scales, a grader failure or an agent outage (an error result with no turn count or at most
-one turn) in either arm scores a 0 that says the measurement failed, not that the task had no room, and any
+one turn, or a non-zero exit with no turn count that is not a timeout) in either arm scores a 0 that says the measurement failed, not that the task had no room, and any
 other case has no flag: ``None``. The flag is a note; p and Holm are unchanged.
 
 Each selector's batches are reported with the stamp ``repo run`` pins a batch
@@ -514,7 +514,8 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
         # If any cell has unknown max, or maxes differ, top is None; otherwise take the single value
         has_unknown_max = any(v is None for v in score_max_vals)
         top = (maxes.pop() if len(maxes) == 1 and not has_unknown_max else None) if score_task else 1.0
-        # unmeasured: a grader failure, or an agent outage (an error result with no or one turn); either way
+        # unmeasured: a grader failure, or an agent outage (an error result with no or one turn, or a non-zero exit
+        # with no turn count); either way
         # its 0 is not a measurement
         grader_failed = any(r["grade"]["status"] == "grader_failure" or _agent_outage(r) for r in recs)
         out[key] = {"kind": "score" if score_task else "gate", "grader_failed": grader_failed,
@@ -525,10 +526,16 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
 
 
 def _agent_outage(rec: dict[str, Any]) -> bool:
-    """A cell whose agent never ran: an error result with no turn count or at most one turn."""
+    """A cell whose agent never ran: an error result with no turn count or at most one turn, or a harness that
+    exited non-zero before it reported any turn (no result record, so no ``is_error``) and was not killed for
+    its timeout: an agent killed at its timeout did attempt the task."""
     agent = rec.get("agent") or {}
     turns = _finite([agent.get("num_turns")])  # a count that is not a number is no count, as in the turns row
-    return bool(agent.get("is_error")) and (not turns or turns[0] <= 1)
+    if agent.get("is_error") and (not turns or turns[0] <= 1):
+        return True
+    rc = agent.get("rc")
+    crashed = isinstance(rc, int) and not isinstance(rc, bool) and rc != 0
+    return crashed and not turns and not agent.get("timed_out")
 
 
 def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
