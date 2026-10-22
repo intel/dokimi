@@ -89,7 +89,7 @@ to pay to run is half-declared.
 
 ```console
 $ python cli.py catalog scan --root C:/Users/Public/content-repo
-# skills (2 declared under C:\Users\Public\content-repo)
+# skills (2 declared under C:\Users\Public\content-repo; 1 ok, 0 warn, 1 error)
 demo-skill      published       C:\Users\Public\content-repo\skills\demo-skill  ok
 not-written-yet planned C:\Users\Public\content-repo\skills\not-written-yet      ERROR: Skill path does not exist: C:\Users\Public\content-repo\skills\not-written-yet
 
@@ -128,7 +128,10 @@ the model is never offered that skill.
 Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops
 the skill from loading, since the loader reads it as having no description. The
 scan reports that as a `frontmatter-parse` error carrying the YAML message, and
-it exits 1 with or without `--strict`, as a load error does.
+it exits 1 with or without `--strict`, as a load error does. The YAML message is
+on the indented `frontmatter-parse` line under the skill (and in its `findings`
+in JSON); the row's main line and its JSON `error` field still say the skill is
+missing a `description`.
 
 `--strict` makes `catalog scan` a gate on the spec as well as on loading. The
 text output and `--format json` (one object: `state`, `findings`,
