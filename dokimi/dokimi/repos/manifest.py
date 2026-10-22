@@ -308,6 +308,42 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
         report.notes.append("guidance-only manifest: no eval_dir, tasks or entry_points, "
                             "so `repo scan` and `repo reach` apply and `repo run` does not")
         return report
+    _check_eval_paths(tree, manifest, report)
+
+    files = tree.files()
+    unmatched = _check_guidance(tree, manifest, report)
+    inside_eval = [f for f in report.guidance_files if manifest.in_eval_dir(f)]
+    if inside_eval:
+        report.warnings.append(
+            f"guidance files inside eval_dir are removed from every workspace: {inside_eval}"
+        )
+
+    if tree.is_dir(manifest.tasks):
+        _check_tasks(tree, manifest, files, report)
+    else:
+        report.errors.append(f"tasks directory does not exist: {manifest.tasks}")
+    if open_base is None:
+        report.warnings.extend(f"guidance glob matches no file: {p}" for p in unmatched)
+        _check_mcp_at_tree(tree, report)
+    else:
+        from .bases import check_bases
+
+        check_bases(report, open_base, unmatched)
+    return report
+
+
+def _check_mcp_at_tree(tree: RepoTree, report: RepoCheckReport) -> None:
+    """Warn about a malformed ``.mcp.json`` at the snapshot (no task base to read); ``repo run`` is what refuses it."""
+    from .bases import MCP_CONFIG, tree_mcp_error
+
+    problem = tree_mcp_error(tree)
+    if problem:
+        report.warnings.append(f"{MCP_CONFIG} at the eval tree is {problem}; `repo run --tools all` would fail "
+                               "every cell as a task failure")
+
+
+def _check_eval_paths(tree: RepoTree, manifest: RepoManifest, report: RepoCheckReport) -> None:
+    """The eval_dir, image Dockerfile and explore_tasks the manifest names exist, and stay inside eval_dir."""
     if not tree.is_dir(manifest.eval_dir):
         report.errors.append(f"eval_dir does not exist: {manifest.eval_dir}")
     elif not _is_within(manifest.path, manifest.eval_dir):
@@ -324,32 +360,6 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
             f"explore_tasks {manifest.explore_tasks} is outside eval_dir {manifest.eval_dir}; "
             "its reference answers would be visible to the agent"
         )
-
-    files = tree.files()
-    unmatched = _check_guidance(tree, manifest, report)
-    inside_eval = [f for f in report.guidance_files if manifest.in_eval_dir(f)]
-    if inside_eval:
-        report.warnings.append(
-            f"guidance files inside eval_dir are removed from every workspace: {inside_eval}"
-        )
-
-    if tree.is_dir(manifest.tasks):
-        _check_tasks(tree, manifest, files, report)
-    else:
-        report.errors.append(f"tasks directory does not exist: {manifest.tasks}")
-    if open_base is None:
-        report.warnings.extend(f"guidance glob matches no file: {p}" for p in unmatched)
-        from .bases import MCP_CONFIG, tree_mcp_error
-
-        problem = tree_mcp_error(tree)  # no task base to read: the snapshot's own
-        if problem:
-            report.errors.append(f"{MCP_CONFIG} at the eval tree is {problem}; `repo run --tools all` would fail "
-                                 "every cell as a task failure")
-    else:
-        from .bases import check_bases
-
-        check_bases(report, open_base, unmatched)
-    return report
 
 
 def require_runnable(manifest: RepoManifest) -> None:

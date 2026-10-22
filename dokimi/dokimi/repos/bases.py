@@ -86,7 +86,7 @@ def check_bases(report: RepoCheckReport, open_base: Callable[[str], RepoTree],
         by_base[task.base] = found
         problem = tree_mcp_error(base_tree)
         if problem:
-            report.errors.append(f"task {task.id}: {MCP_CONFIG} at base {task.base!r} is {problem}; `repo run --tools all` "
+            report.warnings.append(f"task {task.id}: {MCP_CONFIG} at base {task.base!r} is {problem}; `repo run --tools all` "
                                  "would fail every cell of it as a task failure")
 
     report.guidance_by_base = {base: len(found) for base, found in by_base.items()}

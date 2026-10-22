@@ -66,19 +66,30 @@ def resolve_skills(arm: Any, content_dir: Path) -> list[Skill]:
             if not (root / "SKILL.md").is_file():
                 raise ArmError(f"arm {arm.spec!r}: no SKILL.md in {path}")
             found.append(_named(arm, root, path))
+        else:
+            found += _catalog_skills(arm, root, path)
+    _check_installable(arm, found)
+    return found
+
+
+def _catalog_skills(arm: Any, root: Path, path: str) -> list[Skill]:
+    """The skills in the subdirectories of the catalog ``root`` (written as ``path``)."""
+    if not root.is_dir():
+        raise ArmError(f"arm {arm.spec!r}: skill-catalog {path} is not a directory")
+    subs = []
+    for d in sorted(root.iterdir()):
+        if not d.is_dir() or not (d / "SKILL.md").is_file():
             continue
-        if not root.is_dir():
-            raise ArmError(f"arm {arm.spec!r}: skill-catalog {path} is not a directory")
-        subs = []
-        for d in sorted(root.iterdir()):
-            if not d.is_dir() or not (d / "SKILL.md").is_file():
-                continue
-            if not d.resolve().is_relative_to(root.resolve()):
-                raise ArmError(f"arm {arm.spec!r}: {d.name} in {path} links outside it")
-            subs.append(_named(arm, d, path))
-        if not subs:
-            raise ArmError(f"arm {arm.spec!r}: no subdirectory of {path} holds a SKILL.md")
-        found += subs
+        if not d.resolve().is_relative_to(root.resolve()):
+            raise ArmError(f"arm {arm.spec!r}: {d.name} in {path} links outside it")
+        subs.append(_named(arm, d, path))
+    if not subs:
+        raise ArmError(f"arm {arm.spec!r}: no subdirectory of {path} holds a SKILL.md")
+    return subs
+
+
+def _check_installable(arm: Any, found: list[Skill]) -> None:
+    """Refuse a skill the copy cannot take, and two skills of one name."""
     for skill in found:
         bad = _uncopyable(skill.dir)
         if bad:
@@ -88,7 +99,6 @@ def resolve_skills(arm: Any, content_dir: Path) -> list[Skill]:
     dupes = sorted({n for n in names if names.count(n) > 1})
     if dupes:
         raise ArmError(f"arm {arm.spec!r}: more than one skill named {', '.join(dupes)}")
-    return found
 
 
 def _named(arm: Any, directory: Path, written: str) -> Skill:
@@ -178,8 +188,6 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
     writes back its revision's files that match them, so those count as shipped too. The files of a ``patch:``
     arm's patch and of a task's ``setup_patches`` are not read: a skill directory they add is refused only in
     preparation."""
-    from dokimi.repos.manifest import match_glob
-
     cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm spec that owns it
     shipped: dict[str, tuple[list[str], list[str]]] = {}  # base -> (tracked files under .claude/skills, its links)
     for arm in arms:
@@ -187,31 +195,45 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
         if cells.setdefault(cell, arm.spec) != arm.spec:
             raise ArmError(f"arms {cells[cell]!r} and {arm.spec!r} would share one result directory ({cell})")
         skills = resolve_skills(arm, content_dir)
-        names = {s.name for s in skills}
         drops = arm.patch is None and (arm.base == "guidance:none" or arm.rev is not None)
         rev = (arm.rev_sha or arm.rev) if arm.patch is None else None
-        for task in tasks if skills else ():
-            if git_dir is None:
-                break
-            for commit in (task.base, rev):
-                if commit is not None and commit not in shipped:
-                    shipped[commit] = _base_skill_files(git_dir, commit)
-            left = [p for p in shipped[task.base][0]
-                    if not (drops and any(match_glob(g, p) for g in guidance_globs))]
-            written = [p for p in shipped[rev][0] if any(match_glob(g, p) for g in guidance_globs)] if rev else []
-            for link in shipped[task.base][1]:  # preparation refuses to install through a link, cell by cell
-                raise ArmError(f"arm {arm.spec!r}: the base of task {task.id} tracks {link} as a symlink; "
-                               f"refusing to install {skills[0].name} through it")
-            for skill in skills:
-                for where, files in ((f"the base of task {task.id}", left), (f"guidance revision {rev}", written)):
-                    if any(p.startswith(skill.target.rstrip("/") + "/") or p == skill.target for p in files):
-                        raise ArmError(f"arm {arm.spec!r}: {where} already has {skill.target}")
-        if any(kind == "skill-catalog" for kind, _ in arm.skills):
+        if skills and git_dir is not None:
             for task in tasks:
-                expected = task.raw.get("expected_skill")
-                if expected and expected not in names:
-                    raise ArmError(f"arm {arm.spec!r}: task {task.id}'s expected_skill {expected!r} is not installed "
-                                   f"(installed: {', '.join(sorted(names))})")
+                _check_shipped(arm, skills, task, git_dir, shipped, (drops, rev, guidance_globs))
+        if any(kind == "skill-catalog" for kind, _ in arm.skills):
+            _check_expected_skills(arm, tasks, {s.name for s in skills})
+
+
+def _check_shipped(arm: Any, skills: list[Skill], task: Any, git_dir: Path,
+                   shipped: dict[str, tuple[list[str], list[str]]],
+                   dropping: tuple[bool, str | None, tuple[str, ...] | list[str]]) -> None:
+    """Refuse ``skills`` that the base of ``task`` (or the arm's guidance revision) already ships, or a link that
+    preparation would refuse to install through; ``shipped`` caches ``_base_skill_files`` per commit."""
+    from dokimi.repos.manifest import match_glob
+
+    drops, rev, guidance_globs = dropping
+    for commit in (task.base, rev):
+        if commit is not None and commit not in shipped:
+            shipped[commit] = _base_skill_files(git_dir, commit)
+    left = [p for p in shipped[task.base][0]
+            if not (drops and any(match_glob(g, p) for g in guidance_globs))]
+    written = [p for p in shipped[rev][0] if any(match_glob(g, p) for g in guidance_globs)] if rev else []
+    for link in shipped[task.base][1]:  # preparation refuses to install through a link, cell by cell
+        raise ArmError(f"arm {arm.spec!r}: the base of task {task.id} tracks {link} as a symlink; "
+                       f"refusing to install {skills[0].name} through it")
+    for skill in skills:
+        for where, files in ((f"the base of task {task.id}", left), (f"guidance revision {rev}", written)):
+            if any(p.startswith(skill.target.rstrip("/") + "/") or p == skill.target for p in files):
+                raise ArmError(f"arm {arm.spec!r}: {where} already has {skill.target}")
+
+
+def _check_expected_skills(arm: Any, tasks: list[Any], names: set[str]) -> None:
+    """A catalog arm has to install the ``expected_skill`` of every task that names one."""
+    for task in tasks:
+        expected = task.raw.get("expected_skill")
+        if expected and expected not in names:
+            raise ArmError(f"arm {arm.spec!r}: task {task.id}'s expected_skill {expected!r} is not installed "
+                           f"(installed: {', '.join(sorted(names))})")
 
 
 def tree_sha256(root: Path) -> str:

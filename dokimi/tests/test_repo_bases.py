@@ -184,8 +184,8 @@ def test_work_tree_lists_what_git_shows(tmp_path):
 @pytest.mark.parametrize(("text", "why"), [("{", "not valid JSON"), ("[]", "not a JSON object"),
                                           ('{"mcpServers": []}', "`mcpServers` is not an object"),
                                           pytest.param("[" * 100000, "not valid JSON", id="deeply-nested")])
-def test_validate_refuses_a_malformed_mcp_json_at_a_task_base_and_at_a_tree_without_history(tmp_path, capsys,
-                                                                                            text, why):
+def test_validate_warns_about_a_malformed_mcp_json_at_a_task_base_and_at_a_tree_without_history(tmp_path, capsys,
+                                                                                              text, why):
     root = tmp_path / "toy"
     _write(root, ".mcp.json", text)
     _write(root, "src/lib.c", "int f(void);\n")
@@ -197,11 +197,10 @@ def test_validate_refuses_a_malformed_mcp_json_at_a_task_base_and_at_a_tree_with
     for source in (f"{root}@HEAD", str(root)):  # with git history (the task base), and a plain work tree
         if source == str(root):
             subprocess.run(["rm", "-rf", str(root / ".git")], check=True)
-        with pytest.raises(SystemExit):
-            _run_cli(["repo", "validate", source, "--manifest", "dev/evals/repo-eval.yaml", "--json"])
+        _run_cli(["repo", "validate", source, "--manifest", "dev/evals/repo-eval.yaml", "--json"])  # succeeds
         out = json.loads(capsys.readouterr().out)
-        assert out["ok"] is False
-        assert any(".mcp.json" in e and why in e for e in out["errors"]), out["errors"]
+        assert out["ok"] is True, out["errors"]
+        assert any(".mcp.json" in w and why in w for w in out["warnings"]), out["warnings"]
 
 
 def test_validate_accepts_a_valid_or_absent_mcp_json(tmp_path, capsys):

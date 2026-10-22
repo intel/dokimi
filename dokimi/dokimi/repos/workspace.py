@@ -313,6 +313,35 @@ def _export(tree: RepoTree, dest: Path, only: str | None, exclude: str | None) -
         tmp.rename(dest)
 
 
+def _apply_setup_patches(ws: Path, env: Any, task: Task) -> list[dict[str, str]]:
+    """Apply the task's ``setup_patches`` to ``ws`` (step 4); the record of each for ``meta.json``."""
+    patches = []
+    for rel in task.setup_patches:
+        path = _task_file(task, rel)
+        try:
+            _git(ws, env, "apply", "--whitespace=nowarn", str(path))
+        except PrepError as exc:
+            raise PrepError(f"task {task.id}: setup patch {rel} does not apply: {exc}") from exc
+        patches.append({"path": rel, "sha256": _sha256(path)})
+    return patches
+
+
+def _apply_review_patch(ws: Path, task: Task, patches: list[dict[str, str]]) -> None:
+    """Apply the task's ``review_patch`` as a commit on ``ws`` (step 7) and append its record to ``patches``."""
+    if not task.review_patch:
+        return
+    path = _task_file(task, task.review_patch)
+    review_env = _git_env(REVIEW_AUTHOR)
+    try:
+        _git(ws, review_env, "am", "-q", "--no-gpg-sign", str(path))
+    except PrepError as exc:
+        _git(ws, review_env, "am", "--abort", check=False)
+        raise PrepError(f"task {task.id}: review patch {task.review_patch} does not apply: {exc}") from exc
+    # the patch's own author would name the upstream contributor
+    _git(ws, review_env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--no-edit", "--reset-author")
+    patches.append({"path": task.review_patch, "sha256": _sha256(path)})
+
+
 def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: str, run_dir: Path,
                       profile: HarnessProfile | None = None, content_dir: Path | None = None) -> dict[str, Any]:
     """Steps 1-7 into ``run_dir/workspace``; returns the ``meta.json`` fields prep owns.
@@ -346,14 +375,7 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     _git(ws, env, "init", "-q")                                                               # 3
     _git(ws, env, "add", "-A")
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--allow-empty", "--no-verify", "-m", "snapshot")
-    patches = []
-    for rel in task.setup_patches:                                                           # 4
-        path = _task_file(task, rel)
-        try:
-            _git(ws, env, "apply", "--whitespace=nowarn", str(path))
-        except PrepError as exc:
-            raise PrepError(f"task {task.id}: setup patch {rel} does not apply: {exc}") from exc
-        patches.append({"path": rel, "sha256": _sha256(path)})
+    patches = _apply_setup_patches(ws, env, task)                                            # 4
     try:
         arm_files, arm_meta = _apply_arm(ws, env, git_dir, manifest, arm, bridge)            # 5
     except PrepError as exc:
@@ -361,17 +383,7 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     installed = _install_skills(ws, task, skills)
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
-    if task.review_patch:                                                                     # 7
-        path = _task_file(task, task.review_patch)
-        review_env = _git_env(REVIEW_AUTHOR)
-        try:
-            _git(ws, review_env, "am", "-q", "--no-gpg-sign", str(path))
-        except PrepError as exc:
-            _git(ws, review_env, "am", "--abort", check=False)
-            raise PrepError(f"task {task.id}: review patch {task.review_patch} does not apply: {exc}") from exc
-        # the patch's own author would name the upstream contributor
-        _git(ws, review_env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--no-edit", "--reset-author")
-        patches.append({"path": task.review_patch, "sha256": _sha256(path)})
+    _apply_review_patch(ws, task, patches)                                                    # 7
     _forget(ws, env)                                                                          # 8
     start_sha = _git(ws, env, "rev-parse", "HEAD").strip()
     meta: dict[str, Any] = {
