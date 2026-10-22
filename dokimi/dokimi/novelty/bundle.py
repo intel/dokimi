@@ -114,7 +114,6 @@ DEFAULT_MAX_FILE_WORDS = 4_000
 DEFAULT_MAX_TOTAL_WORDS = 20_000
 
 
-
 @dataclass
 class BundleFile:
     """One file of the artifact, with where its text landed in the rendered bundle."""
