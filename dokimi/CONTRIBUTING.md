@@ -85,6 +85,13 @@ CI additionally holds a PR to:
   (front end → tracks → evaluation → components → foundation; nothing imports `cli` or
   `commands`), fails a new import cycle, and keeps provider SDKs behind `dokimi.llm` and
   child processes behind `dokimi.process`. Its baselines only shrink.
+- **No growth in file length or complexity.** A first-party `.py` file over 800
+  lines (1000 under `tests/`) or a function over cyclomatic complexity 10 (ruff's
+  C901 count) fails `tests/test_growth_ratchet.py` unless `scripts/growth_baseline.json`
+  records it; a recorded one may shrink, never grow, and its entry comes down with
+  it (`python scripts/check_growth.py --update`). Raising or adding an entry needs a
+  `"rationale"` of at most 300 characters. `--report` prints the totals; the static
+  job adds them to its step summary.
 - **Tests that fail loudly.** `pytest` fails a test that runs over 60 s
   (`@pytest.mark.timeout(N)` allows more), turns a warning into an error, and
   shuffles the test order (pytest-randomly). The header prints

@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from dokimi.novelty.bundle import COVERAGE_BASES, Coverage
+from dokimi.metrics.bundle_coverage import COVERAGE_BASES, Coverage
 
 # ── Thresholds (override per call) ────────────────────────────────────────────
 

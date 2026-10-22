@@ -2,6 +2,7 @@
 depends_on:
   - dokimi/dokimi/eval/judge.py
   - dokimi/dokimi/eval/panel.py
+  - dokimi/dokimi/eval/rubric.py
   - dokimi/dokimi/gate/trust_gate.py
   - dokimi/dokimi/defaults.py
   - dokimi/dokimi/commands/benchmark.py
