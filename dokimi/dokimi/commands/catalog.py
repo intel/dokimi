@@ -13,17 +13,41 @@ for the manifest formats understood.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 
+def _skill_row(skill, review) -> dict:
+    """One skill of the scan report. ``state`` is ``error`` for a load error or an error finding,
+    ``warn`` for a warning finding only, else ``ok``."""
+    if not skill.loaded:
+        state, findings = "error", []
+    else:
+        state, findings = review.state, review.findings
+    return {
+        "name": skill.name,
+        "manifest_status": skill.status,
+        "path": str(skill.path) if skill.path else None,
+        "state": state,
+        "error": skill.error,
+        "disable_model_invocation": bool(review and review.disable_model_invocation),
+        "content_sha256": review.content_sha256 if review else None,
+        "duplicate_of": review.duplicate_of if review else None,
+        "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in findings],
+    }
+
+
 def cmd_catalog_scan(args: argparse.Namespace) -> None:
     from dokimi.external import read_skill_manifest, read_task_manifest
+    from dokimi.external.validate import review_skills
 
     root = Path(args.root)
     if not root.is_dir():
         raise SystemExit(f"--root is not a directory: {root}")
 
+    as_json = args.format == "json"
+    report: dict = {"root": str(root), "skills": [], "tasks": []}
     any_failure = False
 
     if args.kind in ("skills", "all"):
@@ -31,21 +55,39 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
             skills = read_skill_manifest(root)
         except ValueError as exc:
             raise SystemExit(f"skills.yaml: {exc}") from exc
-        print(f"# skills ({len(skills)} declared under {root})")
-        for skill in skills:
-            state = "ok" if skill.loaded else f"ERROR: {skill.error}"
-            status = skill.status or "-"
-            print(f"{skill.name}\t{status}\t{skill.path}\t{state}")
-            if not skill.loaded:
+        reviews = review_skills(skills)
+        counts = {"ok": 0, "warn": 0, "error": 0}
+        for skill, review in zip(skills, reviews, strict=True):
+            row = _skill_row(skill, review)
+            counts[row["state"]] += 1
+            report["skills"].append(row)
+            if row["state"] == "error":
                 any_failure = True
-        print()
+        if not as_json:
+            print(f"# skills ({len(skills)} declared under {root}; "
+                  f"{counts['ok']} ok, {counts['warn']} warn, {counts['error']} error)")
+            for row in report["skills"]:
+                if row["error"] is not None:
+                    state = f"ERROR: {row['error']}"
+                elif row["state"] == "ok":
+                    state = "ok"
+                else:
+                    worst = next(f for f in row["findings"] if f["level"] == row["state"])
+                    state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {worst['message']}"
+                print(f"{row['name']}\t{row['manifest_status'] or '-'}\t{row['path'] or '-'}\t{state}")
+                for f in row["findings"]:
+                    print(f"  {f['level']} {f['code']}: {f['message']}")
+                if row["disable_model_invocation"]:
+                    print("  note disable-model-invocation: true (the model is never offered this skill)")
+            print()
 
     if args.kind in ("tasks", "all"):
         try:
             tasks = read_task_manifest(root, tasks_subdir=args.tasks_subdir)
         except ValueError as exc:
             raise SystemExit(f"suites.json: {exc}") from exc
-        print(f"# tasks ({len(tasks)} declared under {root})")
+        if not as_json:
+            print(f"# tasks ({len(tasks)} declared under {root})")
         for task in tasks:
             if task.loaded:
                 state = "ok"
@@ -54,9 +96,17 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
             else:
                 state = f"ERROR: {task.reason}"
                 any_failure = True
-            track = task.track or "-"
-            status = task.status or "-"
-            print(f"{task.name}\t{status}\t{track}\t{state}")
+            report["tasks"].append({
+                "name": task.name, "manifest_status": task.status, "track": task.track,
+                "path": str(task.path) if task.path else None,
+                "state": "ok" if task.loaded else "skipped" if task.skipped else "error",
+                "reason": task.reason,
+            })
+            if not as_json:
+                print(f"{task.name}\t{task.status or '-'}\t{task.track or '-'}\t{state}")
+
+    if as_json:
+        print(json.dumps(report, indent=2))
 
     if any_failure:
         raise SystemExit(1)
@@ -158,6 +208,10 @@ def register(sub, positive_int) -> None:
     scan_p.add_argument(
         "--kind", choices=["skills", "tasks", "all"], default="all",
         help="Restrict the scan to skills, tasks, or both (default: all)",
+    )
+    scan_p.add_argument(
+        "--format", choices=["text", "json"], default="text",
+        help="text: one line per entry; json: one object with a row per skill and task (default: text)",
     )
     scan_p.add_argument(
         "--tasks-subdir", default="evaluation/harbor/tasks",

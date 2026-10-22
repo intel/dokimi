@@ -1,0 +1,173 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""Spec and mirror review of ``catalog scan`` (``dokimi.external.validate``), and its ``--format json`` output."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from dokimi.cli import build_parser
+from dokimi.external import read_skill_manifest, review_skills
+
+
+def _skill(root: Path, rel: str, name: str | None = None, description: str = "Use for things.",
+           extra: str = "", body: str = "# Body\n") -> Path:
+    """Write ``<root>/<rel>/SKILL.md``; ``name`` None leaves the key out of the frontmatter."""
+    skill_dir = root / rel
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    head = f"name: {name}\n" if name is not None else ""
+    (skill_dir / "SKILL.md").write_text(
+        f"---\n{head}description: {description}\n{extra}---\n{body}", encoding="utf-8")
+    return skill_dir
+
+
+def _scan_json(root: Path, capsys, *, kind: str = "skills") -> tuple[dict, int]:
+    """Run ``catalog scan --format json``; return the parsed report and the exit code (0 when none raised)."""
+    args = build_parser().parse_args(
+        ["catalog", "scan", "--root", str(root), "--kind", kind, "--format", "json"])
+    code = 0
+    try:
+        args.func(args)
+    except SystemExit as exc:
+        code = exc.code
+    return json.loads(capsys.readouterr().out), code
+
+
+def _reviews_by_name(root: Path) -> dict:
+    entries = read_skill_manifest(root)
+    return {e.name: r for e, r in zip(entries, review_skills(entries), strict=True)}
+
+
+def test_name_that_is_not_the_directory_name_is_an_error(tmp_path):
+    _skill(tmp_path / "skills", "writing-rules", name="Writing Hookify Rules")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "error"
+    codes = {f.code for f in review.findings}
+    assert {"name-mismatch", "name-format"} <= codes
+
+
+def test_title_case_name_matching_directory_is_still_not_kebab_case(tmp_path):
+    _skill(tmp_path / "skills", "Writing", name="Writing")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "error"
+    assert [f.code for f in review.findings] == ["name-format"]
+
+
+def test_kebab_case_name_matching_directory_is_ok(tmp_path):
+    _skill(tmp_path / "skills", "linux-perf-2", name="linux-perf-2")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "ok"
+    assert review.findings == []
+
+
+def test_name_missing_from_frontmatter_is_a_warning(tmp_path):
+    _skill(tmp_path / "skills", "no-name", name=None)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "warn"
+    assert [f.code for f in review.findings] == ["name-missing"]
+
+
+def test_description_length_limit_is_1024_characters(tmp_path):
+    _skill(tmp_path / "skills", "at-limit", name="at-limit", description="d" * 1024)
+    _skill(tmp_path / "skills", "over-limit", name="over-limit", description="d" * 1025)
+
+    reviews = _reviews_by_name(tmp_path)
+    assert reviews["at-limit"].state == "ok"
+    over = reviews["over-limit"]
+    assert over.state == "error"
+    assert [f.code for f in over.findings] == ["description-too-long"]
+
+
+def test_identical_skill_md_is_a_warning_naming_the_first_copy(tmp_path):
+    # A plugin copy with an extra bundled folder is still the same SKILL.md: the model sees the same text.
+    _skill(tmp_path / "plugins", "x", name="x", description="Use for x.")
+    copy = _skill(tmp_path / "skills", "x", name="x", description="Use for x.")
+    (copy / "agents").mkdir()
+    (copy / "agents" / "openai.yaml").write_text("a: 1\n", encoding="utf-8")
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    originals = [r for r in reviews if r.duplicate_of is None]
+    copies = [r for r in reviews if r.duplicate_of is not None]
+    assert len(originals) == 1 and len(copies) == 1
+    assert copies[0].duplicate_of == "plugins/x"
+    assert copies[0].state == "warn"
+    assert copies[0].findings[-1].code == "duplicate"
+    assert copies[0].content_sha256 == originals[0].content_sha256
+
+
+def test_different_skill_md_with_the_same_name_is_not_a_duplicate(tmp_path):
+    _skill(tmp_path / "plugins", "x", name="x", description="Use for x.")
+    _skill(tmp_path / "skills", "x", name="x", description="Use for x, a different text.")
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert all(r.duplicate_of is None for r in reviews)
+    assert all(r.state == "ok" for r in reviews)
+
+
+def test_disable_model_invocation_is_reported_as_a_flag_not_a_finding(tmp_path):
+    _skill(tmp_path / "skills", "hidden", name="hidden",
+           extra="disable-model-invocation: true\n")
+    _skill(tmp_path / "skills", "shown", name="shown")
+
+    reviews = _reviews_by_name(tmp_path)
+    assert reviews["hidden"].disable_model_invocation is True
+    assert reviews["hidden"].state == "ok"
+    assert reviews["shown"].disable_model_invocation is False
+
+
+def test_json_report_carries_the_findings_and_exits_1_on_an_error(tmp_path, capsys):
+    _skill(tmp_path / "skills", "claude-api", name="Claude API")
+    report, code = _scan_json(tmp_path, capsys)
+
+    assert code == 1
+    [row] = report["skills"]
+    assert row["state"] == "error"
+    assert row["error"] is None
+    assert {f["code"] for f in row["findings"]} >= {"name-mismatch", "name-format"}
+    assert row["content_sha256"] and len(row["content_sha256"]) == 64
+
+
+def test_json_report_on_warnings_only_exits_0(tmp_path, capsys):
+    _skill(tmp_path / "plugins", "x", name="x")
+    _skill(tmp_path / "skills", "x", name="x")
+    _skill(tmp_path / "skills", "hidden", name="hidden", extra="disable-model-invocation: yes\n")
+    report, code = _scan_json(tmp_path, capsys)
+
+    assert code == 0
+    states = {row["path"].split(str(tmp_path) + "/")[1]: row["state"] for row in report["skills"]}
+    assert states == {"plugins/x": "ok", "skills/x": "warn", "skills/hidden": "ok"}
+    hidden = next(r for r in report["skills"] if r["name"] == "hidden")
+    assert hidden["disable_model_invocation"] is True
+    assert report["tasks"] == []
+
+
+def test_json_report_keeps_load_errors_as_error_rows(tmp_path, capsys):
+    (tmp_path / "skills.yaml").write_text(
+        'skills:\n  - name: ghost\n    catalog_path: skills/does-not-exist\n', encoding="utf-8")
+    report, code = _scan_json(tmp_path, capsys)
+
+    assert code == 1
+    [row] = report["skills"]
+    assert row["state"] == "error"
+    assert "does-not-exist" in row["error"]
+
+
+def test_text_output_lists_each_finding_under_its_skill(tmp_path, capsys):
+    _skill(tmp_path / "skills", "claude-api", name="Claude API")
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert exc_info.value.code == 1
+    out = capsys.readouterr().out
+    assert "# skills (1 declared" in out and "1 error" in out
+    assert "ERROR: name 'Claude API' is not the directory name" in out
+    assert "  error name-mismatch:" in out
+    assert "  error name-format:" in out
