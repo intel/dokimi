@@ -551,7 +551,7 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     Returns:
         ``n_skills``, ``n_queries``, and per arm (``lexical``, ``model``): ``confusion`` (gold
         skill to picked skill to count, ``(none)`` included), ``own_rate`` per gold skill, and
-        ``attractors`` ordered by ``wrongly_picked``. The model arm also records ``seed``.
+        ``attractors`` ordered by ``wrongly_picked``. The model arm also records ``seed``, ``n_failed``, ``n_abstained`` and ``first_error``.
 
     Raises:
         RoutingInputError: Fewer than two skills in the field; a name repeated in the field; a
@@ -575,7 +575,9 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         picks: Counter = Counter()
         for query in queries:
             tokens = tokenize(query)
-            order = bm25.rank(tokens) if tokens else []
+            # The gold sorts after every card it ties with, as in lexical_routing: a tie is
+            # never a win for the card that happens to come first in the field.
+            order = bm25.rank(tokens, last=names.index(name)) if tokens else []
             best = order[0] if order else None
             if best is None or bm25.score(tokens, best) <= 0:
                 picks[NO_PICK] += 1
@@ -589,13 +591,22 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     }
     if client is not None:
         model: dict[str, Counter] = {}
+        n_failed = n_abstained = 0
+        first_error = None
         for index, name in enumerate(names):
             if name not in queries_by_skill:
                 continue
-            rows = model_routing(candidates, queries_by_skill[name], client=client, gold=index,
-                                 seed=seed + index)["per_query"]
+            routed = model_routing(candidates, queries_by_skill[name], client=client,
+                                   gold=index, seed=seed + index)
+            rows = routed["per_query"]
+            n_failed += routed["n_failed"]
+            n_abstained += routed["n_abstained"]
+            if first_error is None:
+                first_error = next((r["error"] for r in rows if r.get("error")), None)
             model[name] = Counter(row.get("picked") or NO_PICK for row in rows)
-        result["model"] = dict(_attractor_table(model, queries_by_skill, names), seed=seed)
+        result["model"] = dict(_attractor_table(model, queries_by_skill, names), seed=seed,
+                               n_failed=n_failed, n_abstained=n_abstained,
+                               first_error=first_error)
     return result
 
 

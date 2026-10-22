@@ -638,9 +638,8 @@ file that names a skill outside the field, or no queries at all.
 every skill in the field: the call count is the total number of requests in `queries.json`, and
 a failed call still counts. Each call sends the whole field's cards, so a large field costs
 more per call as well as in calls. Before the first call the run prints that count to stderr
-(`all-vs-all: --model makes N model calls, one per query, ...`). The run does not pause for it
-and routing has no `--max-usd` cap, so count the queries first and stop the run (Ctrl-C) if the
-number is more than you meant to spend. A lexical-only run (no `--model`) makes no model calls.
+(`all-vs-all: --model makes N model calls, one per query, ...`). The run does not pause for it,
+so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 

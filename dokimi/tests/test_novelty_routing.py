@@ -577,6 +577,19 @@ def test_an_explicit_disabled_competitor_is_skipped_with_a_warning(tmp_path, cap
     assert f"skipped competitor {hidden}: disable-model-invocation" in capsys.readouterr().err
 
 
+def test_include_disabled_keeps_a_disabled_skill_named_as_a_competitor(tmp_path, capsys):
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
+    hidden = _model_hidden_skill(tmp_path, "ultra", "compress output hard")
+    out = tmp_path / "r.json"
+    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", hidden, _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--out", str(out), "--include-disabled")
+    args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 3
+    assert "skipped competitor" not in capsys.readouterr().err
+
+
 def test_a_disabled_artifact_is_still_routed_but_warned_about(tmp_path, capsys):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
@@ -591,6 +604,10 @@ def test_a_disabled_artifact_is_still_routed_but_warned_about(tmp_path, capsys):
 @pytest.mark.parametrize("line, hidden", [
     ("disable-model-invocation: true", True), ("disable-model-invocation: false", False),
     ("disable-model-invocation: yes", True), ("description: x", False),
+    # Unquoted yes/on parse to True; the quoted and numeric spellings reach the string branch.
+    ("disable-model-invocation: 'yes'", True), ("disable-model-invocation: 'on'", True),
+    ("disable-model-invocation: 1", True), ("disable-model-invocation: 0", False),
+    ("disable-model-invocation: 'TRUE'", True), ("disable-model-invocation: 'no'", False),
 ])
 def test_the_disable_flag_is_read_the_way_the_repo_budget_reads_it(tmp_path, line, hidden):
     path = tmp_path / "SKILL.md"
@@ -627,6 +644,22 @@ def test_the_mirror_kept_is_the_copy_nearest_the_catalog_root(tmp_path):
     notes: list[str] = []
     assert [c.name for c in catalog_competitors(str(root), set(), notes)] == ["db"]
     assert "plugins" in notes[0] and "identical to" in notes[0]
+    # The note names the copy that was kept, not only the one left out.
+    assert notes[0].endswith(f"identical to {root / 'skills' / 'db' / 'SKILL.md'}")
+
+
+def test_mirrors_at_one_depth_keep_the_path_that_sorts_first(tmp_path):
+    root = tmp_path / "catalog"
+    for branch in ("b", "a"):
+        copy = root / branch / "skills" / "db"
+        copy.mkdir(parents=True)
+        (copy / "SKILL.md").write_text(
+            "---\nname: db\ndescription: tune a slow database query\n---\n\n# B\n",
+            encoding="utf-8")
+    notes: list[str] = []
+    assert [c.name for c in catalog_competitors(str(root), set(), notes)] == ["db"]
+    assert notes[0].endswith(f"identical to {root / 'a' / 'skills' / 'db' / 'SKILL.md'}")
+    assert f"at {root / 'b' / 'skills' / 'db' / 'SKILL.md'}" in notes[0]
 
 
 def test_two_catalog_skills_with_one_name_and_different_content_are_refused_by_name(
@@ -844,4 +877,126 @@ def test_all_vs_all_takes_no_artifact(tmp_path):
 def test_a_single_routing_run_still_needs_an_artifact(tmp_path):
     args = _parse("novelty", "routing", "--out", str(tmp_path / "o.json"))
     with pytest.raises(SystemExit, match="--all-vs-all for the whole field"):
+        args.func(args)
+
+
+def _two_identical_cards(order):
+    cards = {"a": Candidate(name="a", description="format json output"),
+             "b": Candidate(name="b", description="format json output")}
+    return [cards[n] for n in order]
+
+
+@pytest.mark.parametrize("order", [("a", "b"), ("b", "a")])
+def test_two_identical_cards_tie_and_neither_is_scored_a_win(order):
+    result = all_vs_all(_two_identical_cards(order),
+                        {"a": ["format json"], "b": ["format json"]})["lexical"]
+    assert result["own_rate"] == {"a": 0.0, "b": 0.0}
+    assert result["confusion"] == {"a": {"b": 1}, "b": {"a": 1}}
+
+
+def test_a_three_way_tie_is_not_a_perfect_pick():
+    field = [Candidate(name=f"s{i}", description="common words") for i in range(3)]
+    lexical = all_vs_all(field, {"s0": ["common"]})["lexical"]
+    assert lexical["own_rate"] == {"s0": 0.0}
+
+
+def test_attractors_are_ranked_by_count_and_rated_over_the_other_skills_queries():
+    # hub takes 2 of perf's 2 queries and 1 of db's 3; sink takes 1 of perf's.
+    field = [Candidate(name="perf", description="profile binary"),
+             Candidate(name="db", description="index query"),
+             Candidate(name="hub", description="slow advice"),
+             Candidate(name="sink", description="gpu offload")]
+    queries = {"perf": ["slow one", "slow two", "gpu thing"],
+               "db": ["slow query", "index query", "index query again"]}
+    lexical = all_vs_all(field, queries)["lexical"]
+    hub, sink = lexical["attractors"][:2]
+    assert hub == {"skill": "hub", "wrongly_picked": 3, "sibling_queries": 6, "rate": 0.5,
+                   "from": ["perf", "db"]}
+    assert sink["skill"] == "sink" and sink["wrongly_picked"] == 1
+    # hub's own queries are not sibling queries of hub: only the other golds count.
+    assert all(row["skill"] != "perf" or row["sibling_queries"] == 3
+               for row in lexical["attractors"])
+
+
+def _positional_client(pick_for):
+    def transport(prompt: str, system: str | None):
+        picked = pick_for(prompt)
+        return json.dumps({"pick": picked}), None
+    return LLMClient(model="m", role="selector", transport=transport)
+
+
+def test_a_selector_that_abstains_is_none_and_counted_in_the_model_arm():
+    model = all_vs_all(ALL_FIELD, ALL_QUERIES, client=_positional_client(lambda p: 0))["model"]
+    assert model["confusion"] == {"linux-perf": {"(none)": 2}, "mkl-advisor": {"(none)": 2}}
+    assert model["n_abstained"] == 4 and model["n_failed"] == 0
+    assert model["attractors"] == []
+
+
+def test_the_model_arm_seeds_each_gold_apart_and_hands_model_routing_the_gold(monkeypatch):
+    import dokimi.novelty.routing as routing
+
+    seen = []
+    real = routing.model_routing
+
+    def spy(candidates, queries, **kwargs):
+        seen.append((kwargs["gold"], kwargs["seed"]))
+        return real(candidates, queries, **kwargs)
+
+    monkeypatch.setattr(routing, "model_routing", spy)
+    all_vs_all(ALL_FIELD, ALL_QUERIES, client=_positional_client(lambda p: 1), seed=10)
+    assert seen == [(0, 10), (2, 12)]
+
+
+def test_the_model_arm_follows_each_call_not_one_fixed_card():
+    calls = iter([1, 2, 3, 1])
+    model = all_vs_all(ALL_FIELD, ALL_QUERIES,
+                       client=_positional_client(lambda p: next(calls)), seed=3)["model"]
+    assert sum(sum(row.values()) for row in model["confusion"].values()) == 4
+    assert len({name for row in model["confusion"].values() for name in row}) > 1
+
+
+def test_a_transport_that_raises_is_counted_not_reported_as_a_clean_zero():
+    def transport(prompt: str, system: str | None):
+        raise RuntimeError("boom")
+
+    client = LLMClient(model="m", role="selector", transport=transport)
+    model = all_vs_all(ALL_FIELD, ALL_QUERIES, client=client)["model"]
+    assert model["n_failed"] == 4 and model["n_abstained"] == 0
+    assert "boom" in model["first_error"]
+
+
+def test_all_vs_all_exits_nonzero_when_every_model_call_fails(tmp_path, capsys, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    def transport(prompt: str, system: str | None):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role, transport=transport))
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
+    _catalog_skill(root, "db", "tune a slow database query with an index")
+    queries = _write_queries(tmp_path, {"perf": ["profile a slow program"],
+                                        "db": ["add an index"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m")
+    with pytest.raises(SystemExit, match="every model call failed"):
+        args.func(args)
+    captured = capsys.readouterr()
+    assert "OK Saved" not in captured.out
+    assert "2 model call(s) failed" in captured.err and "boom" in captured.err
+
+
+@pytest.mark.parametrize("make", ["missing", "not_utf8"])
+def test_an_unreadable_queries_file_is_a_message_not_a_traceback(tmp_path, make):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary")
+    _catalog_skill(root, "db", "tune a slow database query")
+    queries = tmp_path / "q.json"
+    if make == "not_utf8":
+        queries.write_bytes(b"\xff\xfe\x00bad")
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit, match="cannot read the queries"):
         args.func(args)

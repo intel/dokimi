@@ -335,7 +335,10 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     except (FileNotFoundError, ValueError) as exc:
         raise SystemExit(f"cannot load the field: {exc}") from None
     try:
-        queries_by_skill = load_queries_by_skill(args.queries_by_skill)
+        try:
+            queries_by_skill = load_queries_by_skill(args.queries_by_skill)
+        except (OSError, UnicodeDecodeError) as exc:
+            raise SystemExit(f"cannot read the queries: {exc}") from None
         selector = _client(args.model, args.provider, "selector", args) if args.model else None
         if selector is not None:
             # One selector call per query, each sending every card in the field.
@@ -353,11 +356,21 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
         print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
               f"compete: {', '.join(sorted(without))}", file=sys.stderr)
 
+    model_arm = result.get("model")
+    failed = model_arm["n_failed"] if model_arm else 0
+    if failed:
+        print(f"WARNING: {failed} model call(s) failed (first error: "
+              f"{model_arm['first_error']}); a failed call is counted as (none) in the model "
+              "arm, so its rates are lower bounds", file=sys.stderr)
+
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {"mode": "all_vs_all", "queries_by_skill": args.queries_by_skill,
                "n_candidates": len(field), "result": result}
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    if model_arm and failed and failed >= result["n_queries"]:
+        raise SystemExit(f"every model call failed ({model_arm['first_error']}); the partial "
+                         f"result is in {out}")
     print(f"OK Saved all-vs-all routing: {out}")
     print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
           f"{len(queries_by_skill)} skills with queries")
