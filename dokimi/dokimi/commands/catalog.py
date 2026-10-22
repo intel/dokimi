@@ -20,9 +20,10 @@ from pathlib import Path
 
 def _skill_row(skill, review) -> dict:
     """One skill of the scan report. ``state`` is ``error`` for a load error or an error finding,
-    ``warn`` for a warning finding only, else ``ok``."""
+    ``warn`` for a warning finding only, else ``ok``. A skill that did not load has a review only
+    when its frontmatter is broken YAML, and that review's finding is its only finding."""
     if not skill.loaded:
-        state, findings = "error", []
+        state, findings = "error", (review.findings if review else [])
     else:
         state, findings = review.state, review.findings
     return {
@@ -61,11 +62,14 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
             row = _skill_row(skill, review)
             counts[row["state"]] += 1
             report["skills"].append(row)
-            if row["state"] == "error":
+            # A load error always fails; a spec error fails only with --strict.
+            if not skill.loaded or (args.strict and row["state"] == "error"):
                 any_failure = True
         if not as_json:
-            print(f"# skills ({len(skills)} declared under {root}; "
-                  f"{counts['ok']} ok, {counts['warn']} warn, {counts['error']} error)")
+            print(
+                f"# skills ({len(skills)} declared under {root}; "
+                f"{counts['ok']} ok, {counts['warn']} warn, {counts['error']} error)"
+            )
             for row in report["skills"]:
                 if row["error"] is not None:
                     state = f"ERROR: {row['error']}"
@@ -74,11 +78,15 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
                 else:
                     worst = next(f for f in row["findings"] if f["level"] == row["state"])
                     state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {worst['message']}"
-                print(f"{row['name']}\t{row['manifest_status'] or '-'}\t{row['path'] or '-'}\t{state}")
+                print(
+                    f"{row['name']}\t{row['manifest_status'] or '-'}\t{row['path'] or '-'}\t{state}"
+                )
                 for f in row["findings"]:
                     print(f"  {f['level']} {f['code']}: {f['message']}")
                 if row["disable_model_invocation"]:
-                    print("  note disable-model-invocation: true (the model is never offered this skill)")
+                    print(
+                        "  note disable-model-invocation: true (the model is never offered this skill)"
+                    )
             print()
 
     if args.kind in ("tasks", "all"):
@@ -96,12 +104,16 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
             else:
                 state = f"ERROR: {task.reason}"
                 any_failure = True
-            report["tasks"].append({
-                "name": task.name, "manifest_status": task.status, "track": task.track,
-                "path": str(task.path) if task.path else None,
-                "state": "ok" if task.loaded else "skipped" if task.skipped else "error",
-                "reason": task.reason,
-            })
+            report["tasks"].append(
+                {
+                    "name": task.name,
+                    "manifest_status": task.status,
+                    "track": task.track,
+                    "path": str(task.path) if task.path else None,
+                    "state": "ok" if task.loaded else "skipped" if task.skipped else "error",
+                    "reason": task.reason,
+                }
+            )
             if not as_json:
                 print(f"{task.name}\t{task.status or '-'}\t{task.track or '-'}\t{state}")
 
@@ -210,7 +222,15 @@ def register(sub, positive_int) -> None:
         help="Restrict the scan to skills, tasks, or both (default: all)",
     )
     scan_p.add_argument(
-        "--format", choices=["text", "json"], default="text",
+        "--strict",
+        action="store_true",
+        help="Exit 1 on a skill spec error (name not the directory name or not kebab-case, "
+        "description over 1024 characters) as well as on a skill that does not load",
+    )
+    scan_p.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
         help="text: one line per entry; json: one object with a row per skill and task (default: text)",
     )
     scan_p.add_argument(

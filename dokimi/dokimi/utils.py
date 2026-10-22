@@ -12,7 +12,9 @@ def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
 
     Supports a leading YAML frontmatter block delimited by ``---`` lines, the
     same convention used by Claude Code skill files and most static-site
-    generators. When no frontmatter is present, returns ``({}, text)``.
+    generators. When no frontmatter is present, returns ``({}, text)``. Frontmatter
+    that is not valid YAML also returns ``{}``; use :func:`parse_frontmatter_strict`
+    to see that error.
 
     Args:
         text: Raw file contents.
@@ -20,6 +22,23 @@ def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
     Returns:
         Tuple of (metadata dict, body string with frontmatter stripped).
     """
+    return _split_frontmatter(text, strict=False)
+
+
+def parse_frontmatter_strict(text: str) -> "Tuple[Dict[str, Any], str]":
+    """Like :func:`parse_frontmatter`, but frontmatter that is not valid YAML raises.
+
+    For a validator that must name the YAML error rather than read the document
+    as having no metadata. The lenient :func:`parse_frontmatter` is unchanged for
+    every other caller.
+
+    Raises:
+        yaml.YAMLError: The frontmatter block is not valid YAML.
+    """
+    return _split_frontmatter(text, strict=True)
+
+
+def _split_frontmatter(text: str, *, strict: bool) -> "Tuple[Dict[str, Any], str]":
     import yaml
 
     if not text:
@@ -40,6 +59,8 @@ def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
             try:
                 meta = yaml.safe_load(raw_meta) or {}
             except yaml.YAMLError:
+                if strict:
+                    raise
                 meta = {}
             if not isinstance(meta, dict):
                 meta = {}

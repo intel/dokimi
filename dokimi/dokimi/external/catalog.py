@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Optional
 
 from dokimi.harnesses.tasks import TaskSpec, discover_tasks, is_task_dir, load_task
-from dokimi.skills import Skill, discover_skills, load_skill
+from dokimi.skills import Skill, load_skill
 
 DEFAULT_TASKS_SUBDIR = "evaluation/harbor/tasks"
 DEFAULT_SUITES_MANIFEST = "evaluation/harbor/suites.json"
@@ -99,16 +99,33 @@ def read_skill_manifest(root: Path) -> list[SkillCatalogEntry]:
     root = Path(root)
     manifest_path = root / "skills.yaml"
     if not manifest_path.is_file():
-        return [
-            SkillCatalogEntry(
-                name=skill.name,
-                status=None,
-                path=skill.path.parent,
-                source_root=root,
-                skill=skill,
+        # One entry per SKILL.md, as the manifest path gives: a skill that does not
+        # load is an error row, so one broken skill does not abort the whole scan.
+        found: list[SkillCatalogEntry] = []
+        for skill_file in sorted(root.rglob("SKILL.md")):
+            try:
+                skill = load_skill(skill_file)
+            except (FileNotFoundError, ValueError) as exc:
+                found.append(
+                    SkillCatalogEntry(
+                        name=skill_file.parent.name,
+                        status=None,
+                        path=skill_file.parent,
+                        source_root=root,
+                        error=str(exc),
+                    )
+                )
+                continue
+            found.append(
+                SkillCatalogEntry(
+                    name=skill.name,
+                    status=None,
+                    path=skill.path.parent,
+                    source_root=root,
+                    skill=skill,
+                )
             )
-            for skill in discover_skills(root)
-        ]
+        return found
 
     import yaml
 

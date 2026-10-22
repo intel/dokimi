@@ -9,9 +9,11 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from dokimi.cli import build_parser
 from dokimi.external import read_skill_manifest, review_skills
+from dokimi.utils import parse_frontmatter, parse_frontmatter_strict
 
 
 def _skill(root: Path, rel: str, name: str | None = None, description: str = "Use for things.",
@@ -25,10 +27,12 @@ def _skill(root: Path, rel: str, name: str | None = None, description: str = "Us
     return skill_dir
 
 
-def _scan_json(root: Path, capsys, *, kind: str = "skills") -> tuple[dict, int]:
+def _scan_json(
+    root: Path, capsys, *, kind: str = "skills", strict: bool = False
+) -> tuple[dict, int]:
     """Run ``catalog scan --format json``; return the parsed report and the exit code (0 when none raised)."""
-    args = build_parser().parse_args(
-        ["catalog", "scan", "--root", str(root), "--kind", kind, "--format", "json"])
+    argv = ["catalog", "scan", "--root", str(root), "--kind", kind, "--format", "json"]
+    args = build_parser().parse_args(argv + (["--strict"] if strict else []))
     code = 0
     try:
         args.func(args)
@@ -123,16 +127,35 @@ def test_disable_model_invocation_is_reported_as_a_flag_not_a_finding(tmp_path):
     assert reviews["shown"].disable_model_invocation is False
 
 
-def test_json_report_carries_the_findings_and_exits_1_on_an_error(tmp_path, capsys):
+def test_json_report_carries_the_findings_and_exits_0_on_a_spec_error_without_strict(
+    tmp_path, capsys
+):
     _skill(tmp_path / "skills", "claude-api", name="Claude API")
     report, code = _scan_json(tmp_path, capsys)
 
-    assert code == 1
+    assert code == 0
     [row] = report["skills"]
     assert row["state"] == "error"
     assert row["error"] is None
     assert {f["code"] for f in row["findings"]} >= {"name-mismatch", "name-format"}
     assert row["content_sha256"] and len(row["content_sha256"]) == 64
+
+
+def test_strict_makes_a_spec_error_exit_1(tmp_path, capsys):
+    _skill(tmp_path / "skills", "claude-api", name="Claude API")
+    report, code = _scan_json(tmp_path, capsys, strict=True)
+
+    assert code == 1
+    assert report["skills"][0]["state"] == "error"
+
+
+def test_strict_does_not_fail_on_warnings(tmp_path, capsys):
+    _skill(tmp_path / "plugins", "x", name="x")
+    _skill(tmp_path / "skills", "x", name="x")
+    _skill(tmp_path / "skills", "no-name", name=None)
+    _, code = _scan_json(tmp_path, capsys, strict=True)
+
+    assert code == 0
 
 
 def test_json_report_on_warnings_only_exits_0(tmp_path, capsys):
@@ -163,11 +186,47 @@ def test_json_report_keeps_load_errors_as_error_rows(tmp_path, capsys):
 def test_text_output_lists_each_finding_under_its_skill(tmp_path, capsys):
     _skill(tmp_path / "skills", "claude-api", name="Claude API")
     args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
-    with pytest.raises(SystemExit) as exc_info:
-        args.func(args)
-    assert exc_info.value.code == 1
+    args.func(args)  # no SystemExit: a spec error is printed, and only --strict makes it fail
     out = capsys.readouterr().out
     assert "# skills (1 declared" in out and "1 error" in out
     assert "ERROR: name 'Claude API' is not the directory name" in out
     assert "  error name-mismatch:" in out
     assert "  error name-format:" in out
+
+
+BARE_COLON = "Use when: the user asks for a Claude API call"
+
+
+def test_frontmatter_with_a_bare_colon_is_a_frontmatter_parse_error(tmp_path):
+    # ``description: Use when: ...`` is not valid YAML; the lenient parser reads it as no metadata.
+    _skill(tmp_path / "skills", "claude-api", name="claude-api", description=BARE_COLON)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "error"
+    [finding] = review.findings
+    assert finding.code == "frontmatter-parse"
+    assert finding.level == "error"
+    assert finding.message.startswith(
+        "frontmatter is not valid YAML: mapping values are not allowed"
+    )
+    assert "\n" not in finding.message
+
+
+def test_broken_yaml_is_reported_in_place_of_the_missing_description_error(tmp_path, capsys):
+    _skill(tmp_path / "skills", "claude-api", name="claude-api", description=BARE_COLON)
+    report, code = _scan_json(tmp_path, capsys)
+
+    assert code == 1  # a skill that does not load exits 1 with or without --strict
+    [row] = report["skills"]
+    assert row["state"] == "error"
+    assert "missing a 'description'" in row["error"]
+    assert [f["code"] for f in row["findings"]] == ["frontmatter-parse"]
+    assert row["content_sha256"] is None and row["duplicate_of"] is None
+
+
+def test_strict_parse_raises_and_the_lenient_parse_still_returns_no_metadata():
+    text = f"---\nname: claude-api\ndescription: {BARE_COLON}\n---\nbody\n"
+
+    assert parse_frontmatter(text) == ({}, "body")
+    with pytest.raises(yaml.YAMLError):
+        parse_frontmatter_strict(text)
