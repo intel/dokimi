@@ -160,6 +160,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir)
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
                 batch=batch_dir.name, agent_network=network, egress_proxy=False, host=host)
+    present = frozenset(n for n in opts.profile.args_if_present if (rd / "workspace" / n).exists())
+    meta["args_if_present"] = opts.profile.applied_args(opts.tools, present)  # the ones the cell runs with
     _write_json(rd / "meta.json", meta)
     skills: dict[str, Any] | None = None
 
@@ -174,8 +176,6 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     env.update({k: v for k, v in harness_env.items() if k not in _HOST_ONLY_ENV and k not in passed})
     env["DOKIMI_HOOK_LOG"] = f"{CONFIG_DIR}/hook.log"
     opts.profile.write_config(rd / "config", {"config_dir": CONFIG_DIR, "support_dir": SUPPORT_DIR})
-    present = frozenset(n for n in opts.profile.args_if_present if (rd / "workspace" / n).exists())
-    meta["args_if_present"] = sorted(present)  # which optional harness arguments this cell ran with
     argv = opts.profile.argv(prompt=opts.profile.prompt(str(task.raw["prompt"])), model=opts.model,
                              tools=opts.tools, max_turns=int(caps["max_turns"]), budget_usd=caps["budget_usd"],
                              bin_path=bin_in, present=present)

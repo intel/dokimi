@@ -67,6 +67,12 @@ class HarnessProfile:
         depth = self.guidance.get("import_max_depth")
         return int(depth) if depth is not None else None
 
+    def applied_args(self, tools: str, present: frozenset[str]) -> list[str]:
+        """The ``args_if_present`` names :meth:`argv` adds: those in ``present``, in the ``all`` tool mode only."""
+        if tools != "all":  # --tools does not limit MCP tools: only here is the repo's MCP config part of the arm
+            return []
+        return sorted(present & self.args_if_present.keys())
+
     def argv(
         self,
         *,
@@ -93,9 +99,8 @@ class HarnessProfile:
         for element in self.invoke:
             if element == TOOLS_ELEMENT:
                 out.extend(self.tools[tools])
-                if tools == "all":  # --tools does not limit MCP tools: only here is the repo's MCP config part of the arm
-                    for name in sorted(present & self.args_if_present.keys()):
-                        out.extend(self.args_if_present[name])
+                for name in self.applied_args(tools, present):
+                    out.extend(self.args_if_present[name])
             else:
                 out.append(_substitute(element, values))
         return out

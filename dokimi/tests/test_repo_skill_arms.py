@@ -446,6 +446,32 @@ def test_a_cell_records_the_optional_harness_arguments_it_ran_with(tmp_path, mon
     assert meta["args_if_present"] == [".mcp.json"]
 
 
+@pytest.mark.parametrize(("tools", "unreadable"), [("none", False), ("read", False), ("all", True)])
+def test_the_recorded_optional_arguments_are_the_ones_the_agent_got(tmp_path, monkeypatch, tools, unreadable):
+    import yaml
+    from repo_eval_fixture import PROFILE
+    write(tmp_path / "toy", ".mcp.json", "{}")
+    root, _ = make_repo(tmp_path)
+    exe, profile = fake_harness(tmp_path)
+    profile.write_text(yaml.safe_dump({**PROFILE, "args_if_present": {".mcp.json": ["--mcp-config", ".mcp.json"]}}),
+                       encoding="utf-8")
+    runner = FakeRunner()
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    monkeypatch.setenv("FAKE_ACTION", "fix")
+    if unreadable:  # meta.json is rewritten only after the trace converts
+        monkeypatch.setattr("dokimi.repos.runner.convert", lambda *a, **k: (_ for _ in ()).throw(ValueError("bad")))
+    out = tmp_path / "runs"
+    args = build_parser().parse_args(["repo", "run", f"{root}@HEAD", "--harness", str(profile), "--bin", str(exe),
+                                      "--model", "m-1", "--batch", "b1", "--out", str(out),
+                                      "--cache-root", str(out / "caches"), "--agent-network", "host",
+                                      "--arm", "guidance:raw", "--task", "fix_add", "--tools", tools])
+    args.func(args)
+    meta = json.loads(next((out / "b1").glob("fix_add__*")).joinpath("meta.json").read_text())
+    agent = [s.argv for s in runner.specs if "--max-budget-usd" in s.argv]
+    assert len(agent) == 1 and ("--mcp-config" in agent[0]) is (tools == "all")
+    assert meta["args_if_present"] == ([".mcp.json"] if tools == "all" else [])
+
+
 def test_the_base_check_ignores_a_skill_the_guidance_arm_removes_and_reads_each_base_once(tmp_path, monkeypatch):
     _skill(tmp_path / "toy", ".claude/skills/lint", "lint")
     root, base = make_repo(tmp_path)
