@@ -1,6 +1,7 @@
 ---
 depends_on:
   - dokimi/dokimi/novelty/**
+  - dokimi/dokimi/metrics/bundle_coverage.py
   - dokimi/dokimi/commands/novelty.py
   - dokimi/dokimi/gate/novelty_gate.py
   - dokimi/dokimi/schemas/novelty.v1.json
@@ -510,7 +511,7 @@ Things to know before reading a bundle result:
   is reported `unreadable` whatever its suffix, and the coverage check then says `measured=False`;
   only a NUL-bearing non-UTF-16 file, or a blob that is not mostly printable, is silently "not text".
 - **One rule decides what an exclusion means.** Every row's `kind` has one class
-  (`novelty/bundle.py`, `EXCLUSION_CLASS`): `budget` and `not_requested` are a *gap* — the words
+  (`metrics/bundle_coverage.py`, `EXCLUSION_CLASS`): `budget` and `not_requested` are a *gap* — the words
   in `unmeasured_words`, the files a warning calls "excluded"; `policy` is a *decision*, never
   charged as unread; `unreadable` is *unknown*; `symlink` and `not_text` are *not content*. An
   exclusion is a *file* the run did not select; text it selected that no extraction call could
