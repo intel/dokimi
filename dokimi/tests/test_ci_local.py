@@ -496,3 +496,22 @@ def test_tool_specs_carry_no_unexpanded_shell_syntax() -> None:
 def test_isolated_jobs_also_need_network() -> None:
     """An isolated job installs from the package index, so it is skipped offline like the other network jobs."""
     assert cl.ISOLATED <= cl.NEEDS_NETWORK
+
+
+def test_job_needing_a_missing_tool_is_skipped(env: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+                                               capsys: Any) -> None:
+    """conda-forge-deps runs only where micromamba is on PATH; elsewhere it is a skip, not a FAIL."""
+    wf = "on: pull_request\njobs:\n  conda-forge-deps:\n    steps:\n      - run: micromamba create\n"
+    (cl.WORKFLOWS / "x.yml").write_text(wf)
+    cl.run(ns())
+    assert not env["calls"]
+    assert "skip (micromamba not on PATH)" in capsys.readouterr().out
+    monkeypatch.setattr(cl.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    cl.run(ns())
+    assert env["calls"][0]["cmd"][-1] == "micromamba create"
+
+
+def test_needs_tool_job_ids_match_real_jobs() -> None:
+    """Every NEEDS_TOOL key names a real job, catching renames."""
+    job_ids = {job_id for _, wf in cl.load_workflows() for job_id in wf["jobs"]}
+    assert set(cl.NEEDS_TOOL) <= job_ids

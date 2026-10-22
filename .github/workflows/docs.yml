@@ -54,7 +54,7 @@ jobs:
             dokimi/requirements-docs.lock.txt
       # The locks, not the ranges, as in ci.yml: a PR's result should not depend on
       # what was released upstream that morning.
-      - run: pip install -r requirements.lock.txt -r requirements-docs.lock.txt
+      - run: pip install --require-hashes -r requirements.lock.txt -r requirements-docs.lock.txt
       - name: mkdocs build
         run: mkdocs build --strict
       - if: github.event_name != 'pull_request'

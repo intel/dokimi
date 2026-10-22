@@ -187,6 +187,18 @@ def test_bad_task_is_reported(tmp_path, task_extra, needle):
     assert "bad" not in [t.id for t in report.tasks]
 
 
+@pytest.mark.parametrize("task_id", ["my task", "tab\tid", "a,b"])
+def test_task_id_with_whitespace_or_comma_is_refused(tmp_path, task_id):
+    # the workflow splits its tasks, smoke-tasks and exclude-tasks inputs on whitespace and commas,
+    # so such an id could never be selected
+    root = _repo(tmp_path)
+    _task(root, task_id)
+    report = check_repo(WorkTree(root), load_manifest(WorkTree(root), "dev/evals/repo-eval.yaml"))
+    assert not report.ok
+    assert any(f"task id {task_id!r} contains whitespace or a comma" in e for e in report.errors), report.errors
+    assert task_id not in [t.id for t in report.tasks]
+
+
 def test_task_gate_score_and_short_base(tmp_path):
     root = _repo(tmp_path)
     _task(root, "rev", family="review", base="cf0c0a0b^", gate=[{"metric": "recall", "min": 0.75}, "format_ok"],
@@ -421,6 +433,36 @@ def test_repo_validate_cli(tmp_path, capsys):
     assert "does not equal the directory name" in capsys.readouterr().err
 
 
+def test_repo_validate_fail_on_warning(tmp_path, capsys):
+    guidance = {**MANIFEST["guidance"], "also_scan": ["no-such-file-*.md"]}
+    root = _repo(tmp_path, {**MANIFEST, "guidance": guidance})
+    argv = ["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
+    _run_cli(argv)  # a warning alone still passes by default
+    assert "warning: guidance/also_scan matches no file" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as exc:
+        _run_cli([*argv, "--fail-on-warning"])
+    assert exc.value.code == 1
+    assert "warning:" in capsys.readouterr().out
+
+
+def test_repo_validate_out_writes_the_report(tmp_path, capsys):
+    root = _repo(tmp_path)
+    dest = tmp_path / "validate.json"
+    argv = ["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--out", str(dest)]
+    _run_cli(argv)
+    written = json.loads(dest.read_text(encoding="utf-8"))
+    assert written["ok"] is True and written["tasks"]["count"] == 2
+    assert "tasks:" in capsys.readouterr().out  # the summary still prints
+
+    _run_cli([*argv, "--json"])
+    assert json.loads(capsys.readouterr().out) == written
+
+    with pytest.raises(SystemExit) as exc:
+        _run_cli([*argv[:-1], str(tmp_path / "no" / "dir" / "v.json")])
+    assert exc.value.code == 1
+    assert "cannot write" in capsys.readouterr().err
+
+
 def test_repo_fetch_cli(tmp_path, capsys):
     root = _repo(tmp_path)
     sha = _git_commit(root)
@@ -428,6 +470,18 @@ def test_repo_fetch_cli(tmp_path, capsys):
     assert capsys.readouterr().out.split("\t")[0] == sha
     with pytest.raises(SystemExit):
         _run_cli(["repo", "fetch", str(root)])
+
+
+def test_repo_fetch_cli_json(tmp_path, capsys, monkeypatch):
+    from dokimi.repos.source import GitTree
+
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    git_dir = tmp_path / "bare.git"
+    monkeypatch.setattr("dokimi.repos.open_source", lambda source, cache: GitTree(git_dir, sha))
+    _run_cli(["repo", "fetch", "https://example.invalid/r.git@main", "--json"])
+    assert json.loads(capsys.readouterr().out) == {"sha": sha, "git_dir": str(git_dir)}
+    _run_cli(["repo", "fetch", "https://example.invalid/r.git@main"])
+    assert capsys.readouterr().out == f"{sha}\t{git_dir}\n"
 
 
 def test_repo_subject_kind(tmp_path):

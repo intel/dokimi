@@ -1,3 +1,14 @@
+---
+depends_on:
+  - dokimi/dokimi/treatments/**
+  - dokimi/dokimi/commands/arms.py
+  - dokimi/dokimi/schemas/arms.v1.json
+  - dokimi/dokimi/skills/loader.py
+  - dokimi/dokimi/agent_profiles/loader.py
+  - dokimi/dokimi/eval/agent_runner.py
+  - dokimi/dokimi/mcp/factory.py
+  - dokimi/scripts/sync_skilltext_profile.py
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

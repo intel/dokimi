@@ -1,0 +1,58 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: repo-eval-self
+
+# dokimi's own evals (.agent-eval/) through the reusable repo-eval.yml, as a
+# repository calls it, with two differences: the workflow is this commit's
+# (`./`), and so is the dokimi it installs, so a change to the repository
+# mode is checked against these tasks before it merges.
+#
+# A change to a task checks that task. A change to the harness (run.py, the
+# Dockerfile, the manifest), to the repository mode or to either workflow
+# checks the smoke set: one fix task (hidden tests plus the whole suite) and
+# the score-only review task. A dispatch checks all ten by default.
+on:
+  pull_request:
+    paths:
+      - '.agent-eval/**'
+      - 'dokimi/dokimi/repos/**'
+      - 'dokimi/dokimi/commands/repo*.py'
+      - 'dokimi/dokimi/schemas/repo_*.json'
+      - 'dokimi/requirements.lock.txt'
+      - 'dokimi/pyproject.toml'
+      - '.github/workflows/repo-eval.yml'
+      - '.github/workflows/repo-eval-self.yml'
+  workflow_dispatch:
+    inputs:
+      tasks:
+        description: "`all`, or task ids separated by spaces or commas"
+        required: false
+        default: all
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  self:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/repo-eval.yml
+    with:
+      # The commit under test: the merge commit on a pull request.
+      dokimi-ref: ${{ github.sha }}
+      dokimi-repository: ${{ github.repository }}
+      manifest: .agent-eval/repo-eval.yaml
+      tasks: ${{ inputs.tasks || 'changed' }}
+      smoke-tasks: fix-degrade-pre review-pr-conventions
+      # Every `paths:` entry above outside .agent-eval/, as a prefix.
+      smoke-paths: >-
+        dokimi/dokimi/repos/ dokimi/dokimi/commands/repo dokimi/dokimi/schemas/repo_
+        dokimi/requirements.lock.txt dokimi/pyproject.toml .github/workflows/repo-eval.yml
+      max-parallel: 4
+      # intel-ubuntu-latest: see ci.yml.
+      runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+      timeout-minutes: 60

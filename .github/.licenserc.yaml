@@ -44,6 +44,7 @@ header:
     # Written by `uv pip compile`, which rewrites the header on every regeneration.
     - 'dokimi/requirements.lock.txt'
     - 'dokimi/requirements-docs.lock.txt'
+    - 'dokimi/requirements-ci.lock.txt'
     # Read by agents verbatim: a header would become part of the instructions,
     # persona prompt or skill being measured.
     - 'AGENTS.md'

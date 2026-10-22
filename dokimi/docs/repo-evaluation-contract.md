@@ -1,3 +1,12 @@
+---
+depends_on:
+  - dokimi/dokimi/repos/**
+  - dokimi/dokimi/commands/repo.py
+  - dokimi/dokimi/commands/repo_run.py
+  - dokimi/dokimi/schemas/repo_*.json
+  - dokimi/dokimi/schemas/guidance_reach.v1.json
+  - dokimi/dokimi/schemas/harness_profile.v1.json
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
@@ -15,8 +24,8 @@ SPDX-License-Identifier: Apache-2.0
 > subject kind:
 >
 > ```bash
-> python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json]
-> python cli.py repo fetch <url@rev>     # bare, blob-less clone cached per URL
+> python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json] [--out FILE] [--fail-on-warning]
+> python cli.py repo fetch <url@rev> [--json]     # bare, blob-less clone cached per URL
 > ```
 >
 > Slice S3 adds harness profiles (§6) and the reach probe (§7):
@@ -45,7 +54,7 @@ SPDX-License-Identifier: Apache-2.0
 > Usage:
 >
 > ```bash
-> python cli.py repo budget <source> [--harness claude-code] [--json] [--fail-on-warning]
+> python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on-warning]
 > ```
 >
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
@@ -238,7 +247,7 @@ belongs to the repository's grader and is passed through unread.
 
 | Key | Required | Read by | Meaning |
 |---|---|---|---|
-| `id` | yes | framework | equals the directory name |
+| `id` | yes | framework | equals the directory name, and contains no whitespace or comma: the workflow's `tasks`, `smoke-tasks` and `exclude-tasks` inputs are lists of ids split on whitespace and commas, so `repo validate` refuses an id containing either |
 | `family` | yes | framework (reporting) | free string; common values: `build`, `fix`, `feature`, `test`, `review` |
 | `base` | yes | framework | commit to snapshot: a hex SHA, optionally followed by `^` (the parent, the usual form for a mined fix). Branch names, tags and `HEAD` are refused, because repetitions of one task must get one snapshot. Use the full 40-character SHA; a shorter one is accepted with a warning. It must resolve in the source. `meta.json` records it as `base_rev` and the resolved full SHA as `base_sha` |
 | `prompt` | yes | framework | what the agent is told |
@@ -870,3 +879,59 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   `@20250929`) or its provider-prefixed form is the same model, `-v2` against
   `-v3` is not. `repo compare` warns the same way when the two arms of a
   comparison were answered by different models.
+
+CI for a repository: `.github/workflows/repo-eval.yml` is a reusable workflow
+that runs the no-LLM checks on the caller's checkout and needs no secret.
+
+- `validate` runs `repo validate` and gates the other two jobs; `scan` runs `repo scan`
+  (report only: the claim counts and failing claims go to the job summary, the
+  `repo_readiness.v1` report to an artifact); `tasks-check` runs `repo tasks check`
+  for each selected task in a job of its own (docker; the image is built from the
+  manifest's Dockerfile), and uploads `check.json` and the grade logs. If the job is
+  cancelled by its `timeout-minutes` before the check finishes, the Summary step
+  writes a `check.json` with the verdict `timeout` for the task.
+- `tasks: changed` (the default, also for an empty value) checks, on a pull request, the tasks whose
+  directories it touches, plus `smoke-tasks` (empty: every task) when it changes
+  the eval directory outside its tasks (Markdown there is excepted, unless it is the manifest,
+  the calling workflow file or under a `smoke-paths` entry), the manifest, the calling workflow
+  file or a path under `smoke-paths` (entries are space- or comma-separated prefixes,
+  normalised like the manifest path; keep the trailing slash for a directory). A file in
+  the tasks directory that is not under an existing task (a shared helper, or the files of
+  a deleted task) does too. On a push it diffs against the previous tip, on any other event
+  it checks every task. `all` or a list of
+  task ids selects directly; `exclude-tasks` always drops tasks.
+- Pin dokimi by a commit SHA or a release tag, the same one in `uses:` and in
+  `dokimi-ref` (a branch is refused). It installs
+  `dokimi @ git+https://github.com/intel/dokimi@<sha>#subdirectory=dokimi` with
+  that commit's `requirements.lock.txt` as constraints, so a rerun checks with the
+  same framework and dependencies. Moving the pin is a change to the calling
+  workflow, so it runs the smoke set.
+- Other inputs: `manifest`, `max-parallel` (4), `warm` (`--warm`, for a cache that
+  starts empty on every runner), `runs-on` (`ubuntu-latest`), `timeout-minutes`
+  (180, per task) and `dokimi-repository` (`intel/dokimi`).
+
+```yaml
+# .github/workflows/agent-evals.yml in the repository
+name: Agent evals
+on:
+  pull_request:
+    paths: ['dev/agent_evals/**', '**/AGENTS.md', '.github/workflows/agent-evals.yml']
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  evals:
+    permissions:
+      contents: read
+    uses: intel/dokimi/.github/workflows/repo-eval.yml@<sha>  # vX.Y.Z
+    with:
+      dokimi-ref: <sha>
+      manifest: dev/agent_evals/repo-eval.yaml
+      smoke-tasks: build_kmeans_host fix_finiteness_mut review_seeded_fc
+      max-parallel: 4
+      warm: true
+```
+
+dokimi runs the workflow on its own `.agent-eval/` (`repo-eval-self.yml`), with
+the commit under test as `dokimi-ref`.
