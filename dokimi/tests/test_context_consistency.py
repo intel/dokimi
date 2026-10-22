@@ -173,7 +173,7 @@ def test_one_shell_call_is_the_steps_it_chains():
     assert run.kinds() == ["Bash:sed", "Bash:sed", "Bash:grep", "Bash:sh"]
     assert [e.input.get("file_path") for e in run.events] == ["shop/pricing.py", "CHANGELOG.md", None, None]
     assert all(e.failed for e in run.events)  # the trace does not say which chained command failed
-    assert parse_run(_trace(("Bash", {"command": cmd})), shell="call").kinds() == ["Bash:sed"]
+    assert parse_run(_trace(("Bash", {"command": cmd})), grain="call").kinds() == ["Bash:sed"]
 
 
 def test_shell_edit_satisfies_the_contract():
@@ -227,5 +227,5 @@ def test_failed_chain_fails_the_check_not_only_the_last_command():
 def test_pipe_hides_the_check_status(cmd, broken):
     run = _run("r", ("Bash", {"command": cmd}))
     assert check_contract(run, parse_contract(TEST_CONTRACT)) == broken
-    assert check_contract(parse_run(_trace(("Bash", {"command": cmd})), shell="call"),
+    assert check_contract(parse_run(_trace(("Bash", {"command": cmd})), grain="call"),
                           parse_contract(TEST_CONTRACT)) == broken

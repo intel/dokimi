@@ -88,24 +88,24 @@ class Run:
 
 # --- reading -----------------------------------------------------------------------------------
 
-def read_run(path: Path, shell: str = "split") -> Run:
+def read_run(path: Path, grain: str = "split") -> Run:
     try:
         raw = path.read_text(encoding="utf-8-sig", errors="replace")
     except OSError as exc:
         raise TraceError(f"cannot read {path}: {exc}") from exc
-    run = parse_run(raw, str(path), shell)
+    run = parse_run(raw, str(path), grain)
     if not run.events and run.num_turns is None:
         raise TraceError(f"{path}: no tool call and no result event; is it a "
                          "`claude -p --output-format stream-json --verbose` trace?")
     return run
 
 
-def parse_run(raw: str, name: str = "", shell: str = "split") -> Run:
+def parse_run(raw: str, name: str = "", grain: str = "split") -> Run:
     """The main thread's steps in order, their failures, and the result event.
 
-    ``shell="split"`` turns one ``Bash`` call into one step per command it chains (``a && b; c``),
+    ``grain="split"`` turns one ``Bash`` call into one step per command it chains (``a && b; c``),
     and a command that writes a file (``sed -i``, ``>``, ``tee``) carries that file as
-    ``file_path``, so an edit made through the shell is an edit. ``shell="call"`` keeps one step
+    ``file_path``, so an edit made through the shell is an edit. ``grain="call"`` keeps one step
     per tool call. A Stop hook that blocked the stop is a failed ``Hook:Stop`` step; a hook that
     passed leaves nothing in the trace.
     """
@@ -135,7 +135,7 @@ def parse_run(raw: str, name: str = "", shell: str = "split") -> Run:
                 continue
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
-                    evs = _events(str(block.get("name") or ""), block.get("input"), shell)
+                    evs = _events(str(block.get("name") or ""), block.get("input"), grain)
                     run.events.extend(evs)
                     by_id[str(block.get("id") or "")] = evs
         elif kind == "user":
@@ -190,13 +190,13 @@ def _text(block: Any) -> str:
     return str(block.get("text") or "") if isinstance(block, dict) and block.get("type") == "text" else ""
 
 
-def _events(tool: str, args: Any, shell: str = "split") -> list[Event]:
+def _events(tool: str, args: Any, grain: str = "split") -> list[Event]:
     args = args if isinstance(args, dict) else {}
     if tool == "Bash":
         command = str(args.get("command") or "")
         pipefail = bool(re.search(r"\bpipefail\b", command))
         segments = _segments(command)
-        if shell == "split":
+        if grain == "split":
             out = []
             for seg in segments:
                 program = _program(seg)

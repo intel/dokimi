@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Run consistency: result, path, contract
 
 An agent that solved a task once may not solve it again, and an agent that
