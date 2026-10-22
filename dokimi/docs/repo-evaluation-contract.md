@@ -126,7 +126,7 @@ outside every workspace and passes its absolute path to entry points as
   `answer.txt` are written to `{run_dir}` after the agent's container exits.
 - `grade` and `oracle` run in a separate container from the same image, after
   the agent's container has exited. That container mounts `{eval_dir}` and
-  `{source_dir}` read-only and `{run_dir}` read-write. It gets a `HOME` of its
+  `{source_dir}` read-only and `{run_dir}` read-write (and, for a built-in grader (§4.5), the framework's grader code at `/eval/graders`, read-only). It gets a `HOME` of its
   own (`{run_dir}/grade-home`, made empty before each run; the agent never had
   it), `PYTHONNOUSERSITE=1`, and git configuration overrides that disable
   `core.fsmonitor` and hooks (`core.hooksPath=/dev/null`); the workspace's
@@ -139,8 +139,9 @@ outside every workspace and passes its absolute path to entry points as
   containers share. A grader that imports or runs workspace code runs the
   agent's code.
 - **Fixed paths.** Inside every container `{run_dir}` is `/eval/run`,
-  `{eval_dir}` is `/eval/content` and `{source_dir}` is `/eval/source`. The
-  agent container mounts the workspace at `/eval/run/workspace`, the same path
+  `{eval_dir}` is `/eval/content`, `{source_dir}` is `/eval/source`, and
+  the built-in graders' code is `/eval/graders` (grading container only, §4.5).
+  The agent container mounts the workspace at `/eval/run/workspace`, the same path
   graders see. An absolute path in an answer or grade therefore means the same
   thing after a run directory is archived or regraded on another host. On
   oneDAL, 14 of 308 copied runs regraded differently because build answers
@@ -243,7 +244,7 @@ Rules:
 ## 3. `task.json`
 
 The framework interprets the **core** and **workspace** keys. Every other key
-belongs to the repository's grader and is passed through unread.
+belongs to the repository's grader and is passed through unread, except `grader`, which the framework reads to tell a `dokimi:` name (§4.5) from a repository's.
 
 | Key | Required | Read by | Meaning |
 |---|---|---|---|
@@ -251,7 +252,7 @@ belongs to the repository's grader and is passed through unread.
 | `family` | yes | framework (reporting) | free string; common values: `build`, `fix`, `feature`, `test`, `review` |
 | `base` | yes | framework | commit to snapshot: a hex SHA, optionally followed by `^` (the parent, the usual form for a mined fix). Branch names, tags and `HEAD` are refused, because repetitions of one task must get one snapshot. Use the full 40-character SHA; a shorter one is accepted with a warning. It must resolve in the source. `meta.json` records it as `base_rev` and the resolved full SHA as `base_sha` |
 | `prompt` | yes | framework | what the agent is told |
-| `grader` | yes | repository | grader name, interpreted by the `grade` entry point |
+| `grader` | yes | framework for `dokimi:<name>` (§4.5); repository otherwise | grader name; any other name is interpreted by the `grade` entry point |
 | `setup_patches` | no | framework | applied after the snapshot, before the arm (for example an injected bug) |
 | `review_patch` | no | framework | applied with `git am` as the HEAD commit under review |
 | `gate` | no | framework | what counts as success; default `["pass"]`. Each entry is a boolean metric name, which must be `true`, or `{"metric": <name>, "min": <number>}` for a numeric metric |
@@ -468,27 +469,115 @@ against the repository. Every other key, per claim and at the top level, is
 free-form and stored with the scan. A fixed minimum lets L0 merge any
 repository's checks with its own without knowing their rules.
 
+### 4.5 Built-in graders
+
+A task whose `grader` is `dokimi:<name>` is graded by the framework, not by
+the repository's `grade` and `oracle` entry points; any other name goes to
+those entry points. Such a task is data only: its directory holds
+`task.json`, the patch and the JSON files the grader reads. The `dokimi:`
+prefix is the framework's: an unknown `dokimi:` name fails `tasks check` and
+the run's grade, and is never handed to the repository.
+
+A built-in grader runs where `grade` and `oracle` run: in the grading
+container, with the same mounts, network and environment (§4.2). The
+framework's grader code is mounted read-only at `/eval/graders` (never into
+the agent's container) and runs as
+`python3 -I -B /eval/graders/main.py grade|oracle <name> <task dir> /eval/run`,
+where `<task dir>` is the task's directory under `{eval_dir}`. It uses the
+standard library only and the image's `python3` (3.8 or newer). `-I` keeps
+`PYTHONPATH` from `image.env` and the workspace off `sys.path`; `-B` prevents
+writing `.pyc` files to the read-only mount. An image with no `python3` on
+`PATH` is a grader failure that says so: the grader exits 127 and its
+`<kind>.err` file shows `exec python3 failed`. Any
+other exit 127 is reported as a plain `grade exited 127`.
+
+- `grade` reads `task.json` and `answer.txt` from `{run_dir}` and the data
+  files from the task's directory, and writes `grade.json` (§4.2): numbers,
+  booleans and `null` under `metrics`; strings, lists and objects under
+  `details`, with `details.grader_version`. A grader that raises writes
+  `pass: null` with `errors`. A metric the task's `gate` names that the grader
+  did not produce is `null`.
+- `oracle` writes the reference answer to `answer.txt` and leaves the
+  workspace alone.
+
+A review task with `pass: null` is scored, not gated: give it `score`. A `gate`
+on its metrics is not applied (`success` is null), and without `score` the run
+is a grader failure. A clean-diff control (no seeds) has `recall: null`, so it
+takes no `score`; its gate is the default `["pass"]`. The manifest's
+`entry_points.grade` is still required (`repo_manifest.v1`), even when every
+task uses a built-in grader.
+
+Both review graders read the answer the same way. Its last parseable
+` ```json ` fence (one nesting arrays or objects more than 100 deep counts
+as unparseable, whatever `json.loads` accepts) must be an array of findings
+`{"file", "line", "severity", "rule", "message"}`; entries that are not
+objects are dropped. `file` is made repository-relative: a path is cut after
+`/eval/run/workspace/`, then after the last `/repo/` (a standalone oneDAL
+run's workspace; a relative `a/repo/b` becomes `b`, the seed's or thread's
+`file` as well as the finding's), then leading `./` and `/` go. `line` is
+read with Python's `int()` (`"6"` is 6, `5.9` is 5); a missing or falsy line
+(`null`, `0`, `""`), or a value `int()` cannot read, is -99, near nothing. `severity` `blocker` or `major` counts toward
+`n_severe`. An answer with no such array gives only `pass: false`,
+`parse_error: true` and every recall 0 (`recall`; replay also `recall_all`
+and `recall_addressed`; `null` when there is nothing to recall): the agent
+failed the task, and on a task with `score` that is a failed run with score
+0, not a grader failure.
+
+| `grader` | data next to `task.json` (key that renames it) | `pass` | `metrics` | `details` |
+|---|---|---|---|---|
+| `dokimi:review_seeds` | `manifest.json` (`manifest`); oracle answer `oracle.json` (`oracle_answer`), a list of findings | `null`; for a manifest with no seeds (a clean-diff control), `true` when no finding is `blocker` or `major` | `n_findings`, `n_severe`, `n_decoys`, `unmatched`, `recall` (`null` with no seeds) | `seeds_hit`, `decoys_flagged`, `recall_by_class` (`"hit/total"`) |
+| `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
+
+`manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":
+[{id, file, lines, kw}]}`; `file` `"*"` matches any file, and `kw` is a
+regular expression searched case-insensitively in the finding's `rule`,
+`message` and `evidence`.
+
+- A finding on a seed's file hits every seed whose `kw` matches. When none
+  matches, it hits the one seed (not `"*"`) whose `lines` are nearest, if
+  within 1 line.
+- A finding that hits no seed is a false positive when it is on a decoy's
+  file and matches its `kw` or one of its `lines`; it is listed in
+  `decoys_flagged`. Otherwise it counts as `unmatched`.
+- `recall` is seeds hit / seeds.
+
+`gold.json` is `[{id, file, line, kind, comment, addressed}]`: one human
+review thread of a merged PR, anchored on a line of the reviewed revision.
+
+- A finding on a thread's file within `window` lines of its anchor can hit
+  it. Matching is one-to-one and nearest first: one finding credits at most
+  one thread, and one thread at most one finding.
+- `recall_addressed` counts only threads with `addressed: true` (the code
+  changed in response), `recall_by_kind` groups by `kind`, and
+  `precision_proxy` is the share of findings within the window of any
+  thread, a lower bound on precision. Humans miss problems and raise
+  non-defects, so neither is a verdict.
+- The oracle answer is one finding per thread, at its anchor.
+
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
 
-The harness stays in oneDAL and keeps working standalone. These changes make
-the same content runnable by the framework.
+oneDAL drops its standalone mode: the generic parts of its harness move into
+dokimi (#41), and `dev/agent_evals` keeps only its tasks, its image and the
+graders that know oneDAL. These changes make that content runnable by the
+framework.
 
 | Today | Change |
 |---|---|
 | guidance globs in `config.py` | move to `repo-eval.yaml` `guidance.globs` |
-| `task.json` keys | already match the core keys. Add `gate: ["strict_pass"]` to fix tasks, so a hidden-test pass that breaks a regression suite is not counted as success. Add `score: {metric: recall, max: 1.0}` to review tasks |
+| `task.json` keys | already match the core keys. Add `gate: ["strict_pass"]` to fix tasks, so a hidden-test pass that breaks a regression suite is not counted as success. Add `score: {metric: recall, max: 1.0}` to review tasks with seeds or threads, not to clean-diff controls (§4.5) |
 | `base` is a 8–12 character SHA | expand to the full 40-character SHA (keep a trailing `^`) |
 | entry points call `dev/agent_evals/run.py` | call `{eval_dir}/run.py`; the graders must not assume they sit inside the workspace (§1.1) |
-| `prep()` in `common.py` | unchanged for standalone use; under the framework the same steps run framework-side (§3) |
+| `prep()` in `common.py` | goes: the framework prepares every workspace (§3) |
 | arms `none` / `main-raw` | become `guidance:none` / `guidance:raw`. `guidance:bridge` is framework-only (§3); oneDAL keeps no bridge arm |
-| graders read history from `ONEDAL_EVAL_SRC` | read `{source_dir}` under the framework; the variable stays for standalone runs |
-| `contract.py` derives the base when `meta.json` has none | diff from `meta.json` `start_sha`, and read `base_sha` / `base_rev` for the upstream commit (§4); derive only standalone |
+| graders read history from `ONEDAL_EVAL_SRC` | read `{source_dir}`, the only full-history source; the variable goes |
+| `contract.py` derives the base when `meta.json` has none | diff from `meta.json` `start_sha`, and read `base_sha` / `base_rev` for the upstream commit (§4); nothing derives it |
 | `build_make_gnu` pip-installs MKL and TBB | install them in the image, or give the task `egress: [pypi.org, files.pythonhosted.org]` |
 | Bazel install base in the container's `HOME` | put it on a declared cache (`bin/bazel --output_user_root`) |
 | `static_check.py --out` writes `files` / `counts` / `claims` | add `"schema": "repo_static.v1"`; the claim fields already fit §4.4 |
-| `run.py grade <run_dir>` writes a flat dict | add `--contract` mode that reads §4 inputs and writes `repo_grade.v1` (scalar fields move under `metrics`, lists and objects under `details`) |
+| `run.py grade <run_dir>` writes a flat dict | `run.py grade --contract` reads the §4 inputs and writes `repo_grade.v1` (scalar fields under `metrics`, lists and objects under `details`); it stays for the graders that are not built in: `build.py` and `make.py`, which know oneDAL, and the fix and mutation graders until `dokimi:hidden_tests` and `dokimi:mutation` exist (#41) |
+| `graders/review.py` and `replay.py` (task `grader` `review`, `review_replay`) | review tasks name `dokimi:review_seeds` or `dokimi:review_replay` (§4.5) and keep `manifest.json`, `oracle.json` or `gold.json`; both files go. The built-in graders give the same metrics for the same answers |
 | graders read Claude stream-json via `traces.py` | read `events.jsonl` instead; `traces.py` becomes the Claude Code → events converter, which moves to the framework's harness profile |
-| oracle logic spread across `run.py check` | expose it as the `oracle` entry point |
+| oracle logic spread across `run.py check` | expose it as the `oracle` entry point; review tasks need none (§4.5) |
 | `bin/bazel` wrapper, shared caches, `MKLROOT` removal | expressed in the Dockerfile and `image.caches` / `image.env` |
 | clean-ancestor guard, no-background hook, per-run config dir | done by the framework for every harness |
 | fix and feature tasks have no review-level grading | add `rubric.json` per task ([mergeability](repo-evaluation-mergeability.md) §2), starting from the tasks mined from reviewed PRs; maintainers approve each rubric |
@@ -635,15 +724,52 @@ in one request.
 | Check | Claims |
 |---|---|
 | generic | Markdown links (inline and reference definitions, `<angle-bracket>` targets; relative, and blob/tree links to `source.url`), paths and globs in code spans (see below), identifiers (a word in some tracked file that is not prose; a missing ALL_CAPS name is `unresolved`, since a tool outside the tree may read it), `python <script>` paths, a command wrapped in backticks inside a shell fence |
-| `bazel` | `--config` values against `.bazelrc` and its imports, flag aliases, labels against the target and output names (`name`, `outs`) that the package's `BUILD.bazel`, else `BUILD`, spells out in either quote style (a package that calls a macro or computes a name, `"t_" + s` or a comprehension, gives `unresolved`, not `fail`), macros and keyword arguments in Starlark fences against tracked `.bzl` files |
+| `bazel` | `--config` values against `.bazelrc` and its imports, flag aliases, labels against the target and output names (`name`, `outs`, and the files of a top-level `exports_files([...])`) that the package's `BUILD.bazel`, else `BUILD`, spells out in either quote style (a package that calls a macro or computes a name, `"t_" + s`, a comprehension or `exports_files(glob(...))`, gives `unresolved`, not `fail`), macros and keyword arguments in Starlark fences against tracked `.bzl` files, `load()` symbols against the public top-level names (a `def` or an assignment) of the in-tree `.bzl` an absolute label names, labels of an external repository against its BUILD file when the tree holds one (see below), and `@<module>//` alone as this repository |
 | `make` | targets against the rules of every makefile (a `%:` catch-all or a rule named by a variable gives `unresolved`), `VAR=value` against the makefiles |
-| `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json` |
+| `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json`, `-S <dir>` against a `CMakeLists.txt` in that directory (`ok` when any ancestor directory of the guidance file holds it; `fail` only after a literal `cd`, and there a miss inside a declared submodule is `unresolved`; without a `cd` the directory the command runs in is not known, so a miss is `unresolved`; a glob such as `examples/*` is not a literal directory and gets no claim; a `%VAR%`, a drive path such as `C:/x`, and a `-S` word holding a backslash get no claim) |
 | `pytest` | path arguments and `::test` nodes |
 | `pre-commit` | `pre-commit run <hook>` against hook ids and aliases |
 
 `build_systems` picks the adapters. Without it they are detected from the
 files at the root (any `conftest.py` or a pytest section also selects
 `pytest`), and the report says so.
+
+Starlark is a Python dialect, so guidance often fences a BUILD snippet as
+`python`. With the `bazel` adapter on, such a fence is checked as Starlark when
+it reads as BUILD code: it loads a label, or a line starts a call to a native
+rule only Bazel has (`cc_library`, `http_archive`). A call to a macro of a
+tracked `.bzl` file does not count (`run(` and `build(` are as often plain
+Python), nor does `test_suite(`. Any other `python` fence is not checked.
+Every string of a checked fence that is a label is looked up, in either quote
+style; a string such as `//cdn.example.com/x.tar` (a host name) is not a label. An
+external repository's BUILD file is in the tree when a tracked file is named
+for the repository (`zlib.BUILD`, `BUILD.zlib`, `mkl.tpl.BUILD`,
+`mkl_win.tpl.BUILD`, with an optional `.bazel`) and a `.bzl` file,
+`MODULE.bazel` or `WORKSPACE` names that file, as a `build_file` or a
+template, and `MODULE.bazel` does not take the repository from a registry
+with `bazel_dep` (its `repo_name`, else its `name`). A label in the root package of such a repository is `ok` when one of
+those files spells the name out (or lists it in `exports_files([...])`), or
+the target is `all`, `*` or `all-targets`. It is `unresolved` when one of those
+files computes names (a macro, `exports_files(glob(...))`, or a template's
+`%{...}` substitution), when the target contains a `.`, or when the name
+appears as any string in the file (a source in `srcs`); otherwise it is
+`fail`. Labels of any other
+external repository stay `unresolved`. A `BUILD`, `.bzl`, `WORKSPACE` or `MODULE.bazel` file that was not read
+(binary, over the size limit, a dangling or escaping link) makes its `bazel_label` and `starlark_load` claims
+`unresolved`, with the reason (`X was not read (...)`). Such a file also adds the warning
+`build file not scanned: <path>: <why>` and makes the scan `incomplete`. Only these exact names count: `BUILD`,
+`BUILD.*` (`BUILD.bazel`, an external `BUILD.zlib`), `WORKSPACE`, `WORKSPACE.bazel`, `MODULE.bazel`, `*.bzl`, `*.bazelrc`, `*.BUILD` (and an unread
+`.bazelrc` import of any name); a file such as `BUILD_status.png` does not, and none counts unless `bazel` is a build system of the scan.
+
+L0 checks only what holds for any repository. The rules of oneDAL's own
+checker that are repository policy were not ported, and oneDAL dropped them
+along with that checker: `bazel test` and `bazel run` without `--config`, the
+refusal of `//...` and of bare `cc_library`/`cc_test`, a Starlark call to
+anything not defined in its three `.bzl` files, `PLAT=`/`COMPILER=` values
+from its `dev/make` tree, and a label or make target that the build files do
+not spell out literally (L0 reports that one `unresolved`, because a macro or a
+computed rule name may make it). A repository that wants rules like these adds
+them through its own `static` entry point (§4.4), merged as described below.
 
 `--static <file>` merges the output of the repository's `static` entry point
 (§4.4). A repository claim replaces the framework claim on the same file, line
@@ -658,7 +784,9 @@ line ends a continuation, and the body of a heredoc is not a command. A word
 that holds an expansion (`$VAR`, `${VAR}`, `$(cmd)`, a backtick substitution)
 is never looked up: not as a make target, a `-D` variable, a preset, a
 `--config` value, a hook id, a path or a label. The literal key of
-`VAR=$(cmd)` is still checked.
+`VAR=$(cmd)` is still checked. A `<placeholder>` inside a word
+(`//pkg/<algo>:tests`, `make <target>`) is one too, not a pair of
+redirections.
 A literal `cd dir` moves the relative paths of the later commands in the same
 fence or span, and a subshell ends at its closing parenthesis. After a `cd` to a
 directory the tree lacks or to a non-literal one, after `pushd`/`popd`, and
@@ -705,7 +833,8 @@ guidance file that cannot be read (a link that dangles or leaves the tree, a
 binary file, a file over 2 MB), named with the reason. An invalid `--static`
 document is not merged, and the command exits 1. `--fail-on-fail` also exits 1
 when any claim fails, an `also_scan` file is missing, a guidance file cannot be
-read, or no guidance file matched (`incomplete`). A glob that matches nothing
+read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
+(`incomplete`). A glob that matches nothing
 does not fail the gate, so a file the gate must see belongs in `also_scan`.
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
@@ -829,7 +958,8 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   on a rerun unless `--force`; a cell without one is reported as missing, not
   failed, and the next run of the batch fills it. A batch stays on the eval
   tree it started with: its revision, or for a working tree the digests of
-  its `eval_dir` and of the image build context.
+  its `eval_dir` and of the image build context. A batch with a task that
+  names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
 - The agent's container mounts the workspace, the per-run `home`, `config` and
   scratch directories (each `image.env` value under `{run_dir}/`), the caches,
   the harness executable (`--bin`, read-only at `/eval/harness`) and the
@@ -868,10 +998,10 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   arm and score-only in the other, or a measure (such as a metric) one arm
   lacks. A metric's `n_baseline`/`n_treatment` count the cells that report it.
   The output names the batches behind each selector and each batch's pin
-  (`tree`, `eval_dir`, `image` from `_eval/batch.json`) with its cells'
+  (`tree`, `eval_dir`, `image`, `graders` from `_eval/batch.json`) with its cells'
   harness versions, and warns when a bare `ARM` pools several batches, when a
   batch of a comparison has no pin, or when the two arms ran from different
-  `eval_dir` or `image` pins or harness versions. An image `repo run` tagged
+  `eval_dir`, `image` or `graders` pins or harness versions. An image `repo run` tagged
   from the tree (`dokimi/<id>:<sha>`) follows the tree, so two revisions are
   not warned about it; an `--image` of its own is compared. `repo report` warns
   (`model_mismatch` in its summary) when a cell's `model_resolved` is another

@@ -6,7 +6,10 @@
 ``grade`` and ``oracle`` run in a container of their own after any agent has
 exited. It mounts the run directory read-write at ``/eval/run``, the exported
 eval dir read-only at ``/eval/content`` and, only for a template that names
-``{source_dir}``, the full-history source read-only at ``/eval/source``.
+``{source_dir}``, the full-history source read-only at ``/eval/source``. A task
+whose ``grader`` is ``dokimi:<name>`` runs a built-in grader
+(:mod:`dokimi.repos.graders`, mounted read-only at ``/eval/graders``) in that
+container instead of the manifest's entry point (contract §4.5).
 
 A grader failure is a failure of the run on every gated metric: ``grade``
 exiting non-zero, timing out, writing no valid ``grade.json``, or writing
@@ -30,6 +33,7 @@ from dokimi.artifacts import schema_errors
 
 from .container import (
     CONTENT_DIR,
+    GRADERS_DIR,
     INFRA_EXIT,
     RUN_DIR,
     SOURCE_DIR,
@@ -40,6 +44,11 @@ from .container import (
     ContainerSpec,
     Mount,
 )
+from .graders import ENTRY as BUILTIN_ENTRY
+from .graders import HOST_DIR as GRADERS_HOST
+from .graders import NAMES as BUILTIN_NAMES
+from .graders import PREFIX as BUILTIN_PREFIX
+from .graders import builtin_name
 from .manifest import RepoManifest
 from .workspace import Task
 
@@ -53,6 +62,8 @@ _GRADER_GIT_CONFIG = (("core.fsmonitor", "false"), ("core.hooksPath", "/dev/null
 _PLAIN_GIT_CONFIG = "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n"
 # Run-dir files the framework reads or writes after a grader had the run dir read-write.
 HOST_FILES = ("meta.json", "task.json", "answer.txt", "events.jsonl", "result.json", "grade.log", "grade.err")
+_NOT_FOUND_EXIT = 127  # docker run: the command (here the image's python3) is not on PATH
+_PYTHON3_NOT_FOUND_SIG = "exec python3 failed"  # tini's message under --init, which every container runs with
 
 
 @dataclass
@@ -100,12 +111,28 @@ def render_entry(template: str, task: Task) -> list[str]:
     return [substitute(word, {**CONTAINER_PATHS, "task": task.id}) for word in shlex.split(template)]
 
 
+def _python3_not_found_in_stderr(run_dir: Path, kind: str) -> bool:
+    """Whether stderr indicates python3 exec failed (not just any 127 exit).
+
+    Exit 127 can mean other things; only treat it as \"python3 missing\" if stderr
+    contains the known exec failure signature."""
+    err_file = run_dir / f"{kind}.err"
+    if not err_file.exists():
+        return False
+    try:
+        return _PYTHON3_NOT_FOUND_SIG in err_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
 def run_entry(ctx: EvalContext, kind: str, task: Task, run_dir: Path, network: str,
               name: str | None = None) -> ContainerResult:
-    """Run entry point ``kind`` (grade, oracle) for the run in ``run_dir``; logs go to ``<kind>.log``."""
-    template = ctx.manifest.entry_points.get(kind)
-    if not template:
-        raise ContainerError(f"the manifest declares no `{kind}` entry point")
+    """Run entry point ``kind`` (grade, oracle) for the run in ``run_dir``; logs go to ``<kind>.log``.
+
+    A task whose ``grader`` is ``dokimi:<name>`` runs the framework's built-in grader instead of the
+    manifest's entry point, in the same container (contract §4.5)."""
+    builtin = builtin_name(task.raw.get("grader"))
+    argv, extra = _builtin_entry(ctx, kind, task, builtin) if builtin is not None else _repo_entry(ctx, kind, task)
     home = run_dir / GRADE_HOME
     shutil.rmtree(home, ignore_errors=True)
     home.mkdir()
@@ -115,14 +142,43 @@ def run_entry(ctx: EvalContext, kind: str, task: Task, run_dir: Path, network: s
     for log in (f"{kind}.log", f"{kind}.err"):  # an earlier entry point's link would be opened for writing
         (run_dir / log).unlink(missing_ok=True)
     mounts = [Mount(run_dir.resolve(), RUN_DIR), Mount(ctx.content_dir.resolve(), CONTENT_DIR, read_only=True)]
-    if "{source_dir}" in template:
-        if ctx.source_dir is None:
-            raise ContainerError(f"`{kind}` uses {{source_dir}} but no full-history source is available")
-        mounts.append(Mount(ctx.source_dir.resolve(), SOURCE_DIR, read_only=True))
-    spec = ContainerSpec(image=ctx.image, argv=render_entry(template, task), workdir=WORKSPACE,
-                         mounts=mounts + ctx.cache_mounts(), env=ctx.grade_env(task), network=network, name=name)
-    return ctx.runner.run(spec, stdout=run_dir / f"{kind}.log", stderr=run_dir / f"{kind}.err",
-                          timeout_s=ctx.entry_timeout_s)
+    spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts + extra + ctx.cache_mounts(),
+                         env=ctx.grade_env(task), network=network, name=name)
+    result = ctx.runner.run(spec, stdout=run_dir / f"{kind}.log", stderr=run_dir / f"{kind}.err",
+                            timeout_s=ctx.entry_timeout_s)
+    if builtin is not None and result.returncode == _NOT_FOUND_EXIT and _python3_not_found_in_stderr(run_dir, kind):
+        raise ContainerError(f"{task.raw['grader']} runs on the image's python3, and the image has none on PATH "
+                             f"(`{kind}` exited {_NOT_FOUND_EXIT}; see {run_dir / f'{kind}.err'})")
+    return result
+
+
+def _repo_entry(ctx: EvalContext, kind: str, task: Task) -> tuple[list[str], list[Mount]]:
+    """argv of the manifest's entry point ``kind``, and ``{source_dir}`` when it names it."""
+    template = ctx.manifest.entry_points.get(kind)
+    if not template:
+        raise ContainerError(f"the manifest declares no `{kind}` entry point")
+    if "{source_dir}" not in template:
+        return render_entry(template, task), []
+    if ctx.source_dir is None:
+        raise ContainerError(f"`{kind}` uses {{source_dir}} but no full-history source is available")
+    return render_entry(template, task), [Mount(ctx.source_dir.resolve(), SOURCE_DIR, read_only=True)]
+
+
+def _builtin_entry(ctx: EvalContext, kind: str, task: Task, builtin: str) -> tuple[list[str], list[Mount]]:
+    """argv of built-in grader ``builtin`` for ``kind``, and the read-only mount of its code.
+
+    ``-I``: no ``PYTHONPATH`` from ``image.env``, no user site and no script directory on ``sys.path``,
+    so nothing the agent wrote can stand in for a standard-library module."""
+    if builtin not in BUILTIN_NAMES:
+        raise ContainerError(f"unknown built-in grader {task.raw['grader']!r}; known: "
+                             + ", ".join(BUILTIN_PREFIX + n for n in BUILTIN_NAMES))
+    try:
+        rel = task.dir.resolve().relative_to(ctx.content_dir.resolve())
+    except ValueError:
+        raise ContainerError(f"task {task.id}: its directory {task.dir} is not in the exported eval dir") from None
+    argv = ["python3", "-I", "-B", f"{GRADERS_DIR}/{BUILTIN_ENTRY}", kind, builtin,
+            f"{CONTENT_DIR}/{rel.as_posix()}", RUN_DIR]
+    return argv, [Mount(GRADERS_HOST, GRADERS_DIR, read_only=True)]
 
 
 def _set_git_config_aside(run_dir: Path) -> None:
@@ -210,23 +266,9 @@ def score_value(task: Task, grade: dict[str, Any] | None) -> float | None:
 def outcome(task: Task, run_dir: Path, result: ContainerResult, error: str | None = None) -> dict[str, Any]:
     """The framework's verdict on one ``grade`` run (contract §4.2); ``error`` when the run itself failed."""
     grade, problems = read_grade(run_dir)
-    reasons = []
-    if error:
-        reasons.append(error)
-    elif result.timed_out:
-        reasons.append("grade timed out")
-    elif result.returncode != 0:
-        reasons.append(f"grade exited {result.returncode}")
-    reasons += problems
+    reasons = _run_reasons(result, error) + problems
     reasons += [f"{name} is not a regular file after grading" for name in replaced_files(run_dir)]
-    if grade is not None and grade["pass"] is None and grade["errors"]:
-        reasons.append("grader error: " + str(grade["errors"][0]).strip().splitlines()[0][:300])
-    elif grade is not None and grade["pass"] is None and not task.score:
-        # score-only is a property of the task, not of one grade: a gated task's grade must decide
-        reasons.append("grade.json is score-only (pass: null) but task.json has no `score`")
-    if not reasons and task.score and score_value(task, grade) is None:
-        # a missing score would leave the mean, while a grader failure counts as 0
-        reasons.append(f"grade.json has no numeric metrics.{task.score['metric']} (task.json `score`)")
+    reasons += _grade_reasons(task, grade, bool(reasons))
     failed = bool(reasons)
     score_only = not failed and grade is not None and grade["pass"] is None
     return {
@@ -240,6 +282,29 @@ def outcome(task: Task, run_dir: Path, result: ContainerResult, error: str | Non
         "timed_out": result.timed_out,
         "wall_s": result.wall_s,
     }
+
+
+def _run_reasons(result: ContainerResult, error: str | None) -> list[str]:
+    if error:
+        return [error]
+    if result.timed_out:
+        return ["grade timed out"]
+    return [f"grade exited {result.returncode}"] if result.returncode != 0 else []
+
+
+def _grade_reasons(task: Task, grade: dict[str, Any] | None, failed: bool) -> list[str]:
+    """Why a valid ``grade.json`` still makes a grader failure; ``failed``: the run already is one."""
+    if grade is None:
+        return []
+    if grade["pass"] is None and grade["errors"]:
+        return ["grader error: " + str(grade["errors"][0]).strip().splitlines()[0][:300]]
+    if grade["pass"] is None and not task.score:
+        # score-only is a property of the task, not of one grade: a gated task's grade must decide
+        return ["grade.json is score-only (pass: null) but task.json has no `score`"]
+    if not failed and task.score and score_value(task, grade) is None:
+        # a missing score would leave the mean, while a grader failure counts as 0
+        return [f"grade.json has no numeric metrics.{task.score['metric']} (task.json `score`)"]
+    return []
 
 
 def failed_outcome(reason: str) -> dict[str, Any]:
