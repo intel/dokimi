@@ -375,16 +375,19 @@ Code's `modelUsage`), `main` when the harness reported the parent's only, and
 subagents' `Agent`/`Task` calls; `null` when the harness wrote no result record.
 
 For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
-`uptake` object: whether the agent used what the arm added. `commands` counts
+`uptake` object: whether the agent used what the arm added. `files` and
+`mcp_servers` list what it added (sorted); `commands` counts
 command events that name an added file as a workspace path (`tools/fmt`,
 `./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`), `reads`
 the read events of one, `mcp_calls` the calls of the servers' tools
 (`mcp__<server>__<tool>`), none of them a call the harness denied; `used`
 is whether any is non-zero, and `measured` is
 `false` when the agent left no trace to count from. `repo report` shows the
-cells that used it per row, and `repo compare` warns about a treatment whose
-cells used none of it: its deltas then measure the patch's text, such as a
-guidance line, not the tool.
+cells that used it per row. `repo compare` puts an `uptake` entry per treatment
+in its summary (`{cells, used, unmeasured}`: the measured cells, how many of
+them used it, and how many could not be measured), prints it as an `uptake: ...`
+line, and warns about a treatment whose cells used none of it: its deltas then
+measure the patch's text, such as a guidance line, not the tool.
 
 ### 4.2 `grade.json` (written by `grade` to `{run_dir}/grade.json`)
 
