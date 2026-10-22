@@ -162,6 +162,22 @@ def test_a_result_from_before_execution_ids_is_not_reused(setup, capsys):
     assert "1 ran" in capsys.readouterr().out
 
 
+def test_a_cell_finished_with_another_execution_is_not_reused_even_if_the_batch_check_is_skipped(
+        setup, capsys, monkeypatch):
+    """``run_cell`` guards itself: the up-front batch check is not the only thing between a cell and its reuse."""
+    raw = yaml.safe_load(setup["profile"].read_text())
+    raw["delegation"] = {"none": {"all": [*raw["tools"]["all"], "--no-agents"]}}
+    setup["profile"].write_text(yaml.safe_dump(raw))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    setup["runner"].specs.clear()
+    monkeypatch.setattr("dokimi.repos.runner.check_batch_executions", lambda *a, **k: None)
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
+    assert "finished with another execution" in capsys.readouterr().out
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
+
+
 def test_the_same_harness_bytes_resume_from_any_path(setup, capsys, tmp_path):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     capsys.readouterr()

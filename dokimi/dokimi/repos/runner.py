@@ -323,7 +323,6 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     validate_tasks(tasks)
     cells = [(t, a, o, r) for t in tasks for a in arms for o in options for r in range(1, reps + 1)]
     check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None)
-    _record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
     verdicts = {t.id: unmet(t, host) for t in tasks}
@@ -331,6 +330,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     if force and unsupported:  # --force keeps their finished cells, so those must match this run too
         check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells
                                                     if t.id not in unsupported})
+    _record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
     # A probe failure only costs the run when a cell of the task is left unrun: a finished cell keeps its result.
     probe_failed = [task_id for task_id, (_, by) in verdicts.items() if by == "host-probe"
                     and any(not _done(batch_dir / cell_name(t.id, a, o.model, r))
