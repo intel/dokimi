@@ -28,6 +28,10 @@ or +1 and the exact p equals McNemar's exact test. Holm's correction runs over
 the gate and score comparisons of one invocation; cost, turns and metrics are
 descriptive and keep their raw p.
 
+Every ``result.json`` ``process`` count a cell of the compared arms reports
+(:mod:`.process_counts`: ``process:<key>``, ``counter:<name>``) is a measure
+too, the per-task mean over the cells that have it, descriptive like cost.
+
 Each selector's batches are reported with the stamp ``repo run`` pins a batch
 to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
 cells. A warning is printed, not an error, when a bare ``ARM`` pools cells of
@@ -57,6 +61,7 @@ from typing import Any
 
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
+from .process_counts import process_order, process_values
 from .report import (load_cells, mismatch_warnings, model_matches, model_mismatch, resolved_models, unmeasured_note,
                      uptake_counts)
 
@@ -128,6 +133,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics)
     rows: list[dict[str, Any]] = []
     unpaired: list[dict[str, Any]] = []
+    measures += _process_measures(cells, [baseline, *treatments])
     for text in treatments:
         treat_vals = _task_values([c for c in cells if selector_matches(parse_selector(text), c)], metrics)
         unpaired += _one_arm_models(text, base_vals, treat_vals, models)
@@ -238,6 +244,13 @@ def _built_from_tree(stamp: dict[str, Any]) -> bool:
     repo, _, tag = stamp.get("image", "").rpartition(":")
     revision = stamp.get("tree", "").rpartition("@")[2]
     return repo.startswith("dokimi/") and (tag.startswith("worktree-") or bool(revision) and tag == revision[:12])
+
+
+def _process_measures(cells: list[dict[str, Any]], selectors: list[str]) -> list[str]:
+    """The ``process`` counters any cell of the compared arms reports; none when no cell has ``process``."""
+    sels = [parse_selector(text) for text in selectors]
+    found = {k for c in cells if any(selector_matches(s, c) for s in sels) for k in process_values(c)}
+    return sorted(found, key=process_order)
 
 
 def _check_metrics(metrics: tuple[str, ...], cells: list[dict[str, Any]]) -> None:
@@ -444,6 +457,7 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
         found = {"cost_usd": [r["agent"].get("cost_usd") for r in recs],
                  "turns": [r["agent"].get("num_turns") for r in recs],
                  **{f"metric:{name}": [r["metrics"].get(name) for r in recs] for name in metrics}}
+        found.update(_process_lists(recs))
         if score_task:
             found["score"] = [0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
                               for r in recs]
@@ -477,6 +491,12 @@ def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
 
 def _finite(values: list[Any]) -> list[float]:
     return [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)]
+
+
+def _process_lists(recs: list[dict[str, Any]]) -> dict[str, list[float | None]]:
+    """Each process measure any of ``recs`` reports, with every cell's value (``None`` where it has none)."""
+    values = [process_values(r) for r in recs]
+    return {name: [v.get(name) for v in values] for name in {k for v in values for k in v}}
 
 
 def _mean(values: list[Any]) -> float | None:

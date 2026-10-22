@@ -293,7 +293,8 @@ next release.
   interval, grader failures, missing cells, cost).
 - `dokimi/repos/compare.py` — `repo compare`: treatment arms against a
   baseline arm over one or more batches, one value per task and arm (gate
-  share, score, cost, turns, chosen `grade.json` metrics), with an interval
+  share, score, cost, turns, chosen `grade.json` metrics, `result.json`
+  `process` counts), with an interval
   over tasks (bootstrap for gate and score, t for the rest), a sign-flip
   permutation p and Holm's correction.
 - `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task

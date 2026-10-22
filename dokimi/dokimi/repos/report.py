@@ -20,6 +20,9 @@
 
 A warning is printed when the trace says a model other than the requested one
 answered a cell (``model_resolved``): a harness alias can pin an older model.
+
+A row's ``process`` holds the mean ``result.json`` ``process`` counts of its
+cells (:mod:`.process_counts`), printed on a line of its own under the row.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from typing import Any
 
 import math
 
+from .process_counts import process_line, process_means
 from .runner import UNSUPPORTED_FILE, slug
 
 
@@ -91,6 +95,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
                                "cost_usd": _mean([r["agent"]["cost_usd"] for r in recs]),
                                "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in recs), 6),
                                "turns": _mean([r["agent"]["num_turns"] for r in recs]),
+                               "process": process_means(recs),
                                "networks": sorted({str(r["agent"].get("network")) for r in recs}),
                                "model_resolved": sorted({m for r in recs for m in resolved_models(r)})}
         uptake = uptake_counts(recs)
@@ -136,6 +141,7 @@ def format_report(summary: dict[str, Any]) -> str:
                          + unmeasured_note(r["uptake"]))
         if notes:
             lines.append(" " * (width + 2) + "  " + ", ".join(notes))
+        lines += process_line(r.get("process"), width)
     if summary["missing"]:
         shown = summary["missing"][:10]
         lines.append("missing (no result.json; rerun the batch): " + ", ".join(shown)
