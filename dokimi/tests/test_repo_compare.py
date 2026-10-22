@@ -234,7 +234,7 @@ def test_score_headroom_is_measured_against_score_max(tmp_path):
     assert _row(compare([e], "guidance:none"), "score")["headroom"] is None
 
 
-@pytest.mark.parametrize("turns,expected", [(None, None), (1, None), (5, "floor"), ("1", None)])
+@pytest.mark.parametrize("turns,expected", [(None, None), (1, None), (2, "floor"), (5, "floor"), ("1", None)])
 def test_an_agent_outage_is_unmeasured_not_a_floor(tmp_path, turns, expected):
     b = tmp_path / "b1"
     for i in range(3):
@@ -245,6 +245,8 @@ def test_an_agent_outage_is_unmeasured_not_a_floor(tmp_path, turns, expected):
 
 @pytest.mark.parametrize("rc,turns,timed_out,expected", [
     (1, None, False, None), (137, None, False, None),  # exited non-zero, no result record: the agent never ran
+    (-9, None, False, None),  # killed by a signal: Completed.returncode is negative
+    (True, None, False, "floor"),  # a stray bool is not an exit code
     (0, None, False, "floor"), (None, None, False, "floor"),  # exit 0 or no rc recorded: not an outage
     (1, 5, False, "floor"),  # it reported turns: an attempt
     (137, None, True, "floor"),  # killed at its timeout: an attempt
