@@ -10,8 +10,9 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.context.consistency import (_program, _written, check_contract, jsd, parse_contract,
-                                        parse_run, pass_at, pass_hat, profile, seq_distance)
+from dokimi.context.consistency import (_program, _written, apply_outcomes, check_contract, jsd,
+                                        load_contract, load_outcomes, parse_contract, parse_run,
+                                        pass_at, pass_hat, profile, run_from_events, seq_distance)
 
 
 def _trace(*steps, ok=True, turns=None):
@@ -229,3 +230,159 @@ def test_pipe_hides_the_check_status(cmd, broken):
     assert check_contract(run, parse_contract(TEST_CONTRACT)) == broken
     assert check_contract(parse_run(_trace(("Bash", {"command": cmd})), grain="call"),
                           parse_contract(TEST_CONTRACT)) == broken
+
+
+# --- review of #155: shell syntax, edits through the shell, bad input, ambiguous outcomes ---------
+
+def _kinds(cmd, grain="split"):
+    return parse_run(_trace(("Bash", {"command": cmd})), grain=grain).kinds()
+
+
+@pytest.mark.parametrize("cmd, want", [
+    ("for f in a b; do black $f; done", ["Bash:black"]),
+    ("if [ -f x ]; then make; fi", ["Bash:make"]),
+    ("(cd sub && pytest)", ["Bash:pytest"]),
+    ("# note && x\npytest", ["Bash:pytest"]),
+    ("while true; do git pull; done", ["Bash:true", "Bash:git"]),
+    ("if make check; then echo ok; else git diff; fi", ["Bash:make", "Bash:echo", "Bash:git"]),
+])
+def test_control_syntax_is_not_a_step(cmd, want):
+    assert _kinds(cmd) == want
+    assert _kinds(cmd, "call")[0] == want[0]
+
+
+@pytest.mark.parametrize("seg, want", [
+    ("echo 3 > count.txt", "count.txt"), ("seq 1 10 > out.txt", "out.txt"),
+    ("make 2> err.log", ""), ("make 2>> err.log", ""), ("make &> all.log", ""),
+    ("perl -Mstrict -e 'print 1' foo.pl", ""), ("perl -pi -e 's/a/b/' foo.pl", "foo.pl"),
+    ("sed --in-place 's/a/b/' f.py", "f.py"), ("sed -i.bak 's/a/b/' f.py", "f.py"),
+])
+def test_written_review_cases(seg, want):
+    assert _written(seg) == want
+
+
+def test_a_shell_edit_matches_an_edit_action():
+    c = parse_contract({"actions": {"guide": {"tool": "Read", "file_path": r"AGENTS\.md$"},
+                                    "edit": {"tool": ["Edit", "Write", "MultiEdit"]},
+                                    "test": {"tool": "Bash", "command": "pytest"}},
+                        "rules": [{"requires": "edit"}, {"before": ["guide", "edit"]},
+                                  {"after_last": ["edit", "test"]}]})
+    shell = ("Bash", {"command": "sed -i s/a/b/ f.py && pytest -q"})
+    assert check_contract(_run("r", READ, shell), c) == []
+    bare = ("Bash", {"command": "sed -i s/a/b/ f.py"})
+    assert check_contract(_run("r", bare, READ), c) == ["before: guide -> edit", "after_last: edit -> test"]
+    # a shell step that writes nothing is not an edit
+    assert check_contract(_run("r", READ, ("Bash", {"command": "pytest -q"})), c) == ["requires: edit"]
+
+
+def test_no_runs_is_not_a_stable_success():
+    p = profile([])
+    assert p["verdict"] == "no runs" and p["strategies"] == []
+
+
+def test_malformed_outcomes_and_contract_are_value_errors(tmp_path):
+    o = tmp_path / "o.json"
+    o.write_text('[{"trace": "t1.jsonl"}]')
+    with pytest.raises(ValueError, match="passed"):
+        load_outcomes(o)
+    c = tmp_path / "c.yaml"
+    c.write_text("actions: [unclosed")
+    with pytest.raises(ValueError, match="c.yaml"):
+        load_contract(c)
+    c.write_text("actions: {a: {tool: Edit}}\nrules: 5")
+    with pytest.raises(ValueError):
+        load_contract(c)
+
+
+@pytest.mark.parametrize("flag, content", [("--outcomes", '[{"trace": "t"}]'), ("--contract", "a: [")])
+def test_cli_refuses_malformed_files_cleanly(tmp_path, flag, content):
+    (tmp_path / "t.jsonl").write_text(_trace(READ))
+    f = tmp_path / "bad"
+    f.write_text(content)
+    args = build_parser().parse_args(["context", "consistency", str(tmp_path / "t.jsonl"), flag, str(f)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert str(exc.value).startswith("✗")
+
+
+def test_an_outcome_key_shared_by_two_arms_must_be_the_full_path(tmp_path):
+    a, b = _run(str(tmp_path / "base/1.jsonl"), READ), _run(str(tmp_path / "skill/1.jsonl"), READ)
+    with pytest.raises(ValueError, match="1.jsonl"):
+        apply_outcomes([a, b], {"1.jsonl": False})
+    assert apply_outcomes([a, b], {a.name: False, b.name: True}) == []
+    assert (a.passed, b.passed) == (False, True)
+
+
+def test_a_directory_name_is_not_an_outcome_key(tmp_path):
+    r = _run(str(tmp_path / "base/1.jsonl"), READ)
+    assert apply_outcomes([r], {"base": False}) == [r.name] and r.passed is None
+
+
+def test_cli_catches_an_outcome_key_shared_across_arms(tmp_path):
+    for arm in ("base", "skill"):
+        (tmp_path / arm).mkdir()
+        (tmp_path / arm / "1.jsonl").write_text(_trace(READ))
+    o = tmp_path / "o.json"
+    o.write_text('{"1.jsonl": false}')
+    args = build_parser().parse_args(["context", "consistency", "--arm", f"base={tmp_path}/base/*.jsonl",
+                                      "--arm", f"skill={tmp_path}/skill/*.jsonl", "--outcomes", str(o)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert "1.jsonl" in str(exc.value)
+
+
+# --- review of #155, test gaps: each rule and denominator fails when the code stops enforcing it ---
+
+def test_forbids_fires_on_a_run_that_pushes():
+    c = parse_contract(CONTRACT)
+    push = ("Bash", {"command": "git push origin main"})
+    assert "forbids: push" in check_contract(_run("p", READ, EDIT, TEST, push), c)
+    assert "forbids: push" not in check_contract(_run("ok", READ, EDIT, TEST), c)
+
+
+def test_before_needs_a_strictly_earlier_action():
+    both = {"actions": {"any": {"tool": "Read"}, "guide": {"tool": "Read", "file_path": r"AGENTS\.md$"}},
+            "rules": [{"before": ["any", "guide"]}]}
+    # the one Read is both actions: it is not earlier than itself
+    assert check_contract(_run("r", READ), parse_contract(both)) == ["before: any -> guide"]
+    assert check_contract(_run("r", GREP, ("Read", {"file_path": "/w/x.py"}), READ), parse_contract(both)) == []
+
+
+def test_after_last_looks_past_the_last_action_not_the_first():
+    c = parse_contract({"actions": {"edit": {"tool": "Edit"}, "test": {"tool": "Bash", "command": "pytest"}},
+                        "rules": [{"after_last": ["edit", "test"]}]})
+    assert check_contract(_run("r", EDIT, TEST, EDIT), c) == ["after_last: edit -> test"]
+    assert check_contract(_run("r", EDIT, TEST, EDIT, TEST), c) == []
+    assert check_contract(_run("r", TEST), c) == []  # vacuous with no edit
+
+
+def test_passed_but_nonconforming_counts_passes_only():
+    c = parse_contract(CONTRACT)
+    runs = [_run("pass-bad", READ, TEST, EDIT), _run("fail-bad", READ, TEST, EDIT, ok=False),
+            _run("pass-ok", READ, EDIT, TEST)]
+    p = profile(runs, c)["contract"]
+    assert p["passed_but_nonconforming"] == 1 and p["conforming_runs"] == 1
+
+
+def test_result_rates_count_judged_runs_only():
+    runs = [_run("a", READ), _run("b", READ), _run("c", READ, ok=False), _run("d", READ)]
+    runs[3].passed = None  # no verdict for this one
+    r = profile(runs)["result"]
+    assert (r["runs"], r["judged"], r["passed"]) == (4, 3, 2)
+    assert r["success_rate"] == pytest.approx(2 / 3)
+    assert r["pass^2"] == pytest.approx(1 / 3) and r["pass@2"] == pytest.approx(1.0)
+    assert "pass^4" not in r  # k above the judged runs has no estimate
+
+
+def test_run_from_events_marks_failed_commands_and_denied_tools():
+    run = run_from_events([
+        {"kind": "command", "text": "make check && git diff", "rc": 2},
+        {"kind": "command", "text": "pytest", "rc": 0},
+        {"kind": "command", "text": "ls", "rc": None},
+        {"kind": "tool", "name": "WebFetch", "denied": True},
+        {"kind": "tool", "name": "Task", "denied": False},
+        {"kind": "read", "path": "/w/AGENTS.md"},
+        {"kind": "command", "text": "sub", "rc": 1, "agent": "x"},
+    ])
+    assert run.kinds() == ["Bash:make", "Bash:git", "Bash:pytest", "Bash:ls", "WebFetch", "Task", "Read"]
+    assert [e.failed for e in run.events] == [True, True, False, False, True, False, False]

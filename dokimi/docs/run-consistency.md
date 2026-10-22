@@ -49,7 +49,8 @@ Pass `--outcomes`: a JSON object of trace path (or file name, or stem) to
 `true`/`false`, written by a verifier that checked the workspace. Without it a
 run passes when the harness ended cleanly (`result` event, `success`), which
 says the agent stopped, not that the task is done. The report says which source
-it used.
+it used. A file name or stem that two traces share (`base/1.jsonl`, `skill/1.jsonl`)
+is refused: key those by full path.
 
 ## Strategies
 
@@ -86,6 +87,9 @@ rules:
   - forbids: push
   - requires: test
 ```
+
+An `edit` action with a write tool (`Edit`, `Write`, `MultiEdit`) also matches a shell
+step that writes a file (`sed -i`, `>`, `tee`), so an edit through the shell counts.
 
 Name every equivalent way to do a step: `make check`, `sh tools/check.sh` and
 the skill's `finish.sh` are one check. A contract that knows only `make check`

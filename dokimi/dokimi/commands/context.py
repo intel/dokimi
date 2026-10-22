@@ -98,18 +98,28 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
     except (OSError, ValueError) as exc:
         sys.exit(f"✗ {exc}")
 
-    report, failed = {}, False
+    loaded: dict[str, list] = {}
+    failed = False
     for label, names in arms.items():
-        runs = []
+        loaded[label] = []
         for name in names:
             try:
-                runs.append(read_run(Path(name), args.shell))
+                loaded[label].append(read_run(Path(name), args.shell))
             except TraceError as exc:
                 print(f"✗ {exc}", file=sys.stderr)
                 failed = True
-        if outcomes is not None:
-            for name in apply_outcomes(runs, outcomes):
-                print(f"warning: {label}: no outcome for {name}; left unjudged", file=sys.stderr)
+    missing: set[str] = set()
+    if outcomes is not None:  # over every arm at once: a key that two arms share is caught
+        try:
+            missing = set(apply_outcomes([r for runs in loaded.values() for r in runs], outcomes))
+        except ValueError as exc:
+            sys.exit(f"✗ {exc}")
+
+    report = {}
+    for label, runs in loaded.items():
+        for run in runs:
+            if run.name in missing:
+                print(f"warning: {label}: no outcome for {run.name}; left unjudged", file=sys.stderr)
         if len(runs) < 2:
             print(f"warning: {label}: {len(runs)} run(s); path stability needs at least 2", file=sys.stderr)
         report[label] = profile(runs, contract, args.threshold)
