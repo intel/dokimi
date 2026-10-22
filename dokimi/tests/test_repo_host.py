@@ -301,6 +301,22 @@ def test_run_skips_unsupported_cells_and_the_report_shows_them(tmp_path, monkeyp
     assert len(load_cells(batch)[0]) == 4 and not list(batch.glob("*/unsupported.json"))
 
 
+def test_force_refuses_to_keep_cells_of_another_execution_for_a_task_the_host_cannot_run(
+        tmp_path, monkeypatch, capsys):
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_add", "--task", "fix_race")
+    capsys.readouterr()
+    small = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
+    with pytest.raises(SystemExit):  # fix_race's cells would stay as they ran, next to a new fix_add
+        _run(root, out, small, monkeypatch, "--task", "fix_add", "--task", "fix_race", "--force", "--tools", "read")
+    assert "holds cells of another execution" in capsys.readouterr().err
+    assert not [s for s in small.specs if "-p" in s.argv]
+    _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch,
+         "--task", "fix_add", "--task", "fix_race", "--force")  # the same execution: fix_add replaced, fix_race kept
+    assert "2 ran, 2 already done" in capsys.readouterr().out
+
+
 def test_a_capable_run_that_stops_early_leaves_the_unreached_cells_missing(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     out = tmp_path / "runs"

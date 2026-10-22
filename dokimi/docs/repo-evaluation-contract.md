@@ -1002,7 +1002,9 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   run's plan only: if the batch dir holds finished cells outside that plan
   whose `id` differs from this run's (e.g. `--reps 2`, then `--reps 1
   --delegation none --force`), the run is refused before anything runs, because
-  the report would pool both executions in one row; use another `--batch`. A result from before `execution` was
+  the report would pool both executions in one row; use another `--batch`. The
+  same goes for the finished cells of a task this host cannot run, which
+  `--force` keeps; that refusal comes after the host probe, before any agent starts. A result from before `execution` was
   recorded is refused as `unrecorded`, not counted as native; `--force` or
   another `--batch` runs it. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`

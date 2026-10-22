@@ -27,4 +27,4 @@
   execution is refused before anything runs (unless `--force`), and so is a
   result from earlier versions, which carries no `execution`: it is not
   reused.
-- `--force` is refused when the batch dir holds finished cells outside the run's plan whose execution id differs, so one report row never pools two executions. `--delegation none` does not stop a skill with `context: fork` from starting a subagent.
+- `--force` is refused when the batch dir holds finished cells outside the run's plan, or of a task the host cannot run (which `--force` keeps), whose execution id differs, so one report row never pools two executions. `--delegation none` does not stop a skill with `context: fork` from starting a subagent.
