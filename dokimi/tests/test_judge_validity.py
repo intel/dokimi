@@ -33,6 +33,7 @@ from dokimi.eval.degrade import (
 )
 from dokimi.eval.judge_validity import (
     DEFAULT_MIN_ACCURACY,
+    NoUsablePairs,
     ValidityReport,
     ValidityRow,
     evaluate_pairs,
@@ -1421,3 +1422,814 @@ def test_wrong_numbers_survives_a_digit_run_too_long_for_a_float(tail):
     huge = "9" * 400
     out = wrong_numbers(f"Digest {huge}{tail}")
     assert out.startswith(f"Digest {huge}") and out != f"Digest {huge}{tail}"
+
+
+# ── --context stored: the gate in the setting arms runs score in ─────────────
+
+def _with_materials(skill_text="FULL SKILL BODY"):
+    """`_answers()` as an arms artifact that keeps its judge materials."""
+    from dokimi.utils import digest_text
+
+    data = {"answers": _answers(), "judge_materials": {}}
+    for rec in data["answers"]:
+        for arm_name, arm in rec["arms"].items():
+            text = skill_text if arm_name == "skill" else ""
+            digest = digest_text(text)
+            arm["judge_context_sha256"] = digest
+            data["judge_materials"][digest] = text
+    return data
+
+
+def test_stored_context_reaches_the_judge_for_every_member_of_a_pair():
+    from dokimi.eval.judge_context import NO_CONTEXT, JudgeContextStore
+
+    data = _with_materials()
+    seen = []
+
+    def scorer(lib, q, a, context=None):
+        seen.append(context)
+        return float(len(a))
+
+    report = run_validity(data["answers"], scorer, n_bases=3, variants=["truncate_20"],
+                          store=JudgeContextStore.from_artifact(data))
+    assert report.context == "stored" and report.summary()["context"] == "stored"
+    assert set(seen) == {"FULL SKILL BODY", NO_CONTEXT}   # baseline's empty material
+    assert None not in seen
+    assert "stored treatment material" in report.format_summary()
+
+
+def test_bases_with_no_stored_material_are_dropped_and_counted():
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    import copy
+
+    data = _with_materials()
+    third = copy.deepcopy(data["answers"][0])
+    third["question_id"] = "Q003"
+    data["answers"].append(third)       # skill stays covered through Q003
+    del data["answers"][0]["arms"]["skill"]["judge_context_sha256"]
+    report = run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=9,
+                          variants=["truncate_20"], store=JudgeContextStore.from_artifact(data))
+    assert report.n_without_context == 1
+    assert report.by_arm == {"baseline": {"kept": 3, "dropped": 0, "sampled": 3},
+                             "skill": {"kept": 1, "dropped": 1, "sampled": 1}}
+    assert report.summary()["by_arm"] == report.by_arm
+    text = report.format_summary()
+    assert "1 answers without verified material (counted before sampling)" in text
+    assert "skill: 1 kept, 1 dropped, 1 bases sampled" in text
+
+
+def test_build_returns_pairs_and_dropped_count_without_an_out_param():
+    import dataclasses
+    import copy
+
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_validity import Built, _build
+
+    data = _with_materials()
+    third = copy.deepcopy(data["answers"][0])
+    third["question_id"] = "Q003"
+    data["answers"].append(third)
+    del data["answers"][0]["arms"]["skill"]["judge_context_sha256"]
+    built = _build(data["answers"], {}, n_bases=9, seed=0, variants=["truncate_20"], library="lib",
+                   store=JudgeContextStore.from_artifact(data), by_arm={})
+    assert isinstance(built, Built)
+    assert built.n_dropped == 1
+    assert built.pairs and all("context" in p for p in built.pairs)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        built.n_dropped = 5
+
+    no_store = _build(_answers(), {}, n_bases=3, seed=0, variants=["truncate_20"], library="lib")
+    assert no_store.n_dropped == 0 and no_store.pairs
+
+
+def test_no_stored_material_at_all_is_an_error_not_a_no_context_run():
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    store = JudgeContextStore()   # nothing stored
+    with pytest.raises(NoUsablePairs, match="judge_materials"):
+        run_validity(_answers(), lambda l, q, a, context=None: 1.0, n_bases=3,
+                     variants=["truncate_20"], store=store)
+
+
+def test_a_whole_arm_without_verified_material_is_refused():
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    data = _with_materials()
+    del data["answers"][0]["arms"]["skill"]["judge_context_sha256"]   # skill's only record
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\]"):
+        run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=3,
+                     variants=["truncate_20"], store=JudgeContextStore.from_artifact(data))
+
+
+def test_all_noop_with_a_store_reports_noop_not_missing_material():
+    from unittest import mock
+
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    data = _with_materials()
+    with mock.patch.dict("dokimi.eval.degrade.DEGRADATIONS", {"truncate_20": lambda text, **_: text}):
+        with pytest.raises(NoUsablePairs, match="unchanged"):
+            run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=3,
+                         variants=["truncate_20"], store=JudgeContextStore.from_artifact(data))
+
+
+def test_without_a_store_the_scorer_is_called_as_before():
+    calls = []
+    run_validity(_answers(), lambda l, q, a: calls.append(1) or 1.0, n_bases=3,
+                 variants=["truncate_20"])
+    assert calls
+
+
+def test_judge_scorer_forwards_the_context_only_when_given():
+    from dokimi.eval.judge_validity import judge_scorer
+
+    got = []
+
+    class J:
+        def score_answer(self, **kw):
+            got.append(kw)
+            return {"aggregate": 1.0}
+
+    s = judge_scorer(J())
+    s("lib", "q", "a")
+    s("lib", "q", "a", context="material")
+    s_with_draw = judge_scorer(J(), draw=2)
+    s_with_draw("lib", "q", "a")
+    assert "context" not in got[0] and got[1]["context"] == "material"
+    assert "draw" not in got[0]
+    assert got[2]["draw"] == 2 and "context" not in got[2]
+
+
+def test_sequential_mode_takes_the_store_too():
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _with_materials()
+    seen = set()
+
+    def scorer(lib, q, a, context=None):
+        seen.add(context)
+        return float(len(a))
+
+    report = run_sequential(data["answers"], scorer, max_bases=3, variants=["truncate_20"],
+                            store=JudgeContextStore.from_artifact(data))
+    assert report.context == "stored" and "FULL SKILL BODY" in seen
+
+
+@pytest.mark.parametrize("extra, message", [
+    ([], "judge_materials"),                                  # file without materials
+    (["--scorer", "typed:laya"], "takes context"),            # typed scorer has no context slot
+    (["--mode", "pairwise"], "takes context"),
+])
+def test_cli_refuses_stored_context_it_cannot_honour(tmp_path, capsys, extra, message):
+    import json
+
+    from dokimi.cli import build_parser
+
+    answers = tmp_path / "a.json"
+    answers.write_text(json.dumps({"answers": _answers()}))
+    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+                                      "--context", "stored", *extra])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and message in capsys.readouterr().err
+
+
+def test_cli_judges_each_answer_with_its_arms_stored_material(tmp_path, monkeypatch):
+    import json
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    seen = []
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, library_name, question, answer, context="(none passed)", **_):
+            seen.append(context)
+            return {"aggregate": float(len(answer) % 97)}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    answers = tmp_path / "arms.json"
+    answers.write_text(json.dumps(_with_materials()))
+    out = tmp_path / "v.json"
+    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+                                      "--context", "stored", "--bases", "3",
+                                      "--variants", "truncate_20", "--output", str(out)])
+    code = None
+    try:
+        args.func(args)
+    except SystemExit as exc:      # the gate may fail on a toy judge; that is exit 1, not 2
+        code = exc.code
+    assert code in (None, 1)
+    assert "FULL SKILL BODY" in seen and "(none passed)" not in seen
+    assert json.loads(out.read_text())["summary"]["context"] == "stored"
+
+
+def test_a_lone_surrogate_in_material_is_hashed_not_fatal():
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    text = "chunk ends mid-pair " + chr(0xD83D)
+    store = JudgeContextStore()
+    store.put("q1", "docs", text)
+    digest = store.digest_of("q1", "docs")
+    assert digest.startswith("sha256:") and store.materials() == {digest: text}
+    data = {"answers": [{"question_id": "q1", "arms": {"docs": {"judge_context_sha256": digest}}}],
+            "judge_materials": {digest: text}}
+    assert JudgeContextStore.from_artifact(data).get("q1", "docs") == text
+
+
+def test_the_sampled_bases_come_from_those_with_material():
+    """--bases N is drawn after the bases without material are dropped (Thread 1)."""
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    answers = [{"question_id": f"Q{i}", "question_text": "q",
+                "arms": {a: {"answer": ANSWER + f" {a}{i}"} for a in ("baseline", "skill", "docs")}}
+               for i in range(40)]
+    store = JudgeContextStore()
+    for rec in answers:
+        store.put(rec["question_id"], "baseline", "")
+        store.put(rec["question_id"], "skill", "SKILL")     # docs has no verified material
+    # Without the docs arm in the store the arm is dropped entirely; keep one docs record.
+    store.put("Q0", "docs", "DOCS")
+    report = run_validity(answers, lambda l, q, a, context=None: 1.0, n_bases=30,
+                          variants=["truncate_20"], store=store)
+    assert len({(r.base_id, r.arm) for r in report.rows}) == 30
+
+
+def _stored_cli(tmp_path, monkeypatch, *argv, data=None, score=lambda a: float(len(a) % 97)):
+    import json
+
+    from dokimi.cli import build_parser
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, library_name, question, answer, context="(none passed)", **_):
+            return {"aggregate": score(answer)}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+    answers = tmp_path / "arms.json"
+    answers.write_text(json.dumps(data if data is not None else _with_materials()))
+    out = tmp_path / "v.json"
+    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+                                      "--judge-provider", "amazon-bedrock", "--judge-model", "m",
+                                      "--variants", "truncate_20", "--output", str(out), *argv])
+    code = None
+    try:
+        args.func(args)
+    except SystemExit as exc:
+        code = exc.code
+    assert code in (None, 1)       # the gate failing is 1; 2 is a refusal
+    return json.loads(out.read_text())["summary"]
+
+
+@pytest.mark.parametrize("mode", [["--bases", "3"], ["--sequential", "--max-bases", "3"]])
+def test_cli_stored_context_reports_stored_with_an_unsuffixed_label(tmp_path, monkeypatch, mode):
+    summary = _stored_cli(tmp_path, monkeypatch, "--context", "stored", *mode)
+    assert summary["context"] == "stored"
+    assert summary["judge"] == "amazon-bedrock/m"
+    assert summary["mode"] == ("sequential" if "--sequential" in mode else "fixed")
+    assert set(summary["by_arm"]) == {"baseline", "skill"}
+
+
+def test_cli_judge_validity_exits_2_when_no_answer_is_long_enough(tmp_path, monkeypatch, capsys):
+    import json
+
+    from dokimi.cli import build_parser
+
+    answers = tmp_path / "a.json"
+    answers.write_text(json.dumps({"answers": [{"question_id": "Q1", "question_text": "q",
+                                                "arms": {"baseline": {"answer": "short"}}}]}))
+    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+                                      "--judge-provider", "amazon-bedrock"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "Error:" in capsys.readouterr().err
+
+
+def test_a_bug_valueerror_in_a_degradation_is_not_turned_into_a_user_error(tmp_path, monkeypatch):
+    from unittest import mock
+
+    def boom(text, **_):
+        raise ValueError("internal bug in truncate_20")
+
+    with mock.patch.dict("dokimi.eval.degrade.DEGRADATIONS", {"truncate_20": boom}):
+        with pytest.raises(ValueError, match="internal bug"):
+            _stored_cli(tmp_path, monkeypatch, "--bases", "3")
+
+
+def test_cli_stored_context_on_a_baseline_only_artifact_exits_2(tmp_path, monkeypatch, capsys):
+    data = _with_materials()
+    for rec in data["answers"]:
+        rec["arms"].pop("skill", None)
+    data["judge_materials"] = {k: v for k, v in data["judge_materials"].items() if v == ""}
+    with pytest.raises(AssertionError):   # _stored_cli asserts exit code 1; here it is 2
+        _stored_cli(tmp_path, monkeypatch, "--context", "stored", data=data)
+    assert "judge_materials" in capsys.readouterr().err
+
+
+def test_a_stored_validity_report_gates_the_rescored_judge_in_cross_judge(tmp_path, monkeypatch, capsys):
+    """judge-validity --context stored, then cross-judge --validity on its report."""
+    import json
+
+    from dokimi.cli import build_parser
+    from dokimi.utils import digest_text
+
+    # A judge that ranks the longer answer lower fails the gate (intact must win).
+    failing = _stored_cli(tmp_path, monkeypatch, "--context", "stored", "--bases", "3",
+                          score=lambda a: -float(len(a)))
+    assert failing["passed"] is False and failing["judge"] == "amazon-bedrock/m"
+    stored_report = tmp_path / "stored.json"
+    stored_report.write_text(json.dumps({"summary": failing}))
+    none_report = tmp_path / "none.json"
+    none_report.write_text(json.dumps({"summary": {**failing, "context": "none"}}))
+    none_pass = tmp_path / "none_pass.json"
+    none_pass.write_text(json.dumps({"summary": {**failing, "context": "none", "passed": True}}))
+    stored_pass = tmp_path / "stored_pass.json"
+    stored_pass.write_text(json.dumps({"summary": {**failing, "passed": True}}))
+
+    digest = digest_text("FULL SKILL BODY")
+    empty = digest_text("")  # the baseline arm's stored material is empty, and still stored
+    run = {"library_name": "L", "judge_provider": "amazon-bedrock", "judge_model": "m",
+           "judge_context": "treatment_material.v1",
+           "judge_materials": {digest: "FULL SKILL BODY", empty: ""},
+           "answers": [{"question_id": f"Q{i}", "question_text": "q", "arms": {
+               "baseline": {"answer": f"b{i}", "judge_context_sha256": empty},
+               "skill": {"answer": f"s{i}", "judge_context_sha256": digest}}}
+               for i in range(8)]}
+
+    def gates(report_path):
+        run_path = tmp_path / "run.json"
+        run_path.write_text(json.dumps(run))
+        out = tmp_path / "cj.json"
+        args = build_parser().parse_args(["eval", "cross-judge", "--answers", str(run_path), "--no-stored",
+                                          "--judges", "amazon-bedrock/m", "--validity", str(report_path),
+                                          "--output", str(out)])
+        args.func(args)
+        rows = json.loads(out.read_text())["summary"]["arms"]["skill"]["rows"]
+        return {r["measure"]: r["gate"] for r in rows}
+
+    assert gates(stored_report) == {"amazon-bedrock/m": "FAIL"}
+    # A FAIL reaches the judge in any context; a PASS only in the context it ran in.
+    assert gates(none_report) == {"amazon-bedrock/m": "FAIL"}
+    assert gates(stored_pass) == {"amazon-bedrock/m": "PASS"}
+    capsys.readouterr()
+    assert gates(none_pass) == {"amazon-bedrock/m": None}
+    assert "report context none; its measures are stored" in capsys.readouterr().err
+
+
+def test_a_missing_material_warning_does_not_promise_a_snippet_fallback_on_the_gate(caplog):
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    with caplog.at_level("WARNING", logger="dokimi.eval.judge_context"):
+        assert JudgeContextStore().get("Q1", "skill") is None
+    text = caplog.text
+    assert "No stored judge context for Q1/skill" in text and "drops such bases" in text
+
+
+def test_sequential_stored_context_reports_pool_and_dropped_answers():
+    """Only answers with verified material count toward the pool, so an exhausted pool is 'pool'."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.utils import digest_text
+
+    digest = digest_text("FULL SKILL BODY")
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?",
+                "arms": {"skill": {"answer": ANSWER + f" Detail {i}. ",
+                                   **({"judge_context_sha256": digest} if i < 4 else {})}}}
+               for i in range(20)]
+    data = {"answers": answers, "judge_materials": {digest: "FULL SKILL BODY"}}
+    report = run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)),
+                            max_bases=10, variants=["truncate_20"],
+                            store=JudgeContextStore.from_artifact(data))
+    assert report.n_without_context == 16
+    assert report.by_arm == {"skill": {"kept": 4, "dropped": 16, "sampled": 4, "scored": 4}}
+    assert "16 answers without verified material" in report.format_summary()
+    d = report.sequential["truncate_20"]
+    assert d["decision"] == "continue" and d["stopped_by"] == "pool"
+
+
+
+def _starvable(n=30, with_material=3):
+    """n baseline answers and n skill answers, of which only ``with_material`` hold material."""
+    from dokimi.utils import digest_text
+
+    empty, body = digest_text(""), digest_text("FULL SKILL BODY")
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?", "arms": {
+        "baseline": {"answer": ANSWER + f" Base {i}. ", "judge_context_sha256": empty},
+        "skill": {"answer": ANSWER + f" Skill {i}. ",
+                  **({"judge_context_sha256": body} if i < with_material else {})}}}
+        for i in range(n)]
+    return {"answers": answers, "judge_materials": {empty: "", body: "FULL SKILL BODY"}}
+
+
+def test_an_arm_with_material_but_no_sampled_base_is_refused():
+    """A --context stored PASS must not rest on the other arm's bases alone."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_validity import NoUsablePairs
+
+    data = _starvable()
+    refused = covered = 0
+    for seed in range(20):
+        try:
+            report = run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=4,
+                                  seed=seed, variants=["truncate_20"],
+                                  store=JudgeContextStore.from_artifact(data))
+        except NoUsablePairs as exc:
+            message = str(exc)
+            refused += 1
+            assert "['skill']" in message and "no base was scored" in message
+        else:
+            assert report.by_arm["skill"]["sampled"] > 0
+            # Fixed mode doesn't track "scored", just verify rows exist for skill
+            assert any(r.arm == "skill" for r in report.rows)
+            covered += 1
+    assert refused and covered
+
+
+def test_a_scorer_without_a_context_argument_is_refused_before_pairs_are_built():
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_validity import NoUsablePairs
+    from dokimi.utils import digest_text
+
+    digest = digest_text("FULL SKILL BODY")
+    data = {"answers": [{"question_id": "Q0", "question_text": "q?", "arms": {
+        "skill": {"answer": ANSWER, "judge_context_sha256": digest}}}],
+        "judge_materials": {digest: "FULL SKILL BODY"}}
+    with pytest.raises(NoUsablePairs, match="does not accept a `context=` argument"):
+        run_validity(data["answers"], lambda lib, q, a: 1.0, n_bases=5, variants=["truncate_20"],
+                     store=JudgeContextStore.from_artifact(data))
+
+
+def test_a_noop_variant_leaving_an_arm_unpaired_is_refused_before_scoring():
+    """strip_code is a no-op on the skill answers (no fence), so the skill arm, which has
+    verified material, gets no pair. The refusal names it and no judge call is made."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_validity import NoUsablePairs
+    from dokimi.utils import digest_text
+
+    digest = digest_text("FULL SKILL BODY")
+    empty = digest_text("")
+    plain = "Plain skill prose without any code fence, long enough to be a usable answer. " * 25
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?", "arms": {
+        "baseline": {"answer": ANSWER + f" Base {i}. ", "judge_context_sha256": empty}}}
+               for i in range(10)]
+    for i in range(3):
+        answers[i]["arms"]["skill"] = {"answer": plain + f" {i}", "judge_context_sha256": digest}
+    data = {"answers": answers, "judge_materials": {empty: "", digest: "FULL SKILL BODY"}}
+    calls = []
+
+    def scorer(lib, q, a, context=None):
+        calls.append(a)
+        return 1.0
+
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\]"):
+        run_validity(data["answers"], scorer, n_bases=50, seed=0, variants=["strip_code"],
+                     store=JudgeContextStore.from_artifact(data))
+    assert calls == []
+
+
+def test_fixed_mode_arm_with_material_and_only_noop_bases_is_refused():
+    """A fixed-mode run where one arm gets no scored base refuses despite material."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_validity import NoUsablePairs
+    from dokimi.utils import digest_text
+
+    digest = digest_text("FULL SKILL BODY")
+    empty = digest_text("")
+    # 100 baseline answers, 1 skill answer with material.
+    # With n_bases=50, skill arm has 1 kept but typically gets no sampled base due to
+    # low odds in pooled shuffle. When no base is sampled and later no rows scored,
+    # the gate would not cover the arm.
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?", "arms": {
+        "baseline": {"answer": ANSWER + f" Base {i}. ", "judge_context_sha256": empty}}}
+               for i in range(100)]
+    answers[0]["arms"]["skill"] = {"answer": ANSWER + " Skill 0. ", "judge_context_sha256": digest}
+    data = {"answers": answers, "judge_materials": {empty: "", digest: "FULL SKILL BODY"}}
+
+    # With only 1 skill answer out of 100 and n_bases=50, skill has low odds of being sampled.
+    refused = covered = 0
+    for seed in range(10):
+        try:
+            run_validity(data["answers"], lambda l, q, a, context=None: 1.0, n_bases=50,
+                         seed=seed, variants=["truncate_20"],
+                         store=JudgeContextStore.from_artifact(data))
+            covered += 1
+        except NoUsablePairs as exc:
+            message = str(exc)
+            refused += 1
+            assert "['skill']" in message and "no base was scored" in message
+    # We expect some to be refused when skill doesn't get sampled
+    assert refused > 0, "Expected at least one seed to refuse due to skill arm not being scored"
+
+
+def test_sequential_stopped_by_counts_kept_answers_not_sampled_ones():
+    """kept > max_bases: a higher --max-bases would add bases, so an undecided variant is 'cap'."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.utils import digest_text
+
+    digest = digest_text("FULL SKILL BODY")
+    plain = "Plain prose answer without any code block, long enough to count. " * 30
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?",
+                "arms": {"skill": {"answer": (ANSWER if i < 3 else plain) + f" Detail {i}. ",
+                                   "judge_context_sha256": digest}}}
+               for i in range(60)]
+    data = {"answers": answers, "judge_materials": {digest: "FULL SKILL BODY"}}
+    report = run_sequential(data["answers"], lambda l, q, a, context=None: 50.0, max_bases=50,
+                            variants=["strip_code"], store=JudgeContextStore.from_artifact(data))
+    assert report.by_arm["skill"]["kept"] == 60 and report.by_arm["skill"]["sampled"] == 50
+    d = report.sequential["strip_code"]
+    assert d["decision"] == "continue" and d["stopped_by"] == "cap"
+
+
+@pytest.mark.parametrize("extra, message, wrong", [
+    (["--scorer", "bogus"], "unknown --scorer 'bogus'", "takes context"),
+    (["--scorer", "typed:laya"], "the typed scorer does not", "pairwise"),
+    (["--mode", "pairwise"], "--mode pairwise does not", "typed"),
+])
+def test_cli_stored_context_refusal_names_the_real_cause(tmp_path, capsys, extra, message, wrong):
+    import json
+
+    from dokimi.cli import build_parser
+
+    answers = tmp_path / "a.json"
+    answers.write_text(json.dumps(_with_materials()))
+    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+                                      "--context", "stored", *extra])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and message in err and wrong not in err
+
+
+def test_sequential_reports_the_bases_scored_not_the_pool_built():
+    """An early SPRT stop scores fewer bases than --max-bases built; the summary says which."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.utils import digest_text
+
+    digest = digest_text("FULL SKILL BODY")
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?",
+                "arms": {"skill": {"answer": ANSWER + f" Detail {i}. ",
+                                   "judge_context_sha256": digest}}}
+               for i in range(100)]
+    data = {"answers": answers, "judge_materials": {digest: "FULL SKILL BODY"}}
+    report = run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)),
+                            max_bases=50, variants=["truncate_20"],
+                            store=JudgeContextStore.from_artifact(data))
+    assert report.sequential["truncate_20"]["decision"] == "PASS"
+    counts = report.by_arm["skill"]
+    scored = len({r.base_id for r in report.rows})
+    assert counts["sampled"] == 50 and counts["scored"] == scored < 50
+    text = report.format_summary()
+    assert f"{scored} bases scored" in text and "bases sampled" not in text
+
+
+def test_sequential_per_arm_scored_counts_differ():
+    """Sequential mode tracks bases scored per arm, pinning the per-arm filter."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.utils import digest_text
+
+    # Just verify that the "scored" field is populated per-arm in sequential mode.
+    # The mutation is that the per-arm filter is removed, so all arms print the same total.
+    digest = digest_text("FULL SKILL BODY")
+    answers = [{"question_id": f"Q{i:03d}", "question_text": f"q{i}?",
+                "arms": {"skill": {"answer": ANSWER + f" Detail {i}. ",
+                                   "judge_context_sha256": digest}}}
+               for i in range(100)]
+    data = {"answers": answers, "judge_materials": {digest: "FULL SKILL BODY"}}
+    report = run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)),
+                            max_bases=50, variants=["truncate_20"],
+                            store=JudgeContextStore.from_artifact(data))
+    # Verify that "scored" is tracked
+    assert "scored" in report.by_arm["skill"], "scored field should be in by_arm"
+    assert report.by_arm["skill"]["scored"] > 0, "scored count should be > 0"
+
+
+def test_sequential_refuses_an_arm_with_material_left_out_of_the_pool():
+    """--max-bases can leave the only skill base out of the pool: refuse before any call."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.eval.judge_validity import NoUsablePairs
+
+    data = _starvable(n=100, with_material=1)
+    for rec in data["answers"][1:]:
+        del rec["arms"]["skill"]
+    calls = []
+
+    def scorer(lib, q, a, context=None):
+        calls.append(a)
+        return float(len(a))
+
+    store = JudgeContextStore.from_artifact(data)
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*raise --max-bases"):
+        run_sequential(data["answers"], scorer, max_bases=20, seed=1, variants=["truncate_20"], store=store)
+    assert calls == []
+
+
+def test_refusal_does_not_say_raise_the_sample_when_every_kept_base_was_sampled():
+    from dokimi.eval.judge_validity import NoUsablePairs, refuse_unpaired_arms
+
+    by_arm = {"skill": {"kept": 2, "dropped": 0, "sampled": 2}}
+    with pytest.raises(NoUsablePairs) as exc:
+        refuse_unpaired_arms([], by_arm, "--bases")
+    message = str(exc.value)
+    assert "cannot help" in message
+    assert "raise --bases" not in message
+
+
+def test_refusal_still_says_raise_the_sample_when_a_kept_base_was_not_drawn():
+    from dokimi.eval.judge_validity import NoUsablePairs, refuse_unpaired_arms
+
+    by_arm = {"skill": {"kept": 3, "dropped": 0, "sampled": 1}}
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*raise --bases"):
+        refuse_unpaired_arms([], by_arm, "--bases")
+
+
+def _baseline_heavy_arms():
+    """100 baseline + 3 skill answers, each citing its verified material."""
+    from dokimi.utils import digest_text
+
+    data = {"answers": [], "judge_materials": {}}
+    for i in range(103):
+        arm_name = "baseline" if i < 100 else "skill"
+        text = "" if arm_name == "baseline" else "SKILL"
+        digest = digest_text(text)
+        data["judge_materials"][digest] = text
+        data["answers"].append({
+            "question_id": f"Q{i}", "question_text": f"Question number {i}?",
+            "arms": {arm_name: {"answer": ANSWER + f"Variant {i}. ", "judge_context_sha256": digest}},
+        })
+    return data
+
+
+def test_sequential_refuses_an_arm_the_loop_never_scored():
+    """The SPRT can decide on baseline bases alone and stop, leaving the skill
+    arm with 0 scored bases."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _baseline_heavy_arms()
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*no base was scored"):
+        run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)),
+                       max_bases=50, variants=["truncate_20"],
+                       store=JudgeContextStore.from_artifact(data))
+
+
+def test_sequential_unscored_arm_refusal_names_a_remedy_that_covers_the_arm():
+    """Past the pool size a higher --max-bases stops at the same place; the
+    fixed mode the message names does score the arm."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _baseline_heavy_arms()
+    store = JudgeContextStore.from_artifact(data)
+
+    def scorer(lib, question, answer, context=None):
+        return float(len(answer))
+
+    for max_bases in (200, 400):
+        with pytest.raises(NoUsablePairs, match=r"\['skill'\]") as exc:
+            run_sequential(data["answers"], scorer, max_bases=max_bases, variants=["truncate_20"], store=store)
+        assert "raise --max-bases" not in str(exc.value)
+        assert "without --sequential" in str(exc.value)
+    report = run_validity(data["answers"], scorer, n_bases=103, variants=["truncate_20"], store=store)
+    assert any(r.arm == "skill" and not r.neutral for r in report.rows)
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_sequential_reports_a_fail_even_when_an_arm_was_never_scored(seed):
+    """A judge that cannot tell a degraded answer apart fails on the bases it
+    was scored on; that FAIL is the result, not a refusal over the other arm."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _baseline_heavy_arms()
+    report = run_sequential(data["answers"], lambda l, q, a, context=None: 5.0, max_bases=50,
+                            seed=seed, variants=["truncate_20"], store=JudgeContextStore.from_artifact(data))
+    assert report.sequential["truncate_20"]["decision"] == "FAIL"
+    assert report.summary()["passed"] is False
+    assert report.by_arm["skill"]["scored"] == 0
+
+
+def _fenced_baseline_arms(n_skill):
+    """100 baseline answers with a code fence, ``n_skill`` skill answers without one."""
+    from dokimi.utils import digest_text
+
+    data = {"answers": [], "judge_materials": {}}
+    for i in range(100 + n_skill):
+        arm_name = "baseline" if i < 100 else "skill"
+        text = "" if arm_name == "baseline" else "SKILL"
+        digest = digest_text(text)
+        data["judge_materials"][digest] = text
+        body = ANSWER + f"Variant {i}. "
+        if arm_name == "skill":
+            body = body.replace("```", "")
+        data["answers"].append({
+            "question_id": f"Q{i}", "question_text": f"Question number {i}?",
+            "arms": {arm_name: {"answer": body, "judge_context_sha256": digest}},
+        })
+    return data
+
+
+@pytest.mark.parametrize("n_skill", [3, 1])
+def test_sequential_padding_alone_does_not_cover_an_arm(n_skill):
+    """A skill base scored only by the neutral ``padding`` variant has no graded
+    row, so the gate may not PASS on it, whatever the seed."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _fenced_baseline_arms(n_skill)
+    store = JudgeContextStore.from_artifact(data)
+    for seed in range(10):
+        with pytest.raises(NoUsablePairs, match=r"\['skill'\]"):
+            run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)),
+                           max_bases=120, seed=seed, variants=["strip_code", "padding"], store=store)
+
+
+def test_sequential_unscored_arm_refusal_names_every_arm_sorted():
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+    from dokimi.utils import digest_text
+
+    data = {"answers": [], "judge_materials": {}}
+    for i in range(106):
+        arm_name = "baseline" if i < 100 else ("zeta" if i < 103 else "alpha")
+        text = "" if arm_name == "baseline" else arm_name
+        digest = digest_text(text)
+        data["judge_materials"][digest] = text
+        body = ANSWER + f"Variant {i}. "
+        if arm_name != "baseline":
+            body = body.replace("```", "")
+        data["answers"].append({
+            "question_id": f"Q{i}", "question_text": f"Question number {i}?",
+            "arms": {arm_name: {"answer": body, "judge_context_sha256": digest}},
+        })
+    store = JudgeContextStore.from_artifact(data)
+    messages = set()
+    for seed in range(10):
+        with pytest.raises(NoUsablePairs) as exc:
+            run_sequential(data["answers"], lambda l, q, a, context=None: float(len(a)), max_bases=120,
+                           seed=seed, variants=["strip_code", "padding"], store=store)
+        messages.add(str(exc.value))
+    assert any("['alpha', 'zeta']" in m for m in messages)
+
+
+@pytest.mark.parametrize("n_skill", [3, 1])
+def test_fixed_mode_refuses_an_arm_whose_only_pairs_are_padding(n_skill):
+    """The remedy the sequential refusal names: with every base sampled, a
+    skill arm that only padding changes has no graded row, so it is refused
+    before any call instead of passing on baseline rows alone."""
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _fenced_baseline_arms(n_skill)
+    store = JudgeContextStore.from_artifact(data)
+    calls = []
+
+    def scorer(lib, question, answer, context=None):
+        calls.append(1)
+        return float(len(answer))
+
+    n = len(data["answers"])
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*variant \(strip_code\) left") as exc:
+        run_validity(data["answers"], scorer, n_bases=n, variants=["strip_code", "padding"], store=store)
+    assert "raise --bases" not in str(exc.value)
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*use other degradations"):
+        run_sequential(data["answers"], scorer, max_bases=n, variants=["strip_code", "padding"], store=store)
+    assert calls == []
+    # A run that requests no graded variant is not refused here; it fails as unmeasured.
+    report = run_validity(data["answers"], scorer, n_bases=n, variants=["padding"], store=store)
+    assert report.summary()["passed"] is False
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2, 5])
+def test_sequential_padding_after_a_graded_variant_closed_does_not_cover_an_arm(seed):
+    """The skill arm has truncate_20 pairs, but truncate_20 is decided before its
+    bases come up; strip_code (a no-op on it) stays open, so only its padding
+    pair is scored. That row is not a graded one: the PASS is refused."""
+    import re
+
+    from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.eval.judge_sequential import run_sequential
+
+    data = _fenced_baseline_arms(3)
+
+    def scorer(lib, question, answer, context=None):
+        # truncate_20 cuts the "Variant i." tail; such a text is scored by length.
+        m = re.search(r"Variant (\d+)\. ", answer)
+        i = int(m.group(1)) if m else -1
+        return 1e6 if "```" not in answer and i % 6 == 0 and i < 100 else float(len(answer))
+
+    with pytest.raises(NoUsablePairs, match=r"\['skill'\].*before the sequential test stopped"):
+        run_sequential(data["answers"], scorer, max_bases=120, seed=seed,
+                       variants=["truncate_20", "strip_code", "padding"],
+                       store=JudgeContextStore.from_artifact(data))

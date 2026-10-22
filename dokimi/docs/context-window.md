@@ -1,3 +1,8 @@
+---
+depends_on:
+  - dokimi/dokimi/context/**
+  - dokimi/dokimi/commands/context.py
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

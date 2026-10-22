@@ -189,7 +189,7 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     if unknown:
         print(f"Error: unknown wording(s): {unknown}; known: {sorted(WORDINGS)}", file=sys.stderr)
         sys.exit(2)
-    pairs = _build(answers, {}, n_bases=args.bases, seed=args.seed, variants=variants, library=library)
+    pairs = _build(answers, {}, n_bases=args.bases, seed=args.seed, variants=variants, library=library).pairs
     label = f"{args.judge_provider}/{args.judge_model}"
     n_cond = 1 + args.redraws + len(wordings)
     print(f"Judge wording sensitivity: {label}, {len(pairs)} pairs x {n_cond} conditions "
@@ -366,7 +366,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             print(f"⚠️  --validity for `{v.get('judge')}` was measured on {v['answers_model']} answers, "
                   f"these are {answers_model}'s — the gate may not transfer", file=sys.stderr)
     for missed in report.apply_validity(validity):
-        print(f"⚠️  --validity for `{missed}` matches no measure (compare the judge labels)", file=sys.stderr)
+        print(f"⚠️  --validity for `{missed}` matches no measure (compare the judge labels and contexts)", file=sys.stderr)
     if not report.measures:
         print("Error: nothing to compare — give --judges, --checklist, or an answers file with evaluations",
               file=sys.stderr)

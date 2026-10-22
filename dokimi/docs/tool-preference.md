@@ -1,3 +1,9 @@
+---
+depends_on:
+  - dokimi/dokimi/tool_preference.py
+  - dokimi/dokimi/commands/tools.py
+  - dokimi/dokimi/schemas/tool_preference*.json
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0

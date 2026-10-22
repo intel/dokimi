@@ -31,6 +31,9 @@ also holds a PR to:
 - Imports follow the layers in `dokimi/tests/test_import_architecture.py`: no
   upward import, no new cycle, LLM SDKs only in `dokimi.llm`, spawns only in
   `dokimi.process`. Its baselines only shrink.
+- No growth: a file over 800 lines (tests 1000) or a function over complexity 10
+  fails unless `scripts/growth_baseline.json` holds it, and then it may only
+  shrink. Split instead; after shrinking, `python scripts/check_growth.py --update`.
 - Tests that check behaviour: `tests/test_audit_test_quality.py` fails a test that only
   checks types, echoes its input, only checks a mock was called, asserts nothing or
   repeats another (`python scripts/audit_test_quality.py` lists them).
@@ -98,7 +101,9 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 - A file the package reads at run time goes inside `dokimi/dokimi/` and into
   `[tool.setuptools.package-data]`, or the installed wheel goes without it.
 - Design rationale, status and plans go in the PR description or an issue;
-  the tree has no ADRs or status reports.
+  the tree has no ADRs or status reports. The one exception is the research
+  register, `dokimi/research/records/`: one record per idea, experiment,
+  finding, decision or implementation link, negative results included (`dokimi/docs/research-register.md`).
 - A new file starts with the SPDX header (`Copyright (C) <year> Intel
   Corporation` / `SPDX-License-Identifier: Apache-2.0`) in its comment syntax.
   CI's license header step (static job) checks it and `make ci-local` does
