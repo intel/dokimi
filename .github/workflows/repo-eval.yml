@@ -1,0 +1,424 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: repo-eval
+
+# The no-LLM checks of a repository's evals (dokimi/docs/repo-evaluation-contract.md),
+# for repositories to call from their own workflow:
+#
+#   validate     `repo validate`: the manifest and every task.json (seconds; a gate)
+#   scan         `repo scan`: the L0 claims of the guidance (report only)
+#   tasks-check  `repo tasks check`, one job per selected task: the untouched
+#                workspace fails the gate, the reference solution passes it
+#
+# Nothing here calls a model or reads a secret. The caller pins dokimi twice,
+# by the same commit SHA (or tag): in `uses: ...@<sha>` and in `dokimi-ref`. The
+# ref installs dokimi and, through its requirements.lock.txt, every dependency,
+# so a rerun checks with the same framework. A branch name is refused. The
+# calling job grants `contents: read`, all any job here asks for.
+#
+# Task selection (`tasks`): `changed` on a pull request is the tasks whose
+# directories it touches, plus `smoke-tasks` when it changes anything else the
+# self-check depends on: the eval directory outside its tasks (harness,
+# graders, Dockerfile; Markdown excepted), the manifest, the calling workflow
+# file, or a path under `smoke-paths`. On a push `changed` diffs against the
+# previous tip; on any other event it means `all`.
+
+on:
+  workflow_call:
+    inputs:
+      dokimi-ref:
+        description: >-
+          dokimi commit SHA (40 hex digits) or release tag to install. Use the ref of
+          the `uses:` line; a branch is refused.
+        required: true
+        type: string
+      dokimi-repository:
+        description: Repository dokimi-ref is in (owner/name), for testing a fork
+        required: false
+        type: string
+        default: intel/dokimi
+      manifest:
+        description: Manifest path relative to the repository root
+        required: false
+        type: string
+        default: .agent-eval/repo-eval.yaml
+      tasks:
+        description: "`changed`, `all`, or task ids separated by spaces or commas (empty: `changed`)"
+        required: false
+        type: string
+        default: changed
+      smoke-tasks:
+        description: >-
+          Task ids checked when `changed` finds a change outside the task directories
+          (empty: every task)
+        required: false
+        type: string
+        default: ''
+      smoke-paths:
+        description: >-
+          More path prefixes (space- or comma-separated) whose change selects `smoke-tasks`,
+          for example a vendored grader library
+        required: false
+        type: string
+        default: ''
+      exclude-tasks:
+        description: Task ids never checked here (space- or comma-separated), for example ones too heavy for CI
+        required: false
+        type: string
+        default: ''
+      max-parallel:
+        description: At most this many tasks-check jobs at once
+        required: false
+        type: number
+        default: 4
+      warm:
+        description: >-
+          Pass --warm to `repo tasks check`: null and oracle run with network so a
+          cold cache fills (an ephemeral runner starts with empty caches)
+        required: false
+        type: boolean
+        default: false
+      runs-on:
+        description: Runner label for every job (a tasks-check job needs docker)
+        required: false
+        type: string
+        default: ubuntu-latest
+      timeout-minutes:
+        description: Timeout of each tasks-check job (image build included)
+        required: false
+        type: number
+        default: 180
+
+permissions: {}
+
+jobs:
+  validate:
+    name: repo validate
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      dokimi-sha: ${{ steps.ref.outputs.sha }}
+      id: ${{ steps.select.outputs.id }}
+      tasks: ${{ steps.select.outputs.tasks }}
+    steps:
+      # Full history: `validate` resolves every task base, and `changed` diffs
+      # against the base branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      # A SHA is taken as it is; a tag is resolved to the commit it names, so the
+      # later jobs install the same commit even if the tag moves meanwhile.
+      - name: Resolve dokimi-ref
+        id: ref
+        env:
+          REF: ${{ inputs.dokimi-ref }}
+          DOKIMI_REPO: ${{ inputs.dokimi-repository }}
+        run: |
+          if ! [[ "$DOKIMI_REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+            echo "::error title=dokimi-repository::dokimi-repository is not owner/name"
+            exit 1
+          fi
+          if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+            sha=$REF
+          elif [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            # An annotated tag's commit is its peeled (^{}) line.
+            sha=$(git ls-remote --tags "https://github.com/$DOKIMI_REPO" \
+                  | awk -v t="refs/tags/$REF" '$2 == t "^{}" { p = $1 } $2 == t { l = $1 } END { print (p != "" ? p : l) }')
+          fi
+          if ! [[ "${sha:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=dokimi-ref::dokimi-ref is neither a 40-digit commit SHA nor a tag of $DOKIMI_REPO"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "dokimi $DOKIMI_REPO@$REF -> $sha"
+      - name: Install dokimi
+        env:
+          SHA: ${{ steps.ref.outputs.sha }}
+          DOKIMI_REPO: ${{ inputs.dokimi-repository }}
+        run: |
+          # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
+          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
+          pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
+      - name: repo validate
+        env:
+          MANIFEST: ${{ inputs.manifest }}
+        run: |
+          status=0
+          dokimi repo validate . --manifest "$MANIFEST" || status=$?
+          dokimi repo validate . --manifest "$MANIFEST" --json > "$RUNNER_TEMP/validate.json" || true
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          path = os.path.join(os.environ["RUNNER_TEMP"], "validate.json")
+          try:
+              d = json.load(open(path, encoding="utf-8"))
+          except (OSError, ValueError):
+              print("### repo validate", "", "The manifest could not be read; see the job log.", sep="\n")
+              raise SystemExit
+          tasks = d["tasks"]
+          print("### repo validate", "", f"{'ok' if d['ok'] else 'FAILED'}: `{d['manifest']['manifest']}`, "
+                f"{tasks['count']} task(s), {len(d['guidance_files'])} guidance file(s)", sep="\n")
+          for kind in ("errors", "warnings", "notes"):
+              for line in d[kind]:
+                  print(f"- {kind[:-1]}: {line}")
+          PY
+          exit "$status"
+      - name: Select tasks
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          REPOSITORY: ${{ github.repository }}
+          MANIFEST: ${{ inputs.manifest }}
+          TASKS: ${{ inputs.tasks }}
+          SMOKE_TASKS: ${{ inputs.smoke-tasks }}
+          SMOKE_PATHS: ${{ inputs.smoke-paths }}
+          EXCLUDE_TASKS: ${{ inputs.exclude-tasks }}
+        run: |
+          python - <<'PY'
+          import json, os, re, subprocess, sys
+          from pathlib import Path
+
+          env = os.environ
+          d = json.load(open(os.path.join(env["RUNNER_TEMP"], "validate.json"), encoding="utf-8"))
+          m = d["manifest"]
+
+          def ids(text):
+              return [t for t in re.split(r"[\s,]+", text) if t]
+
+          def out(**kv):
+              with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+                  for k, v in kv.items():
+                      f.write(f"{k}={v}\n")
+
+          tasks_dir = m["tasks"]
+          if not tasks_dir:  # a guidance-only manifest
+              print("guidance-only manifest: no tasks to check")
+              out(id=m["id"], tasks="[]")
+              sys.exit()
+          all_ids = sorted(p.parent.name for p in Path(tasks_dir).glob("*/task.json"))
+
+          def changed_files():
+              # HEAD is GitHub's merge commit; its first parent is the base tip now, while base.sha is
+              # the base at PR-open time and would count what the base gained since as the PR's change
+              if env["EVENT"] == "pull_request" and env["BASE_SHA"]:
+                  merge = subprocess.run(["git", "rev-parse", "-q", "--verify", "HEAD^2"], capture_output=True).returncode == 0
+                  rng = ["HEAD^1...HEAD" if merge else f"{env['BASE_SHA']}...HEAD"]
+              elif env["EVENT"] == "push" and env["BEFORE"].strip("0"):
+                  rng = [env["BEFORE"], "HEAD"]
+              else:
+                  return None
+              r = subprocess.run(["git", "diff", "--no-renames", "--name-only", "-z", *rng], capture_output=True, text=True)
+              if r.returncode:
+                  print(f"::warning::git diff {' '.join(rng)} failed, checking every task: {r.stderr.strip()}")
+                  return None
+              return r.stdout.split('\0') if r.stdout else []
+
+          import posixpath
+          # empty is the default: a caller forwarding an unset dispatch input passes '', not `changed`
+          mode = env["TASKS"].strip() if ids(env["TASKS"]) else "changed"
+          if mode == "all":
+              sel = list(all_ids)
+          elif mode == "changed":
+              files = changed_files()
+              if files is None:
+                  sel = list(all_ids)
+              else:
+                  prefix = tasks_dir.rstrip("/") + "/"
+                  sel = sorted({f[len(prefix):].split("/", 1)[0] for f in files if f.startswith(prefix)})
+                  sel = [t for t in sel if t in all_ids]  # a deleted task has nothing to check
+                  # the calling workflow: owner/repo/.github/workflows/x.yml@ref
+                  caller = env["WORKFLOW_REF"].split("@", 1)[0].removeprefix(env["REPOSITORY"] + "/")
+                  eval_dir = m["eval_dir"].rstrip("/") + "/"
+                  # the same separators as ids(); normalised like the manifest, a trailing slash kept
+                  roots = [posixpath.normpath(p) + ("/" if p.endswith("/") and p != "/" else "") for p in ids(env["SMOKE_PATHS"])]
+                  manifest_normalized = posixpath.normpath(env["MANIFEST"])
+
+                  def harness(f):
+                      if f in (manifest_normalized, caller) or any(f.startswith(r) for r in roots):
+                          return True  # an explicit smoke path wins over the Markdown exemption below
+                      if f.startswith(eval_dir) and f.endswith(".md"):
+                          return False  # Markdown in the eval dir, its tasks dir included, selects nothing
+                      if f.startswith(prefix):
+                          # a file under prefix (tasks dir) whose first segment is not an existing task id
+                          # is a shared helper (e.g., tasks/common.py) or a deleted task's file: harness
+                          first_segment = f[len(prefix):].split("/", 1)[0]
+                          if first_segment not in all_ids:
+                              return True
+                      return f.startswith(eval_dir) and not f.startswith(prefix)
+
+                  hits = [f for f in files if harness(f)]
+                  if hits:
+                      smoke = ids(env["SMOKE_TASKS"]) or all_ids
+                      print(f"outside the task directories: {' '.join(hits[:10])}; adding the smoke set")
+                      unknown = [t for t in smoke if t not in all_ids]
+                      if unknown:
+                          sys.exit(f"::error title=smoke-tasks::no such task(s): {', '.join(unknown)}")
+                      sel = sorted(set(sel) | set(smoke))
+          else:
+              sel = ids(mode)
+              unknown = [t for t in sel if t not in all_ids]
+              if unknown:
+                  sys.exit(f"::error title=tasks::no such task(s): {', '.join(unknown)}")
+          excluded = set(ids(env["EXCLUDE_TASKS"]))
+          sel = [t for t in dict.fromkeys(sel) if t not in excluded]
+          print(f"tasks-check: {' '.join(sel) or 'none'}")
+          out(id=m["id"], tasks=json.dumps(sel))
+          with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write(f"\ntasks-check ({mode}): {', '.join(f'`{t}`' for t in sel) or 'none'}\n")
+          PY
+
+  scan:
+    name: repo scan
+    needs: validate
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install dokimi
+        env:
+          SHA: ${{ needs.validate.outputs.dokimi-sha }}
+          DOKIMI_REPO: ${{ inputs.dokimi-repository }}
+        run: |
+          # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
+          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
+          pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
+      # Report only: a failing claim does not fail the job (an unreadable
+      # manifest still does). The table lists the failing claims.
+      - name: repo scan
+        env:
+          MANIFEST: ${{ inputs.manifest }}
+        run: |
+          dokimi repo scan . --manifest "$MANIFEST" --out "$RUNNER_TEMP/repo-readiness.json"
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          d = json.load(open(os.path.join(os.environ["RUNNER_TEMP"], "repo-readiness.json"), encoding="utf-8"))
+          c = d["counts"]
+
+          def cell(text):
+              return str(text).replace("|", "\\|").replace("\n", " ")
+
+          print("### repo scan (L0, report only)", "",
+                f"{len(d['files'])} guidance file(s), adapters: {', '.join(d['adapters']) or 'none'}", "",
+                "| claims | ok | unresolved | fail |", "|---|---|---|---|",
+                f"| {c['total']} | {c['ok']} | {c['unresolved']} | {c['fail']} |", sep="\n")
+          for w in d["warnings"]:
+              print(f"- warning: {cell(w)}")
+          fails = [x for x in d["claims"] if x["status"].split("_", 1)[0] == "fail"]
+          if fails:
+              print("", "| file | line | kind | claim | why |", "|---|---|---|---|---|", sep="\n")
+              for x in fails[:100]:
+                  print(f"| {cell(x['file'])} | {x['line']} | {cell(x.get('kind'))} | "
+                        f"`{cell(str(x.get('claim'))[:80])}` | {cell(x.get('why'))} |")
+              if len(fails) > 100:
+                  print(f"\n{len(fails) - 100} more in the repo-readiness.json artifact")
+          PY
+      - name: Upload the scan report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: repo-eval-scan-${{ needs.validate.outputs.id }}
+          path: ${{ runner.temp }}/repo-readiness.json
+          if-no-files-found: ignore
+
+  tasks-check:
+    name: repo tasks check ${{ matrix.task }}
+    needs: validate
+    if: needs.validate.outputs.tasks != '[]'
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ inputs.max-parallel }}
+      matrix:
+        task: ${{ fromJSON(needs.validate.outputs.tasks) }}
+    steps:
+      # Full history: task workspaces are checked out from the task's base commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install dokimi
+        env:
+          SHA: ${{ needs.validate.outputs.dokimi-sha }}
+          DOKIMI_REPO: ${{ inputs.dokimi-repository }}
+        run: |
+          # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
+          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
+          pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
+      # Builds the image from the manifest's Dockerfile (the tree without its
+      # tasks), then grades the null and the oracle workspace in it.
+      - name: repo tasks check
+        env:
+          MANIFEST: ${{ inputs.manifest }}
+          TASK: ${{ matrix.task }}
+          WARM: ${{ inputs.warm }}
+          # Each task's verdict in the log as it lands, not when the step ends.
+          PYTHONUNBUFFERED: '1'
+        run: |
+          warm=()
+          if [ "$WARM" = true ]; then warm=(--warm); fi
+          dokimi repo tasks check . --manifest "$MANIFEST" --task "$TASK" --out "$RUNNER_TEMP/repo-check" "${warm[@]}"
+      # always(): a hung oracle ends in the job timeout, which cancels the job; a
+      # cancelled job still runs these steps, so the run leaves a verdict.
+      - name: Summary
+        if: ${{ always() }}
+        env:
+          JOB_STATUS: ${{ job.status }}
+          TASK: ${{ matrix.task }}
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          path = os.path.join(os.environ["RUNNER_TEMP"], "repo-check", "check", "check.json")
+          if not os.path.isfile(path):
+              if os.environ["JOB_STATUS"] == "cancelled":
+                  # the job timeout (or a cancel) stopped the check before it wrote its verdict
+                  problem = "the job was cancelled (timeout-minutes?) before the check finished"
+                  os.makedirs(os.path.dirname(path), exist_ok=True)
+                  with open(path, "w", encoding="utf-8") as f:
+                      json.dump({"tasks": [{"task": os.environ["TASK"], "verdict": "timeout",
+                                            "problems": [problem]}]}, f)
+              else:
+                  print("### repo tasks check", "", "No check.json: the check stopped before grading; see the job log.",
+                        sep="\n")
+                  raise SystemExit
+          for r in json.load(open(path, encoding="utf-8"))["tasks"]:
+              print(f"### repo tasks check `{r['task']}`: {r['verdict'].upper()}", "", sep="\n")
+              for kind in ("null", "oracle"):
+                  g = r.get(kind)
+                  if g:
+                      print(f"- {kind}: {g.get('status')}, success {g.get('success')}, score {g.get('score')}")
+              for p in r["problems"]:
+                  print(f"- problem: {p}")
+          PY
+      - name: Upload the check results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: repo-eval-check-${{ needs.validate.outputs.id }}-${{ matrix.task }}
+          path: |
+            ${{ runner.temp }}/repo-check/check/check.json
+            ${{ runner.temp }}/repo-check/check/*/grade.json
+            ${{ runner.temp }}/repo-check/check/*/*.log
+            ${{ runner.temp }}/repo-check/check/*/*.err
+          if-no-files-found: ignore

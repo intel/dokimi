@@ -381,14 +381,19 @@ def test_the_isolation_probe_script_reports_what_it_names(tmp_path):
     run.mkdir()
     shim = tmp_path / "shim"
     shim.mkdir()
+    tmp = tmp_path / "tmp"
+    tmp.mkdir()
     (shim / "find").write_text(f'#!/bin/sh\nshift\nexec {shutil.which("find")} {image} "$@"\n', encoding="utf-8")
     (shim / "find").chmod(0o755)
 
     def probe(tasks: str, content: Path = tmp_path / "no-content") -> subprocess.CompletedProcess:
         env = {"PATH": f"{shim}:{os.environ['PATH']}", "EVAL_CONTENT": str(content),
-               "EVAL_SOURCE": str(tmp_path / "no-src"), "EVAL_RUN": str(run), "EVAL_TASKS": tasks}
-        return subprocess.run(["sh", "-c", _ISOLATION_SH, "probe", *ANCESTOR_NAMES], env=env,
+               "EVAL_SOURCE": str(tmp_path / "no-src"), "EVAL_RUN": str(run), "EVAL_TASKS": tasks,
+               "TMPDIR": str(tmp)}
+        done = subprocess.run(["sh", "-c", _ISOLATION_SH, "probe", *ANCESTOR_NAMES], env=env,
                               capture_output=True, text=True)
+        assert not list(tmp.iterdir()), "the probe left its task list behind"
+        return done
 
     clean = probe("no-such-task-dokimi-probe")
     assert clean.returncode == 0 and clean.stdout == "", clean.stdout
@@ -406,6 +411,14 @@ def test_the_isolation_probe_script_reports_what_it_names(tmp_path):
     (image / "usr/bin/fix_pip").write_text("", encoding="utf-8")  # a task's name left in the image
     named = probe("fix_pip")
     assert named.returncode == 1 and "named like a task" in named.stdout, named.stdout
+    if os.geteuid() == 0:  # root writes through 0o500, so mktemp cannot be made to fail
+        return
+    tmp.chmod(0o500)  # the list is a mktemp file under TMPDIR: an unwritable one stops the probe
+    try:
+        refused = probe("fix_pip")
+    finally:
+        tmp.chmod(0o700)
+    assert refused.returncode == 1 and "probe: mktemp failed" in refused.stdout, refused.stdout
 
 
 # ------------------------------------------------------------------ review of #82, round 4
