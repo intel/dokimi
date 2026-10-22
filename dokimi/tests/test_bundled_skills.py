@@ -21,7 +21,7 @@ from dokimi.utils import parse_frontmatter
 
 SKILLS = Path(__file__).resolve().parents[1] / "data" / "skills"
 BUNDLED = sorted(d for d in SKILLS.iterdir() if (d / "SKILL.md").is_file())
-LINK = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
+LINK = re.compile(r"\]\(<?([^)#<>\s][^)#<>]*?)>?(?:#[^)\s]*)?(?:\s+\"[^\"]*\")?\)")
 
 
 def _broken_links(skill_dir: Path, root: Path = SKILLS) -> list[str]:
@@ -63,6 +63,8 @@ def test_the_link_check_catches_a_dangling_and_an_escaping_link(tmp_path):
     (skill / "references" / "ok.md").write_text("x")
     (tmp_path / "outside.md").write_text("x")
     (skill / "SKILL.md").write_text(
-        "[a](references/ok.md) [b](references/gone.md) [c](../outside.md) [d](https://x.org)\n")
+        "[a](references/ok.md) [b](references/gone.md) [c](../outside.md) [d](https://x.org)\n"
+        '[e](references/gone.md "title") [f](<references/a b.md>) [g](references/ok.md#top "t")\n')
     assert _broken_links(skill, tmp_path) == [
-        "s/SKILL.md -> references/gone.md", "s/SKILL.md -> ../outside.md"]
+        "s/SKILL.md -> references/gone.md", "s/SKILL.md -> ../outside.md",
+        "s/SKILL.md -> references/gone.md", "s/SKILL.md -> references/a b.md"]
