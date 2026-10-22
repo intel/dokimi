@@ -164,7 +164,8 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
     ``expected_skill``. Two arms that would share a name or a result directory are refused, and so is a skill
     the base of a task (in ``git_dir``) already ships, which preparing the workspace would refuse cell by cell.
     As preparation does, a ``guidance:none`` or pinned-revision arm first drops the base's files that match
-    ``guidance_globs``: only what is left under the skill's directory counts as shipped."""
+    ``guidance_globs``: only what is left under the skill's directory counts as shipped. A revision arm then
+    writes back its revision's files that match them, so those count as shipped too."""
     from dokimi.repos.manifest import match_glob
 
     cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm spec that owns it
@@ -176,16 +177,20 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
         skills = resolve_skills(arm, content_dir)
         names = {s.name for s in skills}
         drops = arm.patch is None and (arm.base == "guidance:none" or arm.rev is not None)
+        rev = (arm.rev_sha or arm.rev) if arm.patch is None else None
         for task in tasks if skills else ():
             if git_dir is None:
                 break
-            if task.base not in shipped:
-                shipped[task.base] = _base_skill_files(git_dir, task.base)
+            for commit in (task.base, rev):
+                if commit is not None and commit not in shipped:
+                    shipped[commit] = _base_skill_files(git_dir, commit)
             left = [p for p in shipped[task.base]
                     if not (drops and any(match_glob(g, p) for g in guidance_globs))]
+            written = [p for p in shipped[rev] if any(match_glob(g, p) for g in guidance_globs)] if rev else []
             for skill in skills:
-                if any(p.startswith(skill.target.rstrip("/") + "/") or p == skill.target for p in left):
-                    raise ArmError(f"arm {arm.spec!r}: the base of task {task.id} already has {skill.target}")
+                for where, files in ((f"the base of task {task.id}", left), (f"guidance revision {rev}", written)):
+                    if any(p.startswith(skill.target.rstrip("/") + "/") or p == skill.target for p in files):
+                        raise ArmError(f"arm {arm.spec!r}: {where} already has {skill.target}")
         if any(kind == "skill-catalog" for kind, _ in arm.skills):
             for task in tasks:
                 expected = task.raw.get("expected_skill")

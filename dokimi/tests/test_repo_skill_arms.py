@@ -498,9 +498,12 @@ def test_the_base_check_drops_guidance_for_an_unpinned_revision_arm(tmp_path):
     _skill(tmp_path / "toy", ".claude/skills/lint", "lint")
     root, base = make_repo(tmp_path)
     _skill(root, ".agent-eval/skills/lint", "lint")
-    _skill(root, ".claude/skills/lint", "lint")
+    git(root, "rm", "-rq", ".claude/skills/lint")  # HEAD's guidance has no lint skill, the task base has one
     git(root, "add", "-A")
     git(root, "commit", "-qm", "skills")
     tasks = [Task("t1", {"base": base}, root)]
-    check_arms([parse_arm(f"guidance:rev:{base}+skill:skills/lint")], root / ".agent-eval", tasks, root / ".git",
+    check_arms([parse_arm("guidance:rev:HEAD+skill:skills/lint")], root / ".agent-eval", tasks, root / ".git",
                [".claude/skills/**"])  # repo run pins the arm and removes the base's skill first
+    with pytest.raises(ArmError, match=f"guidance revision {base} already has .claude/skills/lint"):
+        check_arms([parse_arm(f"guidance:rev:{base}+skill:skills/lint")], root / ".agent-eval", tasks,
+                   root / ".git", [".claude/skills/**"])  # ... and then writes the revision's own back
