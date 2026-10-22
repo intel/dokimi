@@ -592,8 +592,8 @@ The same rules hold for skills, MCP tools and plain function tools.
   order mixes the position effect into the effect you are measuring.
 - **Repeat; do not pin.** Current reasoning models accept only `temperature=1`
   ([Pinning sampling](benchmarking-and-comparison.md#pinning-sampling)), so the
-  choice varies from run to run. Run 3 or more repeats (`--reps`, `--attempts`).
-  Read `same_choice_rate`, or the noise floor `reach diff` reports, before you read
+  choice varies from run to run. Run 3 or more repeats (`tools preference --reps 3`,
+  `reach eval --attempts 3`); for the other proxies, repeat the run. Read `same_choice_rate`, or the noise floor `reach diff` reports, before you read
   an effect. A change smaller than the variation between repeats of one setting
   is not an effect.
 - **Treat a proxy as an upper bound on effect size.** A one-call proxy (the
