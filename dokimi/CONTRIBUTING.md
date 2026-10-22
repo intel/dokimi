@@ -142,6 +142,20 @@ pre-commit run --all-files                     # the whole tree, as CI's pre-com
 mypy and pytest are not hooks: they need the full environment and pytest takes
 minutes. `make ci-local` runs both; `make hooks` runs mypy before a push.
 
+**Mutation pilot.** mutmut (pinned in `requirements-ci.txt`) mutates the
+measurement core: the statistics in `dokimi/eval/stats.py` and
+`binary_stats.py`, the gates in `dokimi/gate/` and the response-cache key in
+`dokimi/caching.py` (the list is `only_mutate` under `[tool.mutmut]` in
+`pyproject.toml`). A mutant that survives is a change to that code, such as
+a flipped comparison, an off-by-one or a dropped term, that no test notices.
+The `mutation` workflow runs it weekly and on demand and writes the score per
+module and the survivors to the job summary; it never fails a build. From
+`dokimi/`: `mutmut run --max-children 8`, then `mutmut results` and
+`mutmut show <name>` for a survivor's diff. A test that kills a survivor
+asserts the value the mutant changes. Some survivors are equivalent (the mutant
+computes the same result, e.g. a `<` that differs only at a value no input
+reaches); leave those alone. `mutants/` is scratch and git-ignored.
+
 Dependencies install from `requirements.lock.txt`; the docs build's from
 `requirements-docs.lock.txt` on top of it, and the tools CI, `make dev`, the
 release job and the eval image use (`requirements-ci.txt`) from

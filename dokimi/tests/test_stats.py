@@ -532,3 +532,129 @@ def test_arm_significance_leaves_the_adjusted_verdict_unknown_when_no_test_ran()
     # The untestable arm must not inflate the tested arm's multiplier.
     assert res["skill:x"]["family_size"] == 2
     assert res["skill:x"]["family_tested"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Pinned values at the boundaries (mutation pilot: each test below kills a
+# surviving mutant of a comparison, an off-by-one or a dropped term)
+# ---------------------------------------------------------------------------
+
+
+def test_a_wilcoxon_above_alpha_vetoes_a_significant_t_test():
+    """One outlier keeps the signed-rank test above 0.05 while the t-test is below."""
+    pytest.importorskip("scipy")
+    res = stats.paired_test([10, 11, 12, 10, 11, -1], [0] * 6)
+    assert res["p_ttest"] == 0.0068
+    assert res["p_wilcoxon"] == 0.0625
+    assert res["n_wilcoxon"] == 6
+    assert res["significant"] is False
+
+
+def test_below_min_pairs_no_test_runs():
+    pytest.importorskip("scipy")
+    n = stats.MIN_PAIRS_FOR_TEST - 1
+    res = stats.paired_test([float(i) for i in range(n)], [0.5 * i for i in range(n)])
+    assert res["n"] == n
+    assert (res["p_ttest"], res["p_wilcoxon"], res["n_wilcoxon"]) == (None, None, 0)
+    assert res["significant"] is None
+
+
+def test_two_pairs_are_enough_for_a_description():
+    res = stats.paired_test([1.0, 3.0], [0.0, 0.0])
+    assert res["n"] == 2
+    assert res["delta_mean"] == 2.0
+    assert res["cohens_d"] == 1.414
+
+
+def test_bootstrap_interval_uses_the_two_sided_alpha():
+    # 10,000 resamples of [0, 1]: the 30th and 70th percentiles of the
+    # resampled means are both 0.5 at confidence 0.4.
+    res = stats.bootstrap_ci([0, 1], confidence=0.4)
+    assert (res["lo"], res["hi"]) == (0.5, 0.5)
+
+
+def test_bootstrap_with_one_resample_collapses_to_it():
+    res = stats.bootstrap_ci([0, 1], n_resamples=1)
+    assert res["lo"] == res["hi"]
+    assert res["lo"] in (0.0, 0.5, 1.0)
+    assert res["n"] == 2
+
+
+@pytest.mark.parametrize("confidence", [0.0, 1.0, 1.5])
+def test_bootstrap_rejects_a_confidence_outside_the_open_interval(confidence):
+    with pytest.raises(ValueError, match="confidence"):
+        stats.bootstrap_ci([0, 1], confidence=confidence)
+
+
+def test_empty_and_single_samples_have_exact_shapes():
+    assert stats.bootstrap_ci([]) == {"mean": None, "lo": None, "hi": None, "n": 0}
+    assert stats.bootstrap_ci([2.5]) == {"mean": 2.5, "lo": 2.5, "hi": 2.5, "n": 1}
+    assert stats.mean_ci([]) == {
+        "mean": None, "lo": None, "hi": None, "n": 0, "method": "none"
+    }
+    assert stats.mean_ci([5.0]) == {"mean": 5.0, "lo": 5.0, "hi": 5.0, "n": 1}
+
+
+def test_zero_variance_tolerance_scales_with_the_mean():
+    """At a mean of 1e6, noise of 1e-10 is below the relative tolerance."""
+    pytest.importorskip("scipy")
+    vals = [1e6 + (1e-10 if i % 2 else -1e-10) for i in range(8)]
+    res = stats.mean_ci(vals)
+    assert res["method"] == "degenerate"
+    assert res["n"] == 8
+
+
+def test_adjusted_pvalues_are_rounded_to_four_places_by_default():
+    assert stats.adjust_pvalues([0.0123456]) == [0.0123]
+
+
+def test_paired_test_rounds_the_wilcoxon_p():
+    pytest.importorskip("scipy")
+    res = stats.paired_test([3, 5, 4, 6, 2, 7, 5], [1, 2, 2, 1, 2, 3, 1])
+    assert res["p_wilcoxon"] == round(res["p_wilcoxon"], 4)
+    assert 0 < res["p_wilcoxon"] < 1
+
+
+@pytest.mark.parametrize(
+    "flags,totals,n_pass,reason",
+    [
+        ([True, False], [1, 2], 1, "fewer than 3 respondents"),
+        ([True] * 3, [1, 2, 3], 3,
+         "no variance in the item: every respondent scored it the same"),
+        ([True, False, True], [2, 2, 2], 2,
+         "no variance in the totals: nothing for the item to discriminate"),
+    ],
+)
+def test_point_biserial_says_why_it_is_undefined(flags, totals, n_pass, reason):
+    res = stats.point_biserial(flags, totals)
+    assert res["r"] is None
+    assert res["n"] == len(flags)
+    assert res["n_pass"] == n_pass
+    assert res["reason"] == reason
+
+
+def test_arm_significance_passes_the_confidence_through():
+    pytest.importorskip("scipy")
+    wide = stats.arm_significance(_factorial_evaluations(), "baseline")
+    narrow = stats.arm_significance(_factorial_evaluations(), "baseline", confidence=0.8)
+    for arm in wide:
+        assert wide[arm]["ci_confidence"] == 0.95
+        assert narrow[arm]["ci_confidence"] == 0.8
+        assert wide[arm]["ci_lo"] < narrow[arm]["ci_lo"] < narrow[arm]["ci_hi"] < wide[arm]["ci_hi"]
+
+
+def test_arm_significance_includes_an_arm_with_two_pairs():
+    res = stats.arm_significance(_factorial_evaluations()[:2], "baseline")
+    assert set(res) == {"docs", "skill:x", "docs+skill:x"}
+    assert all(sig["n"] == 2 for sig in res.values())
+
+
+def test_arm_significance_correction_changes_the_adjusted_p():
+    pytest.importorskip("scipy")
+    holm = stats.arm_significance(_factorial_evaluations(), "baseline")
+    bh = stats.arm_significance(_factorial_evaluations(), "baseline", correction="bh")
+    # Holm multiplies the second-smallest p by 2, BH by 3/2.
+    assert holm["docs+skill:x"]["p_adjusted"] == 0.0004
+    assert bh["docs+skill:x"]["p_adjusted"] == 0.0003
+    assert holm["skill:x"]["significant_adjusted"] is True
+    assert holm["docs"]["significant_adjusted"] is False

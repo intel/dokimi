@@ -173,3 +173,43 @@ def test_small_pvalues_keep_significant_digits():
     assert res["p_exact"] == pytest.approx(2 / 2 ** 20, rel=1e-2)
     assert res["p_exact"] > 0.0
     assert math.isfinite(res["p_exact"])
+
+
+# Mutation pilot: the disclosure fields and the CI parameters reach the result.
+
+
+def test_repeats_of_one_task_are_flagged_as_pseudo_replicated():
+    res = mcnemar_test(
+        [True, True, True, False], [False, False, True, False], units=["a", "a", "b", "b"]
+    )
+    assert (res["n"], res["n_units"]) == (4, 2)
+    assert res["pseudo_replicated"] is True
+
+
+def test_one_unit_per_pair_is_not_pseudo_replicated():
+    res = mcnemar_test([True, True, False], [False, True, False], units=["a", "b", "c"])
+    assert (res["n"], res["n_units"]) == (3, 3)
+    assert res["pseudo_replicated"] is False
+
+
+def test_a_units_list_of_the_wrong_length_is_rejected():
+    with pytest.raises(ValueError, match="units must be one per pair: got 1 for 2 pairs"):
+        mcnemar_test([True, False], [False, False], units=["a"])
+
+
+def test_the_interval_follows_the_confidence_and_the_seed():
+    treat = [True] * 6 + [False] * 4
+    control = [False] * 3 + [True] * 3 + [False] * 4
+    wide = mcnemar_test(treat, control)
+    narrow = mcnemar_test(treat, control, confidence=0.5)
+    assert narrow["ci_confidence"] == 0.5
+    assert wide["ci_lo"] < narrow["ci_lo"] <= narrow["ci_hi"] < wide["ci_hi"]
+    deltas = [1.0] * 3 + [0.0] * 7
+    boot = binary_stats.bootstrap_ci(deltas, seed=7)
+    seeded = mcnemar_test(treat, control, seed=7)
+    assert (seeded["ci_lo"], seeded["ci_hi"]) == (boot["lo"], boot["hi"])
+
+
+def test_the_paired_delta_keeps_four_decimals():
+    res = mcnemar_test([True, False, False], [False, False, False])
+    assert res["paired_pass_rate_delta"] == 0.3333

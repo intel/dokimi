@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import hashlib
+
 import json
 
 import pytest
@@ -105,6 +107,11 @@ def test_openai_needs_no_breakpoint():
         ("amazon-bedrock", "meta.llama3-70b-instruct-v1:0", False),
         ("google-vertex", "claude-3-5-haiku@20241022", True),
         ("google-vertex", "gemini-2.0-flash", False),
+        ("bedrock", "anthropic.claude-3-5-sonnet-20241022-v2:0", True),
+        ("vertex_ai", "claude-3-5-haiku@20241022", True),
+        ("openrouter", "anthropic/claude-3.5-sonnet", True),
+        ("openrouter", "openai/gpt-4o", False),
+        ("Anthropic", "", True),
         ("openai", "gpt-6.1-sol", False),
         ("", "", False),
     ],
@@ -339,3 +346,92 @@ def test_no_temp_files_are_left_behind(monkeypatch, tmp_path):
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
     caching.store_response("k", "answer", _usage())
     assert [p.name for p in tmp_path.iterdir()] == ["k.json"]
+
+
+# ---------------------------------------------------------------------------
+# Mutation pilot: what the breakpoint looks like, and what the key separates
+# ---------------------------------------------------------------------------
+
+BEDROCK_CLAUDE = {"model": "anthropic.claude-3-5-sonnet-20241022-v2:0", "provider": "bedrock"}
+_EPHEMERAL = {"type": "ephemeral"}
+
+
+def test_the_model_name_decides_the_prefix_breakpoint_on_a_shared_provider():
+    messages, cached = caching.build_messages("q", cache_prefix=LONG, **BEDROCK_CLAUDE)
+    assert cached is True
+    assert messages[-1]["content"] == [
+        {"type": "text", "text": LONG, "cache_control": _EPHEMERAL},
+        {"type": "text", "text": "q"},
+    ]
+
+
+def test_the_model_name_decides_the_system_breakpoint_on_a_shared_provider():
+    convo = [{"role": "system", "content": LONG}, {"role": "user", "content": "q"}]
+    out, cached = caching.annotate_system_breakpoint(convo, **BEDROCK_CLAUDE)
+    assert cached is True
+    assert out[0] == {
+        "role": "system",
+        "content": [{"type": "text", "text": LONG, "cache_control": _EPHEMERAL}],
+    }
+    llama = {"model": "meta.llama3-70b-instruct-v1:0", "provider": "bedrock"}
+    assert caching.annotate_system_breakpoint(convo, **llama) == (convo, False)
+
+
+def _key(messages, extra=None):
+    return caching.response_cache_key(litellm_model="m", messages=messages, extra=extra)
+
+
+def test_sampling_parameters_change_the_key_and_their_order_does_not():
+    user = [{"role": "user", "content": "q"}]
+    assert _key(user, {"temperature": 0}) != _key(user, {"temperature": 1})
+    assert _key(user, {"temperature": 0, "top_p": 1}) == _key(user, {"top_p": 1, "temperature": 0})
+    assert _key(user, {}) == _key(user, None)
+
+
+def test_the_role_is_part_of_the_key():
+    assert _key([{"role": "system", "content": "q"}]) != _key([{"role": "user", "content": "q"}])
+
+
+def test_a_text_block_list_keys_like_its_concatenation():
+    blocks = [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]
+    assert _key([{"role": "user", "content": blocks}]) == _key([{"role": "user", "content": "ab"}])
+
+
+def test_image_blocks_are_keyed_by_content_not_by_cache_control():
+    def msg(url, **extra):
+        image = {"type": "image_url", "image_url": {"url": url}, **extra}
+        return [{"role": "user", "content": [image, {"type": "text", "text": "what is it?"}]}]
+
+    assert _key(msg("a.png")) != _key(msg("b.png"))
+    assert _key(msg("a.png")) == _key(msg("a.png", cache_control=_EPHEMERAL))
+
+
+def test_the_key_of_a_known_request_does_not_change():
+    """Stored entries are found by this hash: a new key format orphans every one of them.
+
+    Change the expected value only on purpose, with a changelog entry saying the
+    response cache starts cold.
+    """
+    key = caching.response_cache_key(
+        litellm_model="anthropic/claude-x",
+        messages=[
+            {"role": "system", "content": "Réponds"},
+            {"role": "user", "content": [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]},
+        ],
+        extra={"temperature": 0},
+    )
+    # The hashed payload, byte for byte: sorted keys, text blocks joined, UTF-8 kept.
+    stored_form = (
+        '{"extra": {"temperature": 0}, "messages": [{"content": "Réponds", "role": "system"}, '
+        '{"content": "ab", "role": "user"}], "model": "anthropic/claude-x"}'
+    )
+    assert key == hashlib.sha256(stored_form.encode("utf-8")).hexdigest()
+
+
+def test_a_non_json_extra_value_keys_like_its_string():
+    from pathlib import PurePosixPath
+
+    as_path = caching.response_cache_key(
+        litellm_model="m", messages=[], extra={"p": PurePosixPath("/x")}
+    )
+    assert as_path == caching.response_cache_key(litellm_model="m", messages=[], extra={"p": "/x"})
