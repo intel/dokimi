@@ -165,22 +165,7 @@ def cmd_baseline_list(args: argparse.Namespace) -> None:
         )
 
 
-def cmd_baseline_compare(args: argparse.Namespace) -> None:
-    """Compare an eval result against a saved baseline."""
-    eval_path = Path(args.eval)
-    if not eval_path.exists():
-        print(f"❌ Eval file not found: {eval_path}")
-        raise SystemExit(1)
-
-    eval_data = json.loads(eval_path.read_text(encoding="utf-8"))
-    manifest = _baseline_manifest()
-    baselines = manifest.get("baselines", [])
-
-    if not baselines:
-        print("No baselines found. Save one first:")
-        print("  python cli.py baseline save --from-eval eval/oneTBB.json --product oneTBB")
-        raise SystemExit(1)
-
+def _pick_entry(args: argparse.Namespace, baselines: list, eval_data: dict) -> dict:
     # Find baseline: by name or latest for same product
     if args.baseline:
         entry = next((b for b in baselines if b["name"] == args.baseline), None)
@@ -193,20 +178,10 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
         if not candidates:
             candidates = baselines
         entry = candidates[-1]   # most recent
+    return entry
 
-    baseline_data = json.loads(Path(entry["path"]).read_text(encoding="utf-8"))
 
-    from dokimi.records import RecordError, records
-
-    # Read both record lists before the model checks: a malformed file must exit 2, not reach the --strict verdict.
-    try:
-        baseline_evals = {e.key: e for e in records(baseline_data.get("evaluations", []),
-                                                    source=entry["path"], kind="evaluations")}
-        current_evals = records(eval_data.get("evaluations", []), source=str(eval_path), kind="evaluations")
-    except RecordError as exc:
-        print(f"❌ {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc  # 1 is the --strict verdict
-
+def _report_model_checks(args: argparse.Namespace, entry: dict, baseline_data: dict, eval_data: dict) -> None:
     mismatches, unverified = _model_mismatches(baseline_data, eval_data)
     strict = getattr(args, "strict", False)
     for role in unverified:
@@ -226,6 +201,52 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
         print(f"⚠ Baseline model warning: '{entry['name']}' was scored with different models;"
               f" the changes below mix the model change with the content change.{detail}",
               file=sys.stderr)
+
+
+def _print_metric_table(cur_summary: dict, base_summary: dict) -> None:
+    print(f"{'Metric':<20} {'Baseline':>10} {'Current':>10} {'Change':>8}")
+    print("─" * 52)
+    for k, label in [("avg_with", "Context avg"), ("avg_without", "Baseline avg"), ("avg_delta", "Avg delta")]:
+        b_val = base_summary.get(k, "?")
+        c_val = cur_summary.get(k, "?")
+        try:
+            change = f"{c_val - b_val:+.2f}"
+        except TypeError:
+            change = "?"
+        print(f"{label:<20} {str(b_val):>10} {str(c_val):>10} {change:>8}")
+
+
+def cmd_baseline_compare(args: argparse.Namespace) -> None:
+    """Compare an eval result against a saved baseline."""
+    eval_path = Path(args.eval)
+    if not eval_path.exists():
+        print(f"❌ Eval file not found: {eval_path}")
+        raise SystemExit(1)
+
+    eval_data = json.loads(eval_path.read_text(encoding="utf-8"))
+    manifest = _baseline_manifest()
+    baselines = manifest.get("baselines", [])
+
+    if not baselines:
+        print("No baselines found. Save one first:")
+        print("  python cli.py baseline save --from-eval eval/oneTBB.json --product oneTBB")
+        raise SystemExit(1)
+
+    entry = _pick_entry(args, baselines, eval_data)
+    baseline_data = json.loads(Path(entry["path"]).read_text(encoding="utf-8"))
+
+    from dokimi.records import RecordError, records
+
+    # Read both record lists before the model checks: a malformed file must exit 2, not reach the --strict verdict.
+    try:
+        baseline_evals = {e.key: e for e in records(baseline_data.get("evaluations", []),
+                                                    source=entry["path"], kind="evaluations")}
+        current_evals = records(eval_data.get("evaluations", []), source=str(eval_path), kind="evaluations")
+    except RecordError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc  # 1 is the --strict verdict
+
+    _report_model_checks(args, entry, baseline_data, eval_data)
 
     print(f"Comparing against baseline: {entry['name']} (saved {entry.get('saved_at', '?')})\n")
 
@@ -248,16 +269,7 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
     cur_summary = _compute_summary(eval_data)
     base_summary = entry.get("summary", {})
 
-    print(f"{'Metric':<20} {'Baseline':>10} {'Current':>10} {'Change':>8}")
-    print("─" * 52)
-    for k, label in [("avg_with", "Context avg"), ("avg_without", "Baseline avg"), ("avg_delta", "Avg delta")]:
-        b_val = base_summary.get(k, "?")
-        c_val = cur_summary.get(k, "?")
-        try:
-            change = f"{c_val - b_val:+.2f}"
-        except TypeError:
-            change = "?"
-        print(f"{label:<20} {str(b_val):>10} {str(c_val):>10} {change:>8}")
+    _print_metric_table(cur_summary, base_summary)
 
     if deltas_changed:
         print("\nQuestions with notable changes (|Δ| ≥ 1):")

@@ -78,8 +78,8 @@ def _launch_mismatches(harnesses: list[str], baseline: str | None) -> list[str]:
             for h in harnesses if h != baseline and (loc := location(h)) not in (None, base)]
 
 
-def cmd_tasks_run(args: argparse.Namespace) -> None:
-    from dokimi.harnesses import PreflightError, TaskSuiteRunner, discover_tasks, load_task
+def _select_tasks(args: argparse.Namespace) -> list:
+    from dokimi.harnesses import discover_tasks, load_task
 
     root = _tasks_root(args)
     try:
@@ -92,6 +92,39 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
         raise SystemExit(str(exc)) from None
     if not tasks:
         raise SystemExit("No tasks selected. Pass --tasks <name[,name]> or --all.")
+    return tasks
+
+
+def _print_summary(output: dict) -> None:
+    for harness, stats in output["summary"]["per_harness"].items():
+        rate = stats["pass_rate"]
+        rate_s = "n/a" if rate is None else f"{rate:.2%}"
+        cost = stats.get("cost", {}).get("total_cost_usd")
+        cost_s = "" if cost is None else f", cost=${cost:.4f}"
+        scored = stats.get("scored", stats["n"])
+        errored_s = f", {stats['errored']} errored" if stats.get("errored") else ""
+        print(
+            f"{harness}: {stats['passed']}/{scored} pass ({rate_s}){errored_s}, "
+            f"ops={stats['operation_count']}, elapsed={stats['elapsed_sec']:.2f}s{cost_s}"
+        )
+    for harness, cmp_row in output["summary"]["comparisons"].items():
+        delta = cmp_row["pass_rate_delta"]
+        delta_s = "n/a" if delta is None else f"{delta:+.2%}"
+        cost_delta = cmp_row.get("cost_delta_usd")
+        cost_s = "" if cost_delta is None else f", cost delta ${cost_delta:+.4f}"
+        print(f"{harness} vs {cmp_row['baseline_harness']}: pass-rate delta {delta_s}{cost_s}")
+    per_harness = output["summary"]["per_harness"].values()
+    cells = sum(s["n"] for s in per_harness)
+    errored = sum(s.get("errored", 0) for s in per_harness)
+    if cells and errored == cells:  # no cell has a verdict: "0/0 pass (n/a)" is not a result
+        print(f"✗ incomplete: every cell errored (0 scored, {errored} errored of {cells} cells)", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_tasks_run(args: argparse.Namespace) -> None:
+    from dokimi.harnesses import PreflightError, TaskSuiteRunner
+
+    tasks = _select_tasks(args)
 
     harnesses = [h.strip() for h in args.harnesses.split(",") if h.strip()]
     if not harnesses:
@@ -136,29 +169,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     out_md.write_text(render_task_runs_report(output), encoding="utf-8")
     print(f"Saved task run report:   {out_md}")
 
-    for harness, stats in output["summary"]["per_harness"].items():
-        rate = stats["pass_rate"]
-        rate_s = "n/a" if rate is None else f"{rate:.2%}"
-        cost = stats.get("cost", {}).get("total_cost_usd")
-        cost_s = "" if cost is None else f", cost=${cost:.4f}"
-        scored = stats.get("scored", stats["n"])
-        errored_s = f", {stats['errored']} errored" if stats.get("errored") else ""
-        print(
-            f"{harness}: {stats['passed']}/{scored} pass ({rate_s}){errored_s}, "
-            f"ops={stats['operation_count']}, elapsed={stats['elapsed_sec']:.2f}s{cost_s}"
-        )
-    for harness, cmp_row in output["summary"]["comparisons"].items():
-        delta = cmp_row["pass_rate_delta"]
-        delta_s = "n/a" if delta is None else f"{delta:+.2%}"
-        cost_delta = cmp_row.get("cost_delta_usd")
-        cost_s = "" if cost_delta is None else f", cost delta ${cost_delta:+.4f}"
-        print(f"{harness} vs {cmp_row['baseline_harness']}: pass-rate delta {delta_s}{cost_s}")
-    per_harness = output["summary"]["per_harness"].values()
-    cells = sum(s["n"] for s in per_harness)
-    errored = sum(s.get("errored", 0) for s in per_harness)
-    if cells and errored == cells:  # no cell has a verdict: "0/0 pass (n/a)" is not a result
-        print(f"✗ incomplete: every cell errored (0 scored, {errored} errored of {cells} cells)", file=sys.stderr)
-        sys.exit(1)
+    _print_summary(output)
 
 
 def register(sub, positive_int) -> None:
