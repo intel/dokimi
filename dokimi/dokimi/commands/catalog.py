@@ -28,7 +28,7 @@ def _skill_row(skill, review) -> dict:
         state, findings = review.state, review.findings
     return {
         "name": skill.name,
-        "manifest_status": skill.status,
+        "manifest_status": None if skill.status is None else str(skill.status),
         "path": str(skill.path) if skill.path else None,
         "state": state,
         "error": skill.error,
@@ -107,7 +107,7 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
             report["tasks"].append(
                 {
                     "name": task.name,
-                    "manifest_status": task.status,
+                    "manifest_status": None if task.status is None else str(task.status),
                     "track": task.track,
                     "path": str(task.path) if task.path else None,
                     "state": "ok" if task.loaded else "skipped" if task.skipped else "error",

@@ -230,3 +230,117 @@ def test_strict_parse_raises_and_the_lenient_parse_still_returns_no_metadata():
     assert parse_frontmatter(text) == ({}, "body")
     with pytest.raises(yaml.YAMLError):
         parse_frontmatter_strict(text)
+
+
+# --- review follow-up: edges of the name rules, duplicates, state, JSON rows -------------------------
+
+
+@pytest.mark.parametrize("name", ["a" * 64, "a1-2b"])
+def test_valid_names_matching_the_directory_have_no_finding(tmp_path, name):
+    _skill(tmp_path / "skills", name, name=name)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+@pytest.mark.parametrize("name", ["a" * 65, "a--b", "a-", "-a", "a_b", "a b"])
+def test_malformed_names_matching_the_directory_only_fail_name_format(tmp_path, name):
+    _skill(tmp_path / "skills", name, name=f"'{name}'")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert [f.code for f in review.findings] == ["name-format"]
+
+
+def test_same_frontmatter_with_a_different_body_is_not_a_duplicate(tmp_path):
+    _skill(tmp_path / "plugins", "x", name="x", body="# One\n")
+    _skill(tmp_path / "skills", "x", name="x", body="# Two\n")
+
+    assert all(r.duplicate_of is None for r in review_skills(read_skill_manifest(tmp_path)))
+
+
+def test_a_trailing_newline_difference_is_not_a_duplicate(tmp_path):
+    _skill(tmp_path / "plugins", "x", name="x", body="# Body\n")
+    _skill(tmp_path / "skills", "x", name="x", body="# Body\n\n")
+
+    assert all(r.duplicate_of is None for r in review_skills(read_skill_manifest(tmp_path)))
+
+
+def test_three_identical_copies_all_name_the_first(tmp_path):
+    for parent in ("a-plugins", "b-plugins", "c-plugins"):
+        _skill(tmp_path / parent, "x", name="x")
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert reviews[0].duplicate_of is None
+    assert [r.duplicate_of for r in reviews[1:]] == ["a-plugins/x", "a-plugins/x"]
+
+
+def test_an_error_outranks_a_warning_in_the_state_and_fails_strict(tmp_path, capsys):
+    _skill(tmp_path / "plugins", "Bad", name="Bad")
+    _skill(tmp_path / "skills", "Bad", name="Bad")
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    mirror = reviews[1]
+    assert {f.level for f in mirror.findings} == {"warn", "error"}
+    assert mirror.state == "error"
+    _, code = _scan_json(tmp_path, capsys, strict=True)
+    assert code == 1
+
+
+def test_disable_model_invocation_false_does_not_hide_the_skill(tmp_path):
+    _skill(tmp_path / "skills", "shown", name="shown", extra="disable-model-invocation: false\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.disable_model_invocation is False
+
+
+def test_json_report_with_an_unquoted_date_status_does_not_crash(tmp_path, capsys):
+    _skill(tmp_path / "skills", "a", name="a")
+    (tmp_path / "skills.yaml").write_text(
+        "skills:\n  - name: a\n    status: 2026-01-01\n    catalog_path: skills/a\n",
+        encoding="utf-8",
+    )
+    report, code = _scan_json(tmp_path, capsys)
+
+    assert code == 0
+    assert report["skills"][0]["manifest_status"] == "2026-01-01"
+
+
+def test_skill_at_the_scan_root_is_not_compared_with_the_root_directory_name(tmp_path, capsys):
+    root = tmp_path / "checkout"
+    root.mkdir()
+    (root / "SKILL.md").write_text(
+        "---\nname: z\ndescription: Use for z.\n---\n# z\n", encoding="utf-8"
+    )
+    report, code = _scan_json(root, capsys, strict=True)
+
+    assert code == 0
+    assert report["skills"][0]["state"] == "ok"
+    assert report["skills"][0]["findings"] == []
+
+
+def test_json_tasks_array_carries_loaded_and_skipped_rows(tmp_path, capsys):
+    _skill(tmp_path / "skills", "s", name="s")
+    task = tmp_path / "evaluation" / "harbor" / "tasks" / "real"
+    for sub in ("environment", "tests", "solution"):
+        (task / sub).mkdir(parents=True)
+    (task / "instruction.md").write_text("Do it.", encoding="utf-8")
+    (task / "task.toml").write_text(
+        '[metadata]\ndifficulty = "easy"\n\n[agent]\ntimeout_sec = 60\n\n'
+        "[verifier]\ntimeout_sec = 10\n\n[environment]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "skills.yaml").write_text(
+        'skills:\n  - name: s\n    catalog_path: skills/s\n', encoding="utf-8")
+    (tmp_path / "evaluation" / "harbor" / "suites.json").write_text(
+        json.dumps({"schema_version": "1.0", "suites": [{"skill": "s", "tasks": [
+            {"name": "real", "status": "implemented", "track": "executable"},
+            {"name": "later", "status": "planned", "track": "executable"}]}]}),
+        encoding="utf-8",
+    )
+    report, code = _scan_json(tmp_path, capsys, kind="all")
+
+    assert code == 0
+    rows = {r["name"]: r for r in report["tasks"]}
+    assert rows["real"]["state"] == "ok" and rows["real"]["track"] == "executable"
+    assert rows["real"]["manifest_status"] == "implemented"
+    assert rows["later"]["state"] == "skipped" and rows["later"]["reason"]

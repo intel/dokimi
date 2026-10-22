@@ -88,8 +88,12 @@ def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
     return meta, None
 
 
-def _frontmatter_findings(skill: Skill) -> tuple[list[Finding], bool]:
-    """The spec checks on the frontmatter of ``skill``, and its ``disable-model-invocation`` flag."""
+def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[Finding], bool]:
+    """The spec checks on the frontmatter of ``skill``, and its ``disable-model-invocation`` flag.
+
+    ``at_root``: the ``SKILL.md`` sits directly in the scanned root, so its directory name is the
+    name of a checkout, which says nothing about the skill; the name/directory comparison is skipped.
+    """
     meta, parse_error = _strict_meta(skill.path.read_text(encoding="utf-8"))
     if parse_error is not None:
         return [parse_error], False
@@ -101,11 +105,12 @@ def _frontmatter_findings(skill: Skill) -> tuple[list[Finding], bool]:
             Finding(
                 "warn",
                 "name-missing",
-                f"no name in the frontmatter; the directory name {dir_name!r} is used",
+                "no name in the frontmatter"
+                + ("" if at_root else f"; the directory name {dir_name!r} is used"),
             )
         )
     else:
-        if declared != dir_name:
+        if declared != dir_name and not at_root:
             findings.append(
                 Finding(
                     "error",
@@ -174,7 +179,9 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
             reviews.append(_unloaded_review(entry))
             continue
         skill = entry.skill
-        findings, hidden = _frontmatter_findings(skill)
+        findings, hidden = _frontmatter_findings(
+            skill, at_root=skill.path.parent == entry.source_root
+        )
         review = SkillReview(findings=findings, disable_model_invocation=hidden)
         review.content_sha256 = _skill_digest(skill)
         original = first_by_digest.setdefault(review.content_sha256, skill)
