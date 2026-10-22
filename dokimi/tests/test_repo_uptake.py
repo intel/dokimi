@@ -235,13 +235,14 @@ def test_compare_counts_the_uptake_of_the_models_it_compares(setup, monkeypatch)
     assert m2["uptake"] == {arm: {"cells": 2, "used": 0, "unmeasured": 0}} and _used_none(m2)
 
 
-@pytest.mark.parametrize("text", ["npm run lint", "docker run img", "git log -- build", "cat lint", "make build"])
+@pytest.mark.parametrize("text", ["npm run lint", "docker run img", "git log -- build", "cat lint", "make build",
+                                  "lint x", "cd d && lint", "run"])
 def test_a_root_level_added_file_is_not_named_by_a_common_word_of_a_command(text):
     for name in ("lint", "run", "build"):
-        assert arm_uptake([_cmd(text)], [name], [], WS)["commands"] == (1 if text.split()[0] == name else 0)
+        assert arm_uptake([_cmd(text)], [name], [], WS)["commands"] == 0
 
 
-@pytest.mark.parametrize("text", ["./lint x", "lint x", f"{WS}/lint", "cd d && lint", "x; ./lint", "sh lint", "bash ./lint a",
+@pytest.mark.parametrize("text", ["./lint x", f"{WS}/lint", "x; ./lint", "sh lint", "bash ./lint a",
                                   "python3 lint"])
 def test_a_root_level_added_file_is_named_by_a_path_or_as_a_command(text):
     assert arm_uptake([_cmd(text)], ["lint"], [], WS)["commands"] == 1

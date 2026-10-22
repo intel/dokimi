@@ -389,7 +389,7 @@ For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 `mcp_servers` list what it added (sorted); `commands` counts
 command events that name an added file as a workspace path (`tools/fmt`,
 `./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`; a file
-with no `/` only as `./name`, under the workspace path, first in a command or after an interpreter, so
+with no `/` only as `./name`, under the workspace path or after an interpreter (a bare `name` resolves through `PATH`), so
 `npm run lint` does not name a `lint` file), `reads` the read events of one (a
 read of an added script counts as use), `mcp_calls` the calls of the servers' tools
 (`mcp__<server>__<tool>`), none of them a call the harness denied; `used`
