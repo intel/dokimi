@@ -480,9 +480,10 @@ def _cell_path(path: Path) -> Run | None:
     for line in lines:
         try:
             events.append(json.loads(line))
-        except ValueError:
+        except (ValueError, RecursionError):  # a deeply nested line is as unreadable as a broken one
             continue
-    return run_from_events(events, str(path))
+    run = run_from_events(events, str(path))
+    return run if run.events else None  # a crashed cell leaves no path; it is not a steady one
 
 
 def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:

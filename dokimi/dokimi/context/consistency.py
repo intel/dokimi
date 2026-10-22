@@ -49,6 +49,7 @@ from typing import Any
 
 from dokimi.context.trace import TraceError
 
+_WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 RULES = ("requires", "forbids", "before", "after_last", "last_ok")
 _TARGET_KEYS = ("file_path", "notebook_path", "path", "pattern", "url", "query", "subagent_type")
 
@@ -241,6 +242,10 @@ def _segments(command: str) -> list[str]:
         elif ch == "\\" and command[i + 1:i + 2] == "\n":  # a continued line
             i += 2
             continue
+        elif ch == "#" and (not cur or cur[-1].isspace()):  # a comment runs to the end of the line
+            while i < len(command) and command[i] != "\n":
+                i += 1
+            continue
         elif ch in ";\n" or command[i:i + 2] in ("&&", "||"):
             out.append("".join(cur))
             cur = []
@@ -266,12 +271,13 @@ def _tokens(segment: str) -> list[str]:
 def _written(segment: str) -> str:
     """The file a shell command writes, if it is one of the plain ways to write one."""
     words = _tokens(segment)
-    if words and Path(words[0]).name in ("sed", "perl") and any(re.match(r"^-\w*i", w) for w in words[1:]):
+    in_place = _IN_PLACE.get(Path(words[0]).name) if words else None
+    if in_place and any(in_place.match(w) for w in words[1:]):
         files = [w for w in words[1:] if not w.startswith("-") and w not in _OPERATORS]
         if len(files) >= 2:
             return files[-1]
     for i, w in enumerate(words[:-1]):
-        if w in (">", ">>", ">|") and not (i and words[i - 1].isdigit() and words[i - 1] != "1"):
+        if w in (">", ">>", ">|") and not (i and _fd_redirect(segment, words[i - 1])):
             target = words[i + 1]
             if target not in _OPERATORS and target != "/dev/null":
                 return target
@@ -282,45 +288,98 @@ def _written(segment: str) -> str:
     return ""
 
 
+# `-i`, `-i.bak`, `-ni`, `--in-place`: the in-place flag by its tool's own option letters, so that
+# `perl -Mstrict` is not an edit.
+_IN_PLACE = {"sed": re.compile(r"^(-[nEsrzu]*i[^-\s]*|--in-place(=.*)?)$"),
+             "perl": re.compile(r"^-[pnalw0-9]*i[^-\s]*$")}
+
+
+def _fd_redirect(segment: str, prev: str) -> bool:
+    """``2>`` / ``2>>`` (a digit glued to the operator) redirects another stream; ``echo 3 > f`` writes."""
+    return prev.isdigit() and prev != "1" and re.search(rf"(?<!\S){prev}>", segment) is not None
+
+
 _OPERATORS = {"|", "||", "&&", ";", "&", ">", ">>", ">|", ">&", "<", "<<", "&>", "&>>", "(", ")"}
 
 
 def _program(command: str) -> str:
     """The program a shell line runs: past ``cd x &&``, ``VAR=1``, ``sudo``, ``uv run``/``python -m``."""
-    segments = [s for s in re.split(r"&&|\|\||;|\n", command) if s.strip()]
-    for seg in segments:
+    for seg in _segments(command):
         try:
             words = shlex.split(seg)
         except ValueError:
             words = seg.split()
+        words = _strip_syntax(words)
         while words and (re.match(r"^\w+=", words[0]) or words[0] in ("sudo", "env", "time", "exec")):
             words = words[1:]
         if words and words[:2] == ["uv", "run"]:
             words = words[2:]
         if len(words) >= 3 and re.match(r"^python[\d.]*$", Path(words[0]).name) and words[1] == "-m":
             words = words[2:]
-        if not words or words[0] in ("cd", "pushd", "source", ".", "export", "set"):
+        if not words or words[0] in ("cd", "pushd", "source", ".", "export", "set", "[", "[["):
             continue
         return Path(words[0]).name
     return ""
+
+
+_KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{"}
+_NO_COMMAND = {"for", "select", "case", "fi", "done", "esac", "}", "in", "function"}
+
+
+def _strip_syntax(words: list[str]) -> list[str]:
+    """The words of a segment without the compound-command syntax around its command:
+    ``do black $f`` -> ``black $f``, ``(cd sub`` -> ``cd sub``, ``pytest)`` -> ``pytest``; a ``for``
+    header, ``fi``, ``done`` leave nothing."""
+    words = list(words)
+    while words:
+        head = words[0].lstrip("(")
+        if head != words[0]:
+            words[0] = head
+            if not head:
+                words.pop(0)
+            continue
+        if words[0] in _KEYWORDS:
+            words.pop(0)
+        else:
+            break
+    if not words or words[0] in _NO_COMMAND:
+        return []
+    if words[-1].endswith(")") and "$(" not in " ".join(words) and "(" not in " ".join(words):
+        words[-1] = words[-1].rstrip(")")
+    return words
 
 
 def load_outcomes(path: Path) -> dict[str, bool]:
     """``{"trace path or file name": true|false}``, or a list of ``{"trace": .., "passed": ..}``."""
     data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, list):
-        data = {str(r["trace"]): r["passed"] for r in data if isinstance(r, dict) and "trace" in r}
+        for r in data:
+            if not isinstance(r, dict) or "trace" not in r or "passed" not in r:
+                raise ValueError(f"{path}: each entry wants `trace` and `passed`, got {r!r}")
+        data = {str(r["trace"]): r["passed"] for r in data}
     if not isinstance(data, dict) or not all(isinstance(v, bool) for v in data.values()):
         raise ValueError(f"{path}: want an object of trace -> true/false")
     return data
 
 
 def apply_outcomes(runs: list[Run], outcomes: dict[str, bool]) -> list[str]:
-    """Set each run's result from the verifier; returns the runs it had no verdict for."""
+    """Set each run's result from the verifier; returns the runs it had no verdict for.
+
+    A key is a run's full path, or its file name or stem. A name or stem several runs share
+    (``base/1.jsonl``, ``skill/1.jsonl``) is ambiguous and refused: give the full path.
+    """
+    names = [Path(r.name).name for r in runs]
+    stems = [Path(r.name).stem for r in runs]
     missing = []
-    for run in runs:
-        for key in (run.name, Path(run.name).name, Path(run.name).stem, Path(run.name).parent.name):
+    for run, name, stem in zip(runs, names, stems, strict=True):
+        if run.name in outcomes:
+            run.passed = outcomes[run.name]
+            continue
+        for key, same in ((name, names), (stem, stems)):
             if key in outcomes:
+                if same.count(key) > 1:
+                    raise ValueError(f"outcome key {key!r} matches {same.count(key)} runs; "
+                                     "use the full path of the trace")
                 run.passed = outcomes[key]
                 break
         else:
@@ -338,14 +397,19 @@ class Matcher:
 
     def __call__(self, ev: Event) -> bool:
         if self.tools and ev.tool not in self.tools and ev.kind not in self.tools:
-            return False
+            # a shell step that writes a file (`sed -i`, `>`, `tee`) is an edit for a matcher of edit tools
+            if not (ev.tool == "Bash" and ev.input.get("file_path") and set(self.tools) & _WRITE_TOOLS):
+                return False
         return all(p.search(str(ev.input.get(k, ""))) for k, p in self.patterns.items())
 
 
 def load_contract(path: Path) -> dict[str, Any]:
     import yaml
 
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{path}: not valid YAML ({exc})") from exc
     return parse_contract(data, str(path))
 
 
@@ -364,7 +428,10 @@ def parse_contract(data: Any, where: str = "contract") -> dict[str, Any]:
             raise ValueError(f"{where}: action {name!r}: bad regex ({exc})") from exc
         actions[str(name)] = Matcher(tools, patterns)
     rules = []
-    for i, rule in enumerate(data.get("rules") or []):
+    raw_rules = data.get("rules") or []
+    if not isinstance(raw_rules, list):
+        raise ValueError(f"{where}: `rules:` wants a list")
+    for i, rule in enumerate(raw_rules):
         if not isinstance(rule, dict) or len(rule) != 1 or next(iter(rule)) not in RULES:
             raise ValueError(f"{where}: rule {i} must be one of {', '.join(RULES)}")
         (kind, arg), = rule.items()
@@ -548,6 +615,8 @@ def profile(runs: list[Run], contract: dict[str, Any] | None = None, threshold: 
 
 
 def _summary_verdict(groups: list[dict[str, Any]]) -> str:
+    if not groups:
+        return "no runs"
     verdicts = {g["verdict"] for g in groups}
     if len(groups) == 1:
         return f"one strategy, {groups[0]['verdict']}"

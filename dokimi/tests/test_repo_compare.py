@@ -760,3 +760,59 @@ def test_arms_from_batches_with_different_built_in_graders_warn(tmp_path):
     _cell(new, "fix_a", "guidance:raw", 1)
     s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
     assert s["warnings"] == ["new/guidance:raw vs old/guidance:raw: the batches ran from different graders (g1, g2)"]
+
+
+def _raw_events(batch: Path, task: str, arm: str, rep: int, text: str) -> None:
+    rd = batch / f"{task}__{arm.replace(':', '-')}__m-1__r{rep}"
+    (rd / "events.jsonl").write_text(text)
+
+
+def test_an_empty_or_unparseable_trace_is_not_a_steady_path(tmp_path):
+    b = tmp_path / "b"
+    for rep in range(3):
+        _cell(b, "t1", "none", rep)
+        _cell(b, "t1", "guidance:raw", rep)
+    for rep, cmd in enumerate(("grep x .", "git status", "make check")):
+        _events(b, "t1", "none", rep, cmd)
+    _raw_events(b, "t1", "guidance:raw", 0, "")
+    _raw_events(b, "t1", "guidance:raw", 1, "not json\n[1, 2]\n5\n")
+    _events(b, "t1", "guidance:raw", 2, "pytest")
+    summary = compare([b], "none", path_stability=True)
+    assert not [r for r in summary["comparisons"] if r["measure"] == "path_distance"]  # one traced cell
+
+
+def test_a_deeply_nested_line_skips_that_line_not_the_comparison(tmp_path):
+    b = tmp_path / "b"
+    for rep in range(2):
+        _cell(b, "t1", "none", rep)
+        _cell(b, "t1", "guidance:raw", rep)
+        _events(b, "t1", "none", rep, "pytest")
+    for rep in range(2):
+        _raw_events(b, "t1", "guidance:raw", rep, "[" * 200000 + "\n" + json.dumps(
+            {"kind": "command", "text": "pytest", "rc": 0}) + "\n")
+    row = _row(compare([b], "none", path_stability=True), "path_distance")
+    assert row["treatment_mean"] == 0.0 and row["tasks"][0]["n_treatment"] == 2
+
+
+def test_path_distance_is_the_mean_over_every_pair_of_three_cells(tmp_path):
+    b = tmp_path / "b"
+    for rep in range(3):
+        _cell(b, "t1", "none", rep)
+        _cell(b, "t1", "guidance:raw", rep)
+        _events(b, "t1", "guidance:raw", rep, "pytest")
+    _events(b, "t1", "none", 0, "pytest")
+    _events(b, "t1", "none", 1, "pytest")
+    _events(b, "t1", "none", 2, "git status")  # the third cell differs from both others
+    row = _row(compare([b], "none", path_stability=True), "path_distance")
+    assert row["baseline_mean"] == pytest.approx(2 / 3)  # pairs: 0, 1, 1
+    assert row["tasks"][0]["n_baseline"] == 3
+
+
+def test_pass_k_is_a_gate_measure_not_a_score_measure(tmp_path):
+    b = tmp_path / "b"
+    for rep in range(2):
+        _cell(b, "t1", "none", rep, success=None, score=0.5)
+        _cell(b, "t1", "guidance:raw", rep, success=None, score=0.7)
+    summary = compare([b], "none", pass_k=2)
+    assert not [r for r in summary["comparisons"] if r["measure"] == "pass^2"]
+    assert "score" in {r["measure"] for r in summary["comparisons"]}
