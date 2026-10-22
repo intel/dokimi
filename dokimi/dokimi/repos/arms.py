@@ -165,7 +165,9 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
     the base of a task (in ``git_dir``) already ships, which preparing the workspace would refuse cell by cell.
     As preparation does, a ``guidance:none`` or pinned-revision arm first drops the base's files that match
     ``guidance_globs``: only what is left under the skill's directory counts as shipped. A revision arm then
-    writes back its revision's files that match them, so those count as shipped too."""
+    writes back its revision's files that match them, so those count as shipped too. The files of a ``patch:``
+    arm's patch and of a task's ``setup_patches`` are not read: a skill directory they add is refused only in
+    preparation."""
     from dokimi.repos.manifest import match_glob
 
     cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm spec that owns it
