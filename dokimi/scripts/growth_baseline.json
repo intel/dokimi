@@ -93,7 +93,6 @@
     "dokimi/repos/l0/core.py::Scan.resolve_path": {"complexity": 19},
     "dokimi/repos/manifest.py::_check_task": {"complexity": 23, "rationale": "grew on main after the #93 seed and before it merged; split it in its own PR"},
     "dokimi/repos/manifest.py::parse_manifest": {"complexity": 15},
-    "dokimi/repos/runner.py::run_batch": {"complexity": 11, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/repos/source.py::GitTree.read_many": {"complexity": 14},
     "dokimi/repos/workspace.py::_apply_rev": {"complexity": 11, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/repos/workspace.py::_guidance_at": {"complexity": 11, "rationale": "pre-existing when the gate was introduced"},
