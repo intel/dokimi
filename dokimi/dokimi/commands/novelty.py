@@ -17,7 +17,7 @@ import json
 import math
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -326,22 +326,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "routing.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     if not lexical["n_queries_scored"]:
-        # Written too, so a batch run leaves a record of why it has no rate.
-        if not queries and self_derived:
-            reason = (f"no section heading of two or more words outside code fences in "
-                      f"{args.artifact}; headings inside fenced code are not requests")
-        elif not queries:
-            reason = f"--queries {args.queries} holds no non-blank query"
-        else:
-            reason = (f"none of the {len(queries)} queries has a content word, since words "
-                      "like a, the, how do not count")
-        out.write_text(json.dumps({"artifact": args.artifact, "status": "no_queries",
-                                   "reason": reason, "queries_self_derived": self_derived,
-                                   "n_candidates": len(candidates)}, indent=2),
-                       encoding="utf-8")
-        raise SystemExit(f"no usable queries: {reason}. Pass --queries <file> with requests "
-                         f"written independently of the artifact, one per line or a JSON "
-                         f"list. Wrote {out} with status no_queries")
+        _refuse_no_queries(args, queries, self_derived, out, len(candidates))
 
     payload = {
         "artifact": args.artifact,
@@ -360,13 +345,17 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"OK Saved routing measurement: {out}")
 
+    _print_routing_summary(payload, len(competitors), self_derived)
+
+def _print_routing_summary(payload: dict, n_competitors: int, self_derived: bool) -> None:
+    """The lexical line, the model line and their caveats, printed after a routing run."""
     # Every rate is printed with the number of queries behind it, and a self-derived one
     # carries the triage tag on the same line, so a copied figure cannot lose either.
     tag = "  triage: self-derived" if self_derived else ""
     lexical = payload["lexical"]
     print(f"lexical  R@1 {lexical['recall_at_1']}  R@3 {lexical['recall_at_3']}  "
           f"MRR {lexical['mrr']}  n_queries {lexical['n_queries_scored']} of "
-          f"{lexical['n_queries_given']} given, vs {len(competitors)} competitors{tag}"
+          f"{lexical['n_queries_given']} given, vs {n_competitors} competitors{tag}"
           + ("  (R@3 needs more than 3 candidates to mean anything)"
              if lexical["recall_at_3"] is None else ""))
     if lexical["n_queries_scored"] < 5:
@@ -384,6 +373,28 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
               "truncates descriptions in its own listing selects on less text.")
     if self_derived:
         print("Self-derived queries: read as triage only.")
+
+
+
+def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derived: bool,
+                       out: Path, n_candidates: int) -> NoReturn:
+    """Write the ``no_queries`` record, then exit saying why no query was scored."""
+    # Written too, so a batch run leaves a record of why it has no rate.
+    if not queries and self_derived:
+        reason = (f"no section heading of two or more words outside code fences in "
+                  f"{args.artifact}; headings inside fenced code are not requests")
+    elif not queries:
+        reason = f"--queries {args.queries} holds no non-blank query"
+    else:
+        reason = (f"none of the {len(queries)} queries has a content word, since words "
+                  "like a, the, how do not count")
+    out.write_text(json.dumps({"artifact": args.artifact, "status": "no_queries",
+                               "reason": reason, "queries_self_derived": self_derived,
+                               "n_candidates": n_candidates}, indent=2),
+                   encoding="utf-8")
+    raise SystemExit(f"no usable queries: {reason}. Pass --queries <file> with requests "
+                     f"written independently of the artifact, one per line or a JSON "
+                     f"list. Wrote {out} with status no_queries")
 
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
