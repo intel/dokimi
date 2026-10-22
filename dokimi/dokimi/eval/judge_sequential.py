@@ -29,11 +29,14 @@ from dokimi.records import RecordLike
 from dokimi.eval.degrade import DEFAULT_MIN_CHARS, DEGRADATIONS, NEUTRAL_VARIANTS, _answer_pool
 from dokimi.eval.judge_validity import (
     DEFAULT_MIN_ACCURACY,
+    NoUsablePairs,
     PairScorer,
     Scorer,
     ValidityReport,
     _build,
     _score_pairs,
+    refuse_unpaired_arms,
+    require_context_scorer,
 )
 
 #: Sequential mode tests H0 "accuracy = gate - delta" against H1 "accuracy =
@@ -120,6 +123,7 @@ def run_sequential(
     progress: Optional[Callable[[int, int], None]] = None,
     concurrency: int = 1,
     pair_scorer: Optional[PairScorer] = None,
+    store: Optional[Any] = None,
 ) -> ValidityReport:
     """Like :func:`run_validity`, but add bases until every variant is decided.
 
@@ -130,14 +134,25 @@ def run_sequential(
     is gated on them.
     """
     sprt_bounds(min_accuracy)  # refuse an undecidable gate before any pair is built or scored
+    if store is not None:
+        require_context_scorer(scorer)
     noop: Dict[str, int] = {}
-    pairs = _build(answers, noop, n_bases=max_bases, seed=seed, variants=variants, library=library)
+    by_arm: Dict[str, Dict[str, int]] = {}
+    built = _build(answers, noop, n_bases=max_bases, seed=seed, variants=variants, library=library,
+                   store=store, by_arm=by_arm)
+    pairs = built.pairs
+    if store is not None:
+        refuse_unpaired_arms(pairs, by_arm, "--max-bases", variants)
     order: List[tuple] = list(dict.fromkeys((p["base_id"], p.get("arm", "")) for p in pairs))
     graded = sorted({p["variant"] for p in pairs if p["variant"] not in NEUTRAL_VARIANTS})
     decisions: Dict[str, Dict[str, Any]] = {v: {"decision": "continue", "llr": 0.0, "n": 0} for v in graded}
     report = ValidityReport(judge=judge, min_accuracy=min_accuracy, seed=seed, sequential=decisions)
     report.n_noop = noop
     report.variants = list(variants or DEGRADATIONS)
+    report.context = "stored" if store is not None else "none"
+    report.n_without_context = built.n_dropped
+    report.by_arm = by_arm
+    scored_bases: set = set()
     intact_cache: Dict[tuple, Any] = {}
     started = time.time()
     for start in range(0, len(order), batch):
@@ -151,6 +166,11 @@ def run_sequential(
             and (p["variant"] in open_variants
                  or (p["variant"] in NEUTRAL_VARIANTS and start < NEUTRAL_MAX_BASES))
         ]
+        # Only a graded pair covers an arm: a neutral variant (padding) feeds no
+        # gate decision, so a base scored by it alone leaves the arm unchecked.
+        scored_bases.update(
+            (p["base_id"], p.get("arm", "")) for p in todo if p["variant"] not in NEUTRAL_VARIANTS
+        )
         report.rows += _score_pairs(
             scorer, todo, intact_cache, concurrency=concurrency, progress=progress,
             done_offset=len(report.rows), total=len(pairs), pair_scorer=pair_scorer,
@@ -168,10 +188,30 @@ def run_sequential(
     # them ran out of pool even when another variant reached the cap. With
     # more usable answers than the cap, a higher --max-bases adds bases to
     # every variant, so that is the cap even for a variant with few pairs.
-    usable = sum(1 for r in _answer_pool(answers) if len(r["answer"]) > DEFAULT_MIN_CHARS)
+    # With a store, only answers with verified material can ever be scored.
+    if store is not None:
+        usable = sum(c["kept"] for c in by_arm.values())
+    else:
+        usable = sum(1 for r in _answer_pool(answers) if len(r["answer"]) > DEFAULT_MIN_CHARS)
     for variant, d in decisions.items():
         if d["decision"] == "continue":
             bases = len({(p["base_id"], p.get("arm", "")) for p in pairs if p["variant"] == variant})
             d["stopped_by"] = "cap" if bases >= max_bases or usable > max_bases else "pool"
+    # The pool is built up to --max-bases, but the SPRT may stop early: report
+    # per arm the bases that were actually scored, not the pool that was built.
+    for arm, counts in by_arm.items():
+        counts["scored"] = sum(1 for _, a in scored_bases if a == arm)
+    if store is not None:
+        # The loop stops once every variant is decided, which can happen before
+        # an arm's bases are reached; the gate would then pass without covering it.
+        # A FAIL on the bases that were scored stands whatever the other arms hold.
+        unscored = sorted(a for a, c in by_arm.items() if c.get("kept", 0) > 0 and c["scored"] == 0)
+        if unscored and report.summary()["passed"]:
+            raise NoUsablePairs(
+                f"Arm(s) {unscored} have verified judge material but no base was scored "
+                "before the sequential test stopped, so the gate would not cover them. A higher "
+                "--max-bases does not change where it stops: run without --sequential and with "
+                "--bases at least the number of answers, or remove those arms from the answers file"
+            )
     report.wall_seconds = time.time() - started
     return report
