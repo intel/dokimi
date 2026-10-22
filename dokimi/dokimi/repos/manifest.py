@@ -32,6 +32,7 @@ import yaml
 from dokimi.artifacts import schema_errors
 
 from .host_spec import HostSpecError, parse_host
+from .process_metrics import Counter, parse_counter
 from .source import RepoTree
 
 SCHEMA_VERSION = "repo_manifest.v1"
@@ -51,6 +52,8 @@ _HOST_RE = re.compile(HOST_PATTERN)
 _BASE_RE = re.compile(r"^([0-9a-f]{7,40})(\^?)$")
 TASK_REQUIRED = ("id", "family", "base", "prompt", "grader")
 _PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
+# A task whose grader starts with this runs a grader built into the framework, not `entry_points.grade`.
+BUILTIN_GRADER_PREFIX = "dokimi:"
 
 
 # Run-dir entries the framework creates itself and the agent's container does not mount. An `image.env`
@@ -130,6 +133,7 @@ class RepoManifest:
     image: ImageSpec | None = None
     explore_tasks: str | None = None
     build_systems: tuple[str, ...] = ()
+    process_metrics: dict[str, Counter] = field(default_factory=dict)
 
     @property
     def runnable(self) -> bool:
@@ -166,6 +170,8 @@ class RepoManifest:
             "tasks": self.tasks,
             "explore_tasks": self.explore_tasks,
             "build_systems": list(self.build_systems),
+            "process_metrics": {name: {"regex": c.pattern.pattern, "match": c.field}
+                                for name, c in self.process_metrics.items()},
         }
 
 
@@ -235,7 +241,7 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
         missing = [k for k in _RUN_KEYS if k not in raw]
         raise ManifestError(path, [f"{', '.join(run_keys)} without {', '.join(missing)}: a manifest "
                                    "that runs tasks needs all of eval_dir, tasks and entry_points"])
-    needs_eval = [k for k in ("image", "explore_tasks")
+    needs_eval = [k for k in ("image", "explore_tasks", "process_metrics")
                   if isinstance(raw, dict) and k in raw and not run_keys]
     if needs_eval:
         raise ManifestError(path, [f"{', '.join(needs_eval)} without eval_dir, tasks and entry_points: "
@@ -271,6 +277,7 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
     duplicates = sorted({n for n in cache_names if cache_names.count(n) > 1})
     if duplicates:
         errors.append(f"image/caches: duplicate cache name(s) {duplicates}")
+    counters = _parse_counters(raw.get("process_metrics") or {}, errors)
     if errors:
         raise ManifestError(path, errors)
 
@@ -291,7 +298,19 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
         ),
         explore_tasks=_norm(raw["explore_tasks"]) if raw.get("explore_tasks") else None,
         build_systems=tuple(raw.get("build_systems") or ()),
+        process_metrics=counters,
     )
+
+
+def _parse_counters(raw: dict[str, Any], errors: list[str]) -> dict[str, Counter]:
+    """``process_metrics`` compiled; each one that does not compile adds to ``errors``."""
+    counters: dict[str, Counter] = {}
+    for name, value in raw.items():
+        try:
+            counters[name] = parse_counter(name, value)
+        except ValueError as exc:
+            errors.append(str(exc))
+    return counters
 
 
 def check_repo(tree: RepoTree, manifest: RepoManifest,
@@ -335,6 +354,7 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
 
     if tree.is_dir(manifest.tasks):
         _check_tasks(tree, manifest, files, report)
+        report.errors.extend(grade_problems(manifest, report.tasks))
     else:
         report.errors.append(f"tasks directory does not exist: {manifest.tasks}")
     if open_base is None:
@@ -344,6 +364,17 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
 
         check_bases(report, open_base, unmatched)
     return report
+
+
+def grade_problems(manifest: RepoManifest, tasks: list[TaskSummary]) -> list[str]:
+    """``entry_points.grade`` is required only when some task's grader is not a built-in ``dokimi:`` one."""
+    if manifest.entry_points.get("grade"):
+        return []
+    own = sorted(t.id for t in tasks if not t.grader.startswith(BUILTIN_GRADER_PREFIX))
+    if not own:
+        return []
+    return [f"entry_points/grade: required, since these tasks use the repository's own grader "
+            f"(not {BUILTIN_GRADER_PREFIX}*): {', '.join(own)}"]
 
 
 def require_runnable(manifest: RepoManifest) -> None:

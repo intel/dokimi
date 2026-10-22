@@ -62,6 +62,8 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert result["grade"]["status"] == "graded" and result["grade"]["success"] is True
     assert result["agent"]["cost_usd"] == 0.01 and result["agent"]["num_turns"] == 3
     assert result["model_resolved"] == "m-1"
+    assert result["process"] == {"tool_calls": 1, "commands": 0, "failed_commands": 0, "denied_commands": 0,
+                                 "guidance_read": [], "counters": {}}
 
     agents = [s for s in setup["runner"].specs if s.argv and s.argv[0] == f"{HARNESS_DIR}/fake-agent"
               and "-p" in s.argv]

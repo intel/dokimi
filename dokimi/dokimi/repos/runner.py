@@ -63,7 +63,8 @@ from .events import convert
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
 from .host import probe_host, unmet, validate_tasks
-from .manifest import scratch_name
+from .manifest import match_glob, scratch_name
+from .process_metrics import process_metrics
 from .workspace import PrepError, Task, prepare_workspace
 
 SUPPORT_HOST = Path(__file__).resolve().parent / "support"
@@ -192,10 +193,12 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
         "cache_write_tokens": None, "usage_scope": None, "subagent_calls": None,
         "plugins": [], "over_budget": False, "caps": caps, "network": network, "trace_errors": []}
+    process: dict[str, Any] | None = None  # null when the trace could not be read
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
         (rd / "events.jsonl").write_text(transcript.events_jsonl(), encoding="utf-8")
+        process = run_process_metrics(ctx, transcript.events)
         (rd / "answer.txt").write_text(transcript.answer, encoding="utf-8")
         _write_json(rd / "task.json", task.raw)
         meta["harness_version"] = transcript.harness_version or opts.harness_version
@@ -220,13 +223,21 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     record = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model,
               "model_resolved": meta.get("model_resolved"), "rep": rep,
               "harness": opts.profile.name, "harness_version": meta["harness_version"],
-              "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "grade": grade}
+              "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "process": process,
+              "grade": grade}
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
         _write_json(rd / "result.json", record)
     except OSError as exc:
         raise CellCrash(f"cannot write result.json: {exc}", float(agent["charged_usd"])) from exc
     return record
+
+
+def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]]) -> dict[str, Any]:
+    """``result.json`` ``process``: the framework's counts and the manifest's ``process_metrics`` (contract §4.1)."""
+    globs = ctx.manifest.guidance_globs
+    return process_metrics(events, lambda path: any(match_glob(g, path) for g in globs),
+                           ctx.manifest.process_metrics)
 
 
 class CellCrash(Exception):
