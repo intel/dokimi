@@ -305,6 +305,19 @@ def test_codex_failed_command_does_not_count_as_a_read():
     assert [e["rc"] for e in t.events if e["kind"] == "command"] == [1, 0, 2]
 
 
+@pytest.mark.parametrize("done", [{}, {"exit_code": None}], ids=["missing", "null"])
+def test_codex_command_with_an_unknown_exit_code_keeps_its_read(done):
+    """No exit code (a cut-off run or a stream without the field) is not a failure: the read stays."""
+    cmd = {"type": "command_execution", "command": "cat AGENTS.md"}
+    raw = _jsonl(
+        {"type": "item.started", "item": {"id": "a", **cmd}},
+        {"type": "item.completed", "item": {"id": "a", **cmd, **done}},
+    )
+    t = convert("codex-json", raw, None)
+    assert [e["path"] for e in t.events if e["kind"] == "read"] == ["AGENTS.md"]
+    assert [e["rc"] for e in t.events if e["kind"] == "command"] == [None]
+
+
 def test_codex_failed_command_keeps_the_reads_it_may_have_made():
     """``cat a missing`` prints ``a`` and exits 1 (codex-cli 0.163): the exit code does not say which read failed."""
     def cmd(i, script):
