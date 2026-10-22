@@ -52,7 +52,7 @@ from .errors import PrepError
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
-from .uptake import mcp_servers
+from .uptake import MCP_CONFIG, base_servers, mcp_servers
 
 ARMS = ("guidance:none", "guidance:raw", "guidance:bridge")
 REV_ARM, PATCH_ARM = "guidance:rev:", "patch:"
@@ -482,9 +482,14 @@ def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm
     new = {p for k, p in zip(status[::2], status[1::2], strict=False) if k == "A"}
     new |= {p for p in touched - set(changed) if (ws / p).is_file()}
     # what an agent can use (uptake): a file the patch added, not a guidance file; the servers of its .mcp.json
-    added = sorted(p for p in new if not any(match_glob(g, p) for g in manifest.guidance_globs))
+    # .mcp.json is not one: reading the config is not using a server, whose calls are counted as mcp_calls
+    added = sorted(p for p in new if p != MCP_CONFIG and not any(match_glob(g, p) for g in manifest.guidance_globs))
+    try:  # the servers the base already declared are not the arm's
+        base = base_servers(_git(ws, env, "show", f"{before}:{MCP_CONFIG}"))
+    except PrepError:
+        base = set()
     return files, {"arm_patch": {"path": arm.patch_path, "sha256": arm.patch_sha256, "added": added,
-                                 "mcp_servers": mcp_servers(ws, files)}}
+                                 "mcp_servers": mcp_servers(ws, files, base)}}
 
 
 def _patch_paths(numstat: str) -> set[str]:

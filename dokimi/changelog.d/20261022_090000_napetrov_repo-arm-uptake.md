@@ -1,8 +1,8 @@
 ### Added
 
 - **repo run: uptake of what a `patch:` arm added** — `meta.json` `arm_patch`
-  lists the files the patch `added` (guidance files left out) and the
-  `mcp_servers` of a `.mcp.json` it wrote, and `result.json` gets an `uptake`
+  lists the files the patch `added` (guidance files and `.mcp.json` left out) and the
+  `mcp_servers` it added to a `.mcp.json`, and `result.json` gets an `uptake`
   object: the agent's commands naming an added file, reads of one, and calls of
   those servers' tools, leaving out calls the harness denied.
   `repo report` shows the cells that used the arm's

@@ -321,8 +321,8 @@ grader diffs the agent's changes from `start_sha`. With the arm come
 `arm_rev` object (`rev` as given, its `sha`, and `removed`: the base's guidance
 files with no counterpart at `<rev>`); for `patch:` an `arm_patch` object (the
 file's absolute `path` and full `sha256`, `added`: the files the patch added
-that the guidance globs do not match, and `mcp_servers`: the servers of a
-`.mcp.json` at the root the patch added or changed, read before the agent runs).
+that neither the guidance globs nor `.mcp.json` match, and `mcp_servers`: the servers
+the patch added to the `.mcp.json` at the root, read before the agent runs).
 
 Step 3 removes history only. A fix that landed upstream before a model's
 training cutoff may still be known to the model, so reports split results by
@@ -378,14 +378,16 @@ For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 `uptake` object: whether the agent used what the arm added. `files` and
 `mcp_servers` list what it added (sorted); `commands` counts
 command events that name an added file as a workspace path (`tools/fmt`,
-`./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`), `reads`
-the read events of one, `mcp_calls` the calls of the servers' tools
+`./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`; a file
+with no `/` only as `./name`, under the workspace path, first in a command or after an interpreter, so
+`npm run lint` does not name a `lint` file), `reads` the read events of one (a
+read of an added script counts as use), `mcp_calls` the calls of the servers' tools
 (`mcp__<server>__<tool>`), none of them a call the harness denied; `used`
 is whether any is non-zero, and `measured` is
 `false` when the agent left no trace to count from. `repo report` shows the
 cells that used it per row. `repo compare` puts an `uptake` entry per treatment
 in its summary (`{cells, used, unmeasured}`: the measured cells, how many of
-them used it, and how many could not be measured), prints it as an `uptake: ...`
+them used it, and how many could not be measured; the text lines say so), prints it as an `uptake: ...`
 line, and warns about a treatment whose cells used none of it: its deltas then
 measure the patch's text, such as a guidance line, not the tool.
 

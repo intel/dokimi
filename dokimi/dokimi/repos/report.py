@@ -132,7 +132,8 @@ def format_report(summary: dict[str, Any]) -> str:
         noted = ("agent_timeouts", "agent_errors", "over_budget", "cost_unknown")
         notes = [f"{r[k]} {k.replace('_', ' ')}" for k in noted if r[k]]
         if "uptake" in r:
-            notes.append(f"arm's additions used in {r['uptake']['used']}/{r['uptake']['cells']} cell(s)")
+            notes.append(f"arm's additions used in {r['uptake']['used']}/{r['uptake']['cells']} cell(s)"
+                         + unmeasured_note(r["uptake"]))
         if notes:
             lines.append(" " * (width + 2) + "  " + ", ".join(notes))
     if summary["missing"]:
@@ -153,6 +154,11 @@ def _unsupported_lines(cells: list[dict[str, Any]]) -> list[str]:
         by_task[(str(u["task"]), str(u["reason"]))] += 1
     return [f"unsupported (not run, not failed): {task}, {n} cell(s): {reason}"
             for (task, reason), n in sorted(by_task.items())]
+
+
+def unmeasured_note(u: dict[str, int]) -> str:
+    """What to append to a ``used/cells`` count when some cells left no trace to measure."""
+    return f" (warning: {u['unmeasured']} more cell(s) left no trace to measure)" if u.get("unmeasured") else ""
 
 
 def uptake_counts(recs: list[dict[str, Any]]) -> dict[str, int] | None:

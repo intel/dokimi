@@ -9,14 +9,17 @@ called. ``result.json`` therefore records, for a ``patch:`` arm that adds
 something an agent can use, how often the agent used it:
 
 - **files**: the files the patch added that the guidance globs do not match
-  (a guidance file is loaded, not used);
+  (a guidance file is loaded, not used; ``.mcp.json`` is a config whose servers are counted by their calls);
 - **commands**: command events whose text names one of those files, as a path
   relative to the workspace (``tools/fmt``, ``./tools/fmt``, ``bash tools/fmt``)
-  or under the workspace's absolute path. A command run as ``cd tools && ./fmt``
+  or under the workspace's absolute path. A file at the workspace root is named only as ``./name``, under the
+  absolute path, as the first word of a command (or of a ``;``/``&&``/``|`` part) or after a shell or
+  interpreter (``sh run.sh``): ``npm run lint`` does not name a ``lint`` file. A command run as ``cd tools && ./fmt``
   is not counted;
-- **reads**: read events of one of those files;
-- **mcp_servers** / **mcp_calls**: the servers of a ``.mcp.json`` the patch
-  added or changed, and the calls of their tools (``mcp__<server>__<tool>``).
+- **reads**: read events of one of those files (reading a script's text counts: it is the agent engaging with
+  what the arm added, not only running it);
+- **mcp_servers** / **mcp_calls**: the servers the patch added to the ``.mcp.json``
+  (those the file already declared at the base are not the arm's), and the calls of their tools (``mcp__<server>__<tool>``).
   Whether the harness starts them is the profile's business: a profile that
   starts none gives 0 calls, which is what the warning is for.
 
@@ -35,9 +38,18 @@ from typing import Any
 MCP_CONFIG = ".mcp.json"
 
 
-def mcp_servers(ws: Path, arm_files: list[str]) -> list[str]:
-    """The server names of the ``.mcp.json`` at the workspace root, when the arm wrote it; read at prep, before
-    the agent can change it. A file that does not parse names no server, nor does a link out of the workspace
+def base_servers(text: str) -> set[str]:
+    """The server names a ``.mcp.json`` text declares; none when it does not parse."""
+    try:
+        servers = json.loads(text).get("mcpServers")
+    except (ValueError, AttributeError):
+        return set()
+    return {str(k) for k in servers} if isinstance(servers, dict) else set()
+
+
+def mcp_servers(ws: Path, arm_files: list[str], base: set[str] | frozenset[str] = frozenset()) -> list[str]:
+    """The server names of the ``.mcp.json`` at the workspace root that the arm added: those it wrote, less the
+    ``base`` ones the file already declared before the patch; read at prep, before the agent can change it. A file that does not parse names no server, nor does a link out of the workspace
     or to anything but a regular file: it is not read."""
     if MCP_CONFIG not in arm_files:
         return []
@@ -48,7 +60,7 @@ def mcp_servers(ws: Path, arm_files: list[str]) -> list[str]:
         servers = json.loads(path.read_text(encoding="utf-8")).get("mcpServers")
     except (OSError, RuntimeError, ValueError, AttributeError):  # RuntimeError: a link loop, before Python 3.13
         return []
-    return sorted(str(k) for k in servers) if isinstance(servers, dict) else []
+    return sorted(str(k) for k in servers if str(k) not in base) if isinstance(servers, dict) else []
 
 
 def arm_uptake(events: list[dict[str, Any]] | None, files: list[str], servers: list[str],
@@ -75,13 +87,28 @@ def arm_uptake(events: list[dict[str, Any]] | None, files: list[str], servers: l
     return out
 
 
+_INTERPRETERS = r"(?:sh|bash|zsh|dash|python3?|node|ruby|perl)"
+
+
 def _path_pattern(files: list[str], workdir: str) -> re.Pattern[str] | None:
-    """One of ``files`` as a whole word of a command: relative (optionally ``./``) or under ``workdir``."""
+    """One of ``files`` as a whole word of a command: relative (optionally ``./``) or under ``workdir``.
+    A file with no ``/`` is a common word, so it must be ``./``-prefixed, under ``workdir``, first in a command
+    or run by an interpreter."""
     if not files:
         return None
-    paths = "|".join(re.escape(f) for f in sorted(files, key=len, reverse=True))
     root = re.escape(workdir.rstrip("/") + "/")
-    return re.compile(rf"(?:^|(?<=[\s'\"`=;&|(<>])|(?<=\./)|(?<={root}))(?:{paths})(?=$|[\s'\"`;&|)<>:])")
+    end = r"(?=$|[\s'\"`;&|)<>:])"
+    parts = []
+    nested = sorted((f for f in files if "/" in f), key=len, reverse=True)
+    flat = sorted((f for f in files if "/" not in f), key=len, reverse=True)
+    if nested:
+        paths = "|".join(re.escape(f) for f in nested)
+        parts.append(rf"(?:^|(?<=[\s'\"`=;&|(<>])|(?<=\./)|(?<={root}))(?:{paths}){end}")
+    if flat:
+        names = "|".join(re.escape(f) for f in flat)
+        parts.append(rf"(?:^\s*(?:\./)?|[;&|(]\s*(?:\./)?|(?:^|(?<=\s)){_INTERPRETERS}\s+|(?<=[\s'\"`=;&|(<>])\./|(?<={root}))"
+                     rf"(?:{names}){end}")
+    return re.compile("|".join(parts))
 
 
 def _mcp_name(server: str) -> str:

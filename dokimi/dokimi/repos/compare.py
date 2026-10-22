@@ -57,7 +57,8 @@ from typing import Any
 
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
-from .report import load_cells, mismatch_warnings, model_mismatch, model_matches, resolved_models, uptake_counts
+from .report import (load_cells, mismatch_warnings, model_matches, model_mismatch, resolved_models, unmeasured_note,
+                     uptake_counts)
 
 #: Largest number of non-zero deltas whose sign-flip distribution is enumerated (2**16 patterns).
 EXACT_MAX = 16
@@ -415,7 +416,7 @@ def format_compare(summary: dict[str, Any]) -> str:
             + (f" and {len(summary['unpaired']) - len(shown)} more" if len(summary["unpaired"]) > 10 else ""))
     if summary["missing"]:
         lines.append(f"{len(summary['missing'])} cells missing (no result.json): `repo report` lists them")
-    lines += [f"uptake: {text} used what its arm added in {u['used']}/{u['cells']} cell(s)"
+    lines += [f"uptake: {text} used what its arm added in {u['used']}/{u['cells']} cell(s){unmeasured_note(u)}"
               for text, u in summary.get("uptake", {}).items()]
     lines += [f"warning: {w}" for w in summary["warnings"]]
     return "\n".join(lines)

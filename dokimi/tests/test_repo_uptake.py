@@ -13,7 +13,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.repos.compare import compare, format_compare
 from dokimi.repos.events import convert
-from dokimi.repos.report import format_report, summarize
+from dokimi.repos.report import format_report, summarize, unmeasured_note
 from dokimi.repos.uptake import arm_uptake, mcp_servers
 from dokimi.repos.workspace import parse_arm
 from test_repo_arms import setup, toy, _prep  # noqa: F401  # fixtures
@@ -100,7 +100,7 @@ def test_prep_records_the_added_files_that_are_not_guidance_and_the_mcp_servers(
     meta, ws = _prep(toy, parse_arm(f"patch:{patch}"))
     assert meta["arm_files"] == [".mcp.json", "src/AGENTS.md", "sub/AGENTS.md", "tools/fmt"]
     # a changed guidance file and an added one are loaded, not used; the rest is what the agent can use
-    assert meta["arm_patch"]["added"] == [".mcp.json", "tools/fmt"]
+    assert meta["arm_patch"]["added"] == ["tools/fmt"]  # not .mcp.json: reading the config is not using a server
     assert meta["arm_patch"]["mcp_servers"] == ["code.graph"]
 
 
@@ -183,7 +183,7 @@ def test_repo_run_records_uptake_and_compare_warns_when_nothing_was_used(setup, 
 
     used = setup["out"] / "used"
     result = json.loads(next(used.glob("*patch*__r1/result.json")).read_text())
-    assert result["uptake"] == {"files": [".mcp.json", "tools/fmt"], "mcp_servers": ["code.graph"], "measured": True,
+    assert result["uptake"] == {"files": ["tools/fmt"], "mcp_servers": ["code.graph"], "measured": True,
                                 "commands": 1, "reads": 0, "mcp_calls": 1, "used": True}
     assert "uptake" not in json.loads(next(used.glob("*guidance-raw__*__r1/result.json")).read_text())
     assert "arm's additions used in 2/2 cell(s)" in format_report(summarize(used))
@@ -233,3 +233,43 @@ def test_compare_counts_the_uptake_of_the_models_it_compares(setup, monkeypatch)
     assert both["uptake"] == {arm: {"cells": 4, "used": 2, "unmeasured": 0}} and not _used_none(both)
     m2 = compare(batches, "guidance:raw", [arm], models=["m-2"])
     assert m2["uptake"] == {arm: {"cells": 2, "used": 0, "unmeasured": 0}} and _used_none(m2)
+
+
+@pytest.mark.parametrize("text", ["npm run lint", "docker run img", "git log -- build", "cat lint", "make build"])
+def test_a_root_level_added_file_is_not_named_by_a_common_word_of_a_command(text):
+    for name in ("lint", "run", "build"):
+        assert arm_uptake([_cmd(text)], [name], [], WS)["commands"] == (1 if text.split()[0] == name else 0)
+
+
+@pytest.mark.parametrize("text", ["./lint x", "lint x", f"{WS}/lint", "cd d && lint", "x; ./lint", "sh lint", "bash ./lint a",
+                                  "python3 lint"])
+def test_a_root_level_added_file_is_named_by_a_path_or_as_a_command(text):
+    assert arm_uptake([_cmd(text)], ["lint"], [], WS)["commands"] == 1
+
+
+def test_a_read_alone_or_an_mcp_call_alone_is_a_use():
+    read = arm_uptake([{"kind": "read", "path": "tools/fmt"}], ["tools/fmt"], [], WS)
+    assert (read["reads"], read["mcp_calls"], read["commands"], read["used"]) == (1, 0, 0, True)
+    call = arm_uptake([{"kind": "tool", "name": "mcp__code_graph__x"}], [], ["code.graph"], WS)
+    assert (call["mcp_calls"], call["reads"], call["commands"], call["used"]) == (1, 0, 0, True)
+    other = arm_uptake([{"kind": "tool", "name": "mcp__code_graph2__x"}], [], ["code.graph"], WS)
+    assert (other["mcp_calls"], other["used"]) == (0, False)
+
+
+def test_a_mcp_json_the_patch_changed_names_only_the_servers_it_added(toy):  # noqa: F811
+    from dokimi.repos.workspace import _apply_patch, _git, _git_env
+
+    ws, env = toy["tmp"] / "w", _git_env(("t", "t@example.com"))
+    ws.mkdir()
+    (ws / ".mcp.json").write_text('{"mcpServers": {"github": {}}}\n')
+    _git(ws, env, "init", "-q")
+    patch = toy["tmp"] / "mcp.diff"
+    patch.write_text("diff --git a/.mcp.json b/.mcp.json\n--- a/.mcp.json\n+++ b/.mcp.json\n@@ -1 +1 @@\n"
+                     '-{"mcpServers": {"github": {}}}\n+{"mcpServers": {"github": {}, "code.graph": {}}}\n')
+    _, meta = _apply_patch(ws, env, toy["manifest"], parse_arm(f"patch:{patch}"))
+    assert meta["arm_patch"]["mcp_servers"] == ["code.graph"] and meta["arm_patch"]["added"] == []
+
+
+def test_the_text_report_and_compare_show_the_cells_that_could_not_be_measured():
+    assert unmeasured_note({"cells": 0, "used": 0, "unmeasured": 2}) == " (warning: 2 more cell(s) left no trace to measure)"
+    assert unmeasured_note({"cells": 2, "used": 1, "unmeasured": 0}) == ""
