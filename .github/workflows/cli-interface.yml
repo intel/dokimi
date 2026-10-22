@@ -1,0 +1,157 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: cli-interface
+
+# Makes every change to how users call dokimi visible on the PR: dumps the CLI
+# surface (commands, options, arguments, defaults, choices) of the merge base of
+# the PR with its base branch and of the PR head with dokimi/scripts/cli_surface.py,
+# diffs them and, when they differ, labels the PR `cli-interface-change` and posts a
+# sticky comment listing each added, removed or changed command and option.
+# The comment is updated on every push, and the label removed once the surface
+# matches the base again. The check reports; it never fails a PR for a change.
+# Fork PRs get a read-only token, so there the label and comment are skipped and
+# the CLI diff is shown only in the job summary.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: dokimi
+
+# intel-ubuntu-latest: see ci.yml.
+jobs:
+  cli-surface:
+    name: CLI interface diff
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      pull-requests: write  # create/apply the label, write the comment
+      issues: write  # github.rest.issues.* APIs for labels and comments
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: pip install -r requirements.lock.txt
+      # The base is the merge base of HEAD and the base branch, as in the other
+      # diff-against-base steps: on CI that is the merge commit's own base, even if
+      # the base branch moved on since. git archive, not a worktree: no git state changes.
+      # Each dump imports the dokimi of its own tree through PYTHONPATH; the
+      # head's script reads both, so the dump format is the same on each side.
+      - name: Dump and diff the CLI surface
+        id: diff
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          out="$RUNNER_TEMP/cli-surface"
+          rm -rf "$out" && mkdir -p "$out/base"
+          base=$(git -C .. merge-base HEAD "origin/$BASE_REF")
+          git -C .. archive "$base" dokimi | tar -x -C "$out/base"
+          # A dump or diff that raises (e.g. a PR that moves build_parser) must not fail the
+          # job: report "error" and leave the label as it is.
+          report_error() {
+            printf '%s\n' "## CLI interface check could not run" "" \
+              "The CLI surface could not be dumped or diffed from the base or the head; see the job log." \
+              > "$out/diff.md"
+            cat "$out/diff.md"
+            echo "changed=error" >> "$GITHUB_OUTPUT"
+            echo "file=$out/diff.md" >> "$GITHUB_OUTPUT"
+            cat "$out/diff.md" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          if ! PYTHONPATH="$out/base/dokimi" python scripts/cli_surface.py dump "$out/base.json" \
+              || ! PYTHONPATH=. python scripts/cli_surface.py dump "$out/head.json"; then
+            report_error
+          fi
+          rc=0
+          python scripts/cli_surface.py diff "$out/base.json" "$out/head.json" --markdown \
+            > "$out/diff.md" || rc=$?
+          if [ "$rc" -gt 1 ]; then report_error; fi
+          cat "$out/diff.md"
+          echo "changed=$rc" >> "$GITHUB_OUTPUT"
+          echo "file=$out/diff.md" >> "$GITHUB_OUTPUT"
+          cat "$out/diff.md" >> "$GITHUB_STEP_SUMMARY"
+      # The result for the cli-interface-comment workflow (workflow_run, base-repo write
+      # token), which labels and comments for fork PRs this job's read-only token cannot.
+      # Plain data only: the poster treats it as untrusted and re-validates every field.
+      - name: Package the result
+        env:
+          CHANGED: ${{ steps.diff.outputs.changed }}
+          DIFF_FILE: ${{ steps.diff.outputs.file }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/cli-interface-result"
+          python -c 'import json, os; json.dump({"pr_number": int(os.environ["PR_NUMBER"]), "head_sha": os.environ["HEAD_SHA"], "changed": os.environ["CHANGED"], "diff": open(os.environ["DIFF_FILE"], encoding="utf-8").read()}, open(os.environ["RUNNER_TEMP"] + "/cli-interface-result/result.json", "w", encoding="utf-8"))'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: cli-interface-result
+          path: ${{ runner.temp }}/cli-interface-result/result.json
+          retention-days: 1
+          if-no-files-found: error
+      # A fork PR's token is read-only: the diff is then in the job summary only.
+      - name: Label and comment on the PR
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8.0.0
+        env:
+          CHANGED: ${{ steps.diff.outputs.changed }}
+          DIFF_FILE: ${{ steps.diff.outputs.file }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const label = 'cli-interface-change';
+            const marker = '<!-- cli-interface-diff -->';
+            const changed = process.env.CHANGED === '1';
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments,
+                { owner, repo, issue_number });
+              const existing = comments.find((c) => c.user?.login === 'github-actions[bot]' &&
+                c.body && c.body.includes(marker));
+              if (process.env.CHANGED === 'error') {
+                // The surface is unknown: say so, and leave the label as it is.
+                const diff = fs.readFileSync(process.env.DIFF_FILE, 'utf8');
+                const body = `${marker}\n${diff}`;
+                if (existing) {
+                  await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+                } else {
+                  await github.rest.issues.createComment({ owner, repo, issue_number, body });
+                }
+              } else if (changed) {
+                const diff = fs.readFileSync(process.env.DIFF_FILE, 'utf8');
+                const body = `${marker}\n${diff}\n_Updated on every push; the \`${label}\` ` +
+                  'label is on while the diff is non-empty._';
+                try {
+                  await github.rest.issues.createLabel({ owner, repo, name: label, color: 'B60205',
+                    description: "Changes dokimi's user-facing CLI surface" });
+                } catch (e) { /* already exists */ }
+                await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [label] });
+                if (existing) {
+                  await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+                } else {
+                  await github.rest.issues.createComment({ owner, repo, issue_number, body });
+                }
+              } else {
+                try {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number, name: label });
+                } catch (e) { /* was not applied */ }
+                if (existing) {
+                  await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id,
+                    body: `${marker}\nThe CLI surface now matches the base branch: no user-facing CLI change.` });
+                }
+              }
+            } catch (e) {
+              core.warning(`Could not label or comment (fork PR token is read-only?): ${e.message}`);
+            }
