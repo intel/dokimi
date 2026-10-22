@@ -71,6 +71,8 @@ if args == ["--version"]:
 assert os.environ.get("FAKE_CONFIG_DIR"), "config dir not set"
 assert "SECRET_NOT_ALLOWED" not in os.environ, "environment not scrubbed"
 action = os.environ.get("FAKE_ACTION", "fix")
+if action == "silent":  # the agent dies before it writes a line
+    sys.exit(1)
 cwd = Path.cwd()
 # Guard against --model missing or being the last arg
 try:
@@ -99,9 +101,10 @@ if action == "tamper":  # leave state for the grader: a .pth in HOME, and an fsm
     hook.chmod(0o755)
     with open(cwd / ".git" / "config", "a") as f:
         f.write("[core]\n\tfsmonitor = " + str(hook) + "\n")
-lines.append({"type": "assistant", "message": {"model": answered, "content": [
-    {"type": "tool_use", "id": "t1", "name": "Edit",
-     "input": {"file_path": os.environ.get("FAKE_CONTAINER_CWD", str(cwd)) + "/src/calc.py"}}]}})
+if action != "idle":  # idle: the agent starts and ends without a tool call
+    lines.append({"type": "assistant", "message": {"model": answered, "content": [
+        {"type": "tool_use", "id": "t1", "name": "Edit",
+         "input": {"file_path": os.environ.get("FAKE_CONTAINER_CWD", str(cwd)) + "/src/calc.py"}}]}})
 if os.environ.get("FAKE_TOOL_USES"):  # more tool calls, as a JSON list of [name, input]
     lines.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": f"u{i}", "name": n, "input": a}

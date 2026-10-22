@@ -14,7 +14,7 @@ from dokimi.cli import build_parser
 from dokimi.repos.compare import compare, format_compare
 from dokimi.repos.events import convert
 from dokimi.repos.report import format_report, summarize
-from dokimi.repos.uptake import arm_uptake
+from dokimi.repos.uptake import arm_uptake, mcp_servers
 from dokimi.repos.workspace import parse_arm
 from test_repo_arms import setup, toy, _prep  # noqa: F401  # fixtures
 
@@ -128,9 +128,44 @@ def test_a_mcp_json_linked_inside_the_workspace_names_its_servers(toy):  # noqa:
     assert meta["arm_patch"]["mcp_servers"] == ["code.graph"]
 
 
-def _run(s, batch, *arms):
+MIXED_PATCH = """diff --git a/src/calc.py b/src/calc.py
+--- a/src/calc.py
++++ b/src/calc.py
+@@ -1,2 +1,3 @@
++# checked
+ def add(a, b):
+     return a - b
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1 @@
++gen.sh
+diff --git a/gen.sh b/gen.sh
+new file mode 100755
+--- /dev/null
++++ b/gen.sh
+@@ -0,0 +1 @@
++#!/bin/sh
+"""
+
+
+def test_prep_records_as_added_a_file_gitignore_hides_not_a_file_the_patch_changed(toy):  # noqa: F811
+    patch = toy["tmp"] / "mixed.diff"
+    patch.write_text(MIXED_PATCH)
+    meta, ws = _prep(toy, parse_arm(f"patch:{patch}"))
+    assert meta["arm_files"] == [".gitignore", "gen.sh", "src/calc.py"] and (ws / "gen.sh").is_file()
+    assert meta["arm_patch"]["added"] == [".gitignore", "gen.sh"]
+
+
+def test_a_mcp_json_the_patch_did_not_write_names_no_server(tmp_path):
+    (tmp_path / ".mcp.json").write_text('{"mcpServers": {"from-base": {}}}')
+    assert mcp_servers(tmp_path, ["tools/fmt"]) == [] and mcp_servers(tmp_path, [".mcp.json"]) == ["from-base"]
+
+
+def _run(s, batch, *arms, model="m-1"):
     argv = ["repo", "run", f"{s['root']}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness",
-            str(s["profile"]), "--bin", str(s["exe"]), "--model", "m-1", "--batch", batch, "--out", str(s["out"]),
+            str(s["profile"]), "--bin", str(s["exe"]), "--model", model, "--batch", batch, "--out", str(s["out"]),
             "--cache-root", str(s["out"] / "caches"), "--agent-network", "host", "--task", "fix_add",
             "--reps", "2", *[x for a in arms for x in ("--arm", a)]]
     args = build_parser().parse_args(argv)
@@ -163,3 +198,38 @@ def test_repo_run_records_uptake_and_compare_warns_when_nothing_was_used(setup, 
         f"{arm}: the agent used none of what the arm added in 2 cell(s); a delta measures the patch's text, "
         "not the tool"]
     assert f"uptake: {arm} used what its arm added in 0/2 cell(s)" in format_compare(loud)
+
+
+def _used_none(summary):
+    return [w for w in summary["warnings"] if "used none" in w]
+
+
+def test_an_agent_that_left_no_trace_is_unmeasured_one_that_called_no_tool_is_measured(setup, monkeypatch):  # noqa: F811
+    patch = setup["tmp"] / "kit.diff"
+    patch.write_text(KIT_PATCH)
+    arm = str(parse_arm(f"patch:{patch}"))
+    for action in ("silent", "idle"):
+        monkeypatch.setenv("FAKE_ACTION", action)
+        _run(setup, action, "guidance:raw", f"patch:{patch}")
+    silent, idle = setup["out"] / "silent", setup["out"] / "idle"
+    assert json.loads(next(silent.glob("*patch*__r1/result.json")).read_text())["uptake"]["measured"] is False
+    assert json.loads(next(idle.glob("*patch*__r1/result.json")).read_text())["uptake"]["measured"] is True
+    unmeasured = compare([silent], "guidance:raw", [arm])
+    assert unmeasured["uptake"] == {arm: {"cells": 0, "used": 0, "unmeasured": 2}} and not _used_none(unmeasured)
+    measured = compare([idle], "guidance:raw", [arm])
+    assert measured["uptake"] == {arm: {"cells": 2, "used": 0, "unmeasured": 0}} and _used_none(measured)
+
+
+def test_compare_counts_the_uptake_of_the_models_it_compares(setup, monkeypatch):  # noqa: F811
+    patch = setup["tmp"] / "kit.diff"
+    patch.write_text(KIT_PATCH)
+    arm = str(parse_arm(f"patch:{patch}"))
+    monkeypatch.setenv("FAKE_TOOL_USES", json.dumps([["Bash", {"command": "./tools/fmt src/calc.py"}]]))
+    _run(setup, "m1", "guidance:raw", f"patch:{patch}", model="m-1")
+    monkeypatch.delenv("FAKE_TOOL_USES")
+    _run(setup, "m2", "guidance:raw", f"patch:{patch}", model="m-2")
+    batches = [setup["out"] / "m1", setup["out"] / "m2"]
+    both = compare(batches, "guidance:raw", [arm])
+    assert both["uptake"] == {arm: {"cells": 4, "used": 2, "unmeasured": 0}} and not _used_none(both)
+    m2 = compare(batches, "guidance:raw", [arm], models=["m-2"])
+    assert m2["uptake"] == {arm: {"cells": 2, "used": 0, "unmeasured": 0}} and _used_none(m2)
