@@ -20,8 +20,9 @@ something an agent can use, how often the agent used it:
   Whether the harness starts them is the profile's business: a profile that
   starts none gives 0 calls, which is what the warning is for.
 
-``used`` is whether any count is non-zero; ``measured`` is false when the agent
-left no trace to count from (it never started, or its trace did not parse).
+A call the harness denied (``denied``) is not counted. ``used`` is whether any
+count is non-zero; ``measured`` is false when the agent left no trace to count
+from (it never started, or its trace did not parse).
 """
 
 from __future__ import annotations
@@ -61,6 +62,8 @@ def arm_uptake(events: list[dict[str, Any]] | None, files: list[str], servers: l
     prefixes = tuple(f"mcp__{_mcp_name(s)}__" for s in servers)
     wanted = set(files)
     for ev in events:
+        if ev.get("denied"):  # the harness refused the call: the tool never ran
+            continue
         kind = ev.get("kind")
         if kind == "command" and named is not None and named.search(str(ev.get("text", ""))):
             out["commands"] += 1

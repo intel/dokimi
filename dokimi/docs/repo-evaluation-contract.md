@@ -379,7 +379,8 @@ For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 command events that name an added file as a workspace path (`tools/fmt`,
 `./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`), `reads`
 the read events of one, `mcp_calls` the calls of the servers' tools
-(`mcp__<server>__<tool>`); `used` is whether any is non-zero, and `measured` is
+(`mcp__<server>__<tool>`), none of them a call the harness denied; `used`
+is whether any is non-zero, and `measured` is
 `false` when the agent left no trace to count from. `repo report` shows the
 cells that used it per row, and `repo compare` warns about a treatment whose
 cells used none of it: its deltas then measure the patch's text, such as a

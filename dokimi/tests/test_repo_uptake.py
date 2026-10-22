@@ -12,6 +12,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.repos.compare import compare, format_compare
+from dokimi.repos.events import convert
 from dokimi.repos.report import format_report, summarize
 from dokimi.repos.uptake import arm_uptake
 from dokimi.repos.workspace import parse_arm
@@ -72,6 +73,25 @@ def test_reads_and_calls_of_the_arms_mcp_servers_count_others_do_not():
     assert arm_uptake([], ["tools/fmt"], [], WS)["used"] is False
     unmeasured = arm_uptake(None, ["tools/fmt"], [], WS)
     assert unmeasured["measured"] is False and unmeasured["used"] is False
+
+
+def test_a_call_the_harness_denied_is_not_a_use():
+    def use(i, name, args):
+        return {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": i, "name": name, "input": args}]}}
+    hook = "PreToolUse:Bash hook error: [python3 /eval/support/no_background.py]: run_in_background is refused"
+    stream = [{"type": "system", "subtype": "init", "model": "m-1"},
+              use("b1", "Bash", {"command": "./tools/fmt src/calc.py", "run_in_background": True}),
+              {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "b1", "is_error": True,
+                                                        "content": hook}]}},
+              use("m1", "mcp__code_graph__callers", {"symbol": "add"}),
+              {"type": "result", "subtype": "success", "result": "done", "num_turns": 2,
+               "permission_denials": [{"tool_use_id": "m1", "tool_name": "mcp__code_graph__callers"}]}]
+    events = convert("claude-stream-json", "\n".join(json.dumps(r) for r in stream), WS).events
+    assert [e.get("denied") for e in events] == [True, True]
+    got = arm_uptake(events, ["tools/fmt"], ["code.graph"], WS)
+    assert (got["commands"], got["mcp_calls"], got["used"], got["measured"]) == (0, 0, False, True)
+    retried = arm_uptake([*events, _cmd("./tools/fmt src/calc.py")], ["tools/fmt"], ["code.graph"], WS)
+    assert (retried["commands"], retried["used"]) == (1, True)
 
 
 def test_prep_records_the_added_files_that_are_not_guidance_and_the_mcp_servers(toy):  # noqa: F811
