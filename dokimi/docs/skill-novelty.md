@@ -784,7 +784,11 @@ python cli.py novelty analyze --artifact skill:s --tier study --estimate-only
 ```
 
 `--estimate-only` prints the projected bill and exits without constructing a client, so
-the decision costs nothing. An explicit flag always beats the tier, and the override is
+the decision costs nothing. Its payload has `expected_calls`, the point figure between
+the two totals (stages, every probe, and half the oracle pairs, split by `by_role`), and
+`expected_usd`: those calls priced at list prices by role, `null` when a model has no
+price. Against five measured standard runs the calls landed within 25% and the dollars
+within 25%; triage dollars run low, because its extraction output is not modelled. An explicit flag always beats the tier, and the override is
 recorded — a `--tier triage --max-atoms 90` run is not a stock triage run and does not get
 to be read as one.
 

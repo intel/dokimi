@@ -62,16 +62,20 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
             print(f"  overridden by flags: {sorted(record['overrides'])}", file=sys.stderr)
 
     if args.estimate_only:
-        estimate = settings.estimate(len(segment(artifact_bundle.text)),
+        spans = segment(artifact_bundle.text)
+        n_tokens = sum(span.tokens for span in spans)
+        estimate = settings.estimate(len(spans), n_tokens=n_tokens,
                                      budgets=tuple(args.budgets), n_arms=len(_arms(args.arms)))
+        estimate["expected_usd"] = _estimate_usd(args, n_tokens, estimate["estimate"]["by_role"])
         print(json.dumps(estimate, indent=2))
         print("Estimate only, nothing was measured. ~4 calls per paired probe is the "
               "measured shape; batch sizes and retries move the real figure.",
               file=sys.stderr)
         if args.max_usd is None:
-            print("The estimate counts calls, not dollars: what a call costs depends on the "
-                  "artifact's length and the models' prices. Pass --max-usd to stop the run "
-                  "at a dollar figure.", file=sys.stderr)
+            print("expected_usd prices the calls by role at list prices, with a token profile "
+                  "measured on five runs: a longer artifact or longer answers cost more, and "
+                  "a model with no price gives null. Pass --max-usd to stop the run at a "
+                  "dollar figure.", file=sys.stderr)
         return
 
     extractor, answerer, judge = _clients(args)
@@ -714,8 +718,8 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
     _add_spend_cap(parser)
 
 
-def _clients(args: argparse.Namespace):
-    """Build the three role clients, defaulting so roles never silently collapse."""
+def _role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
+    """The (model, provider) of each role, defaulting so roles never silently collapse."""
     from dokimi.novelty.client import default_judge
 
     if args.judge_model:
@@ -727,10 +731,31 @@ def _clients(args: argparse.Namespace):
             raise SystemExit(str(exc)) from None
     extract_model = args.extract_model or judge_model
     extract_provider = args.extract_provider or judge_provider
+    return {
+        "extractor": (extract_model, extract_provider),
+        "answerer": (args.model, args.provider),
+        "judge": (judge_model, judge_provider),
+    }
+
+
+def _estimate_usd(args: argparse.Namespace, n_tokens: int, by_role: dict[str, int]) -> float | None:
+    """The estimate's dollar figure; ``None`` when a role's model cannot be resolved or priced."""
+    from dokimi.novelty.tiers import estimate_usd
+
+    try:
+        models = _role_models(args)
+    except SystemExit:
+        return None
+    return estimate_usd(by_role, n_tokens, models)
+
+
+def _clients(args: argparse.Namespace):
+    """Build the three role clients, defaulting so roles never silently collapse."""
+    models = _role_models(args)
     return (
-        _client(extract_model, extract_provider, "extractor", args),
-        _client(args.model, args.provider, "answerer", args),
-        _client(judge_model, judge_provider, "judge", args),
+        _client(*models["extractor"], "extractor", args),
+        _client(*models["answerer"], "answerer", args),
+        _client(*models["judge"], "judge", args),
     )
 
 

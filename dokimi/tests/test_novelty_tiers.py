@@ -351,3 +351,92 @@ def test_a_tier_on_the_config_and_the_older_tier_argument_record_the_same(tmp_pa
     assert on_config["warnings"] == as_argument["warnings"]
     assert any("tier `triage` was overridden by flags (max_atoms)" in w
                for w in on_config["warnings"])
+
+
+#: Six measured runs of the 2026-10-21 skill scan (``out/*/L2`` and ``out/*/L3``): the
+#: artifact's spans and tokens, its tier, the atoms its extraction found, and what it counted
+#: by role and dollars. Numbers only; no third-party skill text.
+MEASURED_RUNS = [
+    # name, spans, tokens, tier, atoms, calls by role, usd
+    ("brand-guidelines", 44, 458, "standard", 27,
+     {"extractor": 156, "answerer": 104, "judge": 104}, 0.666236),
+    ("caveman-review", 42, 567, "standard", 23,
+     {"extractor": 172, "answerer": 90, "judge": 90}, 0.820205),
+    ("slides", 26, 355, "standard", 13,
+     {"extractor": 86, "answerer": 52, "judge": 52}, 0.375282),
+    ("ponytail-debt", 23, 371, "standard", 18,
+     {"extractor": 96, "answerer": 70, "judge": 70}, 0.470331),
+    ("rea-tool-design", 7, 198, "standard", 8,
+     {"extractor": 34, "answerer": 32, "judge": 32}, 0.164377),
+    ("tdd", 27, 846, "triage", 21,
+     {"extractor": 3, "answerer": 42, "judge": 42}, 0.163192),
+]
+_MODELS = {"extractor": ("us.anthropic.claude-sonnet-5-5", "amazon-bedrock"),
+           "answerer": ("us.anthropic.claude-haiku-5-5", "amazon-bedrock"),
+           "judge": ("us.anthropic.claude-sonnet-5-5", "amazon-bedrock")}
+
+
+def _measured_estimate(tier, spans, tokens):
+    return resolve_settings(tier, {}).estimate(
+        spans, n_tokens=tokens, budgets=(0.75, 0.5), n_arms=2)["estimate"]
+
+
+def test_the_expected_calls_land_within_a_quarter_of_each_measured_run():
+    # The old projection (one atom per two spans, no oracle escalations) was 37-69% under all
+    # six of these runs; the token rule and the escalation share bring every one within 20%.
+    for name, spans, tokens, tier, atoms, by_role, _ in MEASURED_RUNS:
+        estimate = _measured_estimate(tier, spans, tokens)
+        counted = sum(by_role.values())
+        assert abs(estimate["expected_calls"] - counted) <= 0.25 * counted, name
+        assert abs(estimate["n_atoms"] - atoms) <= 0.25 * atoms, name
+
+
+def test_the_expected_calls_sit_between_the_no_escalation_and_the_full_escalation_bounds():
+    for name, spans, tokens, tier, _, _, _ in MEASURED_RUNS:
+        estimate = _measured_estimate(tier, spans, tokens)
+        assert (estimate["total_calls"] <= estimate["expected_calls"]
+                <= estimate["total_calls_if_every_pair_escalates"]), name
+        assert estimate["expected_calls"] == sum(estimate["by_role"].values()), name
+
+
+def test_the_atom_count_takes_the_token_rule_when_the_artifact_has_more_tokens_than_spans():
+    everything = resolve_settings(None, {"all_atoms": True})
+    assert everything.estimate(7)["estimate"]["n_atoms"] == 3          # spans only
+    assert everything.estimate(7, n_tokens=198)["estimate"]["n_atoms"] == 7
+    # Short spans with many tokens: the span rule was the smaller of the two.
+    assert everything.estimate(20, n_tokens=900)["estimate"]["n_atoms"] == 36
+
+
+def test_the_dollar_profile_reproduces_the_measured_standard_runs():
+    # The profile priced at each run's own call counts lands within a quarter of what the
+    # run's `cost.usd` recorded. Triage is left out: its extraction calls write whole atom
+    # lists, which the flat profile does not model (see `call_tokens`).
+    from dokimi.novelty.tiers import estimate_usd
+
+    for name, _, tokens, tier, _, by_role, usd in MEASURED_RUNS:
+        if tier != "standard":
+            continue
+        priced = estimate_usd(by_role, tokens, _MODELS)
+        assert priced is not None, name
+        assert abs(priced - usd) <= 0.25 * usd, name
+
+
+def test_an_unpriced_model_gives_no_dollar_figure_rather_than_zero():
+    from dokimi.novelty.tiers import estimate_usd
+
+    unpriced = {"answerer": ("no-such-model-for-dokimi", "openai")}
+    assert estimate_usd({"answerer": 10}, 100, unpriced) is None
+
+
+def test_estimate_only_prints_the_expected_calls_and_a_dollar_figure(tmp_path, capsys):
+    root = tmp_path / "s"
+    root.mkdir()
+    (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                   encoding="utf-8")
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "standard",
+                  "--estimate-only")
+    args.func(args)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["estimate"]["expected_calls"] == sum(payload["estimate"]["by_role"].values())
+    assert payload["expected_usd"] > 0  # default models are priced; null would be a regression
+    assert payload["tokens"] > 0

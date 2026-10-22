@@ -14,6 +14,10 @@ unchanged; to recapture, from a ``main`` checkout's ``dokimi/`` with this file a
 JSON copied in::
 
     python -m tests.test_novelty_settings_parity --write
+
+The one intended change to an estimate is its bill (``estimate``, ``expected_usd``, the atom
+count it projects) and the stderr note that explains it; ``_kept_estimate`` compares
+everything else an estimate prints, which is the part a tier or a flag decides.
 """
 
 from __future__ import annotations
@@ -154,10 +158,31 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
     return steps
 
 
+# The stderr note the estimate prints, which W2 rewrote; everything before it is main's.
+_ESTIMATE_NOTES = ("The estimate counts calls", "expected_usd prices")
+
+
+def _kept_estimate(step: dict) -> dict:
+    """An estimate step without the bill and the note W2 changed; a refusal is kept whole."""
+    if not step["stdout"]:
+        return step
+    payload = json.loads(step["stdout"])
+    stderr = step["stderr"]
+    for note in _ESTIMATE_NOTES:
+        stderr = stderr.split(note)[0]
+    return {"status": step["status"], "calls": step["calls"], "stderr": stderr,
+            **{key: payload[key] for key in ("spans", "atom_cap", "tier", "caveat")}}
+
+
 @pytest.mark.parametrize("name", list(CASES))
 def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
-    assert _capture(name, tmp_path) == golden[name]
+    captured = _capture(name, tmp_path)
+    if name.startswith("estimate/"):
+        assert [_kept_estimate(step) for step in captured] == [
+            _kept_estimate(step) for step in golden[name]]
+    else:
+        assert captured == golden[name]
 
 
 def test_the_golden_cases_are_the_ones_this_module_runs():

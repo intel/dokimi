@@ -335,6 +335,27 @@ def _safe_completion_cost(resp: Any, model: str, litellm_model: Optional[str] = 
         return None
 
 
+def list_cost_usd(model: str, provider: str, prompt_tokens: int,
+                  completion_tokens: int) -> Optional[float]:
+    """Dollar cost of one call of these token counts at list price, or ``None``.
+
+    The price map :func:`_safe_completion_cost` reads, for a call that has not been
+    made: an estimate prices a token profile rather than a response. ``None`` when the
+    model has no entry, for the same reason as there.
+    """
+    from litellm import cost_per_token
+
+    litellm_model = resolve_model(model, provider)
+    try:
+        prompt, completion = cost_per_token(model=litellm_model, prompt_tokens=prompt_tokens,
+                                            completion_tokens=completion_tokens)
+    except Exception:
+        return None
+    if prompt + completion == 0.0 and not _has_price_entry(litellm_model, model):
+        return None
+    return float(prompt + completion)
+
+
 def _extract_usage(
     resp: Any,
     model: str,

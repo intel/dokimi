@@ -208,20 +208,25 @@ class RunSettings:
             )
         return out
 
-    def estimate(self, n_spans: int, *, budgets: tuple[float, ...] = (),
-                 n_arms: int = 2) -> dict:
+    def estimate(self, n_spans: int, *, n_tokens: int | None = None,
+                 budgets: tuple[float, ...] = (), n_arms: int = 2) -> dict:
         """The ``--estimate-only`` bill for an artifact of ``n_spans`` spans.
 
-        One atom per two spans is the density the study's extractor produced, capped at
-        ``max_atoms``. The forfeits assume the cap is reached, since the atom count is a
-        guess until extraction runs: an artifact with fewer atoms than the cap drops the
+        The atom count is the larger of one atom per two spans and one per
+        :data:`TOKENS_PER_ATOM` tokens (spans alone undercount: short spans, such as table
+        rows, yield an atom each), capped at ``max_atoms``. Without ``n_tokens`` only the
+        span rule applies. The forfeits assume the cap is reached, since the atom count is
+        a guess until extraction runs: an artifact with fewer atoms than the cap drops the
         sampled-rate forfeits.
         """
         cap = self.values["max_atoms"]
         expected = max(1, n_spans // 2)
+        if n_tokens is not None:
+            expected = max(expected, n_tokens // TOKENS_PER_ATOM)
         n_atoms = expected if cap is None else min(cap, expected)
         return {
             "spans": n_spans,
+            "tokens": n_tokens,
             "atom_cap": cap,
             # The full resolved settings, so the projection is the model `estimate_calls`
             # implements rather than a subset of it.
@@ -273,6 +278,61 @@ def resolve_settings(tier: str | None, flags: dict) -> RunSettings:
     return RunSettings(values=values, tier=tier, overrides=overrides)
 
 
+#: Atoms per artifact token for the atom count when the artifact's size is known. Measured
+#: on five standard runs (atoms per token: 1/17 to 1/40, median 1/25); the span rule alone
+#: gave 7 atoms for a 198-token skill that yielded 8, and 11 for one that yielded 18.
+TOKENS_PER_ATOM = 25
+
+#: The share of oracle pairs (carrier confirmation and shortening candidates) that the
+#: oracle escalated to a model. Measured on five standard runs: 0.32-0.70, median 0.51.
+ESCALATION_SHARE = 0.5
+
+#: Per call, by role: (input tokens besides the artifact, input tokens per artifact token,
+#: output tokens). Measured on the same five runs: the extractor and the answerer send the
+#: artifact with every call, the judge sends the answer and the question only.
+CALL_TOKENS: dict[str, tuple[int, int, int]] = {
+    "extractor": (130, 1, 190),
+    "answerer": (20, 1, 240),
+    "judge": (460, 0, 85),
+}
+
+
+def call_tokens(role: str, n_tokens: int) -> tuple[int, int]:
+    """Input and output tokens of one call of ``role`` on an artifact of ``n_tokens``.
+
+    The extractor's output is a flat figure: on a triage run its extraction calls write
+    about 1,700 tokens each, which this does not model, so the dollar figure runs low there.
+    """
+    base, per_token, out = CALL_TOKENS[role]
+    return base + per_token * n_tokens, out
+
+
+def estimate_usd(by_role: dict[str, int], n_tokens: int,
+                 models: dict[str, tuple[str, str]]) -> float | None:
+    """The expected dollar cost of ``by_role`` calls at list prices.
+
+    Prices come from litellm's price map (:func:`dokimi.llm.list_cost_usd`), the same map a
+    run's own ``cost_usd`` uses, so the figure is the run's price applied to a token profile.
+    ``None`` when any role's model has no price: an unpriced call is unknown, not free.
+
+    Args:
+        by_role: Calls per role, as :func:`estimate_calls` reports them.
+        n_tokens: Tokens in the artifact.
+        models: ``(model, provider)`` per role.
+    """
+    from dokimi.llm import list_cost_usd
+
+    total = 0.0
+    for role, calls in by_role.items():
+        model, provider = models[role]
+        tokens_in, tokens_out = call_tokens(role, n_tokens)
+        cost = list_cost_usd(model, provider, tokens_in, tokens_out)
+        if cost is None:
+            return None
+        total += calls * cost
+    return round(total, 6)
+
+
 def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2) -> dict:
     """Project the model-call bill before spending it.
 
@@ -283,6 +343,10 @@ def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2) -> dict:
     counting client over three real skills at all three tiers: the projection came within
     1-3% of the counted total at every point (see the PR that introduced tiers).
 
+    The oracle's pairs are the other term. Five measured standard runs escalated 36-73% of
+    them (median 51%) and the extractor's count equals the stage calls plus those
+    escalations, so ``expected_calls`` counts :data:`ESCALATION_SHARE` of the oracle pairs.
+
     Args:
         n_atoms: Atoms expected after the cap.
         settings: Resolved tier settings (``paraphrases``, ``reversals``, stage switches).
@@ -290,10 +354,13 @@ def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2) -> dict:
 
     Returns:
         ``{"n_atoms", "paired_probes", "reversal_probes", "probe_calls", "stage_calls",
-        "oracle_pairs", "total_calls", "total_calls_if_every_pair_escalates"}``.
+        "oracle_pairs", "total_calls", "total_calls_if_every_pair_escalates",
+        "by_role", "expected_calls"}``.
         ``total_calls`` assumes the retention oracle resolves every pair locally, which is
         what the validated 1-3% figure was measured on; the second total is the other end
-        of the range. The real figure also moves with batch sizes and retries.
+        of the range. ``expected_calls`` is the point figure between them, with ``by_role``
+        splitting it into the extractor (stages and oracle escalations), answerer and judge.
+        The real figure also moves with batch sizes and retries.
     """
     paired = n_atoms * (1 + (1 if settings.get("paraphrases") else 0))
     reversals = n_atoms if settings.get("reversals") else 0
@@ -318,6 +385,14 @@ def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2) -> dict:
         (n_atoms if settings.get("confirm_carriers") else 0)
         + (n_atoms * budgets * strategies if settings.get("shorten_artifact") else 0)
     )
+    escalated = round(ESCALATION_SHARE * oracle_pairs)
+    # Answer and grade are each one call per probe and arm; the extractor takes the stages
+    # and the escalations, which is how the measured runs split their calls.
+    by_role = {
+        "extractor": stage_calls + escalated,
+        "answerer": (paired + reversals) * n_arms,
+        "judge": (paired + reversals) * n_arms,
+    }
     return {
         "n_atoms": n_atoms,
         "paired_probes": paired,
@@ -327,4 +402,6 @@ def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2) -> dict:
         "oracle_pairs": oracle_pairs,
         "total_calls": probe_calls + stage_calls,
         "total_calls_if_every_pair_escalates": probe_calls + stage_calls + oracle_pairs,
+        "by_role": by_role,
+        "expected_calls": sum(by_role.values()),
     }
