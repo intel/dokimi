@@ -172,7 +172,7 @@ def test_one_shell_call_is_the_steps_it_chains():
     run = _run("r", ("Bash", {"command": cmd}, True))
     assert run.kinds() == ["Bash:sed", "Bash:sed", "Bash:grep", "Bash:sh"]
     assert [e.input.get("file_path") for e in run.events] == ["shop/pricing.py", "CHANGELOG.md", None, None]
-    assert [e.failed for e in run.events] == [False, False, False, True]  # the status is the last command's
+    assert all(e.failed for e in run.events)  # the trace does not say which chained command failed
     assert parse_run(_trace(("Bash", {"command": cmd})), shell="call").kinds() == ["Bash:sed"]
 
 
@@ -186,6 +186,8 @@ def test_shell_edit_satisfies_the_contract():
 @pytest.mark.parametrize("seg, want", [
     ("sed -i 's/a/b/' f.py", "f.py"), ("sed -n 1,5p f.py", ""), ("echo x > out.txt", "out.txt"),
     ("make 2>&1", ""), ("ls >/dev/null", ""), ("echo x | tee -a log.md", "log.md"),
+    ("echo 'a > b' | grep a", ""), ('python3 -c "print(1 > 0)"', ""), ("echo x>out.txt", "out.txt"),
+    ("make 2> err.log", ""),
 ])
 def test_written(seg, want):
     assert _written(seg) == want
@@ -206,3 +208,24 @@ def test_blocked_stop_hook_is_a_failed_step():
 def test_quoted_newlines_stay_one_command():
     cmd = 'cd /w && python3 -c "\nfrom a import b\n# note\nprint(b(1); 2)\n" && make check \\\n  -j2\n# done'
     assert _run("r", ("Bash", {"command": cmd})).kinds() == ["Bash:python3", "Bash:make"]
+
+
+TEST_CONTRACT = {"actions": {"test": {"tool": "Bash", "command": r"\b(pytest|make check)\b"}},
+                 "rules": [{"last_ok": "test"}]}
+
+
+def test_failed_chain_fails_the_check_not_only_the_last_command():
+    run = _run("r", ("Bash", {"command": "make check && git diff"}, True))
+    assert check_contract(run, parse_contract(TEST_CONTRACT)) == ["last_ok: test"]
+
+
+@pytest.mark.parametrize("cmd, broken", [
+    ("pytest -q | tail -5", ["last_ok: test (status hidden by a pipe)"]),
+    ("set -o pipefail; pytest -q | tail -5", []),
+    ("pytest -q 'a|b'", []),
+])
+def test_pipe_hides_the_check_status(cmd, broken):
+    run = _run("r", ("Bash", {"command": cmd}))
+    assert check_contract(run, parse_contract(TEST_CONTRACT)) == broken
+    assert check_contract(parse_run(_trace(("Bash", {"command": cmd})), shell="call"),
+                          parse_contract(TEST_CONTRACT)) == broken
