@@ -73,8 +73,9 @@ counted calls at nine (skill, tier) points, on content that did not escalate.
 `expected_usd` is a projection, not a ceiling (held-out runs ran up to 33% low): a call's price
 follows the artifact's length and the models. Pass `--max-usd <n>` to every step that calls a
 model: the run stops once its calls across all roles have cost that much (calls already in
-flight can overshoot it), and a call with no known price stops it too, since the cap cannot see that spend. One measured pair, a
-19k-token skill: triage 103 calls, about $1.80; `study` 1,901 calls, about $14.50.
+flight can overshoot it), and a call with no known price stops it too,
+since the cap cannot see that spend. One measured pair, a 19k-token skill: triage 103 calls,
+about $1.80; `study` 1,901 calls, about $14.50.
 
 ## 3. Triage: is there anything in here? (~100 calls)
 
