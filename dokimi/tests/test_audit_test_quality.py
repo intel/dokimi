@@ -468,6 +468,40 @@ def test_a_skip_check_next_to_a_weak_assert_is_not_type_only():
     assert flags["test_x"] == ()
 
 
+@pytest.mark.parametrize("source", [
+    # A skip test: the code under test chose not to call the patched dependency.
+    "@patch('m.llm')\ndef test_x(llm):\n    run(skip=True)\n    llm.assert_not_called()",
+    "@patch('m.llm', new_callable=AsyncMock)\ndef test_x(llm):\n    run(skip=True)\n"
+    "    llm.assert_not_awaited()",
+    "@patch('m.llm')\ndef test_x(llm):\n    run(skip=True)\n    assert not llm.called",
+    "@patch('m.llm')\ndef test_x(llm):\n    run(skip=True)\n    assert llm.call_count == 0",
+    "@patch('m.llm')\n@patch('m.cache')\ndef test_x(cache, llm):\n    run()\n"
+    "    cache.assert_called_once()\n    llm.assert_not_called()",
+    # call_count on what the code under test returned is data, not the patch.
+    "@patch('m.clock')\ndef test_x(clock):\n    stats = run()\n    assert stats.call_count == 3",
+    "@patch('m.clock', new=fake_clock)\ndef test_x(stats):\n    run()\n    assert stats.call_count == 3",
+    "def test_x():\n    with patch('m.clock'):\n        stats = run()\n    assert stats.called",
+])
+def test_a_not_called_check_or_a_count_on_data_is_not_a_mock_echo(source):
+    assert "mock_echo" not in _flags(source)["test_x"]
+
+
+@pytest.mark.parametrize("source", [
+    # The near-miss of the skip test: the patched mock was called, and nothing else is checked.
+    "@patch('m.llm')\ndef test_x(llm):\n    run()\n    assert llm.called",
+    "@patch('m.llm')\ndef test_x(llm):\n    run()\n    assert llm.call_count == 1",
+    "@patch('m.llm')\n@patch('m.cache')\ndef test_x(cache, llm, tmp_path):\n    run()\n"
+    "    assert llm.call_count == 1",
+    "def test_x():\n    with patch('m.llm') as llm:\n        run()\n    chat = llm.return_value.chat\n"
+    "    assert chat.call_count == 1",
+    "def test_x():\n    p = patch('m.llm')\n    llm = p.start()\n    run()\n    assert llm.called",
+    "def test_x(mocker):\n    llm = mocker.patch('m.llm')\n    run()\n    assert llm.await_count == 1",
+    "@patch('m.x', new=1)\ndef test_x(mock_llm):\n    run()\n    assert mock_llm.call_count == 1",
+])
+def test_a_called_check_on_a_patched_mock_is_still_a_mock_echo(source):
+    assert "mock_echo" in _flags(source)["test_x"]
+
+
 def test_tuple_of_mock_attrs_and_literals_is_mock_echo():
     """A tuple of mock attributes against literal expectations only reads the mock."""
     flags = _flags("""

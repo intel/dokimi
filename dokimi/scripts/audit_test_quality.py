@@ -14,8 +14,10 @@ test returned the wrong value:
   bare truthiness, a negation and ``isinstance`` against a dokimi class are
   outcomes (an absence, a flag, the class a dispatcher picked), so they pass.
 - ``mock_echo``: the test patches something and checks only *that* a mock was
-  called (``assert_called*``, ``.called``, ``.call_count``), never with what
-  (``assert_called_with`` and ``call_args`` carry the behaviour).
+  called (``assert_called*``, and ``.called``/``.call_count`` read off a patched
+  name or a mock), never with what (``assert_called_with`` and ``call_args`` carry
+  the behaviour). That a mock was *not* called (``assert_not_called``, ``not m.called``,
+  ``m.call_count == 0``) is a skip test's outcome, so it passes.
 - ``set_then_read``: every value assert reads ``x.attr == LIT`` straight off
   ``x = Call(attr=LIT)``: the object echoes its constructor.
 - ``constant_mirror``: every value assert pins a ``dokimi`` constant or an enum
@@ -87,9 +89,16 @@ _MOCK_VERIFY_UNCALLED = _MOCK_VERIFY_METHODS | {
     "assert_called_with", "assert_called_once_with", "assert_any_call", "assert_has_calls",
 }
 # "It was called" checks no outcome; "it was not called" is an absence, which is one.
-# Deliberately not flagged: assert_not_called in a skip test, a bare ensure_* call (no
-# assert; the absence of an error is the outcome) and call_count on a real object (data).
+# Deliberately not flagged: assert_not_called / assert_not_awaited (and `not m.called`,
+# `m.call_count == 0`) in a skip test, a bare ensure_* call (no assert; the absence of an
+# error is the outcome) and call_count read off an object that is not a patch or mock (data).
 _CALL_ONLY_METHODS = _MOCK_VERIFY_METHODS - {"assert_not_called", "assert_not_awaited"}
+_CALLED_FLAGS = frozenset({"called", "awaited"})
+_CALL_COUNTS = frozenset({"call_count", "await_count"})
+# The patch argument that names the replacement: patch(target, new), patch.object(o, a, new).
+_PATCH_NEW_POSITION = {"patch": 1, "object": 2}
+_MOCK_FACTORIES = frozenset({"MagicMock", "Mock", "AsyncMock", "NonCallableMock", "PropertyMock",
+                             "create_autospec"})
 # len(x) > 0 and its spellings only say "x is non-empty".
 _NONEMPTY_LEN = frozenset({(ast.Gt, 0), (ast.GtE, 1), (ast.NotEq, 0)})
 _NONEMPTY_LEN_REVERSED = frozenset({(ast.Lt, 0), (ast.LtE, 1), (ast.NotEq, 0)})
@@ -374,7 +383,106 @@ def _is_patching_call(node: ast.Call) -> bool:
     return _call_name(node) in _PATCH_CALLS
 
 
-def _is_mock_verify(test: ast.expr) -> bool:
+def _injected_patches(fn: _FuncDef) -> int:
+    """How many ``@patch`` decorators hand the test a mock argument (no ``new`` given)."""
+    count = 0
+    for dec in fn.decorator_list:
+        if not isinstance(dec, ast.Call):
+            continue
+        kind = "object" if _dotted(dec.func).endswith("patch.object") else _call_name(dec)
+        position = _PATCH_NEW_POSITION.get(kind)
+        if position is not None and len(dec.args) <= position and not any(
+                kw.arg == "new" for kw in dec.keywords):
+            count += 1
+    return count
+
+
+def _base(node: ast.expr) -> ast.expr:
+    """The expression under ``x.a``, ``x["k"]`` and ``x()``; ``self.m`` stays whole."""
+    while isinstance(node, ast.Attribute | ast.Subscript | ast.Call):
+        inner = node.func if isinstance(node, ast.Call) else node.value
+        if isinstance(node, ast.Attribute) and isinstance(inner, ast.Name) and inner.id == "self":
+            return node
+        node = inner
+    return node
+
+
+def _is_mock_source(value: ast.expr, mocks: set[str]) -> bool:
+    """Whether *value* is a mock: built by a mock factory or a patch, or read off a mock."""
+    while isinstance(value, ast.Attribute | ast.Subscript | ast.Call):
+        if isinstance(value, ast.Call) and (
+                _call_name(value) in _MOCK_FACTORIES or _is_patching_call(value)):
+            return True
+        if isinstance(value, ast.Attribute) and _dotted(value).startswith("self."):
+            return _dotted(value).split(".")[1] in mocks
+        value = value.func if isinstance(value, ast.Call) else value.value
+    return isinstance(value, ast.Name) and value.id in mocks
+
+
+def _mock_names(fn: _FuncDef, nodes: list[ast.AST]) -> frozenset[str]:
+    """Names bound to a patch or a mock: ``@patch`` arguments, ``with patch(...) as m``,
+    ``m = MagicMock()`` / ``mocker.patch(...)`` / ``p.start()``, the replacement handed to
+    a patch (``monkeypatch.setattr(mod, "f", fake)``), and names read off those
+    (``m = llm.return_value``). ``stats = run()`` binds data, not a mock."""
+    params = [a.arg for a in [*fn.args.posonlyargs, *fn.args.args]]
+    if params and params[0] in ("self", "cls"):
+        params = params[1:]
+    mocks = set(params[:_injected_patches(fn)])
+    for node in nodes:
+        if isinstance(node, ast.With | ast.AsyncWith):
+            for item in node.items:
+                if (item.optional_vars is not None and isinstance(item.context_expr, ast.Call)
+                        and _is_patching_call(item.context_expr)):
+                    mocks.update(_stored_names(item.optional_vars))
+        elif (isinstance(node, ast.Call) and _is_patching_call(node)
+              and _call_name(node) not in _MOCK_FACTORIES):
+            replacements = [*node.args[1:], *(kw.value for kw in node.keywords)]
+            mocks.update(r.id for r in replacements if isinstance(r, ast.Name))
+    assigns = [n for n in nodes if isinstance(n, ast.Assign | ast.AnnAssign) and n.value is not None]
+    changed = True
+    while changed:  # `m = p.start()` may come before or after `p = patch(...)` in walk order
+        changed = False
+        for node in assigns:
+            assert node.value is not None
+            if not _is_mock_source(node.value, mocks):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                name = (_dotted(target).split(".")[1] if _dotted(target).startswith("self.")
+                        else target.id if isinstance(target, ast.Name) else None)
+                if name is not None and name not in mocks:
+                    mocks.add(name)
+                    changed = True
+    return frozenset(mocks)
+
+
+def _on_mock(attr: ast.Attribute, mocks: frozenset[str]) -> bool:
+    """Whether ``x.called`` is read off a mock (a fixture named ``mock_*`` counts)."""
+    base = _base(attr.value)
+    name = (base.attr if isinstance(base, ast.Attribute)
+            else base.id if isinstance(base, ast.Name) else "")
+    return name in mocks or "mock" in name.lower()
+
+
+def _mock_read(node: ast.AST, mocks: frozenset[str]) -> bool:
+    return (isinstance(node, ast.Attribute) and node.attr in _MOCK_VERIFY_ATTRS
+            and _on_mock(node, mocks))
+
+
+def _is_absence(test: ast.expr, mocks: frozenset[str]) -> bool:
+    """``not m.called`` or ``m.call_count == 0``: the code under test chose not to call."""
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        return (isinstance(test.operand, ast.Attribute) and test.operand.attr in _CALLED_FLAGS
+                and _on_mock(test.operand, mocks))
+    operands = _eq_operands(test)
+    return operands is not None and any(
+        isinstance(a, ast.Attribute) and a.attr in _CALL_COUNTS and _on_mock(a, mocks)
+        and isinstance(b, ast.Constant) and b.value == 0
+        for a, b in (operands, operands[::-1])
+    )
+
+
+def _is_mock_verify(test: ast.expr, mocks: frozenset[str]) -> bool:
     """An assert that only reads whether a mock was called.
 
     ``assert m.call_count == 2 and vote.aggregate == 70.0`` also checks a value,
@@ -384,12 +492,17 @@ def _is_mock_verify(test: ast.expr) -> bool:
     Tuple comparisons like ``assert (m.call_count, out) == (1, 42)`` check both
     the mock call and the output, so they are not mock-only. But
     ``assert (m.call_count, m.called) == (1, True)`` is mock-only.
+
+    Only reads off *mocks* count: ``stats.call_count`` on a value the code under test
+    returned is data, and ``not m.called`` / ``m.call_count == 0`` is an absence.
     """
     if isinstance(test, ast.BoolOp):
         if isinstance(test.op, ast.And):
-            return all(map(_is_mock_verify, test.values))
+            return all(_is_mock_verify(v, mocks) for v in test.values)
         elif isinstance(test.op, ast.Or):
-            return any(map(_is_mock_verify, test.values))
+            return any(_is_mock_verify(v, mocks) for v in test.values)
+    if _is_absence(test, mocks):
+        return False
     # If this is a comparison with tuples, check if all tuple elements are mock attributes
     if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq):
         left_tuple = isinstance(test.left, ast.Tuple)
@@ -403,13 +516,12 @@ def _is_mock_verify(test: ast.expr) -> bool:
                     for elt in operand.elts:
                         if isinstance(elt, ast.Constant):
                             continue
-                        if not (isinstance(elt, ast.Attribute) and elt.attr in _MOCK_VERIFY_ATTRS):
+                        if not _mock_read(elt, mocks):
                             # Found a non-mock element in a tuple comparison
                             return False
                         saw_mock = True
             return saw_mock
-    return any(isinstance(n, ast.Attribute) and n.attr in _MOCK_VERIFY_ATTRS
-               for n in ast.walk(test))
+    return any(_mock_read(n, mocks) for n in ast.walk(test))
 
 
 def _is_raises(node: ast.expr) -> bool:
@@ -500,6 +612,7 @@ def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str],
                  value_helpers: frozenset[str]) -> set[str]:
     t = _collect(fn)
     inputs = _constructor_inputs(t.nodes)
+    mocks = _mock_names(fn, t.nodes)
     checks = bool(t.asserts or t.raises or t.assert_calls)
     # A test that calls a helper with a behavioral assert has behavioral checks even if its
     # direct asserts are weak; a helper that only checks a shape does not count.
@@ -515,15 +628,16 @@ def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str],
         for c in t.calls
     )
     # A call-only mock check next to weak asserts still checks no outcome.
-    outcome_asserts = [a for a in t.value_asserts if not (t.patching and _is_mock_verify(a.test))]
+    outcome_asserts = [a for a in t.value_asserts if not (t.patching and _is_mock_verify(a.test, mocks))]
     outcome_calls = [c for c in t.assert_calls if _call_name(c) not in _CALL_ONLY_METHODS]
     flags = {
         "type_only": any(_is_weak(a.test) for a in t.asserts)
         and not (outcome_asserts or t.raises or outcome_calls or helper_checks),
         "mock_echo": (
             t.patching and not t.raises and bool(t.asserts or t.assert_calls)
-            and all(_is_mock_verify(a.test) for a in t.asserts)
-            and all(_call_name(c) in _MOCK_VERIFY_METHODS for c in t.assert_calls)
+            and all(_is_mock_verify(a.test, mocks) for a in t.asserts)
+            # assert_not_called is a skip test's outcome, not an echo of the patch.
+            and all(_call_name(c) in _CALL_ONLY_METHODS for c in t.assert_calls)
         ),
         "set_then_read": _all_value_asserts(t, lambda e: _echoes_input(e, inputs)),
         "constant_mirror": _all_value_asserts(t, lambda e: _is_constant_mirror(e, names)),
