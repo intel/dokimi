@@ -474,7 +474,6 @@ def test_catalog_competitors_with_name_in_competitors_excludes_it_from_catalog(t
     assert set(names) == {"xpu", "cache"}, f"Expected xpu and cache, got {names}"
 
 
-
 def _stub_provider(monkeypatch, usage):
     """Replace the provider call the --model path makes; every reply picks card 1."""
     from dokimi import llm
@@ -501,13 +500,14 @@ def test_a_model_run_records_its_calls_tokens_and_cost(tmp_path, monkeypatch, ca
     from dokimi.metrics.usage import UsageRecord
 
     _stub_provider(monkeypatch, UsageRecord(prompt_tokens=100, completion_tokens=5,
-                                            cache_read_tokens=60, cost_usd=0.002))
+                                            cache_read_tokens=60, cache_write_tokens=30,
+                                            cost_usd=0.002))
     payload = _model_run(tmp_path)
     assert payload["cost"]["llm_calls"] == 2
     assert payload["cost"]["input_tokens"] == 200
     assert payload["cost"]["output_tokens"] == 10
     assert payload["cost"]["cache_read_tokens"] == 120
-    assert payload["cost"]["cache_write_tokens"] == 0
+    assert payload["cost"]["cache_write_tokens"] == 60
     assert payload["cost"]["usd"] == 0.004
     assert "$0.0040" in capsys.readouterr().out
 

@@ -447,6 +447,8 @@
         "llm_calls": {"type": "integer", "minimum": 0},
         "input_tokens": {"type": "integer", "minimum": 0},
         "output_tokens": {"type": "integer", "minimum": 0},
+        "cache_read_tokens": {"type": "integer", "minimum": 0},
+        "cache_write_tokens": {"type": "integer", "minimum": 0},
         "usd": {
           "type": ["number", "null"],
           "description": "null when any call had unknown pricing — distinct from a genuinely free run."

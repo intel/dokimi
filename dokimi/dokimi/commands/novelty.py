@@ -365,7 +365,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
                  else "USD not known: a call had no price")
         print(f"cost     {cost['llm_calls']} calls, {cost['input_tokens']} input / "
               f"{cost['output_tokens']} output tokens, cache read {cost['cache_read_tokens']} "
-              f"/ write {cost['cache_write_tokens']}, {spent}  [{row['model']}]")
+              f"/ write {cost['cache_write_tokens']}, {spent}")
     if self_derived:
         print("Self-derived queries: read as triage only.")
 
