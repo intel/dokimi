@@ -370,7 +370,9 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
           + ("  (R@3 needs more than 3 candidates to mean anything)"
              if lexical["recall_at_3"] is None else ""))
     if lexical["n_queries_scored"] < 5:
-        print(f"WARNING: only {lexical['n_queries_scored']} queries scored; one query moves "
+        n_scored = lexical["n_queries_scored"]
+        noun = "query" if n_scored == 1 else "queries"
+        print(f"WARNING: only {n_scored} {noun} scored; one query moves "
               "a rate by 20 points or more, so do not quote it as a routing rate")
     if "model" in payload:
         row = payload["model"]
