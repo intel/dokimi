@@ -77,6 +77,12 @@ jobs:
       - name: registry-drift-check
         if: ${{ !cancelled() }}
         run: python -m dokimi.config_check
+      # Not a gate: file length and complexity totals and the top offenders in
+      # the step summary, so the trend is visible per run. The gate (no growth
+      # past scripts/growth_baseline.json) is tests/test_growth_ratchet.py.
+      - name: File length and complexity report
+        if: ${{ !cancelled() }}
+        run: python scripts/check_growth.py --report --markdown >> "$GITHUB_STEP_SUMMARY"
       - name: guidance self-scan (L0)
         if: ${{ !cancelled() }}
         run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on-fail

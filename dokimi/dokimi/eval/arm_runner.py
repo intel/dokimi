@@ -23,6 +23,7 @@ from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
+from dokimi.eval.interactions import interaction_significance
 from dokimi.eval.arm_summary import (
     cost_summary, summarize_agentic_usage, summarize_skill_selection,
 )
@@ -618,7 +619,7 @@ class ArmRunner:
 
         # Interaction contrasts are their own hypothesis family, corrected
         # among themselves rather than pooled with the arm comparisons above.
-        interactions = arm_stats.interaction_significance(
+        interactions = interaction_significance(
             evaluations, arm_names, baseline_arm, correction=self.stats_correction
         )
         if interactions:

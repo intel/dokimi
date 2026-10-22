@@ -11,6 +11,7 @@ payload. No LLM call, no network beyond fetching the snapshot.
 
 from __future__ import annotations
 
+import posixpath
 from typing import Any
 
 from ..manifest import RepoManifest, match_glob
@@ -42,6 +43,13 @@ def _coverage_warnings(tree: RepoTree, manifest: RepoManifest, files: list[str])
     if not files:
         warnings.append("no guidance file to scan")
     return warnings, bool(missing) or not files
+
+
+def _is_build_input(path: str) -> bool:
+    """A Bazel input by exact name (``*.bzl``, ``*.bazelrc``, ``*.BUILD``, ``BUILD.*``, WORKSPACE[.bazel], MODULE.bazel) whose text the claim checks rely on."""
+    name = posixpath.basename(path)
+    return (name.endswith((".bzl", ".bazelrc", ".BUILD", ".BUILD.bazel")) or name.startswith("BUILD.")
+            or name in ("BUILD", "BUILD.bazel", "WORKSPACE", "WORKSPACE.bazel", "MODULE.bazel"))
 
 
 def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -82,7 +90,11 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
 
     warnings, incomplete = _coverage_warnings(tree, manifest, files)
     warnings += [f"guidance file not scanned: {f}: {why}" for f, why in skipped.items()]
-    incomplete = incomplete or bool(skipped)
+    rc_files = scan.cached("bazel", dict).get("unread", {})  # `.bazelrc` imports, whatever their names
+    unread = {f: why for f, why in sorted(scan.unread.items())
+              if "bazel" in scan.adapters and f not in skipped and (_is_build_input(f) or f in rc_files)}
+    warnings += [f"build file not scanned: {f}: {why}" for f, why in unread.items()]
+    incomplete = incomplete or bool(skipped) or bool(unread)
     sha = getattr(tree, "sha", None)
     return {
         "repo": {"id": manifest.id, "tree": tree.label, "sha": sha, "manifest": manifest.path},

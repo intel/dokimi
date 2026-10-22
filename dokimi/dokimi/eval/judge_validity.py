@@ -53,6 +53,7 @@ at the configured error rates.
 
 from __future__ import annotations
 
+import inspect
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -139,6 +140,13 @@ def _move(mean_drop: float) -> str:
     return f"{move:+.1f} ({lean}"
 
 
+class NoUsablePairs(ValueError):
+    """The answers yield no pair to score (too short, all no-ops, no stored material).
+
+    A user-facing condition, distinct from a ``ValueError`` raised by a bug.
+    """
+
+
 @dataclass
 class ValidityReport:
     """Per-variant and overall validity of one judge configuration."""
@@ -154,6 +162,19 @@ class ValidityReport:
     #: Set by :func:`run_sequential`: per graded variant, its SPRT decision,
     #: log-likelihood ratio and the pairs it took. ``None`` for a fixed-n run.
     sequential: Optional[Dict[str, Dict[str, Any]]] = None
+    #: What the judge was shown with each answer: ``none`` (the default; the
+    #: gate's original setting) or ``stored`` (the arm's treatment material from
+    #: the artifact's ``judge_materials`` — the setting arms runs score in).
+    context: str = "none"
+    #: With ``context="stored"``, eligible answers dropped because the file held
+    #: no verified material for their arm, counted over the whole pool before
+    #: ``--bases`` sampling; scoring them without it would mix the two settings.
+    n_without_context: int = 0
+    #: With ``context="stored"``, per arm: eligible answers kept (material
+    #: verified) and dropped (none), before ``--bases`` sampling, and the bases
+    #: sampled from the kept ones. In --sequential mode also ``scored``: the
+    #: bases that got rows before the SPRT stopped (``sampled`` is the pool built).
+    by_arm: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
     @property
     def scored(self) -> List[ValidityRow]:
@@ -287,6 +308,9 @@ class ValidityReport:
             "unmeasured_variants": unmeasured,
             "per_variant": per_variant,
             "n_noop": dict(sorted(self.n_noop.items())),
+            "context": self.context,
+            "n_without_context": self.n_without_context,
+            "by_arm": {a: dict(c) for a, c in sorted(self.by_arm.items())},
             "wall_seconds": self.wall_seconds,
         }
         if self.sequential is not None:
@@ -307,7 +331,9 @@ class ValidityReport:
             v = s["per_variant"][variant]
             if "sequential" in v:
                 why = (
-                    "answer pool exhausted — more answers, not a higher --max-bases, would settle it"
+                    "answer pool exhausted — more answers"
+                    + (" with verified material" if s.get("n_without_context") else "")
+                    + ", not a higher --max-bases, would settle it"
                     if v["sequential"].get("stopped_by") == "pool"
                     else "cap reached — true accuracy is inside the gate's indifference band"
                 )
@@ -338,6 +364,14 @@ class ValidityReport:
             f"  length-only  : {s['length_accuracy']:.3f}   (len(answer) alone — not a judge)",
             f"  tie rate     : {s['tie_rate']:.3f}   (saturated scale if high)",
             f"  no-op pairs  : {sum(s['n_noop'].values())} dropped (degradation left the text unchanged)",
+            *(["  context      : stored treatment material (as the arms run judged)"
+               + (f"; {s['n_without_context']} answers without verified material "
+                  "(counted before sampling)"
+                  if s["n_without_context"] else "")] if s.get("context") == "stored" else []),
+            *([f"  per arm      : {a}: {c['kept']} kept, {c['dropped']} dropped, "
+               + (f"{c['scored']} bases scored" if "scored" in c
+                  else f"{c.get('sampled', 0)} bases sampled")
+               for a, c in s["by_arm"].items()] if s.get("context") == "stored" else []),
         ]
         if s["mode"] == "sequential":
             t = s["sprt"]
@@ -427,14 +461,57 @@ def judge_scorer(judge: Any, *, draw: int = 0) -> Scorer:
     against the excerpt rather than judge the answer itself.
     """
 
-    def score(library: str, question: str, answer: str) -> float:
+    def score(library: str, question: str, answer: str, context: Optional[str] = None) -> float:
+        kwargs: Dict[str, Any] = {"library_name": library, "question": question, "answer": answer}
         if draw:
-            scores = judge.score_answer(library_name=library, question=question, answer=answer, draw=draw)
-        else:
-            scores = judge.score_answer(library_name=library, question=question, answer=answer)
-        return float(scores["aggregate"])
+            kwargs["draw"] = draw
+        if context is not None:
+            kwargs["context"] = context
+        return float(judge.score_answer(**kwargs)["aggregate"])
 
     return score
+
+
+def require_context_scorer(scorer: Callable[..., Any]) -> None:
+    """With a store, pairs are scored with ``context=``: refuse a scorer that cannot take it
+    before any pair is built, rather than failing every pair mid-run."""
+    try:
+        params = inspect.signature(scorer).parameters
+    except (TypeError, ValueError):  # a callable with no introspectable signature: let the call decide
+        return
+    takes_context = "context" in params or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+    if not takes_context:
+        raise NoUsablePairs(
+            "The scorer does not accept a `context=` argument, so it cannot judge stored "
+            "material: add a `context` parameter, or run without a store")
+
+
+def refuse_unpaired_arms(
+    pairs: Sequence[Dict[str, Any]], by_arm: Dict[str, Dict[str, int]], flag: str,
+    variants: Optional[Sequence[str]] = None,
+) -> None:
+    """Refuse before scoring if an arm with kept material has no pair left: the
+    sample can leave it out, or every one of its variants can be a no-op."""
+    # Only a graded pair covers an arm: padding feeds no gate decision. A run
+    # that requests no graded variant is left to fail as unmeasured.
+    graded = [v for v in (variants or DEGRADATIONS) if v not in NEUTRAL_VARIANTS]
+    paired_arms = {p.get("arm", "") for p in pairs if not graded or p["variant"] not in NEUTRAL_VARIANTS}
+    starved = sorted(a for a, c in by_arm.items() if c.get("kept", 0) > 0 and a not in paired_arms)
+    if not starved:
+        return
+    # A larger sample only helps an arm whose kept bases were not all drawn yet.
+    unsampled = [a for a in starved if by_arm[a].get("sampled", 0) < by_arm[a]["kept"]]
+    if unsampled:
+        raise NoUsablePairs(
+            f"Arm(s) {unsampled} have verified judge material but no base was scored, "
+            f"so the gate would not cover them: raise {flag}, or remove those arms from the answers file"
+        )
+    raise NoUsablePairs(
+        f"Arm(s) {starved} have every kept base sampled, and every requested graded variant "
+        f"({', '.join(graded or variants) if variants else 'all'}) left its text unchanged: a higher {flag} "
+        "cannot help; use other degradations, or remove those arms from the answers file"
+    )
 
 
 def run_validity(
@@ -450,21 +527,64 @@ def run_validity(
     progress: Optional[Callable[[int, int], None]] = None,
     concurrency: int = 1,
     pair_scorer: Optional[PairScorer] = None,
+    store: Optional[Any] = None,
 ) -> ValidityReport:
-    """Build degradation pairs from ``answers`` and measure the judge on them."""
+    """Build degradation pairs from ``answers`` and measure the judge on them.
+
+    With *store* (``JudgeContextStore.from_artifact(data)``) each answer is
+    judged with its arm's stored treatment material, as the arms run judged it.
+    """
+    if store is not None:
+        require_context_scorer(scorer)
     noop: Dict[str, int] = {}
     variants = list(variants or DEGRADATIONS)
-    pairs = _build(answers, noop, n_bases=n_bases, seed=seed, variants=variants, library=library)
+    by_arm: Dict[str, Dict[str, int]] = {}
+    built = _build(answers, noop, n_bases=n_bases, seed=seed, variants=variants, library=library,
+                   store=store, by_arm=by_arm)
+    pairs = built.pairs
+    if store is not None:
+        refuse_unpaired_arms(pairs, by_arm, "--bases", variants)
     report = evaluate_pairs(
         scorer, pairs, judge=judge, min_accuracy=min_accuracy, seed=seed, progress=progress,
         concurrency=concurrency, pair_scorer=pair_scorer,
     )
     report.n_noop = noop
     report.variants = variants
+    report.context = "stored" if store is not None else "none"
+    report.n_without_context = built.n_dropped
+    report.by_arm = by_arm
     return report
 
 
-def _build(answers, noop, *, n_bases, seed, variants, library) -> List[Dict[str, Any]]:
+def attach_stored_context(pairs: List[Dict[str, Any]], store: Any) -> List[Dict[str, Any]]:
+    """Give each pair its arm's stored material.
+
+    ``build_pairs`` has already dropped every base the store has no entry for,
+    so each pair here resolves. An arm whose stored
+    material is empty (``baseline``) is judged with the no-context marker, which
+    is what the arms run showed its judge for it.
+    """
+    from dokimi.eval.judge_context import NO_CONTEXT
+
+    kept = []
+    for pair in pairs:
+        text = store.get(pair["base_id"], pair.get("arm", ""))
+        kept.append({**pair, "context": text or NO_CONTEXT})
+    return kept
+
+
+@dataclass(frozen=True)
+class Built:
+    """Output of :func:`_build`: the pairs, and how many answers had no stored material."""
+
+    pairs: List[Dict[str, Any]]
+    n_dropped: int = 0
+
+
+def _build(answers, noop, *, n_bases, seed, variants, library, store=None,
+           by_arm=None) -> Built:
+    dropped_from_pairs: Dict[str, int] = {}
+    arms: Dict[str, Dict[str, int]] = by_arm if by_arm is not None else {}
     pairs = build_pairs(
         answers,
         noop=noop,
@@ -472,12 +592,29 @@ def _build(answers, noop, *, n_bases, seed, variants, library) -> List[Dict[str,
         seed=seed,
         variants=variants or tuple(DEGRADATIONS),
         library=library,
+        store=store,
+        dropped=dropped_from_pairs,
+        by_arm=arms,
     )
-    if not pairs and noop:
-        raise ValueError(f"Every degradation left the answer unchanged (no-op pairs: {noop})")
     if not pairs:
-        raise ValueError(
+        if noop:
+            raise NoUsablePairs(f"Every degradation left the answer unchanged (no-op pairs: {noop})")
+        if store is not None and dropped_from_pairs.get("total", 0):
+            raise NoUsablePairs(
+                "No answer has verified stored judge material (judge_materials) — the file was "
+                "written before arms runs kept it, or the material does not match its digests"
+            )
+        raise NoUsablePairs(
             "No usable answers found — need answers longer than the minimum "
             "length with a question_id and question text"
         )
-    return pairs
+    if store is not None:
+        lost = sorted(a for a, c in arms.items() if c["dropped"] and not c["kept"])
+        if lost:
+            raise NoUsablePairs(
+                f"Arm(s) {lost} have answers but no verified judge material, so the gate would "
+                "not cover them: repair the artifact's judge_materials, or remove those arms from the answers file"
+            )
+        pairs = attach_stored_context(pairs, store)
+        return Built(pairs, dropped_from_pairs.get("total", 0))
+    return Built(pairs)
