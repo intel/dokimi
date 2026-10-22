@@ -71,6 +71,9 @@ def provider_calls(monkeypatch):
     with ``DOKIMI_RESPONSE_CACHE``) and retry backoff does not sleep; the delays
     land in ``provider_calls.sleeps``.
     """
+    import time
+    from types import SimpleNamespace
+
     import litellm
 
     from dokimi import caching, llm
@@ -86,7 +89,8 @@ def provider_calls(monkeypatch):
     monkeypatch.setattr(
         "dokimi.questions.validator.OpenAI", lambda **kw: FakeOpenAI(ledger, **kw), raising=False
     )
-    monkeypatch.setattr("time.sleep", ledger.sleeps.append)
+    # Only llm.py's own sleep is swapped: patching ``time.sleep`` would swallow every sleeper.
+    monkeypatch.setattr(llm, "time", SimpleNamespace(time=time.time, sleep=ledger.sleeps.append))
     monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
     with llm.use_adapter(ledger):
         yield ledger
