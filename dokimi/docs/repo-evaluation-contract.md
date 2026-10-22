@@ -333,7 +333,9 @@ grader diffs the agent's changes from `start_sha`. With the arm come
 `arm_files`, the files it deleted, wrote or changed; for `guidance:rev:` an
 `arm_rev` object (`rev` as given, its `sha`, and `removed`: the base's guidance
 files with no counterpart at `<rev>`); for `patch:` an `arm_patch` object (the
-file's absolute `path` and full `sha256`).
+file's absolute `path` and full `sha256`). `args_if_present` lists the profile's
+`args_if_present` files the cell's command line carries (§6): `[]` when the
+workspace has none of them, and always outside the `all` tool mode.
 
 Step 3 removes history only. A fix that landed upstream before a model's
 training cutoff may still be known to the model, so reports split results by
