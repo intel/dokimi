@@ -15,6 +15,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from dokimi import caching
 from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatModel
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
@@ -540,18 +541,26 @@ class Judge:
             return True
 
         pinned = self.temperature is not None or self.seed is not None
-        last_exc: Exception = ValueError("judge retry loop did not execute")
-        for attempt in range(3):
+
+        def ask(attempt: int) -> Any:
             attempt_prompt = prompt
-            if attempt:
-                if attempt == 1:
-                    with self._usage_lock:
-                        self._usage_totals["redrawn_judgements"] += 1
-                if pinned:
-                    attempt_prompt = prompt + FORMAT_REMINDER.format(n=attempt)
-            response = self.llm.invoke(attempt_prompt, draw=draw * 3 + attempt, cache_if=parses)
+            if attempt and pinned:
+                attempt_prompt = prompt + FORMAT_REMINDER.format(n=attempt)
+            return self.llm.invoke(attempt_prompt, draw=draw * 3 + attempt, cache_if=parses)
+
+        # A rerun starts at the attempt whose reply is stored: the unparseable
+        # attempts before it were never stored and would be asked live again.
+        first, response = caching.first_replayed(3, ask) or (0, None)
+        last_exc: Exception = ValueError("judge retry loop did not execute")
+        for attempt in range(first, 3):
+            if attempt == max(first, 1):
+                with self._usage_lock:
+                    self._usage_totals["redrawn_judgements"] += 1
+            if response is None:
+                response = ask(attempt)
             raw = response.content if hasattr(response, "content") else str(response)
             self._accumulate_usage(getattr(response, "usage", None))
+            response = None
             try:
                 scores, aggregate = parse(raw)
                 break

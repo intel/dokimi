@@ -660,7 +660,11 @@ same cached reply read again. Draw 0 adds nothing to the key, so entries written
 before draws existed still hit. A judge reply that does not parse is neither
 stored nor, if an older run stored it, replayed; otherwise a question whose three
 attempts all failed once would fail on every later run without calling the
-model. A cold cache is therefore not needed for the retry to be real.
+model. A cold cache is therefore not needed for the retry to be real. A rerun of
+an answer the judge (single or panel) already scored makes no provider call even
+when the score came from a retry: the judge looks up the stored entry of every
+attempt before it asks the model, so the unparseable first reply, which was never
+stored, is not asked again.
 
 The cache is not judge-only. It applies to every caller of `llm_call` and
 `utils.get_llm`, which includes question generation (`questions/llm_gen.py`),

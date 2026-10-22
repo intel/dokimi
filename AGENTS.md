@@ -31,6 +31,9 @@ also holds a PR to:
 - Imports follow the layers in `dokimi/tests/test_import_architecture.py`: no
   upward import, no new cycle, LLM SDKs only in `dokimi.llm`, spawns only in
   `dokimi.process`. Its baselines only shrink.
+- No growth: a file over 800 lines (tests 1000) or a function over complexity 10
+  fails unless `scripts/growth_baseline.json` holds it, and then it may only
+  shrink. Split instead; after shrinking, `python scripts/check_growth.py --update`.
 - Tests that check behaviour: `tests/test_audit_test_quality.py` fails a test that only
   checks types, echoes its input, only checks a mock was called, asserts nothing or
   repeats another (`python scripts/audit_test_quality.py` lists them).
