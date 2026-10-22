@@ -264,6 +264,11 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
 
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
     """Can this artifact be selected against its competitors? Lexical floor, model on top."""
+    if args.repeats > 1 and not args.model:
+        raise SystemExit(
+            "--repeats needs --model: the lexical floor is deterministic, so repeating it "
+            "measures nothing"
+        )
     from dokimi.novelty.routing import (
         Candidate,
         RoutingInputError,
@@ -335,7 +340,8 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     if args.model:
         selector = _client(args.model, args.provider, "selector", args)
         payload["model"] = dict(
-            model_routing(candidates, queries, client=selector, gold=0, seed=args.seed),
+            model_routing(candidates, queries, client=selector, gold=0, seed=args.seed,
+                          repeats=args.repeats),
             queries_self_derived=self_derived,
         )
 
@@ -355,6 +361,16 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         print(f"model    selection {row['selection_rate']}  "
               f"({row['selection_rate_among_answered']} among answered; "
               f"{row['n_abstained']} abstained, {row['n_failed']} failed)  [{row['model']}]")
+        if row["n_abstained"]:
+            print(f"{row['n_abstained']} abstained or unparseable: the raw reply is under "
+                  "per_query[].raw_reply in the output")
+        if row["noise"]:
+            noise = row["noise"]
+            print(f"noise    {row['repeats']} repeats per query: mean agreement "
+                  f"{noise['mean_agreement']}, {noise['unstable_queries']} queries picked "
+                  f"differently across repeats; selection by repeat "
+                  f"{noise['selection_rate_by_repeat']}, half range "
+                  f"{noise['half_range']} (a crude sampling floor)")
         print("The model figure is an upper bound on harness behaviour: a harness that "
               "truncates descriptions in its own listing selects on less text.")
     if self_derived:
@@ -603,6 +619,10 @@ def register(sub, positive_int) -> None:
     routing_p.add_argument("--seed", type=int, default=0,
                            help="Seeds the per-query card permutation, so a position-biased "
                                 "model scores ~1/N and the run is reproducible")
+    routing_p.add_argument("--repeats", type=positive_int, default=1,
+                           help="Ask the model this many times per query, with the same card "
+                                "order each time, and report per-query agreement and the "
+                                "run-to-run noise floor. Needs --model; costs N times the calls")
     routing_p.add_argument("--out", default=None)
     _add_spend_cap(routing_p)
     routing_p.set_defaults(func=_stops_at_cap(cmd_novelty_routing))

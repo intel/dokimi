@@ -587,7 +587,7 @@ the absence of detectable corruption — not proof that the wordings are faithfu
 ```bash
 python cli.py novelty routing --artifact skill:path/to/skill \
     --competitors skill:sibling-a skill:sibling-b ... \
-    --queries queries.json [--model M]
+    --queries queries.json [--model M [--repeats N]]
 ```
 
 `--catalog <dir>` takes the competitors from a skill directory instead: every `SKILL.md`
@@ -606,6 +606,14 @@ Two numbers, reported side by side and never merged:
   `selection_rate`** — not picking anything is the routing failure — with
   `selection_rate_among_answered` beside it; a failed call is excluded from both and
   counted, and one failed query does not lose the rest.
+  Each abstention or unparseable pick keeps the model's raw reply under
+  `per_query[].raw_reply` (the first 2000 characters), so a decline can be read.
+  `--repeats N` asks each query N times with the same card order, so the spread between
+  repeats is the model's own sampling noise. The result's `noise` block gives each query's
+  agreement across its repeats (`per_query`), the selection rate of each repeat, and
+  `half_range`, half the gap between the highest and lowest of those rates: a crude noise
+  floor. Each repeat is a fresh sample, so under `DOKIMI_RESPONSE_CACHE` a repeat is not a
+  replay. Repeats need `--model`, and cost N times the calls.
 
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`

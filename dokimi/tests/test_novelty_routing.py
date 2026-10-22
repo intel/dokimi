@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -473,3 +474,177 @@ def test_catalog_competitors_with_name_in_competitors_excludes_it_from_catalog(t
     assert names.count("perf") == 0, "perf should be excluded from catalog"
     assert set(names) == {"xpu", "cache"}, f"Expected xpu and cache, got {names}"
 
+
+
+def _answer_as(name: str):
+    """A transport reply that picks the card called ``name``, wherever it is shown."""
+    def reply(prompt: str) -> str:
+        lines = prompt.split("TOOLS:", 1)[1].strip().splitlines()
+        return json.dumps({"pick": next(i + 1 for i, line in enumerate(lines)
+                                        if line.split(" ", 1)[1].startswith(name))})
+    return reply
+
+
+@pytest.mark.parametrize("reply", [
+    "I think the best one is the third.", '{"pick": 0}', '{"pick": 999}',
+])
+def test_a_declined_reply_is_recorded_verbatim(reply):
+    client = LLMClient(model="m", role="selector", transport=lambda p, s: (reply, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert row["abstained"] is True
+    assert row["raw_reply"] == reply
+
+
+def test_a_very_long_declined_reply_is_cut_at_the_recording_limit():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: ("x" * 5000, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert len(row["raw_reply"]) == 2000
+
+
+def test_repeats_below_one_are_refused():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: (json.dumps({"pick": 1}), None))
+    with pytest.raises(ValueError, match="at least 1"):
+        model_routing([PERF, TBB], ["q1"], client=client, repeats=0)
+
+
+def test_one_repeat_has_no_noise_block():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: (json.dumps({"pick": 1}), None))
+    result = model_routing([PERF, TBB], ["q1", "q2"], client=client)
+    assert (result["repeats"], result["noise"]) == (1, None)
+    assert [row["repeat"] for row in result["per_query"]] == [0, 0]
+
+
+def test_noise_reports_each_query_s_agreement_and_the_spread_between_repeats():
+    # Query 1 is answered PERF, PERF, TBB; query 2 is PERF three times. Calls run query by
+    # query, repeat by repeat, so this script is the order the model is asked in.
+    script = iter([PERF.name, PERF.name, TBB.name, PERF.name, PERF.name, PERF.name])
+
+    def transport(prompt: str, system: str | None):
+        return _answer_as(next(script))(prompt), None
+
+    client = LLMClient(model="m", role="selector", transport=transport)
+    result = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=3)
+    noise = result["noise"]
+    assert result["repeats"] == 3
+    assert [q["modal_pick"] for q in noise["per_query"]] == [PERF.name, PERF.name]
+    assert noise["per_query"][0]["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+    assert noise["per_query"][1]["agreement"] == 1.0
+    assert noise["per_query"][0]["n_correct"] == 2
+    assert noise["unstable_queries"] == 1
+    # Repeat 2 gets query 1 wrong: the rate goes 1.0, 1.0, 0.5, so the half range is 0.25.
+    assert noise["selection_rate_by_repeat"] == [1.0, 1.0, 0.5]
+    assert noise["half_range"] == 0.25
+    assert [row["repeat"] for row in result["per_query"]] == [0, 1, 2, 0, 1, 2]
+
+
+def test_a_query_that_failed_on_every_repeat_has_no_agreement_to_report():
+    def transport(prompt: str, system: str | None):
+        raise RuntimeError("provider down")
+
+    client = LLMClient(model="m", role="selector", transport=transport)
+    noise = model_routing([PERF, TBB], ["q1"], client=client, repeats=2)["noise"]
+    assert noise == {
+        "mean_agreement": None, "unstable_queries": 0,
+        "selection_rate_by_repeat": [None, None], "half_range": None,
+        "per_query": [{"query": "q1", "modal_pick": None, "agreement": None, "picks": [],
+                       "n_correct": 0}],
+    }
+
+
+def _completions(monkeypatch, tmp_path, replies: list[str]) -> list[list[dict]]:
+    """Route the real default transport into scripted completions, with the cache on."""
+    import litellm
+
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "responses"))
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    asked: list[list[dict]] = []
+
+    def completion(model, messages, api_key=None, **kw):
+        reply = replies[min(len(asked), len(replies) - 1)]
+        asked.append(messages)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=reply),
+                                     finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+
+    monkeypatch.setattr(litellm, "completion", completion)
+    return asked
+
+
+def test_with_the_response_cache_on_each_repeat_is_asked_again(monkeypatch, tmp_path):
+    # Identical prompts: without a draw index the cache would replay the first reply and
+    # every repeat would agree by construction, reporting a noise floor of zero.
+    asked = _completions(monkeypatch, tmp_path,
+                         [json.dumps({"pick": 1}), json.dumps({"pick": 2}),
+                          json.dumps({"pick": 3})])
+    client = LLMClient(model="m", provider="openai", role="selector")
+    result = model_routing([PERF, TBB, MKL], ["q1"], client=client, repeats=3)
+    assert result["n_failed"] == 0          # a refused draw would read as zero calls
+    assert len(asked) == 3
+    assert [row["picked_at"] for row in result["per_query"]] == [1, 2, 3]
+
+
+def test_a_repeat_run_through_the_cli_writes_the_noise_block(tmp_path, monkeypatch, capsys):
+    import dokimi.commands.novelty as novelty
+
+    def answer(prompt: str) -> str:
+        return _answer_as("perf")(prompt)
+
+    monkeypatch.setattr(
+        novelty, "_client",
+        lambda model, provider, role, args: LLMClient(
+            model=model, role=role, transport=lambda p, s: (answer(p), None)),
+    )
+    artifact = _skill(tmp_path, "perf", "record and annotate a perf profile")
+    competitor = _skill(tmp_path, "tbb", "parallelize C++ loops with task groups")
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["record a perf profile", "profile my binary"]),
+                       encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing", "--artifact", artifact, "--competitors", competitor,
+                  "--queries", str(queries), "--model", "m", "--repeats", "2",
+                  "--out", str(out))
+    args.func(args)
+    model = json.loads(out.read_text(encoding="utf-8"))["model"]
+    assert model["repeats"] == 2
+    assert model["noise"]["selection_rate_by_repeat"] == [1.0, 1.0]
+    assert model["noise"]["half_range"] == 0.0
+    assert "noise    2 repeats per query" in capsys.readouterr().out
+
+
+def test_repeats_without_a_model_are_refused_on_the_cli(tmp_path):
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--repeats", "3")
+    with pytest.raises(SystemExit, match="needs --model"):
+        args.func(args)
+
+
+def test_a_declining_model_is_named_on_the_cli_with_where_its_replies_are(
+        tmp_path, monkeypatch, capsys):
+    import dokimi.commands.novelty as novelty
+
+    monkeypatch.setattr(
+        novelty, "_client",
+        lambda model, provider, role, args: LLMClient(
+            model=model, role=role,
+            transport=lambda p, s: ("I would rather not choose.", None)),
+    )
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["record a perf profile"]), encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "perf", "record and annotate a perf profile"),
+                  "--competitors", _skill(tmp_path, "tbb", "parallelize C++ loops"),
+                  "--queries", str(queries), "--model", "m", "--out", str(out))
+    args.func(args)
+    model = json.loads(out.read_text(encoding="utf-8"))["model"]
+    assert model["per_query"][0]["raw_reply"] == "I would rather not choose."
+    assert "1 abstained or unparseable" in capsys.readouterr().out

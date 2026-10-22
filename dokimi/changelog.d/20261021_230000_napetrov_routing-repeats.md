@@ -1,0 +1,3 @@
+### Added
+
+- **`novelty routing --repeats N` and the raw reply of a declined pick** — `--repeats N` (with `--model`) asks the model N times per query, with the same card order each time, so the spread between repeats is the model's own sampling noise. The `model` block gains `noise`: each query's agreement across its repeats (`per_query`), the selection rate of each repeat, and `half_range`, half the gap between the highest and lowest of those rates, a crude noise floor. Each repeat is a fresh sample, so with `DOKIMI_RESPONSE_CACHE` set a repeat is no longer a replay of the first reply. Every abstention or unparseable pick now keeps the model's raw reply under `per_query[].raw_reply` (first 2000 characters). `LLMClient.text` takes a `draw` index for the same reason.
