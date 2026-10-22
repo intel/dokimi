@@ -38,10 +38,12 @@ env_allow:
   - LANG
   - SYSTEMROOT
   - CODEX_API_KEY
-  # OPENAI_API_KEY and OPENAI_BASE_URL are forwarded although `codex exec` may not read
-  # them: nothing in dokimi reads endpoint_env, so setting OPENAI_BASE_URL does not
-  # redirect Codex. Another endpoint is routed with a provider in config_files
-  # (config.toml), authenticated by CODEX_API_KEY; a key-based run needs the key.
+  # `codex exec` reads neither OPENAI_API_KEY nor OPENAI_BASE_URL (they are forwarded for
+  # a profile copy that uses them), and nothing in dokimi reads endpoint_env, so setting
+  # OPENAI_BASE_URL does not redirect Codex. Another endpoint is routed with a provider in
+  # config_files (config.toml), and the provider must name the variable that holds its key:
+  # `env_key = "CODEX_API_KEY"`. Without env_key Codex sends no Authorization header
+  # (401 "Missing bearer").
   - OPENAI_API_KEY
   - OPENAI_BASE_URL
   - http_proxy

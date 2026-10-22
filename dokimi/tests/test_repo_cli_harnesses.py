@@ -600,3 +600,11 @@ def test_a_missing_bin_companion_stops_before_any_agent_runs(tmp_path, monkeypat
         args.func(args)
     assert "needs fake-helper beside its executable" in capsys.readouterr().err
     assert not any("-p" in s.argv for s in runner.specs) and not list(out.glob("b1/*/result.json"))
+
+
+@pytest.mark.parametrize("name", ["codex", "codex-review"])
+def test_the_codex_profiles_tell_a_provider_in_config_files_to_name_its_key_variable(name):
+    """``codex exec`` sends no Authorization header for a provider without ``env_key`` (401 "Missing bearer")."""
+    assert 'env_key = "CODEX_API_KEY"' in Path(load_profile(name).path).read_text()
+    contract = (Path(__file__).resolve().parents[1] / "docs/repo-evaluation-contract.md").read_text()
+    assert 'env_key = "CODEX_API_KEY"' in contract.replace("`", "")

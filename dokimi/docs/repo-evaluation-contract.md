@@ -575,7 +575,8 @@ the harness, so `--bin` names the native binary the launcher starts
 copy its profile: for Copilot, set the `COPILOT_PROVIDER_*` variables (and
 `COPILOT_OFFLINE=true` to skip GitHub sign-in); for Codex, add a `config.toml`
 under `config_files` that defines a `model_providers` entry with the endpoint's
-`base_url` and `wire_api = "responses"` and selects it with `model_provider`.
+`base_url`, `wire_api = "responses"` and `env_key = "CODEX_API_KEY"` (the variable that
+holds its key; without it Codex sends no `Authorization` header) and selects it with `model_provider`.
 Add the endpoint's host to `egress` in both cases. The hosted pull-request
 reviewers (Copilot code review, `@codex review`, CodeRabbit) are not CLIs and
 have no profile.
