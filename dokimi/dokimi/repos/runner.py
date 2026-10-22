@@ -223,7 +223,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
               "model_resolved": meta.get("model_resolved"), "rep": rep,
               "harness": opts.profile.name, "harness_version": meta["harness_version"],
               "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "grade": grade}
-    if meta.get("skills"):  # without a trace the agent used none of them
+    if meta.get("skills"):  # without a trace the usage is unmeasured, not zero
         record["skills"] = skills if skills is not None else skill_unmeasured(
             [s["name"] for s in meta["skills"]], task.expected_skill)
     try:
