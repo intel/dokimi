@@ -460,3 +460,30 @@ def test_render_html_embeds_data_safely(built: Path, capsys: pytest.CaptureFixtu
     assert loaded["implementation"]["D002"]["summary"] == "open"
     assert next(r for r in loaded["records"] if r["id"] == "X009")["body"].startswith("</script>")
     assert "/*DATA*/" not in page
+
+
+def test_render_html_escapes_comment_opener(built: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    _write(built, "experiment", "X009", "title: Run 9\nidea: I001\nhypothesis: H\noutcome: planned\n",
+           "<!--<script>")
+    assert rr.main(["--root", str(built), "render", "--html"]) == 0
+    page = capsys.readouterr().out
+    data = page.split('type="application/json">', 1)[1].split("</script>", 1)[0]
+    assert "<!--" not in data and "<script" not in data
+    assert next(r for r in json.loads(data)["records"] if r["id"] == "X009")["body"] == "<!--<script>"
+
+
+def test_render_live_needs_html(built: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        rr.main(["--root", str(built), "render", "--live"])
+    assert exc.value.code == 2
+    assert "--live needs --html" in capsys.readouterr().err
+
+
+def test_live_warns_when_github_gives_no_state(built: Path, capsys: pytest.CaptureFixture[str],
+                                               monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(rr, "github_state", lambda url: calls.append(url))
+    records, _ = rr.load(built)
+    rr.implementation(records, live=True)
+    assert "--live got no state from GitHub" in capsys.readouterr().err
+    assert len(calls) == len(set(calls))  # one lookup per URL

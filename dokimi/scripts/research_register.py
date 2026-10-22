@@ -217,7 +217,7 @@ def github_state(url: str) -> str | None:
     try:
         out = subprocess.run(["gh", "api", f"repos/{repo}/issues/{number}",
                               "--jq", "[.state, .pull_request.merged_at] | @tsv"],
-                             capture_output=True, text=True, check=False, timeout=60)
+                             capture_output=True, text=True, check=False, timeout=20)
     except (OSError, subprocess.TimeoutExpired):
         return None  # gh is not installed or the network is down
     state, _, merged = out.stdout.strip().partition("\t")
@@ -245,16 +245,25 @@ def implementation(records: dict[str, Record], live: bool = False) -> dict[str, 
     proposed, closed when all are closed, and none without an implref.
     """
     refs: dict[str, list[dict[str, Any]]] = {}
+    cache: dict[str, str | None] = {}
+    asked = 0
     for record in sorted(records.values(), key=lambda r: r.id):
         if record.type != "implref":
             continue
-        states = [github_state(u) for u in record.fields["links"]] if live else []
+        for url in record.fields["links"] if live else []:
+            if url not in cache:
+                cache[url] = github_state(url)
+                asked += 1
+        states = [cache[u] for u in record.fields["links"]] if live else []
         known = [s for s in states if s]
         # Several links: the most advanced one says how far the work got.
         live_state = next((s for s in ("merged", "open", "closed") if s in known), None)
         refs.setdefault(record.fields["decision"], []).append(
             {"id": record.id, "title": record.fields["title"], "status": record.fields["status"],
              "live": live_state, "links": record.fields["links"]})
+    if live and asked and not any(cache.values()):
+        print("warning: --live got no state from GitHub (is gh installed and logged in?); "
+              "the recorded status is shown instead", file=sys.stderr)
     result = {}
     for rid, record in sorted(records.items()):
         if record.type != "decision":
@@ -389,8 +398,9 @@ HTML_TEMPLATE = Path(__file__).with_name("research_map.html")
 def render_html(data: dict[str, Any], impl: dict[str, dict[str, Any]]) -> str:
     """One self-contained page: collapsible map, search, filters, table. No network needed."""
     payload = json.dumps({**data, "implementation": impl}, ensure_ascii=False)
-    # A record body cannot close the script element that carries it.
-    payload = payload.replace("</", "<\\/")
+    # A record body cannot close the script element that carries it, nor open a comment
+    # (<!--) that switches the HTML parser into its double-escaped script state.
+    payload = payload.replace("<", "\\u003c")
     return HTML_TEMPLATE.read_text(encoding="utf-8").replace("/*DATA*/null", payload)
 
 
@@ -416,6 +426,8 @@ def main(argv: list[str] | None = None) -> int:
                      help="also GitHub drift and open issues no record links to (needs gh)")
     args = parser.parse_args(argv)
 
+    if args.command == "render" and args.live and not args.html:
+        parser.error("render --live needs --html (only the HTML map shows live state)")
     records, errors = load(args.root)
     schema = json.loads((args.root / SCHEMA.name).read_text(encoding="utf-8"))
     errors += check(records, schema)
