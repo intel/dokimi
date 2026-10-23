@@ -199,6 +199,8 @@ def _write_target(path: Path) -> Path:
 def load_artifact(kind: str, path: Path, *, validate: bool = True) -> dict:
     """Read and (optionally) validate an artifact from ``path``."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Artifact must be a JSON object, got {type(data).__name__}")
     if validate:
         validate_artifact(kind, data)
     return data

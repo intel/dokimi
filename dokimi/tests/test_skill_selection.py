@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -249,6 +250,57 @@ def test_trigger_set_cli_rejects_a_label_path_that_never_resolves(tmp_path, cata
     with pytest.raises(SystemExit, match="resolves for none of 1 questions"):
         _run_cli(["catalog", "trigger-set", "--catalog", str(catalog),
                   "--questions", f"{qfile}=@metadata.skil_under_test", "--out", str(tmp_path / "o.json")])
+
+
+@pytest.mark.parametrize(
+    "content, reason",
+    [
+        (None, "No such file"),
+        ("{not json", "Expecting"),
+        (b'["\xe9"]', "utf-8"),  # \xe9 is latin-1, not UTF-8
+        (..., "Is a directory|Permission denied|Access is denied"),
+    ],
+    ids=["missing", "malformed", "not-utf8", "directory"],
+)
+def test_trigger_set_exits_2_with_a_message_on_an_unreadable_questions_file(
+    tmp_path, catalog, monkeypatch, capsys, content, reason
+):
+    from dokimi import cli
+
+    qfile = tmp_path / "q.json"
+    if content is ...:
+        qfile.mkdir()
+    elif isinstance(content, str):
+        qfile.write_text(content, encoding="utf-8")
+    elif content is not None:
+        qfile.write_bytes(content)
+    out = tmp_path / "o.json"
+    monkeypatch.setattr("sys.argv", ["dokimi", "catalog", "trigger-set", "--catalog", str(catalog),
+                                     "--questions", f"{qfile}=none", "--out", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2  # bad input; 1 is the verdict of the gates
+    err = capsys.readouterr().err
+    prefix = f"Error: --questions {qfile}: "
+    assert err.startswith(prefix)
+    assert len(err.strip()) > len(prefix)
+    assert re.search(reason, err)
+    assert err.count(qfile.name) == 1  # the path is named once, by the prefix
+    assert not out.exists()
+
+
+def test_read_json_input_reports_a_json_recursion_error_as_an_input_error(tmp_path, monkeypatch):
+    from dokimi.utils import InputError, read_json_input
+
+    qfile = tmp_path / "q.json"
+    qfile.write_text("[]", encoding="utf-8")
+
+    def too_deep(_text):
+        raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
+
+    monkeypatch.setattr("json.loads", too_deep)  # CPython 3.14 parses 100k levels, so it cannot trigger this
+    with pytest.raises(InputError, match="--questions .*q.json: maximum recursion depth exceeded"):
+        read_json_input(qfile, flag="--questions")
 
 
 def test_skill_catalog_rejects_tool_name_collisions_and_long_names(tmp_path):
