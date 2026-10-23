@@ -68,7 +68,7 @@ def _read_questions_file(path: str):
 
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
+    except (OSError, ValueError, RecursionError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
         raise SystemExit(f"--questions {path}: {exc}") from exc
 
 
