@@ -755,7 +755,9 @@ a threshold on `added` flipped its verdict on up to 24% of artifacts at a 0.25 p
 blocking novelty check would be a blocking opinion about probe count. Checks whose input a run did
 not produce are marked `measured: false` at `info` severity and listed in the verdict's `not_measured`
 (rendered as `PASS (k not measured)`) rather than passed silently, so a skipped stage never reads as a
-cleared one; failing `warn`-severity checks and the artifact's own `warnings` also surface in the
+cleared one.
+A cell with no check measured at all is `NOT MEASURED`, not `PASS`.
+Failing `warn`-severity checks and the artifact's own `warnings` also surface in the
 scorecard's top-level `warnings`.
 
 ## Cost, and how it is kept down

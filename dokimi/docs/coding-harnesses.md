@@ -446,7 +446,10 @@ a verdict. The rules mirror intel/skills' `tools/check_harbor_job.py`:
 | no trial file (with or without the job's), more than one trial, or not a JSON object | errored |
 
 An errored cell is out of the pass-rate denominator and the paired test, as
-for `docker-*` and BenchFlow. `metrics.n_trials` counts the trial files and
+for `docker-*` and BenchFlow. When every cell of a `tasks run` errored, it
+still writes the artifact and the report, then exits 1 as `incomplete`
+(`0 scored, N errored of N cells`); a run with some cells scored exits 0 and
+prints the errored count per harness. `metrics.n_trials` counts the trial files and
 `metrics.result_json` names the one read. A `harbor` that `dokimi` kills at
 the task budget is a failed cell (reward 0, returncode 124), as above.
 

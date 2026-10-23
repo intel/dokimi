@@ -100,6 +100,18 @@ def test_a_run_answered_by_another_model_is_recorded_and_reported(setup, monkeyp
     assert summary["model_mismatch"] == {"m-1": ["m-0"]}
 
 
+def test_result_json_records_the_tasks_own_score_max_and_none_for_a_gate_task(setup):
+    task_json = setup["root"] / ".agent-eval/tasks/review_add/task.json"
+    task = json.loads(task_json.read_text())
+    task["score"]["max"] = 4.0  # not the 1.0 default of `repo compare`
+    task_json.write_text(json.dumps(task))
+    _run(setup, "--arm", "guidance:raw", source=str(setup["root"]))
+    batch = setup["out"] / "b1"
+    review = json.loads((batch / "review_add__guidance-raw__m-1__r1/result.json").read_text())
+    gate = json.loads((batch / "fix_add__guidance-raw__m-1__r1/result.json").read_text())
+    assert review["score_max"] == 4.0 and gate["score_max"] is None
+
+
 @pytest.mark.outcome("cjm-repo-run-resume")
 def test_already_graded_cells_are_skipped_unless_forced(setup, capsys):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
@@ -127,6 +139,7 @@ def test_score_only_task_and_missing_cells(setup, monkeypatch, capsys):
     batch = setup["out"] / "b1"
     review = json.loads((batch / "review_add__guidance-raw__m-1__r1/result.json").read_text())
     assert review["grade"]["score_only"] and review["grade"]["score"] == 1.0 and review["grade"]["success"] is None
+    assert review["score_max"] == 1.0  # the task's score.max, for `repo compare`'s headroom
     (batch / "fix_add__guidance-raw__m-1__r3/result.json").unlink()   # crashed before it finished
     shutil.rmtree(batch / "fix_add__guidance-raw__m-1__r2")            # never started (only in the plan)
     summary = _report(setup)

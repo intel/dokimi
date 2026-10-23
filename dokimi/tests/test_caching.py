@@ -260,6 +260,55 @@ def test_entry_without_text_is_a_miss(monkeypatch, tmp_path):
     assert caching.load_response(key) is None
 
 
+@pytest.mark.parametrize(
+    "payload",
+    ["[]", "null", "42", '"answer"', '{"text": 7, "usage": {}}',
+     '{"text": "answer", "usage": [1, 2]}', '{"text": "answer", "usage": "free"}',
+     '{"text": "answer", "usage": ""}', '{"text": "answer", "usage": 0}',
+     '{"text": "answer", "usage": []}', '{"text": "answer", "usage": false}',
+     '{"text": "answer", "usage": {"prompt_tokens": "9"}}',
+     '{"text": "answer", "usage": {"n_calls": null}}',
+     '{"text": "answer", "usage": {"cost_usd": "free"}}',
+     '{"text": "answer", "usage": {"latency_sec": true}}',
+     '{"text": "answer", "usage": {"model": 5}}',
+     '{"text": "answer", "usage": {"prompt_tokens": NaN}}'],
+)
+def test_entry_of_the_wrong_shape_is_a_miss_not_a_crash(monkeypatch, tmp_path, payload):
+    """Valid JSON that is not a ``{"text": str, "usage": {...}}`` entry is corrupt too."""
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
+    (tmp_path / "shape.json").write_text(payload, encoding="utf-8")
+    assert caching.load_response("shape") is None
+
+
+@pytest.mark.parametrize("payload", ['{"text": "answer"}', '{"text": "answer", "usage": null}'])
+def test_entry_without_usage_still_replays(monkeypatch, tmp_path, payload):
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
+    (tmp_path / "bare.json").write_text(payload, encoding="utf-8")
+    assert caching.load_response("bare") == ("answer", UsageRecord(replayed=True))
+
+
+def test_usage_values_of_every_field_type_replay(monkeypatch, tmp_path):
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
+    usage = {"prompt_tokens": 3, "total_tokens": 3.0, "cost_usd": None, "latency_sec": 1,
+             "ttft_sec": 0.5, "model": "m", "n_calls": 1}
+    (tmp_path / "ok.json").write_text(json.dumps({"text": "a", "usage": usage}), encoding="utf-8")
+    hit = caching.load_response("ok")
+    assert hit == ("a", UsageRecord(**usage, replayed=True))
+
+
+def test_null_text_is_replayed_not_a_miss(monkeypatch, tmp_path):
+    """A reply without content is stored as null text and must still replay."""
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
+    (tmp_path / "empty.json").write_text(
+        json.dumps({"text": None, "usage": {}}), encoding="utf-8"
+    )
+    hit = caching.load_response("empty")
+    assert hit is not None
+    text, usage = hit
+    assert text is None
+    assert usage.replayed is True
+
+
 def test_unknown_usage_fields_are_dropped_not_fatal(monkeypatch, tmp_path):
     """An entry written by a newer version still has a usable answer in it."""
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))

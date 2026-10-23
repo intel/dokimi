@@ -14,6 +14,15 @@ from typing import Any, Dict
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 
+def _load_questions_json(path: str):
+    """Parse the questions file, or exit 1 naming it when it is missing, unreadable or not JSON."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError) as exc:
+        print(f"Error: cannot read questions from {path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def _extract_questions(questions_data, source: str) -> list:
     """Return the question list from object- or list-shaped JSON, or exit cleanly."""
     if isinstance(questions_data, dict):
@@ -39,11 +48,7 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
         print(f"Error: unknown reviewers: {unknown}. Valid: {DEFAULT_REVIEWERS}", file=sys.stderr)
         sys.exit(1)
 
-    try:
-        questions_data = json.loads(Path(args.questions).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        print(f"Error: file not found: {args.questions}", file=sys.stderr)
-        sys.exit(1)
+    questions_data = _load_questions_json(args.questions)
 
     # Extract question strings from various JSON shapes. Prefer explicit keys by
     # presence (not truthiness) so an existing-but-empty list isn't overridden.
@@ -175,7 +180,7 @@ def cmd_questions_analyze(args: argparse.Namespace) -> None:
     from dokimi.questions.quality_analyzer import QuestionQualityAnalyzer
     from dokimi.questions.normalizer import normalize_questions
 
-    questions_data = json.loads(Path(args.questions).read_text(encoding="utf-8"))
+    questions_data = _load_questions_json(args.questions)
     raw = _extract_questions(questions_data, args.questions)
     if raw and isinstance(raw[0], dict):
         normalized = normalize_questions(raw)
