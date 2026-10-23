@@ -25,22 +25,29 @@ def _read_json(path: str):
     """The parsed JSON at ``path``, or exit 2 (bad input, not a failed gate) naming the file."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError) as exc:  # JSONDecodeError, bad UTF-8, deep nesting
+    except OSError as exc:
         print(f"Error: cannot read {path}: {exc}", file=sys.stderr)
-        sys.exit(2)
+    except (ValueError, RecursionError) as exc:  # JSONDecodeError, bad UTF-8, deep nesting
+        print(f"Error: {path} is not valid JSON: {exc}", file=sys.stderr)
+    sys.exit(2)
 
 
-def _load_json_object(path: str, key: Optional[str] = None) -> dict:
+def _load_json_object(path: str, key: str, kind: type = dict) -> dict:
     """The JSON object at ``path``, or exit 2 naming the file.
 
-    With ``key``, the object must also hold an object under that key.
+    The object must also hold a ``kind`` (object or list) under ``key``.
     """
     data = _read_json(path)
-    if not isinstance(data, dict) or (key is not None and not isinstance(data.get(key), dict)):
-        what = "a JSON object" if key is None else f"a JSON object with a `{key}` object"
+    if not isinstance(data, dict) or not isinstance(data.get(key), kind):
+        what = f"a JSON object with a `{key}` {'list' if kind is list else 'object'}"
         print(f"Error: {path} is not {what}", file=sys.stderr)
         sys.exit(2)
     return data
+
+
+def _judge_name(doc: dict, path: str) -> str:
+    summary = doc.get("summary")
+    return summary.get("judge", Path(path).stem) if isinstance(summary, dict) else Path(path).stem
 
 
 def _load_answers(path: str):
@@ -354,9 +361,9 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         report.measures.append(m)
 
     # Read every result file before the first judge call, so a bad path costs no paid calls.
-    pairwise = [(path, _load_json_object(path)) for path in args.pairwise or []]
-    checklists = [(path, _load_json_object(path)) for path in args.checklist or []]
-    validity = [_load_json_object(v, key="summary")["summary"] for v in args.validity or []]
+    pairwise = [(path, _load_json_object(path, "verdicts")) for path in args.pairwise or []]
+    checklists = [(path, _load_json_object(path, "questions", list)) for path in args.checklist or []]
+    validity = [_load_json_object(v, "summary")["summary"] for v in args.validity or []]
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     if specs:
         _require_arms(args.answers, records, "cross-judge --judges")
@@ -378,11 +385,9 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
                 store=materials,
             ))
     for path, pw in pairwise:
-        name = (pw.get("summary") or {}).get("judge", Path(path).stem)
-        report.measures.append(pairwise_measure(pw, name, baseline))
+        report.measures.append(pairwise_measure(pw, _judge_name(pw, path), baseline))
     for path, ck in checklists:
-        name = (ck.get("summary") or {}).get("judge", Path(path).stem)
-        report.measures.append(coverage_measure(ck, name))
+        report.measures.append(coverage_measure(ck, _judge_name(ck, path)))
     answers_model = data.get("model") if isinstance(data, dict) else None
     for v in validity:
         if v.get("answers_model") and answers_model and v["answers_model"] != answers_model:

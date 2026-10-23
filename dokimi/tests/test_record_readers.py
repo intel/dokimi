@@ -520,14 +520,20 @@ def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, 
     bad = tmp_path / "bad.json"
     if content is not None:
         bad.write_text(content, encoding="utf-8")
-    argv = ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored"]
-    argv = [*argv[:4], str(bad), *argv[5:]] if flag == "--answers" else [*argv, flag, str(bad)]
+    if flag == "--answers":
+        argv = ["dokimi", "eval", "cross-judge", "--answers", str(bad), "--no-stored"]
+    else:
+        argv = ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored", flag, str(bad)]
     monkeypatch.setattr("sys.argv", argv)
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(bad) in err
+    if content == "{not json":
+        assert "is not valid JSON" in err and "cannot read" not in err
+    if content is None:
+        assert "cannot read" in err
 
 
 @pytest.mark.parametrize("command", [["cross-judge"], ["checklist", "--questions", "q.json"], ["judge-wording"]],
@@ -578,3 +584,25 @@ def test_cross_judge_exits_2_on_a_validity_file_without_a_summary_object(tmp_pat
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(validity) in err and "`summary`" in err
+
+
+@pytest.mark.parametrize("flag, content", [
+    ("--pairwise", {}), ("--pairwise", {"questions": []}),
+    ("--checklist", {}), ("--checklist", {"verdicts": {}}),
+], ids=["pairwise-empty", "pairwise-is-a-checklist",
+        "checklist-empty", "checklist-is-a-pairwise"])
+def test_cross_judge_exits_2_on_a_result_file_of_the_wrong_shape(tmp_path, monkeypatch, capsys, flag, content):
+    from dokimi import cli
+
+    arms = tmp_path / "arms.json"
+    arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
+                    encoding="utf-8")
+    wrong = tmp_path / "wrong.json"
+    wrong.write_text(json.dumps(content), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+                                     flag, str(wrong)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(wrong) in err
