@@ -48,3 +48,11 @@ def test_a_nested_cursor_rule_is_listed_with_its_directory_and_no_known_scope():
     (rule,) = detect_instructions(["pkg/web/.cursor/rules/style.mdc", "pkg/web/.cursor/notes.md"])
     assert (rule.path, rule.scope, rule.directory) == ("pkg/web/.cursor/rules/style.mdc", "unknown", "pkg/web")
     assert any("Cursor documents only the root .cursor/rules" in note for note in rule.notes)
+
+
+def test_a_cursor_rules_path_gets_one_record_and_the_closest_directory():
+    paths = [".cursor/rules/sub/.cursor/rules/b.mdc", "a/.cursor/rules/b/.cursor/rules/c.mdc"]
+    got = sorted((i.path, i.directory) for i in detect_instructions(paths))
+    # under the root .cursor/rules: the root rule's only; nested twice: the inner .cursor's directory
+    assert got == [(".cursor/rules/sub/.cursor/rules/b.mdc", None),
+                   ("a/.cursor/rules/b/.cursor/rules/c.mdc", "a/.cursor/rules/b")]
