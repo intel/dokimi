@@ -11,10 +11,12 @@ harness shows in full, and relative links to the skill's own reference files.
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
 import pytest
 
+from dokimi.cli import build_parser
 from dokimi.harnesses.skill_treatment import check_skill
 from dokimi.repos.budget import LISTING_TEXT_CAP
 from dokimi.utils import parse_frontmatter
@@ -22,6 +24,7 @@ from dokimi.utils import parse_frontmatter
 SKILLS = Path(__file__).resolve().parents[1] / "data" / "skills"
 BUNDLED = sorted(d for d in SKILLS.iterdir() if (d / "SKILL.md").is_file())
 LINK = re.compile(r"\]\(<?([^)#<>\s][^)#<>]*?)>?(?:#[^)\s]*)?(?:\s+\"[^\"]*\")?\)")
+JUDGE_VALIDITY = re.compile(r"python cli\.py eval judge-validity[^`\n]*")
 SHELL_BLOCK = re.compile(r"^```(?:bash|sh|shell)\s*\n(.*?)^```", re.M | re.S)
 
 
@@ -67,6 +70,15 @@ def test_bundled_skill_shell_blocks_run_only_cli_commands(skill_dir):
             lines = [ln.strip() for ln in re.sub(r"\\\r?\n", " ", block).splitlines()]
             other += [ln for ln in lines if ln and not ln.startswith(("#", "python cli.py "))]
     assert other == []
+
+
+@pytest.mark.parametrize("skill_dir", BUNDLED, ids=lambda d: d.name)
+def test_bundled_skill_judge_validity_commands_fail_on_an_inconclusive_run(skill_dir):
+    # Without --strict an inconclusive judge-validity run exits 0 (test_judge_validity).
+    for doc in sorted(skill_dir.rglob("*.md")):
+        for command in JUDGE_VALIDITY.findall(doc.read_text(encoding="utf-8")):
+            args = build_parser().parse_args(shlex.split(command)[2:])
+            assert args.strict, f"{doc.relative_to(SKILLS)}: {command}"
 
 
 def test_the_link_check_catches_a_dangling_and_an_escaping_link(tmp_path):

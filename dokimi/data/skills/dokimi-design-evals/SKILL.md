@@ -57,7 +57,7 @@ in [references/example-scenario.md](references/example-scenario.md).
 Prefer deterministic checks: tests, file and diff assertions, exit codes,
 parsed output. Use an LLM judge only for qualities no check can capture; then
 use a written rubric, calibrate it
-(`python cli.py eval judge-validity --answers <answers.json> --sequential`),
+(`python cli.py eval judge-validity --answers <answers.json> --sequential --strict`),
 and keep a human review of a sample.
 A judge that cannot discriminate degraded answers is not evidence.
 
