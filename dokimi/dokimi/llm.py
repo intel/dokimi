@@ -711,7 +711,8 @@ class LLM:
             extra=caching.draw_extra(self._cache_extra(stream, max_tokens), draw),
         )
         hit = caching.load_response(key)
-        if hit is not None and caching.keeps(cache_if, hit[0]):
+        # A null text replays as stored; cache_if sees it as it did when stored.
+        if hit is not None and caching.keeps(cache_if, cast(str, hit[0])):
             return self._metered(Reply(text=hit[0], usage=hit[1]))
         if caching.replaying_only():
             raise caching.CacheMiss(key)

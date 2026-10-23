@@ -360,8 +360,10 @@ def response_cache_key(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def load_response(key: str) -> Optional[Tuple[str, UsageRecord]]:
+def load_response(key: str) -> Optional[Tuple[Optional[str], UsageRecord]]:
     """Return ``(text, usage)`` for a cached call, or ``None`` on any miss.
+
+    ``text`` is ``None`` for a reply stored without content.
 
     A corrupt or unreadable entry is a miss, not an error: the call is simply
     made again. The stored usage is replayed as-is (see the module docstring), marked
@@ -395,8 +397,7 @@ def load_response(key: str) -> Optional[Tuple[str, UsageRecord]]:
         usage = UsageRecord(**usage_fields, replayed=True)
     except TypeError:
         return None
-    replayed_text: Any = text  # may be None, as stored for a reply without content
-    return replayed_text, usage
+    return text, usage
 
 
 def store_response(key: str, text: str, usage: UsageRecord) -> None:
