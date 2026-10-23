@@ -603,6 +603,16 @@ def test_warm_does_not_judge_the_host(tmp_path, monkeypatch, capsys):
     assert race["verdict"] != "unsupported" and "null" in race and race["warm"] is True
 
 
+def test_warm_with_allow_unsupported_judges_the_host(tmp_path, monkeypatch, capsys):
+    root = _repo(tmp_path)
+    runner = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
+    _check(root, tmp_path / "a", runner, monkeypatch, "--task", "fix_race", "--warm", "--allow-unsupported")
+    race = json.loads((tmp_path / "a/check/check.json").read_text())["tasks"][0]
+    assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host" and race["warm"] is True
+    assert "null" not in race and "isolation" in race
+    assert "allowed by --allow-unsupported: fix_race" in capsys.readouterr().out
+
+
 def test_a_probe_failure_leaves_no_marker_for_report_to_count(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     out = tmp_path / "runs"

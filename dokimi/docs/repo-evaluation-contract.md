@@ -442,7 +442,10 @@ cells is left unrun; a cell that already has a `result.json` keeps it.
 
 Each task runs with its own network (`image.network` plus its `egress`).
 `tasks check --warm` runs the same null and oracle steps with network and
-writable caches, to fill the caches before offline runs (§2).
+writable caches, to fill the caches before offline runs (§2). It does not
+judge `host` requirements unless `--allow-unsupported` is also given; then a
+task the host misses is `unsupported` there too, so a warm CI job on a host
+that cannot show it passes.
 
 ### 4.4 `repo_static.v1` (written by `static` to `{out}`)
 

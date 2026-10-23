@@ -58,7 +58,7 @@ exit $bad
 
 def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
                guidance_names: tuple[str, ...] = ANCESTOR_NAMES,
-               host: dict[str, Any] | None = None) -> dict[str, Any]:
+               host: dict[str, Any] | None = None, judge_host: bool | None = None) -> dict[str, Any]:
     """Null, oracle and isolation checks for one task; ``verdict`` is ok, broken or unsupported.
     An unsupported result says why in ``unsupported_by``: ``egress``, ``host`` (a hardware miss, which
     ``--allow-unsupported`` may pass) or ``host-probe`` (the probe could not run or gave no CPU count,
@@ -66,7 +66,8 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
 
     A task the host cannot show still has its workspace prepared and isolation probed, and its oracle run
     when only CPUs are short; only the null check, which depends on the hardware, is skipped. ``--warm``
-    does not judge the host.
+    does not judge the host unless ``judge_host`` (``--allow-unsupported``) says so; ``None`` means
+    ``not warm``.
 
     ``host`` is :func:`.host.probe_host`'s facts, probed once per check; without it a task with
     ``host`` requirements probes for itself."""
@@ -77,8 +78,10 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     except ContainerError as exc:
         res.update(verdict="unsupported", unsupported_by="egress", problems=[str(exc)])
         return res
-    # --warm has network and a different image state, as for egress: the host is not judged there.
-    reason, unsupported_by, facts = (None, None, None) if warm else _host_reason(ctx, task, work_dir, host)
+    # --warm has network and a different image state, as for egress: the host is not judged there, unless
+    # --allow-unsupported asks for it (the hardware is the same with or without network).
+    judge = not warm if judge_host is None else judge_host
+    reason, unsupported_by, facts = _host_reason(ctx, task, work_dir, host) if judge else (None, None, None)
     # Only what the hardware decides is skipped: the null check (it passes where the bug cannot show) and,
     # unless the miss is CPUs alone, the oracle. Preparing the workspace and isolation hold anywhere.
     run_oracle = not reason or (unsupported_by == "host" and shortfall_kinds(task, facts) <= {"cpus"})
@@ -168,14 +171,15 @@ def isolation_probe(ctx: EvalContext, tasks: list[Task], rd: Path,
 
 
 def run_check(ctx: EvalContext, tasks: list[Task], work_dir: Path, warm: bool = False, jobs: int = 1,
-              guidance_names: tuple[str, ...] = ANCESTOR_NAMES, log=print) -> list[dict[str, Any]]:
+              guidance_names: tuple[str, ...] = ANCESTOR_NAMES, log=print,
+              judge_host: bool | None = None) -> list[dict[str, Any]]:
     """Every task's :func:`check_task`; ``check.json`` also records the probed host."""
     validate_tasks(tasks)  # a bad `host` value is refused before any container starts
     work_dir.mkdir(parents=True, exist_ok=True)
     host = probe_host(ctx, work_dir)
 
     def one(task: Task) -> dict[str, Any]:
-        res = check_task(ctx, task, work_dir, warm, guidance_names, host)
+        res = check_task(ctx, task, work_dir, warm, guidance_names, host, judge_host)
         log(f"{task.id}: {res['verdict'].upper()}" + "".join(f"\n  - {p}" for p in res["problems"]))
         return res
 

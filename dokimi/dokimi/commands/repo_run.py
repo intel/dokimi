@@ -145,7 +145,8 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
               file=sys.stderr)
-        results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs)
+        results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs,
+                            judge_host=True if args.allow_unsupported else None)
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -329,7 +330,8 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                          help="Run null and oracle with network to fill the caches before offline runs")
     check_p.add_argument("--allow-unsupported", action="store_true", dest="allow_unsupported",
                          help="Exit 0 when the only tasks that are not ok are unsupported because this host "
-                         "misses their task.json `host` requirements (still printed with the reason). Broken "
+                         "misses their task.json `host` requirements (still printed with the reason; with --warm the host "
+                         "is judged too). Broken "
                          "tasks, tasks that need egress and tasks whose host probe failed still exit 1")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
