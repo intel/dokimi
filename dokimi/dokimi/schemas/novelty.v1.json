@@ -452,7 +452,7 @@
         "replayed_calls": {"type": "integer", "minimum": 0, "description": "Calls served from the response cache; left out of the token and usd totals."},
         "usd": {
           "type": ["number", "null"],
-          "description": "null when any call had unknown pricing — distinct from a genuinely free run."
+          "description": "null when any call this run paid for had unknown pricing — distinct from a genuinely free run."
         },
         "by_role": {"type": "array", "items": {"type": "object"}}
       }

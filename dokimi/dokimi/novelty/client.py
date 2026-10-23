@@ -161,7 +161,8 @@ class LLMClient:
     def cost_summary(self) -> dict[str, Any]:
         """Roll up this client's usage.
 
-        ``usd`` stays ``None`` when any call had unknown pricing or returned no usage,
+        ``usd`` stays ``None`` when any call this run paid for had unknown pricing or
+        returned no usage (a replayed call is not paid for, so it cannot make it unknown),
         rather than silently reporting the sum of the priced subset as the total.
         Calls served from the response cache are counted in ``replayed_calls`` and
         left out of the token and dollar totals.

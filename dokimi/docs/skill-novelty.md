@@ -609,7 +609,7 @@ Two numbers, reported side by side and never merged:
   counted, and one failed query does not lose the rest.
 
 A `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
-write tokens, and `usd`, which is `null` when any call had no known price) and prints the
+write tokens, and `usd`, which is `null` when any call this run paid for had no known price) and prints the
 same totals on stdout. Cache tokens are reported separately from input tokens, and depending on
 the provider they may or may not be counted inside `input_tokens`. A run without `--model` makes
 no calls and has no `cost` block. `usd` is also `null` when a call returned no usage, and a

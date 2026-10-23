@@ -545,7 +545,8 @@ def test_a_model_run_records_its_calls_tokens_and_cost(tmp_path, monkeypatch, ca
     assert payload["cost"]["cache_write_tokens"] == 60
     assert payload["cost"]["usd"] == 0.004
     assert ("cost     2 calls, 200 input / 10 output tokens, cache read 120 / write 60, "
-            "$0.0040") in capsys.readouterr().out
+            "$0.0040") in (out := capsys.readouterr().out)
+    assert "replayed" not in out
 
 
 def test_a_model_run_with_an_unpriced_call_reports_no_usd_figure(tmp_path, monkeypatch, capsys):
@@ -578,6 +579,7 @@ def test_a_model_run_whose_every_call_fails_prints_no_price_blame(tmp_path, monk
     monkeypatch.setattr(llm, "llm_call_with_usage", failing)
     payload = _model_run(tmp_path)
     assert payload["cost"]["llm_calls"] == 0
+    assert payload["cost"]["usd"] is None   # no calls: nothing known, not "free"
     out = capsys.readouterr().out
     assert "cost     0 calls\n" in out
     assert "USD not known" not in out
@@ -601,11 +603,13 @@ def test_replayed_calls_are_counted_apart_and_not_billed(tmp_path, monkeypatch, 
     from dokimi.metrics.usage import UsageRecord
 
     _stub_provider(monkeypatch, UsageRecord(prompt_tokens=100, completion_tokens=5,
+                                            cache_read_tokens=60, cache_write_tokens=30,
                                             cost_usd=0.002, replayed=True))
     payload = _model_run(tmp_path)
     cost = payload["cost"]
     assert (cost["llm_calls"], cost["replayed_calls"]) == (2, 2)
     assert (cost["input_tokens"], cost["output_tokens"], cost["usd"]) == (0, 0, 0.0)
+    assert (cost["cache_read_tokens"], cost["cache_write_tokens"]) == (0, 0)
     assert "2 replayed from the cache and not counted" in capsys.readouterr().out
 
 
