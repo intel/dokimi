@@ -181,7 +181,6 @@ def question_id(q: Dict[str, Any]) -> Any:
     return None
 
 
-
 class InputError(Exception):
     """A user-supplied input file that cannot be used; ``cli.main`` prints it and exits 2."""
 
