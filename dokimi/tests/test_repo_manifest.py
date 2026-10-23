@@ -679,6 +679,10 @@ def test_a_pinned_remote_url_with_a_user_splits_at_the_last_at_sign(url):
     ("ssh://git@host/o/r@origin/main", "ssh://git@host/o/r", "origin/main"),
     ("git@host:o/r@sha1234", "git@host:o/r", "sha1234"),
     ("git@host:o/r@refs/heads/x", "git@host:o/r", "refs/heads/x"),
+    ("ssh://git@host/o/r@upstream/main", "ssh://git@host/o/r", "upstream/main"),
+    ("ssh://git@host/o/r@remotes/origin/main", "ssh://git@host/o/r", "remotes/origin/main"),
+    ("ssh://git@host/o/r@heads/x", "ssh://git@host/o/r", "heads/x"),
+    ("ssh://git@host/o/r@tags/v1", "ssh://git@host/o/r", "tags/v1"),
     ("file:///home/a@corp.com/proj@abc1234", "file:///home/a@corp.com/proj", "abc1234"),
     ("file:///tmp/a@b/c@v1", "file:///tmp/a@b/c", "v1"),
 ])
