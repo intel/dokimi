@@ -326,8 +326,8 @@ def test_cli_out_writes_the_inventory(tmp_path, capsys):
     out = _run(["repo", "budget", str(tmp_path), "--out", str(dest)], capsys).out
     assert json.loads(dest.read_text(encoding="utf-8"))["totals"]["start"] == 1
     assert "| start | guidance | AGENTS.md | 1 |" in out  # the table still prints
-    with pytest.raises(SystemExit) as exc:
-        _run(["repo", "budget", str(tmp_path), "--out", str(tmp_path / "no" / "dir" / "b.json")], capsys)
+    with pytest.raises(SystemExit) as exc:  # a parent that is a file cannot become a directory
+        _run(["repo", "budget", str(tmp_path), "--out", str(tmp_path / "AGENTS.md" / "b.json")], capsys)
     assert exc.value.code == 1
 
 

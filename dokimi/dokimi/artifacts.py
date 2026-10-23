@@ -9,8 +9,9 @@ The benchmark produces long-lived JSON artifact kinds: ``questions``,
 localization results), ``novelty`` (what an artifact's content adds to one
 model), ``guidance_reach`` (L1 reach probes), ``repo_readiness`` (L0 claim
 checks), ``tool_preference`` (which of two equal tools a model picks, and
-what moves it) and ``repo_environment`` (static inspection of what a
-repository offers an agent). This module stamps each with a
+what moves it), ``repo_environment`` (static inspection of what a
+repository offers an agent) and ``repo_budget`` (what a repository puts
+into an agent's context). This module stamps each with a
 ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
@@ -50,6 +51,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "repo_readiness": "repo_readiness.v1",
     "tool_preference": "tool_preference.v1",
     "repo_environment": "repo_environment.v1",
+    "repo_budget": "repo_budget.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an
