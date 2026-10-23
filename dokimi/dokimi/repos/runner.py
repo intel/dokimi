@@ -226,7 +226,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     record: dict[str, Any] = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model,
                               "model_resolved": meta.get("model_resolved"), "rep": rep,
                               "harness": opts.profile.name, "harness_version": meta["harness_version"],
-                              "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "grade": grade}
+                              "base_date": meta["base_date"], "score_task": bool(task.score),
+                              "score_max": task.score["max"] if task.score else None, "agent": agent, "grade": grade}
     if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
         record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
     try:

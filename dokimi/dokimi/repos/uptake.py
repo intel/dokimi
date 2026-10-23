@@ -13,8 +13,8 @@ something an agent can use, how often the agent used it:
 - **commands**: command events whose text names one of those files, as a path
   relative to the workspace (``tools/fmt``, ``./tools/fmt``, ``bash tools/fmt``)
   or under the workspace's absolute path. A file at the workspace root is named only as ``./name``, under the
-  absolute path, as the first word of a command (or of a ``;``/``&&``/``|`` part) or after a shell or
-  interpreter (``sh run.sh``): ``npm run lint`` does not name a ``lint`` file. A command run as ``cd tools && ./fmt``
+  absolute path or after a shell or interpreter (``sh run.sh``): a bare ``lint`` resolves through ``PATH``, not to
+  the workspace file, and ``npm run lint`` does not name a ``lint`` file. A command run as ``cd tools && ./fmt``
   is not counted;
 - **reads**: read events of one of those files (reading a script's text counts: it is the agent engaging with
   what the arm added, not only running it);
@@ -92,8 +92,8 @@ _INTERPRETERS = r"(?:sh|bash|zsh|dash|python3?|node|ruby|perl)"
 
 def _path_pattern(files: list[str], workdir: str) -> re.Pattern[str] | None:
     """One of ``files`` as a whole word of a command: relative (optionally ``./``) or under ``workdir``.
-    A file with no ``/`` is a common word, so it must be ``./``-prefixed, under ``workdir``, first in a command
-    or run by an interpreter."""
+    A file with no ``/`` is a common word, and bare it resolves through ``PATH``, so it must be ``./``-prefixed,
+    under ``workdir`` or run by an interpreter."""
     if not files:
         return None
     root = re.escape(workdir.rstrip("/") + "/")
@@ -106,7 +106,7 @@ def _path_pattern(files: list[str], workdir: str) -> re.Pattern[str] | None:
         parts.append(rf"(?:^|(?<=[\s'\"`=;&|(<>])|(?<=\./)|(?<={root}))(?:{paths}){end}")
     if flat:
         names = "|".join(re.escape(f) for f in flat)
-        parts.append(rf"(?:^\s*(?:\./)?|[;&|(]\s*(?:\./)?|(?:^|(?<=\s)){_INTERPRETERS}\s+|(?<=[\s'\"`=;&|(<>])\./|(?<={root}))"
+        parts.append(rf"(?:^\s*\./|(?:^|(?<=\s)){_INTERPRETERS}\s+|(?<=[\s'\"`=;&|(<>])\./|(?<={root}))"
                      rf"(?:{names}){end}")
     return re.compile("|".join(parts))
 
