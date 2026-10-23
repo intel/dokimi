@@ -260,6 +260,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | `timeout_s`, `max_turns`, `budget_usd` | no | framework | per-task caps, overriding run defaults; each a finite number > 0 |
 | `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
+| `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. `result.json` `skills` records whether the agent used it and whether it used it first |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
 `setup_patch` (a single string) is accepted as a synonym for a one-element
@@ -322,6 +323,18 @@ Both write files, as step 1 does: no object of the source's git dir is copied
 into the workspace, so its object store gains only the blobs of the files the
 arm wrote, and step 8 drops the guidance the arm replaced.
 
+A skill arm (`skill:<path>`, `skill-catalog:<dir>`, joined to a guidance part
+with `+`) installs skill directories into `.claude/skills/<dir name>/` after the
+guidance part, so `guidance:none+skill:x` keeps `x`. The arm is named by the
+directory names (`guidance:none+skill:x`, no `/`), so `repo compare` can select it.
+The `name` in a skill's `SKILL.md` has to equal its directory name. A skill is refused before
+any cell runs if it holds a link that copying cannot take (out of the skill,
+dangling, looping, to a directory) or a file that is not regular. Preparation
+also refuses to write through a `.claude` or `.claude/skills` the repository
+ships as a link. A batch records the content of each skill arm it ran
+(`_eval/skills.json`), so resuming it with another path of the same
+directory name, or with edited skill content, is refused.
+
 `meta.json` records the base (`base_rev`, `base_sha`, `base_date`), the arm,
 the SHA of every applied patch, and `start_sha`: the workspace `HEAD` after
 step 7, the commit the agent starts from (§4). `base_sha` names the upstream
@@ -332,7 +345,9 @@ grader diffs the agent's changes from `start_sha`. With the arm come
 files with no counterpart at `<rev>`); for `patch:` an `arm_patch` object (the
 file's absolute `path` and full `sha256`, `added`: the files the patch added
 that neither the guidance globs nor `.mcp.json` match, and `mcp_servers`: the servers
-the patch added to the `.mcp.json` at the root, read before the agent runs).
+the patch added to the `.mcp.json` at the root, read before the agent runs). `args_if_present` lists the profile's
+`args_if_present` files the cell's command line carries (§6): `[]` when the
+workspace has none of them, and always outside the `all` tool mode.
 
 Step 3 removes history only. A fix that landed upstream before a model's
 training cutoff may still be known to the model, so reports split results by
@@ -383,6 +398,17 @@ reads the upstream base (`base_sha`) and the workspace start commit
 Code's `modelUsage`), `main` when the harness reported the parent's only, and
 `null` when it reported none. `subagent_calls` counts the parent's and
 subagents' `Agent`/`Task` calls; `null` when the harness wrote no result record.
+
+A cell of an arm that installs skills also has a `skills` object in
+`result.json`: `measured`, `skills_installed` (the installed skill names),
+`skills_used` (the installed skills the agent called with the `Skill` tool or
+whose `SKILL.md` it read, in order of first use), `expected_skill` (the task's,
+or `null`), `skill_invoked` (the expected skill was used; any installed skill
+when the task names none) and `skill_selected_correct` (the expected skill was
+the first one used; `null` when the task names none). When the trace could not
+be read (the harness never started), `measured` is `false` and `skill_invoked`
+and `skill_selected_correct` are `null`: the usage is unknown, not "did not use
+the skill". `repo report` leaves such cells out of its skill counts.
 
 For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 `uptake` object: whether the agent used what the arm added. `files` and
@@ -634,6 +660,8 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
+args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
+  .mcp.json: ["--mcp-config", ".mcp.json"]
 ```
 
 - `invoke` and `version_cmd` are argv lists. Each element becomes exactly one
@@ -650,6 +678,18 @@ bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
   directory, with `{config_dir}` and `{support_dir}` (the framework's helper
   scripts) as the agent's container sees them. The built-in `claude-code`
   profile uses them for a hook that refuses backgrounded shell commands.
+- `args_if_present` checks that the file exists, not that the harness accepts
+  it. The built-in `claude-code` profile passes `.mcp.json` as `--mcp-config`
+  in the `all` tool mode, and the CLI exits 1 before its first turn on a file
+  that is not valid MCP configuration (`{` for one). So a `.mcp.json` that is
+  not a JSON object, or whose `mcpServers` is not an object, is caught up
+  front: `repo validate` warns about the one at each task base (at
+  the eval tree when the source has no git history) and still succeeds, `repo run --tools all`
+  exits 1 before any cell, and a cell whose arm wrote
+  such a file (a `patch:` arm) is a cell error, not a graded run. The check
+  reads the task base, so a `patch:` arm that repairs the file does not help.
+  Fix or remove the file in the task base; `--tools read` or `none` do not
+  pass it, so `repo run` does not check it there.
 
 Profiles for other harnesses (Codex, Gemini CLI, Copilot CLI, Cursor agent,
 Aider, OpenCode, in-house agents) follow the same shape. Their `guidance`

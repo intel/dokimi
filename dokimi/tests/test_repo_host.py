@@ -34,7 +34,7 @@ from dokimi.repos.manifest import parse_manifest
 from dokimi.repos.report import format_report, load_cells, load_unsupported, summarize
 from dokimi.repos.runner import UNSUPPORTED_FILE, _mark_unsupported, run_batch
 from dokimi.repos.workspace import PrepError, Task, prepare_workspace
-from repo_eval_fixture import MANIFEST, FakeRunner, fake_harness, make_repo
+from repo_eval_fixture import MANIFEST, FakeRunner, fake_harness, git, make_repo, write
 
 INTEL_CPUINFO = ("processor\t: 0\nvendor_id\t: GenuineIntel\nmodel name\t: Intel(R) Xeon(R) Platinum 8480+\n"
                  "flags\t\t: fpu sse2 avx2 avx512f\n")
@@ -697,3 +697,17 @@ def test_vendors_compare_in_any_case_and_unknown_names_are_refused():
     assert unmet(_task({"cpu_vendors": ["genuineintel"]}), intel) == (None, None)
     with pytest.raises(HostSpecError, match="unknown vendor.*Intel"):
         requirements(_task({"cpu_vendors": ["Intel"]}))
+
+
+def test_a_skill_arm_cell_of_an_unsupported_task_is_marked_not_run(tmp_path, monkeypatch):
+    root = _repo(tmp_path)
+    write(root, ".agent-eval/skills/lint/SKILL.md", "---\nname: lint\ndescription: lint\n---\nLint.\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skill")
+    out = tmp_path / "runs"
+    runner = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
+    _run(root, out, runner, monkeypatch, "--task", "fix_add", "--task", "fix_race", "--arm", "skill:skills/lint")
+    batch = out / "b1"
+    assert [p.name for p in (batch / "fix_race__skill-lint__m-1__r1").iterdir()] == ["unsupported.json"]
+    assert (batch / "fix_add__skill-lint__m-1__r1/result.json").is_file()
+    assert {u["cell"] for u in summarize(batch)["unsupported"]} >= {"fix_race__skill-lint__m-1__r1"}

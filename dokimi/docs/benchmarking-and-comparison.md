@@ -274,6 +274,33 @@ python cli.py arms run \
 The `baseline` arm is the control. Every other arm is compared against it. Keep
 the answer model and judge fixed when comparing arms.
 
+### Skill arms in repository mode
+
+`repo run` arms take the same `+` composition. Besides `guidance:none`,
+`guidance:raw` and `guidance:bridge`, an arm can install Claude Code skills into
+the task workspace at `.claude/skills/<dir name>/` before the agent starts:
+
+- `skill:<path>`: one skill directory (holding `SKILL.md`);
+- `skill-catalog:<dir>`: every subdirectory of `<dir>` with a `SKILL.md`, so the
+  agent has to pick the right one.
+
+A relative path is relative to the manifest's `eval_dir`. An arm without a
+guidance part keeps the repository's guidance (`guidance:raw`).
+
+```bash
+dokimi repo run <repo>@<rev> --model <m1> --model <m2> --batch skills \
+  --arm guidance:raw,guidance:raw+skill:skills/lint,guidance:none+skill-catalog:skills
+dokimi repo tasks check <repo>@<rev> --arm skill-catalog:skills   # paths exist, catalog has expected_skill
+```
+
+When a cell installs skills, its `result.json` gets a `skills` object:
+`skills_used` (the skills the agent called with the `Skill` tool, or whose
+`SKILL.md` it read), `skill_invoked`, and `skill_selected_correct` (the task's
+optional `expected_skill` was the first skill it used). `repo report` counts
+both per row. Every cell also records `cache_read_tokens` and
+`cache_write_tokens` with the input and output tokens, and
+`repo report --json` gives their means.
+
 ### Reading the significance tables
 
 Arms are compared **paired per question** against the one shared `baseline`
