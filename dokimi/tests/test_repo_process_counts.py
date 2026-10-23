@@ -65,14 +65,15 @@ def test_process_absent_or_null_is_skipped(tmp_path):
     assert {(u["task"], u["measure"]) for u in summary["unpaired"]} == {("a", "process:tool_calls")}
 
 
-def test_process_on_one_arm_only_does_not_flood_unpaired(tmp_path):
-    # The baseline batch predates `process`: each shared task would otherwise be unpaired once per measure.
+@pytest.mark.parametrize("arm_with_process", ["__guidance-raw__", "__guidance-none__"])
+def test_process_on_one_arm_only_does_not_flood_unpaired(tmp_path, arm_with_process):
+    # One arm's batch predates `process`: each shared task would otherwise be unpaired once per measure.
     for task in ("a", "b", "zz"):
         _cell(tmp_path, task, "guidance:raw", 1)
         if task != "zz":
             _cell(tmp_path, task, "guidance:none", 1)
     _with_process(tmp_path, lambda name: {"tool_calls": 3, "counters": {"bazel": 1}}
-                  if "__guidance-raw__" in name else None)
+                  if arm_with_process in name else None)
     summary = compare([tmp_path], "guidance:none")
     assert not any(r["measure"].startswith(("process:", "counter:")) for r in summary["comparisons"])
     assert [(u["task"], u["measure"]) for u in summary["unpaired"]] == [("zz", None)]
