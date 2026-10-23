@@ -9,7 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
@@ -385,14 +385,19 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     print()
     print(md)
     print(f"✅ Cross-judge report saved to {out} (+ .md)")
-    arms = report.summary()["arms"]
+    if args.strict:
+        _strict_cross_judge_exit(report.summary()["arms"], report.baseline_arm)
+
+
+def _strict_cross_judge_exit(arms: dict[str, dict[str, Any]], baseline_arm: str) -> None:
+    """Exit 1 when no arm was compared, an arm is NOT MEASURED, or an arm is JUDGE-DEPENDENT."""
     unmeasured = sorted(a for a, r in arms.items() if r["label"] == "NOT MEASURED")
-    if args.strict and (not arms or unmeasured):
+    if not arms or unmeasured:
         why = f"{len(unmeasured)} of {len(arms)} arm(s) NOT MEASURED: {', '.join(unmeasured)}" if arms else \
             "no arm has a scored question to compare"
-        print(f"✗ incomplete against `{report.baseline_arm}`: {why}", file=sys.stderr)
+        print(f"✗ incomplete against `{baseline_arm}`: {why}", file=sys.stderr)
         sys.exit(1)
-    if args.strict and any(a["label"] == "JUDGE-DEPENDENT" for a in arms.values()):
+    if any(a["label"] == "JUDGE-DEPENDENT" for a in arms.values()):
         sys.exit(1)
 
 
