@@ -660,7 +660,10 @@ def test_source_parse_leaves_a_non_rev_suffix_in_the_path(tmp_path, rev):
     assert src.rev is None and src.location == f"{tmp_path}/d@{rev}"
 
 
-@pytest.mark.parametrize("url", ["ssh://git@github.com/o/r.git", "https://user@github.com/o/r.git"])
+@pytest.mark.parametrize("url", [
+    "ssh://git@github.com/o/r.git", "https://user@github.com/o/r.git",
+    "file:///home/a@corp.com/proj", "file:///tmp/a@b/c", "https://github.com/o@x/r",
+    "git@github.com/o/r", "file://a@main", "https://h/o/r@/abs"])
 def test_an_unpinned_remote_url_with_a_user_is_not_split_at_its_at_sign(url):
     with pytest.raises(SourceError, match="must be pinned"):
         RepoSource.parse(url)
@@ -670,6 +673,31 @@ def test_an_unpinned_remote_url_with_a_user_is_not_split_at_its_at_sign(url):
 def test_a_pinned_remote_url_with_a_user_splits_at_the_last_at_sign(url):
     src = RepoSource.parse(f"{url}@origin/main")
     assert (src.location, src.rev, src.remote) == (url, "origin/main", True)
+
+
+@pytest.mark.parametrize("spec, location, rev", [
+    ("ssh://git@host/o/r@origin/main", "ssh://git@host/o/r", "origin/main"),
+    ("git@host:o/r@sha1234", "git@host:o/r", "sha1234"),
+    ("git@host:o/r@refs/heads/x", "git@host:o/r", "refs/heads/x"),
+    ("file:///home/a@corp.com/proj@abc1234", "file:///home/a@corp.com/proj", "abc1234"),
+    ("file:///tmp/a@b/c@v1", "file:///tmp/a@b/c", "v1"),
+])
+def test_a_pinned_remote_spec_with_an_at_sign_in_its_path_splits_at_the_last_one(spec, location, rev):
+    src = RepoSource.parse(spec)
+    assert (src.location, src.rev, src.remote) == (location, rev, True)
+
+
+@pytest.mark.parametrize("spec", ["git@host:o/r@sha1234", "file:/tmp/x@main"])
+def test_a_remote_spec_is_split_even_if_a_directory_of_that_name_exists(tmp_path, monkeypatch, spec):
+    (tmp_path / spec).mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    assert RepoSource.parse(spec if spec.startswith("git@") else "file:///tmp/x@main").rev
+
+
+def test_a_local_rev_does_not_start_with_a_slash(tmp_path):
+    (tmp_path / "d").mkdir()
+    with pytest.raises(SourceError, match="not a directory"):
+        RepoSource.parse(f"{tmp_path}/d@/x")
 
 
 @pytest.mark.parametrize("rev", ["a..b", "x//y", "y/", "-x"])

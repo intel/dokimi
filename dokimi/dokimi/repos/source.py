@@ -28,7 +28,8 @@ from dokimi import process
 # A revision is a SHA, tag or branch (a "/" is allowed: origin/main, refs/heads/x), optionally
 # with ^ / ~N suffixes. No leading "-" (so a revision can never be read as a git option);
 # _is_rev also refuses "..", "//" and a trailing "/". A "user@host" URL is kept whole by
-# _has_location_path, which splits at the last "@" only when what is left is still a location.
+# _has_location_path, which splits at the last "@" only when what is left is still a location;
+# in a remote spec a "/" in the revision needs a ref-like start (_remote_split_ok).
 _REV_RE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/^~-]*$")  # "/" for origin/main, refs/heads/x
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _REMOTE_PREFIXES = ("https://", "ssh://", "file://", "git@")
@@ -57,7 +58,8 @@ class RepoSource:
         head, sep, tail = spec.rpartition("@")
         # An existing directory is read whole: jenkins ws/job@2/repo, /home/a@corp.com/proj.
         if (sep and head and _is_rev(tail) and _has_location_path(head)
-                and (spec.startswith(_REMOTE_PREFIXES) or not Path(spec).is_dir())):
+                and (_remote_split_ok(spec, head, tail) if spec.startswith(_REMOTE_PREFIXES)
+                     else not Path(spec).is_dir())):
             location, rev = head, tail
         remote = location.startswith(_REMOTE_PREFIXES)
         if location.startswith("http://"):
@@ -440,6 +442,19 @@ def _has_location_path(head: str) -> bool:
         if head.startswith(prefix):
             return "/" in head[len(prefix):]
     return True
+
+
+_REMOTE_REV_ROOTS = ("origin", "upstream", "refs", "remotes", "heads", "tags")
+
+
+def _remote_split_ok(spec: str, head: str, tail: str) -> bool:
+    """Whether an ``@`` in a remote spec starts the revision. A remote path may hold an ``@``
+    (``file:///tmp/a@b/c``, ``git@host/o/r``), so a ``/`` in the tail makes it a revision only
+    when it starts like a ref (``origin/main``, ``refs/heads/x``); ``git@host`` needs an ``@``
+    left in the head."""
+    if spec.startswith("git@") and "@" not in head:
+        return False
+    return "/" not in tail or tail.split("/", 1)[0] in _REMOTE_REV_ROOTS
 
 
 def _is_rev(rev: str) -> bool:
