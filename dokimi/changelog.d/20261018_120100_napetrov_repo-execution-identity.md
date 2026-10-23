@@ -20,7 +20,7 @@
   (`env_set`, `env_allow`), config (`config_dir_env`, `config_files`), prompt
   suffix, `egress`, `bridge`, the SHA-256 of the harness executable and harness
   version (the executable's content, not its path). Rerunning a batch with
-  another `--tools`, `--delegation`, edited profile, harness binary, or harness
+  another `--tools`, `--delegation`, an edited profile field listed above, harness binary, or harness
   upgrade no longer counts cells from
   the old one as done: the run is refused before any agent starts, and `--force` or a
   new `--batch` runs them. A batch dir that already holds cells of another

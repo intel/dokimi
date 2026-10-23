@@ -1000,7 +1000,7 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`,
   `bridge`, the SHA-256 of the harness executable (`--bin`) and harness version.
   A rerun whose `id` differs (another `--tools`, a `--delegation` that changes the tool arguments, profile,
-  harness binary or harness version, or an edited `env_allow`, `egress`, `bridge` or similar profile field) is refused before any agent starts, and
+  harness binary or harness version, or an edited `invoke`, `env_set`, `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress` or `bridge`) is refused before any agent starts, and
   `--force` or another `--batch` runs it. `--force` replaces the cells of the
   run's plan only: if the batch dir holds finished cells outside that plan
   whose `id` differs from this run's (e.g. `--reps 2`, then `--reps 1
