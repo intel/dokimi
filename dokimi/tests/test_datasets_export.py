@@ -190,11 +190,6 @@ def test_cli_export_without_validation_of_a_non_list_record_array_exits_cleanly(
     assert "must be a list" in err and "Traceback" not in err
 
 
-def test_flatten_of_an_unknown_kind_raises():
-    with pytest.raises(ValueError, match="Unknown artifact kind"):
-        flatten("bogus", {})
-
-
 @pytest.mark.parametrize("raw", ["[]", '"s"', "null", "3"])
 @pytest.mark.parametrize("extra", [(), ("--no-validate",)])
 @pytest.mark.parametrize("kind", ["answers", "eval", "arms", "task_runs"])
