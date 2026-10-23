@@ -178,6 +178,22 @@ def test_a_cell_finished_with_another_execution_is_not_reused_even_if_the_batch_
     assert not [s for s in setup["runner"].specs if "-p" in s.argv]
 
 
+def test_a_cell_finished_without_an_execution_is_not_reused_even_if_the_batch_check_is_skipped(
+        setup, capsys, monkeypatch):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    result = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json"
+    done = json.loads(result.read_text())
+    del done["execution"]
+    result.write_text(json.dumps(done))
+    setup["runner"].specs.clear()
+    monkeypatch.setattr("dokimi.repos.runner.check_batch_executions", lambda *a, **k: None)
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert "unrecorded" in capsys.readouterr().out
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
+
+
 def test_the_same_harness_bytes_resume_from_any_path(setup, capsys, tmp_path):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     capsys.readouterr()
