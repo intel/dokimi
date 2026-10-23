@@ -40,13 +40,13 @@ def test_a_directory_as_eval_is_reported_as_unreadable(tmp_path, capsys):
 def test_an_eval_file_that_is_not_json_is_reported_as_invalid_json(tmp_path, capsys, text):
     bad = tmp_path / "bad.json"
     bad.write_text(text, encoding="utf-8")
-    assert f"Error: {bad} is not valid JSON" in _err(tmp_path, bad, capsys)
+    assert f"Error: {bad} is not valid UTF-8 JSON" in _err(tmp_path, bad, capsys)
 
 
-def test_a_non_utf8_eval_file_is_reported_as_invalid_json(tmp_path, capsys):
+def test_a_non_utf8_eval_file_is_reported_as_invalid_utf8_json(tmp_path, capsys):
     binary = tmp_path / "bin.json"
     binary.write_bytes(bytes([0xFF, 0xFE]))
-    assert f"Error: {binary} is not valid JSON" in _err(tmp_path, binary, capsys)
+    assert f"Error: {binary} is not valid UTF-8 JSON" in _err(tmp_path, binary, capsys)
 
 
 @pytest.mark.parametrize("text", ["[1, 2]", "null", "5", '"x"'])
