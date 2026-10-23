@@ -9,7 +9,8 @@ import re
 
 import dokimi
 
-# The CLI, which has its own reference (scripts/docs/gen_reference.py, SKIP_API).
+# The CLI, which has its own reference (scripts/docs/gen_reference.py, SKIP_API). A private
+# (`_`-prefixed) subpackage gets no reference page either.
 NOT_IN_API = {"commands"}
 
 
@@ -18,7 +19,8 @@ def _links(doc: str) -> set[str]:
 
 
 def test_the_landing_page_links_every_subpackage():
-    packages = {m.name for m in pkgutil.iter_modules(dokimi.__path__) if m.ispkg} - NOT_IN_API
+    packages = {m.name for m in pkgutil.iter_modules(dokimi.__path__)
+                if m.ispkg and not m.name.startswith("_")} - NOT_IN_API
     missing = sorted(p for p in packages if f"dokimi.{p}" not in _links(dokimi.__doc__ or ""))
     assert not missing, f"link {missing} from the dokimi/__init__.py docstring, in the track it serves"
 
