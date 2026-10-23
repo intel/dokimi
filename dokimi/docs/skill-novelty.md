@@ -628,13 +628,20 @@ counted as a miss.
 --queries-by-skill queries.json --out routing.json` (add `--model M` for the model arm) makes
 every skill that has queries the gold in turn, routed against the whole field. The file is a
 JSON object of skill name to the requests that should select it, each written without the
-skill's own text. The output has a confusion matrix (gold to picked to count, with `(none)` for
-a query no card shares a word with, or an abstention or failed call in the model arm), an
-own rate per skill, and an attractor table: a skill picked for other skills' queries, with
-`wrongly_picked` of `sibling_queries` and the skills whose queries it took (`from`). It takes no
-`--artifact`. The model arm also records the selector `model`, so two runs with different
-models can be told apart. It is refused with fewer than two skills, a name repeated in the field, a query
-file that names a skill outside the field, or no queries at all.
+skill's own text. A skill named twice in the file is refused. The output has a confusion
+matrix (gold to picked to count, with `(none)` for a query no card shares a word with or, in
+the model arm, an abstention, and `(tie)` for a query on which two or more other cards tie for
+the top lexical score, so no field order decides it), an own rate per skill, and an attractor
+table: a skill picked for other skills' queries, with `wrongly_picked` of `sibling_queries` and
+the skills whose queries it took (`from`). Every rate is over the queries that were scored:
+`n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
+model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
+with any failed model call writes the result and exits non-zero. The saved file records the
+field rule under `field` (`include_disabled`, the `competitors` and what was `left_out`); a
+single-artifact run records it too. It takes no `--artifact`, `--queries` or
+`--queries-from-headings`. The model arm also records the selector `model`, so two runs with
+different models can be told apart. It is refused with fewer than two skills, a name repeated
+in the field, a query file that names a skill outside the field, or no queries at all.
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query, across
 every skill in the field: the call count is the total number of requests in `queries.json`, and

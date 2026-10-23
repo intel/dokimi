@@ -1,6 +1,6 @@
 {
   "files": {
-    "dokimi/commands/novelty.py": {"lines": 1005, "rationale": "routing catalog field, disabled/mirrored skills, all-vs-all in novelty CLI; file split tracked separately"},
+    "dokimi/commands/novelty.py": {"lines": 1028, "rationale": "routing catalog field, disabled/mirrored skills, all-vs-all, field record"},
     "dokimi/harnesses/benchflow.py": {"lines": 869},
     "dokimi/harnesses/docker_solver.py": {"lines": 927, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/llm.py": {"lines": 1118, "rationale": "grew on main in #180 (replay a stored retry) after #93 seeded this baseline; split it in its own PR"},

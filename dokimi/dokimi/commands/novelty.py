@@ -272,8 +272,11 @@ def _routing_card(ref: str):
     return candidate, body
 
 
-def _routing_field(args: argparse.Namespace, exclude: set[str]) -> list:
+def _routing_field(args: argparse.Namespace, exclude: set[str],
+                   left_out: list[str] | None = None) -> list:
     """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
+
+    What was left out of the field, and why, is appended to ``left_out`` when given.
 
     Raises:
         FileNotFoundError, ValueError: A reference or the catalog cannot be loaded.
@@ -290,6 +293,8 @@ def _routing_field(args: argparse.Namespace, exclude: set[str]) -> list:
         reason = non_skill_reason(ref)
         if reason:
             print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
+            if left_out is not None:
+                left_out.append(f"{ref}: {reason}")
             continue
         candidate = _routing_card(ref)[0]
         ref_file = skill_file(ref)
@@ -297,6 +302,8 @@ def _routing_field(args: argparse.Namespace, exclude: set[str]) -> list:
                 and disables_model_invocation(ref_file)):
             print(f"WARNING: skipped competitor {ref}: disable-model-invocation "
                   "(--include-disabled keeps it)", file=sys.stderr)
+            if left_out is not None:
+                left_out.append(f"{ref}: disable-model-invocation")
             continue
         competitors.append(candidate)
     if args.catalog:
@@ -306,6 +313,8 @@ def _routing_field(args: argparse.Namespace, exclude: set[str]) -> list:
                                       include_disabled=args.include_disabled)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
+        if left_out is not None:
+            left_out.extend(notes)
         no_description = [c.name for c in catalog if not c.description]
         if no_description:
             print(f"WARNING: {len(no_description)} catalog skill(s) have no description, "
@@ -321,8 +330,9 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     from dokimi.novelty.routing import RoutingInputError, all_vs_all, load_queries_by_skill
 
     _check_all_vs_all_args(args)
+    left_out: list[str] = []
     try:
-        field = _routing_field(args, set())
+        field = _routing_field(args, set(), left_out)
     except RoutingInputError as exc:
         raise SystemExit(str(exc)) from None
     except (FileNotFoundError, ValueError) as exc:
@@ -353,21 +363,29 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     failed = model_arm.get("n_failed", 0)
     if failed:
         print(f"WARNING: {failed} model call(s) failed (first error: "
-              f"{model_arm['first_error']}); a failed call is counted as (none) in the model "
-              "arm, so its rates are lower bounds", file=sys.stderr)
+              f"{model_arm['first_error']}); those queries are left out of "
+              "every rate in the model arm", file=sys.stderr)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {"mode": "all_vs_all", "queries_by_skill": args.queries_by_skill,
                "n_candidates": len(field), "result": result}
+    payload["field"] = _field_record(args, field, left_out)
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    if model_arm and failed and failed >= result["n_queries"]:
-        raise SystemExit(f"every model call failed ({model_arm['first_error']}); the partial "
-                         f"result is in {out}")
+    if failed:
+        raise SystemExit(f"{failed} of {result['n_queries']} model call(s) failed "
+                         f"({model_arm['first_error']}); the partial result, with those queries "
+                         f"left out of every rate, is in {out}")
     print(f"OK Saved all-vs-all routing: {out}")
     print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
           f"{len(queries_by_skill)} skills with queries")
     _print_attractors(result)
+
+
+def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
+    """The field rule a routing result was measured under, saved next to the result."""
+    return {"include_disabled": bool(args.include_disabled),
+            "competitors": [c.name for c in competitors], "left_out": left_out}
 
 
 def _check_all_vs_all_args(args: argparse.Namespace) -> None:
@@ -375,6 +393,9 @@ def _check_all_vs_all_args(args: argparse.Namespace) -> None:
     if args.artifact:
         raise SystemExit("--all-vs-all takes no --artifact: every skill in the field is the "
                          "gold in turn")
+    if args.queries or args.queries_from_headings:
+        raise SystemExit("--all-vs-all takes --queries-by-skill, not --queries or "
+                         "--queries-from-headings")
     if not args.queries_by_skill:
         raise SystemExit("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
                          "name to the requests that should select it")
@@ -419,7 +440,8 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
             print(f"WARNING: {args.artifact} sets disable-model-invocation, so no harness lists "
                   "it and the model cannot select it; its routing rate is not a harness rate",
                   file=sys.stderr)
-        competitors = _routing_field(args, {gold.name})
+        left_out: list[str] = []
+        competitors = _routing_field(args, {gold.name}, left_out)
     except RoutingInputError as exc:
         raise SystemExit(str(exc)) from None
     except (FileNotFoundError, ValueError) as exc:
@@ -460,6 +482,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         "status": "ok",
         "n_candidates": len(candidates),
         "queries_self_derived": self_derived,
+        "field": _field_record(args, competitors, left_out),
         "lexical": lexical,
     }
     if args.model:

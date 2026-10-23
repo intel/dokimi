@@ -333,7 +333,7 @@ def test_all_vs_all_exits_nonzero_when_every_model_call_fails(tmp_path, capsys, 
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
                   "--model", "m")
-    with pytest.raises(SystemExit, match="every model call failed"):
+    with pytest.raises(SystemExit, match="2 of 2 model call.s. failed"):
         args.func(args)
     captured = capsys.readouterr()
     assert "OK Saved" not in captured.out
@@ -379,3 +379,113 @@ def test_an_unreadable_queries_file_is_a_message_not_a_traceback(tmp_path, make)
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
     with pytest.raises(SystemExit, match="cannot read the queries"):
         args.func(args)
+
+
+def _cat(root, names_descriptions):
+    for name, description in names_descriptions.items():
+        _catalog_skill(root, name, description)
+
+
+def test_a_partial_model_failure_exits_non_zero_and_leaves_failed_queries_out(
+        tmp_path, capsys, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    answered = []
+
+    def transport(prompt: str, system: str | None):
+        if answered:
+            raise RuntimeError("rate limited")
+        answered.append(1)
+        return '{"pick": 1}', None
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role, transport=transport))
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary with perf", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"db": ["add an index"], "perf": ["profile it", "perf it"]})
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out), "--model", "m")
+    with pytest.raises(SystemExit, match="2 of 3 model call"):
+        args.func(args)
+    assert "OK Saved" not in capsys.readouterr().out
+    model = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]
+    assert model["n_failed"] == 2
+    # perf's two queries both failed: no rate, not a measured 0.0.
+    assert model["own_rate"]["perf"] is None and model["n_scored"]["perf"] == 0
+    assert model["n_unscored"] == {"perf": 2}
+
+
+def test_a_query_with_no_content_word_is_not_scored_as_a_miss():
+    field = [Candidate("alpha", "convert a json file to yaml"),
+             Candidate("beta", "tune a slow database query")]
+    result = all_vs_all(field, {"alpha": ["convert my json file to yaml",
+                                          "json to yaml please", "the of and"]})
+    lexical = result["lexical"]
+    assert lexical["own_rate"]["alpha"] == 1.0
+    assert lexical["n_scored"] == {"alpha": 2} and lexical["n_unscored"] == {"alpha": 1}
+
+
+@pytest.mark.parametrize("order", [(0, 1, 2), (2, 1, 0), (1, 2, 0)])
+def test_a_tie_among_other_cards_is_a_tie_in_any_field_order(order):
+    cards = [Candidate("fft", "fast transforms"), Candidate("linalg", "fast transforms"),
+             Candidate("random", "fast transforms"),
+             Candidate("gold", "something unrelated entirely")]
+    field = [cards[i] for i in order] + [cards[3]]
+    lexical = all_vs_all(field, {"gold": ["fast transforms"]})["lexical"]
+    assert lexical["confusion"]["gold"] == {"(tie)": 1}
+    assert lexical["attractors"] == []
+
+
+def test_the_saved_payload_records_the_field_rule(tmp_path):
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    hidden = root / "skills" / "ghost"
+    hidden.mkdir(parents=True)
+    (hidden / "SKILL.md").write_text(
+        "---\nname: ghost\ndescription: x\ndisable-model-invocation: true\n---\n\n# B\n",
+        encoding="utf-8")
+    queries = _write_queries(tmp_path, {"perf": ["profile a binary"]})
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out))
+    args.func(args)
+    field = json.loads(out.read_text(encoding="utf-8"))["field"]
+    assert field["include_disabled"] is False
+    assert sorted(field["competitors"]) == ["db", "perf"]
+    assert len(field["left_out"]) == 1 and "ghost" in field["left_out"][0]
+
+
+def test_a_skill_named_twice_in_the_queries_file_is_refused(tmp_path):
+    path = tmp_path / "q.json"
+    path.write_text('{"a": ["profile"], "a": ["slow"]}', encoding="utf-8")
+    with pytest.raises(RoutingInputError, match="skill 'a' appears more than once"):
+        load_queries_by_skill(str(path))
+
+
+def test_the_not_in_the_field_error_names_the_disable_flag_and_its_override():
+    with pytest.raises(RoutingInputError, match="disable-model-invocation.*--include-disabled"):
+        all_vs_all([PERF, MKL], {"ghost": ["x y"]})
+
+
+@pytest.mark.parametrize("flag", [["--queries", "q.txt"], ["--queries-from-headings"]])
+def test_all_vs_all_refuses_the_single_artifact_query_flags(tmp_path, flag):
+    queries = _write_queries(tmp_path, {"perf": ["profile"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(tmp_path),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"), *flag)
+    with pytest.raises(SystemExit, match="takes --queries-by-skill, not --queries"):
+        args.func(args)
+
+
+def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = tmp_path / "q.txt"
+    queries.write_text("profile a binary\n", encoding="utf-8")
+    out = tmp_path / "r.json"
+    args = _parse("novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
+                  "--catalog", str(root), "--include-disabled", "--queries", str(queries),
+                  "--out", str(out))
+    args.func(args)
+    field = json.loads(out.read_text(encoding="utf-8"))["field"]
+    assert field == {"include_disabled": True, "competitors": ["db"], "left_out": []}
