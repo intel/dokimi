@@ -449,7 +449,9 @@ def test_a_query_file_that_is_not_strings_is_refused_but_a_missing_one_is_not_ma
 def test_the_catalog_leaves_out_the_names_it_is_told_to(tmp_path):
     _skill(tmp_path, "perf", "profile a slow binary with perf")
     _skill(tmp_path, "xpu", "profile a slow GPU kernel")
-    assert [c.name for c in catalog_competitors(str(tmp_path), {"perf"})] == ["xpu"]
+    # a card is what the model chooses by: its description, not only its name
+    assert [(c.name, c.description) for c in catalog_competitors(str(tmp_path), {"perf"})] == [
+        ("xpu", "profile a slow GPU kernel")]
     with pytest.raises(ValueError, match="not a directory"):
         catalog_competitors(str(tmp_path / "nope"), set())
 

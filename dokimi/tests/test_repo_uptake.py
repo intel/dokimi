@@ -45,6 +45,10 @@ new file mode 100644
 +# src guidance
 """
 
+# Each half of KIT_PATCH alone: a server and no file an agent can use, and the reverse.
+SERVER_ONLY_PATCH = KIT_PATCH[KIT_PATCH.index("diff --git a/.mcp.json"):KIT_PATCH.index("diff --git a/sub/AGENTS.md")]
+FILE_ONLY_PATCH = KIT_PATCH[:KIT_PATCH.index("diff --git a/.mcp.json")]
+
 WS = "/eval/run/workspace"
 
 
@@ -198,6 +202,20 @@ def test_repo_run_records_uptake_and_compare_warns_when_nothing_was_used(setup, 
         f"{arm}: the agent used none of what the arm added in 2 cell(s); a delta measures the patch's text, "
         "not the tool"]
     assert f"uptake: {arm} used what its arm added in 0/2 cell(s)" in format_compare(loud)
+
+
+@pytest.mark.parametrize("patch_text, files, servers, tool_use", [
+    (SERVER_ONLY_PATCH, [], ["code.graph"], ["mcp__code_graph__callers", {"symbol": "add"}]),
+    (FILE_ONLY_PATCH, ["tools/fmt"], [], ["Bash", {"command": "./tools/fmt src/calc.py"}]),
+])
+def test_a_patch_that_adds_only_a_server_or_only_a_file_records_its_uptake(
+        setup, monkeypatch, patch_text, files, servers, tool_use):  # noqa: F811
+    patch = setup["tmp"] / "half.diff"
+    patch.write_text(patch_text)
+    monkeypatch.setenv("FAKE_TOOL_USES", json.dumps([tool_use]))
+    _run(setup, "half", f"patch:{patch}")
+    uptake = json.loads(next((setup["out"] / "half").glob("*patch*__r1/result.json")).read_text())["uptake"]
+    assert (uptake["files"], uptake["mcp_servers"], uptake["used"]) == (files, servers, True)
 
 
 def _used_none(summary):
