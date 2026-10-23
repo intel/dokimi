@@ -74,6 +74,21 @@ class Completeness:
                 "problems": list(self.problems)}
 
 
+def _statuses(result_cells: Any, problems: list[str]) -> dict[str, str]:
+    """``cell_id -> status`` of the result; an unknown status is appended to ``problems``."""
+    status: dict[str, str] = {}
+    for cell in result_cells if isinstance(result_cells, list) else []:
+        cid = cell.get("cell_id") if isinstance(cell, Mapping) else None
+        st = cell.get("status") if isinstance(cell, Mapping) else None
+        if not isinstance(cid, str):
+            continue  # reported by completeness
+        if isinstance(st, str) and st in STATUSES:
+            status[cid] = st
+        else:
+            problems.append(f"result cell {cid} has an unknown status: {st!r}")
+    return status
+
+
 def completeness(plan: Mapping[str, Any], result: Mapping[str, Any]) -> Completeness:
     """Planned minus completed cells of ``result`` against ``plan``.
 
@@ -114,16 +129,7 @@ def completeness(plan: Mapping[str, Any], result: Mapping[str, Any]) -> Complete
     unplanned = sorted(set(seen) - set(planned))
     if unplanned:
         problems.append(f"result has cells the plan does not: {unplanned}")
-    status: dict[str, str] = {}
-    for cell in result_cells if isinstance(result_cells, list) else []:
-        cid = cell.get("cell_id") if isinstance(cell, Mapping) else None
-        st = cell.get("status") if isinstance(cell, Mapping) else None
-        if not isinstance(cid, str):
-            continue  # reported above
-        if isinstance(st, str) and st in STATUSES:
-            status[cid] = st
-        else:
-            problems.append(f"result cell {cid} has an unknown status: {st!r}")
+    status = _statuses(result_cells, problems)
     counts = Counter(status.get(cid, "not_run") for cid in dict.fromkeys(planned))
     missing = tuple(cid for cid in dict.fromkeys(planned) if status.get(cid, "not_run") not in MEASURED)
     if problems:
