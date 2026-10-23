@@ -530,6 +530,23 @@ def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, 
     assert err.startswith("Error: ") and str(bad) in err
 
 
+@pytest.mark.parametrize("command", [["cross-judge"], ["checklist", "--questions", "q.json"], ["judge-wording"]],
+                         ids=["cross-judge", "checklist", "judge-wording"])
+@pytest.mark.parametrize("content", [None, "{not json"], ids=["missing", "malformed"])
+def test_every_answers_reader_exits_2_on_an_unreadable_answers_file(tmp_path, monkeypatch, capsys, command, content):
+    from dokimi import cli
+
+    bad = tmp_path / "bad.json"
+    if content is not None:
+        bad.write_text(content, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", command[0], "--answers", str(bad), *command[1:]])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(bad) in err
+
+
 @pytest.mark.parametrize("flag", ["--pairwise", "--checklist", "--validity"])
 def test_cross_judge_refuses_a_missing_result_file_before_any_judge_call(tmp_path, monkeypatch, capsys, flag):
     from tests.test_judge_reliability import _cross_judge_args, _material_arms_run, _recording_judge
