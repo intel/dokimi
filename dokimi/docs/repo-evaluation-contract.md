@@ -1015,7 +1015,8 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
 - The agent's container mounts the workspace, the per-run `home`, `config` and
   scratch directories (each `image.env` value under `{run_dir}/`), the caches,
-  the harness executable (`--bin`, read-only at `/eval/harness`) and the
+  the harness executable (`--bin`, read-only at `/eval/harness`, with its
+  `bin_companions` beside it, §6) and the
   framework's helper scripts (read-only at `/eval/support`). Before a batch,
   the harness must report its version inside the image, and a probe container
   with the same mounts must see neither `/eval/content` nor `/eval/source`, no

@@ -305,6 +305,21 @@ def test_codex_failed_command_does_not_count_as_a_read():
     assert [e["rc"] for e in t.events if e["kind"] == "command"] == [1, 0, 2]
 
 
+def test_codex_failed_command_drops_only_its_own_reads():
+    """A read that succeeded earlier stays when a later command fails: reach would class the file `fetched`."""
+    ok = {"type": "command_execution", "command": "cat AGENTS.md"}
+    bad = {"type": "command_execution", "command": "cat missing.md"}
+    raw = _jsonl(
+        {"type": "item.started", "item": {"id": "a", **ok}},
+        {"type": "item.completed", "item": {"id": "a", **ok, "exit_code": 0}},
+        {"type": "item.started", "item": {"id": "b", **bad}},
+        {"type": "item.completed", "item": {"id": "b", **bad, "exit_code": 1}},
+    )
+    t = convert("codex-json", raw, None)
+    assert [e["path"] for e in t.events if e["kind"] == "read"] == ["AGENTS.md"]
+    assert [e["rc"] for e in t.events if e["kind"] == "command"] == [0, 1]
+
+
 @pytest.mark.parametrize("done", [{}, {"exit_code": None}], ids=["missing", "null"])
 def test_codex_command_with_an_unknown_exit_code_keeps_its_read(done):
     """No exit code (a cut-off run or a stream without the field) is not a failure: the read stays."""
@@ -373,6 +388,25 @@ def test_copilot_json_to_events():
         {"t": 5.0, "kind": "tool", "name": "web_fetch"},
     ]
     assert t.reads() == {"AGENTS.md", "sub/AGENTS.md"}
+
+
+@pytest.mark.parametrize(("done", "rc"), [({"success": True}, 0), ({"success": False}, 1), ({}, None)],
+                         ids=["success", "failure", "unknown"])
+def test_copilot_command_exit_code_falls_back_to_success(done, rc):
+    """Without `shellExecution.exitCode` the rc comes from `success`; with neither it stays unknown."""
+    raw = _jsonl(
+        {"type": "tool.execution_start",
+         "data": {"toolCallId": "a", "toolName": "bash", "arguments": {"command": "make"}}},
+        {"type": "tool.execution_complete", "data": {"toolCallId": "a", **done}},
+    )
+    t = convert("copilot-json", raw, None)
+    assert [e["rc"] for e in t.events if e["kind"] == "command"] == [rc]
+
+
+def test_copilot_result_without_an_exit_code_is_not_an_error():
+    t = convert("copilot-json", _jsonl({"type": "assistant.message", "data": {"content": "x"}}, {"type": "result"}),
+                None)
+    assert not t.is_error
 
 
 def test_copilot_answer_falls_back_to_the_last_message_and_a_failed_exit_is_an_error():
