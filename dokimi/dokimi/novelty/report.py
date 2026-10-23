@@ -347,8 +347,8 @@ def _uncleared_conflicts(artifact: dict) -> str | None:
     row says it; ``None`` when the count was cleared, conflicts were found, or nothing was classified."""
     if not artifact.get("categories"):
         return None
-    check = next(c for c in evaluate_novelty(artifact).checks if c.name == "harmful_atoms")
-    if check.measured:
+    check = next((c for c in evaluate_novelty(artifact).checks if c.name == "harmful_atoms"), None)
+    if check is None or check.measured:
         return None
     reason = check.message.removeprefix("not measured: ").split("; ")[0]
     return reason[:1].upper() + reason[1:]
