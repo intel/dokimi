@@ -509,11 +509,19 @@ def test_cross_judge_exits_2_on_a_malformed_arms_file(tmp_path, monkeypatch, cap
 
 
 @pytest.mark.parametrize("flag", ["--answers", "--pairwise", "--checklist", "--validity"])
-@pytest.mark.parametrize("content", [None, "{not json", "[1, 2]", "[" * 5_000 + "]" * 5_000],
+@pytest.mark.parametrize("content", [None, "{not json", "[1, 2]", "TOO-DEEP"],
                          ids=["missing", "malformed", "not-an-object", "nested-too-deep"])
 def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, capsys, flag, content):
     from dokimi import cli
 
+    real_loads = json.loads
+
+    def loads(text, *args, **kwargs):
+        if text == "TOO-DEEP":  # whether a deep document overflows depends on the interpreter, so raise it
+            raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
+        return real_loads(text, *args, **kwargs)
+
+    monkeypatch.setattr(json, "loads", loads)
     arms = tmp_path / "arms.json"
     arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
                     encoding="utf-8")
@@ -530,6 +538,8 @@ def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, 
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(bad) in err
+    if content == "TOO-DEEP":
+        assert "is not valid JSON" in err and "recursion" in err
     if content == "{not json":
         assert "is not valid JSON" in err and "cannot read" not in err
     if content is None:
