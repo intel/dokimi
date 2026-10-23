@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dokimi import caching
 from dokimi.llm import llm_call
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.question_text import require_question_texts
@@ -298,14 +299,21 @@ class JudgePanel:
             # its own response-cache draw: under one cache key the retries replayed
             # the same unparseable reply. With sampling pinned the same prompt
             # returns the same reply live, so a re-draw then appends a reminder.
-            last_parse_exc: Exception = ValueError("panel retry loop did not execute")
-            for attempt in range(3):
+            def ask(attempt: int) -> str:
                 attempt_prompt = prompt
                 if attempt and pinned:
                     attempt_prompt = prompt + FORMAT_REMINDER.format(n=attempt)
-                raw = llm_call(attempt_prompt, model=config.model, provider=config.provider,
-                               temperature=config.temperature, seed=config.seed,
-                               draw=attempt, cache_if=parses)
+                return llm_call(attempt_prompt, model=config.model, provider=config.provider,
+                                temperature=config.temperature, seed=config.seed,
+                                draw=attempt, cache_if=parses)
+
+            # A rerun starts at the attempt whose reply is stored: the unparseable
+            # attempts before it were never stored and would be asked live again.
+            first, replayed = caching.first_replayed(3, ask) or (0, None)
+            last_parse_exc: Exception = ValueError("panel retry loop did not execute")
+            for attempt in range(first, 3):
+                raw = replayed if replayed is not None else ask(attempt)
+                replayed = None
                 try:
                     data, scores = parse(raw)
                     break

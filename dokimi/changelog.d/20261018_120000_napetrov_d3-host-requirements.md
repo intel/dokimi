@@ -19,5 +19,4 @@
   and flags match in any case. A `/proc/cpuinfo` the probe could not read is a probe failure,
   not a hardware miss. A failed probe writes no `unsupported.json`, so `repo report` counts the
   cells missing. On a host miss `tasks check` still prepares the workspace and probes isolation
-  (and runs the oracle when only CPUs are short); it skips the null check. `--warm` does not
-  judge the host.
+  (and runs the oracle when only CPUs are short); it skips the null check.
