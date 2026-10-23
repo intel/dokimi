@@ -156,7 +156,7 @@ def test_the_optional_measures_do_not_flood_unpaired_with_tasks_they_do_not_appl
     reasons = sorted((u["task"], u["reason"]) for u in summary["unpaired"])
     assert reasons == [
         ("15 task(s)", "too few cells in baseline or treatment for pass^2"),
-        ("15 task(s)", "too few cells in baseline or treatment for path_distance"),
+        ("16 task(s)", "too few cells in baseline or treatment for path_distance"),  # the score task left no trace
         ("only_base", "no cells in treatment"),
     ]
     assert not any(u["task"] == "s1" for u in summary["unpaired"])
