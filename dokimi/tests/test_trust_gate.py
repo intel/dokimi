@@ -317,6 +317,11 @@ class TestEveryThresholdIsInclusive:
         check = _check(evaluate_trust(evals), "inter_rater_agreement")
         assert (check.value, check.passed) == (0.5, True)
 
+    def test_one_agreement_score_among_many_rows_is_still_judged(self):
+        evals = [_row(70, 50)] * 10 + [_row(70, 50, agree=0.1)]
+        check = _check(evaluate_trust(evals), "inter_rater_agreement")
+        assert (check.passed, check.value) == (False, 0.1)
+
     def test_hit_rate_at_floor(self):
         evals = [_row(70, 50, hit=True)] * 6 + [_row(70, 50, hit=False)] * 4
         check = _check(evaluate_trust(evals), "retrieval_hit_rate")
@@ -449,3 +454,11 @@ class TestTheRenderedBlock:
         assert _check(v, "retrieval_hit_rate").message == (
             "Retrieval hit rate = 100.0% (9/9; 1 unrecorded) (min 60%)"
         )
+
+    def test_a_warn_only_verdict_renders_warnings_and_no_blocking_section(self):
+        evals = [_row(5, 5)] * 7 + [_row(100, 5)] * 3
+        verdict = evaluate_trust(evals)
+        assert verdict.warnings and not verdict.failures
+        md = format_trust_block(verdict)
+        assert "**Warnings:**" in md
+        assert "**Blocking issues:**" not in md

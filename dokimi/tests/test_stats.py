@@ -597,6 +597,35 @@ def test_bootstrap_interval_pins_the_tail_indices_and_the_seed():
     assert (wide["lo"], wide["hi"]) == (1.2, 5.0)
 
 
+@pytest.mark.parametrize(
+    ("confidence", "n_resamples", "expected"),
+    [(0.95, 100, (1.2143, 6.5714)), (0.5, 50, (3.0, 4.9286))],
+)
+def test_bootstrap_interval_tails_are_symmetric_order_statistics(confidence, n_resamples, expected):
+    # Literals from the original code. Dropping round() from either index, or using n_resamples
+    # instead of n_resamples - 1, moves a bound by one order statistic on these (and not on the case above).
+    ci = stats.bootstrap_ci([0, 1, 2, 3, 10, 4.5, 7.5], confidence=confidence, n_resamples=n_resamples, seed=7)
+    assert (ci["lo"], ci["hi"]) == expected
+
+
+def test_paired_test_rejects_a_length_mismatch_in_both_directions():
+    assert stats.paired_test([1, 2, 3], [1, 2, 3, 4]) is None  # control longer
+    assert stats.paired_test([1, 2, 3, 4], [1, 2, 3]) is None  # treatment longer
+
+
+def test_mean_ci_forwards_the_seed_to_the_bootstrap_fallback(monkeypatch):
+    seen = {}
+
+    def fake(vals, confidence=0.95, **kw):
+        seen.update(kw)
+        return {"mean": 0.0, "lo": 0.0, "hi": 0.0, "n": len(vals)}
+
+    monkeypatch.setattr(stats, "HAS_SCIPY", False)
+    monkeypatch.setattr(stats, "bootstrap_ci", fake)
+    stats.mean_ci([1.0, 2.0, 3.0], seed=7)
+    assert seen == {"seed": 7}
+
+
 def test_bootstrap_ci_defaults_are_pinned():
     """grounding.py calls bootstrap_ci with every default, so the default seed and
     n_resamples set the stored grounding_score interval."""

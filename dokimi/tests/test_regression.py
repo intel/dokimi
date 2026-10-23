@@ -196,6 +196,20 @@ def test_a_score_drop_alone_sets_the_summary_flags():
     assert not warn.has_critical
 
 
+def test_a_metric_regression_alone_sets_the_summary_flags():
+    warn = detect_regressions({"score": 0.0, "coverage": -0.06}, {})
+    assert warn.has_warnings
+    assert not warn.has_critical
+
+
+def test_a_critical_on_a_later_tracked_metric_sets_has_critical():
+    # Not the first metric in the list: has_critical must look at all of metric_regressions.
+    result = detect_regressions(
+        {"score": 0.0, "example_pass_rate": -0.5, "coverage": 0.0, "freshness_lite": 0.0, "readability": 0.0}, {}
+    )
+    assert result.has_critical
+
+
 @pytest.mark.parametrize("name", ["coverage", "freshness_lite", "readability", "example_pass_rate"])
 def test_every_tracked_metric_is_classified(name):
     result = detect_regressions({"score": 0.0, name: -0.5}, {})

@@ -210,6 +210,17 @@ def test_the_interval_follows_the_confidence_and_the_seed():
     assert (seeded["ci_lo"], seeded["ci_hi"]) == (boot["lo"], boot["hi"])
 
 
+def test_the_seed_reaches_an_interval_that_depends_on_it():
+    # 6 gained, 6 lost, 3 both-pass: the bootstrap bounds differ between seeds (the case above gives
+    # (0.0, 0.6) for every seed, so it cannot tell a forwarded seed from a dropped one).
+    treat = [True] * 6 + [False] * 6 + [True] * 3
+    control = [False] * 6 + [True] * 6 + [True] * 3
+    default = mcnemar_test(treat, control)
+    seeded = mcnemar_test(treat, control, seed=7)
+    assert (default["ci_lo"], default["ci_hi"]) == (-0.4, 0.4667)
+    assert (seeded["ci_lo"], seeded["ci_hi"]) == (-0.4667, 0.4667)
+
+
 def test_the_paired_delta_keeps_four_decimals():
     res = mcnemar_test([True, False, False], [False, False, False])
     assert res["paired_pass_rate_delta"] == 0.3333
