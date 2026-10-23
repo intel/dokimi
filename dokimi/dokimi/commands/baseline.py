@@ -104,7 +104,8 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
     if str(judge_model or "").startswith("panel("):
         panel = eval_data.get("panel_config")
         models = panel.get("models") if isinstance(panel, dict) else None
-        models = [m for m in models if isinstance(m, str)] if isinstance(models, list) else []
+        if not (isinstance(models, list) and all(isinstance(m, str) for m in models)):
+            models = []
         judge = ("panel", ",".join(sorted(
             normalize_model_ref(*m.split("/", 1)) if "/" in m else m for m in models))) if models else None
     else:

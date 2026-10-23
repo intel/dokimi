@@ -179,23 +179,30 @@ def test_list_prints_an_entry_whose_optional_values_are_not_scalars(run, tmp_pat
     assert capsys.readouterr().out.splitlines()[-1].startswith("n ")
 
 
-@pytest.mark.parametrize("field", [
-    {"run_metadata": "x"},
-    {"run_metadata": 5},
-    {"run_metadata": [1]},
-    {"judge_model": "panel(2)", "panel_config": {"models": 5}},
-    {"judge_model": "panel(2)", "panel_config": {"models": [1]}},
-    {"judge_model": "panel(2)", "panel_config": "x"},
+_MODELS = {"run_metadata": {"answer_provider": "p", "answer_model": "m"},
+           "judge_provider": "p", "judge_model": "m"}
+
+
+@pytest.mark.parametrize("field, role", [
+    ({"run_metadata": "x"}, "answer"),
+    ({"run_metadata": 5}, "answer"),
+    ({"run_metadata": [1]}, "answer"),
+    ({"judge_model": "panel(2)", "panel_config": {"models": 5}}, "judge"),
+    ({"judge_model": "panel(2)", "panel_config": {"models": [1]}}, "judge"),
+    ({"judge_model": "panel(2)", "panel_config": {"models": ["a/x", 5]}}, "judge"),
+    ({"judge_model": "panel(2)", "panel_config": "x"}, "judge"),
 ])
-def test_compare_treats_malformed_model_metadata_as_not_recorded(run, tmp_path, capsys, field):
+def test_compare_treats_malformed_model_metadata_as_not_recorded(run, tmp_path, capsys, field, role):
     good = tmp_path / "good.json"
-    good.write_text(json.dumps(_EVAL), encoding="utf-8")
+    good.write_text(json.dumps({**_EVAL, **_MODELS}), encoding="utf-8")
     run("save", "--from-eval", str(good), "--name", "b")
     odd = tmp_path / "odd.json"
-    odd.write_text(json.dumps({**_EVAL, **field}), encoding="utf-8")
+    odd.write_text(json.dumps({**_EVAL, **_MODELS, **field}), encoding="utf-8")
     capsys.readouterr()
     run("compare", "--baseline", "b", "--eval", str(odd))
-    assert "model not recorded in" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert f"{role} model not recorded in current eval; not compared" in err
+    assert err.count("not recorded in") == 1
 
 
 def test_save_into_a_manifest_without_a_baselines_key_records_the_baseline(run, tmp_path):
