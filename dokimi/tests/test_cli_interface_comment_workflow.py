@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -105,6 +106,7 @@ def _run(
     fail_labels: bool = False,
     fail_create_label: bool = False,
     assoc=None,
+    pad: int = 0,
 ):
     node = shutil.which("node")
     if not (node and shutil.which("unzip")):
@@ -112,6 +114,8 @@ def _run(
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("result.json", result if isinstance(result, str) else json.dumps(result))
+        if pad:  # incompressible member, so the zip itself is `pad` bytes bigger
+            z.writestr("pad.bin", os.urandom(pad), compress_type=zipfile.ZIP_STORED)
     zpath = tmp_path / "a.zip"
     zpath.write_bytes(buf.getvalue())
     script = next(s["with"]["script"] for s in _wf()["jobs"]["post"]["steps"])
@@ -408,6 +412,21 @@ def test_every_mention_and_every_comment_opener_is_broken(tmp_path):
 def test_a_run_of_exactly_eight_backticks_is_split(tmp_path):
     body = _bodies(_run(tmp_path, _good(diff="`" * 8)))[0]
     assert _fence(body)[0] == "````````diff" and "`" * 8 not in body.split("diff\n", 1)[1].split("\n")[0]
+
+
+def test_every_long_backtick_run_is_split_not_only_the_first(tmp_path):
+    body = _bodies(_run(tmp_path, _good(diff="`" * 8 + "\n" + "`" * 20)))[0]
+    assert _fence(body)[0] == "````````diff"  # bound of 8, not 21
+    inner = body.split("diff\n", 1)[1].rsplit("\n", 1)[0].rsplit("\n", 1)[0]  # drop closing fence
+    assert "`" * 8 not in inner and inner.count("\u200b") == 1 + 2  # 8 -> 1 cut, 20 -> 2 cuts
+
+
+def test_a_downloaded_zip_over_the_cap_is_refused_even_if_the_listing_said_it_was_small(tmp_path):
+    calls = _run(tmp_path, _good(), size=1000, pad=300 * 1024, comments=OLD_COMMENT)
+    assert "download" in _names(calls)
+    bodies = _bodies(calls)
+    assert len(bodies) == 1 and "too large" in bodies[0] and "downloaded artifact" in bodies[0]
+    assert not {"addLabels", "removeLabel", "createComment"} & set(_names(calls))
 
 
 def test_a_too_large_result_skips_a_filtered_pr_and_reports_on_the_next(tmp_path):
