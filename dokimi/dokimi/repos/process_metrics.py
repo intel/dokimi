@@ -10,7 +10,8 @@ The framework counts what every repository asks of a trace:
 - ``failed_commands``: commands not denied whose ``rc`` is neither ``0`` nor ``null`` (``null`` means
   no result came back, which is not a failure; a permission denial carries ``rc`` 1 but never ran);
 - ``denied_commands``: commands a hook or the harness's permissions refused (``denied``);
-- ``guidance_read``: the sorted paths of ``read`` events matched by the manifest's guidance globs.
+- ``guidance_read``: the sorted workspace paths of ``read`` events not denied that the manifest's guidance
+  globs match; a path outside the workspace (absolute, or with ``..``) is no repository file.
 
 ``counters`` holds the manifest's ``process_metrics``: for each name, how many ``command`` events
 its regex finds a match in (``re.search``). A counter matches the command text unless it names
@@ -22,6 +23,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 from typing import Any
 
 COUNTER_FIELDS = ("text", "output", "any")
@@ -55,17 +57,22 @@ def parse_counter(name: str, value: Any) -> Counter:
         raise ValueError(f"process_metrics/{name}: not a valid regex: {exc}") from exc
 
 
+def _in_workspace(path: str) -> bool:
+    p = PurePosixPath(path)
+    return not p.is_absolute() and ".." not in p.parts
+
+
 def process_metrics(events: Iterable[Mapping[str, Any]], is_guidance: Callable[[str], bool],
                     counters: Mapping[str, Counter] | None = None) -> dict[str, Any]:
     """The ``process`` object of ``result.json`` for one run's events; ``is_guidance`` tells a guidance path."""
     events = list(events)
     commands = [e for e in events if e.get("kind") == "command"]
-    reads = {str(e["path"]) for e in events if e.get("kind") == "read" and e.get("path")}
+    reads = {str(e["path"]) for e in events if e.get("kind") == "read" and e.get("path") and not e.get("denied")}
     return {
         "tool_calls": len(events),
         "commands": len(commands),
         "failed_commands": sum(e.get("rc") not in (0, None) and not e.get("denied") for e in commands),
         "denied_commands": sum(bool(e.get("denied")) for e in commands),
-        "guidance_read": sorted(p for p in reads if is_guidance(p)),
+        "guidance_read": sorted(p for p in reads if _in_workspace(p) and is_guidance(p)),
         "counters": {name: sum(c.hits(e) for e in commands) for name, c in (counters or {}).items()},
     }

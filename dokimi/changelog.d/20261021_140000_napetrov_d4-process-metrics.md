@@ -3,7 +3,7 @@
 - **Process metrics in `result.json`** — every `repo run` cell's `result.json` has a
   `process` object counted from `events.jsonl`: `tool_calls`, `commands`,
   `failed_commands` (not denied, `rc` neither 0 nor null), `denied_commands`, and `guidance_read` (the
-  read paths the manifest's guidance globs match). A manifest's new `process_metrics:` maps
+  workspace paths read, not denied, that the manifest's guidance globs match). A manifest's new `process_metrics:` maps
   a name to a regex, searched in each command's text, or its `output` (`match: output|any`),
   and `process.counters` holds each count. `repo validate` refuses a regex that does not
   compile, and a name that is not a string (a bare YAML `404:` or `on:`).

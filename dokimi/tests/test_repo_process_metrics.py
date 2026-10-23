@@ -6,12 +6,14 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from dokimi.repos import WorkTree, check_repo, load_manifest, match_glob, parse_manifest
 from dokimi.repos.manifest import TaskSummary, grade_problems
 from dokimi.repos.process_metrics import parse_counter, process_metrics
+from dokimi.repos.runner import run_process_metrics
 
 from test_repo_manifest import MANIFEST, _repo, _task
 
@@ -86,6 +88,15 @@ def test_manifest_keeps_counters_and_reports_every_bad_regex():
     with pytest.raises(Exception) as exc:
         parse_manifest(raw)
     assert "process_metrics/a" in str(exc.value) and "process_metrics/b" in str(exc.value)
+
+
+def test_guidance_read_is_the_workspace_guidance_files_the_agent_read():
+    # globs are root-relative: a home-dir or ../ AGENTS.md is no repository guidance, a denied read read nothing.
+    events = [{"kind": "read", "path": p} for p in
+              ("AGENTS.md", "src/lib.c", "/home/agent/.claude/AGENTS.md", "../AGENTS.md")]
+    events.append({"kind": "read", "path": "src/AGENTS.md", "denied": True})
+    ctx = SimpleNamespace(manifest=parse_manifest(MANIFEST))
+    assert run_process_metrics(ctx, events)["guidance_read"] == ["AGENTS.md"]
 
 
 def test_a_command_the_permissions_denied_is_denied_not_failed():
