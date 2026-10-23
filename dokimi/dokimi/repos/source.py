@@ -25,10 +25,12 @@ from typing import Callable, Protocol
 
 from dokimi import process
 
-# A revision is a SHA, tag or single-segment branch, optionally with ^ / ~N
-# suffixes. No "/" (so "user@host:path" URLs are not split) and no leading "-"
-# (so a revision can never be read as a git option).
-_REV_RE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._^~-]*$")
+# A revision is a SHA, tag or branch (a "/" is allowed: origin/main, refs/heads/x), optionally
+# with ^ / ~N suffixes. No leading "-" (so a revision can never be read as a git option);
+# _is_rev also refuses "..", "//" and a trailing "/". A "user@host" URL is kept whole by
+# _has_location_path, which splits at the last "@" only when what is left is still a location;
+# in a remote spec a "/" in the revision needs a ref-like start (_remote_split_ok).
+_REV_RE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/^~-]*$")  # "/" for origin/main, refs/heads/x
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _REMOTE_PREFIXES = ("https://", "ssh://", "file://", "git@")
 _GIT_TIMEOUT_S = 1800
@@ -54,7 +56,10 @@ class RepoSource:
             raise SourceError(f"invalid repository source: {spec!r}")
         location, rev = spec, None
         head, sep, tail = spec.rpartition("@")
-        if sep and head and _REV_RE.match(tail):
+        # An existing directory is read whole: jenkins ws/job@2/repo, /home/a@corp.com/proj.
+        if (sep and head and _is_rev(tail) and _has_location_path(head)
+                and (_remote_split_ok(spec, head, tail) if spec.startswith(_REMOTE_PREFIXES)
+                     else not Path(spec).is_dir())):
             location, rev = head, tail
         remote = location.startswith(_REMOTE_PREFIXES)
         if location.startswith("http://"):
@@ -430,9 +435,37 @@ def _fetch_refs(git_dir: Path) -> None:
          "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
 
 
+def _has_location_path(head: str) -> bool:
+    """False for the head of an unpinned remote URL cut at its ``user@``: ``ssh://git`` in
+    ``ssh://git@github.com/o/r.git`` has no path, so the tail is a host and not a revision."""
+    for prefix in ("https://", "ssh://", "file://"):
+        if head.startswith(prefix):
+            return "/" in head[len(prefix):]
+    return True
+
+
+_REMOTE_REV_ROOTS = ("origin", "upstream", "refs", "remotes", "heads", "tags")
+
+
+def _remote_split_ok(spec: str, head: str, tail: str) -> bool:
+    """Whether an ``@`` in a remote spec starts the revision. A remote path may hold an ``@``
+    (``file:///tmp/a@b/c``, ``git@host/o/r``), so a ``/`` in the tail makes it a revision only
+    when it starts like a ref (``origin/main``, ``refs/heads/x``); ``git@host`` needs an ``@``
+    left in the head."""
+    if spec.startswith("git@") and "@" not in head:
+        return False
+    return "/" not in tail or tail.split("/", 1)[0] in _REMOTE_REV_ROOTS
+
+
+def _is_rev(rev: str) -> bool:
+    """A revision as a source spec or ``resolve_rev`` takes it: a SHA, tag, branch (``origin/main``,
+    ``refs/heads/x``) or ``HEAD~1``. No ``..`` (a range), ``//`` or trailing ``/``."""
+    return bool(_REV_RE.match(rev)) and ".." not in rev and "//" not in rev and not rev.endswith("/")
+
+
 def resolve_rev(git_dir: Path, rev: str) -> str:
     """Full commit SHA for ``rev``; raises :class:`SourceError` if unknown."""
-    if not _REV_RE.match(rev):
+    if not _is_rev(rev):
         raise SourceError(f"invalid revision: {rev!r}")
     return _git(git_dir, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}").strip()
 

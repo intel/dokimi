@@ -19,7 +19,7 @@ and stays out of paid runs. A task whose network needs the egress proxy is
 ``unsupported`` until the proxy exists, and so is a task whose ``host``
 requirements (:mod:`.host`) the evaluation's containers do not meet: its bug
 cannot show here, so null and oracle would say nothing. ``--warm`` runs null
-and oracle with network so the caches fill before offline runs (§2).
+and oracle with network so the caches fill before offline runs (§2), and judges the host the same way.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
 
     A task the host cannot show still has its workspace prepared and isolation probed, and its oracle run
     when only CPUs are short; only the null check, which depends on the hardware, is skipped. ``--warm``
-    does not judge the host.
+    judges the host the same way: network changes neither the CPU view nor the hardware.
 
     ``host`` is :func:`.host.probe_host`'s facts, probed once per check; without it a task with
     ``host`` requirements probes for itself."""
@@ -77,29 +77,14 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     except ContainerError as exc:
         res.update(verdict="unsupported", unsupported_by="egress", problems=[str(exc)])
         return res
-    # --warm has network and a different image state, as for egress: the host is not judged there.
-    reason, unsupported_by, facts = (None, None, None) if warm else _host_reason(ctx, task, work_dir, host)
+    # The probe sees what every container of this runner sees (affinity, cgroup quota), with or without
+    # --warm's network: an unmet host requirement is unsupported either way, never a passing null run.
+    reason, unsupported_by, facts = _host_reason(ctx, task, work_dir, host)
     # Only what the hardware decides is skipped: the null check (it passes where the bug cannot show) and,
     # unless the miss is CPUs alone, the oracle. Preparing the workspace and isolation hold anywhere.
     run_oracle = not reason or (unsupported_by == "host" and shortfall_kinds(task, facts) <= {"cpus"})
-    for kind in ("null", "oracle"):
-        rd = work_dir / f"{task.id}__{kind}"
-        try:
-            _prepare(ctx, task, rd)
-            if reason and kind == "null" or kind == "oracle" and not run_oracle:
-                continue
-            if kind == "oracle":
-                run = run_entry(ctx, "oracle", task, rd, net, container_name(rd.name, "oracle"))
-                res["oracle_run"] = {"rc": run.returncode, "timed_out": run.timed_out, "wall_s": run.wall_s}
-                if not run.ok:
-                    res["problems"].append(f"oracle {'timed out' if run.timed_out else f'exited {run.returncode}'}"
-                                           f"; see {rd / 'oracle.log'}")
-                    continue
-            res[kind] = outcome(task, rd, run_entry(ctx, "grade", task, rd, net, container_name(rd.name, "grade")))
-        except (PrepError, ContainerError) as exc:
-            res["problems"].append(f"{kind}: {exc}")
-            continue
-        res["problems"] += _verdict_problems(task, kind, res[kind], rd)
+    for kind, run_it in (("null", not reason), ("oracle", run_oracle)):
+        _check_step(ctx, task, work_dir / f"{task.id}__{kind}", kind, run_it, net, res)
     if not res["problems"]:
         res["isolation"] = isolation_probe(ctx, [task], work_dir / f"{task.id}__null", guidance_names)
         res["problems"] += [f"isolation: {p}" for p in res["isolation"]]
@@ -116,6 +101,27 @@ def _host_reason(ctx: EvalContext, task: Task, work_dir: Path,
     if host is None and task.raw.get("host") is not None:
         host = probe_host(ctx, work_dir / f"{task.id}__host")
     return (*unmet(task, host), host)
+
+
+def _check_step(ctx: EvalContext, task: Task, rd: Path, kind: str, run_it: bool, net: str,
+                res: dict[str, Any]) -> None:
+    """Prepare ``rd`` and, when ``run_it``, run the null or oracle step into ``res``."""
+    try:
+        _prepare(ctx, task, rd)
+        if not run_it:
+            return
+        if kind == "oracle":
+            run = run_entry(ctx, "oracle", task, rd, net, container_name(rd.name, "oracle"))
+            res["oracle_run"] = {"rc": run.returncode, "timed_out": run.timed_out, "wall_s": run.wall_s}
+            if not run.ok:
+                res["problems"].append(f"oracle {'timed out' if run.timed_out else f'exited {run.returncode}'}"
+                                       f"; see {rd / 'oracle.log'}")
+                return
+        res[kind] = outcome(task, rd, run_entry(ctx, "grade", task, rd, net, container_name(rd.name, "grade")))
+    except (PrepError, ContainerError) as exc:
+        res["problems"].append(f"{kind}: {exc}")
+        return
+    res["problems"] += _verdict_problems(task, kind, res[kind], rd)
 
 
 def _prepare(ctx: EvalContext, task: Task, rd: Path) -> None:
