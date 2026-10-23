@@ -79,18 +79,24 @@ def test_process_on_one_arm_only_does_not_flood_unpaired(tmp_path, arm_with_proc
     assert [(u["task"], u["measure"]) for u in summary["unpaired"]] == [("zz", None)]
 
 
-def test_a_missing_process_value_in_a_task_is_not_zero(tmp_path):
+@pytest.mark.parametrize("null_rep", [1, 2, 3])
+def test_a_missing_process_value_in_a_task_is_not_zero(tmp_path, null_rep):
+    # Whichever rep has no process (the first one included), the task keeps the measure from the other reps.
     for rep in (1, 2, 3):
         _cell(tmp_path, "a", "guidance:none", rep)
         _cell(tmp_path, "a", "guidance:raw", rep)
     counts = {"guidance-none": 10, "guidance-raw": 4}
 
-    def process(name):  # rep 3 has no process at all
-        return None if name.endswith("r3") else {"tool_calls": counts[name.split("__")[1]] + int(name[-1])}
+    def process(name):
+        if name.endswith(f"r{null_rep}"):
+            return None
+        return {"tool_calls": counts[name.split("__")[1]] + int(name[-1])}
 
     _with_process(tmp_path, process)
     row = _row(compare([tmp_path], "guidance:none"), "process:tool_calls")
-    assert (row["baseline_mean"], row["treatment_mean"]) == (11.5, 5.5)
+    reps = [r for r in (1, 2, 3) if r != null_rep]
+    assert row["baseline_mean"] == sum(10 + r for r in reps) / 2
+    assert row["treatment_mean"] == sum(4 + r for r in reps) / 2
 
 
 def test_process_measures_come_only_from_the_compared_arms(tmp_path):

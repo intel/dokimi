@@ -244,12 +244,39 @@ def test_write_compare_report_no_regressions(tmp_path):
     assert "No regressions" in text
 
 
+def test_write_compare_report_with_no_scored_doc_is_not_no_regressions(tmp_path):
+    # Two 0-doc snapshots diff to 0 everywhere: that read "No regressions".
+    out = tmp_path / "compare.md"
+    data = _compare_data(with_regressions=True)
+    data["base"], data["candidate"] = _snapshot(docs=0)["summary"], _snapshot(docs=0)["summary"]
+    write_compare_report(data, out)
+    text = out.read_text(encoding="utf-8")
+    assert "Nothing to compare (0 scored)**: no document in base and candidate" in text
+    assert "No regressions" not in text
+
+
+@pytest.mark.parametrize(("severity", "headline"), [
+    ("has_critical", "🔴 **CRITICAL regressions detected**"),
+    ("has_warnings", "🟡 **Warnings detected**"),
+], ids=["critical", "warn"])
+def test_write_compare_report_empty_candidate_keeps_the_headline(tmp_path, severity, headline):
+    # A candidate that lost every document is a regression; "Nothing to compare" must not replace the headline.
+    out = tmp_path / "compare.md"
+    data = _compare_data(with_regressions=True, **{severity: True})
+    data["candidate"] = _snapshot(docs=0, score=0.0)["summary"]
+    write_compare_report(data, out)
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert headline in lines
+    assert any("Nothing to compare (0 scored)**: no document in candidate" in ln for ln in lines)
+
+
 def test_write_compare_report_critical_regressions(tmp_path):
     out = tmp_path / "compare.md"
     write_compare_report(_compare_data(with_regressions=True, has_critical=True), out)
     text = out.read_text(encoding="utf-8")
     assert "CRITICAL" in text
     assert "🔴" in text
+    assert "Nothing to compare" not in text
 
 
 def test_write_compare_report_warnings(tmp_path):
@@ -257,6 +284,7 @@ def test_write_compare_report_warnings(tmp_path):
     write_compare_report(_compare_data(with_regressions=True, has_warnings=True), out)
     text = out.read_text(encoding="utf-8")
     assert "Warnings" in text or "🟡" in text
+    assert "Nothing to compare" not in text
 
 
 def test_write_compare_report_creates_parent_dirs(tmp_path):
