@@ -126,9 +126,9 @@ def test_prompt_cache_defaults_on():
 
 def test_build_messages_rejects_non_string_input():
     with pytest.raises(TypeError, match="prompt must be a str"):
-        caching.build_messages(None)
+        caching.build_messages(None)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="cache_prefix must be a str"):
-        caching.build_messages("ask", cache_prefix=42)
+        caching.build_messages("ask", cache_prefix=42)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
