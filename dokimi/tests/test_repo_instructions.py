@@ -30,7 +30,7 @@ INSTRUCTION_TABLE = [
     ("CLAUDE.local.md", ('claude-code',), "local-private", "always", False),
     ("CLAUDE.md", ('claude-code', 'github-copilot'), "root", "always", False),
     ("GEMINI.md", ('gemini', 'github-copilot'), "root", "always", False),
-    ("sub/.cursor/rules/a.mdc", ('cursor',), "path-specific", "unknown", False),
+    ("sub/.cursor/rules/a.mdc", ('cursor',), "unknown", "unknown", False),
     ("sub/AGENTS.md", ('codex', 'github-copilot', 'cursor', 'windsurf', 'cline', 'generic'), "path-specific", "path-scoped", False),
     ("sub/AGENTS.override.md", ('codex',), "path-specific", "path-scoped", False),
     ("sub/CLAUDE.md", ('claude-code',), "path-specific", "path-scoped", False),
@@ -44,6 +44,7 @@ def test_instruction_rule_table():
     assert got == INSTRUCTION_TABLE
 
 
-def test_a_nested_cursor_rule_applies_to_its_directory():
+def test_a_nested_cursor_rule_is_listed_with_its_directory_and_no_known_scope():
     (rule,) = detect_instructions(["pkg/web/.cursor/rules/style.mdc", "pkg/web/.cursor/notes.md"])
-    assert (rule.path, rule.scope, rule.directory) == ("pkg/web/.cursor/rules/style.mdc", "path-specific", "pkg/web")
+    assert (rule.path, rule.scope, rule.directory) == ("pkg/web/.cursor/rules/style.mdc", "unknown", "pkg/web")
+    assert any("Cursor documents only the root .cursor/rules" in note for note in rule.notes)

@@ -75,7 +75,7 @@ def _parent(p: str) -> str:
 
 
 def _cursor_dir(p: str) -> str:
-    """The directory a nested ``<dir>/.cursor/rules/*.mdc`` applies to: ``<dir>``."""
+    """The directory a nested ``<dir>/.cursor/rules/*.mdc`` would apply to: ``<dir>``."""
     return p.split("/.cursor/rules/", 1)[0]
 
 
@@ -109,9 +109,12 @@ RULES: tuple[Rule, ...] = (
          directory=_parent),
     Rule(_under(".cursor/rules/", r"\.mdc$"), ("cursor",), "unknown", "unknown",
          notes=("activation depends on the rule's frontmatter",)),
-    Rule(lambda p: re.match(r"^.+/\.cursor/rules/.+\.mdc$", p) is not None, ("cursor",), "path-specific",
+    # Cursor's rules docs (cursor.com/docs/context/rules, read 2026-10-23) place rules in the root
+    # .cursor/rules only, and nested AGENTS.md: one below the root is listed, its scope not known.
+    Rule(lambda p: re.match(r"^.+/\.cursor/rules/.+\.mdc$", p) is not None, ("cursor",), "unknown",
          "unknown", directory=_cursor_dir,
-         notes=("applies to files under its directory; activation depends on the rule's frontmatter",)),
+         notes=("below the root: Cursor documents only the root .cursor/rules, so whether it reads this "
+                "one is not known",)),
     Rule(_named(".cursorrules"), ("cursor", "cline"), "legacy", "always", legacy=True),
     Rule(_named("GEMINI.md"), ("gemini", "github-copilot"), "root", "always"),
     Rule(_nested("GEMINI.md"), ("gemini",), "path-specific", "path-scoped", directory=_parent),
