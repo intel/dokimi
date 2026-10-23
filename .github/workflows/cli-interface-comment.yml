@@ -136,7 +136,9 @@ jobs:
             // The producer's `diff --markdown` output carries its own heading, intro and
             // ```diff fence. Fenced again, those would show as literal code: take the diff
             // lines out of it and write the heading and the one fence here, as that job does.
-            const wrapped = res.diff.match(/^## CLI interface change detected\n\n[^\n]*\n\n```diff\n([\s\S]*)\n```\n?$/);
+            // CRLF line ends and blank lines after the closing fence are the same wrapper.
+            const wrapped = res.diff.replace(/\r\n/g, '\n')
+              .match(/^## CLI interface change detected\n\n[^\n]*\n\n```diff\n([\s\S]*)\n```\n*$/);
             let text = (wrapped ? wrapped[1] : res.diff).replace(/<!--/g, '<!\u200b--').replace(/@/g, '@\u200b')
               .replace(/`{8,}/g, (m) => m.match(/`{1,7}/g).join('\u200b'));
             if (text.length > MAX_DIFF_CHARS) {

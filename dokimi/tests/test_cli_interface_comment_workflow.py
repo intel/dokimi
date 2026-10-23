@@ -373,6 +373,54 @@ def test_the_producers_markdown_is_unwrapped_and_the_heading_is_written_outside_
     assert "+ `repo run` --x" in body and _fence(body) == ("```diff", "```")
 
 
+PRODUCED = ("## CLI interface change detected\n\nThis PR changes dokimi's user-facing CLI surface "
+            "(commands and/or options):\n\n```diff\n+ `repo run` --x\n```")
+
+
+@pytest.mark.parametrize("produced", [PRODUCED, PRODUCED + "\n\n", PRODUCED.replace("\n", "\r\n") + "\r\n"],
+                         ids=["no-trailing-newline", "blank-line-after-fence", "crlf"])
+def test_every_form_of_the_producers_wrapper_is_unwrapped(tmp_path, produced):
+    body = _bodies(_run(tmp_path, _good(diff=produced)))[0]
+    assert body.count("```diff") == 1 and body.count("## CLI interface change detected") == 1
+    assert "+ `repo run` --x" in body and _fence(body) == ("```diff", "```")
+
+
+@pytest.mark.parametrize(
+    "diff",
+    [
+        "+ before\n" + PRODUCED,  # heading not at the start
+        PRODUCED + "\n+ after",  # text after the closing fence
+        PRODUCED.replace("options):", "options):\n\nsecond paragraph"),  # not the one-line intro
+    ],
+    ids=["text-before", "text-after", "two-paragraph-intro"],
+)
+def test_text_that_only_contains_the_wrapper_is_fenced_whole(tmp_path, diff):
+    body = _bodies(_run(tmp_path, _good(diff=diff)))[0]
+    assert body.count("## CLI interface change detected") == 2  # the job's own, and the text's in the fence
+    assert body.count("```diff") == 2 and _fence(body)[0] == "````diff"
+
+
+def test_every_mention_and_every_comment_opener_is_broken(tmp_path):
+    body = _bodies(_run(tmp_path, _good(diff="@a @b <!-- x <!-- y")))[0]
+    assert "@a" not in body and "@b" not in body and body.count("<!--") == 1  # the marker only
+
+
+def test_a_run_of_exactly_eight_backticks_is_split(tmp_path):
+    body = _bodies(_run(tmp_path, _good(diff="`" * 8)))[0]
+    assert _fence(body)[0] == "````````diff" and "`" * 8 not in body.split("diff\n", 1)[1].split("\n")[0]
+
+
+def test_a_too_large_result_skips_a_filtered_pr_and_reports_on_the_next(tmp_path):
+    prs = [_assoc(number=11, state="closed"), _assoc(number=12)]
+    calls = _run(tmp_path, _good(), size=10**9, assoc=prs)
+    assert [a["issue_number"] for n, a in calls if n == "createComment"] == [12]
+
+
+def test_a_too_large_result_with_no_open_pr_posts_nothing(tmp_path):
+    calls = _run(tmp_path, _good(), size=10**9, assoc=[])
+    assert "throw" not in _names(calls) and not {"createComment", "updateComment"} & set(_names(calls))
+
+
 def test_the_error_comment_is_the_jobs_own_text_not_the_artifacts(tmp_path):
     body = _bodies(_run(tmp_path, _good(changed="error", diff="## x\n![i](http://t/p.png)")))[0]
     assert "could not run" in body and "http://t" not in body and "https://x/run/7" in body
