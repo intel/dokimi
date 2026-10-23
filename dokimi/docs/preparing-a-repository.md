@@ -267,5 +267,5 @@ Treat each item above as a hypothesis for your repository.
 - C/C++: `compile_commands.json` covers every build variant; indexes are prebuilt if you offer navigation tools.
 - Recurring review rules, curated, are in the review section of `AGENTS.md`.
 - A `CLAUDE.md` containing `@AGENTS.md` sits next to each `AGENTS.md` (§7).
-- `dokimi repo reach` (only `claude-code` is built in; others need a `harness_profile.v1` file) confirms each harness you use loads the files you rely on.
+- `dokimi repo reach` (`claude-code`, `codex`, `copilot` and `copilot-review` are built in; `codex-review` runs its own prompt and is refused; others need a `harness_profile.v1` file) confirms each harness you use loads the files you rely on.
 - Each change was compared against the baseline on current models.
