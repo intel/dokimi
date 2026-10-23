@@ -249,10 +249,11 @@ def test_a_blank_frontmatter_name_is_refused(tmp_path):
         load_skill(skill)
 
 
-def test_a_frontmatter_name_is_stripped(tmp_path):
+@pytest.mark.parametrize("quoted", ['"perf "', '" perf"', r'"\tperf\n"'])
+def test_a_frontmatter_name_is_stripped(tmp_path, quoted):
     skill = tmp_path / "perf"
     skill.mkdir()
     (skill / "SKILL.md").write_text(
-        '---\nname: "perf "\ndescription: Profile.\n---\n# perf\n', encoding="utf-8"
+        f"---\nname: {quoted}\ndescription: Profile.\n---\n# perf\n", encoding="utf-8"
     )
     assert load_skill(skill).name == "perf"
