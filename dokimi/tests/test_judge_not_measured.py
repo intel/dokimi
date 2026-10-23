@@ -140,3 +140,21 @@ def test_judge_wording_strict_exits_1_when_a_condition_scored_no_pair(tmp_path, 
         assert "NOT MEASURED — no pair scored under: original, persona" in out.out
         assert "No rewrite moves" not in out.out and "incomplete" in out.err
         assert report.summary()["n_errors"] == {"original": n, "persona": n}
+
+
+def test_no_voter_left_by_the_validity_gate_is_not_measured():
+    significant = {"sign": 1, "p_sign": 0.001, "n": 8}
+    assert cj.label([{**significant, "gate": "FAIL"}]) == "NOT MEASURED"
+    assert cj.label([dict(significant)], require_validated=True) == "NOT MEASURED"
+
+
+def test_cross_judge_strict_exits_1_when_require_validated_leaves_no_voter(tmp_path, capsys):
+    import json
+
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(_stamped_run()), encoding="utf-8")
+    code = _strict_exit(["eval", "cross-judge", "--answers", str(path), "--require-validated",
+                         "--output", str(tmp_path / "cj.json"), "--strict"])
+    assert code == 1
+    assert "1 of 1 arm(s) NOT MEASURED: skill" in capsys.readouterr().err
+    assert json.loads((tmp_path / "cj.json").read_text())["summary"]["arms"]["skill"]["label"] == "NOT MEASURED"
