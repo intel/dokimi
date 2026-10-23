@@ -632,7 +632,8 @@ skill's own text. The output has a confusion matrix (gold to picked to count, wi
 a query no card shares a word with, or an abstention or failed call in the model arm), an
 own rate per skill, and an attractor table: a skill picked for other skills' queries, with
 `wrongly_picked` of `sibling_queries` and the skills whose queries it took (`from`). It takes no
-`--artifact`. It is refused with fewer than two skills, a name repeated in the field, a query
+`--artifact`. The model arm also records the selector `model`, so two runs with different
+models can be told apart. It is refused with fewer than two skills, a name repeated in the field, a query
 file that names a skill outside the field, or no queries at all.
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query, across

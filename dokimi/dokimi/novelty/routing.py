@@ -569,7 +569,8 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     Returns:
         ``n_skills``, ``n_queries``, and per arm (``lexical``, ``model``): ``confusion`` (gold
         skill to picked skill to count, ``(none)`` included), ``own_rate`` per gold skill, and
-        ``attractors`` ordered by ``wrongly_picked``. The model arm also records ``seed``, ``n_failed``, ``n_abstained`` and ``first_error``.
+        ``attractors`` ordered by ``wrongly_picked``. The model arm also records ``model``,
+        ``seed``, ``n_failed``, ``n_abstained`` and ``first_error``.
 
     Raises:
         RoutingInputError: Fewer than two skills in the field; a name repeated in the field; a
@@ -640,7 +641,7 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         if first_error is None:
             first_error = next((r["error"] for r in rows if r.get("error")), None)
         model[name] = Counter(row.get("picked") or NO_PICK for row in rows)
-    return dict(_attractor_table(model, queries_by_skill, names), seed=seed,
+    return dict(_attractor_table(model, queries_by_skill, names), model=client.model, seed=seed,
                 n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
 
 

@@ -91,6 +91,13 @@ def test_the_model_arm_attractor_is_the_skill_the_selector_always_picks():
     assert row["from"] == ["linux-perf", "mkl-advisor"]
 
 
+@pytest.mark.parametrize("name", ["model-a", "model-b"])
+def test_the_model_arm_names_the_selector_model_that_made_it(name):
+    client = LLMClient(model=name, role="selector",
+                       transport=lambda prompt, system: (json.dumps({"pick": 1}), None))
+    assert all_vs_all(ALL_FIELD, ALL_QUERIES, client=client)["model"]["model"] == name
+
+
 @pytest.mark.parametrize("field, queries, message", [
     ([PERF], {"linux-perf": ["q"]}, "at least two skills"),
     ([PERF, PERF], {"linux-perf": ["q"]}, "more than once"),
