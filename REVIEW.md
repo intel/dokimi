@@ -29,21 +29,25 @@ repeat what it checks.
   of them.
 - Where a fix and a test are short, push them or put them in a suggestion
   instead of describing them.
-- Mark each finding must-fix or nit. At most three nits per review; skip
-  wording in `dokimi/changelog.d/`.
-- Leave code the PR did not change alone, unless the change makes it wrong.
-- Do not repeat a finding already raised on the PR.
+- Mark each finding must-fix or nit. At most three nits per review; skip the
+  style of `dokimi/changelog.d/` fragments, not their accuracy.
+- A bug in code the PR did not change: mention it once as pre-existing. It
+  does not block the PR unless the change makes it worse.
+- Do not repeat a finding already raised on the PR, unless its fix did not
+  hold.
 - Start with the count of findings, and say "nothing to fix" when there is
   nothing.
 
 ## Rounds
 
-- After the first round, review only what changed since.
+- After the first round, review what changed since and the code that calls
+  it.
 - Re-run the original failing input on every fix, including fixes the
   reviewer pushed.
 - If a PR is still collecting must-fix findings after three rounds, step back
   and agree on the approach in the thread before more commits.
-- Close each thread as fixed or with a one-line reason.
+- Close each thread with the commit that fixed it, or one line on why it is
+  not a defect. The reviewer closes their own thread where they can.
 
 ## When the same comment keeps coming back
 
