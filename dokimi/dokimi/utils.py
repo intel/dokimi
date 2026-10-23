@@ -191,4 +191,5 @@ def read_json_input(path: "str | os.PathLike[str]", *, flag: str) -> Any:
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError) as exc:  # JSONDecodeError and bad UTF-8 are ValueErrors
-        raise InputError(f"{flag} {path}: {exc}") from exc
+        reason = exc.strerror if isinstance(exc, OSError) and exc.strerror else exc
+        raise InputError(f"{flag} {path}: {reason}") from exc
