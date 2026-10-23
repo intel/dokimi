@@ -91,7 +91,9 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
     ``panel_config.models``; it maps to ``("panel", <sorted, normalized models>)``. A role
     the artifact does not record maps to ``None``.
     """
-    meta = eval_data.get("run_metadata") or {}
+    meta = eval_data.get("run_metadata")
+    if not isinstance(meta, dict):
+        meta = {}
 
     def pair(provider: Any, model: Any) -> Optional[Tuple[str, str]]:
         if not provider or not model or "unknown" in (provider, model):
@@ -100,7 +102,9 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
 
     judge_model = eval_data.get("judge_model") or meta.get("judge_model")
     if str(judge_model or "").startswith("panel("):
-        models = (eval_data.get("panel_config") or {}).get("models") or []
+        panel = eval_data.get("panel_config")
+        models = panel.get("models") if isinstance(panel, dict) else None
+        models = [m for m in models if isinstance(m, str)] if isinstance(models, list) else []
         judge = ("panel", ",".join(sorted(
             normalize_model_ref(*m.split("/", 1)) if "/" in m else m for m in models))) if models else None
     else:

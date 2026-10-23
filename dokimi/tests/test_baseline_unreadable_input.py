@@ -169,13 +169,33 @@ def test_list_accepts_an_entry_without_a_summary(run, tmp_path, capsys):
     '"saved_at": null',
     '"product": ["a"]',
     '"summary": {"n": null}',
+    '"summary": {"avg_with": null, "avg_without": null, "avg_delta": null}',
 ])
 def test_list_prints_an_entry_whose_optional_values_are_not_scalars(run, tmp_path, capsys, extra):
     manifest = tmp_path / "baselines" / "manifest.json"
     manifest.parent.mkdir()
     manifest.write_text('{"baselines": [{"name": "n", "path": "p.json", %s}]}' % extra, encoding="utf-8")
     run("list")
-    assert "n " in capsys.readouterr().out
+    assert capsys.readouterr().out.splitlines()[-1].startswith("n ")
+
+
+@pytest.mark.parametrize("field", [
+    {"run_metadata": "x"},
+    {"run_metadata": 5},
+    {"run_metadata": [1]},
+    {"judge_model": "panel(2)", "panel_config": {"models": 5}},
+    {"judge_model": "panel(2)", "panel_config": {"models": [1]}},
+    {"judge_model": "panel(2)", "panel_config": "x"},
+])
+def test_compare_treats_malformed_model_metadata_as_not_recorded(run, tmp_path, capsys, field):
+    good = tmp_path / "good.json"
+    good.write_text(json.dumps(_EVAL), encoding="utf-8")
+    run("save", "--from-eval", str(good), "--name", "b")
+    odd = tmp_path / "odd.json"
+    odd.write_text(json.dumps({**_EVAL, **field}), encoding="utf-8")
+    capsys.readouterr()
+    run("compare", "--baseline", "b", "--eval", str(odd))
+    assert "model not recorded in" in capsys.readouterr().err
 
 
 def test_save_into_a_manifest_without_a_baselines_key_records_the_baseline(run, tmp_path):

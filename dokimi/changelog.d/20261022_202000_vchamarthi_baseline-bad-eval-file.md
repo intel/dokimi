@@ -8,3 +8,6 @@
   manifest with no `baselines` key is treated as empty. `save` and `list` exit 1; `compare`
   exits 2, since 1 is the `--strict` verdict; that includes a missing `--eval` file, which
   used to exit 1.
+- **`baseline compare`** treats a `run_metadata` that is not an object, or a
+  `panel_config.models` that is not a list of strings, as a model the artifact does not
+  record (named on stderr as not compared) instead of raising a traceback.
