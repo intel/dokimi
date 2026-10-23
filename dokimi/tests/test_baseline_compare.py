@@ -205,3 +205,34 @@ def test_panel_score_records_the_answer_model_for_compare(tmp_path):
     data = json.loads(path.read_text(encoding="utf-8"))
     assert baseline_mod._recorded_models(data) == {
         "answer": ("openai", "a"), "judge": ("panel", "anthropic/m")}
+
+
+
+def _unscored() -> dict:
+    data = _eval()
+    data["evaluations"][0]["delta"] = None
+    return data
+
+
+@pytest.mark.parametrize("current", [_unscored(), {**_eval(), "evaluations": []}], ids=["unscored", "empty"])
+def test_compare_with_nothing_scored_on_both_sides_is_not_no_change(compare, capsys, current):
+    # An unscored or empty current eval printed "✅ No notable changes vs baseline."
+    compare(_eval(), current)
+    out = capsys.readouterr().out
+    assert "Nothing to compare (0 scored)" in out
+    assert "No notable changes" not in out
+
+
+def test_compare_with_a_scored_pair_and_no_move_says_how_many_it_compared(compare, capsys):
+    compare(_eval(), _eval(delta=2.5))
+    assert "No notable changes vs baseline (1 of 1 questions compared)" in capsys.readouterr().out
+
+
+def test_compare_counts_only_questions_scored_on_both_sides(compare, capsys):
+    base, cur = _eval(), _eval(delta=2.5)
+    extra = [{**cur["evaluations"][0], "question_id": f"extra{i}", "delta": 1.0} for i in range(2)]
+    for e in extra:
+        e.pop("key", None)
+    cur["evaluations"] += extra
+    compare(base, cur)
+    assert "(1 of 3 questions compared)" in capsys.readouterr().out

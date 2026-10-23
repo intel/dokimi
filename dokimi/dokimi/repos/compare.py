@@ -28,6 +28,19 @@ or +1 and the exact p equals McNemar's exact test. Holm's correction runs over
 the gate and score comparisons of one invocation; cost, turns and metrics are
 descriptive and keep their raw p.
 
+A gate or score comparison also says whether its tasks had room to move (``headroom``), since a zero delta
+on a task set nobody can fail, or nobody can pass, is not evidence of no effect. A task's top is 1.0 for
+gate and the task's ``score.max`` for score (recorded in ``result.json``; a batch without it has no known
+top, so its score rows are never at ceiling). A pair is at the top only when both arms reach it and tie: a
+score past ``score.max`` is an effect, not a top. ``ceiling``: both arms at the top on every paired task;
+``floor``: both arms at 0 on every paired task; ``near_ceiling``: neither, at least 2 paired tasks, the
+baseline at the top on all but at most one, and the treatment nowhere below the baseline, so at most one task
+can improve and a gain resting on one task has a sign-flip p of 1. A pair whose baseline and treatment tops
+differ is on two scales. A grader failure or an agent outage (an error result with no turn count or at most
+one turn, or a non-zero exit with no turn count that is not a timeout) in either arm scores a 0 that says the
+measurement failed, not that the task had no room. Any other case has no flag: ``None``. The flag is a note;
+p and Holm are unchanged.
+
 Each selector's batches are reported with the stamp ``repo run`` pins a batch
 to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
 cells. A warning is printed, not an error, when a bare ``ARM`` pools cells of
@@ -290,8 +303,42 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
             else:
                 pairs.append(pair)
         if pairs:
+            flag = None
+            if measure in PRIMARY:
+                tops = [(base_vals[(model, p["task"])]["top"], treat_vals[(model, p["task"])]["top"]) for p in pairs]
+                failed = [base_vals[(model, p["task"])]["grader_failed"]
+                          or treat_vals[(model, p["task"])]["grader_failed"] for p in pairs]
+                flag = headroom(pairs, tops, failed)
             rows.append({"treatment": treatment, "model": model, "measure": measure,
-                         **paired_summary(pairs, measure, seed=seed)})
+                         **paired_summary(pairs, measure, seed=seed), "headroom": flag})
+
+
+def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float | None]],
+             failed: list[bool] | None = None) -> str | None:
+    """``ceiling``, ``floor``, ``near_ceiling`` or ``None`` for one gate or score comparison (module docstring).
+
+    ``tops`` holds each pair's (baseline, treatment) top value, ``None`` where it is not known; ``failed``
+    marks the pairs with a grader failure or an agent outage in either arm (its 0 is not a measurement).
+    """
+    if any(b != t for b, t in tops):
+        return None  # two scales: neither "at the top" nor the delta compares
+    if failed and any(failed):
+        return None  # its 0 is not a measurement, at either end (a score.max of 0 would read it as the top)
+
+    def at_top(value: float, top: float | None) -> bool:
+        return top is not None and value >= top - EPS
+
+    # score.max is what the oracle must reach, not a bound: a pair that moved past it is an effect, not a top
+    base_top = [at_top(p["baseline"], b) and abs(p["treatment"] - p["baseline"]) <= EPS
+                for p, (b, _) in zip(pairs, tops, strict=True)]
+    if all(base_top) and all(at_top(p["treatment"], t) for p, (_, t) in zip(pairs, tops, strict=True)):
+        return "ceiling"
+    if all(abs(p["baseline"]) <= EPS and abs(p["treatment"]) <= EPS for p in pairs):
+        return "floor"
+    if (len(pairs) >= 2 and base_top.count(False) <= 1
+            and all(p["treatment"] >= p["baseline"] - EPS for p in pairs)):
+        return "near_ceiling"
+    return None
 
 
 def _unpaired(treatment: str, model: str, task: str, measure: str | None, reason: str) -> dict[str, Any]:
@@ -409,6 +456,8 @@ def format_compare(summary: dict[str, Any]) -> str:
                 if moved:
                     lines.append(f"  {r['measure']} changed: " + ", ".join(
                         f"{t['task']} {t['delta']:+.2f}" for t in sorted(moved, key=lambda t: t["delta"])))
+                if r["headroom"]:
+                    lines.append(f"  {r['measure']} {_headroom_note(r)}")
     if summary["unpaired"]:
         shown = summary["unpaired"][:10]
         lines.append("unpaired: " + ", ".join(
@@ -420,6 +469,17 @@ def format_compare(summary: dict[str, Any]) -> str:
               for text, u in summary.get("uptake", {}).items()]
     lines += [f"warning: {w}" for w in summary["warnings"]]
     return "\n".join(lines)
+
+
+def _headroom_note(row: dict[str, Any]) -> str:
+    n, gate = row["n_tasks"], row["measure"] == "gate"
+    if row["headroom"] == "ceiling":
+        return (f"ceiling: both arms {'pass' if gate else 'reach score.max on'} all {n} paired tasks; "
+                "no headroom to show an effect")
+    if row["headroom"] == "floor":
+        return f"floor: both arms {'fail' if gate else 'score 0 on'} all {n} paired tasks; no headroom to show an effect"
+    return (f"near ceiling: the baseline {'passes' if gate else 'reaches score.max on'} all but at most one of "
+            f"{n} paired tasks; too few can improve to show a gain")
 
 
 def _format_header(summary: dict[str, Any]) -> list[str]:
@@ -450,10 +510,31 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
         else:
             found["gate"] = [float(bool(r["grade"]["success"])) for r in recs]
         nums = {measure: _finite(vals) for measure, vals in found.items()}
-        out[key] = {"kind": "score" if score_task else "gate",
+        score_max_vals = [r.get("score_max") for r in recs]
+        maxes = set(_finite(score_max_vals))  # cells of two eval trees may differ
+        # If any cell has unknown max, or maxes differ, top is None; otherwise take the single value
+        has_unknown_max = any(v is None for v in score_max_vals)
+        top = (maxes.pop() if len(maxes) == 1 and not has_unknown_max else None) if score_task else 1.0
+        # unmeasured: a grader failure, or an agent outage (see _agent_outage); either way its 0 is not a measurement
+        grader_failed = any(r["grade"]["status"] == "grader_failure" or _agent_outage(r) for r in recs)
+        out[key] = {"kind": "score" if score_task else "gate", "grader_failed": grader_failed,
+                    "top": top,
                     "n": {measure: len(v) for measure, v in nums.items()},
                     "values": {measure: (sum(v) / len(v) if v else None) for measure, v in nums.items()}}
     return out
+
+
+def _agent_outage(rec: dict[str, Any]) -> bool:
+    """A cell whose agent never ran: an error result with no turn count or at most one turn, or a harness that
+    exited non-zero before it reported any turn (no result record, so no ``is_error``) and was not killed for
+    its timeout: an agent killed at its timeout did attempt the task."""
+    agent = rec.get("agent") or {}
+    turns = _finite([agent.get("num_turns")])  # a count that is not a number is no count, as in the turns row
+    if agent.get("is_error") and (not turns or turns[0] <= 1):
+        return True
+    rc = agent.get("rc")
+    crashed = isinstance(rc, int) and not isinstance(rc, bool) and rc != 0
+    return crashed and not turns and not agent.get("timed_out")
 
 
 def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:

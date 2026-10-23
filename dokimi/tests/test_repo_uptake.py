@@ -45,6 +45,10 @@ new file mode 100644
 +# src guidance
 """
 
+# Each half of KIT_PATCH alone: a server and no file an agent can use, and the reverse.
+SERVER_ONLY_PATCH = KIT_PATCH[KIT_PATCH.index("diff --git a/.mcp.json"):KIT_PATCH.index("diff --git a/sub/AGENTS.md")]
+FILE_ONLY_PATCH = KIT_PATCH[:KIT_PATCH.index("diff --git a/.mcp.json")]
+
 WS = "/eval/run/workspace"
 
 
@@ -200,6 +204,20 @@ def test_repo_run_records_uptake_and_compare_warns_when_nothing_was_used(setup, 
     assert f"uptake: {arm} used what its arm added in 0/2 cell(s)" in format_compare(loud)
 
 
+@pytest.mark.parametrize("patch_text, files, servers, tool_use", [
+    (SERVER_ONLY_PATCH, [], ["code.graph"], ["mcp__code_graph__callers", {"symbol": "add"}]),
+    (FILE_ONLY_PATCH, ["tools/fmt"], [], ["Bash", {"command": "./tools/fmt src/calc.py"}]),
+])
+def test_a_patch_that_adds_only_a_server_or_only_a_file_records_its_uptake(
+        setup, monkeypatch, patch_text, files, servers, tool_use):  # noqa: F811
+    patch = setup["tmp"] / "half.diff"
+    patch.write_text(patch_text)
+    monkeypatch.setenv("FAKE_TOOL_USES", json.dumps([tool_use]))
+    _run(setup, "half", f"patch:{patch}")
+    uptake = json.loads(next((setup["out"] / "half").glob("*patch*__r1/result.json")).read_text())["uptake"]
+    assert (uptake["files"], uptake["mcp_servers"], uptake["used"]) == (files, servers, True)
+
+
 def _used_none(summary):
     return [w for w in summary["warnings"] if "used none" in w]
 
@@ -235,13 +253,14 @@ def test_compare_counts_the_uptake_of_the_models_it_compares(setup, monkeypatch)
     assert m2["uptake"] == {arm: {"cells": 2, "used": 0, "unmeasured": 0}} and _used_none(m2)
 
 
-@pytest.mark.parametrize("text", ["npm run lint", "docker run img", "git log -- build", "cat lint", "make build"])
+@pytest.mark.parametrize("text", ["npm run lint", "docker run img", "git log -- build", "cat lint", "make build",
+                                  "lint x", "cd d && lint", "run", "x | lint", "(lint)", ";lint"])
 def test_a_root_level_added_file_is_not_named_by_a_common_word_of_a_command(text):
     for name in ("lint", "run", "build"):
-        assert arm_uptake([_cmd(text)], [name], [], WS)["commands"] == (1 if text.split()[0] == name else 0)
+        assert arm_uptake([_cmd(text)], [name], [], WS)["commands"] == 0
 
 
-@pytest.mark.parametrize("text", ["./lint x", "lint x", f"{WS}/lint", "cd d && lint", "x; ./lint", "sh lint", "bash ./lint a",
+@pytest.mark.parametrize("text", ["./lint x", f"{WS}/lint", "x; ./lint", "sh lint", "bash ./lint a",
                                   "python3 lint"])
 def test_a_root_level_added_file_is_named_by_a_path_or_as_a_command(text):
     assert arm_uptake([_cmd(text)], ["lint"], [], WS)["commands"] == 1
