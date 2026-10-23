@@ -8,6 +8,10 @@ name: changelog
 # dokimi/pyproject.toml) adds a changelog fragment under dokimi/changelog.d/ instead of editing CHANGELOG.md, so open PRs never
 # conflict there (dokimi/changelog.d/README.md). The skip-changelog label, for
 # a change with no user-visible effect, turns the check off.
+#
+# The same job lists the docs pages to reread (the docs review triggers below):
+# both diff the PR against its base, and as two workflows each waited for a
+# runner of its own on every push.
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
@@ -26,7 +30,7 @@ defaults:
 # intel-ubuntu-latest: see ci.yml.
 jobs:
   fragment:
-    name: Changelog fragment
+    name: Changelog fragment, docs review triggers
     runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -39,6 +43,7 @@ jobs:
       # The base branch's current tip (fetched by the checkout), as in the
       # other diff-against-base steps.
       - name: Fragment for package changes
+        if: ${{ !cancelled() }}
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
@@ -46,3 +51,22 @@ jobs:
           skip=()
           if [ "$SKIP" = true ]; then skip=(--skip-label); fi
           python scripts/check_changelog_fragment.py --base "origin/$BASE_REF" --head HEAD "${skip[@]}"
+      # Lists the docs pages whose `depends_on` front matter matches a file this PR
+      # changes while the PR leaves the page alone, in the job summary and as a
+      # warning on each page (scripts/check_docs_review_triggers.py). A prompt to
+      # reread the page, not a gate: findings never fail the step (only a malformed
+      # depends_on or an undiffable base does). It posts no PR comment, so a fork
+      # PR's read-only token is enough. That every glob still matches a file is
+      # checked by tests/test_docs_review_triggers.py in ci.yml. Runs after a
+      # missing fragment too (!cancelled()), so one finding does not hide the other.
+      # PyYAML from the hashed tools lock, like every other install (#135).
+      # `make dev` reads this line through scripts/ci_local.py tools, and its
+      # uv --require-hashes rejects a bare requirement.
+      - name: Install the CI tools (PyYAML)
+        if: ${{ !cancelled() }}
+        run: pip install --require-hashes -r requirements-ci.lock.txt
+      - name: Docs pages to review
+        if: ${{ !cancelled() }}
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python scripts/check_docs_review_triggers.py --base "origin/$BASE_REF" --head HEAD
