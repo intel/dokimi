@@ -737,6 +737,23 @@ def test_noise_counts_an_abstention_as_a_pick_and_an_error_as_no_answer():
     assert noise["half_range"] is None
 
 
+def test_the_output_counts_calls_and_the_noise_means_each_agreement():
+    # q1: PERF, PERF, TBB (agreement 2/3). q2: PERF three times (agreement 1.0).
+    client = _scripted([PERF.name, PERF.name, TBB.name, PERF.name, PERF.name, PERF.name])
+    result = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=3)
+    assert result["n_calls"] == 6  # queries x repeats, not queries
+    assert result["noise"]["mean_agreement"] == pytest.approx(5 / 6, abs=1e-3)  # the mean of 2/3 and 1.0, not the max
+
+
+def test_a_failed_call_elsewhere_does_not_change_the_rate_of_the_complete_queries():
+    # q1 is right in both repeats; q2 fails once. The rate is over the complete queries only
+    # (q1), so 1.0 in each repeat; dividing by all queries would give 0.5.
+    client = _scripted([PERF.name, PERF.name, "!", TBB.name])
+    noise = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=2)["noise"]
+    assert noise["selection_rate_by_repeat"] == [1.0, 1.0]
+    assert noise["n_queries_compared"] == 1
+
+
 def test_an_abstention_can_be_the_modal_pick():
     client = _scripted(["-", "-", PERF.name])
     (query,) = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"][
