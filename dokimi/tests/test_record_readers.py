@@ -543,3 +543,21 @@ def test_cross_judge_refuses_a_missing_result_file_before_any_judge_call(tmp_pat
         args.func(args)
     assert exc.value.code == 2 and str(missing) in capsys.readouterr().err
     assert seen == {}  # no paid judge call was made
+
+
+@pytest.mark.parametrize("content", [{"x": 1}, {"summary": []}], ids=["no-summary", "summary-not-an-object"])
+def test_cross_judge_exits_2_on_a_validity_file_without_a_summary_object(tmp_path, monkeypatch, capsys, content):
+    from dokimi import cli
+
+    arms = tmp_path / "arms.json"
+    arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
+                    encoding="utf-8")
+    validity = tmp_path / "validity.json"
+    validity.write_text(json.dumps(content), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+                                     "--validity", str(validity)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(validity) in err and "`summary`" in err
