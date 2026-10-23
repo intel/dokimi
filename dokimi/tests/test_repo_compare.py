@@ -21,8 +21,8 @@ from dokimi.repos.compare import CompareError, compare, format_compare, parse_se
 
 def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = True, score: float | None = None,
           failure: bool = False, cost: float | None = 0.1, turns: int = 10, metrics: dict | None = None,
-          model: str = "m-1", harness_version: str = "1.0", model_resolved: str | list[str] | None = None,
-          score_max: float | None = 1.0) -> None:
+          model: str = "m-1", harness_version: str = "1.0", score_max: float | None = 1.0,
+          model_resolved: str | list[str] | None = None, is_error: bool = False) -> None:
     rd = batch / f"{task}__{arm.replace(':', '-')}__{model}__r{rep}"
     rd.mkdir(parents=True)
     score_task = score is not None
@@ -30,9 +30,9 @@ def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = 
              "success": False if failure else (None if score_task else success),
              "score": None if failure else score, "score_only": score_task and not failure, "reasons": []}
     rec = {"task": task, "arm": arm, "model": model, "rep": rep, "score_task": score_task, "grade": grade,
-           "harness_version": harness_version, "model_resolved": model_resolved,
-           "score_max": score_max if score_task else None,
-           "agent": {"cost_usd": cost, "num_turns": turns, "timed_out": False, "is_error": False,
+           "harness_version": harness_version, "score_max": score_max if score_task else None,
+           "model_resolved": model_resolved,
+           "agent": {"cost_usd": cost, "num_turns": turns, "timed_out": False, "is_error": is_error,
                      "over_budget": False, "network": "none"}}
     (rd / "meta.json").write_text("{}")
     (rd / "result.json").write_text(json.dumps(rec))
@@ -231,6 +231,15 @@ def test_score_headroom_is_measured_against_score_max(tmp_path):
         _cell(e, f"review_{i}", "guidance:none", 1, score=0.0, failure=True)
         _cell(e, f"review_{i}", "guidance:raw", 1, score=0.0, failure=True)
     assert _row(compare([e], "guidance:none"), "score")["headroom"] is None
+
+
+@pytest.mark.parametrize("turns,expected", [(None, None), (1, None), (5, "floor")])
+def test_an_agent_outage_is_unmeasured_not_a_floor(tmp_path, turns, expected):
+    b = tmp_path / "b1"
+    for i in range(3):
+        for arm in ("guidance:none", "guidance:raw"):
+            _cell(b, f"fix_{i}", arm, 1, success=False, turns=turns, is_error=True)
+    assert _row(compare([b], "guidance:none"), "gate")["headroom"] == expected
 
 
 def test_score_headroom_is_unknown_when_the_arms_have_different_score_max(tmp_path):

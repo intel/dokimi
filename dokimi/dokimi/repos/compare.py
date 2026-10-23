@@ -316,7 +316,7 @@ def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float |
     """``ceiling``, ``floor``, ``near_ceiling`` or ``None`` for one gate or score comparison (module docstring).
 
     ``tops`` holds each pair's (baseline, treatment) top value, ``None`` where it is not known; ``failed``
-    marks the pairs with a grader failure in either arm (its score of 0 is not a measurement).
+    marks the pairs with a grader failure or an agent outage in either arm (its 0 is not a measurement).
     """
     if any(b != t for b, t in tops):
         return None  # two scales: neither "at the top" nor the delta compares
@@ -513,12 +513,21 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
         # If any cell has unknown max, or maxes differ, top is None; otherwise take the single value
         has_unknown_max = any(v is None for v in score_max_vals)
         top = (maxes.pop() if len(maxes) == 1 and not has_unknown_max else None) if score_task else 1.0
-        grader_failed = any(r["grade"]["status"] == "grader_failure" for r in recs)
+        # unmeasured: a grader failure, or an agent outage (an error result with no or one turn); either way
+        # its 0 is not a measurement
+        grader_failed = any(r["grade"]["status"] == "grader_failure" or _agent_outage(r) for r in recs)
         out[key] = {"kind": "score" if score_task else "gate", "grader_failed": grader_failed,
                     "top": top,
                     "n": {measure: len(v) for measure, v in nums.items()},
                     "values": {measure: (sum(v) / len(v) if v else None) for measure, v in nums.items()}}
     return out
+
+
+def _agent_outage(rec: dict[str, Any]) -> bool:
+    """A cell whose agent never ran: an error result with no turn count or at most one turn."""
+    agent = rec.get("agent") or {}
+    turns = agent.get("num_turns")
+    return bool(agent.get("is_error")) and (turns is None or turns <= 1)
 
 
 def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
