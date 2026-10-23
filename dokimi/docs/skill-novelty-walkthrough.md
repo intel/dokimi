@@ -1,6 +1,7 @@
 ---
 depends_on:
   - dokimi/dokimi/novelty/**
+  - dokimi/dokimi/metrics/bundle_coverage.py
   - dokimi/dokimi/commands/novelty.py
 ---
 <!--

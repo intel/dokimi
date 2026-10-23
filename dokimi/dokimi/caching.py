@@ -47,14 +47,19 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypeVar
 
 from dokimi.metrics.usage import UsageRecord
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 #: Environment switch for provider prompt caching (on unless explicitly off).
 PROMPT_CACHE_ENV = "DOKIMI_PROMPT_CACHE"
@@ -285,6 +290,51 @@ def keeps(cache_if: Optional[Callable[[str], bool]], text: str) -> bool:
     return cache_if is None or cache_if(text)
 
 
+class CacheMiss(LookupError):
+    """Raised by :meth:`dokimi.llm.LLM.complete` on a miss inside :func:`replay_only`."""
+
+
+_REPLAY_ONLY: ContextVar[bool] = ContextVar("dokimi_response_replay_only", default=False)
+
+
+@contextmanager
+def replay_only() -> Iterator[None]:
+    """Serve completions from the response cache only: a miss raises :class:`CacheMiss`."""
+    token = _REPLAY_ONLY.set(True)
+    try:
+        yield
+    finally:
+        _REPLAY_ONLY.reset(token)
+
+
+def replaying_only() -> bool:
+    """Whether the calling context is inside :func:`replay_only`."""
+    return _REPLAY_ONLY.get()
+
+
+def first_replayed(attempts: int, ask: Callable[[int], T]) -> Optional[Tuple[int, T]]:
+    """``(i, ask(i))`` for the first of *attempts* answered from the cache, else ``None``.
+
+    For a redraw loop that caches only accepted replies (``cache_if``). Its rejected
+    attempts are never stored, so a rerun that walked the attempts in order asked the
+    first one live again on every run before the stored accepted one replayed. Probing
+    every attempt's entry first makes a rerun of an already-accepted judgement free,
+    with the keys unchanged. Returns ``None`` at once when the cache is off. A
+    stored entry *ask*'s ``cache_if`` rejects is a miss. An *ask* that does not go
+    through :meth:`dokimi.llm.LLM.complete` cannot miss: its first answer is
+    returned as attempt 0, as the plain loop would have asked it.
+    """
+    if response_cache_dir() is None:
+        return None
+    with replay_only():
+        for attempt in range(attempts):
+            try:
+                return attempt, ask(attempt)
+            except CacheMiss:
+                continue
+    return None
+
+
 def response_cache_key(
     *, litellm_model: str, messages: List[Dict[str, Any]], extra: Optional[Dict[str, Any]] = None
 ) -> str:
@@ -311,8 +361,22 @@ def response_cache_key(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def load_response(key: str) -> Optional[Tuple[str, UsageRecord]]:
+def _usage_value_fits(name: str, value: object) -> bool:
+    """Whether a stored usage value has its field's type, so summing the replay cannot crash."""
+    default = UsageRecord.__dataclass_fields__[name].default
+    if isinstance(default, str):
+        return isinstance(value, str)
+    if value is None:
+        return default is None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return isinstance(value, int) or math.isfinite(value)
+
+
+def load_response(key: str) -> Optional[Tuple[Optional[str], UsageRecord]]:
     """Return ``(text, usage)`` for a cached call, or ``None`` on any miss.
+
+    ``text`` is ``None`` for a reply stored without content.
 
     A corrupt or unreadable entry is a miss, not an error: the call is simply
     made again. The stored usage is replayed as-is (see the module docstring), marked
@@ -325,9 +389,15 @@ def load_response(key: str) -> Optional[Tuple[str, UsageRecord]]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         text = data["text"]
-        usage_fields = data.get("usage") or {}
-    except (OSError, ValueError, KeyError):
+        usage_fields = data.get("usage")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
+    # Valid JSON of the wrong shape (a list, a number as the text) is as corrupt
+    # as unparseable JSON. A null text is kept: a reply without content is stored
+    # and replayed as such.
+    if not isinstance(text, (str, type(None))) or not isinstance(usage_fields, (dict, type(None))):
+        return None
+    usage_fields = dict(usage_fields or {})
 
     known = set(UsageRecord.__dataclass_fields__)
     unknown = set(usage_fields) - known
@@ -337,6 +407,8 @@ def load_response(key: str) -> Optional[Tuple[str, UsageRecord]]:
         logger.debug("Dropping unknown usage fields from cache entry: %s", sorted(unknown))
         usage_fields = {k: v for k, v in usage_fields.items() if k in known}
     usage_fields.pop("replayed", None)
+    if not all(_usage_value_fits(k, v) for k, v in usage_fields.items()):
+        return None
     try:
         usage = UsageRecord(**usage_fields, replayed=True)
     except TypeError:

@@ -135,6 +135,8 @@ extend_exclude = [
 optional_dependencies_dev_groups = ["dev"]
 
 [tool.deptry.per_rule_ignores]
+# scripts/audit_mocks.py, imported by its sibling audit_test_quality.py through a sys.path insert.
+DEP001 = ["audit_mocks"]
 # Declared only to cap the version ragas resolves (see the comment in the ragas extra).
 DEP002 = ["langchain-community"]
 
@@ -151,6 +153,8 @@ extend-exclude = ["benchmarks", "data"]
 [tool.ruff.per-file-target-version]
 "dokimi/repos/support/no_background.py" = "py310"
 "dokimi/harnesses/egress_proxy.py" = "py310"
+# The built-in review graders run on the task image's python3 too, 3.8 or newer (contract §4.5).
+"dokimi/repos/graders/*.py" = "py38"
 
 # A correctness gate: rules that flag code that misbehaves (a swallowed
 # KeyboardInterrupt, a naive datetime, a file handle never closed, an assert

@@ -114,7 +114,17 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
     from dokimi.report import ReportGenerator
 
     # Load eval and questions
-    eval_data = json.loads(Path(args.eval).read_text(encoding="utf-8"))
+    try:
+        eval_data = json.loads(Path(args.eval).read_text(encoding="utf-8"))
+    except OSError as exc:
+        print(f"Error: cannot read {args.eval}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+    except ValueError as exc:  # not UTF-8 or not JSON
+        print(f"Error: {args.eval} is not valid JSON: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+    if not isinstance(eval_data, dict):
+        print(f"Error: {args.eval} must hold a JSON object", file=sys.stderr)
+        raise SystemExit(1)
     from dokimi.questions.artifact import load_questions
 
     try:
@@ -122,9 +132,6 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
     except ValueError as exc:  # ArtifactValidationError: names the record and the fix
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
-
-    print(f"Loaded {len(eval_data.get('evaluations', []))} evaluations from {args.eval}")
-    print(f"Loaded {len(questions_data.get('questions', []))} questions from {args.questions}")
 
     # Generate report
     generator = ReportGenerator()
@@ -137,6 +144,9 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
     except RecordError as exc:
         print(f"Error: {args.eval} {exc}", file=sys.stderr)
         raise SystemExit(1) from None
+
+    print(f"Loaded {len(eval_data.get('evaluations', []))} evaluations from {args.eval}")
+    print(f"Loaded {len(questions_data.get('questions', []))} questions from {args.questions}")
 
     # Save output
     output_path = Path(args.output) if args.output else Path(f"reports/{args.product}.{args.format}")
