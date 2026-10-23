@@ -88,6 +88,15 @@ def test_manifest_keeps_counters_and_reports_every_bad_regex():
     assert "process_metrics/a" in str(exc.value) and "process_metrics/b" in str(exc.value)
 
 
+def test_a_command_the_permissions_denied_is_denied_not_failed():
+    # A permission denial comes back as an is_error result (rc 1); a hook denial has rc null. Neither ran.
+    events = [{"kind": "command", "text": "rm -rf build", "rc": 1, "denied": True},
+              {"kind": "command", "text": "make &", "rc": None, "denied": True},
+              {"kind": "command", "text": "make", "rc": 2}]
+    m = process_metrics(events, lambda path: False)
+    assert (m["failed_commands"], m["denied_commands"]) == (1, 2)
+
+
 def test_a_counter_name_that_yaml_reads_as_a_number_or_bool_is_refused():
     # Such a key passed validation, then broke the sorted result.json write after the agent had run.
     raw = json.loads(json.dumps(MANIFEST))

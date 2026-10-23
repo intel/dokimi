@@ -7,8 +7,8 @@ The framework counts what every repository asks of a trace:
 
 - ``tool_calls``: every event, so every tool call of the parent and its subagents;
 - ``commands``: the ``command`` events;
-- ``failed_commands``: commands whose ``rc`` is neither ``0`` nor ``null`` (``null`` means no
-  result came back, which is not a failure);
+- ``failed_commands``: commands not denied whose ``rc`` is neither ``0`` nor ``null`` (``null`` means
+  no result came back, which is not a failure; a permission denial carries ``rc`` 1 but never ran);
 - ``denied_commands``: commands a hook or the harness's permissions refused (``denied``);
 - ``guidance_read``: the sorted paths of ``read`` events matched by the manifest's guidance globs.
 
@@ -64,7 +64,7 @@ def process_metrics(events: Iterable[Mapping[str, Any]], is_guidance: Callable[[
     return {
         "tool_calls": len(events),
         "commands": len(commands),
-        "failed_commands": sum(e.get("rc") not in (0, None) for e in commands),
+        "failed_commands": sum(e.get("rc") not in (0, None) and not e.get("denied") for e in commands),
         "denied_commands": sum(bool(e.get("denied")) for e in commands),
         "guidance_read": sorted(p for p in reads if is_guidance(p)),
         "counters": {name: sum(c.hits(e) for e in commands) for name, c in (counters or {}).items()},
