@@ -24,12 +24,14 @@ def _bad_files(tmp_path):
     invalid.write_text("{not json", encoding="utf-8")
     binary = tmp_path / "binary.json"
     binary.write_bytes(b"\xff\xfe\x00\x80")
+    deep = tmp_path / "deep.json"
+    deep.write_text("[" * 200000 + "]" * 200000, encoding="utf-8")
     return {"invalid json": invalid, "not utf-8": binary, "a directory": tmp_path,
-            "missing": tmp_path / "missing.json"}
+            "missing": tmp_path / "missing.json", "nested too deep": deep}
 
 
 @pytest.mark.parametrize("cmd", [cmd_questions_analyze, cmd_questions_panel_review])
-@pytest.mark.parametrize("case", ["invalid json", "not utf-8", "a directory", "missing"])
+@pytest.mark.parametrize("case", ["invalid json", "not utf-8", "a directory", "missing", "nested too deep"])
 def test_unreadable_questions_file_exits_1_with_a_message(cmd, case, tmp_path, capsys):
     path = _bad_files(tmp_path)[case]
 
