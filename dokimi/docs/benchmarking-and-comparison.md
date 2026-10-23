@@ -408,7 +408,7 @@ turn in a `<system-reminder>` block; the assistant turns are not changed.
 
 A session that fails part-way (a turn raises, or a turn comes back empty and the
 session stops) is an errored arm: `error` is `generation_failed: turn N: ...` or
-`empty_reply: turn N`, and `answer` is `None`. The turns already paid for stay in
+`empty_reply: turn N` (turns count from 0), and `answer` is `None`. The turns already paid for stay in
 `session.turns`, and the arm's `token_usage` and `metrics` cover them, so the cost
 rollup counts what was spent. The artifact's `run_config` records `session_turns`
 and `turn_reminder`. `plugin-delta` refuses to pair a session run with a
