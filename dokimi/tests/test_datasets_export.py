@@ -195,6 +195,12 @@ def test_flatten_missing_record_key_raises():
         flatten("answers", {"not_answers": []})
 
 
+def test_flatten_unknown_kind_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        flatten("bogus", {})
+
+
 def test_flatten_non_list_records_raises():
     import pytest
     with pytest.raises(ValueError):
