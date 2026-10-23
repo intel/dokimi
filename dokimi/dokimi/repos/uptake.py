@@ -106,7 +106,7 @@ def _path_pattern(files: list[str], workdir: str) -> re.Pattern[str] | None:
         parts.append(rf"(?:^|(?<=[\s'\"`=;&|(<>])|(?<=\./)|(?<={root}))(?:{paths}){end}")
     if flat:
         names = "|".join(re.escape(f) for f in flat)
-        parts.append(rf"(?:^\s*\./|[;&|(]\s*\./|(?:^|(?<=\s)){_INTERPRETERS}\s+|(?<=[\s'\"`=;&|(<>])\./|(?<={root}))"
+        parts.append(rf"(?:^\s*\./|(?:^|(?<=\s)){_INTERPRETERS}\s+|(?<=[\s'\"`=;&|(<>])\./|(?<={root}))"
                      rf"(?:{names}){end}")
     return re.compile("|".join(parts))
 

@@ -236,7 +236,7 @@ def test_compare_counts_the_uptake_of_the_models_it_compares(setup, monkeypatch)
 
 
 @pytest.mark.parametrize("text", ["npm run lint", "docker run img", "git log -- build", "cat lint", "make build",
-                                  "lint x", "cd d && lint", "run"])
+                                  "lint x", "cd d && lint", "run", "x | lint", "(lint)", ";lint"])
 def test_a_root_level_added_file_is_not_named_by_a_common_word_of_a_command(text):
     for name in ("lint", "run", "build"):
         assert arm_uptake([_cmd(text)], [name], [], WS)["commands"] == 0
