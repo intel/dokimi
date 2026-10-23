@@ -245,6 +245,7 @@ def test_cost_rolls_up_cache_tokens_and_replays_across_every_role():
     assert total["cache_write_tokens"] == 5
     assert total["replayed_calls"] == 2
 
+
 def test_a_failed_call_is_a_dropped_pair_not_a_graded_answer():
     def answer(prompt, system):
         if prompt.startswith("Reference material"):
