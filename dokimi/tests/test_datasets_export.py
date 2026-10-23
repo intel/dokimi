@@ -144,7 +144,9 @@ def _export_error(src: Path, out: Path, capsys, kind: str = "answers", *extra: s
         _run_export(src, out, kind, *extra)
     assert exc.value.code == 1
     assert not (out / "README.md").exists()
-    return capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert err.startswith(f"Error: cannot export {src} to {out}: ")
+    return err
 
 
 def test_cli_export_of_a_missing_input_exits_cleanly(tmp_path, capsys):
@@ -177,7 +179,7 @@ def test_cli_export_without_validation_of_a_wrong_shape_exits_cleanly(tmp_path, 
     src = tmp_path / "a.json"
     src.write_text(json.dumps({"not_answers": []}), encoding="utf-8")
     err = _export_error(src, tmp_path / "out", capsys, "answers", "--no-validate")
-    assert "answers" in err
+    assert err.startswith(f"Error: cannot export {src} to {tmp_path / 'out'}: Artifact")
 
 
 def test_cli_export_without_validation_of_a_non_list_record_array_exits_cleanly(tmp_path, capsys):
