@@ -344,3 +344,77 @@ def test_json_tasks_array_carries_loaded_and_skipped_rows(tmp_path, capsys):
     assert rows["real"]["state"] == "ok" and rows["real"]["track"] == "executable"
     assert rows["real"]["manifest_status"] == "implemented"
     assert rows["later"]["state"] == "skipped" and rows["later"]["reason"]
+
+
+def _root_skill(root: Path, frontmatter: str) -> None:
+    root.mkdir(exist_ok=True)
+    (root / "SKILL.md").write_text(f"---\n{frontmatter}---\n# z\n", encoding="utf-8")
+
+
+def test_root_skill_still_gets_the_name_format_check(tmp_path, capsys):
+    root = tmp_path / "checkout"
+    _root_skill(root, "name: Z_z\ndescription: Use for z.\n")
+    report, _ = _scan_json(root, capsys)
+
+    assert [f["code"] for f in report["skills"][0]["findings"]] == ["name-format"]
+
+
+def test_root_skill_without_a_name_does_not_cite_the_checkout_directory(tmp_path, capsys):
+    root = tmp_path / "checkout"
+    _root_skill(root, "description: Use for z.\n")
+    report, _ = _scan_json(root, capsys)
+
+    [finding] = report["skills"][0]["findings"]
+    assert finding["code"] == "name-missing"
+    assert "directory name" not in finding["message"]
+    assert "checkout" not in finding["message"]
+
+
+def test_a_skill_without_a_manifest_status_has_a_null_status_in_json(tmp_path, capsys):
+    _skill(tmp_path / "skills", "a", name="a")
+    report, _ = _scan_json(tmp_path, capsys)
+
+    assert report["skills"][0]["manifest_status"] is None
+
+
+def test_a_task_without_a_manifest_status_has_a_null_status_in_json(tmp_path, capsys):
+    _skill(tmp_path / "skills", "s", name="s")
+    (tmp_path / "skills.yaml").write_text(
+        'skills:\n  - name: s\n    catalog_path: skills/s\n', encoding="utf-8")
+    (tmp_path / "evaluation" / "harbor").mkdir(parents=True)
+    (tmp_path / "evaluation" / "harbor" / "suites.json").write_text(
+        json.dumps({"schema_version": "1.0", "suites": [{"skill": "s", "tasks": [
+            {"name": "later", "track": "executable"}]}]}),
+        encoding="utf-8",
+    )
+    report, _ = _scan_json(tmp_path, capsys, kind="tasks")
+
+    assert [t["manifest_status"] for t in report["tasks"]] == [None]
+
+
+def test_a_duplicate_found_through_a_symlinked_root_is_a_row_not_a_traceback(tmp_path, capsys):
+    real = tmp_path / "real"
+    for name in ("a", "b"):
+        _skill(real / "skills", name, name="same")
+    (real / "skills.yaml").write_text(
+        f"skills:\n  - name: a\n    catalog_path: {real / 'skills' / 'a'}\n"
+        "  - name: b\n    catalog_path: skills/b\n", encoding="utf-8")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    report, _ = _scan_json(link, capsys)
+
+    second = next(s for s in report["skills"] if s["duplicate_of"])
+    assert second["duplicate_of"].endswith("skills/a")
+    assert "duplicate" in {f["code"] for f in second["findings"]}
+
+
+def test_a_root_skill_reached_by_an_equivalent_spelling_skips_the_directory_check(
+        tmp_path, capsys):
+    root = tmp_path / "checkout"
+    _root_skill(root, "name: zzz\ndescription: Use for z.\n")
+    (root / "sub").mkdir()
+    (root / "skills.yaml").write_text(
+        "skills:\n  - name: zzz\n    catalog_path: sub/..\n", encoding="utf-8")
+    report, _ = _scan_json(root, capsys)
+
+    assert report["skills"][0]["findings"] == []

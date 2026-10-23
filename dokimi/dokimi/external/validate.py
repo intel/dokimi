@@ -35,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional, Sequence
 
 import yaml
@@ -165,6 +166,16 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     return None if parse_error is None else SkillReview(findings=[parse_error])
 
 
+def _relative_to_root(path: Path, root: Path) -> str:
+    """``path`` relative to ``root`` (compared as written, then resolved), else as written."""
+    for a, b in ((path, root), (path.resolve(), root.resolve())):
+        try:
+            return a.relative_to(b).as_posix()
+        except ValueError:
+            continue
+    return path.as_posix()
+
+
 def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillReview]]:
     """One :class:`SkillReview` per entry, in order.
 
@@ -180,13 +191,13 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
             continue
         skill = entry.skill
         findings, hidden = _frontmatter_findings(
-            skill, at_root=skill.path.parent == entry.source_root
+            skill, at_root=skill.path.parent.resolve() == entry.source_root.resolve()
         )
         review = SkillReview(findings=findings, disable_model_invocation=hidden)
         review.content_sha256 = _skill_digest(skill)
         original = first_by_digest.setdefault(review.content_sha256, skill)
         if original is not skill:
-            where = original.path.parent.relative_to(entry.source_root).as_posix()
+            where = _relative_to_root(original.path.parent, entry.source_root)
             review.duplicate_of = where
             review.findings.append(
                 Finding(
