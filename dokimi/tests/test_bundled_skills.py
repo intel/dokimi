@@ -22,6 +22,7 @@ from dokimi.utils import parse_frontmatter
 SKILLS = Path(__file__).resolve().parents[1] / "data" / "skills"
 BUNDLED = sorted(d for d in SKILLS.iterdir() if (d / "SKILL.md").is_file())
 LINK = re.compile(r"\]\(<?([^)#<>\s][^)#<>]*?)>?(?:#[^)\s]*)?(?:\s+\"[^\"]*\")?\)")
+SHELL_BLOCK = re.compile(r"^```(?:bash|sh|shell)\s*\n(.*?)^```", re.M | re.S)
 
 
 def _broken_links(skill_dir: Path, root: Path = SKILLS) -> list[str]:
@@ -55,6 +56,17 @@ def test_bundled_skill_description_fits_the_listing(skill_dir):
 @pytest.mark.parametrize("skill_dir", BUNDLED, ids=lambda d: d.name)
 def test_bundled_skill_links_stay_inside_and_resolve(skill_dir):
     assert _broken_links(skill_dir) == []
+
+
+@pytest.mark.parametrize("skill_dir", BUNDLED, ids=lambda d: d.name)
+def test_bundled_skill_shell_blocks_run_only_cli_commands(skill_dir):
+    # test_docs_code_refs resolves `python cli.py` lines; a raw `docker run` drifts from a harness.
+    other = []
+    for doc in sorted(skill_dir.rglob("*.md")):
+        for block in SHELL_BLOCK.findall(doc.read_text(encoding="utf-8")):
+            lines = [ln.strip() for ln in re.sub(r"\\\r?\n", " ", block).splitlines()]
+            other += [ln for ln in lines if ln and not ln.startswith(("#", "python cli.py "))]
+    assert other == []
 
 
 def test_the_link_check_catches_a_dangling_and_an_escaping_link(tmp_path):

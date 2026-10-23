@@ -40,13 +40,14 @@ python cli.py tasks run --tasks-root <tasks-root> --tasks <id> --harnesses docke
 python cli.py tasks run --tasks-root <tasks-root> --tasks <id> --harnesses docker-probe --out-json results/probe.json
 ```
 
-**Manual for Harbor:** there is no null harness. Run the verifier on the
-untouched image by hand and expect reward 0, as in
-`docs/contributing-terminal-bench-task.md` §8:
+**Manual for Harbor:** there is no null harness. Copy the task directory to a
+scratch tasks root outside the suite, make the copy's `solution/solve.sh` do
+nothing (`#!/bin/sh` and `true`), and run `docker-oracle` on the copy, so the
+verifier runs on the untouched workspace with the harness's own mounts. Expect
+`pass_rate: 0.0`.
 
 ```bash
-docker run --rm --network none -v "$TASK:/task" <image> \
-  bash -c "bash /task/tests/test.sh; cat /logs/verifier/reward.txt"
+python cli.py tasks run --tasks-root <scratch-root> --tasks <id> --harnesses docker-oracle --out-json results/null.json
 ```
 
 A task that passes the oracle but also passes untouched does not discriminate.
