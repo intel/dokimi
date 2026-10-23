@@ -131,13 +131,97 @@ def test_export_task_runs_jsonl(tmp_path):
     assert json.loads(primary.read_text().strip())["task"] == "t1"
 
 
+def _run_export(src: Path, out: Path, kind: str = "answers", *extra: str) -> None:
+    from dokimi.cli import build_parser
+
+    args = build_parser().parse_args(["dataset", "export", "--kind", kind, "--input", str(src),
+                                      "--out-dir", str(out), *extra])
+    args.func(args)
+
+
+def _export_error(src: Path, out: Path, *extra: str, capsys) -> str:
+    with pytest.raises(SystemExit) as exc:
+        _run_export(src, out, "answers", *extra)
+    assert exc.value.code == 2
+    assert exc.value.__suppress_context__
+    assert not (out / "README.md").exists()
+    err = capsys.readouterr().err
+    assert err.startswith(f"Error: cannot export {src} to {out}: ")
+    return err
+
+
+def test_cli_export_of_a_missing_input_exits_cleanly(tmp_path, capsys):
+    err = _export_error(tmp_path / "nope.json", tmp_path / "out", capsys=capsys)
+    assert "nope.json" in err and "Traceback" not in err
+
+
+def test_cli_export_to_an_unwritable_out_dir_exits_cleanly(tmp_path, capsys):
+    src = tmp_path / "a.json"
+    src.write_text(json.dumps({"schema_version": "answers.v1", "answers": []}), encoding="utf-8")
+    blocker = tmp_path / "file"
+    blocker.write_text("x", encoding="utf-8")
+    err = _export_error(src, blocker / "out", capsys=capsys)
+    assert "cannot export" in err and "a.json" in err
+
+
+def test_cli_export_of_invalid_json_exits_cleanly(tmp_path, capsys):
+    src = tmp_path / "a.json"
+    src.write_text("{not json", encoding="utf-8")
+    assert "a.json" in _export_error(src, tmp_path / "out", capsys=capsys)
+
+
+def test_cli_export_of_a_schema_invalid_artifact_exits_cleanly(tmp_path, capsys):
+    src = tmp_path / "a.json"
+    src.write_text(json.dumps({"schema_version": "answers.v1", "answers": "x"}), encoding="utf-8")
+    assert "validation failed" in _export_error(src, tmp_path / "out", capsys=capsys)
+
+
+def test_cli_export_without_validation_of_a_wrong_shape_exits_cleanly(tmp_path, capsys):
+    src = tmp_path / "a.json"
+    src.write_text(json.dumps({"not_answers": []}), encoding="utf-8")
+    err = _export_error(src, tmp_path / "out", "--no-validate", capsys=capsys)
+    assert err.startswith(f"Error: cannot export {src} to {tmp_path / 'out'}: Artifact")
+
+
+def test_cli_export_without_validation_of_a_non_list_record_array_exits_cleanly(tmp_path, capsys):
+    src = tmp_path / "a.json"
+    src.write_text(json.dumps({"answers": {}}), encoding="utf-8")
+    err = _export_error(src, tmp_path / "out", "--no-validate", capsys=capsys)
+    assert "must be a list" in err and "Traceback" not in err
+
+
+@pytest.mark.parametrize("raw", ["[]", '"s"', "null", "3"])
+@pytest.mark.parametrize("extra", [(), ("--no-validate",)])
+@pytest.mark.parametrize("kind", ["answers", "eval", "arms", "task_runs"])
+def test_cli_export_of_a_non_object_top_level_exits_cleanly(tmp_path, capsys, raw, extra, kind):
+    src = tmp_path / "a.json"
+    src.write_text(raw, encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        _run_export(src, tmp_path / "out", kind, *extra)
+    assert exc.value.code == 2
+    assert not (tmp_path / "out" / "README.md").exists()
+    assert capsys.readouterr().err.startswith(f"Error: cannot export {src} to {tmp_path / 'out'}: ")
+
+
 def test_flatten_missing_record_key_raises():
     import pytest
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError):
         flatten("answers", {"not_answers": []})
+
+
+def test_flatten_unknown_kind_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        flatten("bogus", {})
+
+
+def test_flatten_non_object_root_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        flatten("answers", [])
 
 
 def test_flatten_non_list_records_raises():
     import pytest
-    with pytest.raises(TypeError):
+    with pytest.raises(ValueError):
         flatten("answers", {"answers": {"q": 1}})

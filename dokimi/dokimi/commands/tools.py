@@ -85,6 +85,12 @@ def _print_summary(summary: dict) -> None:
         print(f"same choice on every rep: {summary['same_choice_rate']} (modal share {summary['modal_share']})")
 
 
+def _print_skipped(skipped: dict, n_groups: int) -> None:
+    for factor, lacking in skipped.items():
+        ids = [gid if len(roles) == 2 else f"{gid} twin {roles[0]}" for gid, roles in lacking.items()]
+        print(f"  {factor}: skipped for {len(ids)} of {n_groups} groups ({', '.join(ids)})")
+
+
 def cmd_tools_preference(args: argparse.Namespace) -> None:
     from dokimi.artifacts import save_artifact
     from dokimi import tool_preference as tp
@@ -102,6 +108,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     print(f"{len(doc['groups'])} groups -> {len(items)} items ({n_pair} pair, {len(items) - n_pair} control)"
           f" x {args.reps} reps = {len(items) * args.reps} calls"
           + (f", stopping at ${args.max_cost_usd:g}" if args.max_cost_usd else ""))
+    _print_skipped(tp.skipped_factors(doc, factors), len(doc["groups"]))
     if args.items_out:
         Path(args.items_out).write_text(json.dumps(items, indent=1), encoding="utf-8")
         print(f"items -> {args.items_out}")

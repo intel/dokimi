@@ -312,13 +312,39 @@ def model_routing(
     }
 
 
+# Only spaces indent a fence (a tab is four columns, so it makes indented code), and a
+# backtick opener may not carry a backtick in its info string; both are CommonMark rules.
+_FENCE = re.compile(r" {0,3}(`{3,}(?!.*`)|~{3,})")
+
+
+def _outside_fences(body: str) -> str:
+    """``body`` with its fenced code blocks removed, so a ``## comment`` in a shell block is
+    not read as a heading. A fence closes on the same character, at least as long, alone on
+    its line; an unclosed fence runs to the end of the body, as CommonMark has it.
+    """
+    kept: list[str] = []
+    opening: str | None = None
+    for line in body.splitlines():
+        fence = _FENCE.match(line)
+        if opening is None:
+            if fence:
+                opening = fence.group(1)
+            else:
+                kept.append(line)
+        elif (fence and fence.group(1)[0] == opening[0] and len(fence.group(1)) >= len(opening)
+              and not line.strip()[len(fence.group(1)):]):
+            opening = None
+    return "\n".join(kept)
+
+
 def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     """Section headings of an artifact, for triage only.
 
     Queries taken from the artifact let it define both the problem scope and its own
     relevance. Callers must stamp ``queries_self_derived`` on any result built from these.
+    Headings inside fenced code blocks are not headings, so they are not offered.
     """
-    headings = [h.strip() for h in re.findall(r"^#{2,3}\s+(.+)$", body, re.M)]
+    headings = [h.strip() for h in re.findall(r"^#{2,3}[ \t]+(.+)$", _outside_fences(body), re.M)]
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 

@@ -506,3 +506,156 @@ def test_cross_judge_exits_2_on_a_malformed_arms_file(tmp_path, monkeypatch, cap
         cli.main()
     assert exc.value.code == 2  # bad input; 1 is the verdict code of the gates
     assert "missing question_id" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flag", ["--answers", "--pairwise", "--checklist", "--validity"])
+@pytest.mark.parametrize("content", [None, "{not json", "[1, 2]", "TOO-DEEP"],
+                         ids=["missing", "malformed", "not-an-object", "nested-too-deep"])
+def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, capsys, flag, content):
+    from dokimi import cli
+
+    real_loads = json.loads
+
+    def loads(text, *args, **kwargs):
+        if text == "TOO-DEEP":  # whether a deep document overflows depends on the interpreter, so raise it
+            raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
+        return real_loads(text, *args, **kwargs)
+
+    monkeypatch.setattr(json, "loads", loads)
+    arms = tmp_path / "arms.json"
+    arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
+                    encoding="utf-8")
+    bad = tmp_path / "bad.json"
+    if content is not None:
+        bad.write_text(content, encoding="utf-8")
+    if flag == "--answers":
+        argv = ["dokimi", "eval", "cross-judge", "--answers", str(bad), "--no-stored"]
+    else:
+        argv = ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored", flag, str(bad)]
+    monkeypatch.setattr("sys.argv", argv)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(bad) in err
+    if content == "TOO-DEEP":
+        assert "is not valid JSON" in err and "recursion" in err
+    if content == "{not json":
+        assert "is not valid JSON" in err and "cannot read" not in err
+    if content is None:
+        assert "cannot read" in err
+
+
+@pytest.mark.parametrize("command", [["cross-judge"], ["checklist"], ["judge-wording"]],
+                         ids=["cross-judge", "checklist", "judge-wording"])
+@pytest.mark.parametrize("content", [None, "{not json"], ids=["missing", "malformed"])
+def test_every_answers_reader_exits_2_on_an_unreadable_answers_file(tmp_path, monkeypatch, capsys, command, content):
+    from dokimi import cli
+
+    bad = tmp_path / "bad.json"
+    if content is not None:
+        bad.write_text(content, encoding="utf-8")
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps({"questions": []}), encoding="utf-8")
+    extra = ["--questions", str(questions)] if command[0] == "checklist" else []
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", command[0], "--answers", str(bad), *extra])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(bad) in err
+
+
+@pytest.mark.parametrize("flag", ["--pairwise", "--checklist", "--validity"])
+def test_cross_judge_refuses_a_missing_result_file_before_any_judge_call(tmp_path, monkeypatch, capsys, flag):
+    from tests.test_judge_reliability import _cross_judge_args, _material_arms_run, _recording_judge
+
+    seen: dict = {}
+    _recording_judge(monkeypatch, seen)
+    missing = tmp_path / "missing.json"
+    args = _cross_judge_args(tmp_path, _material_arms_run(), "--no-stored", "--judges", "amazon-bedrock/m",
+                             flag, str(missing))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and str(missing) in capsys.readouterr().err
+    assert seen == {}  # no paid judge call was made
+
+
+@pytest.mark.parametrize("content", [{"x": 1}, {"summary": []}], ids=["no-summary", "summary-not-an-object"])
+def test_cross_judge_exits_2_on_a_validity_file_without_a_summary_object(tmp_path, monkeypatch, capsys, content):
+    from dokimi import cli
+
+    arms = tmp_path / "arms.json"
+    arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
+                    encoding="utf-8")
+    validity = tmp_path / "validity.json"
+    validity.write_text(json.dumps(content), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+                                     "--validity", str(validity)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(validity) in err and "`summary`" in err
+
+
+@pytest.mark.parametrize("flag, content", [
+    ("--pairwise", {}), ("--pairwise", {"questions": []}),
+    ("--checklist", {}), ("--checklist", {"verdicts": {}}),
+], ids=["pairwise-empty", "pairwise-is-a-checklist",
+        "checklist-empty", "checklist-is-a-pairwise"])
+def test_cross_judge_exits_2_on_a_result_file_of_the_wrong_shape(tmp_path, monkeypatch, capsys, flag, content):
+    from dokimi import cli
+
+    arms = tmp_path / "arms.json"
+    arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
+                    encoding="utf-8")
+    wrong = tmp_path / "wrong.json"
+    wrong.write_text(json.dumps(content), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+                                     flag, str(wrong)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(wrong) in err
+
+
+_PAIRWISE = {"verdicts": {"skill": {"q1": {"score": 1}}}}
+_CHECKLIST = {"questions": [{"question_id": "q1", "arms": {"skill": {"coverage": 1}}}]}
+
+
+@pytest.mark.parametrize("flag, doc", [("--pairwise", _PAIRWISE), ("--checklist", _CHECKLIST)])
+@pytest.mark.parametrize("summary", [None, [], "x", {}, {"judge": None}, {"judge": 5}, {"judge": ""}],
+                         ids=["absent", "list", "string", "no-judge", "null-judge", "int-judge", "empty-judge"])
+def test_cross_judge_names_a_result_file_measure_after_its_stem_without_a_usable_judge(
+        tmp_path, monkeypatch, flag, doc, summary):
+    from dokimi import cli
+
+    arms = tmp_path / "arms.json"
+    arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
+                    encoding="utf-8")
+    result = tmp_path / "result.json"
+    result.write_text(json.dumps({**doc, **({} if summary is None else {"summary": summary})}), encoding="utf-8")
+    out = tmp_path / "out.json"
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+                                     flag, str(result), "--output", str(out)])
+    cli.main()
+    assert " · result |" in out.with_suffix(".md").read_text(encoding="utf-8")  # named after result.json
+
+
+@pytest.mark.parametrize("flag, doc", [("--pairwise", _PAIRWISE), ("--checklist", _CHECKLIST)])
+def test_cross_judge_names_a_result_file_measure_after_its_summary_judge(tmp_path, monkeypatch, flag, doc):
+    from dokimi import cli
+
+    arms = tmp_path / "arms.json"
+    arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
+                    encoding="utf-8")
+    result = tmp_path / "result.json"
+    result.write_text(json.dumps({**doc, "summary": {"judge": "judge-a"}}), encoding="utf-8")
+    out = tmp_path / "out.json"
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+                                     flag, str(result), "--output", str(out)])
+    cli.main()
+    md = out.with_suffix(".md").read_text(encoding="utf-8")
+    assert " · judge-a |" in md and " · result |" not in md

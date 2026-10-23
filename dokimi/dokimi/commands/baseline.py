@@ -16,12 +16,45 @@ from dokimi.utils import normalize_model_ref
 BASELINES_DIR = Path("baselines/eval")
 
 
-def _baseline_manifest() -> Dict[str, Any]:
-    """Load or create the baseline manifest."""
+_JSON_TYPE_NAMES = {type(None): "null", list: "array", dict: "object", str: "string",
+                    bool: "boolean", int: "number", float: "number"}
+
+
+def _json_type(value: Any) -> str:
+    return _JSON_TYPE_NAMES.get(type(value), type(value).__name__)
+
+
+def _read_json_object(path: Path, code: int) -> Dict[str, Any]:
+    """Read a JSON file that must hold an object, or exit ``code`` naming the file and the problem."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:  # unreadable, not UTF-8, or not JSON
+        print(f"❌ Cannot read {path}: {exc}", file=sys.stderr)
+        raise SystemExit(code) from exc
+    if not isinstance(data, dict):
+        print(f"❌ {path}: expected a JSON object, got {_json_type(data)}", file=sys.stderr)
+        raise SystemExit(code)
+    return data
+
+
+def _baseline_manifest(code: int = 1) -> Dict[str, Any]:
+    """Load or create the baseline manifest; a corrupt one exits ``code``."""
     manifest_path = BASELINES_DIR / "manifest.json"
-    if manifest_path.exists():
-        return json.loads(manifest_path.read_text(encoding="utf-8"))
-    return {"baselines": []}
+    if not manifest_path.exists():
+        return {"baselines": []}
+    manifest = _read_json_object(manifest_path, code)
+    baselines = manifest.setdefault("baselines", [])
+    if not isinstance(baselines, list):
+        print(f'❌ {manifest_path}: expected a "baselines" list, got {_json_type(baselines)}',
+              file=sys.stderr)
+        raise SystemExit(code)
+    for i, entry in enumerate(baselines):
+        if not (isinstance(entry, dict) and isinstance(entry.get("name"), str)
+                and isinstance(entry.get("path"), str) and isinstance(entry.get("summary", {}), dict)):
+            print(f'❌ {manifest_path}: baselines[{i}] must be an object with a string "name" and "path"'
+                  ' and, if present, an object "summary"', file=sys.stderr)
+            raise SystemExit(code)
+    return manifest
 
 
 def _save_manifest(manifest: Dict[str, Any]) -> None:
@@ -58,7 +91,9 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
     ``panel_config.models``; it maps to ``("panel", <sorted, normalized models>)``. A role
     the artifact does not record maps to ``None``.
     """
-    meta = eval_data.get("run_metadata") or {}
+    meta = eval_data.get("run_metadata")
+    if not isinstance(meta, dict):
+        meta = {}
 
     def pair(provider: Any, model: Any) -> Optional[Tuple[str, str]]:
         if not provider or not model or "unknown" in (provider, model):
@@ -67,7 +102,10 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
 
     judge_model = eval_data.get("judge_model") or meta.get("judge_model")
     if str(judge_model or "").startswith("panel("):
-        models = (eval_data.get("panel_config") or {}).get("models") or []
+        panel = eval_data.get("panel_config")
+        models = panel.get("models") if isinstance(panel, dict) else None
+        if not (isinstance(models, list) and all(isinstance(m, str) for m in models)):
+            models = []
         judge = ("panel", ",".join(sorted(
             normalize_model_ref(*m.split("/", 1)) if "/" in m else m for m in models))) if models else None
     else:
@@ -101,11 +139,8 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     from datetime import datetime, timezone
 
     eval_path = Path(args.from_eval)
-    if not eval_path.exists():
-        print(f"❌ Eval file not found: {eval_path}")
-        raise SystemExit(1)
-
-    eval_data = json.loads(eval_path.read_text(encoding="utf-8"))
+    manifest = _baseline_manifest()  # first: a corrupt manifest fails fast and leaves no orphan file
+    eval_data = _read_json_object(eval_path, 1)
     product = args.product or eval_data.get("product", "unknown")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     name = args.name or f"{product}-{timestamp}"
@@ -125,7 +160,6 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
         raise SystemExit(1)
     dest.write_text(json.dumps(eval_data, indent=2), encoding="utf-8")
 
-    manifest = _baseline_manifest()
     manifest["baselines"].append({
         "name": name,
         "product": product,
@@ -159,28 +193,13 @@ def cmd_baseline_list(args: argparse.Namespace) -> None:
     for b in baselines:
         s = b.get("summary", {})
         print(
-            f"{b['name']:<35} {b.get('product','?'):<12} {b.get('saved_at','?'):<17}"
-            f" {s.get('n','?'):>4} {s.get('avg_with','?'):>6} {s.get('avg_without','?'):>8}"
-            f" {s.get('avg_delta', 'n/a'):>7}"
+            f"{b['name']:<35} {str(b.get('product','?')):<12} {str(b.get('saved_at','?')):<17}"
+            f" {str(s.get('n','?')):>4} {str(s.get('avg_with','?')):>6} {str(s.get('avg_without','?')):>8}"
+            f" {str(s.get('avg_delta', 'n/a')):>7}"
         )
 
 
-def cmd_baseline_compare(args: argparse.Namespace) -> None:
-    """Compare an eval result against a saved baseline."""
-    eval_path = Path(args.eval)
-    if not eval_path.exists():
-        print(f"❌ Eval file not found: {eval_path}")
-        raise SystemExit(1)
-
-    eval_data = json.loads(eval_path.read_text(encoding="utf-8"))
-    manifest = _baseline_manifest()
-    baselines = manifest.get("baselines", [])
-
-    if not baselines:
-        print("No baselines found. Save one first:")
-        print("  python cli.py baseline save --from-eval eval/oneTBB.json --product oneTBB")
-        raise SystemExit(1)
-
+def _pick_entry(args: argparse.Namespace, baselines: list, eval_data: dict) -> dict:
     # Find baseline: by name or latest for same product
     if args.baseline:
         entry = next((b for b in baselines if b["name"] == args.baseline), None)
@@ -193,20 +212,10 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
         if not candidates:
             candidates = baselines
         entry = candidates[-1]   # most recent
+    return entry
 
-    baseline_data = json.loads(Path(entry["path"]).read_text(encoding="utf-8"))
 
-    from dokimi.records import RecordError, records
-
-    # Read both record lists before the model checks: a malformed file must exit 2, not reach the --strict verdict.
-    try:
-        baseline_evals = {e.key: e for e in records(baseline_data.get("evaluations", []),
-                                                    source=entry["path"], kind="evaluations")}
-        current_evals = records(eval_data.get("evaluations", []), source=str(eval_path), kind="evaluations")
-    except RecordError as exc:
-        print(f"❌ {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc  # 1 is the --strict verdict
-
+def _report_model_checks(args: argparse.Namespace, entry: dict, baseline_data: dict, eval_data: dict) -> None:
     mismatches, unverified = _model_mismatches(baseline_data, eval_data)
     strict = getattr(args, "strict", False)
     for role in unverified:
@@ -227,25 +236,8 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
               f" the changes below mix the model change with the content change.{detail}",
               file=sys.stderr)
 
-    print(f"Comparing against baseline: {entry['name']} (saved {entry.get('saved_at', '?')})\n")
 
-    deltas_changed = []
-    for e in current_evals:
-        q_id = e.question_id
-        base_e = baseline_evals.get(e.key)
-        if not base_e:
-            continue
-        cur_delta = e.delta
-        base_delta = base_e.delta
-        if cur_delta is not None and base_delta is not None:
-            moved = cur_delta - base_delta
-            if abs(moved) >= 1:
-                deltas_changed.append((q_id, base_delta, cur_delta, moved, e.question_text[:60]))
-
-    # Overall summary
-    cur_summary = _compute_summary(eval_data)
-    base_summary = entry.get("summary", {})
-
+def _print_metric_table(cur_summary: dict, base_summary: dict) -> None:
     print(f"{'Metric':<20} {'Baseline':>10} {'Current':>10} {'Change':>8}")
     print("─" * 52)
     for k, label in [("avg_with", "Context avg"), ("avg_without", "Baseline avg"), ("avg_delta", "Avg delta")]:
@@ -257,14 +249,69 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
             change = "?"
         print(f"{label:<20} {str(b_val):>10} {str(c_val):>10} {change:>8}")
 
+
+def cmd_baseline_compare(args: argparse.Namespace) -> None:
+    """Compare an eval result against a saved baseline."""
+    eval_path = Path(args.eval)
+    eval_data = _read_json_object(eval_path, 2)  # 1 is the --strict verdict
+    manifest = _baseline_manifest(2)
+    baselines = manifest.get("baselines", [])
+
+    if not baselines:
+        print("No baselines found. Save one first:")
+        print("  python cli.py baseline save --from-eval eval/oneTBB.json --product oneTBB")
+        raise SystemExit(1)
+
+    entry = _pick_entry(args, baselines, eval_data)
+    baseline_data = _read_json_object(Path(entry["path"]), 2)
+
+    from dokimi.records import RecordError, records
+
+    # Read both record lists before the model checks: a malformed file must exit 2, not reach the --strict verdict.
+    try:
+        baseline_evals = {e.key: e for e in records(baseline_data.get("evaluations", []),
+                                                    source=entry["path"], kind="evaluations")}
+        current_evals = records(eval_data.get("evaluations", []), source=str(eval_path), kind="evaluations")
+    except RecordError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc  # 1 is the --strict verdict
+
+    _report_model_checks(args, entry, baseline_data, eval_data)
+
+    print(f"Comparing against baseline: {entry['name']} (saved {entry.get('saved_at', '?')})\n")
+
+    deltas_changed = []
+    n_compared = 0  # questions scored on both sides: the only ones a "no change" can be about
+    for e in current_evals:
+        q_id = e.question_id
+        base_e = baseline_evals.get(e.key)
+        if not base_e:
+            continue
+        cur_delta = e.delta
+        base_delta = base_e.delta
+        if cur_delta is not None and base_delta is not None:
+            n_compared += 1
+            moved = cur_delta - base_delta
+            if abs(moved) >= 1:
+                deltas_changed.append((q_id, base_delta, cur_delta, moved, e.question_text[:60]))
+
+    # Overall summary
+    cur_summary = _compute_summary(eval_data)
+    base_summary = entry.get("summary", {})
+
+    _print_metric_table(cur_summary, base_summary)
+
     if deltas_changed:
         print("\nQuestions with notable changes (|Δ| ≥ 1):")
         print(f"  {'ID':<20} {'base_δ':>7} {'cur_δ':>7} {'change':>7}  Question")
         print("  " + "─" * 80)
         for q_id, bd, cd, ch, txt in sorted(deltas_changed, key=lambda x: -abs(x[3])):
             print(f"  {q_id:<20} {bd:>7} {cd:>7} {ch:>+7}  {txt}")
+    elif not n_compared:
+        print(f"\n⚪ Nothing to compare (0 scored): no question is scored in both the baseline and "
+              f"the current eval ({len(current_evals)} current, {len(baseline_evals)} baseline evaluations).")
     else:
-        print("\n✅ No notable changes vs baseline.")
+        print(f"\n✅ No notable changes vs baseline ({n_compared} of {len(current_evals)} questions compared).")
 
 
 def register(sub, positive_int) -> None:

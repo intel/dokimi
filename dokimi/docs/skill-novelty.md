@@ -654,7 +654,11 @@ Three properties worth knowing before quoting either:
 - **The queries must come from outside the artifact**, or it defines both the problem scope
   and its own relevance. `--queries-from-headings` exists for triage, warns, and stamps
   `queries_self_derived: true` into the result; corpus-wide those self-derived queries gave
-  recall@1 0.225, and a skill's own bundled `evals/` questions gave 0.667.
+  recall@1 0.225, and a skill's own bundled `evals/` questions gave 0.667. Headings inside
+  fenced code blocks are not offered as queries. A run with no usable query exits non-zero,
+  says why, and still writes the result with `"status": "no_queries"`. Every rate line
+  prints its `n_queries` (and `triage: self-derived` when it is self-derived), and fewer
+  than five scored queries draw a warning.
 - **The model figure is an upper bound on harness behaviour.** A harness whose own skill
   listing truncates or omits descriptions selects on less text than this command shows —
   which has been observed. Only a run inside the harness settles it.
@@ -787,7 +791,9 @@ a threshold on `added` flipped its verdict on up to 24% of artifacts at a 0.25 p
 blocking novelty check would be a blocking opinion about probe count. Checks whose input a run did
 not produce are marked `measured: false` at `info` severity and listed in the verdict's `not_measured`
 (rendered as `PASS (k not measured)`) rather than passed silently, so a skipped stage never reads as a
-cleared one; failing `warn`-severity checks and the artifact's own `warnings` also surface in the
+cleared one.
+A cell with no check measured at all is `NOT MEASURED`, not `PASS`.
+Failing `warn`-severity checks and the artifact's own `warnings` also surface in the
 scorecard's top-level `warnings`.
 
 ## Cost, and how it is kept down

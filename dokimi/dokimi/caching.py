@@ -47,6 +47,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -360,8 +361,22 @@ def response_cache_key(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def load_response(key: str) -> Optional[Tuple[str, UsageRecord]]:
+def _usage_value_fits(name: str, value: object) -> bool:
+    """Whether a stored usage value has its field's type, so summing the replay cannot crash."""
+    default = UsageRecord.__dataclass_fields__[name].default
+    if isinstance(default, str):
+        return isinstance(value, str)
+    if value is None:
+        return default is None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return isinstance(value, int) or math.isfinite(value)
+
+
+def load_response(key: str) -> Optional[Tuple[Optional[str], UsageRecord]]:
     """Return ``(text, usage)`` for a cached call, or ``None`` on any miss.
+
+    ``text`` is ``None`` for a reply stored without content.
 
     A corrupt or unreadable entry is a miss, not an error: the call is simply
     made again. The stored usage is replayed as-is (see the module docstring), marked
@@ -374,9 +389,15 @@ def load_response(key: str) -> Optional[Tuple[str, UsageRecord]]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         text = data["text"]
-        usage_fields = data.get("usage") or {}
-    except (OSError, ValueError, KeyError):
+        usage_fields = data.get("usage")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
+    # Valid JSON of the wrong shape (a list, a number as the text) is as corrupt
+    # as unparseable JSON. A null text is kept: a reply without content is stored
+    # and replayed as such.
+    if not isinstance(text, (str, type(None))) or not isinstance(usage_fields, (dict, type(None))):
+        return None
+    usage_fields = dict(usage_fields or {})
 
     known = set(UsageRecord.__dataclass_fields__)
     unknown = set(usage_fields) - known
@@ -386,6 +407,8 @@ def load_response(key: str) -> Optional[Tuple[str, UsageRecord]]:
         logger.debug("Dropping unknown usage fields from cache entry: %s", sorted(unknown))
         usage_fields = {k: v for k, v in usage_fields.items() if k in known}
     usage_fields.pop("replayed", None)
+    if not all(_usage_value_fits(k, v) for k, v in usage_fields.items()):
+        return None
     try:
         usage = UsageRecord(**usage_fields, replayed=True)
     except TypeError:

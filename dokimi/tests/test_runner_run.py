@@ -105,3 +105,44 @@ def test_save_snapshot(tmp_path):
     save_snapshot({"summary": {"docs": 0}}, out)
     assert out.exists()
     assert json.loads(out.read_text())["summary"]["docs"] == 0
+
+
+def _spec(tmp_path):
+    spec = tmp_path / "spec.yaml"
+    spec.write_text(
+        "weights:\n  coverage: 0.4\n  freshness_lite: 0.3\n  readability: 0.3\n"
+        "metrics:\n  freshness_lite:\n    max_age_days: 365\n  readability:\n    grade_max: 12\n"
+    )
+    return spec
+
+
+def test_a_found_doc_that_did_not_load_is_a_clean_error(tmp_path):
+    from dokimi.runner.run import DocLoadError
+
+    found = [tmp_path / "docs/a.md", tmp_path / "docs/b.md"]
+    # Missing from the loaded mapping: this was a KeyError on the first doc.
+    with patch("dokimi.runner.run.discover_markdown", return_value=found), \
+         patch("dokimi.runner.run.load_docs", return_value={str(found[1]): "hello"}):
+        with pytest.raises(DocLoadError, match=r"1 of 2 selected document\(s\) did not load: .*a\.md"):
+            run_benchmark(tmp_path, _spec(tmp_path))
+    # Unreadable: this was a PermissionError traceback out of load_docs.
+    denied = PermissionError(13, "Permission denied", str(found[0]))
+    with patch("dokimi.runner.run.discover_markdown", return_value=found), \
+         patch("dokimi.ingest.loader.load_text", side_effect=denied):
+        with pytest.raises(DocLoadError, match=r"could not read .*a\.md: Permission denied \(2 document"):
+            run_benchmark(tmp_path, _spec(tmp_path))
+
+
+def test_run_command_exits_1_without_a_traceback_when_a_doc_does_not_load(tmp_path, capsys):
+    from dokimi.cli import build_parser
+
+    found = [tmp_path / "docs/a.md"]
+    args = build_parser().parse_args(["run", "--root", str(tmp_path), "--spec", str(_spec(tmp_path)),
+                                      "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md")])
+    with patch("dokimi.runner.run.discover_markdown", return_value=found), \
+         patch("dokimi.runner.run.load_docs", return_value={}):
+        with pytest.raises(SystemExit) as exc:
+            args.func(args)
+    assert exc.value.code == 1
+    assert "1 of 1 selected document(s) did not load" in capsys.readouterr().err
+    assert not (tmp_path / "o.json").exists()  # no snapshot over the docs that did load

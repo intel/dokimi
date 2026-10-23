@@ -13,7 +13,7 @@ from pathlib import Path
 from dokimi.report.json_report import write_json
 from dokimi.report.markdown_report import write_compare_report, write_run_report
 from dokimi.runner.compare import compare_snapshots
-from dokimi.runner.run import run_benchmark, save_snapshot
+from dokimi.runner.run import DocLoadError, run_benchmark, save_snapshot
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -23,7 +23,11 @@ def cmd_run(args: argparse.Namespace) -> None:
     out_json = Path(args.out_json).resolve()
     out_md = Path(args.out_md).resolve()
 
-    result = run_benchmark(root, spec_path)
+    try:
+        result = run_benchmark(root, spec_path)
+    except DocLoadError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        sys.exit(1)
     save_snapshot(result, out_json)
     write_run_report(result, out_md)
     print(json.dumps(result["summary"], indent=2))
