@@ -83,6 +83,13 @@ jobs:
                   scored = killed + survived
                   score = f"{100 * killed / scored:.1f}%" if scored else "n/a"
                   print(f"| `{module}` | {killed} | {survived} | {other} | {score} |")
+              unchecked = sum(c["not checked"] for c in counts.values())
+              unscored = sorted(m for m, c in counts.items() if not c["killed"] + c["survived"])
+              if unchecked or unscored:
+                  print(f"\n> **Incomplete run: do not read the scores as final.** {unchecked} mutants were "
+                        "not checked (a step timeout or a crash cut the run short)"
+                        + (f"; nothing was scored in {', '.join(f'`{m}`' for m in unscored)}" if unscored else "")
+                        + ". See the `Run mutmut` step log.")
               print("\nOther: no tests, timeout, suspicious or not checked.")
               print("`mutmut show <name>` prints a mutant's diff.\n")
               for module in sorted(survivors):
