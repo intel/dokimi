@@ -45,3 +45,13 @@ def test_a_non_utf8_eval_file_exits_1_with_its_path(tmp_path, capsys):
         _generate(tmp_path, binary)
     assert exc.value.code == 1
     assert str(binary) in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("evaluations", ["null", "5"])
+def test_non_list_evaluations_exit_1_with_its_path(tmp_path, capsys, evaluations):
+    bad = tmp_path / "evd.json"
+    bad.write_text(f'{{"evaluations": {evaluations}}}', encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        _generate(tmp_path, bad)
+    assert exc.value.code == 1
+    assert f"{bad} evaluations: expected a list of records" in capsys.readouterr().err

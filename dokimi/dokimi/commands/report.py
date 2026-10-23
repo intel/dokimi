@@ -130,7 +130,10 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
-    print(f"Loaded {len(eval_data.get('evaluations', []))} evaluations from {args.eval}")
+    evaluations = eval_data.get("evaluations", [])
+    # A non-list is reported by the generator's RecordError check below.
+    n_evals = len(evaluations) if isinstance(evaluations, list) else 0
+    print(f"Loaded {n_evals} evaluations from {args.eval}")
     print(f"Loaded {len(questions_data.get('questions', []))} questions from {args.questions}")
 
     # Generate report
