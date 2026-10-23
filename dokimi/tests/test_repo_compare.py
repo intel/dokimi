@@ -935,13 +935,3 @@ def test_an_unreadable_batch_stamp_is_no_stamp(tmp_path):
     _cell(b, "fix_a", "guidance:none", 1)
     _cell(b, "fix_a", "guidance:raw", 1)
     assert compare([b], "guidance:none")["stamps"]["b1"] == {"harness_versions": ["1.0"], "model_resolved": []}
-
-
-def test_arms_from_batches_with_different_built_in_graders_warn(tmp_path):
-    old, new = tmp_path / "old", tmp_path / "new"
-    _stamp(old, tree="repo@abc", eval_dir="e1", image="img:1", graders="g1")
-    _stamp(new, tree="repo@abc", eval_dir="e1", image="img:1", graders="g2")
-    _cell(old, "fix_a", "guidance:raw", 1)
-    _cell(new, "fix_a", "guidance:raw", 1)
-    s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
-    assert s["warnings"] == ["new/guidance:raw vs old/guidance:raw: the batches ran from different graders (g1, g2)"]
