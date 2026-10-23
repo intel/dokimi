@@ -88,6 +88,15 @@ def test_manifest_keeps_counters_and_reports_every_bad_regex():
     assert "process_metrics/a" in str(exc.value) and "process_metrics/b" in str(exc.value)
 
 
+def test_a_counter_name_that_yaml_reads_as_a_number_or_bool_is_refused():
+    # Such a key passed validation, then broke the sorted result.json write after the agent had run.
+    raw = json.loads(json.dumps(MANIFEST))
+    raw["process_metrics"] = {404: "Not Found", True: "x", "ok": "y"}
+    with pytest.raises(Exception) as exc:
+        parse_manifest(raw)
+    assert "process_metrics/404" in str(exc.value) and "process_metrics/True" in str(exc.value)
+
+
 def test_process_metrics_needs_a_runnable_manifest():
     raw = {"schema": "repo_manifest.v1", "id": "toy", "guidance": {"globs": ["AGENTS.md"]},
            "process_metrics": {"x": "x"}}

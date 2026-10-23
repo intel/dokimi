@@ -303,10 +303,13 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
     )
 
 
-def _parse_counters(raw: dict[str, Any], errors: list[str]) -> dict[str, Counter]:
+def _parse_counters(raw: dict[Any, Any], errors: list[str]) -> dict[str, Counter]:
     """``process_metrics`` compiled; each one that does not compile adds to ``errors``."""
     counters: dict[str, Counter] = {}
     for name, value in raw.items():
+        if not isinstance(name, str):  # the schema's name pattern skips a non-string key
+            errors.append(f"process_metrics/{name!r}: a name is a string; YAML reads a bare 404, on or yes as another type")
+            continue
         try:
             counters[name] = parse_counter(name, value)
         except ValueError as exc:
