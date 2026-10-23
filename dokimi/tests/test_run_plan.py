@@ -167,7 +167,8 @@ def test_a_bad_status_on_a_planned_cell_is_invalid(tmp_path, bad):
     assert any("unknown status" in p for p in got.problems)
 
 
-@pytest.mark.parametrize("bad", ["junk", {"cell_id": 3, "status": "pass"}])
+@pytest.mark.parametrize("bad", ["junk", {"cell_id": 3, "status": "pass"},
+                                 {"cell_id": ["c-1"], "status": "pass"}])
 def test_a_result_cell_without_a_string_id_is_reported(tmp_path, bad):
     plan = _plan(tmp_path)
     result = _result(plan, ["pass"] * 6)

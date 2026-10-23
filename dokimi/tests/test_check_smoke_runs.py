@@ -68,6 +68,11 @@ def test_a_probe_whose_plain_http_get_was_not_denied_fails():
     assert not csr.smoke_ok(_runs(denied=("example.com:443",)), out=io.StringIO())
 
 
+def test_a_probe_whose_connect_was_not_denied_fails():
+    """A CONNECT path that skips the allowlist leaves no :443 denial."""
+    assert not csr.smoke_ok(_runs(denied=("example.com:80",)), out=io.StringIO())
+
+
 def test_a_cell_that_failed_without_erroring_fails():
     assert not csr.smoke_ok(_runs(oracle={"n": 2, "passed": 1, "errored": 0, "pass_rate": 0.5}),
                             out=io.StringIO())
