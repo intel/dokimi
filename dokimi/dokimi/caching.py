@@ -360,6 +360,16 @@ def response_cache_key(
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def _usage_value_fits(name: str, value: object) -> bool:
+    """Whether a stored usage value has its field's type, so summing the replay cannot crash."""
+    default = UsageRecord.__dataclass_fields__[name].default
+    if isinstance(default, str):
+        return isinstance(value, str)
+    if value is None:
+        return default is None
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def load_response(key: str) -> Optional[Tuple[Optional[str], UsageRecord]]:
     """Return ``(text, usage)`` for a cached call, or ``None`` on any miss.
 
@@ -394,6 +404,8 @@ def load_response(key: str) -> Optional[Tuple[Optional[str], UsageRecord]]:
         logger.debug("Dropping unknown usage fields from cache entry: %s", sorted(unknown))
         usage_fields = {k: v for k, v in usage_fields.items() if k in known}
     usage_fields.pop("replayed", None)
+    if not all(_usage_value_fits(k, v) for k, v in usage_fields.items()):
+        return None
     try:
         usage = UsageRecord(**usage_fields, replayed=True)
     except TypeError:

@@ -126,9 +126,9 @@ def test_prompt_cache_defaults_on():
 
 def test_build_messages_rejects_non_string_input():
     with pytest.raises(TypeError, match="prompt must be a str"):
-        caching.build_messages(None)  # type: ignore[arg-type]
+        caching.build_messages(None)
     with pytest.raises(TypeError, match="cache_prefix must be a str"):
-        caching.build_messages("ask", cache_prefix=42)  # type: ignore[arg-type]
+        caching.build_messages("ask", cache_prefix=42)
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +265,12 @@ def test_entry_without_text_is_a_miss(monkeypatch, tmp_path):
     ["[]", "null", "42", '"answer"', '{"text": 7, "usage": {}}',
      '{"text": "answer", "usage": [1, 2]}', '{"text": "answer", "usage": "free"}',
      '{"text": "answer", "usage": ""}', '{"text": "answer", "usage": 0}',
-     '{"text": "answer", "usage": []}', '{"text": "answer", "usage": false}'],
+     '{"text": "answer", "usage": []}', '{"text": "answer", "usage": false}',
+     '{"text": "answer", "usage": {"prompt_tokens": "9"}}',
+     '{"text": "answer", "usage": {"n_calls": null}}',
+     '{"text": "answer", "usage": {"cost_usd": "free"}}',
+     '{"text": "answer", "usage": {"latency_sec": true}}',
+     '{"text": "answer", "usage": {"model": 5}}'],
 )
 def test_entry_of_the_wrong_shape_is_a_miss_not_a_crash(monkeypatch, tmp_path, payload):
     """Valid JSON that is not a ``{"text": str, "usage": {...}}`` entry is corrupt too."""
@@ -279,6 +284,15 @@ def test_entry_without_usage_still_replays(monkeypatch, tmp_path, payload):
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
     (tmp_path / "bare.json").write_text(payload, encoding="utf-8")
     assert caching.load_response("bare") == ("answer", UsageRecord(replayed=True))
+
+
+def test_usage_values_of_every_field_type_replay(monkeypatch, tmp_path):
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
+    usage = {"prompt_tokens": 3, "total_tokens": 3.0, "cost_usd": None, "latency_sec": 1,
+             "ttft_sec": 0.5, "model": "m", "n_calls": 1}
+    (tmp_path / "ok.json").write_text(json.dumps({"text": "a", "usage": usage}), encoding="utf-8")
+    hit = caching.load_response("ok")
+    assert hit == ("a", UsageRecord(**usage, replayed=True))
 
 
 def test_null_text_is_replayed_not_a_miss(monkeypatch, tmp_path):
