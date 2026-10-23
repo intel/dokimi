@@ -623,6 +623,8 @@ tools:                               # what the "{tools}" element expands to
   all:  ["--disallowedTools", "WebFetch", "WebSearch"]
 delegation:                          # --delegation none: these replace the tool mode's arguments
   none:
+    none: ["--tools", ""]            # list every tool mode a run may use, even if unchanged
+    read: ["--tools", "Read"]
     all: ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task", "Workflow"]
 config_dir_env: CLAUDE_CONFIG_DIR    # a fresh directory per run
 env_allow: [PATH, HOME, AWS_REGION, AWS_BEARER_TOKEN_BEDROCK, ANTHROPIC_API_KEY,
@@ -653,9 +655,10 @@ bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
   scripts) as the agent's container sees them. The built-in `claude-code`
   profile uses them for a hook that refuses backgrounded shell commands.
 - Optional `delegation.none` maps a tool mode to the arguments `repo run
-  --delegation none` uses instead, so the agent cannot start a subagent. A
-  tool mode it leaves out is taken to start none already (`none` and `read`
-  above). A profile without `delegation.none` refuses `--delegation none`
+  --delegation none` uses instead, so the agent cannot start a subagent. It
+  is an allow-list: list every tool mode the run may use (for `none` and
+  `read` the arguments are the native ones); a tool mode it leaves out is
+  refused. A profile without `delegation.none` refuses `--delegation none`
   before anything runs. The default, `--delegation native`, runs the tool mode
   as written: under `all`, Claude Code may start subagents.
   `--delegation none` limits the tools the agent is given, not the skills it
