@@ -132,8 +132,12 @@ def parse_run(raw: str, name: str = "", grain: str = "split") -> Run:
             continue
         if not isinstance(rec, dict):
             continue
-        message = rec.get("message") if isinstance(rec.get("message"), dict) else {}
-        content = message.get("content") if isinstance(message.get("content"), list) else []
+        raw_message = rec.get("message")
+        message: dict[str, Any] = {}
+        if isinstance(raw_message, dict):
+            message = raw_message
+        raw_content = message.get("content")
+        content: list[Any] = raw_content if isinstance(raw_content, list) else []
         main = rec.get("parent_tool_use_id") is None
         kind = rec.get("type")
         if kind == "assistant":
@@ -151,7 +155,8 @@ def parse_run(raw: str, name: str = "", grain: str = "split") -> Run:
 
 def _assistant(run: Run, rec: dict[str, Any], message: dict[str, Any], content: list[Any], main: bool,
                by_id: dict[str, list[Event]], seen_messages: dict[str, int], grain: str) -> None:
-    usage = message.get("usage") if isinstance(message.get("usage"), dict) else {}
+    raw_usage = message.get("usage")
+    usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
     mid = str(message.get("id") or id(rec))
     seen_messages[mid] = max(seen_messages.get(mid, 0), int(usage.get("output_tokens") or 0))  # one call, many blocks
     if not main:
