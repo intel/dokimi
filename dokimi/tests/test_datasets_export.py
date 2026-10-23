@@ -143,6 +143,7 @@ def _export_error(src: Path, out: Path, *extra: str, capsys) -> str:
     with pytest.raises(SystemExit) as exc:
         _run_export(src, out, "answers", *extra)
     assert exc.value.code == 2
+    assert exc.value.__suppress_context__
     assert not (out / "README.md").exists()
     err = capsys.readouterr().err
     assert err.startswith(f"Error: cannot export {src} to {out}: ")
@@ -187,6 +188,24 @@ def test_cli_export_without_validation_of_a_non_list_record_array_exits_cleanly(
     src.write_text(json.dumps({"answers": {}}), encoding="utf-8")
     err = _export_error(src, tmp_path / "out", "--no-validate", capsys=capsys)
     assert "must be a list" in err and "Traceback" not in err
+
+
+def test_flatten_of_an_unknown_kind_raises():
+    with pytest.raises(ValueError, match="Unknown artifact kind"):
+        flatten("bogus", {})
+
+
+@pytest.mark.parametrize("raw", ["[]", '"s"', "null", "3"])
+@pytest.mark.parametrize("extra", [(), ("--no-validate",)])
+@pytest.mark.parametrize("kind", ["answers", "eval", "arms", "task_runs"])
+def test_cli_export_of_a_non_object_top_level_exits_cleanly(tmp_path, capsys, raw, extra, kind):
+    src = tmp_path / "a.json"
+    src.write_text(raw, encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        _run_export(src, tmp_path / "out", kind, *extra)
+    assert exc.value.code == 2
+    assert not (tmp_path / "out" / "README.md").exists()
+    assert capsys.readouterr().err.startswith(f"Error: cannot export {src} to {tmp_path / 'out'}: ")
 
 
 def test_flatten_missing_record_key_raises():
