@@ -207,7 +207,8 @@ Rules:
 - `entry_points.grade` is required only when some task's `grader` does not
   start with `dokimi:` (a grader built into the framework); `repo validate`
   names the tasks that need it.
-- `process_metrics` maps a name (letters, digits, `_`) to a Python regex,
+- `process_metrics` maps a name (letters, digits, `_`; not
+  starting with a digit) to a Python regex,
   given as a string or as `{regex: <regex>, match: text|output|any}`. For each
   name the framework counts the `command` events of the run whose `text`
   (default), `output` or either contains a match (`re.search`); denied commands
