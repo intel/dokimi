@@ -170,6 +170,38 @@ def test_headings_are_offered_only_as_self_derived_queries():
     assert headings_as_queries(body) == ["Recording a profile", "Reading the report"]
 
 
+@pytest.mark.parametrize("fence", ["```", "~~~"])
+def test_a_heading_inside_a_code_fence_is_not_a_query(fence):
+    # A shell comment such as "## Not a heading" is a line of code, not a request.
+    body = (f"# Title\n\n## Recording a profile\n\n{fence}bash\n## Not a heading here\n"
+            f"perf record\n{fence}\n\n## Reading the report\n")
+    assert headings_as_queries(body) == ["Recording a profile", "Reading the report"]
+
+
+def test_a_bare_hash_line_does_not_take_the_next_line_as_its_heading():
+    # "\s+" matched the newline, so "##" followed by "foo bar" read as the heading "foo bar".
+    assert headings_as_queries("##\nfoo bar\n") == []
+
+
+def test_a_fence_closes_only_on_its_own_character_and_length():
+    body = "````md\n```\n## Still inside\n````\n## Real one here\n"
+    assert headings_as_queries(body) == ["Real one here"]
+
+
+@pytest.mark.parametrize("fence", ["```", "~~~"])
+@pytest.mark.parametrize("open_indent", range(4))
+@pytest.mark.parametrize("close_indent", range(4))
+def test_a_fence_indented_up_to_three_spaces_opens_and_closes(fence, open_indent, close_indent):
+    # Fences in list items are indented; an indented closer must still end the block.
+    body = (f"{' ' * open_indent}{fence}\n## Hidden heading one\n"
+            f"{' ' * close_indent}{fence}\n## Real heading one\n")
+    assert headings_as_queries(body) == ["Real heading one"]
+
+
+def test_a_tab_after_the_hashes_still_makes_a_heading():
+    assert headings_as_queries("##\tTab heading words\n") == ["Tab heading words"]
+
+
 def _parse(*argv):
     return build_parser().parse_args(list(argv))
 
@@ -250,6 +282,7 @@ def test_self_derived_queries_are_stamped_on_the_result(tmp_path, capsys):
                   "--queries-from-headings", "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["status"] == "ok"
     assert payload["queries_self_derived"] is True
     assert "model" not in payload                      # no --model, no spend
     captured = capsys.readouterr()
@@ -449,7 +482,9 @@ def test_a_query_file_that_is_not_strings_is_refused_but_a_missing_one_is_not_ma
 def test_the_catalog_leaves_out_the_names_it_is_told_to(tmp_path):
     _skill(tmp_path, "perf", "profile a slow binary with perf")
     _skill(tmp_path, "xpu", "profile a slow GPU kernel")
-    assert [c.name for c in catalog_competitors(str(tmp_path), {"perf"})] == ["xpu"]
+    # a card is what the model chooses by: its description, not only its name
+    assert [(c.name, c.description) for c in catalog_competitors(str(tmp_path), {"perf"})] == [
+        ("xpu", "profile a slow GPU kernel")]
     with pytest.raises(ValueError, match="not a directory"):
         catalog_competitors(str(tmp_path / "nope"), set())
 
@@ -572,3 +607,160 @@ def test_replayed_calls_are_counted_apart_and_not_billed(tmp_path, monkeypatch, 
     assert (cost["llm_calls"], cost["replayed_calls"]) == (2, 2)
     assert (cost["input_tokens"], cost["output_tokens"], cost["usd"]) == (0, 0, 0.0)
     assert "2 replayed from the cache and not counted" in capsys.readouterr().out
+
+
+def test_headings_inside_code_only_refuse_the_run_and_say_why(tmp_path):
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary",
+                                       body="```\n## only in code\n```\n"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries-from-headings", "--out", str(out))
+    with pytest.raises(SystemExit, match="code fences.*--queries"):
+        args.func(args)
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["status"] == "no_queries"
+    assert "code fences" in payload["reason"]
+
+
+def test_a_query_file_with_nothing_in_it_refuses_the_run(tmp_path):
+    queries = tmp_path / "q.txt"
+    queries.write_text("\n   \n", encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--out", str(out))
+    with pytest.raises(SystemExit, match="no non-blank query"):
+        args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["status"] == "no_queries"
+
+
+def test_queries_without_a_content_word_refuse_the_run(tmp_path):
+    queries = tmp_path / "q.txt"
+    queries.write_text("the of a\nhow do I\n", encoding="utf-8")
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--out", str(tmp_path / "routing.json"))
+    with pytest.raises(SystemExit, match="has a content word"):
+        args.func(args)
+
+
+def test_every_rate_line_carries_its_query_count_and_triage_tag(tmp_path, capsys):
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary",
+                                       body="# B\n\n## Recording a profile\n\n"
+                                            "## Reading the report\n"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries-from-headings", "--out", str(out))
+    args.func(args)
+    lines = capsys.readouterr().out.splitlines()
+    lexical = next(line for line in lines if line.startswith("lexical"))
+    assert "n_queries 2 of 2" in lexical
+    assert "triage: self-derived" in lexical
+
+
+def test_fewer_than_five_scored_queries_are_warned_about_on_stdout(tmp_path, capsys):
+    def run(count):
+        queries = tmp_path / f"q{count}.txt"
+        queries.write_text("\n".join(f"profile a binary run {i}" for i in range(count)),
+                           encoding="utf-8")
+        args = _parse("novelty", "routing",
+                      "--artifact", _skill(tmp_path, f"a{count}", "profile a binary"),
+                      "--competitors", _skill(tmp_path, f"b{count}", "tune a database"),
+                      "--queries", str(queries), "--out", str(tmp_path / f"r{count}.json"))
+        args.func(args)
+        return capsys.readouterr().out
+
+    assert "WARNING: only 2 queries scored" in run(2)
+    assert "WARNING: only 4 queries scored" in run(4)
+    assert "WARNING" not in run(5)
+
+
+@pytest.mark.parametrize("opener", ["```js `x`", "\t```"])
+def test_a_line_that_is_not_a_fence_does_not_hide_the_headings_after_it(opener):
+    # An info string with a backtick, or a tab indent, is not a fence by CommonMark's rules.
+    assert headings_as_queries(f"{opener}\n## Real heading one\n") == ["Real heading one"]
+
+
+@pytest.mark.parametrize("opener", ["~~strike~~ text", "``x`` text", "``x text"])
+def test_a_run_of_two_markers_is_not_a_fence(opener):
+    assert headings_as_queries(f"{opener}\n## Real heading one\n") == ["Real heading one"]
+
+
+def test_a_hash_run_without_a_space_is_not_a_heading():
+    assert headings_as_queries("##hashtag word\n") == []
+
+
+def test_a_four_space_indented_fence_is_indented_code_not_a_fence():
+    assert headings_as_queries("    ```\n## Real heading one\n") == ["Real heading one"]
+
+
+def test_a_tilde_line_does_not_close_a_backtick_block():
+    body = "```\n~~~\n## Hidden heading one\n```\n## Real heading one\n"
+    assert headings_as_queries(body) == ["Real heading one"]
+
+
+def test_a_fence_with_an_info_string_does_not_close_a_block():
+    body = "```\n```js\n## Hidden heading one\n```\n## Real heading one\n"
+    assert headings_as_queries(body) == ["Real heading one"]
+
+
+def _routing_with_model(tmp_path, monkeypatch, queries_text):
+    from dokimi.commands import novelty as novelty_cmd
+
+    calls = []
+
+    def transport(prompt, system):
+        calls.append(prompt)
+        return json.dumps({"pick": 1}), None
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model="fake", role=role, transport=transport))
+    queries = tmp_path / "q.txt"
+    queries.write_text(queries_text, encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary run"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--model", "m", "--out", str(out))
+    return args, calls
+
+
+def test_the_model_row_says_its_query_count_is_of_all_given(tmp_path, monkeypatch, capsys):
+    args, calls = _routing_with_model(tmp_path, monkeypatch,
+                                      "profile a binary run\nthe of a\nhow do I\n")
+    args.func(args)
+    lines = capsys.readouterr().out.splitlines()
+    lexical = next(line for line in lines if line.startswith("lexical"))
+    model = next(line for line in lines if line.startswith("model"))
+    assert "n_queries 1 of 3 given" in lexical
+    assert "n_queries 3 given" in model
+    assert len(calls) == 3
+
+
+def test_a_run_with_no_scorable_query_makes_no_model_call(tmp_path, monkeypatch):
+    args, calls = _routing_with_model(tmp_path, monkeypatch, "the of a\nhow do I\n")
+    with pytest.raises(SystemExit, match="no usable queries"):
+        args.func(args)
+    assert calls == []
+    assert json.loads((tmp_path / "routing.json").read_text())["status"] == "no_queries"
+
+
+def test_the_model_row_carries_the_triage_tag_on_self_derived_queries(tmp_path, monkeypatch,
+                                                                       capsys):
+    from dokimi.commands import novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model="fake", role=role, transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries-from-headings", "--model", "m",
+                  "--out", str(tmp_path / "routing.json"))
+    args.func(args)
+    model = next(line for line in capsys.readouterr().out.splitlines()
+                 if line.startswith("model"))
+    assert "triage: self-derived" in model
