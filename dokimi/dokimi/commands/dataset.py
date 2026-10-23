@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 
@@ -13,13 +14,20 @@ def cmd_dataset_export(args: argparse.Namespace) -> None:
     """Export a questions/answers/eval/arms artifact to JSONL/Parquet/HF."""
     from dokimi.datasets_export import export_artifact
 
-    primary = export_artifact(
-        kind=args.kind,
-        input_path=Path(args.input),
-        out_dir=Path(args.out_dir),
-        fmt=args.format,
-        validate=not args.no_validate,
-    )
+    try:
+        primary = export_artifact(
+            kind=args.kind,
+            input_path=Path(args.input),
+            out_dir=Path(args.out_dir),
+            fmt=args.format,
+            validate=not args.no_validate,
+        )
+    except KeyError as exc:  # a record array the artifact lacks; str() would quote the message
+        print(f"Error: cannot export {args.input} to {args.out_dir}: {exc.args[0]}", file=sys.stderr)
+        raise SystemExit(1) from None
+    except (OSError, ValueError, TypeError) as exc:  # unreadable, not JSON, invalid, unwritable
+        print(f"Error: cannot export {args.input} to {args.out_dir}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
     print(f"✅ Exported {args.kind} ({args.format}) → {primary}")
     print(f"   Dataset card: {Path(args.out_dir) / 'README.md'}")
 

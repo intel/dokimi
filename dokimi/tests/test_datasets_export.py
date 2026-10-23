@@ -131,6 +131,55 @@ def test_export_task_runs_jsonl(tmp_path):
     assert json.loads(primary.read_text().strip())["task"] == "t1"
 
 
+def _run_export(src: Path, out: Path, kind: str = "answers", *extra: str) -> None:
+    from dokimi.cli import build_parser
+
+    args = build_parser().parse_args(["dataset", "export", "--kind", kind, "--input", str(src),
+                                      "--out-dir", str(out), *extra])
+    args.func(args)
+
+
+def _export_error(src: Path, out: Path, capsys, kind: str = "answers", *extra: str) -> str:
+    with pytest.raises(SystemExit) as exc:
+        _run_export(src, out, kind, *extra)
+    assert exc.value.code == 1
+    assert not (out / "README.md").exists()
+    return capsys.readouterr().err
+
+
+def test_cli_export_of_a_missing_input_exits_cleanly(tmp_path, capsys):
+    err = _export_error(tmp_path / "nope.json", tmp_path / "out", capsys)
+    assert "nope.json" in err and "Traceback" not in err
+
+
+def test_cli_export_to_an_unwritable_out_dir_exits_cleanly(tmp_path, capsys):
+    src = tmp_path / "a.json"
+    src.write_text(json.dumps({"schema_version": "answers.v1", "answers": []}), encoding="utf-8")
+    blocker = tmp_path / "file"
+    blocker.write_text("x", encoding="utf-8")
+    err = _export_error(src, blocker / "out", capsys)
+    assert "cannot export" in err and "a.json" in err
+
+
+def test_cli_export_of_invalid_json_exits_cleanly(tmp_path, capsys):
+    src = tmp_path / "a.json"
+    src.write_text("{not json", encoding="utf-8")
+    assert "a.json" in _export_error(src, tmp_path / "out", capsys)
+
+
+def test_cli_export_of_a_schema_invalid_artifact_exits_cleanly(tmp_path, capsys):
+    src = tmp_path / "a.json"
+    src.write_text(json.dumps({"schema_version": "answers.v1", "answers": "x"}), encoding="utf-8")
+    assert "validation failed" in _export_error(src, tmp_path / "out", capsys)
+
+
+def test_cli_export_without_validation_of_a_wrong_shape_exits_cleanly(tmp_path, capsys):
+    src = tmp_path / "a.json"
+    src.write_text(json.dumps({"not_answers": []}), encoding="utf-8")
+    err = _export_error(src, tmp_path / "out", capsys, "answers", "--no-validate")
+    assert "answers" in err
+
+
 def test_flatten_missing_record_key_raises():
     import pytest
     with pytest.raises(KeyError):
