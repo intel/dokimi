@@ -41,6 +41,10 @@ one turn, or a non-zero exit with no turn count that is not a timeout) in either
 measurement failed, not that the task had no room. Any other case has no flag: ``None``. The flag is a note;
 p and Holm are unchanged.
 
+Every ``result.json`` ``process`` count a cell of the compared arms reports
+(:mod:`.process_counts`: ``process:<key>``, ``counter:<name>``) is a measure
+too, the per-task mean over the cells that have it, descriptive like cost.
+
 Each selector's batches are reported with the stamp ``repo run`` pins a batch
 to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
 cells. A warning is printed, not an error, when a bare ``ARM`` pools cells of
@@ -70,6 +74,7 @@ from typing import Any
 
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
+from .process_counts import process_order, process_values
 from .report import (load_cells, mismatch_warnings, model_matches, model_mismatch, resolved_models, unmeasured_note,
                      uptake_counts)
 
@@ -141,6 +146,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics)
     rows: list[dict[str, Any]] = []
     unpaired: list[dict[str, Any]] = []
+    measures += _process_measures(cells, [baseline, *treatments])
     for text in treatments:
         treat_vals = _task_values([c for c in cells if selector_matches(parse_selector(text), c)], metrics)
         unpaired += _one_arm_models(text, base_vals, treat_vals, models)
@@ -253,6 +259,13 @@ def _built_from_tree(stamp: dict[str, Any]) -> bool:
     return repo.startswith("dokimi/") and (tag.startswith("worktree-") or bool(revision) and tag == revision[:12])
 
 
+def _process_measures(cells: list[dict[str, Any]], selectors: list[str]) -> list[str]:
+    """The ``process`` counters any cell of the compared arms reports; none when no cell has ``process``."""
+    sels = [parse_selector(text) for text in selectors]
+    found = {k for c in cells if any(selector_matches(s, c) for s in sels) for k in process_values(c)}
+    return sorted(found, key=process_order)
+
+
 def _check_metrics(metrics: tuple[str, ...], cells: list[dict[str, Any]]) -> None:
     """A ``--metric`` that no finished cell reports is a typo or not a number: refuse it, not print nothing."""
     unknown = [m for m in metrics if not any(m in c["metrics"] for c in cells)]
@@ -289,28 +302,42 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
         if b != t:  # batches of different eval trees: the primary result of this task has no pair
             unpaired.append(_unpaired(treatment, model, task, None, f"{b} task in baseline, {t} in treatment"))
     for measure in measures:
-        pairs = []
-        for task in shared:
-            base, treat = base_vals[(model, task)], treat_vals[(model, task)]
-            if measure in PRIMARY and not base["kind"] == treat["kind"] == measure:
-                continue  # a task of the other kind, or one listed above
-            pair = _pair(task, base, treat, measure)
-            if pair is None:
-                lacking = [arm for arm, v in (("baseline", base), ("treatment", treat))
-                           if v["values"].get(measure) is None]
-                unpaired.append(_unpaired(treatment, model, task, measure,
-                                          f"no {measure} in {' or '.join(lacking)}"))
-            else:
-                pairs.append(pair)
-        if pairs:
-            flag = None
-            if measure in PRIMARY:
-                tops = [(base_vals[(model, p["task"])]["top"], treat_vals[(model, p["task"])]["top"]) for p in pairs]
-                failed = [base_vals[(model, p["task"])]["grader_failed"]
-                          or treat_vals[(model, p["task"])]["grader_failed"] for p in pairs]
-                flag = headroom(pairs, tops, failed)
-            rows.append({"treatment": treatment, "model": model, "measure": measure,
-                         **paired_summary(pairs, measure, seed=seed), "headroom": flag})
+        if measure.startswith(("process:", "counter:")) and not all(
+                any(vals[(model, t)]["values"].get(measure) is not None for t in shared) for vals in (base_vals, treat_vals)):
+            continue  # an arm that reports no such count at all (an older batch) leaves no task out of a pair
+        row = _compare_measure(treatment, model, measure, shared, base_vals, treat_vals, seed, unpaired)
+        if row is not None:
+            rows.append(row)
+
+
+def _compare_measure(treatment: str, model: str, measure: str, shared: list[str],
+                     base_vals: dict[tuple[str, str], dict[str, Any]],
+                     treat_vals: dict[tuple[str, str], dict[str, Any]], seed: int,
+                     unpaired: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The row of one measure over the shared tasks of one (treatment, model), or None with no pair."""
+    pairs = []
+    for task in shared:
+        base, treat = base_vals[(model, task)], treat_vals[(model, task)]
+        if measure in PRIMARY and not base["kind"] == treat["kind"] == measure:
+            continue  # a task of the other kind, or one listed above
+        pair = _pair(task, base, treat, measure)
+        if pair is None:
+            lacking = [arm for arm, v in (("baseline", base), ("treatment", treat))
+                       if v["values"].get(measure) is None]
+            unpaired.append(_unpaired(treatment, model, task, measure,
+                                      f"no {measure} in {' or '.join(lacking)}"))
+        else:
+            pairs.append(pair)
+    if not pairs:
+        return None
+    flag = None
+    if measure in PRIMARY:
+        tops = [(base_vals[(model, p["task"])]["top"], treat_vals[(model, p["task"])]["top"]) for p in pairs]
+        failed = [base_vals[(model, p["task"])]["grader_failed"]
+                  or treat_vals[(model, p["task"])]["grader_failed"] for p in pairs]
+        flag = headroom(pairs, tops, failed)
+    return {"treatment": treatment, "model": model, "measure": measure,
+            **paired_summary(pairs, measure, seed=seed), "headroom": flag}
 
 
 def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float | None]],
@@ -504,6 +531,7 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
         found = {"cost_usd": [r["agent"].get("cost_usd") for r in recs],
                  "turns": [r["agent"].get("num_turns") for r in recs],
                  **{f"metric:{name}": [r["metrics"].get(name) for r in recs] for name in metrics}}
+        found.update(_process_lists(recs))
         if score_task:
             found["score"] = [0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
                               for r in recs]
@@ -558,6 +586,12 @@ def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
 
 def _finite(values: list[Any]) -> list[float]:
     return [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)]
+
+
+def _process_lists(recs: list[dict[str, Any]]) -> dict[str, list[float | None]]:
+    """Each process measure any of ``recs`` reports, with every cell's value (``None`` where it has none)."""
+    values = [process_values(r) for r in recs]
+    return {name: [v.get(name) for v in values] for name in {k for v in values for k in v}}
 
 
 def _mean(values: list[Any]) -> float | None:

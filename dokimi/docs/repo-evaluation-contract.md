@@ -1002,12 +1002,17 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
 - The report gives, per (task, arm, model), passes over finished cells with a
   Wilson 95% interval (score-only tasks: the mean of `score.metric`), grader
   failures (counted as failures too), missing cells, and mean cost and turns.
+  When cells carry `result.json` `process` (§4.1), a line under the row gives
+  the mean of each count over the cells that have it (`guidance_read` counted
+  as paths; `counter:<name>` for `process_metrics`); a `null` or absent
+  `process` is left out, not counted as zero.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
-  cost, turns, each `--metric` from `grade.json`) it gives the mean per-task
+  cost, turns, each `--metric` from `grade.json`, and each `process` count a
+  compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks (a bootstrap for
-  gate and score, a t interval for cost, turns and metrics, `-` for a single
+  gate and score, a t interval for cost, turns, metrics and process counts, `-` for a single
   task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
   changed tasks; at one cell per task and arm it equals McNemar's exact test).
   Holm's correction runs over the gate and score comparisons of one call; the
