@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import re
 import shlex
+import tomllib
 from pathlib import Path
 
 import pytest
 from packaging.markers import Marker
+from packaging.requirements import Requirement
 
 ROOT = Path(__file__).resolve().parents[1]
 # The locks .github/renovate.json5 hands to the pip-compile manager.
@@ -190,3 +192,18 @@ def test_main_lock_exempts_only_security_bumps_younger_than_the_cooldown() -> No
     cmd = header_command("requirements.lock.txt")
     exempt = {a.split("=", 1)[1] for a in cmd if a.startswith("--exclude-newer-package=")}
     assert exempt == {"gitpython=false", "certifi=false", "pillow=false"}, exempt
+
+
+def test_the_published_package_builds_with_the_locked_backend() -> None:
+    """package-smoke and the release job build without isolation, from the tools lock's setuptools:
+    an isolated build would resolve `[build-system] requires` from PyPI with no hashes."""
+    for workflow in ("ci.yml", "release.yml"):
+        text = (ROOT.parent / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+        builds = [line.strip() for line in text.splitlines() if '/build-venv/bin/python" -m build' in line]
+        assert builds and all("--no-isolation" in line for line in builds), (workflow, builds)
+    locked = pins("requirements-ci.lock.txt")
+    backend = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["build-system"]["requires"]
+    for spec in map(Requirement, backend):
+        versions = locked.get(canonical(spec.name), set())
+        assert any(spec.specifier.contains(v) for v in versions), (
+            f"requirements-ci.lock.txt has {sorted(versions)} for the build backend {spec}")
