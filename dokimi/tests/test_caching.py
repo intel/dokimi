@@ -270,7 +270,8 @@ def test_entry_without_text_is_a_miss(monkeypatch, tmp_path):
      '{"text": "answer", "usage": {"n_calls": null}}',
      '{"text": "answer", "usage": {"cost_usd": "free"}}',
      '{"text": "answer", "usage": {"latency_sec": true}}',
-     '{"text": "answer", "usage": {"model": 5}}'],
+     '{"text": "answer", "usage": {"model": 5}}',
+     '{"text": "answer", "usage": {"prompt_tokens": NaN}}'],
 )
 def test_entry_of_the_wrong_shape_is_a_miss_not_a_crash(monkeypatch, tmp_path, payload):
     """Valid JSON that is not a ``{"text": str, "usage": {...}}`` entry is corrupt too."""

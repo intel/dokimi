@@ -47,6 +47,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -367,7 +368,9 @@ def _usage_value_fits(name: str, value: object) -> bool:
         return isinstance(value, str)
     if value is None:
         return default is None
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return isinstance(value, int) or math.isfinite(value)
 
 
 def load_response(key: str) -> Optional[Tuple[Optional[str], UsageRecord]]:
