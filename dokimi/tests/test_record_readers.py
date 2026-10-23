@@ -506,3 +506,24 @@ def test_cross_judge_exits_2_on_a_malformed_arms_file(tmp_path, monkeypatch, cap
         cli.main()
     assert exc.value.code == 2  # bad input; 1 is the verdict code of the gates
     assert "missing question_id" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flag", ["--answers", "--pairwise", "--checklist", "--validity"])
+@pytest.mark.parametrize("content", [None, "{not json", "[1, 2]"], ids=["missing", "malformed", "not-an-object"])
+def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, capsys, flag, content):
+    from dokimi import cli
+
+    arms = tmp_path / "arms.json"
+    arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
+                    encoding="utf-8")
+    bad = tmp_path / "bad.json"
+    if content is not None:
+        bad.write_text(content, encoding="utf-8")
+    argv = ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored"]
+    argv = [*argv[:4], str(bad), *argv[5:]] if flag == "--answers" else [*argv, flag, str(bad)]
+    monkeypatch.setattr("sys.argv", argv)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(bad) in err

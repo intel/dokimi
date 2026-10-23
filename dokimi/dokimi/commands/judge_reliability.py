@@ -21,11 +21,33 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 
 
+def _read_json(path: str):
+    """The parsed JSON at ``path``, or exit 2 (bad input, not a failed gate) naming the file."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
+        print(f"Error: cannot read {path}: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _load_json_object(path: str, key: Optional[str] = None) -> dict:
+    """The JSON object at ``path``, or exit 2 naming the file.
+
+    With ``key``, the object must also hold an object under that key.
+    """
+    data = _read_json(path)
+    if not isinstance(data, dict) or (key is not None and not isinstance(data.get(key), dict)):
+        what = "a JSON object" if key is None else f"a JSON object with a `{key}` object"
+        print(f"Error: {path} is not {what}", file=sys.stderr)
+        sys.exit(2)
+    return data
+
+
 def _load_answers(path: str):
     """The parsed file and its answers records (dokimi/records.py), or a clean exit."""
     from dokimi.records import RecordError, read
 
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    data = _read_json(path)
     try:
         answers = list(read(data, source=path, section="answers").records)
     except RecordError as exc:
@@ -352,14 +374,14 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
                 store=materials,
             ))
     for path in args.pairwise or []:
-        pw = json.loads(Path(path).read_text(encoding="utf-8"))
+        pw = _load_json_object(path)
         name = (pw.get("summary") or {}).get("judge", Path(path).stem)
         report.measures.append(pairwise_measure(pw, name, baseline))
     for path in args.checklist or []:
-        ck = json.loads(Path(path).read_text(encoding="utf-8"))
+        ck = _load_json_object(path)
         name = (ck.get("summary") or {}).get("judge", Path(path).stem)
         report.measures.append(coverage_measure(ck, name))
-    validity = [json.loads(Path(v).read_text(encoding="utf-8"))["summary"] for v in args.validity or []]
+    validity = [_load_json_object(v, key="summary")["summary"] for v in args.validity or []]
     answers_model = data.get("model") if isinstance(data, dict) else None
     for v in validity:
         if v.get("answers_model") and answers_model and v["answers_model"] != answers_model:
