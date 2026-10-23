@@ -180,6 +180,13 @@ def test_cli_export_without_validation_of_a_wrong_shape_exits_cleanly(tmp_path, 
     assert "answers" in err
 
 
+def test_cli_export_without_validation_of_a_non_list_record_array_exits_cleanly(tmp_path, capsys):
+    src = tmp_path / "a.json"
+    src.write_text(json.dumps({"answers": {}}), encoding="utf-8")
+    err = _export_error(src, tmp_path / "out", capsys, "answers", "--no-validate")
+    assert "must be a list" in err and "Traceback" not in err
+
+
 def test_flatten_missing_record_key_raises():
     import pytest
     with pytest.raises(KeyError):
