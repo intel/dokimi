@@ -12,13 +12,20 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.novelty.tiers import (
+    CALL_TOKENS,
     DEFAULT_SETTINGS,
+    ESCALATION_SHARE,
+    EXTRACTOR_TOKENS,
+    FITTED_TOKENS_MAX,
     FLAG_DEFAULTS,
     FORFEITS,
     SETTING_NAMES,
     TIERS,
+    TOKENS_PER_ATOM,
     RunSettings,
+    call_tokens,
     estimate_calls,
+    estimate_usd,
     resolve_settings,
 )
 
@@ -351,3 +358,293 @@ def test_a_tier_on_the_config_and_the_older_tier_argument_record_the_same(tmp_pa
     assert on_config["warnings"] == as_argument["warnings"]
     assert any("tier `triage` was overridden by flags (max_atoms)" in w
                for w in on_config["warnings"])
+
+
+#: The 25 measured runs of the 2026-10-21 skill scan, split by artifact into a fit half (13
+#: runs), which the constants in tiers.py were fitted on, and the held-out half below (12 runs).
+#: Each row: the artifact's spans and tokens, its tier, the atoms its extraction found, and the
+#: calls by role and the dollars the run recorded. Numbers only: no skill text, no names.
+MEASURED_RUNS = [
+    ("held-01", 7, 198, "standard", 8, {"extractor": 34, "answerer": 32, "judge": 32}, 0.164377),
+    ("held-02", 23, 371, "standard", 18, {"extractor": 96, "answerer": 70, "judge": 70}, 0.470331),
+    ("held-03", 42, 567, "standard", 23, {"extractor": 172, "answerer": 90, "judge": 90}, 0.820205),
+    ("held-04", 42, 567, "triage", 25, {"extractor": 3, "answerer": 50, "judge": 50}, 0.180702),
+    ("held-05", 38, 745, "triage", 25, {"extractor": 3, "answerer": 50, "judge": 50}, 0.183736),
+    ("held-06", 61, 883, "triage", 25, {"extractor": 3, "answerer": 50, "judge": 50}, 0.158418),
+    ("held-07", 53, 1153, "triage", 25, {"extractor": 3, "answerer": 50, "judge": 50}, 0.206459),
+    ("held-08", 66, 1768, "triage", 25, {"extractor": 3, "answerer": 50, "judge": 50}, 0.225759),
+    ("held-09", 125, 2156, "triage", 25, {"extractor": 3, "answerer": 50, "judge": 50}, 0.182036),
+    ("held-10", 103, 2517, "triage", 25, {"extractor": 4, "answerer": 50, "judge": 50}, 0.245361),
+    ("held-11", 274, 3802, "triage", 25, {"extractor": 4, "answerer": 50, "judge": 50}, 0.246153),
+    ("held-12", 140, 6723, "triage", 25, {"extractor": 5, "answerer": 50, "judge": 50}, 0.338129),
+]
+
+#: The error every projection is held to on the held-out runs, for calls, atoms and dollars.
+#: The worst held-out dollar error is 33%; 35% is that figure rounded up.
+TOLERANCE = 0.35
+
+_MODELS = {"extractor": ("us.anthropic.claude-sonnet-5-5", "amazon-bedrock"),
+           "answerer": ("us.anthropic.claude-haiku-5-5", "amazon-bedrock"),
+           "judge": ("us.anthropic.claude-sonnet-5-5", "amazon-bedrock")}
+_BUDGETS = (0.75, 0.5)
+
+#: The list prices of the two models in ``_MODELS``, as litellm's bundled price map has them.
+#: The dollar checks read the price map, and conftest keeps litellm on its bundled copy, so
+#: the map is whichever release is installed: the locked litellm 1.105.0 has no entry for
+#: ``us.anthropic.claude-haiku-5-5`` and the answerer priced to None. Pinned here, the checks
+#: give the same figures on every release.
+_PINNED_LIST_PRICES = {
+    "us.anthropic.claude-sonnet-5-5": {"litellm_provider": "bedrock_converse", "mode": "chat",
+                                       "input_cost_per_token": 2.2e-06,
+                                       "output_cost_per_token": 1.1e-05},
+    "us.anthropic.claude-haiku-5-5": {"litellm_provider": "bedrock_converse", "mode": "chat",
+                                      "input_cost_per_token": 1.1e-07,
+                                      "output_cost_per_token": 5.5e-07},
+}
+
+
+@pytest.fixture
+def pinned_list_prices(monkeypatch):
+    from litellm import model_cost
+
+    for name, entry in _PINNED_LIST_PRICES.items():
+        monkeypatch.setitem(model_cost, name, entry)
+
+
+def _projection(tier, spans, tokens):
+    """The estimate a run at this tier on this artifact prints, and its dollar figure."""
+    estimate = resolve_settings(tier, {}).estimate(
+        spans, n_tokens=tokens, budgets=_BUDGETS, n_arms=2
+    )["estimate"]
+    return estimate, estimate_usd(estimate["by_role"], tokens, _MODELS, tier)
+
+
+def test_the_projection_constants_are_the_fitted_ones():
+    # Asserted as values. A change to any of them changes the calibration, and the held-out
+    # numbers in docs/skill-novelty.md have to be fitted and restated with it.
+    assert TOKENS_PER_ATOM == 23
+    assert ESCALATION_SHARE == 0.5
+    assert CALL_TOKENS == {"answerer": (-38, 0.789, 284), "judge": (468, 0.004, 89)}
+    assert EXTRACTOR_TOKENS == {"triage": (971, 0.045, 2359), "standard": (267, 0.651, 195)}
+
+
+def test_held_out_calls_within_35_percent():
+    for name, spans, tokens, tier, _, by_role, _ in MEASURED_RUNS:
+        estimate, _ = _projection(tier, spans, tokens)
+        counted = sum(by_role.values())
+        assert abs(estimate["expected_calls"] - counted) <= TOLERANCE * counted, name
+
+
+def test_held_out_atoms_within_35_percent():
+    for name, spans, tokens, tier, atoms, _, _ in MEASURED_RUNS:
+        estimate, _ = _projection(tier, spans, tokens)
+        assert abs(estimate["n_atoms"] - atoms) <= TOLERANCE * atoms, name
+
+
+def test_held_out_dollars_within_35_percent(pinned_list_prices):
+    for name, spans, tokens, tier, _, _, usd in MEASURED_RUNS:
+        _, priced = _projection(tier, spans, tokens)
+        assert priced is not None, name
+        assert abs(priced - usd) <= TOLERANCE * usd, name
+
+
+def test_held_out_triage_dollars_within_35_percent(pinned_list_prices):
+    # The triage runs are the ones the extractor's output per call is for: a flat profile
+    # priced them 21-43% low before the per-tier extractor profile.
+    triage = [row for row in MEASURED_RUNS if row[3] == "triage"]
+    assert len(triage) == 9
+    for name, spans, tokens, tier, _, _, usd in triage:
+        _, priced = _projection(tier, spans, tokens)
+        assert abs(priced - usd) <= TOLERANCE * usd, name
+
+
+def test_the_expected_calls_sit_between_the_no_escalation_and_the_full_escalation_bounds():
+    for name, spans, tokens, tier, _, _, _ in MEASURED_RUNS:
+        estimate, _ = _projection(tier, spans, tokens)
+        assert (estimate["total_calls"] <= estimate["expected_calls"]
+                <= estimate["total_calls_if_every_pair_escalates"]), name
+        assert estimate["expected_calls"] == sum(estimate["by_role"].values()), name
+
+
+def test_the_atom_count_takes_the_token_rule_when_the_artifact_has_more_tokens_than_spans():
+    everything = resolve_settings(None, {"all_atoms": True})
+    assert everything.estimate(7)["estimate"]["n_atoms"] == 3          # spans only
+    assert everything.estimate(7, n_tokens=198)["estimate"]["n_atoms"] == 8
+    # Short spans with many tokens: the span rule was the smaller of the two.
+    assert everything.estimate(20, n_tokens=900)["estimate"]["n_atoms"] == 39
+
+
+def test_the_extractor_profile_follows_the_tier_and_study_takes_the_standard_one():
+    assert call_tokens("extractor", 1000, "triage") == (1016, 2359)
+    assert call_tokens("extractor", 1000, "standard") == (918, 195)
+    assert call_tokens("extractor", 1000, "study") == call_tokens("extractor", 1000, "standard")
+    assert call_tokens("extractor", 1000) == call_tokens("extractor", 1000, "standard")
+
+
+def test_an_unpriced_model_gives_no_dollar_figure_rather_than_zero():
+    unpriced = {"answerer": ("no-such-model-for-dokimi", "openai")}
+    assert estimate_usd({"answerer": 10}, 100, unpriced) is None
+
+
+def test_estimate_only_prints_the_expected_calls_and_a_dollar_figure(tmp_path, capsys):
+    root = tmp_path / "s"
+    root.mkdir()
+    (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                   encoding="utf-8")
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "standard",
+                  "--estimate-only")
+    args.func(args)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["estimate"]["expected_calls"] == sum(payload["estimate"]["by_role"].values())
+    assert payload["expected_usd"] > 0  # default models are priced; null would be a regression
+    assert payload["tokens"] > 0
+
+
+def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_path, capsys):
+    from dokimi.commands.novelty import _role_models
+
+    root = tmp_path / "s"
+    root.mkdir()
+    body = "\n\n".join(f"Section {i}. Do not enable the legacy driver number {i} on a "
+                        "production host without a rollback plan." for i in range(60))
+    (root / "SKILL.md").write_text(f"---\nname: s\ndescription: d\n---\n\n# S\n\n{body}\n",
+                                   encoding="utf-8")
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+                  "--estimate-only")
+    args.func(args)
+    payload = json.loads(capsys.readouterr().out)
+    by_role, tokens = payload["estimate"]["by_role"], payload["tokens"]
+    models = _role_models(args)
+    triage = estimate_usd(by_role, tokens, models, "triage")
+    assert payload["expected_usd"] == triage
+    assert triage != estimate_usd(by_role, tokens, models, None)
+    # The artifact's token count is an input: a figure at 0 tokens is a different one.
+    assert tokens > 100 and triage != estimate_usd(by_role, 0, models, "triage")
+    assert "usd_extrapolated" not in payload
+
+
+def test_list_cost_usd_distinguishes_an_unpriced_model_from_a_free_one(monkeypatch):
+    import litellm
+
+    from dokimi.llm_pricing import list_cost_usd
+
+    # cost_per_token prices a model it has no entry for at 0.0 when the route is known.
+    monkeypatch.setattr(litellm, "cost_per_token", lambda **_: (0.0, 0.0))
+    assert list_cost_usd("not-in-the-price-map-xyz", "openai", 100, 10) is None
+    monkeypatch.setitem(litellm.model_cost, "free-in-the-price-map-xyz",
+                        {"litellm_provider": "openai", "mode": "chat",
+                         "input_cost_per_token": 0.0, "output_cost_per_token": 0.0})
+    assert list_cost_usd("free-in-the-price-map-xyz", "openai", 100, 10) == 0.0
+
+
+def test_estimate_only_stdout_stays_json_for_a_model_litellm_cannot_route(tmp_path, capsys):
+    # litellm prints a "Provider List" banner to stdout before it raises for such a model.
+    root = tmp_path / "s"
+    root.mkdir()
+    (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                   encoding="utf-8")
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "standard",
+                  "--estimate-only", "--model", "foo-bar-9", "--provider", "openai")
+    args.func(args)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["expected_usd"] is None
+
+
+def test_call_tokens_never_goes_negative_for_a_tiny_artifact():
+    # The answerer's base is negative (-38 + 0.789 per artifact token), so a 10-token
+    # artifact would price a negative prompt without the floor.
+    for role in ("extractor", "answerer", "judge"):
+        for tier in (None, "triage", "standard"):
+            assert min(call_tokens(role, 10, tier)) >= 0
+    assert call_tokens("answerer", 10)[0] == 0
+
+
+def _one_line_skill(root):
+    root.mkdir(parents=True)
+    (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                   encoding="utf-8")
+    return root
+
+
+def test_estimate_only_gives_a_null_dollar_figure_when_no_judge_resolves(tmp_path, capsys):
+    # A real run exits here (openrouter has no default judge); the preview still prints.
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{_one_line_skill(tmp_path / 's')}",
+                  "--tier", "triage", "--estimate-only", "--judge-provider", "openrouter")
+    args.func(args)
+    out = capsys.readouterr()
+    payload = json.loads(out.out)
+    assert payload["expected_usd"] is None
+    assert payload["estimate"]["expected_calls"] > 0
+    assert "USD estimate is unavailable: --judge-provider openrouter" in out.err
+
+
+def test_every_extra_arm_adds_an_answer_and_a_grade_per_probe_to_the_bill(tmp_path, capsys):
+    by_role = {}
+    for arms in ("no_artifact,full", "no_artifact,full,shuffled"):
+        skill = _one_line_skill(tmp_path / str(len(by_role)))
+        args = _parse("novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "standard",
+                      "--estimate-only", "--arms", arms)
+        args.func(args)
+        by_role[arms] = json.loads(capsys.readouterr().out)["estimate"]["by_role"]
+    two, three = by_role["no_artifact,full"], by_role["no_artifact,full,shuffled"]
+    assert three["answerer"] * 2 == two["answerer"] * 3 > 0
+    assert three["judge"] * 2 == two["judge"] * 3 > 0
+    assert three["extractor"] == two["extractor"]
+
+
+def test_a_study_run_counts_its_reversal_probes_in_the_answerer_and_judge_calls():
+    study = resolve_settings("study", {})
+    by_role = study.estimate(40, n_tokens=2000, n_arms=2)["estimate"]
+    assert by_role["reversal_probes"] > 0
+    expected = (by_role["paired_probes"] + by_role["reversal_probes"]) * 2
+    assert by_role["by_role"]["answerer"] == by_role["by_role"]["judge"] == expected
+
+
+def test_the_answerer_artifact_term_scales_with_the_arms_that_carry_it():
+    two = call_tokens("answerer", 6000)[0]
+    assert call_tokens("answerer", 6000, None, 0.5) == call_tokens("answerer", 6000)
+    three = call_tokens("answerer", 6000, None, 2 / 3)[0]
+    four = call_tokens("answerer", 6000, None, 3 / 4)[0]
+    assert two < three < four
+    assert three == round(-38 + 0.789 * (2 / 3) / 0.5 * 6000)
+    # The judge never sees the artifact, so its input does not move with the arms.
+    assert call_tokens("judge", 6000, None, 3 / 4) == call_tokens("judge", 6000)
+
+
+def test_the_cli_prices_three_context_arms_above_two(tmp_path, capsys):
+    root = tmp_path / "s"
+    root.mkdir()
+    body = "\n\n".join(f"Section {i}. Do not enable legacy driver {i} on a production host."
+                        for i in range(60))
+    (root / "SKILL.md").write_text(f"---\nname: s\ndescription: d\n---\n\n# S\n\n{body}\n",
+                                   encoding="utf-8")
+    figures = []
+    for arms in ("no_artifact,full", "no_artifact,full,shuffled"):
+        args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+                      "--arms", arms, "--estimate-only")
+        args.func(args)
+        figures.append(json.loads(capsys.readouterr().out))
+    two, three = figures
+    # Three arms run 1.5x the answerer and judge calls, and the answerer's calls carry more of
+    # the artifact each, so the dollars rise by more than the calls alone.
+    calls = (three["estimate"]["by_role"]["answerer"] / two["estimate"]["by_role"]["answerer"])
+    assert calls == 1.5
+    assert three["expected_usd"] > two["expected_usd"]
+
+
+def test_an_estimate_for_an_artifact_beyond_the_fitted_range_says_it_extrapolates(
+        tmp_path, capsys):
+    root = tmp_path / "s"
+    root.mkdir()
+    body = "\n\n".join(f"Section {i}. " + "Do not enable the legacy driver on a host. " * 12
+                        for i in range(120))
+    (root / "SKILL.md").write_text(f"---\nname: s\ndescription: d\n---\n\n# S\n\n{body}\n",
+                                   encoding="utf-8")
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+                  "--estimate-only")
+    args.func(args)
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["tokens"] > FITTED_TOKENS_MAX
+    assert payload["usd_extrapolated"] is True
+    assert "extrapolates" in captured.err
