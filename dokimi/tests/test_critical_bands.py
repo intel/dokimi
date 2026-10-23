@@ -4,7 +4,7 @@
 """Tests for critical bands enforcement."""
 
 import pytest
-from dokimi.gate.critical_bands import check_critical_bands
+from dokimi.gate.critical_bands import BandViolation, check_critical_bands
 
 
 def test_critical_bands_pass():
@@ -127,3 +127,55 @@ def test_critical_bands_all_conditions():
     
     assert len(result.violations) == 4
     assert all(v.violated for v in result.violations)
+
+
+# condition -> the summary key it reads
+_CONDITION_KEYS = [
+    ("score_below", "score"),
+    ("coverage_below", "coverage"),
+    ("freshness_below", "freshness_lite"),
+    ("readability_below", "readability"),
+]
+
+
+@pytest.mark.parametrize(("condition", "key"), _CONDITION_KEYS)
+def test_each_condition_reads_its_own_summary_key(condition, key):
+    """Only the named key is in the summary: a condition that read another key
+    would see the 0.0 default and report a violation."""
+    spec = {"critical_bands": {"fail_on": [{"condition": condition, "value": 0.5}]}}
+
+    result = check_critical_bands({key: 0.9}, spec)
+
+    assert result.violations == [BandViolation(condition, 0.5, 0.9, False)]
+    assert result.passed
+
+
+@pytest.mark.parametrize(("condition", "key"), _CONDITION_KEYS)
+def test_each_condition_is_strictly_below(condition, key):
+    """"below" is strict for every condition, not just score_below."""
+    spec = {"critical_bands": {"fail_on": [{"condition": condition, "value": 0.7}]}}
+
+    at = check_critical_bands({key: 0.7}, spec)
+    under = check_critical_bands({key: 0.69}, spec)
+
+    assert at.violations == [BandViolation(condition, 0.7, 0.7, False)]
+    assert under.violations == [BandViolation(condition, 0.7, 0.69, True)]
+
+
+@pytest.mark.parametrize(("condition", "key"), _CONDITION_KEYS)
+def test_a_missing_metric_reads_as_zero_and_violates(condition, key):
+    spec = {"critical_bands": {"fail_on": [{"condition": condition, "value": 0.1}]}}
+
+    result = check_critical_bands({}, spec)
+
+    assert result.violations == [BandViolation(condition, 0.1, 0.0, True)]
+    assert not result.passed
+
+
+def test_a_band_without_a_value_has_a_zero_floor():
+    """No ``value`` means a 0.0 floor, which no score in [0, 1] is below."""
+    spec = {"critical_bands": {"fail_on": [{"condition": "score_below"}]}}
+
+    result = check_critical_bands({"score": 0.0}, spec)
+
+    assert result.violations == [BandViolation("score_below", 0.0, 0.0, False)]

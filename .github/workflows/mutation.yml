@@ -1,0 +1,100 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: mutation
+
+# Mutation pilot: mutmut over the measurement core (the statistics, the gate
+# decisions and the response-cache key; [tool.mutmut] in dokimi/pyproject.toml
+# lists the modules and the tests run against them). A surviving mutant is a
+# change to that code no test notices, so a wrong number would ship silently.
+# Informational: the job reports the score per module and the survivors in the
+# step summary and never fails on them. Weekly and on demand, not per PR: a full
+# run takes tens of minutes. Diff-only runs on PRs are a follow-up.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 5 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: dokimi
+
+jobs:
+  mutmut:
+    name: mutmut (pilot modules)
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      # The runtime lock for the tests, and mutmut's own lock (requirements-mutation.txt),
+      # which no other workflow installs.
+      - name: Install deps
+        run: pip install --require-hashes -r requirements.lock.txt -r requirements-mutation.lock.txt
+      - name: Run mutmut
+        # A crash of the run is reported below, not failed on. The step's own timeout
+        # sits inside the job's 90 minutes: a run that outlives the step is cancelled
+        # as a failed step, which continue-on-error absorbs, and the summary step
+        # still gets its time. A job-level timeout would fail the whole job instead.
+        timeout-minutes: 75
+        continue-on-error: true
+        run: mutmut run --max-children "$(nproc)"
+      - name: Score and survivors
+        if: always()
+        run: |
+          mutmut results --all true > mutmut-results.txt || true
+          python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import collections
+
+          counts = collections.defaultdict(collections.Counter)
+          survivors = collections.defaultdict(list)
+          with open("mutmut-results.txt", encoding="utf-8") as fh:
+              for line in fh:
+                  name, sep, status = line.strip().rpartition(": ")
+                  if not sep:
+                      continue
+                  # <module>.x_<function>__mutmut_<n>, or x<sep><class><sep><method>
+                  module = name.rsplit(".", 1)[0]
+                  counts[module][status] += 1
+                  if status == "survived":
+                      survivors[module].append(name)
+
+          print("## Mutation pilot\n")
+          if not counts:
+              print("No results: see the `Run mutmut` step log.")
+          else:
+              print("| Module | Killed | Survived | Other | Score |")
+              print("|---|---:|---:|---:|---:|")
+              for module in sorted(counts):
+                  c = counts[module]
+                  killed, survived = c["killed"], c["survived"]
+                  other = sum(c.values()) - killed - survived
+                  scored = killed + survived
+                  score = f"{100 * killed / scored:.1f}%" if scored else "n/a"
+                  print(f"| `{module}` | {killed} | {survived} | {other} | {score} |")
+              unchecked = sum(c["not checked"] for c in counts.values())
+              unscored = sorted(m for m, c in counts.items() if not c["killed"] + c["survived"])
+              if unchecked or unscored:
+                  print(f"\n> **Incomplete run: do not read the scores as final.** {unchecked} mutants were "
+                        "not checked (a step timeout or a crash cut the run short)"
+                        + (f"; nothing was scored in {', '.join(f'`{m}`' for m in unscored)}" if unscored else "")
+                        + ". See the `Run mutmut` step log.")
+              print("\nOther: no tests, timeout, suspicious or not checked.")
+              print("`mutmut show <name>` prints a mutant's diff.\n")
+              for module in sorted(survivors):
+                  print(f"<details><summary>{module}: {len(survivors[module])} survivors</summary>\n")
+                  print("```")
+                  print("\n".join(survivors[module]))
+                  print("```\n</details>\n")
+          EOF
