@@ -3,9 +3,8 @@
 
 """Factorial (2x2) interaction contrasts between arms.
 
-Split out of :mod:`dokimi.eval.stats` to keep that module under the
-repo's 500-line ceiling; the names are re-exported from ``eval.stats`` so
-existing imports keep working.
+Built on the paired-delta helpers of :mod:`dokimi.eval.stats`, which does
+not import this module back.
 
 Public API
 ----------

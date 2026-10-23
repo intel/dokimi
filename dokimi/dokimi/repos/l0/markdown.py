@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 
 SHELL_LANGS = frozenset({"", "bash", "sh", "shell", "console", "zsh"})  # not `text`: that is output
 STARLARK_LANGS = frozenset({"starlark", "bzl", "bazel", "build"})
+# Starlark is a Python dialect, so a BUILD snippet is often fenced as Python; such a fence is checked when it reads
+# like BUILD code (see ``adapters.reads_as_build``).
+PYTHON_LANGS = frozenset({"python", "py", "python3"})
 
 # A target may hold balanced parentheses, as in `a_(b).md`, or be `<in angle brackets>` with spaces;
 # a title is "double", 'single' or (parenthesised).

@@ -288,7 +288,7 @@ def run(args: argparse.Namespace) -> int:
         summary = tmp / "step-summary.md"
         base_env = dict(os.environ, RUNNER_TEMP=str(tmp), GITHUB_STEP_SUMMARY=str(summary),
                         GITHUB_OUTPUT=str(tmp / "github-output"), GITHUB_WORKSPACE=str(REPO),
-                        CI="true")
+                        CI="true", DOKIMI_GROWTH_BASE=base_ref)
         for wf_name, wf in workflows:
             default_wd = wf.get("defaults", {}).get("run", {}).get("working-directory", ".")
             for job_id, job in wf["jobs"].items():
@@ -311,7 +311,7 @@ def run(args: argparse.Namespace) -> int:
                 root, env = REPO, base_env
                 if job_id in ISOLATED:
                     root, iso_env = make_isolated_env(tmp / job_id, py)
-                    env = {**iso_env, **{k: base_env[k] for k in ("RUNNER_TEMP", "CI")}}
+                    env = {**iso_env, **{k: base_env[k] for k in ("RUNNER_TEMP", "CI", "DOKIMI_GROWTH_BASE")}}
                 for i, step in enumerate(job.get("steps", [])):
                     if "run" not in step:
                         continue

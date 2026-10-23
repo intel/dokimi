@@ -342,7 +342,10 @@ def test_a_failed_gate_also_silences_that_judges_grounded_measure():
     report.apply_validity([{"judge": "p/j", "passed": False}])
     assert (absolute.gate, grounded.gate) == ("FAIL", "FAIL")
     report.apply_validity([{"judge": "p/j", "passed": True}])
-    assert absolute.gate == "PASS" and grounded.gate == "FAIL"  # a PASS does not validate grounded scoring
+    assert (absolute.gate, grounded.gate) == ("FAIL", "FAIL")  # a later PASS does not lift a FAIL
+    fresh = cj.Measure(name="p/j", kind="grounded")
+    cj.CrossJudgeReport(baseline_arm="baseline", measures=[fresh]).apply_validity([{"judge": "p/j", "passed": True}])
+    assert fresh.gate != "PASS"  # a PASS does not validate grounded scoring
 
 
 @pytest.mark.parametrize("rows,expected", [
@@ -498,9 +501,18 @@ def test_stored_measure_is_named_for_its_judge():
     report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[stored, rescored])
     # Both measures are Haiku: agreement between them is not agreement across judges.
     assert report.summary()["arms"]["skill"]["label"] == "CONSISTENT + (one judge)"
-    # A failed gate for that judge reaches the stored scores, so they stop voting.
-    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "passed": False}]) == []
-    assert stored.gate == "FAIL"
+    assert stored.context == "stored" and rescored.context == "none"
+    # A PASS gates only the measure of its own context.
+    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "context": "stored", "passed": True}]) == []
+    assert (stored.gate, rescored.gate) == ("PASS", None)
+    stored.gate = None
+    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "passed": True}]) == []  # no key: none
+    assert (stored.gate, rescored.gate) == (None, "PASS")
+    # A FAIL in either context reaches every measure of the judge.
+    for ctx in ("stored", "none"):
+        stored.gate = rescored.gate = None
+        assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "context": ctx, "passed": False}]) == []
+        assert (stored.gate, rescored.gate) == ("FAIL", "FAIL")
     assert cj.stored_measure({"evaluations": data["evaluations"]}).name == "stored judge"
 
 
@@ -523,6 +535,38 @@ def test_an_arm_whose_material_the_file_keeps_is_still_unreproducible_for_pairwi
     data["judge_materials"] = {digest: "skill body"}
     # Pairwise and checklist judges see only the answers: unreproducible either way.
     assert cj.unreproducible_arms(data) == ["skill"]
+
+
+@pytest.mark.parametrize("source", ["snippet_fallback", None])
+def test_a_stored_measure_judged_on_snippets_is_none_context_and_gated_by_a_none_report(source):
+    data = _stamped_run(source) if source else _stamped_run()
+    if source is None:  # a file from before judge_context: no source at all
+        for ev in data["evaluations"]:
+            for s in ev["scores"].values():
+                s.pop("judge_context_source", None)
+    stored = cj.stored_measure(data)
+    assert stored.context == "none"
+    report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[stored])
+    assert report.apply_validity([{"judge": "amazon-bedrock/haiku", "passed": True}]) == []
+    assert stored.gate == "PASS"
+
+
+def test_a_stored_fail_also_silences_the_judges_coverage_and_pairwise_measures():
+    measures = [cj.Measure(name="p/j", kind=k, context=c) for k, c in
+                (("coverage", "none"), ("pairwise", "none"), ("grounded", "stored"), ("aggregate", "stored"))]
+    report = cj.CrossJudgeReport(baseline_arm="baseline", measures=measures)
+    assert report.apply_validity([{"judge": "p/j", "context": "stored", "passed": False}]) == []
+    assert [m.gate for m in measures] == ["FAIL"] * 4
+
+
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)])
+def test_a_fail_wins_over_a_pass_in_either_report_order(order):
+    reports = [{"judge": "p/j", "context": "stored", "passed": False},
+               {"judge": "p/j", "context": "none", "passed": True}]
+    measures = [cj.Measure(name="p/j", kind="aggregate", context=c) for c in ("none", "stored")]
+    report = cj.CrossJudgeReport(baseline_arm="baseline", measures=measures)
+    assert report.apply_validity([reports[i] for i in order]) == []
+    assert [m.gate for m in measures] == ["FAIL", "FAIL"]
 
 
 def test_score_measure_hands_the_stored_material_to_the_rescored_judge():
@@ -1503,3 +1547,149 @@ def test_eval_checklist_writes_the_json_before_rendering(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="render failed"):
         args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["summary"]["n_questions"] == 1
+
+
+def test_score_measure_marks_a_measure_stored_only_if_an_arm_saw_material():
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    records = [{"question_id": "q1", "question_text": "q?",
+                "arms": {"baseline": {"answer": "a0"}, "skill": {"answer": "a1"}}}]
+
+    def scorer(library, question, answer, ground_truth, context):
+        return 50.0
+
+    real = JudgeContextStore()
+    real.put("q1", "skill", "real material")
+    # the baseline answer falls back to snippets, so the judge saw both kinds: mixed, not stored
+    assert cj.score_measure(records, scorer, name="p/m", library="lib", store=real).context == "mixed"
+    real.put("q1", "baseline", "other material")
+    assert cj.score_measure(records, scorer, name="p/m", library="lib", store=real).context == "stored"
+    # An empty stored baseline is still "stored" (the arm was judged with the no-context
+    # marker), and the skill answer falls back to snippets: a mix, which validates nothing.
+    empty = JudgeContextStore()
+    empty.put("q1", "baseline", "")
+    assert cj.score_measure(records, scorer, name="p/m", library="lib", store=empty).context == "mixed"
+    assert cj.score_measure(records, scorer, name="p/m", library="lib").context == "none"
+
+
+def test_score_measure_with_no_scored_answer_is_context_none_even_with_a_store():
+    from dokimi.eval.judge_context import JudgeContextStore
+
+    # Every answer is blank, so no job is sent to a judge. Nothing was judged in any
+    # context, so the measure must not claim "stored" and let a stored PASS gate it.
+    records = [{"question_id": "q1", "question_text": "q?",
+                "arms": {"baseline": {"answer": ""}, "skill": {"answer": ""}}}]
+    store = JudgeContextStore()
+    store.put("q1", "skill", "real material")
+
+    def scorer(library, question, answer, ground_truth, context):
+        raise AssertionError("a blank answer must not reach the judge")
+
+    m = cj.score_measure(records, scorer, name="p/m", library="lib", store=store)
+    assert m.scores == {}
+    assert m.context == "none"
+
+
+def _material_arms_run(material="FULL SKILL BODY"):
+    """An arms file that keeps its judge material, with digests on answers and stored scores."""
+    from dokimi.utils import digest_text
+
+    digest = digest_text(material)
+    return {
+        "library_name": "L", "judge_provider": "amazon-bedrock", "judge_model": "m",
+        "judge_context": "treatment_material.v1",
+        "judge_materials": {digest: material},
+        "answers": [{"question_id": f"Q{i}", "question_text": "q", "arms": {
+            "baseline": {"answer": f"base {i}", "metadata": {"arm_kind": "baseline"}},
+            "skill": {"answer": f"skill {i}", "metadata": {"arm_kind": "skill"},
+                      "judge_context_sha256": digest},
+        }} for i in range(8)],
+        "evaluations": [{"question_id": f"Q{i}", "scores": {
+            "baseline": {"aggregate": 70, "judge_context_source": "stored"},
+            "skill": {"aggregate": 90, "judge_context_source": "stored",
+                      "judge_context_sha256": digest}}} for i in range(8)],
+    }
+
+
+def _cross_judge_args(tmp_path, data, *extra):
+    import json
+
+    from dokimi.cli import build_parser
+
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data), encoding="utf-8")
+    return build_parser().parse_args(["eval", "cross-judge", "--answers", str(answers),
+                                      "--output", str(tmp_path / "cj.json"), *extra])
+
+
+def _recording_judge(monkeypatch, seen):
+    from dokimi.eval import judge as judge_mod
+
+    class FakeJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, *, answer, context="", **_):
+            seen[answer] = context
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
+
+
+def test_cross_judge_judges_hands_the_arms_material_to_the_rescored_judge(tmp_path, monkeypatch):
+    seen = {}
+    _recording_judge(monkeypatch, seen)
+    args = _cross_judge_args(tmp_path, _material_arms_run(), "--judges", "amazon-bedrock/m")
+    args.func(args)
+    assert seen["skill 0"] == "FULL SKILL BODY"
+
+
+def test_cross_judge_judges_refuses_edited_material(tmp_path, monkeypatch, capsys):
+    seen = {}
+    _recording_judge(monkeypatch, seen)
+    data = _material_arms_run()
+    digest = next(iter(data["judge_materials"]))
+    data["judge_materials"][digest] = "EDITED"
+    args = _cross_judge_args(tmp_path, data, "--judges", "amazon-bedrock/m")
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+    assert not seen
+
+
+def test_cross_judge_judges_with_pairwise_refuses_stored_scores(tmp_path, monkeypatch, capsys):
+    seen = {}
+    _recording_judge(monkeypatch, seen)
+    args = _cross_judge_args(tmp_path, _material_arms_run(), "--judges", "amazon-bedrock/m",
+                             "--pairwise", str(tmp_path / "pw.json"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+
+
+
+def test_a_stored_measure_mixing_stored_and_snippet_scores_is_mixed_and_no_pass_validates_it():
+    data = _stamped_run()
+    for ev in data["evaluations"][:4]:
+        for s in ev["scores"].values():
+            s["judge_context_source"] = "snippet_fallback"
+    assert cj.stored_measure(data).context == "mixed"
+    assert cj.stored_measure(_stamped_run()).context == "stored"
+    for context in ("stored", "none"):
+        m = cj.stored_measure(data)
+        report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[m])
+        report.apply_validity([{"judge": "amazon-bedrock/haiku", "passed": True, "context": context}])
+        assert m.gate is None
+    m = cj.stored_measure(data)
+    report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[m])
+    report.apply_validity([{"judge": "amazon-bedrock/haiku", "passed": False, "context": "stored"}])
+    assert m.gate == "FAIL"
+
+
+def test_a_pass_in_one_context_never_names_the_context_of_a_grounded_measure():
+    # A PASS validates only aggregate/pairwise measures: a grounded measure in another
+    # context must not turn the PASS into an "its measures are ..." note.
+    grounded = cj.Measure(name="p/j", kind="grounded", context="none")
+    report = cj.CrossJudgeReport(baseline_arm="baseline", measures=[grounded])
+    assert report.apply_validity([{"judge": "p/j", "context": "stored", "passed": True}]) == ["p/j"]
+    assert grounded.gate is None

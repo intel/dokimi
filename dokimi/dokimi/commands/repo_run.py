@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from dokimi.repos.manifest import RepoManifest
     from dokimi.repos.workspace import Arm
 
 
@@ -29,6 +30,7 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     from dokimi.repos import RepoSource, open_source
     from dokimi.repos.container import DockerRunner
     from dokimi.repos.grading import EvalContext
+    from dokimi.repos.graders import graders_digest
     from dokimi.repos.runner import slug
     from dokimi.repos.source import default_cache_dir
     from dokimi.repos.workspace import export_build_context, export_eval_dir, source_git_dir
@@ -60,7 +62,10 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     elif not runner.image_exists(image):
         raise ValueError(f"--image {image} does not exist")
     if pin:
-        _pin_batch(out, {"tree": tree.label, "eval_dir": context_digest(staged), "image": image})
+        stamp = {"tree": tree.label, "eval_dir": context_digest(staged), "image": image}
+        if _uses_builtin_graders(staged, manifest):  # else no score depends on them: an upgrade keeps the batch
+            stamp["graders"] = graders_digest()
+        _pin_batch(out, stamp)
         shutil.rmtree(content, ignore_errors=True)
         staged.rename(content)
     if not args.image and (args.rebuild_image or not runner.image_exists(image)):
@@ -104,6 +109,18 @@ def context_digest(root: Path) -> str:
     return h.hexdigest()
 
 
+def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
+    """Whether a task of the exported eval dir names a ``dokimi:`` grader; an unreadable task.json counts."""
+    from dokimi.repos.graders import builtin_name
+    from dokimi.repos.workspace import load_tasks
+
+    try:
+        tasks = load_tasks(content, manifest)
+    except (OSError, ValueError):
+        return True
+    return any(isinstance(t.raw, dict) and builtin_name(t.raw.get("grader")) is not None for t in tasks)
+
+
 def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
     path = batch_dir / "_eval" / "batch.json"
     if path.is_file():
@@ -145,8 +162,7 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
               file=sys.stderr)
-        results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs,
-                            judge_host=True if args.allow_unsupported else None)
+        results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs)
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
