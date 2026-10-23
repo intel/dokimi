@@ -244,6 +244,24 @@ def test_base_steps_use_the_resolved_remote(env: dict[str, Any]) -> None:
     ]
 
 
+def test_dokimi_growth_base_env_is_passed_to_steps(env: dict[str, Any]) -> None:
+    """ci_local.py passes the resolved base_ref as DOKIMI_GROWTH_BASE env var."""
+    (cl.WORKFLOWS / "x.yml").write_text(BASE_WF)
+    assert cl.run(ns(remote="intel", base="dev")) == 0
+    # All steps should receive DOKIMI_GROWTH_BASE in their env
+    for call in env["calls"]:
+        assert call["env"]["DOKIMI_GROWTH_BASE"] == "intel/dev"
+
+
+def test_dokimi_growth_base_reaches_isolated_jobs(env: dict[str, Any]) -> None:
+    """An isolated job (`package-smoke`) runs in its own env; DOKIMI_GROWTH_BASE is still set there."""
+    (cl.WORKFLOWS / "x.yml").write_text(BASE_WF.replace("  a:\n", "  package-smoke:\n"))
+    assert cl.run(ns(remote="intel", base="dev")) == 0
+    assert env["calls"], "the isolated job's steps should run"
+    for call in env["calls"]:
+        assert call["env"]["DOKIMI_GROWTH_BASE"] == "intel/dev"
+
+
 def test_unusable_base_fails_its_steps_without_running_them(
     env: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: Any
 ) -> None:
