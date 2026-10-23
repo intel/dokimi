@@ -8,4 +8,5 @@
   tree) and loading under the same skill name is offered once: the copy nearest the root stands
   for it. Without a frontmatter `name`, identical text in two differently named directories is
   two skills. Same-named skills whose text differs are still both offered.
-  `discover_skills(root, notes=[])` lists each one it leaves out.
+  `discover_skills(root, notes=[])` lists each one it leaves out; the `skill-catalog:` arm
+  prints each of those lines to stderr, and the other callers do not print them.
