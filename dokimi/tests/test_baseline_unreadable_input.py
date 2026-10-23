@@ -1,7 +1,10 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`baseline save`, `list` and `compare` exit with a message, not a traceback, on an unreadable or malformed eval file, saved baseline or manifest."""
+"""`baseline save`, `list` and `compare` exit with a message, not a traceback.
+
+Covers an unreadable or malformed eval file, saved baseline or manifest.
+"""
 
 from __future__ import annotations
 
@@ -39,8 +42,13 @@ def test_save_exits_1_on_an_invalid_eval_file(run, tmp_path, capsys, content):
     assert not (tmp_path / "baselines" / "b.json").exists()
 
 
-@pytest.mark.parametrize("content, type_name", [("null", "null"), ("[1, 2]", "array"), ('"x"', "string"),
-                                                 ("5", "number"), ("true", "boolean")])
+@pytest.mark.parametrize("content, type_name", [
+    ("null", "null"),
+    ("[1, 2]", "array"),
+    ('"x"', "string"),
+    ("5", "number"),
+    ("true", "boolean"),
+])
 def test_a_non_object_eval_file_is_reported_by_its_json_type(run, tmp_path, capsys, content, type_name):
     bad = tmp_path / "bad.json"
     bad.write_text(content, encoding="utf-8")
@@ -106,14 +114,24 @@ def test_a_corrupt_manifest_exits_with_a_message_in_every_subcommand(run, tmp_pa
     assert sorted(p.name for p in manifest.parent.iterdir()) == ["manifest.json"]
 
 
-@pytest.mark.parametrize("entry", ['"x"', "5", "null", '{"path": "p.json"}', '{"name": "n"}',
-                                   '{"name": "n", "path": 5}', '{"name": "n", "path": "p.json", "summary": 5}'])
+_GOOD_ENTRY = '{"name": "ok", "path": "ok.json"}'
+
+
+@pytest.mark.parametrize("entry", [
+    '"x"',
+    "5",
+    "null",
+    '{"path": "p.json"}',
+    '{"name": "n"}',
+    '{"name": "n", "path": 5}',
+    '{"name": "n", "path": "p.json", "summary": 5}',
+])
 def test_a_manifest_entry_of_the_wrong_shape_exits_with_a_message_in_every_subcommand(run, tmp_path, capsys, entry):
     good = tmp_path / "good.json"
     good.write_text(json.dumps(_EVAL), encoding="utf-8")
     manifest = tmp_path / "baselines" / "manifest.json"
     manifest.parent.mkdir()
-    manifest.write_text('{"baselines": [%s]}' % entry, encoding="utf-8")
+    manifest.write_text('{"baselines": [%s, %s]}' % (_GOOD_ENTRY, entry), encoding="utf-8")
     for argv, code in ((("save", "--from-eval", str(good)), 1), (("list",), 1),
                        (("compare", "--eval", str(good)), 2)):
         with pytest.raises(SystemExit) as exc:
@@ -121,8 +139,29 @@ def test_a_manifest_entry_of_the_wrong_shape_exits_with_a_message_in_every_subco
         assert exc.value.code == code
         err = capsys.readouterr().err
         assert str(manifest) in err
-        assert "baselines[0]" in err
+        assert "baselines[1]" in err
     assert sorted(p.name for p in manifest.parent.iterdir()) == ["manifest.json"]
+
+
+def test_list_accepts_an_entry_without_a_summary(run, tmp_path, capsys):
+    manifest = tmp_path / "baselines" / "manifest.json"
+    manifest.parent.mkdir()
+    manifest.write_text('{"baselines": [%s]}' % _GOOD_ENTRY, encoding="utf-8")
+    run("list")
+    assert "ok" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("extra", [
+    '"saved_at": null',
+    '"product": ["a"]',
+    '"summary": {"n": null}',
+])
+def test_list_prints_an_entry_whose_optional_values_are_not_scalars(run, tmp_path, capsys, extra):
+    manifest = tmp_path / "baselines" / "manifest.json"
+    manifest.parent.mkdir()
+    manifest.write_text('{"baselines": [{"name": "n", "path": "p.json", %s}]}' % extra, encoding="utf-8")
+    run("list")
+    assert "n " in capsys.readouterr().out
 
 
 def test_save_into_a_manifest_without_a_baselines_key_records_the_baseline(run, tmp_path):
