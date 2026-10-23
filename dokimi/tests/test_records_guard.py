@@ -10,9 +10,10 @@ subscript or a ``x.get("with_docs")`` call. A store (``x["with_docs"] = ...``), 
 delete and a dict-literal key are writes and are not reads.
 
 Each read that may stay is in :data:`READ_BASELINE`, keyed by module and enclosing
-function, with the reason it is not a read of a persisted record or why it has not
-moved. A new read fails; a baseline entry whose read is gone fails as stale, so the
-baseline only shrinks. Never add an entry to make a new read pass: read the record
+function, with the number of reads there and the reason they are not reads of a persisted
+record or why they have not moved. A read beyond that number fails, in a function the
+baseline lists as anywhere else; an entry that counts more reads than are left fails as
+stale, so the baseline only shrinks. Never add an entry to make a new read pass: read the record
 through ``dokimi.records`` (``records()``/``record()``/``load()``, then ``Record.score``,
 ``Record.answer`` and the ``Score``/``Answer`` fields).
 
@@ -25,7 +26,7 @@ condition payloads, and ``Task.raw`` of ``dokimi.repos`` is a task file, not a r
 from __future__ import annotations
 
 import ast
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -37,19 +38,19 @@ KEYS = frozenset({"with_docs", "without_docs"})
 
 ReadSite = tuple[str, str]
 
-#: ``(module, enclosing function) -> reason`` for each read that may stay. Only shrinks.
-READ_BASELINE: dict[ReadSite, str] = {
-    ("dokimi.eval.answerer", "Answerer.generate_answers"):
-        "a writer counting the answers it just built, before they are persisted",
-    ("dokimi.eval.question_text", "has_answer_to_judge"):
+#: ``(module, enclosing function) -> (reads, reason)`` for the reads that may stay. Only shrinks.
+READ_BASELINE: dict[ReadSite, tuple[int, str]] = {
+    ("dokimi.eval.answerer", "Answerer.generate_answers"): (2,
+        "a writer counting the answers it just built, before they are persisted"),
+    ("dokimi.eval.question_text", "has_answer_to_judge"): (2,
         "takes the persisted record dict its judges pass as Record.raw; moving it onto Record "
-        "changes every judge's call",
-    ("dokimi.report.generator", "ReportGenerator._format_markdown"):
-        "reads the statistics dict the generator computed from the evaluations, not a record",
-    ("dokimi.report.model_compare", "pool_replicate_scores"):
-        "reads the per-question score rows extract_scores built, which use the binary score names",
-    ("dokimi.report.model_compare", "generate_section_report"):
-        "reads the per-question score rows extract_scores built, which use the binary score names",
+        "changes every judge's call"),
+    ("dokimi.report.generator", "ReportGenerator._format_markdown"): (6,
+        "reads the statistics dict the generator computed from the evaluations, not a record"),
+    ("dokimi.report.model_compare", "pool_replicate_scores"): (2,
+        "reads the per-question score rows extract_scores built, which use the binary score names"),
+    ("dokimi.report.model_compare", "generate_section_report"): (15,
+        "reads the per-question score rows extract_scores built, which use the binary score names"),
 }
 
 
@@ -100,16 +101,28 @@ def package_reads(package: Path = PACKAGE, reader: str = READER) -> dict[ReadSit
     return {site: sorted(lines) for site, lines in found.items()}
 
 
-def stale_entries(baseline: Iterable[ReadSite], found: Iterable[ReadSite]) -> list[ReadSite]:
-    """Baseline entries that no longer match a read: they must be deleted."""
-    return sorted(set(baseline) - set(found))
+def stale_entries(baseline: Mapping[ReadSite, tuple[int, str]],
+                  found: Mapping[ReadSite, list[int]]) -> list[str]:
+    """Baseline entries that count more reads than are left: lower the count, or delete the entry."""
+    stale = []
+    for (module, scope), (allowed, _) in sorted(baseline.items()):
+        left = len(found.get((module, scope), []))
+        if left < allowed:
+            fix = f"lower its count to {left}" if left else "delete the entry"
+            stale.append(f"{module}:{scope} has {left} of its {allowed} baselined reads left; {fix}")
+    return stale
 
 
-def new_reads(baseline: Mapping[ReadSite, str], found: Mapping[ReadSite, list[int]]) -> list[str]:
-    return sorted(
-        f"{module}:{lines} reads a record's with_docs/without_docs key in {scope}; "
-        f"read the record through {READER} (records()/record(), Record.score)"
-        for (module, scope), lines in found.items() if (module, scope) not in baseline)
+def new_reads(baseline: Mapping[ReadSite, tuple[int, str]], found: Mapping[ReadSite, list[int]]) -> list[str]:
+    """Sites with more reads than the baseline allows (none, for a site it does not list)."""
+    problems = []
+    for (module, scope), lines in sorted(found.items()):
+        allowed = baseline.get((module, scope), (0, ""))[0]
+        if len(lines) > allowed:
+            over = f" ({len(lines)} reads, the baseline allows {allowed})" if allowed else ""
+            problems.append(f"{module}:{lines} reads a record's with_docs/without_docs key in {scope}{over}; "
+                            f"read the record through {READER} (records()/record(), Record.score)")
+    return problems
 
 
 # --- the package ----------------------------------------------------------------
@@ -124,11 +137,12 @@ def test_records_are_read_through_the_records_module():
 
 def test_a_read_that_moved_leaves_the_baseline():
     stale = stale_entries(READ_BASELINE, package_reads())
-    assert not stale, f"{stale} no longer read a condition key; delete them from READ_BASELINE"
+    assert not stale, "READ_BASELINE counts reads that are gone:\n" + "\n".join(stale)
 
 
 def test_every_baseline_entry_has_a_reason_and_names_a_real_module():
-    assert all(reason.strip() for reason in READ_BASELINE.values()), "every entry carries its reason"
+    assert all(count >= 1 and reason.strip() for count, reason in READ_BASELINE.values()), (
+        "every entry counts at least one read and carries its reason")
     for module, _ in READ_BASELINE:
         assert (PACKAGE.parent / (module.replace(".", "/") + ".py")).is_file(), f"{module} names no module"
 
@@ -173,12 +187,21 @@ def test_the_reader_module_is_exempt_and_a_package_read_is_found(tmp_path):
 
 def test_a_read_missing_from_the_baseline_is_reported_with_the_fix():
     found = {("pkg.a", "f"): [3], ("pkg.b", "g"): [9]}
-    problems = new_reads({("pkg.a", "f"): "a writer"}, found)
+    problems = new_reads({("pkg.a", "f"): (1, "a writer")}, found)
     assert len(problems) == 1 and problems[0].startswith("pkg.b:[9] ")
     assert "read the record through dokimi.records" in problems[0]
 
 
-def test_a_stale_baseline_entry_is_reported():
-    baseline = {("a", "f"): "x", ("b", "g"): "y"}
-    assert stale_entries(baseline, {("b", "g"): [1]}) == [("a", "f")]
+def test_a_new_read_in_a_function_the_baseline_lists_is_reported():
+    problems = new_reads({("pkg.a", "f"): (1, "a writer")}, {("pkg.a", "f"): [3, 7]})
+    assert len(problems) == 1 and "pkg.a:[3, 7] " in problems[0]
+    assert "(2 reads, the baseline allows 1)" in problems[0]
+
+
+def test_a_baseline_entry_counting_reads_that_are_gone_is_reported():
+    baseline = {("a", "f"): (1, "x"), ("b", "g"): (2, "y"), ("c", "h"): (1, "z")}
+    assert stale_entries(baseline, {("b", "g"): [1], ("c", "h"): [4]}) == [
+        "a:f has 0 of its 1 baselined reads left; delete the entry",
+        "b:g has 1 of its 2 baselined reads left; lower its count to 1",
+    ]
     assert stale_entries({}, {("b", "g"): [1]}) == []
