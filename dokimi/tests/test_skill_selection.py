@@ -251,8 +251,12 @@ def test_trigger_set_cli_rejects_a_label_path_that_never_resolves(tmp_path, cata
                   "--questions", f"{qfile}=@metadata.skil_under_test", "--out", str(tmp_path / "o.json")])
 
 
-@pytest.mark.parametrize("content", [None, "{not json", b"\xff\xfe"], ids=["missing", "malformed", "not-utf8"])
-def test_trigger_set_cli_exits_with_a_message_on_an_unreadable_questions_file(tmp_path, catalog, content):
+@pytest.mark.parametrize(
+    "content, reason",
+    [(None, ""), ("{not json", ""), (b'["\xe9"]', "utf-8")],  # \xe9 is latin-1, not UTF-8
+    ids=["missing", "malformed", "not-utf8"],
+)
+def test_trigger_set_cli_exits_with_a_message_on_an_unreadable_questions_file(tmp_path, catalog, content, reason):
     qfile = tmp_path / "q.json"
     if isinstance(content, str):
         qfile.write_text(content, encoding="utf-8")
@@ -262,7 +266,8 @@ def test_trigger_set_cli_exits_with_a_message_on_an_unreadable_questions_file(tm
     with pytest.raises(SystemExit) as exc:
         _run_cli(["catalog", "trigger-set", "--catalog", str(catalog),
                   "--questions", f"{qfile}=none", "--out", str(out)])
-    assert str(qfile) in str(exc.value)
+    assert str(exc.value).startswith(f"--questions {qfile}: ")
+    assert reason in str(exc.value)
     assert not out.exists()
 
 
