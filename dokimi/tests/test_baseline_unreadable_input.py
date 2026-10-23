@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`baseline save` and `baseline compare` exit with a message, not a traceback, on a bad eval file."""
+"""`baseline save`, `list` and `compare` exit with a message, not a traceback, on an unreadable or malformed eval file, saved baseline or manifest."""
 
 from __future__ import annotations
 
@@ -37,6 +37,14 @@ def test_save_exits_1_on_an_invalid_eval_file(run, tmp_path, capsys, content):
     err = capsys.readouterr().err
     assert str(bad) in err
     assert not (tmp_path / "baselines" / "b.json").exists()
+
+
+def test_a_json_null_eval_file_is_reported_as_null(run, tmp_path, capsys):
+    bad = tmp_path / "bad.json"
+    bad.write_text("null", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        run("save", "--from-eval", str(bad), "--name", "b")
+    assert "got null" in capsys.readouterr().err
 
 
 def test_save_exits_1_on_an_eval_file_that_is_not_utf8(run, tmp_path, capsys):

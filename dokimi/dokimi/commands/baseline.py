@@ -16,15 +16,23 @@ from dokimi.utils import normalize_model_ref
 BASELINES_DIR = Path("baselines/eval")
 
 
-def _read_eval(path: Path, code: int) -> Dict[str, Any]:
-    """Read an eval file as a JSON object, or exit ``code`` naming the file and the problem."""
+_JSON_TYPE_NAMES = {type(None): "null", list: "array", dict: "object", str: "string",
+                    bool: "boolean", int: "number", float: "number"}
+
+
+def _json_type(value: Any) -> str:
+    return _JSON_TYPE_NAMES.get(type(value), type(value).__name__)
+
+
+def _read_json_object(path: Path, code: int) -> Dict[str, Any]:
+    """Read a JSON file that must hold an object, or exit ``code`` naming the file and the problem."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:  # unreadable, not UTF-8, or not JSON
         print(f"❌ Cannot read {path}: {exc}", file=sys.stderr)
         raise SystemExit(code) from exc
     if not isinstance(data, dict):
-        print(f"❌ {path}: expected a JSON object, got {type(data).__name__}", file=sys.stderr)
+        print(f"❌ {path}: expected a JSON object, got {_json_type(data)}", file=sys.stderr)
         raise SystemExit(code)
     return data
 
@@ -34,10 +42,10 @@ def _baseline_manifest(code: int = 1) -> Dict[str, Any]:
     manifest_path = BASELINES_DIR / "manifest.json"
     if not manifest_path.exists():
         return {"baselines": []}
-    manifest = _read_eval(manifest_path, code)
+    manifest = _read_json_object(manifest_path, code)
     baselines = manifest.setdefault("baselines", [])
     if not isinstance(baselines, list):
-        print(f'❌ {manifest_path}: expected a "baselines" list, got {type(baselines).__name__}',
+        print(f'❌ {manifest_path}: expected a "baselines" list, got {_json_type(baselines)}',
               file=sys.stderr)
         raise SystemExit(code)
     return manifest
@@ -120,7 +128,8 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     from datetime import datetime, timezone
 
     eval_path = Path(args.from_eval)
-    eval_data = _read_eval(eval_path, 1)
+    manifest = _baseline_manifest()  # first: a corrupt manifest fails fast and leaves no orphan file
+    eval_data = _read_json_object(eval_path, 1)
     product = args.product or eval_data.get("product", "unknown")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     name = args.name or f"{product}-{timestamp}"
@@ -133,7 +142,6 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
         print(f"❌ {eval_path}: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
-    manifest = _baseline_manifest()  # before the copy: a corrupt manifest leaves no orphan file
     BASELINES_DIR.mkdir(parents=True, exist_ok=True)
     dest = BASELINES_DIR / f"{name}.json"
     if dest.exists():
@@ -183,7 +191,7 @@ def cmd_baseline_list(args: argparse.Namespace) -> None:
 def cmd_baseline_compare(args: argparse.Namespace) -> None:
     """Compare an eval result against a saved baseline."""
     eval_path = Path(args.eval)
-    eval_data = _read_eval(eval_path, 2)  # 1 is the --strict verdict
+    eval_data = _read_json_object(eval_path, 2)  # 1 is the --strict verdict
     manifest = _baseline_manifest(2)
     baselines = manifest.get("baselines", [])
 
@@ -205,7 +213,7 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
             candidates = baselines
         entry = candidates[-1]   # most recent
 
-    baseline_data = _read_eval(Path(entry["path"]), 2)
+    baseline_data = _read_json_object(Path(entry["path"]), 2)
 
     from dokimi.records import RecordError, records
 
