@@ -47,7 +47,8 @@ def _load_json_object(path: str, key: str, kind: type = dict) -> dict:
 
 def _judge_name(doc: dict, path: str) -> str:
     summary = doc.get("summary")
-    return summary.get("judge", Path(path).stem) if isinstance(summary, dict) else Path(path).stem
+    judge = summary.get("judge") if isinstance(summary, dict) else None
+    return judge if isinstance(judge, str) and judge else Path(path).stem
 
 
 def _load_answers(path: str):

@@ -509,7 +509,7 @@ def test_cross_judge_exits_2_on_a_malformed_arms_file(tmp_path, monkeypatch, cap
 
 
 @pytest.mark.parametrize("flag", ["--answers", "--pairwise", "--checklist", "--validity"])
-@pytest.mark.parametrize("content", [None, "{not json", "[1, 2]", "[" * 1_000_000],
+@pytest.mark.parametrize("content", [None, "{not json", "[1, 2]", "[" * 100_000 + "]" * 100_000],
                          ids=["missing", "malformed", "not-an-object", "nested-too-deep"])
 def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, capsys, flag, content):
     from dokimi import cli
@@ -606,3 +606,26 @@ def test_cross_judge_exits_2_on_a_result_file_of_the_wrong_shape(tmp_path, monke
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(wrong) in err
+
+
+_PAIRWISE = {"verdicts": {"skill": {"q1": {"score": 1}}}}
+_CHECKLIST = {"questions": [{"question_id": "q1", "arms": {"skill": {"coverage": 1}}}]}
+
+
+@pytest.mark.parametrize("flag, doc", [("--pairwise", _PAIRWISE), ("--checklist", _CHECKLIST)])
+@pytest.mark.parametrize("summary", [None, [], "x", {}, {"judge": None}, {"judge": 5}, {"judge": ""}],
+                         ids=["absent", "list", "string", "no-judge", "null-judge", "int-judge", "empty-judge"])
+def test_cross_judge_names_a_result_file_measure_after_its_stem_without_a_usable_judge(
+        tmp_path, monkeypatch, flag, doc, summary):
+    from dokimi import cli
+
+    arms = tmp_path / "arms.json"
+    arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
+                    encoding="utf-8")
+    result = tmp_path / "result.json"
+    result.write_text(json.dumps({**doc, **({} if summary is None else {"summary": summary})}), encoding="utf-8")
+    out = tmp_path / "out.json"
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+                                     flag, str(result), "--output", str(out)])
+    cli.main()
+    assert " · result |" in out.with_suffix(".md").read_text(encoding="utf-8")  # named after result.json
