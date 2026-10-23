@@ -54,7 +54,7 @@ def test_compare_exits_2_on_a_missing_eval_file(run, tmp_path, capsys):
     assert str(missing) in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("content", ["{not json", "[1, 2]"])
+@pytest.mark.parametrize("content", ["{not json", "[1, 2]", "null"])
 def test_compare_exits_2_on_an_invalid_eval_file(run, tmp_path, capsys, content):
     good = tmp_path / "good.json"
     good.write_text(json.dumps(_EVAL), encoding="utf-8")
