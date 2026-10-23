@@ -629,3 +629,20 @@ def test_cross_judge_names_a_result_file_measure_after_its_stem_without_a_usable
                                      flag, str(result), "--output", str(out)])
     cli.main()
     assert " · result |" in out.with_suffix(".md").read_text(encoding="utf-8")  # named after result.json
+
+
+@pytest.mark.parametrize("flag, doc", [("--pairwise", _PAIRWISE), ("--checklist", _CHECKLIST)])
+def test_cross_judge_names_a_result_file_measure_after_its_summary_judge(tmp_path, monkeypatch, flag, doc):
+    from dokimi import cli
+
+    arms = tmp_path / "arms.json"
+    arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
+                    encoding="utf-8")
+    result = tmp_path / "result.json"
+    result.write_text(json.dumps({**doc, "summary": {"judge": "judge-a"}}), encoding="utf-8")
+    out = tmp_path / "out.json"
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+                                     flag, str(result), "--output", str(out)])
+    cli.main()
+    md = out.with_suffix(".md").read_text(encoding="utf-8")
+    assert " · judge-a |" in md and " · result |" not in md
