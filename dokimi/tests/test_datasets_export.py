@@ -215,6 +215,12 @@ def test_flatten_unknown_kind_raises():
         flatten("bogus", {})
 
 
+def test_flatten_non_object_root_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        flatten("answers", [])
+
+
 def test_flatten_non_list_records_raises():
     import pytest
     with pytest.raises(ValueError):
