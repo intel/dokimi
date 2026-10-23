@@ -93,40 +93,45 @@ class TaskCatalogEntry:
         return self.task is not None and not self.skipped and not self.failed
 
 
-def read_skill_manifest(root: Path) -> list[SkillCatalogEntry]:
-    """Read skills under *root*, preferring a ``skills.yaml`` manifest."""
+def _scan_skill_files(root: Path) -> list[SkillCatalogEntry]:
+    """One entry per ``SKILL.md`` under *root*, as the manifest path gives.
 
-    root = Path(root)
-    manifest_path = root / "skills.yaml"
-    if not manifest_path.is_file():
-        # One entry per SKILL.md, as the manifest path gives: a skill that does not
-        # load is an error row, so one broken skill does not abort the whole scan.
-        found: list[SkillCatalogEntry] = []
-        for skill_file in sorted(root.rglob("SKILL.md")):
-            try:
-                skill = load_skill(skill_file)
-            except (OSError, ValueError) as exc:
-                found.append(
-                    SkillCatalogEntry(
-                        name=skill_file.parent.name,
-                        status=None,
-                        path=skill_file.parent,
-                        source_root=root,
-                        error=str(exc),
-                    )
-                )
-                continue
+    A skill that does not load is an error row, so one broken skill does not abort the scan.
+    """
+    found: list[SkillCatalogEntry] = []
+    for skill_file in sorted(root.rglob("SKILL.md")):
+        try:
+            skill = load_skill(skill_file)
+        except (OSError, ValueError) as exc:
             found.append(
                 SkillCatalogEntry(
-                    name=skill.name,
+                    name=skill_file.parent.name,
                     status=None,
-                    path=skill.path.parent,
+                    path=skill_file.parent,
                     source_root=root,
-                    skill=skill,
+                    error=str(exc),
                 )
             )
-        return found
+            continue
+        found.append(
+            SkillCatalogEntry(
+                name=skill.name,
+                status=None,
+                path=skill.path.parent,
+                source_root=root,
+                skill=skill,
+            )
+        )
+    return found
 
+
+def _manifest_items(manifest_path: Path) -> tuple[list, bool]:
+    """The entries of ``skills.yaml`` and whether the file is the list shape.
+
+    uxlfoundation/skills nests the entries under ``skills:``, each with a required
+    catalog_path; intel/skills makes the whole file the list and keeps every skill at
+    skills/<name>.
+    """
     import yaml
 
     try:
@@ -134,9 +139,6 @@ def read_skill_manifest(root: Path) -> list[SkillCatalogEntry]:
     except yaml.YAMLError as exc:
         raise ValueError(f"invalid skills.yaml at {manifest_path}: {exc}") from exc
 
-    # uxlfoundation/skills nests the entries under ``skills:``, each with a
-    # required catalog_path; intel/skills makes the whole file the list and
-    # keeps every skill at skills/<name>.
     if isinstance(data, dict):
         items = data.get("skills")
         if items is None:
@@ -155,7 +157,18 @@ def read_skill_manifest(root: Path) -> list[SkillCatalogEntry]:
             f"invalid skills.yaml at {manifest_path}: 'skills' must be a list, "
             f"got {type(items).__name__}"
         )
+    return items, list_shape
 
+
+def read_skill_manifest(root: Path) -> list[SkillCatalogEntry]:
+    """Read skills under *root*, preferring a ``skills.yaml`` manifest."""
+
+    root = Path(root)
+    manifest_path = root / "skills.yaml"
+    if not manifest_path.is_file():
+        return _scan_skill_files(root)
+
+    items, list_shape = _manifest_items(manifest_path)
     entries: list[SkillCatalogEntry] = []
     for index, item in enumerate(items):
         if not isinstance(item, dict):
