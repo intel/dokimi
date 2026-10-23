@@ -509,7 +509,8 @@ def test_cross_judge_exits_2_on_a_malformed_arms_file(tmp_path, monkeypatch, cap
 
 
 @pytest.mark.parametrize("flag", ["--answers", "--pairwise", "--checklist", "--validity"])
-@pytest.mark.parametrize("content", [None, "{not json", "[1, 2]"], ids=["missing", "malformed", "not-an-object"])
+@pytest.mark.parametrize("content", [None, "{not json", "[1, 2]", "[" * 1_000_000],
+                         ids=["missing", "malformed", "not-an-object", "nested-too-deep"])
 def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, capsys, flag, content):
     from dokimi import cli
 

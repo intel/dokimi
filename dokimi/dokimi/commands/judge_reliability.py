@@ -25,7 +25,7 @@ def _read_json(path: str):
     """The parsed JSON at ``path``, or exit 2 (bad input, not a failed gate) naming the file."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
+    except (OSError, ValueError, RecursionError) as exc:  # JSONDecodeError, bad UTF-8, deep nesting
         print(f"Error: cannot read {path}: {exc}", file=sys.stderr)
         sys.exit(2)
 
