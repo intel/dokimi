@@ -342,6 +342,24 @@ def test_cli_catches_an_outcome_key_shared_across_arms(tmp_path):
     assert "1.jsonl" in str(exc.value)
 
 
+def test_a_trace_given_twice_counts_once(tmp_path, capsys):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a/r1.jsonl").write_text(_trace(READ, TEST))
+    (tmp_path / "a/r2.jsonl").write_text(_trace(READ, ("Bash", {"command": "git push"})))
+    import yaml
+    contract = tmp_path / "c.yaml"
+    contract.write_text(yaml.safe_dump({"actions": CONTRACT["actions"], "rules": [{"forbids": "push"}]}))
+    args = build_parser().parse_args([
+        "context", "consistency", "--arm", f"A={tmp_path}/a/*.jsonl", "--arm", f"A={tmp_path}/a/r2*.jsonl",
+        f"{tmp_path}/a/./r1.jsonl", f"{tmp_path}/a/r1.jsonl", "--contract", str(contract), "--json"])
+    args.func(args)
+    out = capsys.readouterr()
+    rep = json.loads(out.out)
+    assert rep["A"]["result"]["runs"] == 2 and rep["A"]["contract"]["conformance_rate"] == 0.5
+    assert rep["runs"]["result"]["runs"] == 1
+    assert out.err.count("given twice") == 2
+
+
 # --- review of #155, test gaps: each rule and denominator fails when the code stops enforcing it ---
 
 def test_forbids_fires_on_a_run_that_pushes():

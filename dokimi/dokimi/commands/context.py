@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -102,7 +103,7 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
     failed = False
     for label, names in arms.items():
         loaded[label] = []
-        for name in names:
+        for name in _unique_traces(label, names):
             try:
                 loaded[label].append(read_run(Path(name), args.shell))
             except TraceError as exc:
@@ -131,6 +132,16 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         print(_consistency_text(report))
     if failed:
         sys.exit(1)
+
+
+def _unique_traces(label: str, names: list[str]) -> list[str]:
+    """Each trace once: a repeated ``--arm`` or overlapping globs must not count one run twice."""
+    seen: dict[str, str] = {}
+    for name in names:
+        if os.path.abspath(name) in seen:
+            print(f"warning: {label}: {name} given twice; counted once", file=sys.stderr)
+        seen.setdefault(os.path.abspath(name), name)
+    return list(seen.values())
 
 
 def _fmt(v, pct=False) -> str:
