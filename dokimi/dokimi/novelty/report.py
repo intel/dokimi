@@ -20,7 +20,7 @@ from __future__ import annotations
 import html
 from datetime import datetime, timezone
 
-from dokimi.gate.novelty_gate import evaluate_novelty
+from dokimi.gate.novelty_gate import uncleared_conflicts
 
 from .attribute import COLOURS, LEGEND, SpanAttribution
 from .bundle import Coverage, named_exclusions
@@ -343,15 +343,9 @@ def _render_knowledge_kinds(artifact: dict) -> list[str]:
 
 
 def _uncleared_conflicts(artifact: dict) -> str | None:
-    """Why a count of 0 conflicting atoms is not a cleared check, as the gate's ``harmful_atoms``
-    row says it; ``None`` when the count was cleared, conflicts were found, or nothing was classified."""
-    if not artifact.get("categories"):
-        return None
-    check = next((c for c in evaluate_novelty(artifact).checks if c.name == "harmful_atoms"), None)
-    if check is None or check.measured:
-        return None
-    reason = check.message.removeprefix("not measured: ").split("; ")[0]
-    return reason[:1].upper() + reason[1:]
+    """The gate's reason a count of 0 conflicting atoms is not a cleared check, as a sentence."""
+    reason = uncleared_conflicts(artifact)
+    return reason[:1].upper() + reason[1:] if reason else None
 
 
 def _render_conflicts(artifact: dict, uncleared: str | None) -> list[str]:
