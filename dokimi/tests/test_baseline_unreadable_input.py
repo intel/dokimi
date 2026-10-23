@@ -39,12 +39,14 @@ def test_save_exits_1_on_an_invalid_eval_file(run, tmp_path, capsys, content):
     assert not (tmp_path / "baselines" / "b.json").exists()
 
 
-def test_a_json_null_eval_file_is_reported_as_null(run, tmp_path, capsys):
+@pytest.mark.parametrize("content, type_name", [("null", "null"), ("[1, 2]", "array"), ('"x"', "string"),
+                                                 ("5", "number"), ("true", "boolean")])
+def test_a_non_object_eval_file_is_reported_by_its_json_type(run, tmp_path, capsys, content, type_name):
     bad = tmp_path / "bad.json"
-    bad.write_text("null", encoding="utf-8")
+    bad.write_text(content, encoding="utf-8")
     with pytest.raises(SystemExit):
         run("save", "--from-eval", str(bad), "--name", "b")
-    assert "got null" in capsys.readouterr().err
+    assert f"got {type_name}" in capsys.readouterr().err
 
 
 def test_save_exits_1_on_an_eval_file_that_is_not_utf8(run, tmp_path, capsys):
@@ -84,8 +86,9 @@ def test_compare_exits_2_on_an_invalid_eval_file(run, tmp_path, capsys, content)
     assert str(bad) in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("content", ["{truncated", '{"baselines": null}', '{"baselines": "x"}'])
-def test_a_corrupt_manifest_exits_with_a_message_in_every_subcommand(run, tmp_path, capsys, content):
+@pytest.mark.parametrize("content, type_name", [("{truncated", None), ('{"baselines": null}', "null"),
+                                                 ('{"baselines": "x"}', "string")])
+def test_a_corrupt_manifest_exits_with_a_message_in_every_subcommand(run, tmp_path, capsys, content, type_name):
     good = tmp_path / "good.json"
     good.write_text(json.dumps(_EVAL), encoding="utf-8")
     manifest = tmp_path / "baselines" / "manifest.json"
@@ -96,7 +99,10 @@ def test_a_corrupt_manifest_exits_with_a_message_in_every_subcommand(run, tmp_pa
         with pytest.raises(SystemExit) as exc:
             run(*argv)
         assert exc.value.code == code
-        assert str(manifest) in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert str(manifest) in err
+        if type_name:
+            assert f"got {type_name}" in err
     assert sorted(p.name for p in manifest.parent.iterdir()) == ["manifest.json"]
 
 
