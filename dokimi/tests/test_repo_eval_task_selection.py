@@ -361,3 +361,32 @@ def test_the_check_results_artifact_keeps_the_stderr_files():
     upload = next(s for s in _steps() if "Upload the check results" in str(s.get("name", "")))
     paths = [ln.strip() for ln in str(upload["with"]["path"]).splitlines()]
     assert "${{ runner.temp }}/repo-check/check/*/*.err" in paths
+
+
+def _tasks_check_argv(tmp_path: Path, inputs: dict[str, bool]) -> list[str]:
+    """Run the ``repo tasks check`` step with a stub ``dokimi`` and return its argv."""
+    step = next(s for s in _steps() if s.get("name") == "repo tasks check")
+    values = {f"inputs.{k}": str(v).lower() for k, v in inputs.items()}
+    values |= {"inputs.manifest": "m.yml", "matrix.task": "t1"}
+    env = {**os.environ, "RUNNER_TEMP": str(tmp_path)}
+    for key, value in step["env"].items():
+        ref = re.fullmatch(r"\$\{\{ ([\w.-]+) \}\}", str(value))
+        env[key] = values[ref.group(1)] if ref else str(value)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "dokimi"
+    stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$RUNNER_TEMP/argv"\n', encoding="utf-8")
+    stub.chmod(0o755)
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], env=env, check=True)
+    return (tmp_path / "argv").read_text(encoding="utf-8").splitlines()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the step is a bash script")
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize("allow", [False, True])
+def test_the_tasks_check_step_forwards_warm_and_allow_unsupported(tmp_path, warm, allow):
+    argv = _tasks_check_argv(tmp_path, {"warm": warm, "allow-unsupported": allow})
+    assert argv[:6] == ["repo", "tasks", "check", ".", "--manifest", "m.yml"]
+    assert ("--warm" in argv) is warm
+    assert ("--allow-unsupported" in argv) is allow
