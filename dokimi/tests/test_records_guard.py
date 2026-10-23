@@ -6,8 +6,8 @@
 ``dokimi/records.py`` is the one reader of the ``with_docs`` and ``without_docs``
 conditions of an answers, eval or arms record (see ``AGENTS.md``). This test scans
 ``dokimi/`` with ``ast`` for a read of either key outside it: a ``x["with_docs"]``
-subscript or a ``x.get("with_docs")`` call. A store (``x["with_docs"] = ...``), a
-delete and a dict-literal key are writes and are not reads.
+subscript, or a ``x.get("with_docs")``, ``.pop`` or ``.setdefault`` call. A store
+(``x["with_docs"] = ...``), a delete and a dict-literal key are writes and are not reads.
 
 Each read that may stay is in :data:`READ_BASELINE`, keyed by module and enclosing
 function, with the number of reads there and the reason they are not reads of a persisted
@@ -35,6 +35,9 @@ READER = "dokimi.records"
 
 #: The persisted condition keys of a binary answers or eval record.
 KEYS = frozenset({"with_docs", "without_docs"})
+
+#: Dict methods that read the value of the key they are given.
+READ_METHODS = frozenset({"get", "pop", "setdefault"})
 
 ReadSite = tuple[str, str]
 
@@ -74,7 +77,7 @@ def _is_key(node: ast.AST) -> bool:
 
 
 def key_reads(source: str) -> list[tuple[ReadSite, int]]:
-    """``((<scope>, <key>), line)`` of each ``x["with_docs"]`` load and ``x.get("with_docs")``."""
+    """``(<scope>, line)`` of each ``x["with_docs"]`` load and ``x.get/pop/setdefault("with_docs")``."""
     tree = ast.parse(source)
     scopes = _enclosing_names(tree)
     found = []
@@ -82,7 +85,7 @@ def key_reads(source: str) -> list[tuple[ReadSite, int]]:
         subscript_load = (isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load)
                           and _is_key(node.slice))
         get_call = (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "get" and bool(node.args) and _is_key(node.args[0]))
+                    and node.func.attr in READ_METHODS and bool(node.args) and _is_key(node.args[0]))
         if subscript_load or get_call:
             found.append((scopes.get(node, "<module>"), node.lineno))
     return found
@@ -150,15 +153,17 @@ def test_every_baseline_entry_has_a_reason_and_names_a_real_module():
 # --- the scanner finds what it should -------------------------------------------
 
 
-def test_a_subscript_load_and_a_get_are_reads_in_their_function():
+def test_a_subscript_load_get_pop_and_setdefault_are_reads_in_their_function():
     source = (
         "def total(rows):\n"
         "    return [r['with_docs'] for r in rows if r.get('without_docs')]\n"
         "class Report:\n"
         "    def line(self, r):\n"
         "        return r.get(\"with_docs\", {})\n"
+        "def take(r):\n"
+        "    return r.pop('with_docs'), r.setdefault('without_docs', None)\n"
     )
-    assert sorted(key_reads(source)) == [("Report.line", 5), ("total", 2), ("total", 2)]
+    assert sorted(key_reads(source)) == [("Report.line", 5), ("take", 7), ("take", 7), ("total", 2), ("total", 2)]
 
 
 def test_a_store_a_delete_and_a_dict_literal_are_writes_not_reads():
