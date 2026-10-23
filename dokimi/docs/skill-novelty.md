@@ -496,8 +496,8 @@ Things to know before reading a bundle result:
   also says so in `warnings`. When a bundled file did not decode the share is unknowable:
   stdout prints `coverage: unknown` (still warning if the entry point is half or less of
   the readable words) and `bundle.measured_share` is `null`. The share is
-  `bundle.measured_share` (for an entry-point run, `1 - measurable_outside_share`,
-  which nets out the role decisions below; `outside_share` is the
+  `bundle.measured_share` (for an entry-point run, `1 - measurable_outside_share` to 4
+  places, which nets out the role decisions below; `outside_share` is the
   on-disk figure, and the two differ for a skill whose only resources are its evals).
 - **A skill's own `evals/` are not content.** They are the question/answer keys for
   testing the skill, so extracting atoms from them would credit the skill with delivering
