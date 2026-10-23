@@ -551,3 +551,22 @@ def test_call_tokens_never_goes_negative_for_a_tiny_artifact():
         for tier in (None, "triage", "standard"):
             assert min(call_tokens(role, 10, tier)) >= 0
     assert call_tokens("answerer", 10)[0] == 0
+
+
+def _one_line_skill(root):
+    root.mkdir(parents=True)
+    (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                   encoding="utf-8")
+    return root
+
+
+def test_estimate_only_gives_a_null_dollar_figure_when_no_judge_resolves(tmp_path, capsys):
+    # A real run exits here (openrouter has no default judge); the preview still prints.
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{_one_line_skill(tmp_path / 's')}",
+                  "--tier", "triage", "--estimate-only", "--judge-provider", "openrouter")
+    args.func(args)
+    out = capsys.readouterr()
+    payload = json.loads(out.out)
+    assert payload["expected_usd"] is None
+    assert payload["estimate"]["expected_calls"] > 0
+    assert "USD estimate is unavailable: --judge-provider openrouter" in out.err
