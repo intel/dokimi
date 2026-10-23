@@ -254,7 +254,7 @@ def test_timed_out_cell_counts_toward_batch_budget(setup, monkeypatch, capsys):
         _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2", "--timeout", "2",
              "--budget", "0.5", "--max-batch-usd", "0.01")
     assert exc.value.code == 1
-    assert "1 ran" in (out := capsys.readouterr().out) and "1 not started (batch budget); $0.5000" in out
+    assert "1 ran" in (out := capsys.readouterr().out) and "1 not started (batch budget), 0 unsupported; $0.5000" in out
     rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
     assert rec["agent"]["cost_usd"] is None and rec["agent"]["charged_usd"] == 0.5
     assert _report(setup)["rows"][0]["cost_unknown"] == 1

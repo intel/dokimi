@@ -462,12 +462,20 @@ For every task, before any paid run:
 A task whose `host` requirements (§3) the probe container does not meet is
 `unsupported` with the reason, like a task whose `egress` needs the missing
 proxy, and `tasks check` exits 1 for it. With `--allow-unsupported` it is
-still printed with its reason but does not make the exit code 1; broken tasks,
+still printed with its reason but does not make the exit code 1 unless no task
+is ok (below); broken tasks,
 tasks that need egress and tasks whose host probe failed still do. `repo run` does not run its cells:
 each holds an `unsupported.json` with the reason, and `repo report` lists them
 apart, neither failed nor missing. If the probe itself fails, a task with
 `host` requirements is not run either, and `repo run` exits 1 when one of its
 cells is left unrun; a cell that already has a `result.json` keeps it.
+
+Nothing checked is not a pass. Both commands refuse an export with no task, and
+exit 1 as `incomplete` when nothing was measured: `tasks check` when no task
+passed the self-check (every one unsupported, even with `--allow-unsupported`),
+`repo run` when no cell of the batch has a result (every one unsupported). The
+`repo run` summary line counts unsupported cells beside ran, done, crashed and
+not started.
 
 Each task runs with its own network (`image.network` plus its `egress`).
 `tasks check --warm` runs the same null and oracle steps with network and
@@ -961,7 +969,7 @@ prompts disabled`) and the fix; any other git failure shows its last `fatal:`
 line, else its last `error:` line, else its last line.
 
 ```bash
-# self-check: no LLM; exits 1 if any task is broken or unsupported
+# self-check: no LLM; exits 1 if any task is broken or unsupported, or none is ok
 python cli.py repo tasks check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
     --task fix_finiteness_mut --build-network host --cache bazel-repo-cache=/cache/bazel-repo -j 3
 
