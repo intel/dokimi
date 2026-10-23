@@ -527,3 +527,18 @@ def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, 
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(bad) in err
+
+
+@pytest.mark.parametrize("flag", ["--pairwise", "--checklist", "--validity"])
+def test_cross_judge_refuses_a_missing_result_file_before_any_judge_call(tmp_path, monkeypatch, capsys, flag):
+    from tests.test_judge_reliability import _cross_judge_args, _material_arms_run, _recording_judge
+
+    seen: dict = {}
+    _recording_judge(monkeypatch, seen)
+    missing = tmp_path / "missing.json"
+    args = _cross_judge_args(tmp_path, _material_arms_run(), "--no-stored", "--judges", "amazon-bedrock/m",
+                             flag, str(missing))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and str(missing) in capsys.readouterr().err
+    assert seen == {}  # no paid judge call was made

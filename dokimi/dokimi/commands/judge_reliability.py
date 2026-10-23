@@ -353,6 +353,10 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             sys.exit(2)
         report.measures.append(m)
 
+    # Read every result file before the first judge call, so a bad path costs no paid calls.
+    pairwise = [(path, _load_json_object(path)) for path in args.pairwise or []]
+    checklists = [(path, _load_json_object(path)) for path in args.checklist or []]
+    validity = [_load_json_object(v, key="summary")["summary"] for v in args.validity or []]
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     if specs:
         _require_arms(args.answers, records, "cross-judge --judges")
@@ -373,15 +377,12 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
                 concurrency=args.concurrency, progress=_progress(), ground_truth=grounding,
                 store=materials,
             ))
-    for path in args.pairwise or []:
-        pw = _load_json_object(path)
+    for path, pw in pairwise:
         name = (pw.get("summary") or {}).get("judge", Path(path).stem)
         report.measures.append(pairwise_measure(pw, name, baseline))
-    for path in args.checklist or []:
-        ck = _load_json_object(path)
+    for path, ck in checklists:
         name = (ck.get("summary") or {}).get("judge", Path(path).stem)
         report.measures.append(coverage_measure(ck, name))
-    validity = [_load_json_object(v, key="summary")["summary"] for v in args.validity or []]
     answers_model = data.get("model") if isinstance(data, dict) else None
     for v in validity:
         if v.get("answers_model") and answers_model and v["answers_model"] != answers_model:
