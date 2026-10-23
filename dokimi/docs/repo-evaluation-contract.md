@@ -877,11 +877,12 @@ not measured effects.
 The report keeps observations apart from findings:
 
 - `instructions`: one record per instruction file and per harness rule it
-  matches (a root `AGENTS.md`, a nested `CLAUDE.md`, `.cursor/rules/*.mdc`,
-  `.github/instructions/*.instructions.md`, …), with its `scope`
-  (`root`, `path-specific`, `mode-specific`, `local-private`, `legacy`,
-  `capability`, `unknown`), `activation`, the `directory` it applies to and
-  its size (for a link, the size of the file it names). This is what each
+  matches (a root `AGENTS.md`, a nested `CLAUDE.md`, `.cursor/rules/*.mdc` at
+  the root or in a subdirectory, `.github/instructions/*.instructions.md`, …),
+  with its `scope` (`root`, `path-specific`, `mode-specific`, `local-private`,
+  `legacy`, `capability`, `unknown`), `activation`, the `directory` it applies to
+  (for a record whose scope is `unknown`, the one it would apply to) and its size
+  (for a link, the size of the file it names). This is what each
   harness documents; which files a given harness version loads is measured by
   the reach probe (§7).
 - `checks`: ways to build, test, lint and type-check, per project root (the

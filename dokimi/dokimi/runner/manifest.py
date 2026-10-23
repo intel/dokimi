@@ -19,7 +19,8 @@ from pathlib import Path
 
 from dokimi import __version__, process
 
-# Direct dependencies whose versions materially affect results.
+# Dependencies whose versions materially affect results. ``ragas`` comes with the ``ragas``
+# extra and ``anthropic`` with that extra's ``langchain-anthropic``; one not installed is None.
 TRACKED_DEPS = (
     "litellm", "openai", "anthropic", "ragas", "datasets",
     "jsonschema", "numpy", "PyYAML", "httpx",
