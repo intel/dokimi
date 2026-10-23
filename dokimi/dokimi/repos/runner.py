@@ -64,7 +64,8 @@ from .uptake import arm_uptake
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
 from .host import probe_host, unmet, validate_tasks
-from .manifest import scratch_name
+from .manifest import match_glob, scratch_name
+from .process_metrics import process_metrics
 from .workspace import PrepError, Task, prepare_workspace
 
 SUPPORT_HOST = Path(__file__).resolve().parent / "support"
@@ -193,6 +194,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
         "cache_write_tokens": None, "usage_scope": None, "subagent_calls": None,
         "plugins": [], "over_budget": False, "caps": caps, "network": network, "trace_errors": []}
+    process: dict[str, Any] | None = None  # null when the trace could not be read
     added = meta.get("arm_patch") or {}
     uptake_of = (added.get("added") or [], added.get("mcp_servers") or [])
     events = None  # the trace's events once it parsed; none: the uptake is unmeasured
@@ -207,6 +209,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         _write_json(rd / "meta.json", meta)
         if transcript.events or transcript.num_turns is not None:  # else the agent never started
             events = transcript.events
+            process = run_process_metrics(ctx, events)
         cost = transcript.cost_usd
         agent.update(
             cost_usd=cost, charged_usd=cost if cost is not None else caps["budget_usd"],
@@ -227,7 +230,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "model_resolved": meta.get("model_resolved"), "rep": rep,
                               "harness": opts.profile.name, "harness_version": meta["harness_version"],
                               "base_date": meta["base_date"], "score_task": bool(task.score),
-                              "score_max": task.score["max"] if task.score else None, "agent": agent, "grade": grade}
+                              "score_max": task.score["max"] if task.score else None, "agent": agent,
+                              "process": process, "grade": grade}
     if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
         record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
     try:
@@ -236,6 +240,13 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     except OSError as exc:
         raise CellCrash(f"cannot write result.json: {exc}", float(agent["charged_usd"])) from exc
     return record
+
+
+def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]]) -> dict[str, Any]:
+    """``result.json`` ``process``: the framework's counts and the manifest's ``process_metrics`` (contract §4.1)."""
+    globs = ctx.manifest.guidance_globs
+    return process_metrics(events, lambda path: any(match_glob(g, path) for g in globs),
+                           ctx.manifest.process_metrics)
 
 
 class CellCrash(Exception):

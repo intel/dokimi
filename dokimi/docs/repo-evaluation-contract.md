@@ -191,6 +191,10 @@ tasks: dev/agent_evals/tasks
 explore_tasks: null                       # optional ExploreBench YAML directory
 
 build_systems: [bazel, make]              # selects L0 claim-check adapters
+
+process_metrics:                          # optional repository counters, result.json `process.counters` (§4.1)
+  bazel_cmds: '\bbazel(?:isk)?\b'          # a plain regex searches the command text
+  icpx_missing: {regex: "icpx is not found", match: output}   # match: text (default), output or any
 ```
 
 Rules:
@@ -199,7 +203,17 @@ Rules:
 - `eval_dir`, `tasks` and `entry_points` come together or not at all. Without them the
   manifest is *guidance-only*: `scan` and `reach` run on it and `validate` checks its
   globs, while `tasks check` and `run` refuse it. `image` and `explore_tasks` need
-  `eval_dir`.
+  `eval_dir`, and so does `process_metrics`.
+- `entry_points.grade` is required only when some task's `grader` does not
+  start with `dokimi:` (a grader built into the framework); `repo validate`
+  names the tasks that need it.
+- `process_metrics` maps a name (letters, digits, `_`; not
+  starting with a digit) to a Python regex,
+  given as a string or as `{regex: <regex>, match: text|output|any}`. For each
+  name the framework counts the `command` events of the run whose `text`
+  (default), `output` or either contains a match (`re.search`); denied commands
+  count too, since the agent asked for them. `repo validate` refuses a regex
+  that does not compile.
 - `eval_dir` is a proper subdirectory, and `tasks` and `explore_tasks` sit inside it: it is the
   one directory deleted from every workspace (§3).
 - `{eval_dir}`, `{source_dir}`, `{run_dir}`, `{out}` and `{task}` are the only
@@ -384,6 +398,20 @@ Code's `modelUsage`), `main` when the harness reported the parent's only, and
 `null` when it reported none. `subagent_calls` counts the parent's and
 subagents' `Agent`/`Task` calls; `null` when the harness wrote no result record.
 
+`result.json` `process` holds what the framework counts in the events, the
+parent's and subagents' together, so a grader need not:
+
+| Key | Meaning |
+|---|---|
+| `tool_calls` | every event: each tool call the agent made |
+| `commands` | `command` events |
+| `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
+| `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
+| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match |
+| `counters` | each `process_metrics` name (§2) and its count |
+
+`process` is `null` when the trace could not be read, or the agent left none (no event and no result record).
+
 For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 `uptake` object: whether the agent used what the arm added. `files` and
 `mcp_servers` list what it added (sorted); `commands` counts
@@ -524,8 +552,8 @@ A review task with `pass: null` is scored, not gated: give it `score`. A `gate`
 on its metrics is not applied (`success` is null), and without `score` the run
 is a grader failure. A clean-diff control (no seeds) has `recall: null`, so it
 takes no `score`; its gate is the default `["pass"]`. The manifest's
-`entry_points.grade` is still required (`repo_manifest.v1`), even when every
-task uses a built-in grader.
+`entry_points.grade` is optional when every task's `grader` starts with
+`dokimi:`.
 
 Both review graders read the answer the same way. Its last parseable
 ` ```json ` fence (one nesting arrays or objects more than 100 deep counts

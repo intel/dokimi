@@ -62,6 +62,9 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert result["grade"]["status"] == "graded" and result["grade"]["success"] is True
     assert result["agent"]["cost_usd"] == 0.01 and result["agent"]["num_turns"] == 3
     assert result["model_resolved"] == "m-1"
+    assert result["process"] == {"tool_calls": 1, "commands": 0, "failed_commands": 0, "denied_commands": 0,
+                                 "guidance_read": [],
+                                 "counters": {"bazel": 0, "icpx_missing": 0}}
 
     agents = [s for s in setup["runner"].specs if s.argv and s.argv[0] == f"{HARNESS_DIR}/fake-agent"
               and "-p" in s.argv]
@@ -87,6 +90,27 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert raw["n"] == 2 and raw["successes"] == 2 and raw["grader_failures"] == 0 and raw["cost_usd"] == 0.01
     assert summary["total_cost_usd"] == 0.04 and summary["unproxied_network"] == ["host"]
     assert raw["model_resolved"] == ["m-1"] and summary["model_mismatch"] == {}
+
+
+def test_process_metrics_reach_result_json(setup, monkeypatch):
+    # guidance_read and counters come from the manifest (guidance globs, process_metrics) and the trace.
+    monkeypatch.setenv("FAKE_PROCESS", "1")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
+    assert rec["process"] == {"tool_calls": 3, "commands": 1, "failed_commands": 1, "denied_commands": 0,
+                              "guidance_read": ["AGENTS.md"],
+                              "counters": {"bazel": 1, "icpx_missing": 1}}
+
+
+def test_an_unreadable_trace_leaves_process_null_and_still_grades(setup, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise ValueError("unreadable trace")
+
+    monkeypatch.setattr("dokimi.repos.runner.convert", refuse)
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
+    assert rec["process"] is None
+    assert rec["grade"]["status"] == "grader_failure"
 
 
 def test_a_run_answered_by_another_model_is_recorded_and_reported(setup, monkeypatch, capsys):
