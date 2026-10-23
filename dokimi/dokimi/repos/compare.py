@@ -308,19 +308,7 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
         if b != t:  # batches of different eval trees: the primary result of this task has no pair
             unpaired.append(_unpaired(treatment, model, task, None, f"{b} task in baseline, {t} in treatment"))
     for measure in measures:
-        pairs = []
-        for task in shared:
-            base, treat = base_vals[(model, task)], treat_vals[(model, task)]
-            if measure in PRIMARY and not base["kind"] == treat["kind"] == measure:
-                continue  # a task of the other kind, or one listed above
-            pair = _pair(task, base, treat, measure)
-            if pair is None:
-                lacking = [arm for arm, v in (("baseline", base), ("treatment", treat))
-                           if v["values"].get(measure) is None]
-                unpaired.append(_unpaired(treatment, model, task, measure,
-                                          f"no {measure} in {' or '.join(lacking)}"))
-            else:
-                pairs.append(pair)
+        pairs = _measure_pairs(treatment, model, shared, base_vals, treat_vals, measure, unpaired)
         if pairs:
             flag = None
             if measure in PRIMARY:
@@ -330,6 +318,35 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
                 flag = headroom(pairs, tops, failed)
             rows.append({"treatment": treatment, "model": model, "measure": measure,
                          **paired_summary(pairs, measure, seed=seed), "headroom": flag})
+
+
+def _measure_pairs(treatment: str, model: str, shared: list[str], base_vals: dict[tuple[str, str], dict[str, Any]],
+                   treat_vals: dict[tuple[str, str], dict[str, Any]], measure: str,
+                   unpaired: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The paired tasks of one measure; the tasks lacking it go to ``unpaired``.
+
+    ``pass^K`` and ``path_distance`` are optional: a score task has no ``pass^K``, and a task with too
+    few cells for either is one line with a count, not one entry per task."""
+    pairs, short = [], 0
+    for task in shared:
+        base, treat = base_vals[(model, task)], treat_vals[(model, task)]
+        if measure in PRIMARY and not base["kind"] == treat["kind"] == measure:
+            continue  # a task of the other kind, or one listed above
+        if measure.startswith("pass^") and "score" in (base["kind"], treat["kind"]):
+            continue  # pass^K is a gate measure: a score task has none to lack
+        pair = _pair(task, base, treat, measure)
+        if pair is not None:
+            pairs.append(pair)
+        elif measure.startswith("pass^") or measure == "path_distance":
+            short += 1
+        else:
+            lacking = [arm for arm, v in (("baseline", base), ("treatment", treat))
+                       if v["values"].get(measure) is None]
+            unpaired.append(_unpaired(treatment, model, task, measure, f"no {measure} in {' or '.join(lacking)}"))
+    if short:
+        unpaired.append(_unpaired(treatment, model, f"{short} task(s)", measure,
+                                  f"too few cells in baseline or treatment for {measure}"))
+    return pairs
 
 
 def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float | None]],
