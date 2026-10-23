@@ -570,3 +570,17 @@ def test_estimate_only_gives_a_null_dollar_figure_when_no_judge_resolves(tmp_pat
     assert payload["expected_usd"] is None
     assert payload["estimate"]["expected_calls"] > 0
     assert "USD estimate is unavailable: --judge-provider openrouter" in out.err
+
+
+def test_every_extra_arm_adds_an_answer_and_a_grade_per_probe_to_the_bill(tmp_path, capsys):
+    by_role = {}
+    for arms in ("no_artifact,full", "no_artifact,full,shuffled"):
+        skill = _one_line_skill(tmp_path / str(len(by_role)))
+        args = _parse("novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "standard",
+                      "--estimate-only", "--arms", arms)
+        args.func(args)
+        by_role[arms] = json.loads(capsys.readouterr().out)["estimate"]["by_role"]
+    two, three = by_role["no_artifact,full"], by_role["no_artifact,full,shuffled"]
+    assert three["answerer"] * 2 == two["answerer"] * 3 > 0
+    assert three["judge"] * 2 == two["judge"] * 3 > 0
+    assert three["extractor"] == two["extractor"]
