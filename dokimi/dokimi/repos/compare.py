@@ -515,9 +515,7 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
         # If any cell has unknown max, or maxes differ, top is None; otherwise take the single value
         has_unknown_max = any(v is None for v in score_max_vals)
         top = (maxes.pop() if len(maxes) == 1 and not has_unknown_max else None) if score_task else 1.0
-        # unmeasured: a grader failure, or an agent outage (an error result with no or one turn, or a non-zero exit
-        # with no turn count); either way
-        # its 0 is not a measurement
+        # unmeasured: a grader failure, or an agent outage (see _agent_outage); either way its 0 is not a measurement
         grader_failed = any(r["grade"]["status"] == "grader_failure" or _agent_outage(r) for r in recs)
         out[key] = {"kind": "score" if score_task else "gate", "grader_failed": grader_failed,
                     "top": top,
