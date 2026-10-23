@@ -20,5 +20,8 @@ types-jsonschema
 deptry==0.25.1
 diff-cover
 build
+# The build backend ([build-system] in pyproject.toml): package-smoke and the release job
+# build with --no-isolation, so setuptools comes from this lock, hashed, not from PyPI.
+setuptools
 twine
 uv==0.13.4

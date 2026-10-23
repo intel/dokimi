@@ -167,7 +167,10 @@ reaches); leave those alone. `mutants/` is scratch and git-ignored.
 Dependencies install from `requirements.lock.txt`; the docs build's from
 `requirements-docs.lock.txt` on top of it, and the tools CI, `make dev`, the
 release job and the eval image use (`requirements-ci.txt`) from
-`requirements-ci.lock.txt`; the mutation workflow adds mutmut's closure
+`requirements-ci.lock.txt`. That lock also pins the build backend, setuptools:
+package-smoke and the release job build with `python -m build --no-isolation`,
+so the published sdist and wheel are not built by a backend resolved fresh from
+PyPI. The mutation workflow adds mutmut's closure
 (`requirements-mutation.txt`) from `requirements-mutation.lock.txt`, which
 nothing else installs, and pip-audit audits with the others. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
@@ -211,7 +214,9 @@ Guidelines:
   bisecting easier.
 - **Add tests** for behavioral changes. The suite lives in `tests/` and runs
   fully offline (LLM/network calls are mocked; the `fake_llm` fixture scripts
-  every `dokimi.llm.LLM` reply).
+  every `dokimi.llm.LLM` reply). A change that adds or removes provider calls on
+  a judge, panel, answer or validation path updates its pinned count in
+  `tests/test_provider_call_budgets.py` (the `provider_calls` fixture counts them).
 - **Update docs** in the same PR when you change behavior. Stale docs are
   treated as bugs — see the docs-drift checklist below.
 - **Don't commit ad-hoc run output.** Generated artifacts belong under

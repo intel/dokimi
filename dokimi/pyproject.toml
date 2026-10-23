@@ -135,6 +135,8 @@ extend_exclude = [
 optional_dependencies_dev_groups = ["dev"]
 
 [tool.deptry.per_rule_ignores]
+# scripts/audit_mocks.py, imported by its sibling audit_test_quality.py through a sys.path insert.
+DEP001 = ["audit_mocks"]
 # Declared only to cap the version ragas resolves (see the comment in the ragas extra).
 DEP002 = ["langchain-community"]
 

@@ -171,7 +171,8 @@ def test_patch_arm_applies_on_raw_guidance_and_records_the_file(toy):
     patch.write_text("changed after the batch read it\n")  # every cell applies the bytes read once
     meta, ws = _prep(toy, arm)
     assert meta["arm"] == str(arm) and meta["arm_files"] == ["AGENTS.md", "Makefile"]
-    assert meta["arm_patch"] == {"path": str(patch.resolve()), "sha256": digest}
+    assert meta["arm_patch"] == {"path": str(patch.resolve()), "sha256": digest, "added": ["Makefile"],
+                                 "mcp_servers": []}
     assert (ws / "AGENTS.md").read_text() == "# guidance\nRun `make check`.\n"
     assert (ws / "Makefile").is_file() and (ws / "sub/AGENTS.md").is_file()  # the rest of guidance:raw
     assert git(ws, "status", "--porcelain") == "" and git(ws, "rev-list", "--count", "HEAD") == "1"
