@@ -14,6 +14,9 @@
   ``host`` requirements (``unsupported.json``, with the reason). They are
   neither failures nor missing.
 - cost and turns are means over finished cells, as the harness reported them.
+- **uptake**: for an arm that added a file or an MCP server, the cells whose
+  agent used it (``result.json`` ``uptake``, see :mod:`.uptake`) over the
+  cells with a trace to count from.
 
 A warning is printed when the trace says a model other than the requested one
 answered a cell (``model_resolved``): a harness alias can pin an older model.
@@ -90,6 +93,9 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
                                "turns": _mean([r["agent"]["num_turns"] for r in recs]),
                                "networks": sorted({str(r["agent"].get("network")) for r in recs}),
                                "model_resolved": sorted({m for r in recs for m in resolved_models(r)})}
+        uptake = uptake_counts(recs)
+        if uptake is not None:
+            row["uptake"] = uptake
         if score_only:
             scores = [0.0 if r["grade"]["status"] == "grader_failure" else r["grade"]["score"] for r in recs]
             row.update(kind="score", score=_mean([0.0 if s is None else s for s in scores]))
@@ -125,6 +131,9 @@ def format_report(summary: dict[str, Any]) -> str:
                      f"{result:<22}  {r['grader_failures']:>11}  {r['missing']:>7}  {cost:>8}  {turns:>6}")
         noted = ("agent_timeouts", "agent_errors", "over_budget", "cost_unknown")
         notes = [f"{r[k]} {k.replace('_', ' ')}" for k in noted if r[k]]
+        if "uptake" in r:
+            notes.append(f"arm's additions used in {r['uptake']['used']}/{r['uptake']['cells']} cell(s)"
+                         + unmeasured_note(r["uptake"]))
         if notes:
             lines.append(" " * (width + 2) + "  " + ", ".join(notes))
     if summary["missing"]:
@@ -145,6 +154,22 @@ def _unsupported_lines(cells: list[dict[str, Any]]) -> list[str]:
         by_task[(str(u["task"]), str(u["reason"]))] += 1
     return [f"unsupported (not run, not failed): {task}, {n} cell(s): {reason}"
             for (task, reason), n in sorted(by_task.items())]
+
+
+def unmeasured_note(u: dict[str, int]) -> str:
+    """What to append to a ``used/cells`` count when some cells left no trace to measure."""
+    return f" (warning: {u['unmeasured']} more cell(s) left no trace to measure)" if u.get("unmeasured") else ""
+
+
+def uptake_counts(recs: list[dict[str, Any]]) -> dict[str, int] | None:
+    """``cells`` with a measured ``uptake`` and how many of them ``used`` what the arm added; ``None`` when no
+    cell's arm added anything to use."""
+    found = [r["uptake"] for r in recs if isinstance(r.get("uptake"), dict)]
+    if not found:
+        return None
+    measured = [u for u in found if u.get("measured")]
+    return {"cells": len(measured), "used": sum(bool(u.get("used")) for u in measured),
+            "unmeasured": len(found) - len(measured)}
 
 
 def resolved_models(rec: dict[str, Any]) -> list[str]:
