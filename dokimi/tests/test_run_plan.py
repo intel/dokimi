@@ -155,3 +155,28 @@ def test_an_invalid_result_reports_no_measured_cells(tmp_path):
     got = completeness(plan, _result(plan, ["pass"] * 6, plan_digest="sha256:other"))
     assert got.state == "invalid"
     assert got.measured == 0
+
+
+@pytest.mark.parametrize("bad", [{"status": "PASS"}, {"status": ["pass"]}, {}])
+def test_a_bad_status_on_a_planned_cell_is_invalid(tmp_path, bad):
+    plan = _plan(tmp_path)
+    result = _result(plan, ["pass"] * 6)
+    result["cells"][0] = {"cell_id": plan["cells"][0]["cell_id"], **bad}
+    got = completeness(plan, result)
+    assert (got.state, got.measured) == ("invalid", 0)
+    assert any("unknown status" in p for p in got.problems)
+
+
+@pytest.mark.parametrize("bad", ["junk", {"cell_id": 3, "status": "pass"}])
+def test_a_result_cell_without_a_string_id_is_reported(tmp_path, bad):
+    plan = _plan(tmp_path)
+    result = _result(plan, ["pass"] * 6)
+    result["cells"].append(bad)
+    got = completeness(plan, result)
+    assert got.state == "invalid"
+    assert any("without a string cell_id" in p for p in got.problems)
+
+
+def test_result_cells_that_are_not_a_list_do_not_raise(tmp_path):
+    plan = _plan(tmp_path)
+    assert not completeness(plan, {"plan_digest": plan_digest(plan), "cells": None}).complete
