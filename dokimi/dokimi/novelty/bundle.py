@@ -48,6 +48,7 @@ from dokimi.metrics.bundle_coverage import (  # noqa: F401
     EXCLUSION_CLASS,
     EXCLUSION_CLASSES,
     LEGACY_COVERAGE_BASIS,
+    MEASURED_SHARE_WARN_AT,
     Coverage,
     _safe_int,
     _share,
@@ -220,7 +221,7 @@ class Bundle:
         # evals has nothing a bundle run would add, so pointing at the flag would be advice
         # that cannot be followed. The gate judges the same basis (`CURRENT_COVERAGE_BASIS`).
         share = coverage.outside_share_on("readable")
-        if not self.include_resources and share >= 0.5:
+        if not self.include_resources and share >= 1 - MEASURED_SHARE_WARN_AT:
             out.append(
                 f"{share:.0%} of this artifact's words are in "
                 "bundled files that were not measured (--include-resources); every rate "
@@ -284,6 +285,7 @@ class Bundle:
             "measured_digest": self.measured_digest(),
             "outside_share": coverage.outside_share,
             "measurable_outside_share": coverage.measurable_outside_share,
+            "measured_share": coverage.measured_share,
             "unmeasured_words": coverage.unmeasured_words,
             "max_file_words": self.max_file_words,
             "max_total_words": self.max_total_words,

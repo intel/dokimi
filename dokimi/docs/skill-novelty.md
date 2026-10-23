@@ -490,9 +490,14 @@ Things to know before reading a bundle result:
   deliver if the agent read all of it. Whether the agent chooses to load `references/x.md`
   at runtime is the agentic track's question (`skill-agent:`), not this one.
 - **The two modes are different cells.** `include_resources` is recorded in `run_config`;
-  an entry-point run and a bundle run of the same skill are not comparable numbers, and an
-  entry-point run whose *measurable* outside share is ≥ 0.5 says so in `warnings`
-  (`measurable_outside_share` nets out the role decisions below; `outside_share` is the
+  an entry-point run and a bundle run of the same skill are not comparable numbers. A run
+  that read half or less of the readable words says so on stdout (the `coverage:` line
+  and a `WARNING`), a bundle run held back by the word budgets included; an entry-point run
+  also says so in `warnings`. When a bundled file did not decode the share is unknowable:
+  stdout prints `coverage: unknown` (still warning if the entry point is half or less of
+  the readable words) and `bundle.measured_share` is `null`. The share is
+  `bundle.measured_share` (for an entry-point run, `1 - measurable_outside_share` to 4
+  places, which nets out the role decisions below; `outside_share` is the
   on-disk figure, and the two differ for a skill whose only resources are its evals).
 - **A skill's own `evals/` are not content.** They are the question/answer keys for
   testing the skill, so extracting atoms from them would credit the skill with delivering
