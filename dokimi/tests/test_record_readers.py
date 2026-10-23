@@ -509,7 +509,7 @@ def test_cross_judge_exits_2_on_a_malformed_arms_file(tmp_path, monkeypatch, cap
 
 
 @pytest.mark.parametrize("flag", ["--answers", "--pairwise", "--checklist", "--validity"])
-@pytest.mark.parametrize("content", [None, "{not json", "[1, 2]", "[" * 100_000 + "]" * 100_000],
+@pytest.mark.parametrize("content", [None, "{not json", "[1, 2]", "[" * 5_000 + "]" * 5_000],
                          ids=["missing", "malformed", "not-an-object", "nested-too-deep"])
 def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, capsys, flag, content):
     from dokimi import cli
@@ -536,7 +536,7 @@ def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, 
         assert "cannot read" in err
 
 
-@pytest.mark.parametrize("command", [["cross-judge"], ["checklist", "--questions", "q.json"], ["judge-wording"]],
+@pytest.mark.parametrize("command", [["cross-judge"], ["checklist"], ["judge-wording"]],
                          ids=["cross-judge", "checklist", "judge-wording"])
 @pytest.mark.parametrize("content", [None, "{not json"], ids=["missing", "malformed"])
 def test_every_answers_reader_exits_2_on_an_unreadable_answers_file(tmp_path, monkeypatch, capsys, command, content):
@@ -545,7 +545,10 @@ def test_every_answers_reader_exits_2_on_an_unreadable_answers_file(tmp_path, mo
     bad = tmp_path / "bad.json"
     if content is not None:
         bad.write_text(content, encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["dokimi", "eval", command[0], "--answers", str(bad), *command[1:]])
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps({"questions": []}), encoding="utf-8")
+    extra = ["--questions", str(questions)] if command[0] == "checklist" else []
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", command[0], "--answers", str(bad), *extra])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2
