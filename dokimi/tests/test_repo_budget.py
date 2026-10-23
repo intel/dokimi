@@ -920,6 +920,13 @@ def test_a_git_import_through_an_escaping_directory_link_is_refused(tmp_path, li
     assert not any(e["kind"] == "import" for e in budget(tree, NAMES)["entries"])
 
 
+def test_a_git_path_that_climbs_out_after_a_directory_link_is_refused(tmp_path):
+    """``docs -> real`` stays in the tree, but ``docs/../../x.md`` then climbs out of it."""
+    tree = _linked_repo(tmp_path, {"real/x.md": "x"}, {"docs": "real"})
+    with pytest.raises(SourceError, match="escapes the repository"):
+        tree.read_text("docs/../../x.md")
+
+
 def test_a_cut_import_another_chain_loaded_through_a_link_is_not_warned(tmp_path):
     files = {"CLAUDE.md": "@c1.md\n", "c1.md": "@c2.md\n", "c2.md": "@c3.md\n", "c3.md": "@c4.md\n",
              "c4.md": "@x.md\n", "x.md": "xx\n", "sub/CLAUDE.md": "@../lnk.md\n"}
