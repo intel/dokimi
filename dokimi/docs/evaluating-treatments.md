@@ -291,8 +291,9 @@ artifact per cell, a `matrix_rollup.v1` JSON/Markdown report, and paired
   the same way, so the question is answered among its rivals. A `SKILL.md` under a
   `template/` or `templates/` directory, at any depth below `<dir>`, is not a skill and is
   skipped (a real skill kept under such a directory is skipped too), and a `SKILL.md`
-  byte-identical to another under `<dir>` (a plugin's copy of `skills/`) is offered
-  once. Questions that carry `expected_skill` are scored on the skill loaded first; see
+  byte-identical to another under `<dir>` that loads under the same skill name (a plugin's
+  copy of `skills/`) is offered once. Questions that carry `expected_skill` are scored
+  on the skill loaded first; see
   [Skill selection](#skill-selection-does-the-agent-load-the-right-skill).
 - **`<spec1>+<spec2>`** — combined treatment. Merges multiple treatments into a
   single arm by concatenating their contexts. Example:

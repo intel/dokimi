@@ -174,6 +174,24 @@ def test_copies_differing_only_by_line_endings_are_both_kept(tmp_path):
     assert len(discover_skills(root)) == 2
 
 
+def test_identical_text_in_differently_named_directories_is_two_skills(tmp_path):
+    """With no frontmatter ``name`` the directory names the skill, so these differ."""
+    root = tmp_path / "repo"
+    for name in ("alpha", "beta"):
+        (root / name).mkdir(parents=True)
+        (root / name / "SKILL.md").write_bytes(b"---\ndescription: Use when profiling.\n---\n# b\n")
+    (root / "beta" / "helper.sh").write_bytes(b"echo\n")
+    skills = discover_skills(root)
+    assert [(s.name, len(s.resources)) for s in skills] == [("alpha", 0), ("beta", 1)]
+
+
+def test_a_mirror_in_a_renamed_directory_is_still_counted_once(tmp_path):
+    root = tmp_path / "repo"
+    original = _write_skill(root / "skills" / "perf", "perf", "Profile Linux programs.")
+    _write_skill(root / "plugins" / "p" / "perf-copy", "perf", "Profile Linux programs.")
+    assert [s.path for s in discover_skills(root)] == [original]
+
+
 def test_the_mirror_note_names_the_dropped_and_the_kept_path(tmp_path):
     root = tmp_path / "repo"
     original = _write_skill(root / "skills" / "perf", "perf", "Profile Linux programs.")
