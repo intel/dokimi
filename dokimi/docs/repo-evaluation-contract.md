@@ -899,8 +899,9 @@ that runs the no-LLM checks on the caller's checkout and needs no secret.
   workflow, so it runs the smoke set.
 - Other inputs: `manifest`, `max-parallel` (4), `warm` (`--warm`, for a cache that
   starts empty on every runner), `allow-unsupported` (`--allow-unsupported`: a
-  task whose `host` requirements the runner misses passes its job), `runs-on` (`ubuntu-latest`), `timeout-minutes`
-  (180, per task) and `dokimi-repository` (`intel/dokimi`).
+  task whose `host` requirements the runner misses passes its job), `runs-on`
+  (`ubuntu-latest`), `timeout-minutes` (180, per task) and `dokimi-repository`
+  (`intel/dokimi`).
 
 ```yaml
 # .github/workflows/agent-evals.yml in the repository
