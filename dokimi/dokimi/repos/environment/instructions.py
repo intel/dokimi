@@ -74,6 +74,16 @@ def _parent(p: str) -> str:
     return posixpath.dirname(p) or "."
 
 
+def _nested_cursor_rule(p: str) -> bool:
+    """A ``<dir>/.cursor/rules/*.mdc`` below the root; one under the root ``.cursor/rules/`` is the root rule's."""
+    return not p.startswith(".cursor/rules/") and re.match(r"^.+/\.cursor/rules/.+\.mdc$", p) is not None
+
+
+def _cursor_dir(p: str) -> str:
+    """The directory a nested ``<dir>/.cursor/rules/*.mdc`` would apply to: ``<dir>``, the closest one."""
+    return p.rsplit("/.cursor/rules/", 1)[0]
+
+
 def _roo_mode(p: str) -> str | None:
     if p.startswith(".roo/rules-"):
         return p.split("/")[1].removeprefix("rules-")
@@ -104,6 +114,11 @@ RULES: tuple[Rule, ...] = (
          directory=_parent),
     Rule(_under(".cursor/rules/", r"\.mdc$"), ("cursor",), "unknown", "unknown",
          notes=("activation depends on the rule's frontmatter",)),
+    # Cursor's rules docs (cursor.com/docs/context/rules, read 2026-10-23) place rules in the root
+    # .cursor/rules only, and nested AGENTS.md: one below the root is listed, its scope not known.
+    Rule(_nested_cursor_rule, ("cursor",), "unknown", "unknown", directory=_cursor_dir,
+         notes=("below the root: Cursor documents only the root .cursor/rules, so whether it reads this "
+                "one is not known",)),
     Rule(_named(".cursorrules"), ("cursor", "cline"), "legacy", "always", legacy=True),
     Rule(_named("GEMINI.md"), ("gemini", "github-copilot"), "root", "always"),
     Rule(_nested("GEMINI.md"), ("gemini",), "path-specific", "path-scoped", directory=_parent),

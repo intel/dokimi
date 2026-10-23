@@ -592,7 +592,8 @@ python cli.py novelty routing --artifact skill:path/to/skill \
 ```
 
 `--catalog <dir>` takes the competitors from a skill directory instead: every `SKILL.md`
-under it except the artifact itself.
+under it except the artifact itself (a `template/` copy and a byte-identical mirror that
+loads under the same skill name are left out).
 
 Two numbers, reported side by side and never merged:
 
