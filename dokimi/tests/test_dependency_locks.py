@@ -10,6 +10,7 @@ import shlex
 from pathlib import Path
 
 import pytest
+import yaml
 from packaging.markers import Marker
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -160,8 +161,10 @@ def test_mutation_tool_stays_out_of_the_shared_tools_lock() -> None:
 @pytest.mark.parametrize("name", HASHED_LOCKS)
 def test_pip_audit_audits_every_lock(name: str) -> None:
     """A lock the audit job does not list ships its pins unchecked against advisories."""
-    workflow = (ROOT.parent / ".github/workflows/pip-audit.yml").read_text(encoding="utf-8")
-    assert name in workflow
+    workflow = yaml.safe_load((ROOT.parent / ".github/workflows/pip-audit.yml").read_text(encoding="utf-8"))
+    # The audit command itself, not the file text: comments and the Install tools step name locks too.
+    (run,) = [s["run"] for s in workflow["jobs"]["pip-audit"]["steps"] if s.get("name") == "pip-audit"]
+    assert name in run.split()
 
 
 def test_tools_lock_has_every_requested_pin() -> None:
