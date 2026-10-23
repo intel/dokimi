@@ -415,3 +415,36 @@ def test_run_from_events_marks_failed_commands_and_denied_tools():
     ])
     assert run.kinds() == ["Bash:make", "Bash:git", "Bash:pytest", "Bash:ls", "WebFetch", "Task", "Read"]
     assert [e.failed for e in run.events] == [True, True, False, False, True, False, False]
+
+
+# --- documented paths and 911a507 guards no test reached ------------------------------------------
+
+def test_a_file_name_or_stem_key_sets_the_outcome(tmp_path):
+    a, b = _run(str(tmp_path / "x/a.jsonl"), READ), _run(str(tmp_path / "x/b.jsonl"), READ)
+    assert apply_outcomes([a, b], {"a.jsonl": False, "b": False}) == []
+    assert (a.passed, b.passed) == (False, False)
+    o = tmp_path / "o.json"
+    o.write_text('[{"trace": "t1.jsonl", "passed": false}]')
+    assert load_outcomes(o) == {"t1.jsonl": False}
+
+
+def test_all_failed_is_a_stable_failure_and_no_verdict_is_unjudged():
+    runs = [_run(str(i), READ, ok=False) for i in range(3)]
+    assert profile(runs)["strategies"][0]["verdict"] == "stable failure"
+    for r in runs:
+        r.passed = None
+    assert profile(runs)["strategies"][0]["verdict"] == "unjudged"
+
+
+@pytest.mark.parametrize("cmd, want", [
+    ("( make test )", ["Bash:make"]), ("git log --grep=#12 && make test", ["Bash:git", "Bash:make"]),
+])
+def test_a_bare_paren_and_a_hash_inside_a_word(cmd, want):
+    assert _kinds(cmd) == want
+
+
+def test_a_shell_write_is_not_a_read_and_fd_one_is_stdout():
+    assert _written("echo x 1> out.txt") == "out.txt"
+    c = parse_contract({"actions": {"guide": {"tool": "Read", "file_path": r"AGENTS\.md$"}},
+                        "rules": [{"requires": "guide"}]})
+    assert check_contract(_run("r", ("Bash", {"command": "echo x > AGENTS.md"})), c) == ["requires: guide"]
