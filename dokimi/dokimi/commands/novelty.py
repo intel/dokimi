@@ -262,39 +262,188 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
                   f"{agreement['n_atoms_multi_kind']} atoms asked by several kinds")
 
 
+def _routing_card(ref: str):
+    """An artifact or competitor reference as the selector sees it: ``(candidate, body)``."""
+    from dokimi.novelty.routing import load_candidate
+
+    candidate, body, warning = load_candidate(ref)
+    if warning:
+        print(f"WARNING: {warning}", file=sys.stderr)
+    return candidate, body
+
+
+def _routing_field(args: argparse.Namespace, exclude: set[str],
+                   left_out: list[str] | None = None) -> list:
+    """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
+
+    What was left out of the field, and why, is appended to ``left_out`` when given.
+
+    Raises:
+        FileNotFoundError, ValueError: A reference or the catalog cannot be loaded.
+    """
+    from dokimi.novelty.routing import (
+        catalog_competitors,
+        disables_model_invocation,
+        non_skill_reason,
+        skill_file,
+    )
+
+    competitors = []
+    for ref in args.competitors or []:
+        reason = non_skill_reason(ref)
+        if reason:
+            print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
+            if left_out is not None:
+                left_out.append(f"{ref}: {reason}")
+            continue
+        candidate = _routing_card(ref)[0]
+        ref_file = skill_file(ref)
+        if (ref_file and not args.include_disabled
+                and disables_model_invocation(ref_file)):
+            print(f"WARNING: skipped competitor {ref}: disable-model-invocation "
+                  "(--include-disabled keeps it)", file=sys.stderr)
+            if left_out is not None:
+                left_out.append(f"{ref}: disable-model-invocation")
+            continue
+        competitors.append(candidate)
+    if args.catalog:
+        notes: list[str] = []
+        catalog = catalog_competitors(args.catalog,
+                                      exclude | {c.name for c in competitors}, notes,
+                                      include_disabled=args.include_disabled)
+        for note in notes:
+            print(f"WARNING: {note}", file=sys.stderr)
+        if left_out is not None:
+            left_out.extend(notes)
+        no_description = [c.name for c in catalog if not c.description]
+        if no_description:
+            print(f"WARNING: {len(no_description)} catalog skill(s) have no description, "
+                  f"so their card is a name only: {', '.join(sorted(no_description))}",
+                  file=sys.stderr)
+        print(f"--catalog {args.catalog}: {len(catalog)} competitors", file=sys.stderr)
+        competitors += catalog
+    return competitors
+
+
+def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
+    """Every skill in the field is the gold in turn: confusion matrix and attractors."""
+    from dokimi.novelty.routing import RoutingInputError, all_vs_all, load_queries_by_skill
+
+    _check_all_vs_all_args(args)
+    left_out: list[str] = []
+    try:
+        field = _routing_field(args, set(), left_out)
+    except RoutingInputError as exc:
+        raise SystemExit(str(exc)) from None
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(f"cannot load the field: {exc}") from None
+    try:
+        try:
+            queries_by_skill = load_queries_by_skill(args.queries_by_skill)
+        except (OSError, UnicodeDecodeError) as exc:
+            raise SystemExit(f"cannot read the queries: {exc}") from None
+        selector = _client(args.model, args.provider, "selector", args) if args.model else None
+        if selector is not None:
+            # One selector call per query, each sending every card in the field.
+            calls = sum(len(queries) for queries in queries_by_skill.values())
+            print(
+                f"all-vs-all: --model makes {calls} model calls, one per query, over "
+                f"{len(field)} cards each",
+                file=sys.stderr,
+            )
+        result = all_vs_all(field, queries_by_skill, client=selector, seed=args.seed)
+    except RoutingInputError as exc:
+        raise SystemExit(str(exc)) from None
+    without = [c.name for c in field if c.name not in queries_by_skill]
+    if without:
+        print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
+              f"compete: {', '.join(sorted(without))}", file=sys.stderr)
+
+    model_arm = result.get("model") or {}
+    failed = model_arm.get("n_failed", 0)
+    if failed:
+        print(f"WARNING: {failed} model call(s) failed (first error: "
+              f"{model_arm['first_error']}); those queries are left out of "
+              "every rate in the model arm", file=sys.stderr)
+
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"mode": "all_vs_all", "queries_by_skill": args.queries_by_skill,
+               "n_candidates": len(field), "result": result}
+    payload["field"] = _field_record(args, field, left_out)
+    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    if failed:
+        raise SystemExit(f"{failed} of {result['n_queries']} model call(s) failed "
+                         f"({model_arm['first_error']}); the partial result, with those queries "
+                         f"left out of every rate, is in {out}")
+    print(f"OK Saved all-vs-all routing: {out}")
+    print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
+          f"{len(queries_by_skill)} skills with queries")
+    _print_attractors(result)
+
+
+def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
+    """The field rule a routing result was measured under, saved next to the result."""
+    return {"include_disabled": bool(args.include_disabled),
+            "competitors": [c.name for c in competitors], "left_out": left_out}
+
+
+def _check_all_vs_all_args(args: argparse.Namespace) -> None:
+    """Refuse the flag combinations ``--all-vs-all`` cannot run with."""
+    if args.artifact:
+        raise SystemExit("--all-vs-all takes no --artifact: every skill in the field is the "
+                         "gold in turn")
+    if args.queries or args.queries_from_headings:
+        raise SystemExit("--all-vs-all takes --queries-by-skill, not --queries or "
+                         "--queries-from-headings")
+    if not args.queries_by_skill:
+        raise SystemExit("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
+                         "name to the requests that should select it")
+    if not args.out:
+        raise SystemExit("--all-vs-all needs --out <file>")
+
+
+def _print_attractors(result: dict) -> None:
+    """The top five attractors of each arm, one line each."""
+    for arm in ("lexical", "model"):
+        if arm not in result:
+            continue
+        rows = result[arm]["attractors"][:5]
+        if not rows:
+            print(f"{arm}: no skill was picked for another skill's query")
+        for row in rows:
+            print(f"{arm}: {row['skill']} picked for {row['wrongly_picked']} of "
+                  f"{row['sibling_queries']} sibling queries (from {', '.join(row['from'])})")
+
+
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
     """Can this artifact be selected against its competitors? Lexical floor, model on top."""
     from dokimi.novelty.routing import (
-        Candidate,
         RoutingInputError,
-        catalog_competitors,
         check_field,
+        disables_model_invocation,
         headings_as_queries,
         lexical_routing,
-        load_candidate,
         load_queries,
         model_routing,
+        skill_file,
     )
 
-    def card(ref: str) -> tuple[Candidate, str]:
-        candidate, body, warning = load_candidate(ref)
-        if warning:
-            print(f"WARNING: {warning}", file=sys.stderr)
-        return candidate, body
-
+    if args.all_vs_all:
+        return _cmd_routing_all_vs_all(args)
+    if not args.artifact:
+        raise SystemExit("pass --artifact <skill:path>, or --all-vs-all for the whole field")
     try:
-        gold, body = card(args.artifact)
-        competitors = [card(ref)[0] for ref in args.competitors or []]
-        if args.catalog:
-            catalog = catalog_competitors(args.catalog,
-                                          {gold.name, *(c.name for c in competitors)})
-            no_description = [c.name for c in catalog if not c.description]
-            if no_description:
-                print(f"WARNING: {len(no_description)} catalog skill(s) have no description, "
-                      f"so their card is a name only: {', '.join(sorted(no_description))}",
-                      file=sys.stderr)
-            print(f"--catalog {args.catalog}: {len(catalog)} competitors", file=sys.stderr)
-            competitors += catalog
+        gold, body = _routing_card(args.artifact)
+        artifact_file = skill_file(args.artifact)
+        if artifact_file and disables_model_invocation(artifact_file):
+            print(f"WARNING: {args.artifact} sets disable-model-invocation, so no harness lists "
+                  "it and the model cannot select it; its routing rate is not a harness rate",
+                  file=sys.stderr)
+        left_out: list[str] = []
+        competitors = _routing_field(args, {gold.name}, left_out)
+    except RoutingInputError as exc:
+        raise SystemExit(str(exc)) from None
     except (FileNotFoundError, ValueError) as exc:
         raise SystemExit(f"cannot load an artifact: {exc}") from None
     # Checked before the query file is read, so the message is about the real problem.
@@ -333,6 +482,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         "status": "ok",
         "n_candidates": len(candidates),
         "queries_self_derived": self_derived,
+        "field": _field_record(args, competitors, left_out),
         "lexical": lexical,
     }
     if args.model:
@@ -612,18 +762,33 @@ def register(sub, positive_int) -> None:
     routing_p = novelty_sub.add_parser(
         "routing", help="Can the artifact be selected against competitors? (name+description)"
     )
-    routing_p.add_argument("--artifact", required=True,
-                           help="skill:<path> or text:<path> under test")
+    routing_p.add_argument("--artifact", default=None,
+                           help="skill:<path> or text:<path> under test (required unless "
+                                "--all-vs-all)")
+    routing_p.add_argument("--all-vs-all", action="store_true", dest="all_vs_all",
+                           help="Route every skill that has queries against the whole field, "
+                                "in turn: a confusion matrix and the attractors, the skills "
+                                "picked for queries written for another skill. Takes "
+                                "--queries-by-skill and --out, and no --artifact")
+    routing_p.add_argument("--queries-by-skill", default=None, dest="queries_by_skill",
+                           help="With --all-vs-all: a JSON object of skill name to the list of "
+                                "requests that should select that skill")
     routing_p.add_argument("--competitors", nargs="+", default=None,
                            help="Other artifacts the selector sees. Selection among one "
                                 "candidate is not routing: the sibling confusion is the "
                                 "failure mode (every `dpnp-*` skill scored 0.0 lexically)")
     routing_p.add_argument("--catalog", default=None,
                            help="Directory of skills to take the competitors from: every "
-                                "SKILL.md under it except the artifact itself (a template/ "
-                                "copy and a byte-identical mirror that loads under the same "
-                                "skill name are left out), i.e. the siblings a harness "
-                                "lists next to it. Combines with --competitors")
+                                "skill the catalog lists (skills.yaml when present, else every "
+                                "SKILL.md under it; a template/ copy is left out) except "
+                                "the artifact itself, i.e. the "
+                                "siblings a harness lists next to it. Combines with "
+                                "--competitors")
+    routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",
+                           help="Keep skills that set disable-model-invocation in the field. "
+                                "Off by default: no harness lists them, so the model cannot "
+                                "select them and a card for one measures a choice that does "
+                                "not exist")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")

@@ -591,9 +591,19 @@ python cli.py novelty routing --artifact skill:path/to/skill \
     --queries queries.json [--model M]
 ```
 
-`--catalog <dir>` takes the competitors from a skill directory instead: every `SKILL.md`
-under it except the artifact itself (a `template/` copy and a byte-identical mirror that
-loads under the same skill name are left out).
+`--catalog <dir>` takes the competitors from a skill directory instead: every skill the catalog
+lists except the artifact itself. A `skills.yaml` at the root decides what the catalog lists;
+without one, every `SKILL.md` under it counts, except a `template/` copy. A declared skill
+that cannot be loaded is skipped with a warning. Two catalog skills with the same name and different content are refused, with
+both paths named: rename one, or delete the copy you do not mean to route against.
+A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
+warning, so a shell glob over a skills directory can be passed as it is.
+A skill that sets `disable-model-invocation` is left out of the field, both from a catalog
+and as `--competitors`: no harness lists it, so the model cannot select it. Pass
+`--include-disabled` to keep it. A disabled artifact is still routed, with a warning; the flag does not change that.
+A catalog that holds the same `SKILL.md` under two paths (a plugin copy of its `skills/`
+tree) counts it once: the copy nearest the catalog root stands for the card, and the
+others are named on stderr.
 
 Two numbers, reported side by side and never merged:
 
@@ -613,6 +623,34 @@ Two numbers, reported side by side and never merged:
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
 next to `n_queries_scored`, since a query with no content words is dropped rather than
 counted as a miss.
+
+**All skills against each other.** `novelty routing --all-vs-all --catalog <dir>
+--queries-by-skill queries.json --out routing.json` (add `--model M` for the model arm) makes
+every skill that has queries the gold in turn, routed against the whole field. The file is a
+JSON object of skill name to the requests that should select it, each written without the
+skill's own text. A skill named twice in the file is refused. The output has a confusion
+matrix (gold to picked to count, with `(none)` for a query no card shares a word with or, in
+the model arm, an abstention, and `(tie)` for a query on which two or more other cards tie for
+the top lexical score, so no field order decides it), an own rate per skill, and an attractor
+table: a skill picked for other skills' queries, with `wrongly_picked` of `sibling_queries` and
+the skills whose queries it took (`from`). Every rate is over the queries that were scored:
+`n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
+model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
+with any failed model call writes the result and exits non-zero. The saved file records the
+field rule under `field` (`include_disabled`, the `competitors` and what was `left_out`); a
+single-artifact run records it too. It takes no `--artifact`, `--queries` or
+`--queries-from-headings`. The model arm also records the selector `model`, so two runs with
+different models can be told apart. It is refused with fewer than two skills, a name repeated
+in the field, a query file that names a skill outside the field, or no queries at all.
+
+**Cost of `--model` in all-vs-all.** The model arm makes one selector call per query, across
+every skill in the field: the call count is the total number of requests in `queries.json`, and
+a failed call still counts. Each call sends the whole field's cards, so a large field costs
+more per call as well as in calls. Before the first call the run prints that count to stderr
+(`all-vs-all: --model makes N model calls, one per query, ...`). The run does not pause for it,
+so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
+A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
+fewer calls than the printed count.
 
 Three properties worth knowing before quoting either:
 
