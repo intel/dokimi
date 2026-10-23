@@ -89,7 +89,7 @@ to pay to run is half-declared.
 
 ```console
 $ python cli.py catalog scan --root C:/Users/Public/content-repo
-# skills (2 declared under C:\Users\Public\content-repo)
+# skills (2 declared under C:\Users\Public\content-repo; 1 ok, 0 warn, 1 error)
 demo-skill      published       C:\Users\Public\content-repo\skills\demo-skill  ok
 not-written-yet planned C:\Users\Public\content-repo\skills\not-written-yet      ERROR: Skill path does not exist: C:\Users\Public\content-repo\skills\not-written-yet
 
@@ -109,11 +109,33 @@ Read that output as three outcomes, not two:
   drive (`answer-quality` entries are question-set material, not Docker tasks).
 - `ERROR` — an entry that should have worked and did not.
 
-Only errors change the exit code, so `catalog scan` exiting 0 means "everything
-declared as runnable is runnable". Note the asymmetry above: a `planned` *task*
+Only load errors change the exit code, so `catalog scan` exiting 0 means
+"everything declared as runnable is runnable". A spec error (below) changes it
+only under `--strict`. Note the asymmetry above: a `planned` *task*
 with no directory is skipped, while a `planned` *skill* with no directory is an
 error — the skill reader has no notion of a not-yet-written entry. Either drop
 such a skill from `skills.yaml` or expect the non-zero exit.
+
+A loaded skill is also checked against the Agent Skills spec. Its `name` must be
+its directory name and kebab-case (at most 64 characters; a `SKILL.md` directly in the scanned root is not compared with the root directory's name), and its `description`
+at most 1024 characters: a violation is an `error`, printed under the skill. It
+exits 1 only with `--strict`; without it, the scan reports the error and still
+exits 0. A `name` missing from the frontmatter, or a `SKILL.md` byte-identical to
+an earlier skill's, is a `warn` that names the first copy; warnings never change
+the exit code. `disable-model-invocation: true` is printed as a `note`, because
+the model is never offered that skill.
+
+Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops
+the skill from loading, since the loader reads it as having no description. The
+scan reports that as a `frontmatter-parse` error carrying the YAML message, and
+it exits 1 with or without `--strict`, as a load error does. The YAML message is
+on the indented `frontmatter-parse` line under the skill (and in its `findings`
+in JSON); the row's main line and its JSON `error` field still say the skill is
+missing a `description`.
+
+`--strict` makes `catalog scan` a gate on the spec as well as on loading. The
+text output and `--format json` (one object: `state`, `findings`,
+`content_sha256`, `duplicate_of`, for a script or a CI gate) are the same either way.
 
 Restrict the scan with `--kind`:
 
