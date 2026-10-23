@@ -289,6 +289,7 @@ def test_gate_passes_a_clean_tree(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, ".claude/skills/a/SKILL.md": _skill("a", "Format Python code.")})
     out = _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys).out  # no SystemExit
     assert "start 40 chars, lazy 0, on demand 13, off 0" in out and "warning" not in out
+    assert "| start | guidance | CLAUDE.md | 20 |" in out
 
 
 def _run(argv, capsys):
@@ -917,6 +918,13 @@ def test_a_git_import_through_an_escaping_directory_link_is_refused(tmp_path, li
     with pytest.raises(SourceError, match="escapes"):
         tree.read_text("docs/a.md")
     assert not any(e["kind"] == "import" for e in budget(tree, NAMES)["entries"])
+
+
+def test_a_git_path_that_climbs_out_after_a_directory_link_is_refused(tmp_path):
+    """``docs -> real`` stays in the tree, but ``docs/../../x.md`` then climbs out of it."""
+    tree = _linked_repo(tmp_path, {"real/x.md": "x"}, {"docs": "real"})
+    with pytest.raises(SourceError, match="escapes the repository"):
+        tree.read_text("docs/../../x.md")
 
 
 def test_a_cut_import_another_chain_loaded_through_a_link_is_not_warned(tmp_path):
