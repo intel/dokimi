@@ -609,6 +609,14 @@ Two numbers, reported side by side and never merged:
   `selection_rate_among_answered` beside it; a failed call is excluded from both and
   counted, and one failed query does not lose the rest.
 
+A `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
+write tokens, and `usd`, which is `null` when any call this run paid for had no known price) and prints the
+same totals on stdout. Cache tokens are reported separately from input tokens, and depending on
+the provider they may or may not be counted inside `input_tokens`. A run without `--model` makes
+no calls and has no `cost` block. `usd` is also `null` when a call returned no usage, and a
+call that raised is not counted. A call replayed from the response cache is counted in
+`replayed_calls` and left out of the token and `usd` totals, since this run did not pay for it.
+
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
 next to `n_queries_scored`, since a query with no content words is dropped rather than
