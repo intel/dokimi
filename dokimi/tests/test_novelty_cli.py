@@ -664,6 +664,17 @@ def test_the_printed_percentage_is_the_share_not_a_float_product(capsys, entry, 
     assert f"coverage: {printed} of the artifact's readable words" in out
 
 
+def test_a_tiny_non_zero_share_prints_as_under_one_percent(capsys):
+    record = {"include_resources": False, "n_files": 1, "entry_point_words": 1,
+              "resource_words_measured": 0, "resource_words_on_disk": 9999,
+              "policy_excluded_words": 0, "unreadable_files": 0, "excluded": [],
+              "coverage_basis": "readable"}
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record))
+    out = capsys.readouterr().out
+    assert "coverage: <1% of the artifact's readable words were measured (entry point only)" in out
+    assert "WARNING: only <1% of the artifact's readable words" in out
+
+
 def test_a_bundle_run_capped_by_the_budget_warns_without_advising_the_flag_it_passed(capsys):
     # --include-resources was passed; the budget left most of the reference unread. The
     # stderr warning list is silent about this, the stdout line is not, and it must not tell

@@ -857,7 +857,7 @@ def _print_coverage(bundle: dict) -> None:
     # Floored on the 4-place share, in integers: a float product floors 0.29 to 28, and
     # 49.99% must not print as "50%" beside a "below 50%" warning. A true 49.996% is already
     # 0.5 by the time it is stored.
-    pct = f"{round(share * 10000) // 100}%"
+    pct = "<1%" if 0 < share < 0.01 else f"{round(share * 10000) // 100}%"
     print(f"coverage: {pct} of the artifact's readable words were measured{scope}")
     if share <= MEASURED_SHARE_WARN_AT:
         print(f"WARNING: only {pct} of the artifact's readable words were measured, so every "
