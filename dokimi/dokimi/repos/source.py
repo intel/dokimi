@@ -55,7 +55,9 @@ class RepoSource:
             raise SourceError(f"invalid repository source: {spec!r}")
         location, rev = spec, None
         head, sep, tail = spec.rpartition("@")
-        if sep and head and _is_rev(tail) and _has_location_path(head):
+        # An existing directory is read whole: jenkins ws/job@2/repo, /home/a@corp.com/proj.
+        if (sep and head and _is_rev(tail) and _has_location_path(head)
+                and (spec.startswith(_REMOTE_PREFIXES) or not Path(spec).is_dir())):
             location, rev = head, tail
         remote = location.startswith(_REMOTE_PREFIXES)
         if location.startswith("http://"):

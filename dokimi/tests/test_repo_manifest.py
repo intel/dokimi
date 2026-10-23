@@ -689,3 +689,13 @@ def test_resolve_rev_takes_a_branch_with_a_slash(tmp_path):
     sha = _git_commit(root)
     subprocess.run(["git", "-C", str(root), "branch", "origin/main"], check=True)
     assert resolve_rev(root, "origin/main") == sha
+
+
+@pytest.mark.parametrize("sub", ["ws/job@2/repo", "home/alice@corp.com/proj", "gomod/r@v1.2.3/skills",
+                                 "node_modules/@types/node", "d@HEAD"])
+def test_an_existing_directory_with_an_at_sign_is_read_whole(tmp_path, sub):
+    (tmp_path / sub).mkdir(parents=True)
+    src = RepoSource.parse(f"{tmp_path}/{sub}")
+    assert (src.location, src.rev) == (f"{tmp_path}/{sub}", None)
+    pinned = RepoSource.parse(f"{tmp_path}/{sub}@origin/main")
+    assert (pinned.location, pinned.rev) == (f"{tmp_path}/{sub}", "origin/main")
