@@ -125,6 +125,18 @@ def build_items(doc: dict, factors: Sequence[str] = FACTORS) -> List[dict]:
     return items
 
 
+def skipped_factors(doc: dict, factors: Sequence[str] = FACTORS) -> Dict[str, List[str]]:
+    """``{factor: group ids}`` for each factor some group's twin cannot express (see ``build_items``)."""
+    _, cues = settings(doc)
+    out: Dict[str, List[str]] = {}
+    for f in dict.fromkeys(factors):
+        ids = [g["id"] for g in doc["groups"]
+               if any(_twin_variant(g["twins"][r], f, cues) is None for r in ("A", "B"))]
+        if ids:
+            out[f] = ids
+    return out
+
+
 def _other(role: str) -> str:
     return "B" if role == "A" else "A"
 

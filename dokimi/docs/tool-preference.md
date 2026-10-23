@@ -50,7 +50,7 @@ request needs no tool, and calling one counts as over-calling.
 The twins' `description` is the neutral baseline. The optional fields feed the
 factors: `vendor_name` for `vendor_name`, `detail` and `example` for
 `long_desc`, and `exclusion` for `exclusion`. A factor a twin has no field for
-is skipped for that twin. `cues` overrides the sentence `assertive` and
+is skipped for that twin. `--dry-run` names the groups each factor is skipped for. `cues` overrides the sentence `assertive` and
 `social_proof` append, and `system` overrides the system prompt (an empty string
 sends none). `domain` is a free-form label copied to every item of the group in
 the result, for slicing. The full format is

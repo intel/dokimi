@@ -801,3 +801,18 @@ def test_max_cost_usd_zero_skips_all(doc):
     results = tp.run_probe(items, lambda i: {"called": [], "usage": {"cost_usd": 0.0001}},
                            reps=1, concurrency=1, max_cost_usd=0.0)
     assert all(r["skipped"] for r in results)
+
+
+def test_dry_run_names_the_groups_a_factor_is_skipped_for(capsys):
+    from dokimi.cli import build_parser
+
+    expected = {"vendor_name": ["G02", "N01"], "long_desc": ["G02", "N01"], "exclusion": ["G02", "N01"]}
+    doc = tp.load_groups(json.loads(GROUPS.read_text(encoding="utf-8")))
+    assert tp.skipped_factors(doc) == expected
+    assert tp.skipped_factors(doc, ["assertive", "long_desc"]) == {"long_desc": ["G02", "N01"]}
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--dry-run",
+                                      "--factors", "assertive,exclusion"])
+    args.func(args)
+    out = capsys.readouterr().out
+    assert "exclusion: skipped for 2 of 3 groups (G02, N01)" in out
+    assert "assertive: skipped" not in out
