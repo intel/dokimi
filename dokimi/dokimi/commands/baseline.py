@@ -188,9 +188,9 @@ def cmd_baseline_list(args: argparse.Namespace) -> None:
     for b in baselines:
         s = b.get("summary", {})
         print(
-            f"{b['name']:<35} {b.get('product','?'):<12} {b.get('saved_at','?'):<17}"
-            f" {s.get('n','?'):>4} {s.get('avg_with','?'):>6} {s.get('avg_without','?'):>8}"
-            f" {s.get('avg_delta', 'n/a'):>7}"
+            f"{b['name']:<35} {str(b.get('product','?')):<12} {str(b.get('saved_at','?')):<17}"
+            f" {str(s.get('n','?')):>4} {str(s.get('avg_with','?')):>6} {str(s.get('avg_without','?')):>8}"
+            f" {str(s.get('avg_delta', 'n/a')):>7}"
         )
 
 
