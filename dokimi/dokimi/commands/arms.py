@@ -572,6 +572,12 @@ def _probe_sampling(model: str, provider: str, temperature, seed) -> None:
         ) from exc
 
 
+def _refuse_judged_session(args: argparse.Namespace) -> None:
+    """Refused before any answer is paid for: a session is measured, not judged."""
+    if getattr(args, "session_turns", None) is not None and args.judge:
+        raise ValueError("--session-turns is measurement-only; drop --judge")
+
+
 def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: list[dict]) -> dict:
     from dokimi.eval import Judge, JudgePanel
     from dokimi.eval.panel import JUDGE_ROLES, JudgeConfig
@@ -584,10 +590,7 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
     )
     from dokimi.treatments import create_treatments
 
-    session_turns = getattr(args, "session_turns", None)
-    if session_turns is not None and args.judge:
-        # Refused before any answer is paid for: a session is measured, not judged.
-        raise ValueError("--session-turns is measurement-only; drop --judge")
+    _refuse_judged_session(args)
     treatments = create_treatments(specs, top_k=args.top_k, rerank_threshold=args.rerank_threshold)
     _validate_expected_skills(questions, treatments)
     try:
@@ -671,7 +674,7 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
         stats_correction=getattr(args, "stats_correction", "holm"),
         temperature=getattr(args, "temperature", None),
         seed=getattr(args, "seed", None),
-        session_turns=session_turns,
+        session_turns=getattr(args, "session_turns", None),
         turn_reminder=getattr(args, "turn_reminder", None),
     )
     records = runner.run(

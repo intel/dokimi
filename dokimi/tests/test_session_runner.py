@@ -191,6 +191,35 @@ def test_a_failed_session_still_counts_the_turns_already_paid_for(fake_llm):
     assert summary["total_cost_usd"] == pytest.approx(0.01)
 
 
+def test_a_failed_session_does_not_skew_the_answer_length_comparison(fake_llm):
+    # Control: q1 answers 100 chars at turn 0 and then returns an empty reply, q2 succeeds.
+    # Plugin: both succeed. Every real answer is 100 chars on both sides.
+    questions = [SESSION_Q, {**SESSION_Q, "id": "q2"}]
+    fake_llm.push("x" * 100, "", "x" * 100, "x" * 100, "x" * 100)
+    control = ArmRunner([BaselineTreatment()], session_turns=2)
+    control_records = control.run("oneTBB", questions, concurrency=1)
+    failed = control_records[0]["arms"]["baseline"]
+    assert failed["error"] == "empty_reply: turn 1"
+    assert "raw_answer_chars" not in failed["metrics"] and "final_answer_chars" not in failed["metrics"]
+    assert failed["metrics"]["n_calls"] == 2  # the spend stays visible to the cost rollup
+
+    fake_llm.push("x" * 100, "x" * 100, "x" * 100, "x" * 100)
+    plugin_records = ArmRunner([BaselineTreatment()], session_turns=2).run(
+        "oneTBB", questions, concurrency=1)
+
+    def artifact(records, plugin_set):
+        out = _artifact(session_turns=2, plugin_set=plugin_set)
+        out.update(answers=records, total_questions=2)
+        return out
+
+    from dokimi.eval.plugin_delta import _answer_text_deltas
+
+    rows = _answer_text_deltas(artifact(control_records, "none"), artifact(plugin_records, "caveman"),
+                               ["baseline"])["baseline"]
+    for key in ("raw_answer_chars", "final_answer_chars"):
+        assert rows[key] == {"baseline_avg": 100.0, "plugin_avg": 100.0, "delta": 0.0}
+
+
 def test_a_session_that_fails_on_its_first_turn_has_no_spend_to_report(fake_llm):
     fake_llm.push(ValueError("boom"))
     records = ArmRunner([BaselineTreatment()], session_turns=2).run(
@@ -302,6 +331,9 @@ def test_the_opening_turn_caps_injected_context_as_the_plain_run_does(fake_llm):
 
     opening = fake_llm.requests[0].messages[-1]["content"]
     assert opening.count("\u00a7") == MAX_CONTEXT_CHARS
+    # The context arm opens with the first question, not a follow-up.
+    assert SESSION_Q["question"] in opening
+    assert not any(follow_up in opening for follow_up in SESSION_Q["follow_ups"])
 
 
 def test_opening_is_prepared_from_the_first_turn_not_the_last(fake_llm):
@@ -373,14 +405,14 @@ def test_session_flags_parse_to_ints_and_text():
     assert _parse_arms_run([]).session_turns is None
 
 
-def _artifact(session_turns=None, plugin_set="none"):
+def _artifact(session_turns=None, plugin_set="none", reminder=None):
     out = {"schema_version": "arms.v1", "library_name": "L", "model": "m", "provider": "p",
            "harness": "h", "arms": ["baseline"], "baseline_arm": "baseline",
            "total_questions": 1, "plugin_set": plugin_set, "answers": [],
            "run_config": {"max_tokens": None}}
     if session_turns is not None:
         out["run_config"]["session_turns"] = session_turns
-        out["run_config"]["turn_reminder"] = None
+        out["run_config"]["turn_reminder"] = reminder
     return out
 
 
@@ -389,6 +421,16 @@ def test_a_session_run_is_not_paired_with_a_single_turn_run():
 
     with pytest.raises(PluginDeltaError, match="different session_turns: None vs 3"):
         compare_plugin_runs(_artifact(), _artifact(session_turns=3, plugin_set="caveman"))
+
+
+def test_a_run_with_a_turn_reminder_is_not_paired_with_one_without():
+    from dokimi.eval.matrix_rollup import _pair_key
+    from dokimi.eval.plugin_delta import PluginDeltaError, compare_plugin_runs
+
+    # Same turn count: only the request text differs, on every user turn.
+    with pytest.raises(PluginDeltaError, match="different turn_reminder: None vs 'R'"):
+        compare_plugin_runs(_artifact(3, reminder=None), _artifact(3, reminder="R", plugin_set="caveman"))
+    assert _pair_key(_artifact(3, reminder=None)) != _pair_key(_artifact(3, reminder="R"))
 
 
 def test_the_matrix_pairing_key_separates_session_runs():

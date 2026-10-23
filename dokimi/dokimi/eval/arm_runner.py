@@ -110,6 +110,16 @@ def _static_arm_kind(treatment: Treatment) -> Dict[str, Any]:
     return {"arm_kind": getattr(t, "arm_kind", None)}
 
 
+
+def _refuse_session_records(recs: Sequence[Record]) -> None:
+    """Refuse to judge a session run: its last answer would be scored against its first question."""
+    if any(r.raw.get("session_turns") for r in recs):
+        raise ValueError(
+            "Session records are measurement-only: the judge would score a session's last "
+            "answer against its first question. Judge a single-turn run instead."
+        )
+
+
 class ArmRunner:
     """Generate answers for each treatment arm and (optionally) judge them."""
 
@@ -500,13 +510,15 @@ class ArmRunner:
         """Token usage and metrics of the turns a failed session did complete.
 
         The calls were paid for, so the cost rollup must count them; an arm without
-        ``metrics`` is skipped by it.
+        ``metrics`` is skipped by it. No answer-length keys are written: a failed
+        session has no answer, and plugin-delta averages those keys over every arm
+        that has a ``metrics`` block.
         """
         if not session["turns"]:
             return {}
         usage = session["usage"]
         return {"token_usage": usage.as_token_usage_dict(),
-                "metrics": usage.as_metrics_dict(answer_chars=0, final_chars=0)}
+                "metrics": usage.as_metrics_dict()}
 
     @staticmethod
     def _apply_shapers(shapers, answer_text):
@@ -640,11 +652,7 @@ class ArmRunner:
         recs = as_records(records, source="answers", kind="answers")
         # Before any judge call: refuse, do not grade against "".
         require_question_texts(r.raw for r in recs)
-        if any(r.raw.get("session_turns") for r in recs):
-            raise ValueError(
-                "Session records are measurement-only: the judge would score a session's last "
-                "answer against its first question. Judge a single-turn run instead."
-            )
+        _refuse_session_records(recs)
         n = len(recs)
         out: Dict[int, Dict[str, Any]] = {}
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
