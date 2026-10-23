@@ -27,8 +27,13 @@ def _artifact(**overrides):
     return artifact
 
 
-def test_a_fully_checked_zero_reads_as_zero():
-    markdown = render_novelty_markdown(_artifact())
+@pytest.mark.parametrize("artifact", [
+    _artifact(),
+    # written before conflict_coverage existed, over an uncapped atom set: the old reading
+    {k: v for k, v in _artifact().items() if k != "conflict_coverage"},
+], ids=["fully-checked", "no-coverage-record"])
+def test_a_zero_the_gate_clears_reads_as_zero(artifact):
+    markdown = render_novelty_markdown(artifact)
     assert "| harmful_conflicting | 0 |" in markdown
     assert "Conflicts not cleared" not in markdown and "Conflicts first" not in markdown
 
