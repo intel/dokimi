@@ -262,9 +262,8 @@ _DIRECTORY_REASON = "Is a directory" if os.name == "posix" else "Permission deni
         ("{not json", "Expecting"),
         (b'["\xe9"]', "utf-8"),  # \xe9 is latin-1, not UTF-8
         (..., _DIRECTORY_REASON),
-        ("[" * 100_000 + "0" + "]" * 100_000, "recursion"),
     ],
-    ids=["missing", "malformed", "not-utf8", "directory", "nested-too-deep"],
+    ids=["missing", "malformed", "not-utf8", "directory"],
 )
 def test_trigger_set_exits_2_with_a_message_on_an_unreadable_questions_file(
     tmp_path, catalog, monkeypatch, capsys, content, reason
@@ -290,6 +289,20 @@ def test_trigger_set_exits_2_with_a_message_on_an_unreadable_questions_file(
     assert len(err.strip()) > len(prefix)
     assert reason in err
     assert not out.exists()
+
+
+def test_read_json_input_reports_a_json_recursion_error_as_an_input_error(tmp_path, monkeypatch):
+    from dokimi.utils import InputError, read_json_input
+
+    qfile = tmp_path / "q.json"
+    qfile.write_text("[]", encoding="utf-8")
+
+    def too_deep(_text):
+        raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
+
+    monkeypatch.setattr("json.loads", too_deep)  # CPython 3.14 parses 100k levels, so it cannot trigger this
+    with pytest.raises(InputError, match="--questions .*q.json: maximum recursion depth exceeded"):
+        read_json_input(qfile, flag="--questions")
 
 
 def test_skill_catalog_rejects_tool_name_collisions_and_long_names(tmp_path):
