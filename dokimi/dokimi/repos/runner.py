@@ -59,6 +59,7 @@ from .container import (
     Mount,
     docker_network,
 )
+from .answers import convert_answer
 from .events import convert
 from .uptake import arm_uptake
 from .grading import EvalContext, failed_outcome, outcome, run_entry
@@ -168,8 +169,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
 
     mounts, env = agent_layout(ctx, rd, task)
     bin_in = f"{HARNESS_DIR}/{opts.harness_bin.name}"
-    mounts += [Mount(opts.harness_bin.resolve(), bin_in, read_only=True),
-               Mount(SUPPORT_HOST, SUPPORT_DIR, read_only=True)]
+    mounts += [*harness_mounts(opts), Mount(SUPPORT_HOST, SUPPORT_DIR, read_only=True)]
     harness_env = opts.profile.env(Path(CONFIG_DIR)).resolve()
     # Allow-listed host values (credentials among them) go by name only; the rest are the framework's.
     passed = tuple(k for k in opts.profile.env_allow
@@ -200,7 +200,9 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
         (rd / "events.jsonl").write_text(transcript.events_jsonl(), encoding="utf-8")
-        (rd / "answer.txt").write_text(transcript.answer, encoding="utf-8")
+        failed = transcript.is_error or not result.ok  # a crashed review is missing, not clean
+        answer = convert_answer(opts.profile.answer_format, transcript.answer, WORKSPACE, failed=failed)
+        (rd / "answer.txt").write_text(answer, encoding="utf-8")
         _write_json(rd / "task.json", task.raw)
         meta["harness_version"] = transcript.harness_version or opts.harness_version
         meta["model_resolved"] = transcript.model_resolved()  # an alias can map `model` to another one
@@ -387,7 +389,7 @@ def harness_version(ctx: EvalContext, opts: AgentOptions, work: Path) -> str:
     work.mkdir(parents=True, exist_ok=True)
     bin_in = f"{HARNESS_DIR}/{opts.harness_bin.name}"
     spec = ContainerSpec(image=ctx.image, argv=opts.profile.version_argv(bin_in), workdir="/",
-                         mounts=[Mount(opts.harness_bin.resolve(), bin_in, read_only=True)],
+                         mounts=harness_mounts(opts),
                          # HOME is the probe container's own /tmp, never a host path.
                          env={"HOME": "/tmp"}, network="none",  # nosec B108
                          name=container_name("version", "probe"))
@@ -399,6 +401,19 @@ def harness_version(ctx: EvalContext, opts: AgentOptions, work: Path) -> str:
                              f"{(err or text)[-300:]}")
     match = re.search(r"\d+\.\d+\.\d+", text)
     return match.group(0) if match else (text.splitlines()[0] if text else "unknown")
+
+
+def harness_mounts(opts: AgentOptions) -> list[Mount]:
+    """The harness executable and its ``bin_companions``, read-only, side by side under /eval/harness."""
+    real = opts.harness_bin.resolve()
+    mounts = [Mount(real, f"{HARNESS_DIR}/{opts.harness_bin.name}", read_only=True)]
+    for name in opts.profile.bin_companions:
+        companion = real.parent / name
+        if not companion.is_file():
+            raise ContainerError(f"{opts.profile.name} needs {name} beside its executable: missing {companion}; "
+                                 "pass the --bin of a complete install")
+        mounts.append(Mount(companion, f"{HARNESS_DIR}/{name}", read_only=True))
+    return mounts
 
 
 def container_name(cell: str, kind: str) -> str:

@@ -31,7 +31,7 @@ SPDX-License-Identifier: Apache-2.0
 > Slice S3 adds harness profiles (§6) and the reach probe (§7):
 >
 > ```bash
-> python cli.py repo reach <source> --manifest <path> --model <id> [--harness claude-code]
+> python cli.py repo reach <source> --manifest <path> --model <id> [--harness claude-code|codex|copilot|copilot-review|<profile.yaml>]
 >     [--bin <cli>] [--scenarios root,cwd,read] [--only <scenario>] [--dry-run]
 > ```
 >
@@ -628,7 +628,7 @@ env_allow: [PATH, HOME, AWS_REGION, AWS_BEARER_TOKEN_BEDROCK, ANTHROPIC_API_KEY,
 env_set: {CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1", DISABLE_AUTOUPDATER: "1"}
 egress: ["bedrock-runtime.*.amazonaws.com", "api.anthropic.com"]   # the only hosts the agent container reaches (§2)
 endpoint_env: ANTHROPIC_BASE_URL     # used by payload capture, if set
-trace: claude-stream-json            # converter to events.jsonl; or: text
+trace: claude-stream-json            # converter to events.jsonl; or: codex-json, copilot-json, text
 guidance:                            # DECLARED; verified by the reach probe, never trusted
   names: [CLAUDE.md, CLAUDE.local.md, AGENTS.md]
   resolution: ancestors-of-cwd + lazy-on-subtree-access
@@ -651,8 +651,56 @@ bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
   scripts) as the agent's container sees them. The built-in `claude-code`
   profile uses them for a hook that refuses backgrounded shell commands.
 
-Profiles for other harnesses (Codex, Gemini CLI, Copilot CLI, Cursor agent,
-Aider, OpenCode, in-house agents) follow the same shape. Their `guidance`
+- `trace` names the converter of the harness's stdout to `events.jsonl`:
+  `claude-stream-json`, `codex-json` (`codex exec --json`), `copilot-json`
+  (`copilot -p --output-format json`) or `text` (stdout is the answer, no
+  events). Codex has no read tool, so its `read` events come from shell
+  commands that only print files (`cat`, `head`, `tail`, `sed -n`, `nl`).
+  Neither Codex nor Copilot reports a cost: `cost_usd` is `null` and a batch
+  budget counts each cell's cap.
+- `bin_companions` names files the executable starts from its own directory.
+  `repo run` mounts the executable alone at `/eval/harness/<name>`, so each
+  companion is mounted read-only beside it, from beside `--bin`; a missing one
+  stops the run before any agent starts. Codex 0.160 needs
+  `codex-code-mode-host`: every tool call goes through it.
+- `repo reach` writes `config_files` into each scenario's config directory as
+  `repo run` does, with `{config_dir}` and `{support_dir}` as host paths.
+- `native_prompt: true` marks a harness that runs its own built-in prompt, such
+  as a native review mode. `invoke` then passes no `{prompt}` (and there is no
+  `prompt_suffix`), the agent never sees the task prompt, and `repo reach`
+  refuses the profile. Use such a profile only on tasks whose grader reads what
+  it answers, which `answer_format` provides.
+- `answer_format` converts the final answer before grading. `codex-review`
+  keeps Codex's review text and appends a ```` ```json ```` block of findings
+  `{file, line, end_line, severity, priority, rule, message}` parsed from its
+  `- [P1] title — path:12-14` lines: `file` relative to the workspace,
+  `severity` `blocker` (P0), `major` (P1) or `minor` (P2, P3), `rule` the title
+  and `message` the body.
+
+Built-in profiles besides `claude-code`:
+
+| profile | runs | trace | notes |
+|---|---|---|---|
+| `codex` | `codex exec --json … -- {prompt}` | `codex-json` | `CODEX_HOME` is the per-run config dir; no turn or spend flag, the timeout bounds a run; `none`/`read` get Codex's read-only sandbox, which needs unprivileged user namespaces |
+| `codex-review` | `codex exec review --commit HEAD --json` | `codex-json` | `native_prompt`, `answer_format: codex-review`; review tasks only (the change under review is HEAD) |
+| `copilot` | `copilot --prompt={prompt} --output-format json --allow-all-tools …` | `copilot-json` | `COPILOT_HOME` per run; a GitHub token as `COPILOT_GITHUB_TOKEN` (`GH_TOKEN` and `GITHUB_TOKEN` are not forwarded: Copilot leaves them readable by the agent's commands), or BYOK through the `COPILOT_PROVIDER_*` variables; `none` names a tool that does not exist, because an empty `--available-tools` leaves every tool on |
+| `copilot-review` | as `copilot`, with the prompt `/review {prompt}` | `copilot-json` | a prompt variant of `copilot`, not Copilot's review agent: under `-p`, `/review` reaches the model as plain text, with the same system prompt and tools; the task prompt still asks for its answer format |
+
+npm installs `codex` and `copilot` as Node launchers. A run mounts one file as
+the harness, so `--bin` names the native binary the launcher starts
+(`@openai/codex-<platform>/vendor/<triple>/bin/codex`,
+`@github/copilot-<platform>/copilot`). To route a CLI to another endpoint,
+copy its profile: for Copilot, set the `COPILOT_PROVIDER_*` variables (and
+`COPILOT_OFFLINE=true` to skip GitHub sign-in); for Codex, add a `config.toml`
+under `config_files` that defines a `model_providers` entry with the endpoint's
+`base_url`, `wire_api = "responses"` and `env_key = "CODEX_API_KEY"` (the variable that
+holds its key; without it Codex sends no `Authorization` header) and selects it with `model_provider`.
+Add the endpoint's host to `egress` in both cases. The hosted pull-request
+reviewers (Copilot code review, `@codex review`, CodeRabbit) are not CLIs and
+have no profile.
+
+Profiles for other harnesses (Gemini CLI, Cursor agent, Aider, OpenCode,
+in-house agents) follow the same shape. Their `guidance`
 blocks start as the vendor's documented behaviour and are corrected by the
 reach probe. Loading changes between versions of one harness, so
 reach results are keyed by version.
@@ -722,7 +770,12 @@ per scenario).
 - `class` is one of:
     - `loaded`: both tokens reported;
     - `truncated`: one token reported;
-    - `fetched`: reported only after the agent read the file with a tool;
+    - `fetched`: reported only after the agent read the file with a tool. For the
+      Codex and Copilot profiles a shell read counts only as a bare `cat`, `head`,
+      `tail`, `nl` or `sed -n`; for Codex, a command that is one such read of one
+      file and exits non-zero is not a read (the exit code of `cat a missing` does
+      not say which file failed, so both stay reads). A read through a pipe, `grep`
+      or `rg` is not seen, so such a file can be classed `loaded`;
     - `not_loaded`;
     - `error`: the scenario produced no usable answer: no answer, a non-zero
       exit, or an error result.
@@ -983,7 +1036,8 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
 - The agent's container mounts the workspace, the per-run `home`, `config` and
   scratch directories (each `image.env` value under `{run_dir}/`), the caches,
-  the harness executable (`--bin`, read-only at `/eval/harness`) and the
+  the harness executable (`--bin`, read-only at `/eval/harness`, with its
+  `bin_companions` beside it, §6) and the
   framework's helper scripts (read-only at `/eval/support`). Before a batch,
   the harness must report its version inside the image, and a probe container
   with the same mounts must see neither `/eval/content` nor `/eval/source`, no

@@ -26,7 +26,8 @@ import yaml
 from dokimi.artifacts import validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import RepoSource, SourceError, WorkTree, load_manifest, open_source
-from dokimi.repos.events import OUTPUT_KEEP, OUTPUT_LIMIT, clip_output, convert
+from dokimi.repos.events import convert
+from dokimi.repos.transcript import OUTPUT_KEEP, OUTPUT_LIMIT, clip_output
 from dokimi.repos.harness_profile import ProfileError, load_profile, parse_profile
 from dokimi.repos.reach import (
     ReachError,
@@ -56,6 +57,9 @@ prompt = args[args.index("-p") + 1]
 tools = args[args.index("--tools") + 1] if "--tools" in args else "default"
 if mode == "crash":
     print("boom", file=sys.stderr); sys.exit(3)
+if mode == "config":  # the profile's config file must be in the per-run config dir, filled in
+    cfg = Path(os.environ["FAKE_CONFIG_DIR"])
+    assert (cfg / "provider.toml").read_text() == f"dir={cfg.as_posix()} support={os.environ['FAKE_SUPPORT']}", "no config"
 if mode == "line_then_hang":  # some trace, then nothing until it is killed
     import time
     print(json.dumps({"type": "system", "subtype": "init", "claude_code_version": "9.8.7"}), flush=True)
@@ -482,6 +486,22 @@ def test_reach_fetched_truncated_unknown_and_error(tmp_path, monkeypatch):
     assert payload["scenarios"][0]["unknown"] == ["RC000000"]
     assert payload["scenarios"][0]["prose"] == 0
     assert "unknown tokens in cwd=.: RC000000" in format_matrix(payload)
+
+
+def test_reach_writes_the_profile_config_files(tmp_path, monkeypatch):
+    from dokimi.repos.reach import SUPPORT_HOST
+
+    monkeypatch.setenv("FAKE_MODE", "config")
+    monkeypatch.setenv("FAKE_SUPPORT", SUPPORT_HOST.as_posix())
+    root = _repo(tmp_path)
+    tree = WorkTree(root)
+    (tmp_path / "work").mkdir()
+    profile = _profile(tmp_path, config_files={"provider.toml": "dir={config_dir} support={support_dir}"},
+                       env_allow=["PATH", "FAKE_MODE", "FAKE_SUPPORT", "LD_LIBRARY_PATH"])
+    payload = run_reach(tree=tree, manifest=load_manifest(tree, "evals/repo-eval.yaml"), profile=load_profile(profile),
+                        model="m", out_dir=tmp_path / "out", work_dir=tmp_path / "work", salt="s", only=("cwd=.",))
+    assert [s["error"] for s in payload["scenarios"]] == [None]
+    assert (SUPPORT_HOST / "no_background.py").is_file()
 
 
 @pytest.mark.outcome("cjm-repo-reach-harness-failure")

@@ -18,7 +18,7 @@ import shlex
 from pathlib import Path
 
 import pytest
-from test_novelty_analyze import SKILL, _scripted
+from tests.test_novelty_analyze import SKILL, _scripted
 
 from dokimi.cli import build_parser
 from dokimi.novelty import client as client_mod

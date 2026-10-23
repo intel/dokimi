@@ -4,7 +4,7 @@
 """Tests for the treatment-arm abstraction and factory."""
 
 import pytest
-from conftest import DEMO_SKILL_MARKER
+from tests.conftest import DEMO_SKILL_MARKER
 
 from dokimi.utils import parse_frontmatter
 from dokimi.treatments import (
