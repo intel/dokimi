@@ -532,8 +532,8 @@ A review task with `pass: null` is scored, not gated: give it `score`. A `gate`
 on its metrics is not applied (`success` is null), and without `score` the run
 is a grader failure. A clean-diff control (no seeds) has `recall: null`, so it
 takes no `score`; its gate is the default `["pass"]`. The manifest's
-`entry_points.grade` is still required (`repo_manifest.v1`), even when every
-task uses a built-in grader.
+`entry_points.grade` is optional when every task's `grader` starts with
+`dokimi:`.
 
 Both review graders read the answer the same way. Its last parseable
 ` ```json ` fence (one nesting arrays or objects more than 100 deep counts
