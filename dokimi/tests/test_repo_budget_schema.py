@@ -83,6 +83,10 @@ def test_a_payload_missing_a_field_is_rejected(tmp_path, capsys, field):
     (lambda d: d["totals"].pop("off"), "off"),
     (lambda d: d["duplicate_skills"][0].update(overlap=1.5), "1.5"),
     (lambda d: d.update(unexpected=1), "unexpected"),
+    # closed at every level, not only the top: a key the code never writes is a changed shape
+    (lambda d: d["entries"][0].update(tokens=1), "tokens"),
+    (lambda d: d["totals"].update(later=0), "later"),
+    (lambda d: d["duplicate_skills"][0].update(score=1), "score"),
 ])
 def test_a_malformed_payload_is_rejected(tmp_path, capsys, change, message):
     _populated_tree(tmp_path)

@@ -14,6 +14,7 @@
       "items": {
         "type": "object",
         "required": ["path", "kind", "when", "chars"],
+        "additionalProperties": false,
         "properties": {
           "path": {"type": "string"},
           "kind": {"enum": ["guidance", "import", "skill listing", "skill body"], "description": "`import` is a file a CLAUDE.md or AGENTS.md `@import`s; a skill has a `skill listing` entry unless it is hidden from the model, and always a `skill body` entry."},
@@ -25,6 +26,7 @@
     "totals": {
       "type": "object",
       "required": ["start", "lazy", "on demand", "off"],
+      "additionalProperties": false,
       "properties": {
         "start": {"type": "integer", "minimum": 0},
         "lazy": {"type": "integer", "minimum": 0},
@@ -39,6 +41,7 @@
       "items": {
         "type": "object",
         "required": ["a", "b", "overlap"],
+        "additionalProperties": false,
         "properties": {
           "a": {"type": "string", "description": "Skill name; its path when two skills share a name."},
           "b": {"type": "string"},
