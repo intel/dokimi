@@ -267,6 +267,19 @@ def test_an_unreadable_or_unparsable_result_does_not_stop_the_batch_check(setup,
         check_batch_executions(batch, options)
 
 
+def test_a_harness_reporting_another_version_with_the_same_bytes_is_another_execution(setup, monkeypatch, capsys):
+    """A wrapper script or launcher keeps its bytes while the agent behind it changes: the version is an input."""
+    monkeypatch.setattr("dokimi.repos.runner.harness_version", lambda *a, **k: "1.2.3")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    setup["runner"].specs.clear()
+    monkeypatch.setattr("dokimi.repos.runner.harness_version", lambda *a, **k: "1.2.4")
+    with pytest.raises(SystemExit):  # refused before any cell runs
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert "holds cells of another execution" in capsys.readouterr().err
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
+
+
 def test_a_refused_delegation_none_starts_no_harness_version_probe(setup, monkeypatch, capsys):
     probes = []
     monkeypatch.setattr("dokimi.repos.runner.harness_version", lambda *a, **k: probes.append(a) or "1")
