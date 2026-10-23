@@ -114,6 +114,20 @@ def test_a_corrupt_manifest_exits_with_a_message_in_every_subcommand(run, tmp_pa
     assert sorted(p.name for p in manifest.parent.iterdir()) == ["manifest.json"]
 
 
+def test_save_reports_a_corrupt_manifest_before_an_invalid_eval_file(run, tmp_path, capsys):
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    manifest = tmp_path / "baselines" / "manifest.json"
+    manifest.parent.mkdir()
+    manifest.write_text("{truncated", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        run("save", "--from-eval", str(bad), "--name", "b")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert str(manifest) in err
+    assert str(bad) not in err
+
+
 _GOOD_ENTRY = '{"name": "ok", "path": "ok.json"}'
 
 
