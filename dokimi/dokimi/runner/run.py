@@ -69,6 +69,24 @@ def _load_spec(spec_path: Path) -> dict:
     return data
 
 
+class DocLoadError(RuntimeError):
+    """A document the run selected could not be read: the run refuses rather than score around it."""
+
+
+def _load_found_docs(docs: list[Path]) -> dict[str, str]:
+    """``load_docs`` over the selected docs; a doc that does not load is a clean error, not a traceback."""
+    try:
+        loaded = load_docs(docs)
+    except OSError as exc:
+        raise DocLoadError(f"could not read {exc.filename or 'a document'}: {exc.strerror or exc} "
+                           f"({len(docs)} document(s) selected)") from None
+    unloaded = [str(p) for p in docs if str(p) not in loaded]
+    if unloaded:
+        raise DocLoadError(f"{len(unloaded)} of {len(docs)} selected document(s) did not load: "
+                           + ", ".join(unloaded[:5]) + (" ..." if len(unloaded) > 5 else ""))
+    return loaded
+
+
 def run_benchmark(root: Path, spec_path: Path) -> dict:
     """Run benchmark on markdown docs and return snapshot payload."""
     spec = _load_spec(spec_path)
@@ -87,7 +105,7 @@ def run_benchmark(root: Path, spec_path: Path) -> dict:
     else:
         # Legacy/minimal specs without a manifest: discover all markdown under docs/.
         docs = discover_markdown(root / "docs")
-    loaded = load_docs(docs)
+    loaded = _load_found_docs(docs)
 
     # Collect per-doc metrics and cached example results
     rows: list[dict] = []
