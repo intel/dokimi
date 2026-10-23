@@ -146,8 +146,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: deptry .
 
+  # The pool jobs that cost the most (the test matrix, package-smoke) wait for
+  # `static`: a PR that fails lint stops there instead of taking six more
+  # runners. The cost is the wall time of `static` plus one more pool boot on a
+  # green run. typecheck, one job, still runs alongside `static`; windows-smoke,
+  # on windows-latest, does not wait, so no chain spans both queues.
   test:
     name: Tests (py${{ matrix.python-version }})
+    needs: static
     runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     permissions:
       contents: read
@@ -268,6 +274,7 @@ jobs:
   # the lock: the floor version checks what `pip install dokimi` gives a 3.11 user.
   package-smoke:
     name: Package install smoke test (py${{ matrix.python-version }})
+    needs: static
     runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
