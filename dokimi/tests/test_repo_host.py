@@ -252,6 +252,14 @@ def test_tasks_check_with_no_task_checked_is_not_a_pass(tmp_path, monkeypatch, c
     assert "incomplete: no task passed the self-check (0 ok, 1 unsupported)" in capsys.readouterr().err
 
 
+def test_allow_unsupported_help_says_a_check_with_no_ok_task_still_exits_1(capsys):
+    from dokimi.cli import build_parser
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["repo", "tasks", "check", "--help"])
+    assert "and so does a check in which no task is ok" in " ".join(capsys.readouterr().out.split())
+
+
 @pytest.mark.parametrize("extra, why", [
     ({"fix_nobug": {"family": "fix", "grader": "calc", "gate": ["tests_pass"], "prompt": "x"}}, "broken"),
     ({"fix_pip": {"family": "fix", "grader": "calc", "egress": ["pypi.org"], "prompt": "x"}}, "egress"),

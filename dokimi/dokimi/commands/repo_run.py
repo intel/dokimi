@@ -355,7 +355,8 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     check_p.add_argument("--allow-unsupported", action="store_true", dest="allow_unsupported",
                          help="Exit 0 when the only tasks that are not ok are unsupported because this host "
                          "misses their task.json `host` requirements (still printed with the reason). Broken "
-                         "tasks, tasks that need egress and tasks whose host probe failed still exit 1")
+                         "tasks, tasks that need egress and tasks whose host probe failed still exit 1, and so "
+                         "does a check in which no task is ok")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
 
