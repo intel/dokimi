@@ -48,6 +48,12 @@ def _baseline_manifest(code: int = 1) -> Dict[str, Any]:
         print(f'❌ {manifest_path}: expected a "baselines" list, got {_json_type(baselines)}',
               file=sys.stderr)
         raise SystemExit(code)
+    for i, entry in enumerate(baselines):
+        if not (isinstance(entry, dict) and isinstance(entry.get("name"), str)
+                and isinstance(entry.get("path"), str) and isinstance(entry.get("summary", {}), dict)):
+            print(f'❌ {manifest_path}: baselines[{i}] must be an object with a string "name" and "path"'
+                  ' and, if present, an object "summary"', file=sys.stderr)
+            raise SystemExit(code)
     return manifest
 
 

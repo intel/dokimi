@@ -106,6 +106,25 @@ def test_a_corrupt_manifest_exits_with_a_message_in_every_subcommand(run, tmp_pa
     assert sorted(p.name for p in manifest.parent.iterdir()) == ["manifest.json"]
 
 
+@pytest.mark.parametrize("entry", ['"x"', "5", "null", '{"path": "p.json"}', '{"name": "n"}',
+                                   '{"name": "n", "path": 5}', '{"name": "n", "path": "p.json", "summary": 5}'])
+def test_a_manifest_entry_of_the_wrong_shape_exits_with_a_message_in_every_subcommand(run, tmp_path, capsys, entry):
+    good = tmp_path / "good.json"
+    good.write_text(json.dumps(_EVAL), encoding="utf-8")
+    manifest = tmp_path / "baselines" / "manifest.json"
+    manifest.parent.mkdir()
+    manifest.write_text('{"baselines": [%s]}' % entry, encoding="utf-8")
+    for argv, code in ((("save", "--from-eval", str(good)), 1), (("list",), 1),
+                       (("compare", "--eval", str(good)), 2)):
+        with pytest.raises(SystemExit) as exc:
+            run(*argv)
+        assert exc.value.code == code
+        err = capsys.readouterr().err
+        assert str(manifest) in err
+        assert "baselines[0]" in err
+    assert sorted(p.name for p in manifest.parent.iterdir()) == ["manifest.json"]
+
+
 def test_save_into_a_manifest_without_a_baselines_key_records_the_baseline(run, tmp_path):
     good = tmp_path / "good.json"
     good.write_text(json.dumps(_EVAL), encoding="utf-8")

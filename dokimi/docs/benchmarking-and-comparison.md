@@ -723,8 +723,10 @@ stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
 vouch for that role. A malformed record in either file (no `question_id`) exits 2,
 naming the record on stderr, so it never reads as a failed `--strict` check.
 `baseline compare` also exits 2 on an eval file, saved baseline or `manifest.json`
-that is not valid JSON, not a JSON object, or cannot be read; `baseline save` and
-`baseline list` exit 1 on those.
+that is not valid JSON, not a JSON object, or cannot be read. `baseline save` exits 1
+on a bad eval file or `manifest.json`, and `baseline list` exits 1 on a bad
+`manifest.json`. A `manifest.json` whose `baselines` is not a list, or whose entries
+lack a string `name` and `path`, is rejected the same way.
 
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.
