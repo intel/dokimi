@@ -474,3 +474,16 @@ def test_a_capped_atom_set_does_not_clear_harmful_atoms():
         "harmful_atoms")
     assert found.measured is True and found.passed is False
     assert "lower bound" in found.message
+
+
+def test_an_artifact_with_no_check_measured_is_not_a_pass():
+    # `{}` carries no stage: every check passed unmeasured and the cell read PASS.
+    empty = evaluate_novelty({})
+    assert len(empty.not_measured) == len(empty.checks) > 0
+    assert empty.status == "NOT MEASURED"
+    assert empty.as_dict()["status"] == "NOT MEASURED"
+    assert "— NOT MEASURED (10 of 10 not measured)" in format_novelty_block([empty])
+    # One measured check is enough for PASS; the rest stay counted as not measured.
+    assert evaluate_novelty(_artifact(
+        categories={}, shortening=[], attribution={}, controls={}, spans={"n": 60},
+        bundle={}, probes={}, items={})).status == "PASS"

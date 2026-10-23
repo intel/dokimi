@@ -14,8 +14,10 @@ test returned the wrong value:
   bare truthiness, a negation and ``isinstance`` against a dokimi class are
   outcomes (an absence, a flag, the class a dispatcher picked), so they pass.
 - ``mock_echo``: the test patches something and checks only *that* a mock was
-  called (``assert_called*``, ``.called``, ``.call_count``), never with what
-  (``assert_called_with`` and ``call_args`` carry the behaviour).
+  called (``assert_called*``, and ``.called``/``.call_count`` read off a patched
+  name or a mock), never with what (``assert_called_with`` and ``call_args`` carry
+  the behaviour). That a mock was *not* called (``assert_not_called``, ``not m.called``,
+  ``m.call_count == 0``) is a skip test's outcome, so it passes.
 - ``set_then_read``: every value assert reads ``x.attr == LIT`` straight off
   ``x = Call(attr=LIT)``: the object echoes its constructor.
 - ``constant_mirror``: every value assert pins a ``dokimi`` constant or an enum
@@ -48,8 +50,24 @@ import json
 import pathlib
 import re
 import tokenize
-from collections.abc import Callable, Iterable, Iterator
+import sys
+from collections.abc import Callable, Iterable
 from typing import NamedTuple
+
+# Run as a script, sys.path[0] is scripts/; loaded by path (the test does), it is not.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from audit_mocks import (  # noqa: E402
+    _call_name,
+    _dotted,
+    _eq_operands,
+    _FuncDef,
+    _is_mock_verify,
+    _is_patching_call,
+    _mock_names,
+    _outer_mocks,
+    _own_nodes,
+    _stored_names,
+)
 
 PROJECT = pathlib.Path(__file__).resolve().parents[1]
 TESTS = PROJECT / "tests"
@@ -73,11 +91,6 @@ _BUILTIN_TYPES = frozenset(
      "object", "type"}
 )
 _RAISES_CALLS = frozenset({"raises", "warns", "deprecated_call", "assertRaises", "assertWarns"})
-_PATCH_CALLS = frozenset(
-    {"patch", "MagicMock", "Mock", "AsyncMock", "NonCallableMock", "PropertyMock"}
-)
-# Whether a mock was called, not with what; call_args and mock_calls carry the arguments.
-_MOCK_VERIFY_ATTRS = frozenset({"called", "call_count", "await_count", "awaited"})
 _MOCK_VERIFY_METHODS = frozenset(
     {"assert_called", "assert_called_once", "assert_not_called", "assert_awaited",
      "assert_awaited_once", "assert_not_awaited"}
@@ -87,6 +100,9 @@ _MOCK_VERIFY_UNCALLED = _MOCK_VERIFY_METHODS | {
     "assert_called_with", "assert_called_once_with", "assert_any_call", "assert_has_calls",
 }
 # "It was called" checks no outcome; "it was not called" is an absence, which is one.
+# Deliberately not flagged: assert_not_called / assert_not_awaited (and `not m.called`,
+# `m.call_count == 0`) in a skip test, a bare ensure_* call (no assert; the absence of an
+# error is the outcome) and call_count read off an object that is not a patch or mock (data).
 _CALL_ONLY_METHODS = _MOCK_VERIFY_METHODS - {"assert_not_called", "assert_not_awaited"}
 # len(x) > 0 and its spellings only say "x is non-empty".
 _NONEMPTY_LEN = frozenset({(ast.Gt, 0), (ast.GtE, 1), (ast.NotEq, 0)})
@@ -99,8 +115,6 @@ _READ_ONLY_BUILTINS = frozenset(
     {"callable", "hasattr", "getattr", "isinstance", "issubclass", "len", "repr", "str", "print",
      "type", "id"}
 )
-_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
-_FuncDef = ast.FunctionDef | ast.AsyncFunctionDef
 
 
 class Audit(NamedTuple):
@@ -118,11 +132,6 @@ class Audit(NamedTuple):
         return f"{self.file}::{self.test}"
 
 
-def _call_name(node: ast.Call) -> str:
-    func = node.func
-    if isinstance(func, ast.Name):
-        return func.id
-    return func.attr if isinstance(func, ast.Attribute) else ""
 
 
 def _is_self_call(node: ast.Call) -> bool:
@@ -130,23 +139,8 @@ def _is_self_call(node: ast.Call) -> bool:
     return isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id == "self"
 
 
-def _dotted(node: ast.expr) -> str:
-    parts: list[str] = []
-    while isinstance(node, ast.Attribute):
-        parts.append(node.attr)
-        node = node.value
-    if not isinstance(node, ast.Name):
-        return ""
-    return ".".join([node.id, *reversed(parts)])
 
 
-def _own_nodes(body: Iterable[ast.stmt]) -> Iterator[ast.AST]:
-    """Every node of a body, not descending into nested functions or classes."""
-    stack: list[ast.AST] = [n for n in body if not isinstance(n, _SCOPES)]
-    while stack:
-        node = stack.pop()
-        yield node
-        stack.extend(c for c in ast.iter_child_nodes(node) if not isinstance(c, _SCOPES))
 
 
 def _statement_count(body: list[ast.stmt]) -> int:
@@ -221,21 +215,21 @@ def _is_weak(node: ast.expr) -> bool:
 
 
 def _always_true(node: ast.expr) -> bool:
-    """``assert True``, ``assert x or True``, ``assert (x == 5, "msg")`` (a non-empty tuple is
-    truthy, so the comparison never runs), or ``assert m.assert_called_once_with`` (never called)."""
+    """``assert True``, ``assert x or True``, ``assert (x == 5, "msg")`` or ``[x == 5]`` (a
+    non-empty display is truthy, so the comparison never runs), or
+    ``assert m.assert_called_once_with`` (never called). ``(*xs,)`` and ``{**d}`` are empty
+    when ``xs`` or ``d`` is, so they can fail."""
     if isinstance(node, ast.Constant):
         return bool(node.value)
-    if isinstance(node, ast.Tuple):
-        return bool(node.elts)
+    if isinstance(node, ast.Tuple | ast.List | ast.Set):
+        return any(not isinstance(e, ast.Starred) for e in node.elts)
+    if isinstance(node, ast.Dict):
+        return any(k is not None for k in node.keys)
     if isinstance(node, ast.BoolOp):
         return (any if isinstance(node.op, ast.Or) else all)(map(_always_true, node.values))
     return isinstance(node, ast.Attribute) and node.attr in _MOCK_VERIFY_UNCALLED
 
 
-def _eq_operands(node: ast.expr) -> tuple[ast.expr, ast.expr] | None:
-    if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
-        return node.left, node.comparators[0]
-    return None
 
 
 def _root_name(node: ast.expr) -> str | None:
@@ -259,9 +253,6 @@ def _passed_names(call: ast.Call) -> set[str]:
     return names
 
 
-def _stored_names(target: ast.expr) -> list[str]:
-    """Every name a ``for`` or ``with`` target binds."""
-    return [n.id for n in ast.walk(target) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)]
 
 
 def _constructor_inputs(nodes: list[ast.AST]) -> dict[str, set[tuple[str, object, type]]]:
@@ -361,49 +352,22 @@ def _is_constant_mirror(test: ast.expr, names: frozenset[str]) -> bool:
     )
 
 
-def _is_patching_call(node: ast.Call) -> bool:
-    dotted = _dotted(node.func)
-    if dotted == "monkeypatch.setattr" or dotted.endswith(("patch.object", "patch.dict")):
-        return True
-    return _call_name(node) in _PATCH_CALLS
 
 
-def _is_mock_verify(test: ast.expr) -> bool:
-    """An assert that only reads whether a mock was called.
 
-    ``assert m.call_count == 2 and vote.aggregate == 70.0`` also checks a value,
-    so each operand of an ``and`` is judged on its own. An ``or`` passes as soon as
-    one operand does, so one mock-only operand makes it mock-only.
 
-    Tuple comparisons like ``assert (m.call_count, out) == (1, 42)`` check both
-    the mock call and the output, so they are not mock-only. But
-    ``assert (m.call_count, m.called) == (1, True)`` is mock-only.
-    """
-    if isinstance(test, ast.BoolOp):
-        if isinstance(test.op, ast.And):
-            return all(map(_is_mock_verify, test.values))
-        elif isinstance(test.op, ast.Or):
-            return any(map(_is_mock_verify, test.values))
-    # If this is a comparison with tuples, check if all tuple elements are mock attributes
-    if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq):
-        left_tuple = isinstance(test.left, ast.Tuple)
-        right_tuple = isinstance(test.comparators[0], ast.Tuple) if test.comparators else False
-        if left_tuple or right_tuple:
-            # Every tuple element is a mock attribute or a literal expectation; any other
-            # element is an output being checked. At least one mock attribute is needed.
-            saw_mock = False
-            for operand in (test.left, *test.comparators):
-                if isinstance(operand, ast.Tuple):
-                    for elt in operand.elts:
-                        if isinstance(elt, ast.Constant):
-                            continue
-                        if not (isinstance(elt, ast.Attribute) and elt.attr in _MOCK_VERIFY_ATTRS):
-                            # Found a non-mock element in a tuple comparison
-                            return False
-                        saw_mock = True
-            return saw_mock
-    return any(isinstance(n, ast.Attribute) and n.attr in _MOCK_VERIFY_ATTRS
-               for n in ast.walk(test))
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def _is_raises(node: ast.expr) -> bool:
@@ -490,10 +454,13 @@ def _all_value_asserts(t: _Facts, pred: Callable[[ast.expr], bool]) -> bool:
     return all(pred(a.test) for a in t.value_asserts)
 
 
+
+
 def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str],
-                 value_helpers: frozenset[str]) -> set[str]:
+                 value_helpers: frozenset[str], outer: frozenset[str] = frozenset()) -> set[str]:
     t = _collect(fn)
     inputs = _constructor_inputs(t.nodes)
+    mocks = _mock_names(fn, t.nodes) | outer
     checks = bool(t.asserts or t.raises or t.assert_calls)
     # A test that calls a helper with a behavioral assert has behavioral checks even if its
     # direct asserts are weak; a helper that only checks a shape does not count.
@@ -509,15 +476,16 @@ def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str],
         for c in t.calls
     )
     # A call-only mock check next to weak asserts still checks no outcome.
-    outcome_asserts = [a for a in t.value_asserts if not (t.patching and _is_mock_verify(a.test))]
+    outcome_asserts = [a for a in t.value_asserts if not (t.patching and _is_mock_verify(a.test, mocks))]
     outcome_calls = [c for c in t.assert_calls if _call_name(c) not in _CALL_ONLY_METHODS]
     flags = {
         "type_only": any(_is_weak(a.test) for a in t.asserts)
         and not (outcome_asserts or t.raises or outcome_calls or helper_checks),
         "mock_echo": (
             t.patching and not t.raises and bool(t.asserts or t.assert_calls)
-            and all(_is_mock_verify(a.test) for a in t.asserts)
-            and all(_call_name(c) in _MOCK_VERIFY_METHODS for c in t.assert_calls)
+            and all(_is_mock_verify(a.test, mocks) for a in t.asserts)
+            # assert_not_called is a skip test's outcome, not an echo of the patch.
+            and all(_call_name(c) in _CALL_ONLY_METHODS for c in t.assert_calls)
         ),
         "set_then_read": _all_value_asserts(t, lambda e: _echoes_input(e, inputs)),
         "constant_mirror": _all_value_asserts(t, lambda e: _is_constant_mirror(e, names)),
@@ -584,9 +552,10 @@ def audit_source(source: str, file: str = "<source>") -> list[Audit]:
     marker_lines = _marker_lines(source)
     tests = _test_functions(tree)
     duplicates = _duplicates(tests)
+    outer = _outer_mocks(tree)
     audits = []
     for qualname, fn in tests:
-        found = _shape_flags(fn, names, helpers, value_helpers)
+        found = _shape_flags(fn, names, helpers, value_helpers, outer.get(id(fn), frozenset()))
         if qualname in duplicates:
             found.add("duplicate")
         flags = tuple(f for f in FLAGS if f in found)
