@@ -22,12 +22,9 @@ def cmd_dataset_export(args: argparse.Namespace) -> None:
             fmt=args.format,
             validate=not args.no_validate,
         )
-    except KeyError as exc:  # a record array the artifact lacks; str() would quote the message
-        print(f"Error: cannot export {args.input} to {args.out_dir}: {exc.args[0]}", file=sys.stderr)
-        raise SystemExit(1) from None
-    except (OSError, ValueError, TypeError) as exc:  # unreadable, not JSON, invalid, unwritable
+    except (OSError, ValueError) as exc:  # unreadable, not JSON, invalid, unwritable
         print(f"Error: cannot export {args.input} to {args.out_dir}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(2) from None  # 2 as cli.main's other input errors; 1 is a failed gate
     print(f"✅ Exported {args.kind} ({args.format}) → {primary}")
     print(f"   Dataset card: {Path(args.out_dir) / 'README.md'}")
 
