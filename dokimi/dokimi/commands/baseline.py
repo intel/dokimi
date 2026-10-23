@@ -120,10 +120,6 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     from datetime import datetime, timezone
 
     eval_path = Path(args.from_eval)
-    if not eval_path.exists():
-        print(f"❌ Eval file not found: {eval_path}")
-        raise SystemExit(1)
-
     eval_data = _read_eval(eval_path, 1)
     product = args.product or eval_data.get("product", "unknown")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
