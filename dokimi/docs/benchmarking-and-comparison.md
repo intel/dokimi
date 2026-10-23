@@ -411,8 +411,9 @@ session stops) is an errored arm: `error` is `generation_failed: turn N: ...` or
 `empty_reply: turn N`, and `answer` is `None`. The turns already paid for stay in
 `session.turns`, and the arm's `token_usage` and `metrics` cover them, so the cost
 rollup counts what was spent. The artifact's `run_config` records `session_turns`
-and `turn_reminder`, and `plugin-delta` and the matrix rollup refuse to pair a
-session run with a single-turn run or one with different session settings.
+and `turn_reminder`. `plugin-delta` refuses to pair a session run with a
+single-turn run or one with different session settings, and the matrix rollup
+does not pair them.
 
 ### Trusting the judge
 
