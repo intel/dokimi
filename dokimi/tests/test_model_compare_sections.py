@@ -101,7 +101,14 @@ _U = [(50, 60), (60, 75), (40, 45), (70, 80), (55, 70), (65, 70), (30, 50), (80,
 # Nothing improved (0 of 5 pairs), and a bucket whose only score is a baseline 0.
 _N = [(50, 40), (60, 50), (40, 30), (70, 60), (55, 45), (0, ...)]
 _FREE_COST = _cost(
-    total_cost_usd=0, cost_known_n=0, total_llm_calls=5, mean_latency_sec=0, cache_hit_ratio=0
+    total_cost_usd=0,
+    cost_known_n=0,
+    total_llm_calls=5,
+    prompt_tokens=0,
+    completion_tokens=0,
+    total_tokens=0,
+    mean_latency_sec=0,
+    cache_hit_ratio=0,
 )
 
 
@@ -287,7 +294,7 @@ def test_goldens_reach_every_section_branch():
         "zero_scores": ["| beginner | 1 | 0.0 | 0.0 |", "| medium | 1 | 0.0 | -30.0 |"],
         "baseline_zero": ["| easy | 1 | 0.0 |"],
         "zero_values": [
-            "| **z** | $0.0000 (0/5) | — | — | — | 0.00s | 0.0% |",
+            "| **z** | $0.0000 (0/5) | 0 | 0 | 0 | 0.00s | 0.0% |",
             "| 0 (0%) | 5 (100%) |",
             "| — | 0.0 (baseline) |",
         ],
