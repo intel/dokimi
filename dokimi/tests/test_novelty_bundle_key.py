@@ -304,3 +304,9 @@ def test_a_bundle_run_that_read_everything_it_could_measures_all_of_it(tmp_path)
     bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path, entry=100, refs=300)}",
                          include_resources=True)
     assert bundle.summary()["measured_share"] == 1.0
+
+
+def test_the_stored_measured_share_is_rounded_to_four_places(tmp_path):
+    # 2 entry words and 7 reference words: 2/9 is 0.2222..., stored as 0.2222, not 0.2222222.
+    bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path, entry=2, refs=7)}")
+    assert bundle.summary()["measured_share"] == 0.2222

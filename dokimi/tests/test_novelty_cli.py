@@ -651,6 +651,28 @@ def test_the_headline_states_the_measured_share_and_warns_on_stdout_at_half_or_l
     assert "coverage: unknown" in out and "WARNING" not in out
 
 
+def _readable_record(**over):
+    return dict({"include_resources": False, "n_files": 1, "entry_point_words": 10,
+                 "resource_words_measured": 0, "resource_words_on_disk": 30,
+                 "policy_excluded_words": 0, "unreadable_files": 0, "excluded": [],
+                 "coverage_basis": "readable"}, **over)
+
+
+def test_an_undecodable_file_in_a_bundle_run_does_not_claim_an_entry_point_only_warning(capsys):
+    # --include-resources was passed: the unknown-share line must not say the entry point is
+    # half or less of the words, which is false for a bundle run.
+    record = _readable_record(include_resources=True, unreadable_files=1)
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record))
+    out = capsys.readouterr().out
+    assert "coverage: unknown" in out and "WARNING" not in out
+
+
+def test_an_unknown_share_warns_at_exactly_half_as_the_stderr_warning_does(capsys):
+    record = _readable_record(unreadable_files=1, entry_point_words=50, resource_words_on_disk=50)
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record))
+    assert "WARNING: the entry point is half or less" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("entry, printed", [(29, "29%"), (57, "57%"), (58, "58%"),
                                             (49, "49%"), (1, "1%")])
 def test_the_printed_percentage_is_the_share_not_a_float_product(capsys, entry, printed):

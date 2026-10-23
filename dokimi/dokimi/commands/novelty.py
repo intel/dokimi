@@ -878,8 +878,8 @@ def _print_coverage(bundle: dict) -> None:
         return
     share = coverage.measured_share
     scope = "" if coverage.include_resources else " (entry point only)"
-    rerun = ("" if coverage.include_resources or not coverage.measurable_resource_words
-             else "; pass --include-resources to measure the bundled files")
+    # The warnings below need readable words outside the entry point, so the flag always adds some.
+    rerun = "" if coverage.include_resources else "; pass --include-resources to measure the bundled files"
     if share is None:
         print("coverage: unknown (a bundled file did not decode, so its words are not "
               f"counted){scope}")
