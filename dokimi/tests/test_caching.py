@@ -263,13 +263,22 @@ def test_entry_without_text_is_a_miss(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     "payload",
     ["[]", "null", "42", '"answer"', '{"text": 7, "usage": {}}',
-     '{"text": "answer", "usage": [1, 2]}', '{"text": "answer", "usage": "free"}'],
+     '{"text": "answer", "usage": [1, 2]}', '{"text": "answer", "usage": "free"}',
+     '{"text": "answer", "usage": ""}', '{"text": "answer", "usage": 0}',
+     '{"text": "answer", "usage": []}', '{"text": "answer", "usage": false}'],
 )
 def test_entry_of_the_wrong_shape_is_a_miss_not_a_crash(monkeypatch, tmp_path, payload):
     """Valid JSON that is not a ``{"text": str, "usage": {...}}`` entry is corrupt too."""
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
     (tmp_path / "shape.json").write_text(payload, encoding="utf-8")
     assert caching.load_response("shape") is None
+
+
+@pytest.mark.parametrize("payload", ['{"text": "answer"}', '{"text": "answer", "usage": null}'])
+def test_entry_without_usage_still_replays(monkeypatch, tmp_path, payload):
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
+    (tmp_path / "bare.json").write_text(payload, encoding="utf-8")
+    assert caching.load_response("bare") == ("answer", UsageRecord(replayed=True))
 
 
 def test_null_text_is_replayed_not_a_miss(monkeypatch, tmp_path):

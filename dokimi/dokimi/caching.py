@@ -376,14 +376,15 @@ def load_response(key: str) -> Optional[Tuple[Optional[str], UsageRecord]]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         text = data["text"]
-        usage_fields = data.get("usage") or {}
+        usage_fields = data.get("usage")
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
     # Valid JSON of the wrong shape (a list, a number as the text) is as corrupt
     # as unparseable JSON. A null text is kept: a reply without content is stored
     # and replayed as such.
-    if not isinstance(text, (str, type(None))) or not isinstance(usage_fields, dict):
+    if not isinstance(text, (str, type(None))) or not isinstance(usage_fields, (dict, type(None))):
         return None
+    usage_fields = dict(usage_fields or {})
 
     known = set(UsageRecord.__dataclass_fields__)
     unknown = set(usage_fields) - known
