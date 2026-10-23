@@ -86,7 +86,8 @@ def _print_summary(summary: dict) -> None:
 
 
 def _print_skipped(skipped: dict, n_groups: int) -> None:
-    for factor, ids in skipped.items():
+    for factor, lacking in skipped.items():
+        ids = [gid if len(roles) == 2 else f"{gid} twin {roles[0]}" for gid, roles in lacking.items()]
         print(f"  {factor}: skipped for {len(ids)} of {n_groups} groups ({', '.join(ids)})")
 
 

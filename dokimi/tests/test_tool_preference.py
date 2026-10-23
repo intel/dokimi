@@ -806,13 +806,18 @@ def test_max_cost_usd_zero_skips_all(doc):
 def test_dry_run_names_the_groups_a_factor_is_skipped_for(capsys):
     from dokimi.cli import build_parser
 
-    expected = {"vendor_name": ["G02", "N01"], "long_desc": ["G02", "N01"], "exclusion": ["G02", "N01"]}
+    both = {"G02": ["A", "B"], "N01": ["A", "B"]}
+    long_desc = {"G02": ["B"], "N01": ["A", "B"]}  # G02 twin A has a `detail`, so its long_desc items stay
+    expected = {"vendor_name": both, "long_desc": long_desc, "exclusion": both}
     doc = tp.load_groups(json.loads(GROUPS.read_text(encoding="utf-8")))
     assert tp.skipped_factors(doc) == expected
-    assert tp.skipped_factors(doc, ["assertive", "long_desc"]) == {"long_desc": ["G02", "N01"]}
+    assert tp.skipped_factors(doc, ["assertive", "long_desc"]) == {"long_desc": long_desc}
+    assert {i["treated_role"] for i in tp.build_items(doc, ["long_desc"])
+            if i["group_id"] == "G02" and i["factor"] == "long_desc"} == {"A"}
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--dry-run",
-                                      "--factors", "assertive,exclusion"])
+                                      "--factors", "assertive,exclusion,long_desc"])
     args.func(args)
     out = capsys.readouterr().out
     assert "exclusion: skipped for 2 of 3 groups (G02, N01)" in out
+    assert "long_desc: skipped for 2 of 3 groups (G02 twin B, N01)" in out
     assert "assertive: skipped" not in out
