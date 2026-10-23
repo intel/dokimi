@@ -1,6 +1,7 @@
 ---
 depends_on:
   - dokimi/dokimi/novelty/**
+  - dokimi/dokimi/metrics/bundle_coverage.py
   - dokimi/dokimi/commands/novelty.py
   - dokimi/dokimi/gate/novelty_gate.py
   - dokimi/dokimi/schemas/novelty.v1.json
@@ -508,7 +509,7 @@ Things to know before reading a bundle result:
   is reported `unreadable` whatever its suffix, and the coverage check then says `measured=False`;
   only a NUL-bearing non-UTF-16 file, or a blob that is not mostly printable, is silently "not text".
 - **One rule decides what an exclusion means.** Every row's `kind` has one class
-  (`novelty/bundle.py`, `EXCLUSION_CLASS`): `budget` and `not_requested` are a *gap* — the words
+  (`metrics/bundle_coverage.py`, `EXCLUSION_CLASS`): `budget` and `not_requested` are a *gap* — the words
   in `unmeasured_words`, the files a warning calls "excluded"; `policy` is a *decision*, never
   charged as unread; `unreadable` is *unknown*; `symlink` and `not_text` are *not content*. An
   exclusion is a *file* the run did not select; text it selected that no extraction call could
@@ -621,7 +622,11 @@ Three properties worth knowing before quoting either:
 - **The queries must come from outside the artifact**, or it defines both the problem scope
   and its own relevance. `--queries-from-headings` exists for triage, warns, and stamps
   `queries_self_derived: true` into the result; corpus-wide those self-derived queries gave
-  recall@1 0.225, and a skill's own bundled `evals/` questions gave 0.667.
+  recall@1 0.225, and a skill's own bundled `evals/` questions gave 0.667. Headings inside
+  fenced code blocks are not offered as queries. A run with no usable query exits non-zero,
+  says why, and still writes the result with `"status": "no_queries"`. Every rate line
+  prints its `n_queries` (and `triage: self-derived` when it is self-derived), and fewer
+  than five scored queries draw a warning.
 - **The model figure is an upper bound on harness behaviour.** A harness whose own skill
   listing truncates or omits descriptions selects on less text than this command shows —
   which has been observed. Only a run inside the harness settles it.
@@ -754,7 +759,9 @@ a threshold on `added` flipped its verdict on up to 24% of artifacts at a 0.25 p
 blocking novelty check would be a blocking opinion about probe count. Checks whose input a run did
 not produce are marked `measured: false` at `info` severity and listed in the verdict's `not_measured`
 (rendered as `PASS (k not measured)`) rather than passed silently, so a skipped stage never reads as a
-cleared one; failing `warn`-severity checks and the artifact's own `warnings` also surface in the
+cleared one.
+A cell with no check measured at all is `NOT MEASURED`, not `PASS`.
+Failing `warn`-severity checks and the artifact's own `warnings` also surface in the
 scorecard's top-level `warnings`.
 
 ## Cost, and how it is kept down

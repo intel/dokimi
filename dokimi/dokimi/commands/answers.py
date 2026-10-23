@@ -21,46 +21,59 @@ from dokimi.defaults import (
 )
 
 
+def _load_runtime_config() -> dict:
+    import yaml
+
+    from dokimi.config import runtime_config_path
+
+    config_path = runtime_config_path()
+    if not config_path.exists():
+        return {}
+    try:
+        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        print(f"Error: invalid YAML in {config_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    if loaded is not None and not isinstance(loaded, dict):
+        print(f"Error: expected a mapping in {config_path}", file=sys.stderr)
+        raise SystemExit(1)
+    return loaded or {}
+
+
+def _load_questions(path: str) -> list:
+    from dokimi.questions.artifact import load_questions
+
+    try:
+        return load_questions(path).questions
+    except ValueError as exc:  # ArtifactValidationError: names the record and the fix
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
+def _output_path(args: argparse.Namespace) -> Path:
+    if args.output:
+        return Path(args.output)
+    if getattr(args, "run_id", None):
+        return Path(f"results/{args.product.lower()}_{args.run_id}/answers/{args.product}.json")
+    return Path(f"answers/{args.product}.json")
+
+
 def cmd_answers_generate(args: argparse.Namespace) -> None:
     """Generate context-arm and baseline answers for questions."""
     if getattr(args, "ragas", False):
         _require_ragas()
-    import yaml
     from dokimi.eval import Answerer
     from dokimi.mcp.factory import (
         create_doc_source_client,
         resolve_library_id_for_product,
     )
 
-    # Load config
-    from dokimi.config import runtime_config_path
-
-    config_path = runtime_config_path()
-    config: dict = {}
-    if config_path.exists():
-        try:
-            loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as exc:
-            print(f"Error: invalid YAML in {config_path}: {exc}", file=sys.stderr)
-            raise SystemExit(1) from exc
-        if loaded is not None and not isinstance(loaded, dict):
-            print(f"Error: expected a mapping in {config_path}", file=sys.stderr)
-            raise SystemExit(1)
-        config = loaded or {}
-
-    _product_config = config.get("products", {}).get(args.product, {})
+    config = _load_runtime_config()
     _retrieval_cfg = config.get("retrieval", {})
     if args.top_k is None:
         args.top_k = _retrieval_cfg.get("top_k", DEFAULT_RETRIEVAL_TOP_K)
 
-    # Load questions
-    from dokimi.questions.artifact import load_questions
-
-    try:
-        questions = load_questions(args.questions).questions
-    except ValueError as exc:  # ArtifactValidationError: names the record and the fix
-        print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+    questions = _load_questions(args.questions)
     print(f"Loaded {len(questions)} questions from {args.questions}")
 
     # Setup documentation source client
@@ -91,13 +104,7 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
         debug_retrieval=args.debug_retrieval
     )
 
-    if args.output:
-        output_path = Path(args.output)
-    elif getattr(args, "run_id", None):
-        output_path = Path(f"results/{args.product.lower()}_{args.run_id}/answers/{args.product}.json")
-    else:
-        output_path = Path(f"answers/{args.product}.json")
-
+    output_path = _output_path(args)
     answers = answerer.generate_answers(
         library_name=args.product,
         library_id=library_id,

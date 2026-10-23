@@ -79,6 +79,13 @@ on:
         required: false
         type: boolean
         default: false
+      allow-unsupported:
+        description: >-
+          Pass --allow-unsupported to `repo tasks check`: a task this runner misses the task.json
+          `host` requirements of passes its job (the reason is still in the log and summary)
+        required: false
+        type: boolean
+        default: false
       runs-on:
         description: Runner label for every job (a tasks-check job needs docker)
         required: false
@@ -373,12 +380,14 @@ jobs:
           MANIFEST: ${{ inputs.manifest }}
           TASK: ${{ matrix.task }}
           WARM: ${{ inputs.warm }}
+          ALLOW_UNSUPPORTED: ${{ inputs.allow-unsupported }}
           # Each task's verdict in the log as it lands, not when the step ends.
           PYTHONUNBUFFERED: '1'
         run: |
-          warm=()
-          if [ "$WARM" = true ]; then warm=(--warm); fi
-          dokimi repo tasks check . --manifest "$MANIFEST" --task "$TASK" --out "$RUNNER_TEMP/repo-check" "${warm[@]}"
+          flags=()
+          if [ "$WARM" = true ]; then flags+=(--warm); fi
+          if [ "$ALLOW_UNSUPPORTED" = true ]; then flags+=(--allow-unsupported); fi
+          dokimi repo tasks check . --manifest "$MANIFEST" --task "$TASK" --out "$RUNNER_TEMP/repo-check" "${flags[@]}"
       # always(): a hung oracle ends in the job timeout, which cancels the job; a
       # cancelled job still runs these steps, so the run leaves a verdict.
       - name: Summary

@@ -57,9 +57,10 @@ jobs:
         run: |
           # The tools go in their own venv: pinned into this interpreter, the lock's
           # PyYAML and jsonschema would be kept when the wheel is installed below.
+          # --no-isolation: the backend is the lock's setuptools, not a fresh unhashed resolve.
           python -m venv "$RUNNER_TEMP/build-venv"
           "$RUNNER_TEMP/build-venv/bin/python" -m pip install --require-hashes -r requirements-ci.lock.txt
-          "$RUNNER_TEMP/build-venv/bin/python" -m build --outdir dist
+          "$RUNNER_TEMP/build-venv/bin/python" -m build --no-isolation --outdir dist
           "$RUNNER_TEMP/build-venv/bin/twine" check --strict dist/*
           ls -l dist
       - name: Install the wheel

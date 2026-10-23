@@ -1,0 +1,173 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: cli-interface-comment
+
+# Applies the `cli-interface-change` label and the sticky comment for the result that
+# the cli-interface workflow uploads. That workflow runs on pull_request, so on a fork
+# PR its token is read-only; this one runs in the base repository's context after it
+# finishes, with a write token.
+#
+# Security: this job never checks out or runs PR code. The artifact is data produced by
+# PR-controlled code, so it is untrusted: its size is capped, it is parsed as JSON only,
+# the PR number must be an integer, the PR's current head must be the commit the run was
+# for, and the text is only ever passed to the REST API as a body (no shell, no eval).
+on:
+  workflow_run:  # zizmor: ignore[dangerous-triggers] -- intended: no checkout, untrusted artifact is validated (see above)
+    workflows: [cli-interface]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  # One group per PR branch (pull_requests[] is empty for forks), so pushes to one PR
+  # post one at a time and cannot both find no sticky comment and each create one.
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  post:
+    name: Label and comment
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    permissions:
+      actions: read  # list and download the run's artifact
+      pull-requests: write  # create/apply the label
+      issues: write  # github.rest.issues.* APIs for labels and comments
+    steps:
+      - name: Validate the result and post it
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const os = require('os');
+            const path = require('path');
+            const { execFileSync } = require('child_process');
+            const { owner, repo } = context.repo;
+            const run = context.payload.workflow_run;
+            const label = 'cli-interface-change';
+            const marker = '<!-- cli-interface-diff -->';
+            const MAX_ZIP_BYTES = 256 * 1024;
+            const MAX_JSON_BYTES = 200 * 1024;
+            const MAX_DIFF_CHARS = 60000;
+            const bot = 'github-actions[bot]';
+
+            // The sticky comment of a PR: its existing one (only the bot's own counts) and a
+            // writer that updates it or creates it.
+            const sticky = async (issue_number) => {
+              const comments = await github.paginate(github.rest.issues.listComments,
+                { owner, repo, issue_number });
+              const existing = comments.find((c) => c.user?.login === bot &&
+                c.body && c.body.includes(marker));
+              const put = async (body) => existing
+                ? github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body })
+                : github.rest.issues.createComment({ owner, repo, issue_number, body });
+              return { existing, put };
+            };
+
+            // A result over the size caps cannot be read, so the PR number is not known from it:
+            // find the open PRs of this repository from the run's head branch at the run's commit,
+            // and say there that the result was too large, so an older comment does not keep showing a
+            // diff that no longer exists. The label is left as it is, as for `changed: error`.
+            // Looked up by branch: the commit lookup on this repository is empty for a fork's commit.
+            const tooLarge = async (why) => {
+              core.warning(why);
+              const prs = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open',
+                head: `${run.head_repository?.owner?.login}:${run.head_branch}` });
+              for (const p of prs) {
+                if (p.state !== 'open' || p.base?.repo?.full_name !== `${owner}/${repo}` ||
+                    p.head?.sha !== run.head_sha) continue;
+                const { put } = await sticky(p.number);
+                await put(`${marker}\nThe CLI interface result for this commit is too large to show ` +
+                  `(${why}); see the [cli-interface run](${run.html_url}). The \`${label}\` label is as it was.`);
+              }
+            };
+
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts,
+              { owner, repo, run_id: run.id });
+            const art = artifacts.find((a) => a.name === 'cli-interface-result' && !a.expired &&
+              a.workflow_run && a.workflow_run.id === run.id);
+            if (!art) { core.warning('No cli-interface-result artifact on the run.'); return; }
+            if (!(art.size_in_bytes <= MAX_ZIP_BYTES)) {
+              return tooLarge(`artifact is ${art.size_in_bytes} bytes, over the ${MAX_ZIP_BYTES} cap`);
+            }
+            const dl = await github.rest.actions.downloadArtifact({ owner, repo,
+              artifact_id: art.id, archive_format: 'zip' });
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-interface-'));
+            const zip = path.join(dir, 'a.zip');
+            fs.writeFileSync(zip, Buffer.from(dl.data));
+            if (fs.statSync(zip).size > MAX_ZIP_BYTES) {
+              return tooLarge('the downloaded artifact is over the size cap');
+            }
+            let raw;
+            try {
+              // argv only, no shell; exactly the one expected member is read, size-capped.
+              raw = execFileSync('unzip', ['-p', zip, 'result.json'], { maxBuffer: MAX_JSON_BYTES });
+            } catch (e) {
+              if (e.code === 'ENOBUFS') return tooLarge(`result.json is over ${MAX_JSON_BYTES} bytes`);
+              core.warning(`Could not read result.json: ${e.message}`); return;
+            }
+            let res;
+            try { res = JSON.parse(raw.toString('utf8')); } catch (e) {
+              core.warning('result.json is not valid JSON.'); return;
+            }
+            const bad = (why) => core.warning(`Ignoring the artifact: ${why}`);
+            if (res === null || typeof res !== 'object' || Array.isArray(res)) return bad('not an object');
+            const issue_number = res.pr_number;
+            if (!Number.isSafeInteger(issue_number) || issue_number <= 0) return bad('pr_number is not a positive integer');
+            if (res.head_sha !== run.head_sha) return bad('head_sha differs from the run\'s head');
+            if (!['0', '1', 'error'].includes(res.changed)) return bad('changed is not one of 0, 1, error');
+            if (typeof res.diff !== 'string') return bad('diff is missing');
+
+            // The number is only a claim of the PR's code: check it is a PR of this
+            // repository whose current head is the commit this run was for.
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: issue_number });
+            if (pr.base.repo.full_name !== `${owner}/${repo}`) return bad('PR is not in this repository');
+            if (pr.head.sha !== run.head_sha) { core.info('A newer commit was pushed; skipping the stale result.'); return; }
+
+            // Text derived from the PR: no forged marker (every HTML-comment opener is
+            // broken in one pass, so a nested marker cannot reassemble), no mentions, and it is shown
+            // verbatim in a code fence (longer than any backtick run inside) so links,
+            // images, HTML and #N references do not render. A diff over the cap is truncated, not
+            // dropped, so its label and comment still follow the result. The cap is applied after
+            // the mention and backtick rewrites, which add characters, so the body stays
+            // under GitHub's 65,536 limit; runs of 8+ backticks are split so the fence
+            // stays at most 8 long.
+            // The producer's `diff --markdown` output carries its own heading, intro and
+            // ```diff fence. Fenced again, those would show as literal code: take the diff
+            // lines out of it and write the heading and the one fence here, as that job does.
+            // CRLF line ends and blank lines after the closing fence are the same wrapper.
+            const wrapped = res.diff.replace(/\r\n/g, '\n')
+              .match(/^## CLI interface change detected\n\n[^\n]*\n\n```diff\n([\s\S]*)\n```\n*$/);
+            let text = (wrapped ? wrapped[1] : res.diff).replace(/<!--/g, '<!\u200b--').replace(/@/g, '@\u200b')
+              .replace(/`{8,}/g, (m) => m.match(/`{1,7}/g).join('\u200b'));
+            if (text.length > MAX_DIFF_CHARS) {
+              text = text.slice(0, MAX_DIFF_CHARS).replace(/[\ud800-\udbff]$/, '') +
+                '\n... (truncated)';
+            }
+            const ticks = Math.max(2, ...(text.match(/`+/g) || []).map((t) => t.length)) + 1;
+            const fence = '`'.repeat(ticks);
+            const diff = `${fence}diff\n${text.replace(/\n$/, '')}\n${fence}`;
+            const { existing, put } = await sticky(issue_number);
+
+            if (res.changed === 'error') {
+              // surface unknown: leave the label as it is; the text is this job's own, not the artifact's
+              await put(`${marker}\n## CLI interface check could not run\n\nThe CLI surface could not be dumped ` +
+                `or diffed from the base or the head; see the [cli-interface run](${run.html_url}).`);
+            } else if (res.changed === '1') {
+              try {
+                await github.rest.issues.createLabel({ owner, repo, name: label, color: 'B60205',
+                  description: "Changes dokimi's user-facing CLI surface" });
+              } catch (e) { /* already exists */ }
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [label] });
+              await put(`${marker}\n## CLI interface change detected\n\nThis PR changes dokimi's user-facing ` +
+                `CLI surface (commands and/or options):\n\n${diff}\n_Updated on every push; the \`${label}\` ` +
+                'label is on while the diff is non-empty._');
+            } else {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: label });
+              } catch (e) { /* was not applied */ }
+              if (existing) {
+                await put(`${marker}\nThe CLI surface now matches the base branch: no user-facing CLI change.`);
+              }
+            }

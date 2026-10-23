@@ -17,6 +17,10 @@ def _fixture_task(tmp_path: Path) -> Path:
     task.mkdir()
     (task / "instruction.md").write_text("Do it.", encoding="utf-8")
     (task / "task.toml").write_text("[metadata]\ntags = [\"toy\"]\n", encoding="utf-8")
+    # A task Harbor can run: without these every cell errors and `tasks run` exits 1.
+    (task / "environment").mkdir()
+    (task / "tests").mkdir()
+    (task / "tests" / "test.sh").write_text("exit 0\n", encoding="utf-8")
     return task
 
 
@@ -135,3 +139,44 @@ def test_tasks_list_prints_tasks_from_a_named_root(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "toy-task" in out
     assert "toy" in out
+
+
+class _RaisingHarness:
+    def run(self, task, **_):
+        raise RuntimeError("docker build failed")
+
+
+def _run_tasks(tmp_path, monkeypatch, harness_for):
+    from dokimi.harnesses import runner as runner_mod
+
+    _fixture_task(tmp_path)
+    real = runner_mod.create_harness
+    monkeypatch.setattr(runner_mod, "create_harness",
+                        lambda hid, **kw: harness_for(hid) or real(hid, **kw))
+    args = build_parser().parse_args([
+        "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
+        "--harnesses", "codex", "--baseline-harness", "claude-code", "--model", "m",
+        "--out-json", str(tmp_path / "runs.json"), "--dry-run",
+    ])
+    try:
+        args.func(args)
+    except SystemExit as exc:
+        return exc.code
+    return 0
+
+
+def test_tasks_run_with_every_cell_errored_is_incomplete(tmp_path, monkeypatch, capsys):
+    # "codex: 0/0 pass (n/a), 1 errored" was exit 0.
+    code = _run_tasks(tmp_path, monkeypatch, lambda hid: _RaisingHarness())
+    out, err = capsys.readouterr()
+    assert code == 1
+    assert "codex: 0/0 pass (n/a), 1 errored" in out
+    assert "incomplete: every cell errored (0 scored, 2 errored of 2 cells)" in err
+    assert (tmp_path / "runs.json").is_file()  # the artifact is still written
+
+
+def test_tasks_run_with_some_cells_errored_keeps_exit_0_and_counts(tmp_path, monkeypatch, capsys):
+    code = _run_tasks(tmp_path, monkeypatch, lambda hid: _RaisingHarness() if hid == "codex" else None)
+    out, err = capsys.readouterr()
+    assert code == 0
+    assert "codex: 0/0 pass (n/a), 1 errored" in out and "incomplete" not in err

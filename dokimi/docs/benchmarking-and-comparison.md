@@ -692,7 +692,11 @@ same cached reply read again. Draw 0 adds nothing to the key, so entries written
 before draws existed still hit. A judge reply that does not parse is neither
 stored nor, if an older run stored it, replayed; otherwise a question whose three
 attempts all failed once would fail on every later run without calling the
-model. A cold cache is therefore not needed for the retry to be real.
+model. A cold cache is therefore not needed for the retry to be real. A rerun of
+an answer the judge (single or panel) already scored makes no provider call even
+when the score came from a retry: the judge looks up the stored entry of every
+attempt before it asks the model, so the unparseable first reply, which was never
+stored, is not asked again.
 
 The cache is not judge-only. It applies to every caller of `llm_call` and
 `utils.get_llm`, which includes question generation (`questions/llm_gen.py`),
@@ -750,6 +754,12 @@ side does not record (an older artifact, or answers with no model) is named on
 stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
 vouch for that role. A malformed record in either file (no `question_id`) exits 2,
 naming the record on stderr, so it never reads as a failed `--strict` check.
+`baseline compare` also exits 2 on an eval file, saved baseline or `manifest.json`
+that is not valid JSON, not a JSON object, or cannot be read. `baseline save` exits 1
+on a bad eval file or `manifest.json`, and `baseline list` exits 1 on a bad
+`manifest.json`. A `manifest.json` whose `baselines` is not a list, or whose entries
+lack a string `name` and `path` or have a `summary` that is not an object, is rejected
+the same way.
 
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.

@@ -85,6 +85,13 @@ CI additionally holds a PR to:
   (front end → tracks → evaluation → components → foundation; nothing imports `cli` or
   `commands`), fails a new import cycle, and keeps provider SDKs behind `dokimi.llm` and
   child processes behind `dokimi.process`. Its baselines only shrink.
+- **No growth in file length or complexity.** A first-party `.py` file over 800
+  lines (1000 under `tests/`) or a function over cyclomatic complexity 10 (ruff's
+  C901 count) fails `tests/test_growth_ratchet.py` unless `scripts/growth_baseline.json`
+  records it; a recorded one may shrink, never grow, and its entry comes down with
+  it (`python scripts/check_growth.py --update`). Raising or adding an entry needs a
+  `"rationale"` of at most 300 characters. `--report` prints the totals; the static
+  job adds them to its step summary.
 - **Tests that fail loudly.** `pytest` fails a test that runs over 60 s
   (`@pytest.mark.timeout(N)` allows more), turns a warning into an error, and
   shuffles the test order (pytest-randomly). The header prints
@@ -145,7 +152,10 @@ minutes. `make ci-local` runs both; `make hooks` runs mypy before a push.
 Dependencies install from `requirements.lock.txt`; the docs build's from
 `requirements-docs.lock.txt` on top of it, and the tools CI, `make dev`, the
 release job and the eval image use (`requirements-ci.txt`) from
-`requirements-ci.lock.txt`. When you change a range in
+`requirements-ci.lock.txt`. That lock also pins the build backend, setuptools:
+package-smoke and the release job build with `python -m build --no-isolation`,
+so the published sdist and wheel are not built by a backend resolved fresh from
+PyPI. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
 from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
 keeps the current pins). The command's `--exclude-newer=P7D` skips releases
@@ -187,7 +197,9 @@ Guidelines:
   bisecting easier.
 - **Add tests** for behavioral changes. The suite lives in `tests/` and runs
   fully offline (LLM/network calls are mocked; the `fake_llm` fixture scripts
-  every `dokimi.llm.LLM` reply).
+  every `dokimi.llm.LLM` reply). A change that adds or removes provider calls on
+  a judge, panel, answer or validation path updates its pinned count in
+  `tests/test_provider_call_budgets.py` (the `provider_calls` fixture counts them).
 - **Update docs** in the same PR when you change behavior. Stale docs are
   treated as bugs — see the docs-drift checklist below.
 - **Don't commit ad-hoc run output.** Generated artifacts belong under
