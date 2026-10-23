@@ -50,6 +50,7 @@ from typing import Any
 from dokimi.context.trace import TraceError
 
 _WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+_SHELL_WRITERS = {"sed", "perl", "echo", "printf", "cat", "tee"}  # their output written to a file is an edit
 RULES = ("requires", "forbids", "before", "after_last", "last_ok")
 _TARGET_KEYS = ("file_path", "notebook_path", "path", "pattern", "url", "query", "subagent_type")
 
@@ -397,8 +398,10 @@ class Matcher:
 
     def __call__(self, ev: Event) -> bool:
         if self.tools and ev.tool not in self.tools and ev.kind not in self.tools:
-            # a shell step that writes a file (`sed -i`, `>`, `tee`) is an edit for a matcher of edit tools
-            if not (ev.tool == "Bash" and ev.input.get("file_path") and set(self.tools) & _WRITE_TOOLS):
+            # a shell write (`sed -i`, `echo > f`, `| tee`) is an edit for a matcher of edit tools; a
+            # program whose output is saved (`pytest > log`, `ls > f`) did not edit anything
+            if not (ev.tool == "Bash" and ev.input.get("file_path") and set(self.tools) & _WRITE_TOOLS
+                    and ev.kind.removeprefix("Bash:") in _SHELL_WRITERS):
                 return False
         return all(p.search(str(ev.input.get(k, ""))) for k, p in self.patterns.items())
 

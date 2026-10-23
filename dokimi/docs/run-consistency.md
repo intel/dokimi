@@ -89,7 +89,9 @@ rules:
 ```
 
 An `edit` action with a write tool (`Edit`, `Write`, `MultiEdit`) also matches a shell
-step that writes a file (`sed -i`, `>`, `tee`), so an edit through the shell counts.
+step that writes a file (`sed -i`, `echo`/`printf`/`cat` into `>`, `tee`), so an edit
+through the shell counts. Another program's output saved to a file (`pytest > test.log`,
+`ls > /tmp/files.txt`) is not an edit.
 
 Name every equivalent way to do a step: `make check`, `sh tools/check.sh` and
 the skill's `finish.sh` are one check. A contract that knows only `make check`

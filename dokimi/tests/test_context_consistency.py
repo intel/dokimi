@@ -275,6 +275,17 @@ def test_a_shell_edit_matches_an_edit_action():
     assert check_contract(_run("r", READ, ("Bash", {"command": "pytest -q"})), c) == ["requires: edit"]
 
 
+@pytest.mark.parametrize("cmd", ["pytest -q > test.log", "pytest -q > /tmp/test.log 2>&1",
+                                 "set -o pipefail; pytest -q 2>&1 | tee test.log"])
+def test_saving_a_test_log_is_not_an_edit(cmd):
+    c = parse_contract({**CONTRACT, "rules": [*CONTRACT["rules"], {"requires": "edit"}]})
+    assert check_contract(_run("r", READ, EDIT, ("Bash", {"command": cmd})), c) == []
+    scratch = ("Bash", {"command": "ls > /tmp/files.txt"})
+    assert check_contract(_run("r", scratch, READ, TEST), c) == ["requires: edit"]
+    for write in ("echo x > src/a.py", "cat > src/a.py <<'EOF'\nx\nEOF", "printf x | tee src/a.py"):
+        assert check_contract(_run("r", READ, ("Bash", {"command": write}), TEST), c) == []
+
+
 def test_no_runs_is_not_a_stable_success():
     p = profile([])
     assert p["verdict"] == "no runs" and p["strategies"] == []
