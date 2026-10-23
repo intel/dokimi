@@ -780,7 +780,8 @@ def register(sub, positive_int) -> None:
     routing_p.add_argument("--catalog", default=None,
                            help="Directory of skills to take the competitors from: every "
                                 "skill the catalog lists (skills.yaml when present, else every "
-                                "SKILL.md under it) except the artifact itself, i.e. the "
+                                "SKILL.md under it; a template/ copy is left out) except "
+                                "the artifact itself, i.e. the "
                                 "siblings a harness lists next to it. Combines with "
                                 "--competitors")
     routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",

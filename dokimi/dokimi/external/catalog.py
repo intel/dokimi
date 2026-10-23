@@ -93,8 +93,12 @@ class TaskCatalogEntry:
         return self.task is not None and not self.skipped and not self.failed
 
 
-def read_skill_manifest(root: Path) -> list[SkillCatalogEntry]:
-    """Read skills under *root*, preferring a ``skills.yaml`` manifest."""
+def read_skill_manifest(root: Path, notes: list[str] | None = None) -> list[SkillCatalogEntry]:
+    """Read skills under *root*, preferring a ``skills.yaml`` manifest.
+
+    *notes* receives one line per template or mirror the filesystem scan leaves out (a
+    manifest lists its skills, so it has none).
+    """
 
     root = Path(root)
     manifest_path = root / "skills.yaml"
@@ -107,7 +111,7 @@ def read_skill_manifest(root: Path) -> list[SkillCatalogEntry]:
                 source_root=root,
                 skill=skill,
             )
-            for skill in discover_skills(root)
+            for skill in discover_skills(root, notes=notes)
         ]
 
     import yaml

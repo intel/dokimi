@@ -37,7 +37,7 @@ flowchart LR
 | `skill:` | a skill (`SKILL.md`) injected as context |
 | `profile:` | an agent persona system prompt |
 | `agent:` / `skill-agent:` | **agentic** use — the model gets a tool and *decides* whether to fetch docs / load the skill |
-| `skill-catalog:` | **selection** — every skill in a catalog is offered; scored on which one loads (`catalog trigger-set` builds the queries) |
+| `skill-catalog:` | **selection** — every skill in a catalog is offered (a copy under a `template/` or `templates/` directory and a byte-identical mirror that loads under the same skill name are left out); scored on which one loads (`catalog trigger-set` builds the queries) |
 
 Two fine-print notes:
 

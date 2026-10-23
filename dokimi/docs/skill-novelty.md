@@ -593,8 +593,8 @@ python cli.py novelty routing --artifact skill:path/to/skill \
 
 `--catalog <dir>` takes the competitors from a skill directory instead: every skill the catalog
 lists except the artifact itself. A `skills.yaml` at the root decides what the catalog lists;
-without one, every `SKILL.md` under it counts. A declared skill that cannot be loaded is skipped
-with a warning. Two catalog skills with the same name and different content are refused, with
+without one, every `SKILL.md` under it counts, except a `template/` copy. A declared skill
+that cannot be loaded is skipped with a warning. Two catalog skills with the same name and different content are refused, with
 both paths named: rename one, or delete the copy you do not mean to route against.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning, so a shell glob over a skills directory can be passed as it is.

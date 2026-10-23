@@ -446,7 +446,7 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     from dokimi.external.catalog import read_skill_manifest
 
     eligible: list[tuple[Skill, str]] = []
-    for entry in read_skill_manifest(Path(root)):
+    for entry in read_skill_manifest(Path(root), notes):
         skill = entry.skill
         if skill is None or not entry.loaded:
             if notes is not None:

@@ -692,7 +692,7 @@ def test_mirrors_at_one_depth_keep_the_path_that_sorts_first(tmp_path):
     notes: list[str] = []
     assert [c.name for c in catalog_competitors(str(root), set(), notes)] == ["db"]
     assert notes[0].endswith(f"identical to {root / 'a' / 'skills' / 'db' / 'SKILL.md'}")
-    assert f"at {root / 'b' / 'skills' / 'db' / 'SKILL.md'}" in notes[0]
+    assert f"left out {root / 'b' / 'skills' / 'db' / 'SKILL.md'}" in notes[0]
 
 
 def test_two_catalog_skills_with_one_name_and_different_content_are_refused_by_name(

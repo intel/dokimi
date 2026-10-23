@@ -8,6 +8,7 @@ The spec grammar — kinds, the ``+`` rule, how each arm is named — lives in
 :class:`Treatment` objects.
 """
 
+import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -61,7 +62,12 @@ def _build(part: ArmPart, *, top_k: int, rerank_threshold: float,
         from dokimi.skills import discover_skills
         if not Path(part.arg).is_dir():
             raise ValueError(f"'skill-catalog:' path is not a directory: {part.arg}")
-        return SkillCatalogTreatment(discover_skills(part.arg), name=part.arm_name())
+        notes: List[str] = []
+        skills = discover_skills(part.arg, notes=notes)
+        # A template or mirror left out of the arm must not vanish silently.
+        for note in notes:
+            print(note, file=sys.stderr)
+        return SkillCatalogTreatment(skills, name=part.arm_name())
     if kind == "profile":
         from dokimi.agent_profiles import load_agent_profile
         profile = load_agent_profile(part.arg)
