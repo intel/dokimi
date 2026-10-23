@@ -174,3 +174,47 @@ def test_counters_search_command_events_only():
 def test_failed_commands_counts_every_non_zero_rc(rc, failed):
     events = [{"kind": "command", "text": "x", "rc": rc}]
     assert process_metrics(events, _guidance)["failed_commands"] == failed
+
+
+def test_a_grader_that_only_resembles_a_built_in_one_needs_grade():
+    raw = json.loads(json.dumps(MANIFEST))
+    raw["entry_points"].pop("grade")
+    m = parse_manifest(raw)
+    problems = grade_problems(m, [_summary("a", "dokimi_tests"), _summary("b", "x-dokimi:y"), _summary("c", "dokimi")])
+    assert len(problems) == 1 and problems[0].endswith(": a, b, c")
+
+
+def test_only_a_read_counts_as_reading_guidance():
+    got = process_metrics([{"kind": "edit", "path": "AGENTS.md"}], _guidance)
+    assert got["guidance_read"] == []
+
+
+@pytest.mark.parametrize("path, read", [
+    ("./AGENTS.md", ["AGENTS.md"]), ("src/./AGENTS.md", ["src/AGENTS.md"]), ("src//AGENTS.md", ["src/AGENTS.md"]),
+    ("src/../AGENTS.md", ["AGENTS.md"]), ("a/../../x/AGENTS.md", []), ("../AGENTS.md", []),
+    ("~/AGENTS.md", []), ("/home/a/AGENTS.md", [])])
+def test_guidance_paths_are_normalized_before_the_workspace_test(path, read):
+    assert process_metrics([{"kind": "read", "path": path}], _guidance)["guidance_read"] == read
+
+
+def test_a_read_that_failed_read_no_guidance():
+    events = [{"kind": "read", "path": "AGENTS.md", "rc": 1}, {"kind": "read", "path": "src/AGENTS.md", "rc": 0}]
+    assert process_metrics(events, _guidance)["guidance_read"] == ["src/AGENTS.md"]
+
+
+def test_a_read_error_in_the_stream_carries_a_failure(tmp_path):
+    from dokimi.repos.events import convert
+    def line(rec):
+        return json.dumps(rec)
+    raw = "\n".join([
+        line({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "r1", "name": "Read", "input": {"file_path": "/workspace/AGENTS.md"}}]}}),
+        line({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "r1", "is_error": True, "content": "File does not exist."}]}}),
+        line({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "r2", "name": "Read", "input": {"file_path": "/workspace/src/AGENTS.md"}}]}}),
+        line({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "r2", "content": "ok"}]}})])
+    events = convert("claude-stream-json", raw, "/workspace").events
+    assert [e["rc"] for e in events] == [1, 0]
+    assert process_metrics(events, _guidance)["guidance_read"] == ["src/AGENTS.md"]

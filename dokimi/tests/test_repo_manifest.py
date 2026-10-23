@@ -118,6 +118,7 @@ def test_valid_repo_passes_and_reports_tasks_and_guidance(tmp_path):
         (lambda m: m.update(process_metrics={"bazel": "bazel("}), "process_metrics/bazel: not a valid regex"),
         (lambda m: m.update(process_metrics={"icpx": {"regex": "icpx", "match": "stderr"}}), "match"),
         (lambda m: m.update(process_metrics={"bad name": "x"}), "process_metrics"),
+        (lambda m: m.update(process_metrics={"icpx": {"regex": "icpx", "mach": "output"}}), "mach"),
         (lambda m: m.update(id="Bad Id"), "id"),
         (lambda m: m.update(build_systems=["scons"]), "build_systems"),
         (lambda m: m["image"].update(network="host"), "network"),

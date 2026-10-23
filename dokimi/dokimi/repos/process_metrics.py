@@ -20,6 +20,7 @@ its regex finds a match in (``re.search``). A counter matches the command text u
 
 from __future__ import annotations
 
+import posixpath
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -57,9 +58,16 @@ def parse_counter(name: str, value: Any) -> Counter:
         raise ValueError(f"process_metrics/{name}: not a valid regex: {exc}") from exc
 
 
-def _in_workspace(path: str) -> bool:
-    p = PurePosixPath(path)
-    return not p.is_absolute() and ".." not in p.parts
+def _workspace_path(path: str) -> str | None:
+    """``path`` normalized (``./a``, ``a//b``, ``a/./b``), or None when it is not inside the workspace.
+
+    A ``..`` that stays inside (``src/../AGENTS.md``) is resolved; ``~`` is a home directory, not the repository."""
+    if path.startswith("~"):
+        return None
+    p = PurePosixPath(posixpath.normpath(path))
+    if p.is_absolute() or ".." in p.parts:
+        return None
+    return str(p)
 
 
 def process_metrics(events: Iterable[Mapping[str, Any]], is_guidance: Callable[[str], bool],
@@ -67,12 +75,14 @@ def process_metrics(events: Iterable[Mapping[str, Any]], is_guidance: Callable[[
     """The ``process`` object of ``result.json`` for one run's events; ``is_guidance`` tells a guidance path."""
     events = list(events)
     commands = [e for e in events if e.get("kind") == "command"]
-    reads = {str(e["path"]) for e in events if e.get("kind") == "read" and e.get("path") and not e.get("denied")}
+    # A read that failed (rc 1: the file does not exist) read no guidance.
+    reads = {w for e in events if e.get("kind") == "read" and e.get("path") and not e.get("denied")
+             and e.get("rc") in (0, None) and (w := _workspace_path(str(e["path"]))) is not None}
     return {
         "tool_calls": len(events),
         "commands": len(commands),
         "failed_commands": sum(e.get("rc") not in (0, None) and not e.get("denied") for e in commands),
         "denied_commands": sum(bool(e.get("denied")) for e in commands),
-        "guidance_read": sorted(p for p in reads if _in_workspace(p) and is_guidance(p)),
+        "guidance_read": sorted(p for p in reads if is_guidance(p)),
         "counters": {name: sum(c.hits(e) for e in commands) for name, c in (counters or {}).items()},
     }

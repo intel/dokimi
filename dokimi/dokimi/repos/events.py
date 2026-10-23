@@ -150,6 +150,9 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
                 denied = bool(block.get("is_error")) and bool(_HOOK_DENIAL.match(output or ""))
                 if denied:
                     result_of["denied"] = True
+                if result_of["kind"] == "read" and not denied:
+                    # A read that failed (the file does not exist) shows nothing of the file.
+                    result_of["rc"] = 1 if block.get("is_error") else 0
                 if result_of["kind"] == "command":
                     # Claude Code reports success or failure only, with stdout
                     # and stderr merged into one text.
