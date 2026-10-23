@@ -117,7 +117,7 @@ error — the skill reader has no notion of a not-yet-written entry. Either drop
 such a skill from `skills.yaml` or expect the non-zero exit.
 
 A loaded skill is also checked against the Agent Skills spec. Its `name` must be
-its directory name and kebab-case (at most 64 characters), and its `description`
+its directory name and kebab-case (at most 64 characters; a `SKILL.md` directly in the scanned root is not compared with the root directory's name), and its `description`
 at most 1024 characters: a violation is an `error`, printed under the skill. It
 exits 1 only with `--strict`; without it, the scan reports the error and still
 exits 0. A `name` missing from the frontmatter, or a `SKILL.md` byte-identical to
