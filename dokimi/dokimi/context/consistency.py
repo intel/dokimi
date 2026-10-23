@@ -41,16 +41,15 @@ from __future__ import annotations
 import json
 import math
 import re
-import shlex
 from dataclasses import dataclass, field
 from itertools import combinations
 from pathlib import Path
 from typing import Any
 
+from dokimi.context import shell
 from dokimi.context.trace import TraceError
 
 _WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-_SHELL_WRITERS = {"sed", "perl", "echo", "printf", "cat", "tee"}  # their output written to a file is an edit
 RULES = ("requires", "forbids", "before", "after_last", "last_ok")
 _TARGET_KEYS = ("file_path", "notebook_path", "path", "pattern", "url", "query", "subagent_type")
 
@@ -62,7 +61,8 @@ class Event:
     action: str
     input: dict[str, Any]
     failed: bool = False
-    masked: bool = False  # piped without pipefail: the status is the last stage's, not this command's
+    masked: bool = False  # the call's status is another command's: a pipe without pipefail, or a later `;` / `||`
+    call: int = -1  # the tool call this step came from; a chained command is one call and several steps
 
 
 @dataclass
@@ -72,6 +72,14 @@ class Run:
     passed: bool | None = None
     num_turns: int | None = None
     output_tokens: int = 0
+    calls_made: int = 0  # the next call's number, while a trace is read
+
+    def calls(self) -> int:
+        """Tool calls made: a chained command (``a && b``) is several steps but one call."""
+        return len({e.call if e.call >= 0 else id(e) for e in self.events})
+
+    def failed_calls(self) -> int:
+        return len({e.call if e.call >= 0 else id(e) for e in self.events if e.failed})
 
     def kinds(self) -> list[str]:
         return [e.kind for e in self.events]
@@ -110,6 +118,9 @@ def parse_run(raw: str, name: str = "", grain: str = "split") -> Run:
     ``file_path``, so an edit made through the shell is an edit. ``grain="call"`` keeps one step
     per tool call. A Stop hook that blocked the stop is a failed ``Hook:Stop`` step; a hook that
     passed leaves nothing in the trace.
+
+    A run that made tool calls but wrote no ``result`` event (it crashed, timed out, was cut off)
+    did not finish: it counts as failed, so it cannot drop out of the pass rate.
     """
     run = Run(name)
     by_id: dict[str, list[Event]] = {}
@@ -121,39 +132,50 @@ def parse_run(raw: str, name: str = "", grain: str = "split") -> Run:
             continue
         if not isinstance(rec, dict):
             continue
-        kind = rec.get("type")
+        message = rec.get("message") if isinstance(rec.get("message"), dict) else {}
+        content = message.get("content") if isinstance(message.get("content"), list) else []
         main = rec.get("parent_tool_use_id") is None
-        raw_message = rec.get("message")
-        message: dict[str, Any] = raw_message if isinstance(raw_message, dict) else {}
-        raw_content = message.get("content")
-        content: list[Any] = raw_content if isinstance(raw_content, list) else []
+        kind = rec.get("type")
         if kind == "assistant":
-            raw_usage = message.get("usage")
-            usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
-            out = int(usage.get("output_tokens") or 0)
-            mid = str(message.get("id") or id(rec))
-            seen_messages[mid] = max(seen_messages.get(mid, 0), out)  # one call, many blocks
-            if not main:
-                continue
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    evs = _events(str(block.get("name") or ""), block.get("input"), grain)
-                    run.events.extend(evs)
-                    by_id[str(block.get("id") or "")] = evs
+            _assistant(run, rec, message, content, main, by_id, seen_messages, grain)
         elif kind == "user":
-            if main and any(_text(b).startswith("Stop hook feedback") for b in content):
-                run.events.append(Event("Hook", "Hook:Stop", "Hook:Stop", {}, failed=True))
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error"):
-                    # The trace does not say which chained command failed, so all of them may have:
-                    # a failed `make check && git diff` must not read as a passing `git diff`.
-                    for hit in by_id.get(str(block.get("tool_use_id") or ""), []):
-                        hit.failed = True
+            _user(run, content, main, by_id)
         elif kind == "result":
             run.num_turns = rec.get("num_turns") if isinstance(rec.get("num_turns"), int) else None
             run.passed = rec.get("subtype") == "success" and not rec.get("is_error")
     run.output_tokens = sum(seen_messages.values())
+    if run.passed is None and run.events:
+        run.passed = False
     return run
+
+
+def _assistant(run: Run, rec: dict[str, Any], message: dict[str, Any], content: list[Any], main: bool,
+               by_id: dict[str, list[Event]], seen_messages: dict[str, int], grain: str) -> None:
+    usage = message.get("usage") if isinstance(message.get("usage"), dict) else {}
+    mid = str(message.get("id") or id(rec))
+    seen_messages[mid] = max(seen_messages.get(mid, 0), int(usage.get("output_tokens") or 0))  # one call, many blocks
+    if not main:
+        return
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "tool_use":
+            evs = _events(str(block.get("name") or ""), block.get("input"), grain)
+            for e in evs:
+                e.call = run.calls_made
+            run.calls_made += 1
+            run.events.extend(evs)
+            by_id[str(block.get("id") or "")] = evs
+
+
+def _user(run: Run, content: list[Any], main: bool, by_id: dict[str, list[Event]]) -> None:
+    if main and any(_text(b).startswith("Stop hook feedback") for b in content):
+        run.events.append(Event("Hook", "Hook:Stop", "Hook:Stop", {}, failed=True, call=run.calls_made))
+        run.calls_made += 1
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("is_error"):
+            # The trace does not say which chained command failed, so all of them may have:
+            # a failed `make check && git diff` must not read as a passing `git diff`.
+            for hit in by_id.get(str(block.get("tool_use_id") or ""), []):
+                hit.failed = True
 
 
 def run_from_events(events: list[dict[str, Any]], name: str = "") -> Run:
@@ -171,6 +193,7 @@ def run_from_events(events: list[dict[str, Any]], name: str = "") -> Run:
             evs = _events("Bash", {"command": str(ev.get("text") or "")})
             for e in evs:
                 e.failed = isinstance(ev.get("rc"), int) and ev["rc"] != 0
+                e.call = len(run.events)
             run.events.extend(evs)
         elif kind in ("read", "edit"):
             tool = "Read" if kind == "read" else "Edit"
@@ -195,26 +218,7 @@ def _text(block: Any) -> str:
 def _events(tool: str, args: Any, grain: str = "split") -> list[Event]:
     args = args if isinstance(args, dict) else {}
     if tool == "Bash":
-        command = str(args.get("command") or "")
-        pipefail = bool(re.search(r"\bpipefail\b", command))
-        segments = _segments(command)
-        if grain == "split":
-            out = []
-            for seg in segments:
-                program = _program(seg)
-                if not program:
-                    continue
-                written = _written(seg)
-                ev_input = {**args, "command": seg, **({"file_path": written} if written else {})}
-                target = Path(written).name if written else seg.strip()
-                out.append(Event(tool, f"Bash:{program}", f"Bash:{program}({target})", ev_input,
-                                 masked=not pipefail and "|" in _tokens(seg)))
-            if out:
-                return out
-        program = _program(command)
-        kind = f"Bash:{program}" if program else "Bash"
-        masked = not pipefail and any("|" in _tokens(seg) for seg in segments)
-        return [Event(tool, kind, f"{kind}({command.strip()})" if command.strip() else kind, args, masked=masked)]
+        return _bash_events(tool, args, grain)
     kind, target = tool, ""
     for key in _TARGET_KEYS:
         if args.get(key):
@@ -224,130 +228,40 @@ def _events(tool: str, args: Any, grain: str = "split") -> list[Event]:
     return [Event(tool, kind, f"{kind}({target})" if target else kind, args)]
 
 
-def _segments(command: str) -> list[str]:
-    """The commands a shell line chains (``&&``, ``||``, ``;``, newline outside quotes), heredoc
-    bodies and comment lines dropped: their lines are data, not commands."""
-    command = re.sub(r"<<-?\s*['\"]?(\w+)['\"]?([^\n]*)\n.*?\n\s*\1\s*(?=\n|$)", r"<<\1\2", command, flags=re.S)
-    out, cur, quote, i = [], [], "", 0
-    while i < len(command):
-        ch = command[i]
-        if quote:
-            if ch == "\\" and quote == '"' and i + 1 < len(command):
-                cur.append(command[i:i + 2])
-                i += 2
+def _hides_status(sep: str, errexit: bool) -> bool:
+    """Whether the call's status is a later command's, not that of the command before ``sep``;
+    `set -e` stops a chain at its first failure, so after `;` or a newline it is still that command's."""
+    return sep in shell.HIDING and not (errexit and sep in (";", "\n"))
+
+
+def _bash_events(tool: str, args: dict[str, Any], grain: str) -> list[Event]:
+    command = str(args.get("command") or "")
+    pipefail = bool(re.search(r"\bpipefail\b", command))
+    errexit = bool(re.search(r"\bset\s+(-[a-z]*e|-o\s+errexit)", command))
+    parts = shell.split_commands(command)
+    if grain == "split":
+        out = []
+        for i, (seg, sep) in enumerate(parts):
+            prog = shell.program(seg)
+            if not prog:
                 continue
-            if ch == quote:
-                quote = ""
-        elif ch in "'\"":
-            quote = ch
-        elif ch == "\\" and command[i + 1:i + 2] == "\n":  # a continued line
-            i += 2
-            continue
-        elif ch == "#" and (not cur or cur[-1].isspace()):  # a comment runs to the end of the line
-            while i < len(command) and command[i] != "\n":
-                i += 1
-            continue
-        elif ch in ";\n" or command[i:i + 2] in ("&&", "||"):
-            out.append("".join(cur))
-            cur = []
-            i += 1 if ch in ";\n" else 2
-            continue
-        cur.append(ch)
-        i += 1
-    out.append("".join(cur))
-    return [seg.strip() for seg in out if seg.strip() and not seg.strip().startswith("#")]
-
-
-def _tokens(segment: str) -> list[str]:
-    """Shell words with unquoted operators (``|``, ``>``, ``>>``, ``2>&1``) as their own tokens, so a
-    ``>`` or ``|`` inside quotes stays part of a word."""
-    lex = shlex.shlex(segment, posix=True, punctuation_chars=True)
-    lex.whitespace_split = True
-    try:
-        return list(lex)
-    except ValueError:
-        return segment.split()
-
-
-def _written(segment: str) -> str:
-    """The file a shell command writes, if it is one of the plain ways to write one."""
-    words = _tokens(segment)
-    in_place = _IN_PLACE.get(Path(words[0]).name) if words else None
-    if in_place and any(in_place.match(w) for w in words[1:]):
-        files = [w for w in words[1:] if not w.startswith("-") and w not in _OPERATORS]
-        if len(files) >= 2:
-            return files[-1]
-    for i, w in enumerate(words[:-1]):
-        if w in (">", ">>", ">|") and not (i and _fd_redirect(segment, words[i - 1])):
-            target = words[i + 1]
-            if target not in _OPERATORS and target != "/dev/null":
-                return target
-        if w == "tee" and (i == 0 or words[i - 1] == "|"):
-            rest = [x for x in words[i + 1:] if not x.startswith("-")]
-            if rest and rest[0] not in _OPERATORS:
-                return rest[0]
-    return ""
-
-
-# `-i`, `-i.bak`, `-ni`, `--in-place`: the in-place flag by its tool's own option letters, so that
-# `perl -Mstrict` is not an edit.
-_IN_PLACE = {"sed": re.compile(r"^(-[nEsrzu]*i[^-\s]*|--in-place(=.*)?)$"),
-             "perl": re.compile(r"^-[pnalw0-9]*i[^-\s]*$")}
-
-
-def _fd_redirect(segment: str, prev: str) -> bool:
-    """``2>`` / ``2>>`` (a digit glued to the operator) redirects another stream; ``echo 3 > f`` writes."""
-    return prev.isdigit() and prev != "1" and re.search(rf"(?<!\S){prev}>", segment) is not None
-
-
-_OPERATORS = {"|", "||", "&&", ";", "&", ">", ">>", ">|", ">&", "<", "<<", "&>", "&>>", "(", ")"}
-
-
-def _program(command: str) -> str:
-    """The program a shell line runs: past ``cd x &&``, ``VAR=1``, ``sudo``, ``uv run``/``python -m``."""
-    for seg in _segments(command):
-        try:
-            words = shlex.split(seg)
-        except ValueError:
-            words = seg.split()
-        words = _strip_syntax(words)
-        while words and (re.match(r"^\w+=", words[0]) or words[0] in ("sudo", "env", "time", "exec")):
-            words = words[1:]
-        if words and words[:2] == ["uv", "run"]:
-            words = words[2:]
-        if len(words) >= 3 and re.match(r"^python[\d.]*$", Path(words[0]).name) and words[1] == "-m":
-            words = words[2:]
-        if not words or words[0] in ("cd", "pushd", "source", ".", "export", "set", "[", "[["):
-            continue
-        return Path(words[0]).name
-    return ""
-
-
-_KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{"}
-_NO_COMMAND = {"for", "select", "case", "fi", "done", "esac", "}", "in", "function"}
-
-
-def _strip_syntax(words: list[str]) -> list[str]:
-    """The words of a segment without the compound-command syntax around its command:
-    ``do black $f`` -> ``black $f``, ``(cd sub`` -> ``cd sub``, ``pytest)`` -> ``pytest``; a ``for``
-    header, ``fi``, ``done`` leave nothing."""
-    words = list(words)
-    while words:
-        head = words[0].lstrip("(")
-        if head != words[0]:
-            words[0] = head
-            if not head:
-                words.pop(0)
-            continue
-        if words[0] in _KEYWORDS:
-            words.pop(0)
-        else:
-            break
-    if not words or words[0] in _NO_COMMAND:
-        return []
-    if words[-1].endswith(")") and "$(" not in " ".join(words) and "(" not in " ".join(words):
-        words[-1] = words[-1].rstrip(")")
-    return words
+            sep = sep if any(shell.clean(later) for later, _ in parts[i + 1:]) else ""  # `done`, `fi` close it
+            written = shell.written(seg)
+            text = shell.step_text(seg)
+            ev_input = {**args, "command": text, **({"file_path": written} if written else {})}
+            target = Path(written).name if written else text
+            # `set -e` stops a chain at its first failure, so after `;` or a newline the status is still theirs
+            hidden = _hides_status(sep, errexit)
+            out.append(Event(tool, f"Bash:{prog}", f"Bash:{prog}({target})", ev_input,
+                             masked=not pipefail and "|" in shell.tokens(seg) or hidden))
+        if out:
+            return out
+    prog = shell.program(command)
+    kind = f"Bash:{prog}" if prog else "Bash"
+    masked = any((not pipefail and "|" in shell.tokens(seg))
+                 or (any(shell.clean(later) for later, _ in parts[i + 1:]) and _hides_status(sep, errexit))
+                 for i, (seg, sep) in enumerate(parts) if shell.program(seg))
+    return [Event(tool, kind, f"{kind}({command.strip()})" if command.strip() else kind, args, masked=masked)]
 
 
 def load_outcomes(path: Path) -> dict[str, bool]:
@@ -401,7 +315,7 @@ class Matcher:
             # a shell write (`sed -i`, `echo > f`, `| tee`) is an edit for a matcher of edit tools; a
             # program whose output is saved (`pytest > log`, `ls > f`) did not edit anything
             if not (ev.tool == "Bash" and ev.input.get("file_path") and set(self.tools) & _WRITE_TOOLS
-                    and ev.kind.removeprefix("Bash:") in _SHELL_WRITERS):
+                    and shell.writes_file(ev.kind.removeprefix("Bash:"))):
                 return False
         return all(p.search(str(ev.input.get(k, ""))) for k, p in self.patterns.items())
 
@@ -416,6 +330,17 @@ def load_contract(path: Path) -> dict[str, Any]:
     return parse_contract(data, str(path))
 
 
+def _names(value: Any, where: str) -> tuple[str, ...]:
+    """A string or a list of strings; anything else (a number, a nested list, a mapping) is refused."""
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return tuple(value)
+    raise ValueError(f"{where} wants a name or a list of names, got {value!r}")
+
+
 def parse_contract(data: Any, where: str = "contract") -> dict[str, Any]:
     if not isinstance(data, dict) or not isinstance(data.get("actions"), dict):
         raise ValueError(f"{where}: want `actions:` (name -> matcher) and `rules:`")
@@ -423,8 +348,7 @@ def parse_contract(data: Any, where: str = "contract") -> dict[str, Any]:
     for name, spec in data["actions"].items():
         if not isinstance(spec, dict):
             raise ValueError(f"{where}: action {name!r} is not a mapping")
-        tools = spec.get("tool") or ()
-        tools = (tools,) if isinstance(tools, str) else tuple(str(t) for t in tools)
+        tools = _names(spec.get("tool"), f"{where}: action {name!r}: `tool`")
         try:
             patterns = {str(k): re.compile(str(v)) for k, v in spec.items() if k != "tool"}
         except re.error as exc:
@@ -438,7 +362,7 @@ def parse_contract(data: Any, where: str = "contract") -> dict[str, Any]:
         if not isinstance(rule, dict) or len(rule) != 1 or next(iter(rule)) not in RULES:
             raise ValueError(f"{where}: rule {i} must be one of {', '.join(RULES)}")
         (kind, arg), = rule.items()
-        names = [arg] if isinstance(arg, str) else list(arg or [])
+        names = list(_names(arg, f"{where}: rule {i} `{kind}`"))
         want = 2 if kind in ("before", "after_last") else 1
         if len(names) != want or any(n not in actions for n in names):
             raise ValueError(f"{where}: rule {i} `{kind}` wants {want} defined action name(s), got {arg!r}")
@@ -577,11 +501,11 @@ def profile(runs: list[Run], contract: dict[str, Any] | None = None, threshold: 
         "mix_jsd": _mean([jsd(a.kinds(), b.kinds()) for a, b in pairs]),
         "order_distance": _mean([seq_distance(a.kinds(), b.kinds()) for a, b in pairs]),
         "action_distance": _mean([seq_distance(a.actions(), b.actions()) for a, b in pairs]),
-        "tool_calls_mean": _mean([len(r.events) for r in runs]),
-        "tool_calls_cv": _cv([len(r.events) for r in runs]),
+        "tool_calls_mean": _mean([r.calls() for r in runs]),
+        "tool_calls_cv": _cv([r.calls() for r in runs]),
         "turns_cv": _cv([r.num_turns for r in runs if r.num_turns is not None]),
         "output_tokens_cv": _cv([r.output_tokens for r in runs]),
-        "failed_calls_mean": _mean([sum(e.failed for e in r.events) for r in runs]),
+        "failed_calls_mean": _mean([r.failed_calls() for r in runs]),
     }
 
     groups = []

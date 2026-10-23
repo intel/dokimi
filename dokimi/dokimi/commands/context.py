@@ -75,13 +75,9 @@ def _table(rows: list[dict], window: int | None) -> str:
     return "\n".join(lines)
 
 
-def cmd_context_consistency(args: argparse.Namespace) -> None:
-    """Result stability, path stability and contract conformance of repeated runs of one task."""
+def _trace_arms(args: argparse.Namespace) -> dict[str, list[str]]:
+    """``label -> trace paths`` from ``--arm LABEL=GLOB`` and the positional traces."""
     import glob
-
-    from dokimi.context import TraceError
-    from dokimi.context.consistency import (apply_outcomes, load_contract, load_outcomes, profile,
-                                            read_run)
 
     arms: dict[str, list[str]] = {}
     for spec in args.arm or []:
@@ -93,11 +89,13 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         arms.setdefault("runs", []).extend(args.traces)
     if not arms:
         sys.exit("give traces, or --arm LABEL=GLOB")
-    try:
-        contract = load_contract(Path(args.contract)) if args.contract else None
-        outcomes = load_outcomes(Path(args.outcomes)) if args.outcomes else None
-    except (OSError, ValueError) as exc:
-        sys.exit(f"✗ {exc}")
+    return arms
+
+
+def _read_arms(arms: dict[str, list[str]], shell: str) -> tuple[dict[str, list], bool]:
+    """The runs of each arm, and whether some trace could not be read (reported on stderr)."""
+    from dokimi.context import TraceError
+    from dokimi.context.consistency import read_run
 
     loaded: dict[str, list] = {}
     failed = False
@@ -105,10 +103,25 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         loaded[label] = []
         for name in _unique_traces(label, names):
             try:
-                loaded[label].append(read_run(Path(name), args.shell))
+                loaded[label].append(read_run(Path(name), shell))
             except TraceError as exc:
                 print(f"✗ {exc}", file=sys.stderr)
                 failed = True
+    return loaded, failed
+
+
+def cmd_context_consistency(args: argparse.Namespace) -> None:
+    """Result stability, path stability and contract conformance of repeated runs of one task."""
+    from dokimi.context.consistency import apply_outcomes, load_contract, load_outcomes, profile
+
+    arms = _trace_arms(args)
+    try:
+        contract = load_contract(Path(args.contract)) if args.contract else None
+        outcomes = load_outcomes(Path(args.outcomes)) if args.outcomes else None
+    except (OSError, ValueError) as exc:
+        sys.exit(f"✗ {exc}")
+
+    loaded, failed = _read_arms(arms, args.shell)
     missing: set[str] = set()
     if outcomes is not None:  # over every arm at once: a key that two arms share is caught
         try:
@@ -125,6 +138,7 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
             print(f"warning: {label}: {len(runs)} run(s); path stability needs at least 2", file=sys.stderr)
         report[label] = profile(runs, contract, args.threshold)
         report[label]["outcome_source"] = "outcomes file" if outcomes is not None else "harness result event"
+        report[label]["shell"] = args.shell  # the grain the step counts were taken at
 
     if args.json:
         print(json.dumps(report, indent=2))
@@ -151,7 +165,7 @@ def _fmt(v, pct=False) -> str:
 
 
 def _consistency_text(report: dict) -> str:
-    cols = ["runs", "success", "pass^k", "mix JSD", "order dist", "action dist", "calls CV",
+    cols = ["runs", "judged", "success", "pass^k", "mix JSD", "order dist", "action dist", "calls CV",
             "strategies", "conform"]
     lines = ["| arm | " + " | ".join(cols) + " |", "|" + "---|" * (len(cols) + 1)]
     for label, p in report.items():
@@ -160,7 +174,7 @@ def _consistency_text(report: dict) -> str:
         top = hats[-1] if hats else None
         conform = p.get("contract", {}).get("conformance_rate")
         lines.append("| " + " | ".join([
-            label, str(r["runs"]), _fmt(r["success_rate"], True),
+            label, str(r["runs"]), str(r["judged"]), _fmt(r["success_rate"], True),
             f"{_fmt(r[top], True)} ({top})" if top else "–",
             _fmt(path["mix_jsd"]), _fmt(path["order_distance"]), _fmt(path["action_distance"]),
             _fmt(path["tool_calls_cv"]), str(len(p["strategies"])), _fmt(conform, True)]) + " |")
