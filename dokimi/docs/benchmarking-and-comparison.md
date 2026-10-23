@@ -721,9 +721,10 @@ artifact (`eval panel-score`) is compared by its set of judge models. A role eit
 side does not record (an older artifact, or answers with no model) is named on
 stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
 vouch for that role. A malformed record in either file (no `question_id`) exits 2,
-naming the record on stderr, so it never reads as a failed `--strict` check. So does
-a file that is not a JSON object, or cannot be read (the eval file, the saved
-baseline or `manifest.json`); `baseline save` and `baseline list` exit 1 on those.
+naming the record on stderr, so it never reads as a failed `--strict` check.
+`baseline compare` also exits 2 on an eval file, saved baseline or `manifest.json`
+that is not valid JSON, not a JSON object, or cannot be read; `baseline save` and
+`baseline list` exit 1 on those.
 
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.
