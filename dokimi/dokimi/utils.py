@@ -185,8 +185,8 @@ class InputError(Exception):
     """A user-supplied input file that cannot be used; ``cli.main`` prints it and exits 2."""
 
 
-def read_json_input(path: "str | os.PathLike[str]", *, flag: str) -> Any:
-    """The parsed JSON at ``path``, or :class:`InputError` naming ``flag`` and the file."""
+def read_json_input(path: str | os.PathLike[str], *, flag: str) -> Any:
+    """The parsed JSON at ``path``, or raises :class:`InputError` naming ``flag`` and the file."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError) as exc:  # JSONDecodeError and bad UTF-8 are ValueErrors

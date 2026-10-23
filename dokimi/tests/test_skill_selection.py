@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -251,13 +252,23 @@ def test_trigger_set_cli_rejects_a_label_path_that_never_resolves(tmp_path, cata
                   "--questions", f"{qfile}=@metadata.skil_under_test", "--out", str(tmp_path / "o.json")])
 
 
+_DIRECTORY_REASON = "Is a directory" if os.name == "posix" else "Permission denied"
+
+
 @pytest.mark.parametrize(
     "content, reason",
-    [(None, ""), ("{not json", ""), (b'["\xe9"]', "utf-8"), (..., ""), ("[" * 1_000_000, "")],  # \xe9 is latin-1, not UTF-8
+    [
+        (None, "No such file"),
+        ("{not json", "Expecting"),
+        (b'["\xe9"]', "utf-8"),  # \xe9 is latin-1, not UTF-8
+        (..., _DIRECTORY_REASON),
+        ("[" * 100_000 + "0" + "]" * 100_000, "recursion"),
+    ],
     ids=["missing", "malformed", "not-utf8", "directory", "nested-too-deep"],
 )
 def test_trigger_set_exits_2_with_a_message_on_an_unreadable_questions_file(
-        tmp_path, catalog, monkeypatch, capsys, content, reason):
+    tmp_path, catalog, monkeypatch, capsys, content, reason
+):
     from dokimi import cli
 
     qfile = tmp_path / "q.json"
