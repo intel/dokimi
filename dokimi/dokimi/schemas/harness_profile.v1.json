@@ -22,6 +22,15 @@
         "all": {"type": "array", "items": {"type": "string"}}
       }
     },
+    "delegation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How to run without subagents (`repo run --delegation none`): per tool mode, the argument list that replaces that mode's `tools` entry. A tool mode not listed here is refused (list every tool mode the profile may run with); a profile without `none` cannot run `--delegation none`. It restricts tools only: a skill with `context: fork` can still start a subagent.",
+      "properties": {
+        "none": {"type": "object", "propertyNames": {"enum": ["none", "read", "all"]},
+                 "additionalProperties": {"type": "array", "items": {"type": "string"}}}
+      }
+    },
     "config_dir_env": {"type": ["string", "null"]},
     "env_allow": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}},
     "env_set": {

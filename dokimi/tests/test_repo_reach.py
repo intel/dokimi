@@ -193,6 +193,91 @@ def test_builtin_claude_code_profile_builds_argv_without_a_shell(tmp_path):
         profile.argv(prompt="p", model="m", tools="everything")
 
 
+def test_delegation_none_drops_the_subagent_tools_and_changes_the_execution_id():
+    profile = load_profile("claude-code")
+    native = profile.argv(prompt="p", model="m", tools="all")
+    solo = profile.argv(prompt="p", model="m", tools="all", delegation="none")
+    assert native[-3:] == ["--disallowedTools", "WebFetch", "WebSearch"]
+    assert solo[-6:] == ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task", "Workflow"]
+    # Claude Code 2.1.304's Workflow tool starts subagents without going through Agent/Task.
+    assert profile.argv(prompt="p", model="m", tools="read", delegation="none")[-2:] == ["--tools", "Read"]
+    ids = {profile.execution_id("all"), profile.execution_id("all", "none"), profile.execution_id("read")}
+    assert len(ids) == 3 and profile.execution_id("all") == load_profile("claude-code").execution_id("all")
+    with pytest.raises(ProfileError, match="unknown delegation"):
+        profile.tool_args("all", "fork")
+
+
+def test_harness_binary_and_version_change_the_execution_id():
+    profile = load_profile("claude-code")
+    # Same settings without harness info: same id
+    id1 = profile.execution_id("all")
+    id2 = profile.execution_id("all")
+    assert id1 == id2
+    # Different harness executable: different id
+    id3 = profile.execution_id("all", harness_sha256="a" * 64)
+    assert id3 != id1
+    # Different harness version: different id
+    id4 = profile.execution_id("all", harness_sha256="a" * 64, harness_version="2.0.0")
+    id5 = profile.execution_id("all", harness_sha256="a" * 64, harness_version="2.1.0")
+    assert id4 != id5 and id4 != id1
+
+
+def test_execution_id_pinned_by_profile_name(tmp_path):
+    assert _ids_differ_only_by(tmp_path, {"name": "fake-a"}, {"name": "fake-b"})
+
+
+def test_execution_id_pinned_by_invoke(tmp_path):
+    assert _ids_differ_only_by(tmp_path, {}, {"invoke": ["{bin}", "--other", "-p", "{prompt}", "{tools}"]})
+
+
+def test_execution_id_pinned_by_env_allow_and_config_dir_env(tmp_path):
+    assert _ids_differ_only_by(tmp_path, {}, {"env_allow": ["PATH"]})
+    assert _ids_differ_only_by(tmp_path, {}, {"config_dir_env": "OTHER_CONFIG_DIR"})
+
+
+def _ids_differ_only_by(tmp_path, first: dict, second: dict) -> bool:
+    """Load two profiles from the same directory, changing only the fields given, and compare their ids."""
+    before = load_profile(_profile(tmp_path, **first)).execution_id("read")
+    after = load_profile(_profile(tmp_path, **second)).execution_id("read")
+    return before != after
+
+
+def test_execution_id_pinned_by_env_set(tmp_path):
+    assert _ids_differ_only_by(tmp_path, {"env_set": {"VAR": "value1"}}, {"env_set": {"VAR": "value2"}})
+
+
+def test_execution_id_pinned_by_config_files(tmp_path):
+    assert _ids_differ_only_by(tmp_path, {"config_files": {"cfg.json": '{"a": 1}'}},
+                               {"config_files": {"cfg.json": '{"a": 2}'}})
+
+
+def test_execution_id_pinned_by_prompt_suffix(tmp_path):
+    assert _ids_differ_only_by(tmp_path, {"prompt_suffix": "suffix1"}, {"prompt_suffix": "suffix2"})
+
+
+def test_execution_id_pinned_by_bridge_and_egress(tmp_path):
+    bridge = {"for": "AGENTS.md", "write": "CLAUDE.md", "content": "@AGENTS.md"}
+    assert _ids_differ_only_by(tmp_path, {"bridge": bridge}, {"bridge": {**bridge, "content": "@OTHER.md"}})
+    assert _ids_differ_only_by(tmp_path, {"egress": ["a.example"]}, {"egress": ["b.example"]})
+
+
+def test_a_profile_without_delegation_cannot_run_without_subagents(tmp_path):
+    with pytest.raises(ProfileError, match="declares no `delegation: none`"):
+        load_profile(_profile(tmp_path)).tool_args("read", "none")
+
+
+def test_delegation_none_is_an_allow_list_of_tool_modes(tmp_path):
+    raw = yaml.safe_load(Path(_profile(tmp_path)).read_text())
+    raw["delegation"] = {"none": {}}
+    path = tmp_path / "custom.yaml"
+    path.write_text(yaml.safe_dump(raw))
+    with pytest.raises(ProfileError, match="lists no arguments for tool mode"):
+        load_profile(str(path)).tool_args("read", "none")
+    claude = load_profile("claude-code")
+    assert {m: claude.effective_delegation(m, "none") for m in ("none", "read", "all")} == {
+        "none": "native", "read": "native", "all": "none"}
+
+
 def test_profile_env_is_allow_listed_and_isolated(tmp_path):
     profile = load_profile("claude-code")
     env = profile.env(tmp_path / "cfg").resolve({"PATH": "/bin", "AWS_REGION": "us-east-1",
