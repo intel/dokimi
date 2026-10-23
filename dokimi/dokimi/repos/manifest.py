@@ -53,9 +53,6 @@ _HOST_RE = re.compile(HOST_PATTERN)
 _BASE_RE = re.compile(r"^([0-9a-f]{7,40})(\^?)$")
 TASK_REQUIRED = ("id", "family", "base", "prompt", "grader")
 _PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
-# A task whose grader starts with this runs a grader built into the framework, not `entry_points.grade`.
-BUILTIN_GRADER_PREFIX = "dokimi:"
-
 
 # Run-dir entries the framework creates itself and the agent's container does not mount. An `image.env`
 # scratch directory with one of these names would hand the agent the framework's own entry. The
@@ -374,11 +371,11 @@ def grade_problems(manifest: RepoManifest, tasks: list[TaskSummary]) -> list[str
     """``entry_points.grade`` is required only when some task's grader is not a built-in ``dokimi:`` one."""
     if manifest.entry_points.get("grade"):
         return []
-    own = sorted(t.id for t in tasks if not t.grader.startswith(BUILTIN_GRADER_PREFIX))
+    own = sorted(t.id for t in tasks if not t.grader.startswith(BUILTIN_PREFIX))
     if not own:
         return []
     return [f"entry_points/grade: required, since these tasks use the repository's own grader "
-            f"(not {BUILTIN_GRADER_PREFIX}*): {', '.join(own)}"]
+            f"(not {BUILTIN_PREFIX}*): {', '.join(own)}"]
 
 
 def require_runnable(manifest: RepoManifest) -> None:
