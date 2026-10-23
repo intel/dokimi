@@ -192,6 +192,23 @@ def test_a_mirror_in_a_renamed_directory_is_still_counted_once(tmp_path):
     assert [s.path for s in discover_skills(root)] == [original]
 
 
+@pytest.mark.parametrize("change", [lambda b: b + b"\n", lambda b: b.replace(b"Linux", b"linux")])
+def test_copies_differing_only_by_whitespace_or_case_are_both_kept(tmp_path, change):
+    root = tmp_path / "repo"
+    original = _write_skill(root / "a" / "perf", "perf", "Profile Linux programs.")
+    near = root / "b" / "perf"
+    near.mkdir(parents=True)
+    (near / "SKILL.md").write_bytes(change(original.read_bytes()))
+    assert len(discover_skills(root)) == 2
+
+
+def test_discovery_returns_skills_in_path_order_not_depth_order(tmp_path):
+    root = tmp_path / "catalog"
+    deep = _write_skill(root / "a" / "b", "deep", "Profile Linux programs.")
+    shallow = _write_skill(root / "z", "shallow", "Build web pages.")
+    assert [s.path for s in discover_skills(root)] == [deep, shallow]
+
+
 def test_the_mirror_note_names_the_dropped_and_the_kept_path(tmp_path):
     root = tmp_path / "repo"
     original = _write_skill(root / "skills" / "perf", "perf", "Profile Linux programs.")
