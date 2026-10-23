@@ -583,6 +583,15 @@ def test_a_line_that_is_not_a_fence_does_not_hide_the_headings_after_it(opener):
     assert headings_as_queries(f"{opener}\n## Real heading one\n") == ["Real heading one"]
 
 
+@pytest.mark.parametrize("opener", ["~~strike~~ text", "``x`` text", "``x text"])
+def test_a_run_of_two_markers_is_not_a_fence(opener):
+    assert headings_as_queries(f"{opener}\n## Real heading one\n") == ["Real heading one"]
+
+
+def test_a_hash_run_without_a_space_is_not_a_heading():
+    assert headings_as_queries("##hashtag word\n") == []
+
+
 def test_a_four_space_indented_fence_is_indented_code_not_a_fence():
     assert headings_as_queries("    ```\n## Real heading one\n") == ["Real heading one"]
 
