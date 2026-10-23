@@ -49,6 +49,7 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     content = out / "_eval" / "content"
     # a pinned batch keeps its content until the pin is checked
     staged = export_eval_dir(tree, manifest, content.with_name("content.next") if pin else content)
+    _require_grade(staged, manifest, args.task)  # before the pin and the image build
     runner = DockerRunner(args.docker)
     image, ctx_dir = args.image, None
     if not image:
@@ -107,6 +108,21 @@ def context_digest(root: Path) -> str:
         elif path.is_dir():
             h.update(f"D {rel}\0".encode())
     return h.hexdigest()
+
+
+def _require_grade(content: Path, manifest: RepoManifest, ids: list[str] | None) -> None:
+    """Refuse the selected tasks when one needs ``entry_points.grade`` and the manifest has none."""
+    from dokimi.repos.manifest import ManifestError, TaskSummary, grade_problems
+    from dokimi.repos.workspace import PrepError, load_tasks
+
+    try:
+        tasks = load_tasks(content, manifest, ids)
+    except (OSError, ValueError, PrepError):
+        return  # reported where the run loads its tasks
+    graders = [(t.id, str(t.raw.get("grader") or "") if isinstance(t.raw, dict) else "") for t in tasks]
+    problems = grade_problems(manifest, [TaskSummary(i, "", "", g, ()) for i, g in graders])
+    if problems:
+        raise ManifestError(manifest.path, problems)
 
 
 def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:

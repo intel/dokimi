@@ -607,3 +607,23 @@ def test_a_cell_graded_by_a_builtin_grader_needs_no_grade_entry_point(tmp_path, 
     rec = json.loads((out / "b1/seeds_mul__guidance-raw__m-1__r1/result.json").read_text())
     assert rec["grade"]["status"] == "graded", rec["grade"]["reasons"]
     assert any(f"{GRADERS_DIR}/main.py" in s.argv for s in runner.specs)
+
+
+def test_a_repository_grader_without_a_grade_entry_point_is_refused_before_any_agent_runs(tmp_path, monkeypatch, capsys):
+    # Without the check every cell would run, be paid for, and grade as grader_failure.
+    root = _repo(tmp_path)
+    write(root, ".agent-eval/repo-eval.yaml", yaml.safe_dump({**MANIFEST, "entry_points": {}}))
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "no grade entry point")
+    exe, profile = fake_harness(tmp_path)
+    runner = FakeRunner()
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    out = tmp_path / "runs"
+    args = build_parser().parse_args(
+        ["repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
+         "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(out), "--cache-root", str(out / "caches"),
+         "--agent-network", "host", "--arm", "guidance:raw", "--task", "fix_add"])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    assert runner.specs == [] and not (out / "b1/_eval/batch.json").exists()
+    assert "entry_points/grade: required" in capsys.readouterr().err

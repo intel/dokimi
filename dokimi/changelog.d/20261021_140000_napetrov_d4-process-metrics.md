@@ -11,4 +11,5 @@
 ### Changed
 
 - **`entry_points.grade` is optional** when every task's grader is a built-in `dokimi:` one;
-  `repo validate` names the tasks that need it otherwise.
+  `repo validate`, `repo run` and `repo tasks check` name the tasks that need it otherwise,
+  the last two before any agent runs.
