@@ -49,6 +49,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     )
 
     from dokimi.novelty.spans import segment
+    from dokimi.novelty.tiers import FITTED_TOKENS_MAX
 
     artifact_bundle = _bundle_from_args(args)
     settings = _settings(args)
@@ -67,9 +68,18 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         estimate = settings.estimate(
             len(spans), n_tokens=n_tokens, budgets=tuple(args.budgets), n_arms=len(_arms(args.arms))
         )
+        n_arms = len(_arms(args.arms))
         estimate["expected_usd"] = _estimate_usd(
-            args, n_tokens, estimate["estimate"]["by_role"], settings.tier
+            args, n_tokens, estimate["estimate"]["by_role"], settings.tier,
+            context_share=(n_arms - 1) / n_arms,
         )
+        # Every arm but the baseline is priced as carrying the artifact; a placebo of another
+        # length is not read.
+        if n_tokens > FITTED_TOKENS_MAX:
+            estimate["usd_extrapolated"] = True
+            print(f"expected_usd extrapolates: the artifact has {n_tokens} tokens and the "
+                  f"profiles were fitted on artifacts up to {FITTED_TOKENS_MAX}; the projection "
+                  "ran low as the artifact grew", file=sys.stderr)
         print(json.dumps(estimate, indent=2))
         print("Estimate only, nothing was measured. ~4 calls per paired probe is the "
               "measured shape; batch sizes and retries move the real figure.",
@@ -781,7 +791,8 @@ def _role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
 
 
 def _estimate_usd(
-    args: argparse.Namespace, n_tokens: int, by_role: dict[str, int], tier: str | None
+    args: argparse.Namespace, n_tokens: int, by_role: dict[str, int], tier: str | None,
+    context_share: float = 0.5,
 ) -> float | None:
     """The estimate's dollar figure; ``None`` when a role's model cannot be resolved or priced.
 
@@ -796,7 +807,7 @@ def _estimate_usd(
     except SystemExit as exc:
         print(f"The USD estimate is unavailable: {exc}", file=sys.stderr)
         return None
-    usd = estimate_usd(by_role, n_tokens, models, tier)
+    usd = estimate_usd(by_role, n_tokens, models, tier, context_share)
     if usd is None:
         unpriced = sorted(
             f"{role} ({model})"

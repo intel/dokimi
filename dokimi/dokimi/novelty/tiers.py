@@ -307,7 +307,19 @@ EXTRACTOR_TOKENS: dict[str, tuple[float, float, int]] = {
 }
 
 
-def call_tokens(role: str, n_tokens: int, tier: str | None = None) -> tuple[int, int]:
+#: The largest artifact (in tokens) among the measured runs the profiles above were fitted
+#: and checked on. A projection for a bigger artifact extrapolates: the triage figure ran
+#: lower as the artifact grew (-4% at 1,153 tokens, -33% at 6,723).
+FITTED_TOKENS_MAX = 6723
+
+#: The share of the answerer's calls whose context carries the artifact in the measured
+#: runs, which had two arms (the baseline carries none, ``full`` carries it). The answerer's
+#: per-token input is a mean over its arms, so it scales with this share.
+MEASURED_CONTEXT_SHARE = 0.5
+
+
+def call_tokens(role: str, n_tokens: int, tier: str | None = None,
+                context_share: float = MEASURED_CONTEXT_SHARE) -> tuple[int, int]:
     """Input and output tokens of one call of ``role`` on an artifact of ``n_tokens``.
 
     Args:
@@ -315,11 +327,17 @@ def call_tokens(role: str, n_tokens: int, tier: str | None = None) -> tuple[int,
         n_tokens: Tokens in the artifact.
         tier: The run's tier, which picks the extractor's profile (see
             :data:`EXTRACTOR_TOKENS`).
+        context_share: The share of the answerer's calls whose context carries the artifact
+            (arms that carry it over arms run). The answerer's artifact term is a mean over
+            its arms, so it scales with ``context_share / MEASURED_CONTEXT_SHARE``: 1 at the
+            default two arms, 1.5 for ``no_artifact,full,placebo,shuffled``.
     """
     if role == "extractor":
         base, per_token, out = EXTRACTOR_TOKENS.get(tier or "", EXTRACTOR_TOKENS["standard"])
     else:
         base, per_token, out = CALL_TOKENS[role]
+        if role == "answerer":
+            per_token *= context_share / MEASURED_CONTEXT_SHARE
     return max(0, round(base + per_token * n_tokens)), out
 
 
@@ -328,6 +346,7 @@ def estimate_usd(
     n_tokens: int,
     models: dict[str, tuple[str, str]],
     tier: str | None = None,
+    context_share: float = MEASURED_CONTEXT_SHARE,
 ) -> float | None:
     """The expected dollar cost of ``by_role`` calls at list prices.
 
@@ -340,13 +359,14 @@ def estimate_usd(
         n_tokens: Tokens in the artifact.
         models: ``(model, provider)`` per role.
         tier: The run's tier; it sets the extractor's output (see :func:`call_tokens`).
+        context_share: Arms that carry the artifact over arms run (see :func:`call_tokens`).
     """
     from dokimi.llm_pricing import list_cost_usd
 
     total = 0.0
     for role, calls in by_role.items():
         model, provider = models[role]
-        tokens_in, tokens_out = call_tokens(role, n_tokens, tier)
+        tokens_in, tokens_out = call_tokens(role, n_tokens, tier, context_share)
         cost = list_cost_usd(model, provider, tokens_in, tokens_out)
         if cost is None:
             return None

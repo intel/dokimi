@@ -16,6 +16,7 @@ from dokimi.novelty.tiers import (
     DEFAULT_SETTINGS,
     ESCALATION_SHARE,
     EXTRACTOR_TOKENS,
+    FITTED_TOKENS_MAX,
     FLAG_DEFAULTS,
     FORFEITS,
     SETTING_NAMES,
@@ -504,7 +505,9 @@ def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_
 
     root = tmp_path / "s"
     root.mkdir()
-    (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+    body = "\n\n".join(f"Section {i}. Do not enable the legacy driver number {i} on a "
+                        "production host without a rollback plan." for i in range(60))
+    (root / "SKILL.md").write_text(f"---\nname: s\ndescription: d\n---\n\n# S\n\n{body}\n",
                                    encoding="utf-8")
     args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
                   "--estimate-only")
@@ -515,6 +518,9 @@ def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_
     triage = estimate_usd(by_role, tokens, models, "triage")
     assert payload["expected_usd"] == triage
     assert triage != estimate_usd(by_role, tokens, models, None)
+    # The artifact's token count is an input: a figure at 0 tokens is a different one.
+    assert tokens > 100 and triage != estimate_usd(by_role, 0, models, "triage")
+    assert "usd_extrapolated" not in payload
 
 
 def test_list_cost_usd_distinguishes_an_unpriced_model_from_a_free_one(monkeypatch):
@@ -584,3 +590,61 @@ def test_every_extra_arm_adds_an_answer_and_a_grade_per_probe_to_the_bill(tmp_pa
     assert three["answerer"] * 2 == two["answerer"] * 3 > 0
     assert three["judge"] * 2 == two["judge"] * 3 > 0
     assert three["extractor"] == two["extractor"]
+
+
+def test_a_study_run_counts_its_reversal_probes_in_the_answerer_and_judge_calls():
+    study = resolve_settings("study", {})
+    by_role = study.estimate(40, n_tokens=2000, n_arms=2)["estimate"]
+    assert by_role["reversal_probes"] > 0
+    expected = (by_role["paired_probes"] + by_role["reversal_probes"]) * 2
+    assert by_role["by_role"]["answerer"] == by_role["by_role"]["judge"] == expected
+
+
+def test_the_answerer_artifact_term_scales_with_the_arms_that_carry_it():
+    two = call_tokens("answerer", 6000)[0]
+    assert call_tokens("answerer", 6000, None, 0.5) == call_tokens("answerer", 6000)
+    three = call_tokens("answerer", 6000, None, 2 / 3)[0]
+    four = call_tokens("answerer", 6000, None, 3 / 4)[0]
+    assert two < three < four
+    assert three == round(-38 + 0.789 * (2 / 3) / 0.5 * 6000)
+    # The judge never sees the artifact, so its input does not move with the arms.
+    assert call_tokens("judge", 6000, None, 3 / 4) == call_tokens("judge", 6000)
+
+
+def test_the_cli_prices_three_context_arms_above_two(tmp_path, capsys):
+    root = tmp_path / "s"
+    root.mkdir()
+    body = "\n\n".join(f"Section {i}. Do not enable legacy driver {i} on a production host."
+                        for i in range(60))
+    (root / "SKILL.md").write_text(f"---\nname: s\ndescription: d\n---\n\n# S\n\n{body}\n",
+                                   encoding="utf-8")
+    figures = []
+    for arms in ("no_artifact,full", "no_artifact,full,shuffled"):
+        args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+                      "--arms", arms, "--estimate-only")
+        args.func(args)
+        figures.append(json.loads(capsys.readouterr().out))
+    two, three = figures
+    # Three arms run 1.5x the answerer and judge calls, and the answerer's calls carry more of
+    # the artifact each, so the dollars rise by more than the calls alone.
+    calls = (three["estimate"]["by_role"]["answerer"] / two["estimate"]["by_role"]["answerer"])
+    assert calls == 1.5
+    assert three["expected_usd"] > two["expected_usd"]
+
+
+def test_an_estimate_for_an_artifact_beyond_the_fitted_range_says_it_extrapolates(
+        tmp_path, capsys):
+    root = tmp_path / "s"
+    root.mkdir()
+    body = "\n\n".join(f"Section {i}. " + "Do not enable the legacy driver on a host. " * 12
+                        for i in range(120))
+    (root / "SKILL.md").write_text(f"---\nname: s\ndescription: d\n---\n\n# S\n\n{body}\n",
+                                   encoding="utf-8")
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+                  "--estimate-only")
+    args.func(args)
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["tokens"] > FITTED_TOKENS_MAX
+    assert payload["usd_extrapolated"] is True
+    assert "extrapolates" in captured.err

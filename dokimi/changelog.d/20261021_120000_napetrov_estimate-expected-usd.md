@@ -12,3 +12,6 @@
   ceiling. `total_calls` and `total_calls_if_every_pair_escalates` keep their formula but
   follow the new atom count, so they rise wherever the span rule left the count under the
   cap and the token rule gives more (a 588-token skill at `--tier standard`: 129 -> 229).
+  The answerer's artifact term is priced per arm that carries the artifact, so
+  `--arms no_artifact,full,shuffled` projects higher than the two-arm default; an artifact
+  above the largest one measured (6,723 tokens) sets `usd_extrapolated: true`.

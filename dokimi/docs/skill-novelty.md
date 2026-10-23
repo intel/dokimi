@@ -803,8 +803,12 @@ price. The constants were fitted on 13 of the 25 measured runs; the other 12 are
 On those 12 every projection landed within 35%: calls within 13%, atoms within 11%, dollars
 within 33%. The dollar projections ran high on 5 runs (up to +29%) and low on 7 (down to
 -33%), so `expected_usd` is not a ceiling; the triage projection ran lower the larger the
-artifact was (-4% at 1,153 tokens, -33% at 6,723). Only three of the 12 are standard
-runs, so the standard profile rests on little data. An explicit flag always beats the tier,
+artifact was (-4% at 1,153 tokens, -33% at 6,723). The largest artifact measured has 6,723
+tokens: above that the dollar figure extrapolates, and the payload says so
+(`usd_extrapolated: true`, with a note on stderr). The answerer's artifact term is priced per
+arm that carries the artifact (every arm but `no_artifact`), so a three-arm run costs more
+per answerer call than a two-arm one; a `--placebo-text` of another length is not read. Only
+three of the 12 are standard runs, so the standard profile rests on little data. An explicit flag always beats the tier,
 and the override is recorded — a `--tier triage --max-atoms 90` run is not a stock triage
 run and does not get to be read as one.
 
