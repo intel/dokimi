@@ -62,6 +62,16 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def _read_questions_file(path: str):
+    """The parsed ``--questions`` file, or exit with a message naming it."""
+    import json
+
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
+        raise SystemExit(f"--questions {path}: {exc}") from exc
+
+
 def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     import json
 
@@ -84,7 +94,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         path, _, rule = spec.rpartition("=")  # labels never contain '=', paths may
         if not path or not rule:
             raise SystemExit(f"--questions needs PATH=LABEL (a skill name, 'none' or '@field'): {spec}")
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        data = _read_questions_file(path)
         questions = data.get("questions", data) if isinstance(data, dict) else data
         if not isinstance(questions, list) or not all(isinstance(q, dict) for q in questions):
             raise SystemExit(f"{path}: expected a list of question objects")

@@ -251,6 +251,21 @@ def test_trigger_set_cli_rejects_a_label_path_that_never_resolves(tmp_path, cata
                   "--questions", f"{qfile}=@metadata.skil_under_test", "--out", str(tmp_path / "o.json")])
 
 
+@pytest.mark.parametrize("content", [None, "{not json", b"\xff\xfe"], ids=["missing", "malformed", "not-utf8"])
+def test_trigger_set_cli_exits_with_a_message_on_an_unreadable_questions_file(tmp_path, catalog, content):
+    qfile = tmp_path / "q.json"
+    if isinstance(content, str):
+        qfile.write_text(content, encoding="utf-8")
+    elif content is not None:
+        qfile.write_bytes(content)
+    out = tmp_path / "o.json"
+    with pytest.raises(SystemExit) as exc:
+        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog),
+                  "--questions", f"{qfile}=none", "--out", str(out)])
+    assert str(qfile) in str(exc.value)
+    assert not out.exists()
+
+
 def test_skill_catalog_rejects_tool_name_collisions_and_long_names(tmp_path):
     root = tmp_path / "c"
     _write_skill(root, "a-b", "first")
