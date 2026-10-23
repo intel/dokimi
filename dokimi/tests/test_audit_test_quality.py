@@ -468,6 +468,96 @@ def test_a_skip_check_next_to_a_weak_assert_is_not_type_only():
     assert flags["test_x"] == ()
 
 
+@pytest.mark.parametrize("source", [
+    # A skip test: the code under test chose not to call the patched dependency.
+    "@patch('m.llm')\ndef test_x(llm):\n    run(skip=True)\n    llm.assert_not_called()",
+    "@patch('m.llm', new_callable=AsyncMock)\ndef test_x(llm):\n    run(skip=True)\n"
+    "    llm.assert_not_awaited()",
+    "@patch('m.llm')\ndef test_x(llm):\n    run(skip=True)\n    assert not llm.called",
+    "@patch('m.llm')\ndef test_x(llm):\n    run(skip=True)\n    assert llm.call_count == 0",
+    "@patch('m.llm')\n@patch('m.cache')\ndef test_x(cache, llm):\n    run()\n"
+    "    cache.assert_called_once()\n    llm.assert_not_called()",
+    # call_count on what the code under test returned is data, not the patch.
+    "@patch('m.clock')\ndef test_x(clock):\n    stats = run()\n    assert stats.call_count == 3",
+    "@patch('m.clock', new=fake_clock)\ndef test_x(stats):\n    run()\n    assert stats.call_count == 3",
+    "def test_x():\n    with patch('m.clock'):\n        stats = run()\n    assert stats.called",
+    "@patch('m.llm')\ndef test_x(llm):\n    run(skip=True)\n    assert 0 == llm.call_count",
+])
+def test_a_not_called_check_or_a_count_on_data_is_not_a_mock_echo(source):
+    assert "mock_echo" not in _flags(source)["test_x"]
+
+
+@pytest.mark.parametrize("source", [
+    # The near-miss of the skip test: the patched mock was called, and nothing else is checked.
+    "@patch('m.llm')\ndef test_x(llm):\n    run()\n    assert llm.called",
+    "@patch('m.llm')\ndef test_x(llm):\n    run()\n    assert llm.call_count == 1",
+    "@patch('m.llm')\n@patch('m.cache')\ndef test_x(cache, llm, tmp_path):\n    run()\n"
+    "    assert llm.call_count == 1",
+    "def test_x():\n    with patch('m.llm') as llm:\n        run()\n    chat = llm.return_value.chat\n"
+    "    assert chat.call_count == 1",
+    "def test_x():\n    p = patch('m.llm')\n    llm = p.start()\n    run()\n    assert llm.called",
+    "def test_x(mocker):\n    llm = mocker.patch('m.llm')\n    run()\n    assert llm.await_count == 1",
+    "@patch('m.x', new=1)\ndef test_x(mock_llm):\n    run()\n    assert mock_llm.call_count == 1",
+    # the replacement handed to a patch is a mock, whatever it is called
+    "def test_x(monkeypatch, fake):\n    monkeypatch.setattr(mod, 'f', fake)\n    run()\n    assert fake.called",
+    "async def test_x():\n    async with patch('m.llm') as llm:\n        await run()\n    assert llm.called",
+    # the first parameter of a method is self, not the injected mock
+    "class TestX:\n    @patch('m.llm')\n    def test_x(self, llm):\n        run()\n        assert llm.called",
+])
+def test_a_called_check_on_a_patched_mock_is_still_a_mock_echo(source):
+    audits = {a.test.rsplit(".", 1)[-1]: a.flags for a in atq.audit_source(textwrap.dedent(source))}
+    assert "mock_echo" in audits["test_x"]
+
+
+@pytest.mark.parametrize("source", [
+    # a mock held on self by setUp
+    "class TestX:\n    def setUp(self):\n        self.m = MagicMock()\n    def test_x(self):\n"
+    "        with patch('m.y'):\n            run(self.m)\n        assert self.m.called",
+    # a mock built by a fixture of the file, under another name than mock_*
+    "@pytest.fixture\ndef llm():\n    return MagicMock()\ndef test_x(llm):\n    with patch('m.y'):\n"
+    "        run(llm)\n    assert llm.called",
+    # the call form of the decorator
+    "@pytest.fixture(scope='module')\ndef llm():\n    return MagicMock()\ndef test_x(llm):\n"
+    "    with patch('m.y'):\n        run(llm)\n    assert llm.called",
+    # the fixture arrives as a keyword-only or a positional-only parameter
+    "@pytest.fixture\ndef llm():\n    return MagicMock()\ndef test_x(*, llm):\n    with patch('m.y'):\n"
+    "        run(llm)\n    assert llm.called",
+    "@pytest.fixture\ndef llm():\n    return MagicMock()\ndef test_x(llm, /):\n    with patch('m.y'):\n"
+    "        run(llm)\n    assert llm.called",
+])
+def test_a_mock_bound_outside_the_test_body_is_still_a_mock_echo(source):
+    audits = {a.test.rsplit(".", 1)[-1]: a.flags for a in atq.audit_source(textwrap.dedent(source))}
+    assert "mock_echo" in audits["test_x"]
+
+
+def test_a_plain_helper_named_like_the_parameter_is_not_a_mock():
+    flags = _flags("""
+        def llm():
+            return MagicMock()
+        @pytest.fixture
+        def other():
+            return MagicMock()
+        def test_x(llm):
+            with patch("m.y"):
+                run()
+            assert llm.call_count == 2
+        """)
+    assert "mock_echo" not in flags["test_x"]
+
+
+def test_a_fixture_that_returns_data_is_not_a_mock():
+    flags = _flags("""
+        @pytest.fixture
+        def stats():
+            return run()
+        def test_x(stats):
+            with patch("m.y"):
+                run()
+            assert stats.call_count == 2
+        """)
+    assert "mock_echo" not in flags["test_x"]
+
+
 def test_tuple_of_mock_attrs_and_literals_is_mock_echo():
     """A tuple of mock attributes against literal expectations only reads the mock."""
     flags = _flags("""
@@ -505,6 +595,8 @@ def test_no_assert_only_suppressed_by_bare_calls(check, expected_no_assert):
     "assert send.assert_called_once_with", "assert send.assert_called_with",
     "assert send.assert_any_call", "assert send.assert_has_calls",
     "assert (out == 5, 'msg')",  # the message inside the parens: a non-empty tuple never fails
+    "assert [out == 5]", "assert {out == 5}", "assert {'ok': out == 5}",
+    "assert {**d, 'k': 1}", "assert {1: 2, **d}",
 ])
 def test_an_assert_that_is_always_true_is_no_check(check):
     flags = _flags(f"""
@@ -517,12 +609,13 @@ def test_an_assert_that_is_always_true_is_no_check(check):
     assert "no_assert" in flags["test_x"]
 
 
-def test_an_empty_tuple_assert_is_not_always_true():
-    """`assert ()` fails, so it is a check that can fail, not a no-op."""
-    flags = _flags("""
-        def test_x():
+@pytest.mark.parametrize("check", ["assert ()", "assert (*xs,)", "assert [*xs]", "assert {**d}"])
+def test_a_display_that_can_be_empty_is_not_always_true(check):
+    """`assert ()` fails, and `(*xs,)` fails for an empty `xs`: a check, not a no-op."""
+    flags = _flags(f"""
+        def test_x(xs, d):
             out = run()
-            assert ()
+            {check}
         """)
     assert "no_assert" not in flags["test_x"]
 

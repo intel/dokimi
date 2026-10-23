@@ -645,3 +645,91 @@ def test_a_mistyped_manifest_path_is_an_error_not_a_default_scan(tmp_path, capsy
         args.func(args)
     assert exc.value.code == 1
     assert "manifest not found" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("rev", ["origin/main", "refs/heads/x", "HEAD~1", "v1.2", "a492e703^"])
+def test_source_parse_takes_a_rev_with_a_slash(tmp_path, rev):
+    src = RepoSource.parse(f"{tmp_path}@{rev}")
+    assert (src.location, src.rev, src.remote) == (str(tmp_path), rev, False)
+    remote = RepoSource.parse(f"git@github.com:o/r.git@{rev}")
+    assert (remote.location, remote.rev) == ("git@github.com:o/r.git", rev)
+
+
+@pytest.mark.parametrize("rev", ["a..b", "origin//main", "origin/", "-x"])
+def test_source_parse_leaves_a_non_rev_suffix_in_the_path(tmp_path, rev):
+    (tmp_path / f"d@{rev}").mkdir(parents=True)
+    src = RepoSource.parse(f"{tmp_path}/d@{rev}")
+    assert src.rev is None and src.location == f"{tmp_path}/d@{rev}"
+
+
+@pytest.mark.parametrize("url", [
+    "ssh://git@github.com/o/r.git", "https://user@github.com/o/r.git",
+    "file:///home/a@corp.com/proj", "file:///tmp/a@b/c", "https://github.com/o@x/r",
+    "git@github.com/o/r", "file://a@main", "https://h/o/r@/abs"])
+def test_an_unpinned_remote_url_with_a_user_is_not_split_at_its_at_sign(url):
+    with pytest.raises(SourceError, match="must be pinned"):
+        RepoSource.parse(url)
+
+
+@pytest.mark.parametrize("url", ["ssh://git@github.com/o/r.git", "https://user@github.com/o/r.git"])
+def test_a_pinned_remote_url_with_a_user_splits_at_the_last_at_sign(url):
+    src = RepoSource.parse(f"{url}@origin/main")
+    assert (src.location, src.rev, src.remote) == (url, "origin/main", True)
+
+
+@pytest.mark.parametrize("spec, location, rev", [
+    ("ssh://git@host/o/r@origin/main", "ssh://git@host/o/r", "origin/main"),
+    ("git@host:o/r@sha1234", "git@host:o/r", "sha1234"),
+    ("git@host:o/r@refs/heads/x", "git@host:o/r", "refs/heads/x"),
+    ("ssh://git@host/o/r@upstream/main", "ssh://git@host/o/r", "upstream/main"),
+    ("ssh://git@host/o/r@remotes/origin/main", "ssh://git@host/o/r", "remotes/origin/main"),
+    ("ssh://git@host/o/r@heads/x", "ssh://git@host/o/r", "heads/x"),
+    ("ssh://git@host/o/r@tags/v1", "ssh://git@host/o/r", "tags/v1"),
+    ("file:///home/a@corp.com/proj@abc1234", "file:///home/a@corp.com/proj", "abc1234"),
+    ("file:///tmp/a@b/c@v1", "file:///tmp/a@b/c", "v1"),
+])
+def test_a_pinned_remote_spec_with_an_at_sign_in_its_path_splits_at_the_last_one(spec, location, rev):
+    src = RepoSource.parse(spec)
+    assert (src.location, src.rev, src.remote) == (location, rev, True)
+
+
+@pytest.mark.parametrize("spec", ["git@host:o/r@sha1234", "file:/tmp/x@main"])
+def test_a_remote_spec_is_split_even_if_a_directory_of_that_name_exists(tmp_path, monkeypatch, spec):
+    (tmp_path / spec).mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    assert RepoSource.parse(spec if spec.startswith("git@") else "file:///tmp/x@main").rev
+
+
+def test_a_local_rev_does_not_start_with_a_slash(tmp_path):
+    (tmp_path / "d").mkdir()
+    with pytest.raises(SourceError, match="not a directory"):
+        RepoSource.parse(f"{tmp_path}/d@/x")
+
+
+@pytest.mark.parametrize("rev", ["a..b", "x//y", "y/", "-x"])
+def test_resolve_rev_refuses_what_is_no_revision(tmp_path, rev):
+    from dokimi.repos.source import resolve_rev
+
+    root = _repo(tmp_path)
+    _git_commit(root)
+    with pytest.raises(SourceError, match="invalid revision"):
+        resolve_rev(root, rev)
+
+
+def test_resolve_rev_takes_a_branch_with_a_slash(tmp_path):
+    from dokimi.repos.source import resolve_rev
+
+    root = _repo(tmp_path)
+    sha = _git_commit(root)
+    subprocess.run(["git", "-C", str(root), "branch", "origin/main"], check=True)
+    assert resolve_rev(root, "origin/main") == sha
+
+
+@pytest.mark.parametrize("sub", ["ws/job@2/repo", "home/alice@corp.com/proj", "gomod/r@v1.2.3/skills",
+                                 "node_modules/@types/node", "d@HEAD"])
+def test_an_existing_directory_with_an_at_sign_is_read_whole(tmp_path, sub):
+    (tmp_path / sub).mkdir(parents=True)
+    src = RepoSource.parse(f"{tmp_path}/{sub}")
+    assert (src.location, src.rev) == (f"{tmp_path}/{sub}", None)
+    pinned = RepoSource.parse(f"{tmp_path}/{sub}@origin/main")
+    assert (pinned.location, pinned.rev) == (f"{tmp_path}/{sub}", "origin/main")

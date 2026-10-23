@@ -62,6 +62,7 @@ from .container import (
 from .arms import skill_unmeasured, skill_usage, slug
 from .bases import MCP_CONFIG, mcp_config_error
 from .events import convert
+from .uptake import arm_uptake
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
 from .host import probe_host, unmet, validate_tasks
@@ -144,6 +145,16 @@ def task_caps(task: Task, opts: AgentOptions) -> dict[str, float]:
     return caps
 
 
+def _add_arm_use(record: dict[str, Any], meta: dict[str, Any], task: Task, skills: dict[str, Any] | None,
+                 uptake_of: tuple[list[str], list[str]], events: list[Any] | None) -> None:
+    """Did the agent use what the arm installed (skills) or added (files, MCP servers)?"""
+    if meta.get("skills"):  # without a trace the usage is unmeasured, not zero
+        record["skills"] = skills if skills is not None else skill_unmeasured(
+            [s["name"] for s in meta["skills"]], task.expected_skill)
+    if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
+        record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
+
+
 def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, opts: AgentOptions,
              force: bool = False, host: dict[str, Any] | None = None) -> dict[str, Any]:
     """Prepare, run the agent, grade. Returns the cell's ``result.json`` (``skipped`` when it existed).
@@ -198,6 +209,9 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
         "cache_write_tokens": None, "usage_scope": None, "subagent_calls": None,
         "plugins": [], "over_budget": False, "caps": caps, "network": network, "trace_errors": []}
+    added = meta.get("arm_patch") or {}
+    uptake_of = (added.get("added") or [], added.get("mcp_servers") or [])
+    events = None  # the trace's events once it parsed; none: the uptake is unmeasured
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
@@ -207,6 +221,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         meta["harness_version"] = transcript.harness_version or opts.harness_version
         meta["model_resolved"] = transcript.model_resolved()  # an alias can map `model` to another one
         _write_json(rd / "meta.json", meta)
+        if transcript.events or transcript.num_turns is not None:  # else the agent never started
+            events = transcript.events
         cost = transcript.cost_usd
         agent.update(
             cost_usd=cost, charged_usd=cost if cost is not None else caps["budget_usd"],
@@ -226,12 +242,11 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         what = "grade run failed" if isinstance(exc, ContainerError) else f"host error after the agent ran ({type(exc).__name__})"
         grade = failed_outcome(f"{what}: {str(exc)[:300]}")
     record: dict[str, Any] = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model,
-              "model_resolved": meta.get("model_resolved"), "rep": rep,
-              "harness": opts.profile.name, "harness_version": meta["harness_version"],
-              "base_date": meta["base_date"], "score_task": bool(task.score), "agent": agent, "grade": grade}
-    if meta.get("skills"):  # without a trace the usage is unmeasured, not zero
-        record["skills"] = skills if skills is not None else skill_unmeasured(
-            [s["name"] for s in meta["skills"]], task.expected_skill)
+                              "model_resolved": meta.get("model_resolved"), "rep": rep,
+                              "harness": opts.profile.name, "harness_version": meta["harness_version"],
+                              "base_date": meta["base_date"], "score_task": bool(task.score),
+                              "score_max": task.score["max"] if task.score else None, "agent": agent, "grade": grade}
+    _add_arm_use(record, meta, task, skills, uptake_of, events)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
         _write_json(rd / "result.json", record)

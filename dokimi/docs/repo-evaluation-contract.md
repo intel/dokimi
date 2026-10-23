@@ -343,7 +343,9 @@ grader diffs the agent's changes from `start_sha`. With the arm come
 `arm_files`, the files it deleted, wrote or changed; for `guidance:rev:` an
 `arm_rev` object (`rev` as given, its `sha`, and `removed`: the base's guidance
 files with no counterpart at `<rev>`); for `patch:` an `arm_patch` object (the
-file's absolute `path` and full `sha256`). `args_if_present` lists the profile's
+file's absolute `path` and full `sha256`, `added`: the files the patch added
+that neither the guidance globs nor `.mcp.json` match, and `mcp_servers`: the servers
+the patch added to the `.mcp.json` at the root, read before the agent runs). `args_if_present` lists the profile's
 `args_if_present` files the cell's command line carries (§6): `[]` when the
 workspace has none of them, and always outside the `all` tool mode.
 
@@ -407,6 +409,23 @@ the first one used; `null` when the task names none). When the trace could not
 be read (the harness never started), `measured` is `false` and `skill_invoked`
 and `skill_selected_correct` are `null`: the usage is unknown, not "did not use
 the skill". `repo report` leaves such cells out of its skill counts.
+
+For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
+`uptake` object: whether the agent used what the arm added. `files` and
+`mcp_servers` list what it added (sorted); `commands` counts
+command events that name an added file as a workspace path (`tools/fmt`,
+`./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`; a file
+with no `/` only as `./name`, under the workspace path or after an interpreter (a bare `name` resolves through `PATH`), so
+`npm run lint` does not name a `lint` file), `reads` the read events of one (a
+read of an added script counts as use), `mcp_calls` the calls of the servers' tools
+(`mcp__<server>__<tool>`), none of them a call the harness denied; `used`
+is whether any is non-zero, and `measured` is
+`false` when the agent left no trace to count from. `repo report` shows the
+cells that used it per row. `repo compare` puts an `uptake` entry per treatment
+in its summary (`{cells, used, unmeasured}`: the measured cells, how many of
+them used it, and how many could not be measured; the text lines say so), prints it as an `uptake: ...`
+line, and warns about a treatment whose cells used none of it: its deltas then
+measure the patch's text, such as a guidance line, not the tool.
 
 ### 4.2 `grade.json` (written by `grade` to `{run_dir}/grade.json`)
 
@@ -478,7 +497,8 @@ cells is left unrun; a cell that already has a `result.json` keeps it.
 
 Each task runs with its own network (`image.network` plus its `egress`).
 `tasks check --warm` runs the same null and oracle steps with network and
-writable caches, to fill the caches before offline runs (§2).
+writable caches, to fill the caches before offline runs (§2); it judges task
+`host` requirements as an offline check does.
 
 ### 4.4 `repo_static.v1` (written by `static` to `{out}`)
 
@@ -1030,7 +1050,22 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
   changed tasks; at one cell per task and arm it equals McNemar's exact test).
   Holm's correction runs over the gate and score comparisons of one call; the
-  rest are descriptive. `BATCH/ARM` takes an arm from one batch only, so two
+  rest are descriptive. A gate or score comparison carries `headroom`:
+  `ceiling` (both arms at 1.0 or the task's `score.max` on every paired
+  task), `floor` (both at 0 on every one), `near_ceiling` (the baseline at
+  the top on all but at most one of 2+ tasks and the treatment nowhere below
+  it), else `null`; a grader failure in either arm also gives `null`, as does
+  an agent outage (an error result with no turn count or at most one turn, or
+  a harness that exited non-zero without reporting a turn and was not killed
+  at its timeout): neither is a measurement. A pair
+  is at the top only when both arms reach it and tie: a score past `score.max`
+  is an effect, not a top. The text prints a note under a flagged comparison. A
+  zero delta there means no room to move, not no effect. Cost, turns and
+  metric rows have `headroom` `null`.
+  The top of a score task is the `score.max` that `repo run` records in
+  `result.json` as `score_max`: a batch run before that has no known top, so
+  its score rows are never `ceiling`, and arms whose tops differ are on two
+  scales and get `null`. `BATCH/ARM` takes an arm from one batch only, so two
   batches of the same arm (for example two revisions of the guidance) compare
   too; two selectors of the same cells are refused. A `--metric` no finished
   cell reports as a number or boolean is refused. Tasks left out are listed as
