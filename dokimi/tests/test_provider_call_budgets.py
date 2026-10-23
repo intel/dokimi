@@ -156,36 +156,31 @@ def test_judge_rerun_on_a_cache_hit_makes_0_provider_calls(
     assert second[0]["with_docs"] == first[0]["with_docs"]
 
 
-def test_judge_rerun_after_an_unparseable_reply_makes_1_provider_call(provider_calls, cache_on):
-    # KNOWN COST LEAK, pinned as it is today (see the PR): only a parsed draw is
-    # stored, so draw 0 of the context arm, unparseable on the first run, misses
-    # the cache on every rerun. A provider that repeats itself (pinned sampling)
-    # answers it unparseably again and the rerun pays 1 call before draw 1 hits.
-    # Remembering a rejected draw would make this 0; change the number with the fix.
+def test_judge_rerun_after_an_unparseable_reply_makes_0_provider_calls(provider_calls, cache_on):
+    # The first run stores every attempt it asked; a rerun replays the stored retry
+    # instead of asking the unparseable attempt live again (#180). The draw and
+    # cache_if keys are pinned in test_judge_response_cache, not here.
     provider_calls.push(UNPARSEABLE)
-    _judge().evaluate_answers("lib", ANSWERS)
+    (first,) = _judge().evaluate_answers("lib", ANSWERS)
     assert len(provider_calls.calls) == 3
     for _ in range(2):  # every rerun, not only the first
         provider_calls.reset()
-        provider_calls.push(UNPARSEABLE)
         (row,) = _judge().evaluate_answers("lib", ANSWERS)
-        assert provider_calls.by_purpose() == Counter(judge=1)
-        assert row["delta"] == 0.0
+        assert provider_calls.calls == []
+        assert row["with_docs"] == first["with_docs"]
 
 
-def test_panel_rerun_after_an_unparseable_reply_makes_1_provider_call(provider_calls, cache_on):
-    # Same leak as the single judge, pinned as it is today. It also pins both cache
-    # keys of the panel's redraw loop: the draw index (draw=0 for every attempt would
-    # replay the parsed redraw at attempt 0: 0 calls) and cache_if (without it the
-    # unparseable reply is stored and replayed: 0 calls).
+def test_panel_rerun_after_an_unparseable_reply_makes_0_provider_calls(provider_calls, cache_on):
+    # Same replay as the single judge. The panel's draw and cache_if keys are pinned
+    # in test_panel_properties and test_panel_reply_validation, not here.
     provider_calls.push(UNPARSEABLE)
-    _panel(1).evaluate("q", "a", "lib")
+    first = _panel(1).evaluate("q", "a", "lib")
     assert len(provider_calls.calls) == 2
     for _ in range(2):  # every rerun, not only the first
         provider_calls.reset()
-        provider_calls.push(UNPARSEABLE)
         verdict = _panel(1).evaluate("q", "a", "lib")
-        assert provider_calls.by_purpose() == Counter({"panel:technical_expert": 1})
+        assert provider_calls.calls == []
+        assert verdict.mean_aggregate == first.mean_aggregate
         assert verdict.mean_aggregate is not None
 
 
