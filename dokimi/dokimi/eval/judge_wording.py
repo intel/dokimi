@@ -148,6 +148,11 @@ class WordingReport:
         tests = [(v, c) for v in sorted(acc) for c in rewrites if c in acc[v] and "original" in acc[v]]
         raw = [self._paired_p(v, c) for v, c in tests]
         holm = dict(zip(tests, adjust_pvalues(raw, method="holm", rounded=False), strict=True))
+        # A condition with no scored pair (none built, or every call errored) was
+        # not measured: "no rewrite moves anything" would be read off zeros, and an
+        # errored pair counts 0 in the sign test, so nothing is flagged either.
+        unmeasured = [c for c, r in self.reports.items() if not r.scored]
+        measured = bool(self.reports) and not unmeasured
         rows = {}
         for variant, by in sorted(acc.items()):
             noise = [by[c] for c in floor if c in by]
@@ -165,19 +170,16 @@ class WordingReport:
                 "spread": spread,
                 "worst_wording": worst,
                 "p_holm": None if p_min is None else round(p_min, 4),
-                "fragile": spread >= MIN_FLAGGED_SPREAD and p_min is not None and p_min < ALPHA,
+                "fragile": measured and spread >= MIN_FLAGGED_SPREAD and p_min is not None and p_min < ALPHA,
             }
         pooled = {c: r.summary()["accuracy"] for c, r in self.reports.items()}
-        # A condition with no scored pair (none built, or every call errored) was
-        # not measured: "no rewrite moves anything" would be read off zeros.
-        unmeasured = [c for c, r in self.reports.items() if not r.scored]
         return {
             "judge": self.judge,
             "conditions": list(self.reports),
             "pooled_accuracy": pooled,
             "n_errors": {c: len(r.errors) for c, r in self.reports.items()},
             "unmeasured_conditions": unmeasured,
-            "measured": bool(self.reports) and not unmeasured,
+            "measured": measured,
             "per_variant": rows,
             "fragile_variants": sorted(v for v, r in rows.items() if r["fragile"]),
         }
