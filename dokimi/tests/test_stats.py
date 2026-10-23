@@ -597,6 +597,13 @@ def test_bootstrap_interval_pins_the_tail_indices_and_the_seed():
     assert (wide["lo"], wide["hi"]) == (1.2, 5.0)
 
 
+def test_bootstrap_ci_defaults_are_pinned():
+    """grounding.py calls bootstrap_ci with every default, so the default seed and
+    n_resamples set the stored grounding_score interval."""
+    ci = stats.bootstrap_ci([0.12, 0.47, 0.83, 0.31, 0.95, 0.58, 0.06, 0.74, 0.29, 0.66, 0.41, 0.88])
+    assert (ci["lo"], ci["hi"]) == (0.3617, 0.6842)
+
+
 def test_bootstrap_with_one_resample_collapses_to_it():
     res = stats.bootstrap_ci([0, 1], n_resamples=1)
     assert res["lo"] == res["hi"]
