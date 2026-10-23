@@ -74,6 +74,11 @@ def _parent(p: str) -> str:
     return posixpath.dirname(p) or "."
 
 
+def _cursor_dir(p: str) -> str:
+    """The directory a nested ``<dir>/.cursor/rules/*.mdc`` applies to: ``<dir>``."""
+    return p.split("/.cursor/rules/", 1)[0]
+
+
 def _roo_mode(p: str) -> str | None:
     if p.startswith(".roo/rules-"):
         return p.split("/")[1].removeprefix("rules-")
@@ -104,6 +109,9 @@ RULES: tuple[Rule, ...] = (
          directory=_parent),
     Rule(_under(".cursor/rules/", r"\.mdc$"), ("cursor",), "unknown", "unknown",
          notes=("activation depends on the rule's frontmatter",)),
+    Rule(lambda p: re.match(r"^.+/\.cursor/rules/.+\.mdc$", p) is not None, ("cursor",), "path-specific",
+         "unknown", directory=_cursor_dir,
+         notes=("applies to files under its directory; activation depends on the rule's frontmatter",)),
     Rule(_named(".cursorrules"), ("cursor", "cline"), "legacy", "always", legacy=True),
     Rule(_named("GEMINI.md"), ("gemini", "github-copilot"), "root", "always"),
     Rule(_nested("GEMINI.md"), ("gemini",), "path-specific", "path-scoped", directory=_parent),
