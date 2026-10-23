@@ -821,3 +821,19 @@ def test_dry_run_names_the_groups_a_factor_is_skipped_for(capsys):
     assert "exclusion: skipped for 2 of 3 groups (G02, N01)" in out
     assert "long_desc: skipped for 2 of 3 groups (G02 twin B, N01)" in out
     assert "assertive: skipped" not in out
+    assert "vendor_name: skipped" not in out
+
+
+def test_dry_run_names_twin_a_when_only_twin_a_lacks_the_field(tmp_path, capsys):
+    from dokimi.cli import build_parser
+
+    path = tmp_path / "groups.json"
+    path.write_text(json.dumps({"schema_version": "tool_preference_groups.v1", "groups": [{
+        "id": "G09", "query": "How many cores?",
+        "twins": {"A": {"name": "get_info", "description": "Report CPU info."},
+                  "B": {"name": "describe_hw", "description": "Describe the CPU.", "detail": "Reads sysfs."}},
+        "distractors": []}]}), encoding="utf-8")
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(path), "--dry-run",
+                                      "--factors", "long_desc"])
+    args.func(args)
+    assert "long_desc: skipped for 1 of 1 groups (G09 twin A)" in capsys.readouterr().out
