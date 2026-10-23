@@ -63,7 +63,7 @@
     "dokimi/novelty/items.py::load_probe_cells": {"complexity": 11, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/novelty/probes.py::build_probe_set": {"complexity": 13},
     "dokimi/novelty/probes.py::check_wording": {"complexity": 14},
-    "dokimi/novelty/report.py::render_novelty_markdown": {"complexity": 18},
+    "dokimi/novelty/report.py::render_novelty_markdown": {"complexity": 15},
     "dokimi/novelty/spans.py::segment": {"complexity": 15},
     "dokimi/orchestrator/pipeline.py::EvaluationPipeline.run": {"complexity": 11},
     "dokimi/plugins.py::create_plugin": {"complexity": 11},
