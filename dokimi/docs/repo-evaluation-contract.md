@@ -410,7 +410,7 @@ parent's and subagents' together, so a grader need not:
 | `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match |
 | `counters` | each `process_metrics` name (§2) and its count |
 
-`process` is `null` when the trace could not be read.
+`process` is `null` when the trace could not be read, or the agent left none (no event and no result record).
 
 For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 `uptake` object: whether the agent used what the arm added. `files` and

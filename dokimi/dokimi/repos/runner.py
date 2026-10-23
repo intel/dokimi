@@ -202,7 +202,6 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
         (rd / "events.jsonl").write_text(transcript.events_jsonl(), encoding="utf-8")
-        process = run_process_metrics(ctx, transcript.events)
         (rd / "answer.txt").write_text(transcript.answer, encoding="utf-8")
         _write_json(rd / "task.json", task.raw)
         meta["harness_version"] = transcript.harness_version or opts.harness_version
@@ -210,6 +209,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         _write_json(rd / "meta.json", meta)
         if transcript.events or transcript.num_turns is not None:  # else the agent never started
             events = transcript.events
+            process = run_process_metrics(ctx, events)
         cost = transcript.cost_usd
         agent.update(
             cost_usd=cost, charged_usd=cost if cost is not None else caps["budget_usd"],
