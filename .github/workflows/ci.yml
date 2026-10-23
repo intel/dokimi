@@ -77,6 +77,12 @@ jobs:
       - name: registry-drift-check
         if: ${{ !cancelled() }}
         run: python -m dokimi.config_check
+      # Not a gate: file length and complexity totals and the top offenders in
+      # the step summary, so the trend is visible per run. The gate (no growth
+      # past scripts/growth_baseline.json) is tests/test_growth_ratchet.py.
+      - name: File length and complexity report
+        if: ${{ !cancelled() }}
+        run: python scripts/check_growth.py --report --markdown >> "$GITHUB_STEP_SUMMARY"
       - name: guidance self-scan (L0)
         if: ${{ !cancelled() }}
         run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on-fail
@@ -283,9 +289,10 @@ jobs:
         run: |
           # The tools go in their own venv: pinned into this interpreter, the lock's
           # PyYAML and jsonschema would be kept when the wheel is installed below.
+          # --no-isolation: the backend is the lock's setuptools, not a fresh unhashed resolve.
           python -m venv "$RUNNER_TEMP/build-venv"
           "$RUNNER_TEMP/build-venv/bin/python" -m pip install --require-hashes -r requirements-ci.lock.txt
-          "$RUNNER_TEMP/build-venv/bin/python" -m build --outdir "$RUNNER_TEMP/dist"
+          "$RUNNER_TEMP/build-venv/bin/python" -m build --no-isolation --outdir "$RUNNER_TEMP/dist"
           "$RUNNER_TEMP/build-venv/bin/twine" check --strict "$RUNNER_TEMP"/dist/*
       - name: Install the wheel
         run: pip install "$RUNNER_TEMP"/dist/*.whl
