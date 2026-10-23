@@ -123,10 +123,12 @@ def _frontmatter_name(skill_md: Path) -> str | None:
         block.append(line)
     try:
         meta = yaml.safe_load("\n".join(block))
-    except (yaml.YAMLError, ValueError):  # ValueError: `name: 2024-13-45` resolves as a timestamp that does not exist
+        name = meta.get("name") if isinstance(meta, dict) else None
+        return str(name).strip() or None if name is not None else None
+    except (yaml.YAMLError, ValueError, RecursionError):
+        # ValueError: `name: 2024-13-45` resolves as a timestamp that does not exist, `name: 0xfff...` has too many digits
+        # RecursionError: deeply nested `[`
         return None
-    name = meta.get("name") if isinstance(meta, dict) else None
-    return str(name).strip() or None if name is not None else None
 
 
 def _uncopyable(skill_dir: Path) -> tuple[Path, str] | None:
