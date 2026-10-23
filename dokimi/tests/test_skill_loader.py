@@ -237,3 +237,22 @@ def test_the_skill_catalog_arm_prints_what_discovery_left_out_to_stderr(tmp_path
 
     err = capsys.readouterr().err
     assert f"left out {template / 'SKILL.md'}: a template, not a skill" in err
+
+
+def test_a_blank_frontmatter_name_is_refused(tmp_path):
+    skill = tmp_path / "perf"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        '---\nname: "  "\ndescription: Profile.\n---\n# perf\n', encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="empty 'name'"):
+        load_skill(skill)
+
+
+def test_a_frontmatter_name_is_stripped(tmp_path):
+    skill = tmp_path / "perf"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        '---\nname: "perf "\ndescription: Profile.\n---\n# perf\n', encoding="utf-8"
+    )
+    assert load_skill(skill).name == "perf"

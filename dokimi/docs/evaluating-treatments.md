@@ -30,7 +30,7 @@ measure the marginal value of any context-augmentation artifact:
 | `skill:<path>` | agent skill | injects a `SKILL.md` as context |
 | `agent[:source]` | **agentic** doc use | gives the model a doc-search tool; it decides when to call it |
 | `skill-agent:<path>` | **agentic** skill use | offers the skill via progressive disclosure |
-| `skill-catalog:<dir>` | **agentic** skill selection | offers every skill under `<dir>`; scores the one loaded against `expected_skill` |
+| `skill-catalog:<dir>` | **agentic** skill selection | offers every skill under `<dir>` (a `template/` copy and a byte-identical mirror that loads under the same skill name are left out); scores the one loaded against `expected_skill` |
 | `<spec1>+<spec2>[+...]` | **combined** treatment | merges multiple treatments into one arm (e.g., `docs+skill:path`) |
 
 The last two run through a tool-calling loop

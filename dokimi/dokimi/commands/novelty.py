@@ -585,7 +585,8 @@ def register(sub, positive_int) -> None:
     routing_p.add_argument("--catalog", default=None,
                            help="Directory of skills to take the competitors from: every "
                                 "SKILL.md under it except the artifact itself (a template/ "
-                                "copy and a byte-identical mirror are left out), i.e. the "
+                                "copy and a byte-identical mirror that loads under the same "
+                                "skill name are left out), i.e. the "
                                 "siblings a harness lists next to it. Combines with "
                                 "--competitors")
     routing_p.add_argument("--queries", default=None,
