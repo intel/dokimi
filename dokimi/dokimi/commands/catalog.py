@@ -62,21 +62,12 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
-def _read_questions_file(path: str):
-    """The parsed ``--questions`` file, or exit with a message naming it."""
-    import json
-
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
-        raise SystemExit(f"--questions {path}: {exc}") from exc
-
-
 def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     import json
 
     from dokimi.external import trigger_set as ts
     from dokimi.skills import discover_skills
+    from dokimi.utils import read_json_input
 
     catalog_root = Path(args.catalog)
     if not catalog_root.is_dir():
@@ -94,7 +85,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         path, _, rule = spec.rpartition("=")  # labels never contain '=', paths may
         if not path or not rule:
             raise SystemExit(f"--questions needs PATH=LABEL (a skill name, 'none' or '@field'): {spec}")
-        data = _read_questions_file(path)
+        data = read_json_input(path, flag="--questions")
         questions = data.get("questions", data) if isinstance(data, dict) else data
         if not isinstance(questions, list) or not all(isinstance(q, dict) for q in questions):
             raise SystemExit(f"{path}: expected a list of question objects")
