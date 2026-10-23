@@ -382,6 +382,13 @@ def _tasks_check_argv(tmp_path: Path, inputs: dict[str, bool]) -> list[str]:
     return (tmp_path / "argv").read_text(encoding="utf-8").splitlines()
 
 
+def test_allow_unsupported_is_a_boolean_input_that_is_off_by_default():
+    doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    declared = doc[True]["workflow_call"]["inputs"]["allow-unsupported"]  # `on` reads as True
+    assert declared["type"] == "boolean"
+    assert declared["default"] is False
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="the step is a bash script")
 @pytest.mark.parametrize("warm", [False, True])
 @pytest.mark.parametrize("allow", [False, True])
