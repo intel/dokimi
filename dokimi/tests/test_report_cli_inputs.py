@@ -36,3 +36,12 @@ def test_a_malformed_eval_file_exits_1_with_its_path(tmp_path, capsys, text):
         _generate(tmp_path, bad)
     assert exc.value.code == 1
     assert str(bad) in capsys.readouterr().err
+
+
+def test_a_non_utf8_eval_file_exits_1_with_its_path(tmp_path, capsys):
+    binary = tmp_path / "bin.json"
+    binary.write_bytes(bytes([0xFF, 0xFE]))
+    with pytest.raises(SystemExit) as exc:
+        _generate(tmp_path, binary)
+    assert exc.value.code == 1
+    assert str(binary) in capsys.readouterr().err
