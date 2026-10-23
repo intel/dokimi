@@ -39,6 +39,15 @@ def test_save_exits_1_on_an_invalid_eval_file(run, tmp_path, capsys, content):
     assert not (tmp_path / "baselines" / "b.json").exists()
 
 
+def test_save_exits_1_on_an_eval_file_that_is_not_utf8(run, tmp_path, capsys):
+    bad = tmp_path / "bad.json"
+    bad.write_bytes(b"\xff\xfe")
+    with pytest.raises(SystemExit) as exc:
+        run("save", "--from-eval", str(bad), "--name", "b")
+    assert exc.value.code == 1
+    assert str(bad) in capsys.readouterr().err
+
+
 def test_save_exits_1_on_a_directory_given_as_the_eval_file(run, tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         run("save", "--from-eval", str(tmp_path), "--name", "b")
