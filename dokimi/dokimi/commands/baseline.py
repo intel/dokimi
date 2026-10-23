@@ -32,9 +32,15 @@ def _read_eval(path: Path, code: int) -> Dict[str, Any]:
 def _baseline_manifest(code: int = 1) -> Dict[str, Any]:
     """Load or create the baseline manifest; a corrupt one exits ``code``."""
     manifest_path = BASELINES_DIR / "manifest.json"
-    if manifest_path.exists():
-        return _read_eval(manifest_path, code)
-    return {"baselines": []}
+    if not manifest_path.exists():
+        return {"baselines": []}
+    manifest = _read_eval(manifest_path, code)
+    baselines = manifest.setdefault("baselines", [])
+    if not isinstance(baselines, list):
+        print(f'❌ {manifest_path}: expected a "baselines" list, got {type(baselines).__name__}',
+              file=sys.stderr)
+        raise SystemExit(code)
+    return manifest
 
 
 def _save_manifest(manifest: Dict[str, Any]) -> None:
