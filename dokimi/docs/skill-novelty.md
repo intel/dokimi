@@ -616,7 +616,9 @@ Two numbers, reported side by side and never merged:
   floor. The rates cover only the queries with no failed call in any repeat
   (`n_queries_compared`), so a transient error is not read as noise. Each repeat is a
   fresh sample, so under `DOKIMI_RESPONSE_CACHE` a repeat is not a
-  replay. Repeats need `--model`, and cost N times the calls.
+  replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
+  queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
+  carries its `repeat` index.
 
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
