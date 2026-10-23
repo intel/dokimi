@@ -255,14 +255,18 @@ def test_write_compare_report_with_no_scored_doc_is_not_no_regressions(tmp_path)
     assert "No regressions" not in text
 
 
-def test_write_compare_report_empty_candidate_keeps_the_critical_headline(tmp_path):
+@pytest.mark.parametrize(("severity", "headline"), [
+    ("has_critical", "🔴 **CRITICAL regressions detected**"),
+    ("has_warnings", "🟡 **Warnings detected**"),
+], ids=["critical", "warn"])
+def test_write_compare_report_empty_candidate_keeps_the_headline(tmp_path, severity, headline):
     # A candidate that lost every document is a regression; "Nothing to compare" must not replace the headline.
     out = tmp_path / "compare.md"
-    data = _compare_data(with_regressions=True, has_critical=True)
+    data = _compare_data(with_regressions=True, **{severity: True})
     data["candidate"] = _snapshot(docs=0, score=0.0)["summary"]
     write_compare_report(data, out)
     lines = out.read_text(encoding="utf-8").splitlines()
-    assert "🔴 **CRITICAL regressions detected**" in lines
+    assert headline in lines
     assert any("Nothing to compare (0 scored)**: no document in candidate" in ln for ln in lines)
 
 
