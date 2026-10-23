@@ -276,6 +276,7 @@ def test_write_compare_report_critical_regressions(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "CRITICAL" in text
     assert "🔴" in text
+    assert "Nothing to compare" not in text
 
 
 def test_write_compare_report_warnings(tmp_path):
@@ -283,6 +284,7 @@ def test_write_compare_report_warnings(tmp_path):
     write_compare_report(_compare_data(with_regressions=True, has_warnings=True), out)
     text = out.read_text(encoding="utf-8")
     assert "Warnings" in text or "🟡" in text
+    assert "Nothing to compare" not in text
 
 
 def test_write_compare_report_creates_parent_dirs(tmp_path):
