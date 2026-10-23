@@ -140,8 +140,9 @@ marked. Read it as a review queue:
   otherwise it is `measured: false`, as it is when `conflict_coverage` is present but malformed. A
   conflict that was found is always reported. The Markdown report `analyze` writes next to the
   artifact says the same: in place of the `Conflicts first` line it gives the gate's reason, and its
-  `harmful_conflicting` row reads `not measured (0 found)`. An artifact written before `conflict_coverage` existed has no such
-  field and keeps the old reading, a 0 that counts as cleared; re-run `analyze` to check it.
+  `harmful_conflicting` row reads `not measured (0 found)`. An artifact written before
+  `conflict_coverage` existed has no such field and keeps the old reading, a 0 that counts as
+  cleared, unless its atom set was capped; re-run `analyze` to check it.
 - **Unchecked atoms.** A call whose reply does not parse is split and re-asked only while both
   halves keep two atoms, since one statement has no pair to look at; a chunk of two or three whose
   reply does not parse fails with its error. Atoms in a call that failed, and an atom left alone in
