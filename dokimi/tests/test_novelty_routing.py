@@ -188,6 +188,20 @@ def test_a_fence_closes_only_on_its_own_character_and_length():
     assert headings_as_queries(body) == ["Real one here"]
 
 
+@pytest.mark.parametrize("fence", ["```", "~~~"])
+@pytest.mark.parametrize("open_indent", range(4))
+@pytest.mark.parametrize("close_indent", range(4))
+def test_a_fence_indented_up_to_three_spaces_opens_and_closes(fence, open_indent, close_indent):
+    # Fences in list items are indented; an indented closer must still end the block.
+    body = (f"{' ' * open_indent}{fence}\n## Hidden heading one\n"
+            f"{' ' * close_indent}{fence}\n## Real heading one\n")
+    assert headings_as_queries(body) == ["Real heading one"]
+
+
+def test_a_tab_after_the_hashes_still_makes_a_heading():
+    assert headings_as_queries("##\tTab heading words\n") == ["Tab heading words"]
+
+
 def _parse(*argv):
     return build_parser().parse_args(list(argv))
 
@@ -268,6 +282,7 @@ def test_self_derived_queries_are_stamped_on_the_result(tmp_path, capsys):
                   "--queries-from-headings", "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["status"] == "ok"
     assert payload["queries_self_derived"] is True
     assert "model" not in payload                      # no --model, no spend
     captured = capsys.readouterr()
@@ -558,6 +573,7 @@ def test_fewer_than_five_scored_queries_are_warned_about_on_stdout(tmp_path, cap
         return capsys.readouterr().out
 
     assert "WARNING: only 2 queries scored" in run(2)
+    assert "WARNING: only 4 queries scored" in run(4)
     assert "WARNING" not in run(5)
 
 
@@ -620,3 +636,20 @@ def test_a_run_with_no_scorable_query_makes_no_model_call(tmp_path, monkeypatch)
         args.func(args)
     assert calls == []
     assert json.loads((tmp_path / "routing.json").read_text())["status"] == "no_queries"
+
+
+def test_the_model_row_carries_the_triage_tag_on_self_derived_queries(tmp_path, monkeypatch,
+                                                                       capsys):
+    from dokimi.commands import novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model="fake", role=role, transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries-from-headings", "--model", "m",
+                  "--out", str(tmp_path / "routing.json"))
+    args.func(args)
+    model = next(line for line in capsys.readouterr().out.splitlines()
+                 if line.startswith("model"))
+    assert "triage: self-derived" in model
