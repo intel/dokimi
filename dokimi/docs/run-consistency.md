@@ -37,7 +37,17 @@ A failed shell call marks every command it chains as failed: the trace does not
 say which one failed, and a failed `make check && git diff` must not read as a
 passing `git diff`. A command piped into another (`pytest | tail`) without
 `set -o pipefail` has its status hidden: the call's status is the last stage's.
-`last_ok` does not accept such a step as a passing check.
+A command followed by another after `;`, a newline, `||` or `&` is hidden the
+same way (`pytest; echo done` reports `echo`'s status), unless `set -e` makes `;`
+and a newline stop the chain; `&&` does not hide it. `last_ok` does not accept such
+a step as a passing check.
+
+The line is read for what it runs, not parsed as a shell would: quotes,
+backslashes, `$(...)` and backticks are kept whole; `for`/`if`/`while`/`case`
+syntax, `( )` and case labels are peeled off; `sudo`, `env`, `time`, `nohup`,
+`nice -n N`, `timeout N`, `VAR=1`, `uv run` and `python -m` are not the program.
+`tool_calls_*` and `failed_calls_mean` count tool calls, so one chained command is
+one call however many steps it has; the JSON records the `shell` grain.
 
 A Stop hook that blocked the stop is a failed `Hook:Stop` step. A hook that
 passed leaves nothing in the trace, so a check the harness enforces is not
@@ -49,7 +59,9 @@ Pass `--outcomes`: a JSON object of trace path (or file name, or stem) to
 `true`/`false`, written by a verifier that checked the workspace. Without it a
 run passes when the harness ended cleanly (`result` event, `success`), which
 says the agent stopped, not that the task is done. The report says which source
-it used. A file name or stem that two traces share (`base/1.jsonl`, `skill/1.jsonl`)
+it used. A run that made tool calls but wrote no `result` event (it crashed,
+timed out or was cut off) counts as failed without `--outcomes`, so it cannot drop
+out of the pass rate; the table shows `runs` and `judged`. A file name or stem that two traces share (`base/1.jsonl`, `skill/1.jsonl`)
 is refused: key those by full path.
 
 ## Strategies

@@ -10,9 +10,11 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.context.consistency import (_program, _written, apply_outcomes, check_contract, jsd,
+from dokimi.context.consistency import (apply_outcomes, check_contract, jsd,
                                         load_contract, load_outcomes, parse_contract, parse_run,
                                         pass_at, pass_hat, profile, run_from_events, seq_distance)
+from dokimi.context.shell import program as _program
+from dokimi.context.shell import written as _written
 
 
 def _trace(*steps, ok=True, turns=None):
@@ -164,7 +166,7 @@ def test_cli_arms_outcomes_and_json(tmp_path, capsys):
     args = build_parser().parse_args(["context", "consistency", "--arm", f"skill={tmp_path}/skill/*.jsonl"])
     args.func(args)
     text = capsys.readouterr().out
-    assert "| skill | 2 | 100%" in text and "harness result event" in text
+    assert "| skill | 2 | 2 | 100%" in text and "harness result event" in text
 
 
 def test_one_shell_call_is_the_steps_it_chains():
