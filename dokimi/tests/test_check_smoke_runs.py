@@ -17,6 +17,9 @@ csr = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(csr)
 
 
+_TASK = "onetbb-histogram-local-aggregation"
+
+
 def _runs(oracle=None, probe=None, denied=("example.com:443", "example.com:80")) -> dict:
     clean = {"n": 1, "passed": 1, "errored": 0, "pass_rate": 1.0}
     return {
@@ -25,8 +28,9 @@ def _runs(oracle=None, probe=None, denied=("example.com:443", "example.com:80"))
             "docker-probe": probe or clean,
         }},
         "results": [
-            {"harness": "docker-oracle", "metrics": {}},
-            {"harness": "docker-probe", "metrics": {"egress": {"denied_entries": list(denied)}}},
+            {"harness": "docker-oracle", "task": _TASK, "passed": True, "metrics": {}},
+            {"harness": "docker-probe", "task": _TASK, "passed": True,
+             "metrics": {"egress": {"denied_entries": list(denied)}}},
         ],
     }
 
@@ -64,6 +68,11 @@ def test_a_probe_whose_plain_http_get_was_not_denied_fails():
     assert not csr.smoke_ok(_runs(denied=("example.com:443",)), out=io.StringIO())
 
 
+def test_a_probe_whose_connect_was_not_denied_fails():
+    """A CONNECT path that skips the allowlist leaves no :443 denial."""
+    assert not csr.smoke_ok(_runs(denied=("example.com:80",)), out=io.StringIO())
+
+
 def test_a_cell_that_failed_without_erroring_fails():
     assert not csr.smoke_ok(_runs(oracle={"n": 2, "passed": 1, "errored": 0, "pass_rate": 0.5}),
                             out=io.StringIO())
@@ -72,10 +81,37 @@ def test_a_cell_that_failed_without_erroring_fails():
 def test_an_unreadable_sidecar_log_fails_even_when_every_cell_passed():
     """An empty egress record from a timed-out docker logs is unverified, not clean."""
     data = _runs()
-    data["results"].append({"harness": "docker-claude", "metrics": {"egress": {
-        "status": "unknown", "denied_entries": []}}})
+    probe = next(r for r in data["results"] if r["harness"] == "docker-probe")
+    probe["metrics"]["egress"] = {
+        "status": "unknown", "denied_entries": ["example.com:443", "example.com:80"]}
     assert not csr.smoke_ok(data, out=io.StringIO())
 
 
 def test_usage_without_a_path():
     assert csr.main([]) == 2
+
+
+def test_a_planned_cell_missing_from_the_artifact_fails_with_every_count_clean():
+    """The 2-of-6 gap: per-harness stats can be all-pass while a planned cell never ran."""
+    data = _runs()
+    data["results"] = [r for r in data["results"] if r["harness"] != "docker-oracle"]
+    out = io.StringIO()
+    assert not csr.smoke_ok(data, out=out)
+    assert "1/2 measured (incomplete)" in out.getvalue()
+    assert "not measured: docker-oracle on " + _TASK in out.getvalue()
+
+
+def test_a_row_for_a_task_nobody_planned_fails():
+    data = _runs()
+    data["results"].append({"harness": "docker-oracle", "task": "other-task", "passed": True, "metrics": {}})
+    out = io.StringIO()
+    assert not csr.smoke_ok(data, out=out)
+    assert "(invalid)" in out.getvalue()
+
+
+def test_an_errored_row_is_an_unmeasured_cell():
+    data = _runs()
+    data["results"][0]["metrics"] = {"error": "docker daemon gone"}
+    out = io.StringIO()
+    assert not csr.smoke_ok(data, out=out)
+    assert "1/2 measured (incomplete)" in out.getvalue()

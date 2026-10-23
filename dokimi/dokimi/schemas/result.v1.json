@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/result.v1.json",
+  "title": "Run result v1",
+  "description": "One status per cell of the plan.v1 the run was given (plan_digest). A planned cell absent here is not_run; dokimi.runner.plan.completeness computes planned minus completed and refuses to call a run complete while any planned cell lacks a measured status (pass, fail or inconclusive).",
+  "type": "object",
+  "required": ["schema_version", "plan_digest", "cells"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "result.v1"},
+    "generated_at": {"type": "string"},
+    "plan_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "execution_id": {"type": ["string", "null"], "description": "the run's execution id, when the producer has one"},
+    "cells": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cell_id", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "cell_id": {"type": "string", "minLength": 1},
+          "status": {"enum": ["pass", "fail", "inconclusive", "invalid", "infra_error", "not_run"]},
+          "model": {"type": ["string", "null"], "description": "the model that answered (resolved), which may differ from the planned id"},
+          "detail": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}

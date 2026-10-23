@@ -1,0 +1,82 @@
+{
+  "schema_version": "plan.v1",
+  "generated_at": "2026-10-21T00:00:00Z",
+  "subjects": [
+    {
+      "id": "skill:onetbb",
+      "kind": "skill",
+      "sha": "0123456789abcdef0123456789abcdef01234567",
+      "fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "suites": [
+    {
+      "id": "onetbb-tasks",
+      "hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "reasons": [
+        "SKILL.md changed"
+      ]
+    }
+  ],
+  "models": [
+    "claude-sonnet-4-6"
+  ],
+  "harnesses": [
+    "docker-claude"
+  ],
+  "grader": {
+    "id": "pytest-verifier",
+    "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "varied_variable": "skill",
+  "cells": [
+    {
+      "cell_id": "c-10d62354d75a76ad",
+      "arm": "no-skill",
+      "model": "claude-sonnet-4-6",
+      "task": "fix-build",
+      "rep": 1
+    },
+    {
+      "cell_id": "c-0dcdf544e6633536",
+      "arm": "no-skill",
+      "model": "claude-sonnet-4-6",
+      "task": "add-test",
+      "rep": 1
+    },
+    {
+      "cell_id": "c-76d4abb63bbedfa5",
+      "arm": "no-skill",
+      "model": "claude-sonnet-4-6",
+      "task": "review-pr",
+      "rep": 1
+    },
+    {
+      "cell_id": "c-c496602cb859e4b5",
+      "arm": "skill",
+      "model": "claude-sonnet-4-6",
+      "task": "fix-build",
+      "rep": 1
+    },
+    {
+      "cell_id": "c-c072b8552ce95b52",
+      "arm": "skill",
+      "model": "claude-sonnet-4-6",
+      "task": "add-test",
+      "rep": 1
+    },
+    {
+      "cell_id": "c-59a34a383f800169",
+      "arm": "skill",
+      "model": "claude-sonnet-4-6",
+      "task": "review-pr",
+      "rep": 1
+    }
+  ],
+  "budget": {
+    "cells": 6,
+    "agent_calls": 6,
+    "cost_usd": 1.2,
+    "wall_sec": 1800
+  }
+}
