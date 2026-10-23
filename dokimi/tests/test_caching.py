@@ -260,6 +260,31 @@ def test_entry_without_text_is_a_miss(monkeypatch, tmp_path):
     assert caching.load_response(key) is None
 
 
+@pytest.mark.parametrize(
+    "payload",
+    ["[]", "null", "42", '"answer"', '{"text": 7, "usage": {}}',
+     '{"text": "answer", "usage": [1, 2]}', '{"text": "answer", "usage": "free"}'],
+)
+def test_entry_of_the_wrong_shape_is_a_miss_not_a_crash(monkeypatch, tmp_path, payload):
+    """Valid JSON that is not a ``{"text": str, "usage": {...}}`` entry is corrupt too."""
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
+    (tmp_path / "shape.json").write_text(payload, encoding="utf-8")
+    assert caching.load_response("shape") is None
+
+
+def test_null_text_is_replayed_not_a_miss(monkeypatch, tmp_path):
+    """A reply without content is stored as null text and must still replay."""
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
+    (tmp_path / "empty.json").write_text(
+        json.dumps({"text": None, "usage": {}}), encoding="utf-8"
+    )
+    hit = caching.load_response("empty")
+    assert hit is not None
+    text, usage = hit
+    assert text is None
+    assert usage.replayed is True
+
+
 def test_unknown_usage_fields_are_dropped_not_fatal(monkeypatch, tmp_path):
     """An entry written by a newer version still has a usable answer in it."""
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
