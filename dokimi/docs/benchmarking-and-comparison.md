@@ -726,7 +726,8 @@ naming the record on stderr, so it never reads as a failed `--strict` check.
 that is not valid JSON, not a JSON object, or cannot be read. `baseline save` exits 1
 on a bad eval file or `manifest.json`, and `baseline list` exits 1 on a bad
 `manifest.json`. A `manifest.json` whose `baselines` is not a list, or whose entries
-lack a string `name` and `path`, is rejected the same way.
+lack a string `name` and `path` or have a `summary` that is not an object, is rejected
+the same way.
 
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.
