@@ -66,13 +66,14 @@ jobs:
             };
 
             // A result over the size caps cannot be read, so the PR number is not known from it:
-            // find the open PRs of this repository whose head is the commit of the run, and say
-            // there that the result was too large, so an older comment does not keep showing a
+            // find the open PRs of this repository from the run's head branch at the run's commit,
+            // and say there that the result was too large, so an older comment does not keep showing a
             // diff that no longer exists. The label is left as it is, as for `changed: error`.
+            // Looked up by branch: the commit lookup on this repository is empty for a fork's commit.
             const tooLarge = async (why) => {
               core.warning(why);
-              const prs = await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit,
-                { owner, repo, commit_sha: run.head_sha });
+              const prs = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open',
+                head: `${run.head_repository?.owner?.login}:${run.head_branch}` });
               for (const p of prs) {
                 if (p.state !== 'open' || p.base?.repo?.full_name !== `${owner}/${repo}` ||
                     p.head?.sha !== run.head_sha) continue;

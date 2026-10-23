@@ -70,17 +70,19 @@ const rec = (name, ret) => async (a) => { calls.push([name, a]); return ret; };
 const rest = {
   actions: { listWorkflowRunArtifacts: 'list', downloadArtifact: async (a) => {
     calls.push(['download', a]); return { data: fs.readFileSync(c.zip) }; } },
-  pulls: { get: async (a) => { calls.push(['pulls.get', a]); return { data: c.pr }; } },
-  repos: { listPullRequestsAssociatedWithCommit: 'assoc' },
+  pulls: { get: async (a) => { calls.push(['pulls.get', a]); return { data: c.pr }; }, list: 'pulls' },
+  repos: { listPullRequestsAssociatedWithCommit: 'by-commit' },  // GitHub: empty for a fork's commit
   issues: { listComments: 'comments',
     createLabel: c.fail_create_label ? async () => { throw new Error('422'); } : rec('createLabel'), addLabels: rec('addLabels'),
     removeLabel: c.fail_labels ? async () => { throw new Error('404'); } : rec('removeLabel'), createComment: rec('createComment'),
     updateComment: rec('updateComment') },
 };
 const github = { rest, paginate: async (fn, a) =>
-  fn === 'list' ? c.artifacts : fn === 'assoc' ? c.assoc : c.comments };
+  fn === 'list' ? c.artifacts : fn === 'by-commit' ? [] :
+  fn === 'pulls' ? (calls.push(['pulls.list', a]), c.assoc) : c.comments };
 const context = { repo: { owner: 'intel', repo: 'dokimi' },
-  payload: { workflow_run: { id: 7, head_sha: c.run_sha, html_url: 'https://x/run/7' } } };
+  payload: { workflow_run: { id: 7, head_sha: c.run_sha, html_url: 'https://x/run/7',
+    head_branch: 'topic', head_repository: { owner: { login: 'forker' } } } } };
 const core = { warning: (m) => calls.push(['warning', m]), info: () => {} };
 const script = JSON.parse(fs.readFileSync(scriptFile, 'utf8'));
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -333,6 +335,13 @@ def test_an_artifact_over_the_size_cap_replaces_the_stale_comment_without_a_down
 def test_a_too_large_result_is_reported_only_on_an_open_pr_of_this_repository_at_the_run_head(tmp_path, pr):
     calls = _run(tmp_path, _good(), size=10**9, comments=OLD_COMMENT, assoc=[pr])
     assert not {"createComment", "updateComment"} & set(_names(calls))
+
+
+def test_a_too_large_result_on_a_fork_pr_is_found_by_its_head_branch(tmp_path):
+    calls = _run(tmp_path, _good(), size=10**9, comments=OLD_COMMENT)
+    query = next(a for n, a in calls if n == "pulls.list")
+    assert query["head"] == "forker:topic" and query["state"] == "open"
+    assert "too large" in _bodies(calls)[0]
 
 
 def test_a_label_that_already_exists_does_not_stop_the_comment(tmp_path):
