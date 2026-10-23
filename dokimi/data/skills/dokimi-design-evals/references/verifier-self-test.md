@@ -18,6 +18,12 @@ an error row, and it lists a task that has no `tests/test.sh`, `solution/` or
 traceback. So a listed task is not known to be runnable: the first check that
 the files Harbor needs exist is the `docker-oracle` run in step 2.
 
+Use Harbor's layout: `tests/test.sh`, `solution/solve.sh`, `environment/` and
+`instruction.md` at the top of the task. `docker-oracle` also passes a task laid
+out as `verifier/` + `oracle/`, but the Harbor-backed arms (`codex`,
+`claude-code`, `terminal-bench:<agent>`) refuse it, so a pass there does not mean
+the task will run in the paid arms.
+
 ```bash
 python cli.py tasks list --tasks-root <tasks-root>
 ```
@@ -64,6 +70,10 @@ changing only the reference solution so it produces the mutated end state:
 - Repository: write a scratch copy of `repo-eval.yaml` whose `oracle` command
   runs the real oracle and then the mutation, and pass it with
   `--manifest-file` to `repo tasks check`. Expect the oracle check to fail.
+  The oracle command is split into argv and run **without a shell**, so `&&`,
+  pipes and redirects are passed to the program as arguments and the mutation
+  never runs (the check then passes, which looks like a verifier that survived).
+  Write it as `sh -c '<oracle> && <mutation>'`.
 
 The verifier must **fail** every mutated solution. Delete the copies; never
 commit them.
@@ -93,6 +103,12 @@ fails on the unwanted action and its own manual null check.
 A rubric judge must tell good answers from degraded ones before its scores
 count. It costs model calls; the sequential mode stops early.
 
+`eval judge-validity` calibrates only dokimi's own answer judge: its answers
+file needs a `question_id` and the question text per row. It stops with
+`missing question_id` (exit 2) on a task-rubric answers file, so a task's own
+rubric judge is not covered by this command. Check that judge by hand: run it on
+a known-good and a degraded answer you wrote, and have a person read the scores.
+
 ```bash
 python cli.py eval judge-validity --answers <answers.json> --sequential --strict
 ```
@@ -100,6 +116,15 @@ python cli.py eval judge-validity --answers <answers.json> --sequential --strict
 Then have a person review a sample of judged cells against the rubric and
 record the agreement. A run that hits its sample cap without a decision is
 not a pass.
+
+## 5. Multi-step tasks (manual)
+
+`docker-oracle` does not run the per-step checkpoint verifiers of a task with
+`steps` in `task.toml`. A checkpoint verifier of a single step that always fails still gives
+`pass_rate: 1.0`, so the per-step self-test is manual: for each step, run its
+verifier on that step's reference state and on the state before it, and expect
+pass then fail. The task needs a top-level `instruction.md`; without it the task
+does not load.
 
 ## What a passing self-test does not show
 

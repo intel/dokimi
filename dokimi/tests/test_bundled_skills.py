@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.harnesses.registry import known_harnesses
 from dokimi.harnesses.skill_treatment import check_skill
 from dokimi.repos.budget import LISTING_TEXT_CAP
 from dokimi.utils import parse_frontmatter
@@ -92,3 +93,26 @@ def test_the_link_check_catches_a_dangling_and_an_escaping_link(tmp_path):
     assert _broken_links(skill, tmp_path) == [
         "s/SKILL.md -> references/gone.md", "s/SKILL.md -> ../outside.md",
         "s/SKILL.md -> references/gone.md", "s/SKILL.md -> references/a b.md"]
+
+
+HARNESSES_FLAG = re.compile(r"--harnesses\s+(\S+)")
+
+
+def _harness_names(skill_dir: Path) -> list[str]:
+    names = []
+    for doc in sorted(skill_dir.rglob("*.md")):
+        for value in HARNESSES_FLAG.findall(doc.read_text(encoding="utf-8")):
+            names += value.strip("`'\"").split(",")
+    return names
+
+
+def test_the_harness_name_check_reads_the_skills_commands():
+    assert "docker-oracle" in _harness_names(SKILLS / "dokimi-design-evals")
+
+
+@pytest.mark.parametrize("skill_dir", BUNDLED, ids=lambda d: d.name)
+def test_bundled_skill_harness_names_are_registered(skill_dir):
+    # test_docs_code_refs checks that a flag exists, not its value: a typo would pass.
+    registered = {key.split(":")[0] for key in known_harnesses()}
+    unknown = [n for n in _harness_names(skill_dir) if n.split(":")[0] not in registered]
+    assert unknown == []

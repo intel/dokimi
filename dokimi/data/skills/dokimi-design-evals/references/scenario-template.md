@@ -47,7 +47,7 @@ reproduce: >
 | initial state | `environment/Dockerfile` + seed files | `task.json` `base`, `setup_patches` |
 | expected outcome, forbidden consequences | `tests/test.sh` + `tests/test_*.py` | the repository's `grade` entry point, `task.json` `gate` |
 | reference solution | `solution/solve.sh` | the `oracle` entry point |
-| multi-step checkpoints | `task.toml` `steps` (Harbor runs them) | not supported |
+| multi-step checkpoints | `task.toml` `steps` (Harbor runs them; the per-step self-test is manual) | not supported |
 | status, source, allowed actions, mutations | not read by dokimi | extra `task.json` keys are passed to the grader unread |
 
 `status`, `source` and `mutations` have no field dokimi reads today. Keep them

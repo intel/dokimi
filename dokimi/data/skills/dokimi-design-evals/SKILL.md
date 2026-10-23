@@ -58,7 +58,9 @@ Prefer deterministic checks: tests, file and diff assertions, exit codes,
 parsed output. Use an LLM judge only for qualities no check can capture; then
 use a written rubric, calibrate it
 (`python cli.py eval judge-validity --answers <answers.json> --sequential --strict`),
-and keep a human review of a sample.
+and keep a human review of a sample. The command calibrates only dokimi's own
+answer judge (rows with `question_id`), not a task's rubric judge; check that one
+by hand.
 A judge that cannot discriminate degraded answers is not evidence.
 
 ### 5. Self-test every verifier before any paid run
@@ -74,7 +76,9 @@ the reference says how.
 ### 6. Multi-step scenarios
 
 Give each step a checkpoint verifier and keep a final-state check. Use
-Harbor's multi-step `task.toml` (`steps`). The steps of one session are **one**
+Harbor's multi-step `task.toml` (`steps`) and a top-level `instruction.md`.
+`docker-oracle` does not run the checkpoint verifiers, so self-test each step's verifier
+by hand ([references/verifier-self-test.md](references/verifier-self-test.md) §5). The steps of one session are **one**
 task in every count, pass rate and sample size; never report them as
 independent tasks.
 
