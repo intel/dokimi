@@ -50,10 +50,12 @@ request needs no tool, and calling one counts as over-calling.
 The twins' `description` is the neutral baseline. The optional fields feed the
 factors: `vendor_name` for `vendor_name`, `detail` and `example` for
 `long_desc`, and `exclusion` for `exclusion`. A factor a twin has no field for
-is skipped for that twin; `--dry-run` names the groups each factor is skipped
-for, and the twin when only one lacks the field. `cues` overrides the sentence `assertive` and `social_proof` append, and
-`system` overrides the system prompt (an empty string sends none). `domain` is a free-form label copied to every item of the group in
-the result, for slicing. The full format is
+is skipped for that twin; the command prints the groups each factor is skipped
+for, and the twin when only one lacks the field; `--dry-run` shows this before
+any call is made. `cues` overrides the sentence `assertive` and `social_proof`
+append, and `system` overrides the system prompt (an empty string sends none).
+`domain` is a free-form label copied to every item of the group in the result,
+for slicing. The full format is
 [`tool_preference_groups.v1.json`](https://github.com/intel/dokimi/blob/main/dokimi/dokimi/schemas/tool_preference_groups.v1.json).
 
 The groups are evaluation content: keep them with the tools they are about, not
