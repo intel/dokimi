@@ -98,6 +98,11 @@ _W = [(50, 47), (50, 57), (50, 60), (50, 58), (50, 55), (50, 54)]
 _Z = [(0, 40), (30, 0), (50, 60), (40, 55), (0, 0), (20, 35), (45, 50), (10, 25)]
 # Exactly one question without a usable pair.
 _U = [(50, 60), (60, 75), (40, 45), (70, 80), (55, 70), (65, 70), (30, 50), (80, None)]
+# Nothing improved (0 of 5 pairs), and a bucket whose only score is a baseline 0.
+_N = [(50, 40), (60, 50), (40, 30), (70, 60), (55, 45), (0, ...)]
+_FREE_COST = _cost(
+    total_cost_usd=0, cost_known_n=0, total_llm_calls=5, mean_latency_sec=0, cache_hit_ratio=0
+)
 
 
 def _cases() -> dict:
@@ -107,6 +112,7 @@ def _cases() -> dict:
     # from the other buckets, and its "easy" bucket has no usable score at all.
     lopsided = ["hard"] * 8 + ["easy"]
     return {
+        "zero_values": ([("z", _run(_N, model="zero", cost_summary=_FREE_COST))], ["z"], {}),
         "treatment": ([("a", a), ("b", b)], ["a", "b"], {}),
         "treatment_bh": ([("a", a), ("b", b)], ["a", "b"], {"correction": "bh"}),
         "no_scipy": ([("a", a), ("b", b)], ["a", "b"], {"no_scipy": True}),
@@ -280,6 +286,11 @@ def test_goldens_reach_every_section_branch():
         "verdict_wilcoxon_no": ["| No |"],
         "zero_scores": ["| beginner | 1 | 0.0 | 0.0 |", "| medium | 1 | 0.0 | -30.0 |"],
         "baseline_zero": ["| easy | 1 | 0.0 |"],
+        "zero_values": [
+            "| **z** | $0.0000 (0/5) | — | — | — | 0.00s | 0.0% |",
+            "| 0 (0%) | 5 (100%) |",
+            "| — | 0.0 (baseline) |",
+        ],
         "unscored_and_arms": ["7 (1 unscored)", "`docs`, `skill:x`", "(4/5)"],
         "pooled_singletons_cost": ["## Resource Usage", "| **y** | $0.5000 |"],
     }
