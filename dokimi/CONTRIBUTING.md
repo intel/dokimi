@@ -152,7 +152,10 @@ minutes. `make ci-local` runs both; `make hooks` runs mypy before a push.
 Dependencies install from `requirements.lock.txt`; the docs build's from
 `requirements-docs.lock.txt` on top of it, and the tools CI, `make dev`, the
 release job and the eval image use (`requirements-ci.txt`) from
-`requirements-ci.lock.txt`. When you change a range in
+`requirements-ci.lock.txt`. That lock also pins the build backend, setuptools:
+package-smoke and the release job build with `python -m build --no-isolation`,
+so the published sdist and wheel are not built by a backend resolved fresh from
+PyPI. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
 from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
 keeps the current pins). The command's `--exclude-newer=P7D` skips releases
