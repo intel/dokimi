@@ -258,9 +258,16 @@ def test_attractors_are_ranked_by_count_and_rated_over_the_other_skills_queries(
     assert hub == {"skill": "hub", "wrongly_picked": 3, "sibling_queries": 6, "rate": 0.5,
                    "from": ["perf", "db"]}
     assert sink["skill"] == "sink" and sink["wrongly_picked"] == 1
-    # hub's own queries are not sibling queries of hub: only the other golds count.
-    assert all(row["skill"] != "perf" or row["sibling_queries"] == 3
-               for row in lexical["attractors"])
+
+
+def test_an_attractor_with_queries_of_its_own_is_rated_over_the_other_skills_queries_only():
+    # perf takes db's one query; perf's own three queries are not sibling queries of perf.
+    field = [Candidate(name="perf", description="profile binary slow"),
+             Candidate(name="db", description="index query")]
+    queries = {"perf": ["profile binary", "profile run", "binary size"], "db": ["slow"]}
+    assert all_vs_all(field, queries)["lexical"]["attractors"] == [
+        {"skill": "perf", "wrongly_picked": 1, "sibling_queries": 1, "rate": 1.0,
+         "from": ["db"]}]
 
 
 def _positional_client(pick_for):
