@@ -194,7 +194,9 @@ Guidelines:
   bisecting easier.
 - **Add tests** for behavioral changes. The suite lives in `tests/` and runs
   fully offline (LLM/network calls are mocked; the `fake_llm` fixture scripts
-  every `dokimi.llm.LLM` reply).
+  every `dokimi.llm.LLM` reply). A change that adds or removes provider calls on
+  a judge, panel, answer or validation path updates its pinned count in
+  `tests/test_provider_call_budgets.py` (the `provider_calls` fixture counts them).
 - **Update docs** in the same PR when you change behavior. Stale docs are
   treated as bugs — see the docs-drift checklist below.
 - **Don't commit ad-hoc run output.** Generated artifacts belong under

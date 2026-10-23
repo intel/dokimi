@@ -289,6 +289,7 @@ def test_gate_passes_a_clean_tree(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, ".claude/skills/a/SKILL.md": _skill("a", "Format Python code.")})
     out = _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys).out  # no SystemExit
     assert "start 40 chars, lazy 0, on demand 13, off 0" in out and "warning" not in out
+    assert "| start | guidance | CLAUDE.md | 20 |" in out
 
 
 def _run(argv, capsys):
