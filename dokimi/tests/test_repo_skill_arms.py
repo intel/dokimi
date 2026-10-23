@@ -170,6 +170,53 @@ def test_a_skill_is_not_written_through_a_repository_link(tmp_path, link):
     assert not (host / "skills").exists()
 
 
+def _installed_dest(tmp_path: Path):
+    _skill(tmp_path / "eval", "skills/lint", "lint")
+    ws = tmp_path / "ws"
+    dest = ws / ".claude/skills/lint"
+    dest.parent.mkdir(parents=True)
+    return ws, dest, Skill("lint", tmp_path / "eval/skills/lint")
+
+
+@pytest.mark.parametrize("make", ["file", "nested_file", "symlinked_dir", "dangling_link", "link_to_empty_dir"])
+def test_a_skill_directory_that_holds_anything_but_empty_directories_is_refused_and_kept(tmp_path, make):
+    """Only the emptied directories of a dropped skill are removed; real files, links and their targets stay."""
+    ws, dest, skill = _installed_dest(tmp_path)
+    keep = tmp_path / "elsewhere"
+    keep.mkdir()
+    (keep / "precious.md").write_text("keep\n")
+    if make == "file":
+        dest.mkdir()
+        (dest / "SKILL.md").write_text("mine\n")
+    elif make == "nested_file":
+        (dest / "references/deep").mkdir(parents=True)
+        (dest / "references/deep/a.md").write_text("mine\n")
+    elif make == "symlinked_dir":
+        (dest / "references").mkdir(parents=True)
+        (dest / "references/linked").symlink_to(keep, target_is_directory=True)
+    elif make == "dangling_link":
+        dest.symlink_to(tmp_path / "nowhere")
+    else:
+        (keep / "empty").mkdir()
+        dest.symlink_to(keep / "empty", target_is_directory=True)
+    with pytest.raises(PrepError, match="already has"):
+        _install_skills(ws, Task("t", {}, tmp_path), [skill])
+    assert (keep / "precious.md").read_text() == "keep\n"
+    assert os.path.lexists(dest)  # nothing was removed to make room, and the skill was not installed over it
+    assert not (dest / "SKILL.md").exists() or (dest / "SKILL.md").read_text() == "mine\n"
+    if make == "link_to_empty_dir":
+        assert dest.is_symlink() and (keep / "empty").is_dir()
+    if make == "nested_file":
+        assert (dest / "references/deep/a.md").read_text() == "mine\n"
+
+
+def test_a_skill_directory_of_only_empty_directories_is_replaced(tmp_path):
+    ws, dest, skill = _installed_dest(tmp_path)
+    (dest / "references/deep").mkdir(parents=True)
+    out = _install_skills(ws, Task("t", {}, tmp_path), [skill])
+    assert out[0]["name"] == "lint" and (dest / "SKILL.md").is_file() and not (dest / "references").exists()
+
+
 def test_trace_records_the_skill_and_cache_tokens():
     raw = "\n".join(json.dumps(x) for x in [
         {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "a", "name": "Skill",

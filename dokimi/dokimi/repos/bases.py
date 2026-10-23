@@ -21,6 +21,9 @@ from .source import GitTree, RepoTree, SourceError
 MCP_CONFIG = ".mcp.json"
 
 
+NOT_UTF8 = "not valid UTF-8 text"
+
+
 def mcp_config_error(text: str) -> str | None:
     """Why ``text`` is not a ``.mcp.json`` the agent's CLI starts with (a JSON object whose ``mcpServers``, when
     there is one, is an object), or ``None``. The CLI exits before its first turn on anything else, which a
@@ -44,7 +47,9 @@ def tree_mcp_error(tree: RepoTree) -> str | None:
         if not tree.is_file(MCP_CONFIG):
             return None
         return mcp_config_error(tree.read_text(MCP_CONFIG))
-    except (SourceError, OSError, UnicodeDecodeError):
+    except UnicodeDecodeError:  # the runner refuses the same bytes in the workspace
+        return NOT_UTF8
+    except (SourceError, OSError):
         return None
 
 

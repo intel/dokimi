@@ -216,3 +216,59 @@ def test_validate_accepts_a_valid_or_absent_mcp_json(tmp_path, capsys):
         _commit_all(root, "evals")
         _run_cli(["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
         assert json.loads(capsys.readouterr().out)["ok"] is True, name
+
+
+def _mcp_base(root: Path, content: bytes | None) -> str:
+    """Commit a base whose root `.mcp.json` holds ``content`` (none: no file); returns its sha."""
+    if content is None:
+        _write(root, "README.md", "no mcp\n")
+    else:
+        (root / ".mcp.json").parent.mkdir(parents=True, exist_ok=True)
+        (root / ".mcp.json").write_bytes(content)
+    return _commit_all(root, "base")
+
+
+def _claude_code_profile():
+    from dokimi.repos.harness_profile import load_profile
+    return load_profile("claude-code")
+
+
+def test_the_preflight_checks_every_task_base_not_only_the_first(tmp_path):
+    from types import SimpleNamespace
+
+    from dokimi.repos.bases import check_mcp_configs
+
+    root = tmp_path / "r"
+    good = _mcp_base(root, b'{"mcpServers": {}}')
+    bad = _mcp_base(root, b"{")
+    tasks = [SimpleNamespace(base=good), SimpleNamespace(base=bad)]
+    profile = _claude_code_profile()
+    with pytest.raises(ValueError, match=f"task base {bad}.*not valid JSON"):
+        check_mcp_configs(root / ".git", tasks, profile, "all")
+    check_mcp_configs(root / ".git", tasks, profile, "read")  # the file is not passed to the agent
+    check_mcp_configs(root / ".git", tasks[:1], profile, "all")
+
+
+def test_the_preflight_leaves_an_unresolvable_base_and_a_base_without_the_file_to_the_other_checks(tmp_path):
+    from types import SimpleNamespace
+
+    from dokimi.repos.bases import check_mcp_configs
+
+    root = tmp_path / "r"
+    none = _mcp_base(root, None)
+    tasks = [SimpleNamespace(base=none), SimpleNamespace(base="0" * 40), SimpleNamespace(base="no-such-ref")]
+    check_mcp_configs(root / ".git", tasks, _claude_code_profile(), "all")  # no raise
+
+
+def test_a_non_utf8_mcp_json_at_a_base_is_refused_as_the_runner_refuses_it(tmp_path):
+    from types import SimpleNamespace
+
+    from dokimi.repos.bases import NOT_UTF8, check_mcp_configs, tree_mcp_error
+    from dokimi.repos.source import GitTree
+
+    root = tmp_path / "r"
+    base = _mcp_base(root, b"\xff{}")
+    assert tree_mcp_error(GitTree(root / ".git", base)) == NOT_UTF8
+    assert tree_mcp_error(WorkTree(root)) == NOT_UTF8
+    with pytest.raises(ValueError, match="not valid UTF-8"):
+        check_mcp_configs(root / ".git", [SimpleNamespace(base=base)], _claude_code_profile(), "all")
