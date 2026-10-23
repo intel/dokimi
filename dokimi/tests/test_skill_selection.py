@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-import os
+import re
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -252,16 +252,13 @@ def test_trigger_set_cli_rejects_a_label_path_that_never_resolves(tmp_path, cata
                   "--questions", f"{qfile}=@metadata.skil_under_test", "--out", str(tmp_path / "o.json")])
 
 
-_DIRECTORY_REASON = "Is a directory" if os.name == "posix" else "Permission denied"
-
-
 @pytest.mark.parametrize(
     "content, reason",
     [
         (None, "No such file"),
         ("{not json", "Expecting"),
         (b'["\xe9"]', "utf-8"),  # \xe9 is latin-1, not UTF-8
-        (..., _DIRECTORY_REASON),
+        (..., "Is a directory|Permission denied|Access is denied"),
     ],
     ids=["missing", "malformed", "not-utf8", "directory"],
 )
@@ -287,7 +284,8 @@ def test_trigger_set_exits_2_with_a_message_on_an_unreadable_questions_file(
     prefix = f"Error: --questions {qfile}: "
     assert err.startswith(prefix)
     assert len(err.strip()) > len(prefix)
-    assert reason in err
+    assert re.search(reason, err)
+    assert err.count(qfile.name) == 1  # the path is named once, by the prefix
     assert not out.exists()
 
 
