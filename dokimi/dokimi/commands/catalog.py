@@ -274,3 +274,7 @@ def register(sub, positive_int) -> None:
                       help="Exit 1 if any query names a skill, keeps exam framing, or has an unresolved @field label")
     ts_p.add_argument("--out", required=True, help="Output JSON path")
     ts_p.set_defaults(func=cmd_catalog_trigger_set)
+
+    from dokimi.commands import catalog_probe
+
+    catalog_probe.register(catalog_sub, positive_int)
