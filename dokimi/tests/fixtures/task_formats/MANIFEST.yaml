@@ -54,7 +54,7 @@ items:
   - path: terminal-bench/original-tasks/hello-world
     format: terminal-bench-v1
     kind: executable
-    consumers: [none-yet]
+    consumers: [docker-*, harbor, benchflow]
     items: null
     source: terminal-bench
     upstream: original-tasks/hello-world

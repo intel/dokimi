@@ -15,6 +15,7 @@ import pytest
 
 from dokimi.harnesses import TaskSuiteRunner, discover_tasks, load_task
 from dokimi.harnesses import harbor_export, tbench_v1
+from dokimi.harnesses.network_policy import resolve
 from dokimi.process import reply
 
 
@@ -69,6 +70,14 @@ def test_load_reads_task_yaml_with_terminal_bench_defaults(tmp_path):
     assert task.container_env == {"GREETING": "hi there", "TEST_DIR": "/tests"}
     assert task.local_docker_problem(oracle=True) is None
     assert task.environment["memory_mb"] == tbench_v1.DEFAULT_MEMORY_MB == 8192
+
+
+
+def test_network_is_public_for_oracle_and_verifier_not_for_an_agent(tmp_path):
+    task = load_task(_tb1(tmp_path))
+    oracle, agent = resolve(task), resolve(task, agent=True)
+    assert oracle.solve.mode == oracle.verify.mode == agent.verify.mode == "public"
+    assert agent.solve.mode != "public"
 
 
 _LIMITS = "    deploy:\n      resources:\n        limits:\n          memory: {}\n"
