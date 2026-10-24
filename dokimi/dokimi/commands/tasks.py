@@ -124,11 +124,14 @@ def _launch_mismatches(harnesses: list[str], baseline: str | None) -> list[str]:
 
 def _select_swebench(args: argparse.Namespace) -> list:
     """Stage the selected rows of a SWE-bench dataset file under the output dir."""
-    from dokimi.harnesses.swebench import load_swebench
+    from dokimi.harnesses.swebench import KNOWN_BAD, load_swebench
 
     ids = None if args.all else [t.strip() for t in (args.tasks or "").split(",") if t.strip()]
     if ids == []:
         raise SystemExit("No tasks selected. Pass --tasks <instance_id[,...]> or --all.")
+    if ids is None:
+        print(f"--swe-bench --all skips {len(KNOWN_BAD)} known-bad rows (name them in --tasks to run them): "
+              + ", ".join(sorted(KNOWN_BAD)), file=sys.stderr)
     try:
         return load_swebench(Path(args.swe_bench), Path(args.output_dir) / "swe-bench-tasks", ids)
     except (OSError, ValueError) as exc:  # SweBenchError and bad JSON are ValueErrors

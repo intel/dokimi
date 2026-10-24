@@ -89,6 +89,20 @@ def test_load_selects_ids_in_order_and_names_an_unknown_one(tmp_path):
         load_swebench(FIXTURE, tmp_path, ["nope__nope-1"])
 
 
+def test_all_skips_the_known_bad_rows_and_an_explicit_id_still_runs(tmp_path):
+    from dokimi.harnesses.network_policy import resolve
+    from dokimi.harnesses.swebench import KNOWN_BAD
+
+    rows = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    bad = dict(rows[0], instance_id="psf__requests-863")
+    data = tmp_path / "rows.json"
+    data.write_text(json.dumps([*rows, bad]), encoding="utf-8")
+    assert "psf__requests-863" in KNOWN_BAD
+    assert "psf__requests-863" not in {t.name for t in load_swebench(data, tmp_path / "a")}
+    (task,) = load_swebench(data, tmp_path / "b", ["psf__requests-863"])
+    assert resolve(task).verify.mode == "none"  # offline unless the operator opens it
+
+
 def test_a_row_without_a_test_spec_or_a_field_is_refused(tmp_path):
     row = dict(_row(PYTEST_ID), repo="someone/else")
     with pytest.raises(SweBenchError, match="no SWE-bench test spec for repo 'someone/else'"):

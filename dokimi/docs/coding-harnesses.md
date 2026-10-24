@@ -102,9 +102,17 @@ The per-repo test commands and parsers are a table,
 `dokimi/harnesses/swebench_specs.json`, generated from the `swebench`
 package by `scripts/gen_swebench_specs.py`; dokimi does not depend on
 `swebench`. Rows from a repo outside the table (SWE-bench Multilingual,
-SWE-smith, SWE-Gym repos) are refused with the repo's name. The task runs
-with `network_mode = "public"`: the eval script reinstalls the repo with pip,
-as upstream does.
+SWE-smith, SWE-Gym repos) are refused with the repo's name. The task sets no
+network, so the solve and the verifier run offline (see
+[Network policy](#network-policy)); the image already has the repo's
+dependencies, and `--network verify=public` gives the verifier upstream's
+network.
+
+`--all` skips the rows in `swebench.KNOWN_BAD`, whose gold patch fails in the
+prebuilt image: `psf__requests-863` and `-2317` (their tests fetch
+httpbin.org), and the six Harbor's SWE-bench adapter lists as failing under its
+oracle (harbor 6099b8c, `adapters/swebench/README.md`, Known Issues). Naming
+one in `--tasks` still runs it.
 
 ### Other eval formats: `tasks inspect`
 
