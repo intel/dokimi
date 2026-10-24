@@ -10,4 +10,6 @@
   with the reason. Harbor-backed harnesses and `benchflow*` run a Harbor copy
   written lazily into a content-keyed cache; its `test.sh` scores the same
   pytest summary. `tasks inspect` lists `docker-*`, `harbor` and `benchflow` as
-  consumers.
+  consumers. A v1 task gets 8 GB of memory
+  (its compose `deploy.resources.limits.memory` when set; the default is
+  `DOKIMI_TBENCH_V1_MEMORY_MB`, else 8192), where other formats default to 2 GB.

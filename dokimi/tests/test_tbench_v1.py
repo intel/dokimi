@@ -68,6 +68,26 @@ def test_load_reads_task_yaml_with_terminal_bench_defaults(tmp_path):
     assert task.metadata["difficulty"] == "easy"
     assert task.container_env == {"GREETING": "hi there", "TEST_DIR": "/tests"}
     assert task.local_docker_problem(oracle=True) is None
+    assert task.environment["memory_mb"] == tbench_v1.DEFAULT_MEMORY_MB == 8192
+
+
+_LIMITS = "    deploy:\n      resources:\n        limits:\n          memory: {}\n"
+
+
+@pytest.mark.parametrize(("limit", "mb"), [("4.0G", 4096), ("512m", 512), ("1GiB", 1024), ("junk", 8192)])
+def test_memory_limit_comes_from_compose_deploy_limits_else_the_tb1_default(tmp_path, limit, mb):
+    task = load_task(_tb1(tmp_path, compose=_COMPOSE + _LIMITS.format(limit)))
+    assert task.environment["memory_mb"] == mb
+    assert "memory_mb" not in task.environment["terminal_bench"]
+
+
+def test_memory_default_is_configurable_by_env(tmp_path, monkeypatch):
+    monkeypatch.setenv(tbench_v1.MEMORY_ENV, "16384")
+    assert load_task(_tb1(tmp_path)).environment["memory_mb"] == 16384
+    assert load_task(_tb1(tmp_path, "b", compose=_COMPOSE + _LIMITS.format("4G"))).environment["memory_mb"] == 4096
+    monkeypatch.setenv(tbench_v1.MEMORY_ENV, "8g")
+    with pytest.raises(ValueError, match=tbench_v1.MEMORY_ENV):
+        tbench_v1.default_memory_mb()
 
 
 def test_load_reads_timeouts_and_a_subdir_build_context(tmp_path):
@@ -216,6 +236,7 @@ def test_export_writes_the_harbor_layout(tmp_path):
     assert "ENV TEST_DIR=/tests" in dockerfile and 'ENV GREETING="hi there"' in dockerfile
     toml = (dest / "task.toml").read_text()
     assert "[verifier]\ntimeout_sec = 60.0" in toml and "[agent]\ntimeout_sec = 360.0" in toml
+    assert "[environment]\nmemory_mb = 8192" in toml
     assert os.access(dest / "tests" / "test.sh", os.X_OK)
 
 

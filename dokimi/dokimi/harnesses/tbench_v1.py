@@ -27,10 +27,18 @@ d28711d of 2026-07-10):
   read from the ``short test summary info`` of ``pytest -rA``, not from the
   exit code; a task passes when every listed test passed (skipped and xfail
   count as passed), and output without that section is a fail.
+
+Memory: terminal-bench sets no limit of its own; a compose file may set one
+(``deploy.resources.limits.memory``, honoured by ``docker compose``). That
+limit becomes ``environment.memory_mb``; a task without one gets
+:data:`DEFAULT_MEMORY_MB` (8 GB, not the 2 GB default of other formats, which
+OOM-kills tasks such as predicate-pushdown-bench), or
+``$DOKIMI_TBENCH_V1_MEMORY_MB`` when set.
 """
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -45,6 +53,11 @@ PARSER_PYTEST = "pytest"
 # trial_handler.Task defaults.
 _DEFAULT_AGENT_TIMEOUT = 360.0
 _DEFAULT_TEST_TIMEOUT = 60.0
+#: ``environment.memory_mb`` of a task whose compose file sets no memory limit.
+DEFAULT_MEMORY_MB = 8192
+MEMORY_ENV = "DOKIMI_TBENCH_V1_MEMORY_MB"
+_SIZE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?)i?b?\s*$", re.IGNORECASE)
+_SIZE_MB = {"": 1 / (1024 * 1024), "k": 1 / 1024, "m": 1, "g": 1024, "t": 1024 * 1024}
 _METADATA_KEYS = (
     "author_name", "author_email", "difficulty", "category", "tags",
     "estimated_duration_sec", "expert_time_estimate_min", "junior_time_estimate_min",
@@ -96,7 +109,7 @@ def read(path: Path, load_yaml: Callable[[str], Any]) -> tuple[dict[str, Any], s
         # terminal-bench runs on compose's default network, open to the internet:
         # run-tests.sh installs curl, uv and pytest at verify time.
         "environment": {"network_mode": "public", **({"workdir": tb["workdir"]} if tb.get("workdir") else {}),
-                        "terminal_bench": tb},
+                        "memory_mb": tb.pop("memory_mb") or default_memory_mb(), "terminal_bench": tb},
     }
     return tables, instruction
 
@@ -146,7 +159,35 @@ def _compose_layout(compose: dict[str, Any]) -> dict[str, Any]:
         "env": _env(service.get("environment")),
         "workdir": workdir if isinstance(workdir, str) and "${" not in workdir else None,
         "unsupported": unsupported,
+        "memory_mb": _size_mb(_dig(service, "deploy", "resources", "limits", "memory")),
     }
+
+
+def default_memory_mb() -> int:
+    """:data:`DEFAULT_MEMORY_MB`, or ``$DOKIMI_TBENCH_V1_MEMORY_MB`` when it is a positive integer."""
+    raw = os.environ.get(MEMORY_ENV, "").strip()
+    if not raw:
+        return DEFAULT_MEMORY_MB
+    if not raw.isdigit() or int(raw) <= 0:
+        raise ValueError(f"{MEMORY_ENV} must be a positive number of MB, not {raw!r}")
+    return int(raw)
+
+
+def _dig(data: Any, *keys: str) -> Any:
+    for key in keys:
+        data = data.get(key) if isinstance(data, dict) else None
+    return data
+
+
+def _size_mb(value: Any) -> int | None:
+    """A compose size (``4.0G``, ``512m``, bytes as a number) in MB, or ``None``."""
+    if isinstance(value, bool) or value is None:
+        return None
+    match = _SIZE_RE.match(str(value))
+    if not match:
+        return None
+    mb = int(float(match.group(1)) * _SIZE_MB[match.group(2).lower()])
+    return mb if mb > 0 else None
 
 
 def _env(value: Any) -> dict[str, str]:

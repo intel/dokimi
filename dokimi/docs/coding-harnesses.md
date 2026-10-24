@@ -136,6 +136,13 @@ use to `$TMPDIR/dokimi-harbor-export/<content hash>/` by
 [`harbor_export.py`](../dokimi/harnesses/harbor_export.py); its `test.sh` scores
 the same pytest summary, so a task gets one verdict on every backend.
 
+Memory: terminal-bench sets no limit, so a v1 task gets
+`environment.memory_mb = 8192` (not the 2048 of other formats; tasks such as
+`predicate-pushdown-bench` are OOM-killed at 2 GB), unless its compose file
+sets `deploy.resources.limits.memory`, which `docker compose` honours and
+dokimi reads as the task's own value. `DOKIMI_TBENCH_V1_MEMORY_MB` changes the
+8192 default. The Harbor export writes the same value to `task.toml`.
+
 `tasks list` and `tasks run` still read only the first two.
 
 The `docker-*` harnesses mount the oracle at `/solution` and `/oracle` and the

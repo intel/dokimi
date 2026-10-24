@@ -177,4 +177,6 @@ def _task_toml(task: TaskSpec) -> str:
     lines += [f"{k} = {value(v)}" for k, v in task.metadata.items() if v is not None]
     lines += ["", "[verifier]", f"timeout_sec = {float(task.verifier['timeout_sec'])}"]
     lines += ["", "[agent]", f"timeout_sec = {float(task.agent['timeout_sec'])}"]
+    if task.environment.get("memory_mb"):
+        lines += ["", "[environment]", f"memory_mb = {int(task.environment['memory_mb'])}"]
     return "\n".join(lines) + "\n"
