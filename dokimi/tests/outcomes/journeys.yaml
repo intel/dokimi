@@ -76,10 +76,31 @@ criteria:
     evidence:
       - {id: cjm-arm-digest-refused, kind: unit, stubs: []}
   AC-J10-008:
-    delivery: proposed
-    gaps: ["no experiment declaration with variants beyond arms and models; confounds are only the checks above"]
+    delivery: partial
+    enforce: false
+    capability: experiment-declaration
+    evidence:
+      - {id: cjm-arm-stamp-warn, kind: unit, stubs: []}
+    gaps:
+      - repository arms only; no declaration of a variant outside repo arms
+      - undeclared differences are free-text warnings, not structured confounds
 
   # ---------------------------------------------------------------- J4
+  AC-J10-009:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/155
+  AC-J10-010:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/157
+  AC-J10-011:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/177
+  AC-J10-012:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/174
+  AC-J10-013:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/174
   AC-J04-001:
     delivery: available
     enforce: true
@@ -114,13 +135,58 @@ criteria:
       - a failed harness is recorded as error; a refusal is not
       - "a token-free refusal is classified not_loaded (repos/reach.py classify), the same as a file that was not reached; the refusal test asserts only the prose warning"
   AC-J04-006:
-    delivery: partial
-    enforce: false
+    delivery: available
+    enforce: true
     capability: guidance-task-impact
     surfaces: ["repo run --arm", "repo compare --baseline"]
+    evidence:
+      - id: cjm-repo-compare-arms
+        kind: cli_scenario
+        invokes: ["repo compare --baseline --arm", "repo compare --json", "repo run --arm"]
+        stubs: [Docker (FakeRunner), agent (fake harness executable)]
     gaps:
       - no test or recorded run asserts an effect claim of guidance on tasks
-      - needs Docker, a harness and paid agent runs; not run to fill this row
+      - the arms test calls compare() in-process after repo run, with one repetition
+  AC-J04-007:
+    delivery: available
+    enforce: true
+    capability: guidance-arms
+    surfaces: ["repo run --arm"]
+    evidence:
+      - {id: cjm-guidance-rev-arm, kind: integration, stubs: [Docker (FakeRunner), agent (fake harness executable)]}
+  AC-J04-008:
+    delivery: available
+    enforce: true
+    capability: guidance-arms
+    evidence:
+      - {id: cjm-patch-arm, kind: integration, stubs: [Docker (FakeRunner), agent (fake harness executable)]}
+  AC-J04-009:
+    delivery: available
+    enforce: true
+    capability: arm-uptake
+    evidence:
+      - id: cjm-arm-uptake
+        kind: cli_scenario
+        invokes: ["repo run --arm"]
+        stubs: [Docker (FakeRunner), agent (fake harness executable)]
+  AC-J04-010:
+    delivery: available
+    enforce: true
+    capability: skill-discovery
+    evidence:
+      - {id: cjm-skill-discover, kind: unit, stubs: [harness runs (fixed cell records)]}
+    gaps: ["no live run states a discovery gap for a real skill"]
+  AC-J04-011:
+    delivery: partial
+    enforce: false
+    capability: skill-discovery
+    evidence:
+      - {id: cjm-skill-listing, kind: unit, stubs: []}
+    gaps: ["the run.log warning for a cut description is not asserted"]
+  AC-J04-012:
+    delivery: partial
+    enforce: false
+    gaps: ["manual: wording of the report, not checked by a test"]
   AC-J04-005:
     delivery: proposed
     gaps: ["no adherence measurement exists"]
@@ -156,6 +222,33 @@ criteria:
         invokes: ["repo run --task --arm"]
         stubs: [Docker (FakeRunner), agent (fake harness executable)]
     gaps: ["egress tasks cannot run at all until the egress proxy exists"]
+  AC-J03-006:
+    delivery: available
+    enforce: true
+    capability: task-host-requirements
+    evidence:
+      - id: cjm-repo-host-unsupported
+        kind: cli_scenario
+        invokes: ["repo run --task"]
+        stubs: [Docker (FakeRunner with a host probe), agent (fake harness executable)]
+  AC-J03-007:
+    delivery: available
+    enforce: true
+    capability: repo-inspect
+    evidence:
+      - id: cjm-repo-inspect
+        kind: cli_scenario
+        invokes: ["repo inspect --out", "repo inspect --json"]
+        stubs: []
+  AC-J03-008:
+    delivery: available
+    enforce: true
+    capability: repo-budget
+    evidence:
+      - id: cjm-repo-budget
+        kind: cli_scenario
+        invokes: ["repo budget --fail-on-warning", "repo budget --out"]
+        stubs: []
   AC-J03-002:
     delivery: available
     enforce: false
@@ -193,8 +286,21 @@ criteria:
         kind: cli_scenario
         invokes: ["repo tasks check --task"]
         stubs: [Docker (FakeRunner, with a simulated leaky image)]
+      - id: cjm-tasks-check-host
+        kind: cli_scenario
+        invokes: ["repo tasks check --warm", "repo tasks check --allow-unsupported"]
+        stubs: [Docker (host probe fake)]
     gaps: ["isolation is checked by name and mount, against a simulated image, not a real container escape",
            "the probe's find root (/), its /proc /sys /dev prune and the source mount are not exercised: the shim searches a small tree"]
+  AC-J07-008:
+    delivery: available
+    enforce: true
+    capability: builtin-review-graders
+    evidence:
+      - id: cjm-builtin-review-graders
+        kind: cli_scenario
+        invokes: ["repo tasks check --task", "repo validate --json"]
+        stubs: [Docker (FakeRunner)]
   AC-J07-005:
     delivery: partial
     enforce: false
@@ -239,6 +345,12 @@ criteria:
         stubs: [Docker (FakeRunner), agent (fake harness executable)]
 
   # ---------------------------------------------------------------- J14 / J2 (novelty)
+  AC-J11-004:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/107
+  AC-J11-005:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/176
   AC-J14-001:
     delivery: available
     enforce: true
@@ -283,11 +395,34 @@ criteria:
         stubs: [every model client (scripted transport)]
   AC-J14-005:
     delivery: available
-    enforce: false
+    enforce: true
     capability: context-trace
     surfaces: ["context trace --json"]
     refs: [docs/context-window.md]
-    gaps: ["not yet bound to a test id"]
+    evidence:
+      - id: cjm-context-trace
+        kind: cli_scenario
+        invokes: ["context trace --json"]
+        stubs: []
+    gaps: ["no test asserts that no model is called; trace.py imports no client"]
+  AC-J14-008:
+    delivery: available
+    enforce: true
+    capability: novelty-gate
+    evidence:
+      - {id: cjm-novelty-unmeasured-share, kind: unit, stubs: []}
+  AC-J14-009:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/164
+  AC-J14-010:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/172
+  AC-J14-011:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/197
+  AC-J14-012:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/173
   AC-J14-007:
     delivery: partial
     enforce: false
@@ -321,6 +456,21 @@ criteria:
     gaps: ["before/after task runs exist separately (arms run, tasks run) but are not one step"]
 
   # ---------------------------------------------------------------- J15
+  AC-J02-006:
+    delivery: proposed
+    gaps: ["research: no CLI surface yet"]
+  AC-J02-007:
+    delivery: proposed
+    gaps: ["research: no CLI surface yet"]
+  AC-J02-008:
+    delivery: proposed
+    gaps: ["research: no CLI surface yet"]
+  AC-J02-009:
+    delivery: proposed
+    gaps: ["research: no CLI surface yet"]
+  AC-J02-010:
+    delivery: proposed
+    gaps: ["research: no CLI surface yet"]
   AC-J15-001:
     delivery: proposed
     gaps: ["no command drafts tasks from a chat transcript"]
@@ -353,7 +503,63 @@ criteria:
   # ---------------------------------------------------------------- J12
   AC-J12-001:
     delivery: proposed
+    # baseline compare --strict exits 1 only on an unverified or mismatched model; compare --spec finds CRITICAL and exits 0.
     gaps: ["baseline compare --strict adds a non-zero exit only on an unverified or mismatched model; a regression beyond a threshold exits 0 and no threshold is defined"]
   AC-J12-002:
+    delivery: partial
+    enforce: true
+    capability: ci-gate-policy
+    evidence:
+      - id: cjm-tasks-check-host
+        kind: cli_scenario
+        invokes: ["repo tasks check --allow-unsupported"]
+        stubs: [Docker (host probe fake)]
+      - {id: cjm-repo-eval-workflow, kind: unit, stubs: [dokimi (stub executable)]}
+    gaps:
+      - the policy is one flag for host-unsupported tasks; budget-stopped and inconclusive judge results have none
+  AC-J12-003:
+    delivery: available
+    enforce: true
+    capability: ci-task-selection
+    evidence:
+      - {id: cjm-repo-eval-selection, kind: unit, stubs: [git (temporary repository)]}
+  AC-J12-004:
     delivery: proposed
-    gaps: ["no configurable policy decides whether an inconclusive or budget-stopped check blocks"]
+    decision_ref: https://github.com/intel/dokimi/pull/161
+
+  # ---------------------------------------------------------------- J5, J6, J8
+  AC-J05-003:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/163
+  AC-J06-003:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/137
+  AC-J08-001:
+    delivery: partial
+    enforce: false
+    gaps: ["report model-compare keeps common questions and warns on a hash mismatch; repo compare compares arms within a model, not models"]
+  AC-J08-002:
+    delivery: partial
+    enforce: false
+    gaps: ["missing cells are counted and left out; no per-model interval or repetition count is stated in a ranking"]
+  AC-J08-003:
+    delivery: available
+    enforce: true
+    capability: model-provenance
+    evidence:
+      - id: cjm-model-answered
+        kind: cli_scenario
+        invokes: ["repo run --model"]
+        stubs: [Docker (FakeRunner), agent (fake harness executable)]
+  AC-J08-004:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/116
+  AC-J08-005:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/107
+  AC-J08-006:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/116
+  AC-J08-007:
+    delivery: proposed
+    decision_ref: https://github.com/intel/dokimi/pull/116
