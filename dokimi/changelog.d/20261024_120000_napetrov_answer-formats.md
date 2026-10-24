@@ -13,6 +13,8 @@
 - **`eval native-import <log>`**: reads an `inspect eval --log-format json`
   log or a `promptfoo eval -o` output as answers.v1 plus eval.v1, so native
   verdicts can be compared with dokimi's on the same completions.
+- skill-creator imports set `expected_skill` to the skill the `evals.json`
+  belongs to, so the same set also feeds the `skill-catalog:` trigger eval.
 - `answers generate --doc-source none` answers the baseline only.
 - `tasks inspect` lists `questions import` as a consumer of the answer-only formats.
 

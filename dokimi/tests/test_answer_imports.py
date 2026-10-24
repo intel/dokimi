@@ -171,8 +171,18 @@ def test_skill_creator_expectations_become_judge_checks(tmp_path):
     assert [c["criterion"] for c in _checks(imp)] == ["Creates a key pair", "Opens port 22"]
     assert _checks(imp, 1) == [{"type": "judge", "criterion": "Defines an AMI", "native": "expected_output"}]
     assert imp.questions[0]["metadata"]["files"] == ["in.csv"]
-    assert "expected_skill" not in imp.questions[0]  # not a trigger set
+    assert [q["expected_skill"] for q in imp.questions] == ["ec2", "ec2"]  # feeds trigger eval too
     assert {"input files not attached (answer-only)", "eval without prompt skipped"} <= set(imp.lossy)
+
+
+def test_skill_creator_expected_skill_falls_back_to_the_skill_directory(tmp_path):
+    rows = {"evals": [{"id": 1, "prompt": "Launch it", "expectations": ["Uses the CLI"]}]}
+    nested = _write(tmp_path / "ec2" / "evals" / "evals.json", json.dumps(rows))
+    assert import_path(nested, fmt="skill-creator-evals").questions[0]["expected_skill"] == "ec2"
+    loose = _write(tmp_path / "loose.json", json.dumps(rows))
+    imp = import_path(loose, fmt="skill-creator-evals")
+    assert "expected_skill" not in imp.questions[0]
+    assert any("expected_skill not set" in n for n in imp.lossy)
 
 
 # --- promptfoo -----------------------------------------------------------------------------------

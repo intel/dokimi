@@ -37,6 +37,7 @@ detection. Use `--format` to override it.
 | `prompt_style: verbatim` | The answerer sends `question` as it is, without its expert-answer wrapper, so that `ANSWER: X` and exact-match graders see a reply to the original prompt. A context arm puts the docs first and the prompt after them. |
 | `expected_topics` | The reference answers, assertion values or expectations. `eval checklist` and the judge read them. |
 | `grading.checks` | One check per native grader or assertion (below). Optional fields: `threshold`, `native_scorer`, `source_format`. |
+| `expected_skill` | skill-creator only: the skill the `evals.json` belongs to (`skill_name`, else the `<skill>/evals/` directory), so the set also scores [skill selection](evaluating-treatments.md#skill-selection-does-the-agent-load-the-right-skill) on a `skill-catalog:` arm. |
 | `metadata` | Sample metadata, promptfoo vars and prompt label, and the skill-creator `files`. |
 
 Ids match the native tool's, so a native log joins on the same ids. An Inspect
