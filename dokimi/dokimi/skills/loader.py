@@ -12,6 +12,7 @@ bundled scripts is the job of the agentic task track, not this loader.
 """
 
 import hashlib
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -20,6 +21,10 @@ from dokimi.utils import parse_frontmatter
 
 # Directory names that hold a scaffold to copy, not a skill to use (see discover_skills).
 TEMPLATE_DIR_NAMES = frozenset({"template", "templates"})
+# Directory names that hold version control, installed dependencies or virtualenvs: a
+# SKILL.md there is a vendored copy of someone else's skill, not one of the catalog's.
+VENDORED_DIR_NAMES = frozenset({".git", ".hg", ".svn", "node_modules", "site-packages",
+                                ".venv", "venv", ".tox", ".nox", "__pycache__"})
 
 
 @dataclass
@@ -154,11 +159,25 @@ def load_skill(path) -> Skill:
     )
 
 
+def _skill_files(root: Path) -> List[Path]:
+    """Every ``SKILL.md`` below *root*, sorted, without walking :data:`VENDORED_DIR_NAMES`."""
+    found: List[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in VENDORED_DIR_NAMES]
+        if "SKILL.md" in filenames:
+            found.append(Path(dirpath) / "SKILL.md")
+    return sorted(found)
+
+
 def discover_skills(root, *, notes: Optional[List[str]] = None) -> List[Skill]:
     """Load every skill under *root* (each subdirectory with a ``SKILL.md``).
 
-    Two kinds of ``SKILL.md`` are not skills of *root* and are left out:
+    Three kinds of ``SKILL.md`` are not skills of *root* and are left out:
 
+    - one under a version-control, dependency or virtualenv directory
+      (:data:`VENDORED_DIR_NAMES`: ``.git``, ``node_modules``, ``site-packages``,
+      ``.venv`` ...) below *root*, a vendored copy of a package's skill that would
+      otherwise load as a skill of its own. Those directories are not walked;
     - one under a ``template`` or ``templates`` directory at any depth below *root*, a
       scaffold to copy (anthropics/skills keeps a blank one at ``template/SKILL.md``).
       A real skill kept under such a directory is left out too;
@@ -171,13 +190,14 @@ def discover_skills(root, *, notes: Optional[List[str]] = None) -> List[Skill]:
     Args:
         root: Directory to scan.
         notes: When given, one line per skipped template or mirror is appended to it.
+            Vendored directories are skipped without a note.
 
     Returns:
         The skills, in path order.
     """
     root = Path(root)
     skill_files: List[Path] = []
-    for skill_file in sorted(root.rglob("SKILL.md")):
+    for skill_file in _skill_files(root):
         if TEMPLATE_DIR_NAMES.intersection(skill_file.relative_to(root).parts[:-1]):
             if notes is not None:
                 notes.append(f"left out {skill_file}: a template, not a skill")

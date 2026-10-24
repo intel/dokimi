@@ -95,6 +95,24 @@ def test_discovery_skips_a_template_directory(tmp_path, dirname):
     assert [s.name for s in discover_skills(root)] == ["linux-perf"]
 
 
+@pytest.mark.parametrize("vendored", ["node_modules/pkg", ".git/modules/sub", ".venv/lib/python3.12/site-packages/pkg"])
+def test_discovery_skips_vendored_copies(tmp_path, vendored):
+    root = tmp_path / "repo"
+    _write_skill(root / "skills" / "linux-perf", "linux-perf", "Profile Linux programs.")
+    # A different version of the same skill, so the mirror rule would not drop it.
+    _write_skill(root / vendored / "skills" / "linux-perf", "linux-perf", "Profile programs, v0.")
+    _write_skill(root / vendored / "skills" / "other", "other", "Someone else's skill.")
+    notes: list[str] = []
+    assert [s.name for s in discover_skills(root, notes=notes)] == ["linux-perf"]
+    assert notes == []
+
+
+def test_discovery_walks_a_root_inside_a_vendored_directory(tmp_path):
+    root = tmp_path / "node_modules" / "pkg" / "skills"
+    _write_skill(root / "a", "a", "Skill a.")
+    assert [s.name for s in discover_skills(root)] == ["a"]
+
+
 def test_discovery_reports_a_skipped_template(tmp_path):
     root = tmp_path / "catalog"
     _write_skill(root / "template", "template-skill", "Replace with description of the skill.")
