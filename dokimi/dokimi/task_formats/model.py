@@ -12,6 +12,7 @@ from typing import Any, Protocol
 KIND_EXECUTABLE = "executable"  # has an environment and a verifier
 KIND_ANSWER_ONLY = "answer-only"  # prompt/target samples
 KIND_TRIGGER = "trigger"  # skill-selection queries
+KIND_LOCALIZATION = "localization"  # where-is questions scored on cited locations
 KIND_UNKNOWN = "unknown"
 
 FORMAT_UNKNOWN = "unknown"
@@ -24,6 +25,7 @@ BY_HARBOR = "harbor"
 BY_DOCKER = "docker-*"
 BY_BENCHFLOW = "benchflow"
 BY_QUESTIONS = "questions track"
+BY_EXPLORE = "explore track"
 NONE_YET = "none-yet"
 
 #: A probe at or above this confidence claims the path.

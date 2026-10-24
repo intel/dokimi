@@ -88,7 +88,16 @@ class TaskMdProbe:
             fmt = task_layouts.task_format(path)
         if fmt != task_layouts.FORMAT_TASK_MD:
             return None
-        return Fingerprint(1.0, ("task.md with BenchFlow frontmatter",))
+        task_md = path / "task.md"
+        if task_layouts._is_benchflow_task_md(task_md):
+            return Fingerprint(1.0, ("task.md with BenchFlow frontmatter",))
+        # task_format calls a lone task.md a task whatever it holds; a scan does not: a
+        # task.md with no frontmatter and no task parts beside it is a note (a ticket in a
+        # promptfoo example workspace), and one with them is a task to lint.
+        parts = tuple(n for n in ("environment", "oracle", "solution", "verifier", "tests") if (path / n).is_dir())
+        if task_layouts._has_frontmatter(task_md):
+            return Fingerprint(0.7, ("task.md with frontmatter (not BenchFlow keys)", *parts))
+        return Fingerprint(0.6, ("task.md without frontmatter", *parts)) if parts else None
 
     def describe(self, path: Path) -> Report:
         report = Report(path, self.name, KIND_EXECUTABLE)

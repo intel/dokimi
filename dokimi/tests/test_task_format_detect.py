@@ -291,7 +291,7 @@ def test_unknown_jsonl_reports_row_keys(tmp_path):
 @pytest.mark.parametrize("name, text, problem", [
     ("bad.json", "{not json", "not valid JSON"),
     ("bad.yaml", "a: [1, 2\n", "not valid YAML"),
-    ("alias.yaml", "a: &x [1]\nb: *x\n", "not valid YAML"),
+    ("alias.yaml", "a: &x [1]\nb: *x\n", "uses YAML aliases"),
     ("bad.jsonl", '{"input": "a", "target": "b"}\n{oops\n', "line 2: not valid JSON"),
 ])
 def test_malformed_data_file_is_a_lint_problem_not_a_crash(tmp_path, name, text, problem):
