@@ -92,7 +92,7 @@ def inspect_path(path: Path) -> list[Report]:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"no such file or directory: {path}")
-    if path.is_file():
+    if not path.is_dir():  # a file, or a device or FIFO: read as one file
         return [detect(path) or unknown(path)]
     scan = _Scan()
     scan.walk(path)

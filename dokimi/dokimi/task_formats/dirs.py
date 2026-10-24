@@ -83,13 +83,14 @@ class TaskMdProbe:
     target = "dir"
 
     def fingerprint(self, path: Path) -> Fingerprint | None:
-        with warnings.catch_warnings():
+        task_md = path / "task.md"
+        with warnings.catch_warnings():  # describe() reports what the loader warns about
             warnings.simplefilter("ignore")
             fmt = task_layouts.task_format(path)
+            benchflow = fmt == task_layouts.FORMAT_TASK_MD and task_layouts._is_benchflow_task_md(task_md)
         if fmt != task_layouts.FORMAT_TASK_MD:
             return None
-        task_md = path / "task.md"
-        if task_layouts._is_benchflow_task_md(task_md):
+        if benchflow:
             return Fingerprint(1.0, ("task.md with BenchFlow frontmatter",))
         # task_format calls a lone task.md a task whatever it holds; a scan does not: a
         # task.md with no frontmatter and no task parts beside it is a note (a ticket in a

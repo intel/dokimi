@@ -385,3 +385,94 @@ def test_cli_inspect_missing_path_exits_with_a_message(tmp_path):
     with pytest.raises(SystemExit) as excinfo:
         _run(["tasks", "inspect", str(tmp_path / "nope")])
     assert "no such file or directory" in str(excinfo.value)
+
+
+def test_cli_inspect_json_is_a_stamped_artifact_and_out_writes_the_same(tmp_path, capsys):
+    from dokimi.artifacts import validate_artifact
+
+    _tb1(tmp_path)
+    out = tmp_path / "report.json"
+    _run(["tasks", "inspect", str(tmp_path), "--json", "--out", str(out)])
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["schema_version"] == "task_inspect.v1"
+    validate_artifact("task_inspect", printed)
+    assert json.loads(out.read_text()) == printed
+
+
+def test_cli_inspect_out_to_an_unwritable_path_exits_with_a_message(tmp_path):
+    _tb1(tmp_path)
+    (tmp_path / "f").write_text("")
+    with pytest.raises(SystemExit) as excinfo:
+        _run(["tasks", "inspect", str(tmp_path), "--out", str(tmp_path / "f" / "r.json")])
+    assert "cannot write" in str(excinfo.value)
+
+
+# ── configs that name their datasets ───────────────────────────────────────────
+
+
+def test_promptfoo_config_without_tests_or_prompts_is_linted(tmp_path):
+    _write(tmp_path / "promptfooconfig.yaml", "providers: [openai:gpt-4.1-mini]\n")
+    [report] = inspect_path(tmp_path / "promptfooconfig.yaml")
+    assert (report.format, report.problems) == ("promptfoo", ["no tests", "no prompts"])
+
+
+def test_promptfoo_url_tests_are_not_followed_and_yaml_tests_are_promptfoo_tests(tmp_path):
+    _write(tmp_path / "promptfooconfig.yaml",
+           "prompts: [p]\nproviders: [echo]\ntests: https://example.com/t.csv\n")
+    _write(tmp_path / "cases.yaml", "- vars: {q: a}\n  assert: [{type: equals, value: a}]\n")
+    by_name = {Path(r.path).name: r for r in inspect_path(tmp_path)}
+    assert "references" not in by_name["promptfooconfig.yaml"].details
+    assert by_name["cases.yaml"].format == "promptfoo-tests"
+
+
+def test_openai_spec_lints_samples_it_cannot_find(tmp_path):
+    _write(tmp_path / "registry/evals/x.yaml",
+           "x.dev.v0:\n  class: evals.elsuite.basic.match:Match\n  args: {samples_jsonl: x/s.jsonl}\n")
+    [report] = inspect_path(tmp_path)
+    assert report.format == "openai-evals-spec"
+    assert report.problems == ["1 samples files not found: s.jsonl"]
+
+
+def test_inspect_task_follows_local_files_not_hub_datasets(tmp_path):
+    _write(tmp_path / "t.py", "from inspect_ai import Task, task\n"
+           "from inspect_ai.dataset import FieldSpec, csv_dataset, hf_dataset\n"
+           "@task\ndef t():\n"
+           "    a = hf_dataset(path='org/data', sample_fields=to_sample)\n"
+           "    return Task(dataset=csv_dataset('d.csv', FieldSpec(input='q', target='a')))\n")
+    _write(tmp_path / "d.csv", "q,a\n1+1?,2\n")
+    by_name = {Path(r.path).name: r for r in inspect_path(tmp_path)}
+    task = by_name["t.py"].details
+    assert task["record_to_sample"] is True
+    assert [r["path"] for r in task["references"]] == [str(tmp_path / "d.csv")]
+    assert (by_name["d.csv"].format, by_name["d.csv"].items) == ("inspect-samples", 1)
+
+
+def test_a_config_does_not_relabel_a_file_another_format_owns_outright(tmp_path):
+    _harbor(tmp_path)
+    _write(tmp_path / "promptfooconfig.yaml", "prompts: [p]\nproviders: [echo]\ntests: file://hb\n")
+    assert {r.format for r in inspect_path(tmp_path)} == {"harbor", "promptfoo"}
+
+
+def test_explore_task_that_explore_would_refuse_has_a_problem_and_no_consumer(tmp_path):
+    _write(tmp_path / "e.yaml", "id: e\nquery: where?\nreferences: [{path: a.py}, {lines: [1]}]\n")
+    [report] = inspect_path(tmp_path / "e.yaml")
+    assert report.format == "dokimi-explore-task"
+    assert report.problems and "explore track" not in report.consumers
+
+
+def test_task_md_with_foreign_frontmatter_is_a_task_to_lint(tmp_path):
+    _write(tmp_path / "t/task.md", "---\ntitle: x\n---\nDo it.\n")
+    [report] = inspect_path(tmp_path)
+    assert report.format == "task-md" and report.confidence == 0.7
+
+
+def test_unreadable_csv_and_binary_files_are_not_claimed(tmp_path):
+    _write(tmp_path / "bad.csv", 'a,b\n"x,1\n')
+    (tmp_path / "data.parquet").write_bytes(b"PAR1\x00")
+    assert [r.format for r in inspect_path(tmp_path)] == ["unknown"]
+
+
+@pytest.mark.skipif(not Path("/dev/null").exists(), reason="needs /dev/null")
+def test_a_path_that_is_neither_file_nor_directory_is_read_as_a_file():
+    [report] = inspect_path(Path("/dev/null"))
+    assert report.format == "unknown"
