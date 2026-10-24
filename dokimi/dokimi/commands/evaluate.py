@@ -557,6 +557,10 @@ def register(sub, positive_int) -> None:
 
     judge_reliability.register(eval_sub, positive_int)  # eval checklist, eval judge-wording
 
+    from dokimi.commands import answer_formats
+
+    answer_formats.register_eval(eval_sub, positive_int)  # eval reference, eval native-import
+
     # eval panel-score
     panel_p = eval_sub.add_parser("panel-score", help="Score answers using a multi-judge panel")
     panel_p.add_argument("--answers", required=True, help="Path to answers JSON file")
