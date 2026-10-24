@@ -1249,3 +1249,15 @@ def test_an_announced_arm_does_not_warn_and_the_notice_is_on_by_default(
         assert result.metrics["skill_notice"] is True
         assert "demo-skill" in seen["argv"][seen["argv"].index("-p") + 1]
         assert "WARNING" not in (tmp_path / f"out-{name}" / "run.log").read_text(encoding="utf-8")
+
+
+def test_two_runs_of_one_task_in_one_process_get_their_own_container(tmp_path):
+    # A suite runs every harness cell in one process: a pid-only name made the
+    # second cell's `docker rm -f` kill the first cell's container.
+    task = load_task(_task(tmp_path))
+    names = set()
+    for arm in ("a", "b"):
+        cli = DockerCLI()
+        create_harness("docker-oracle", runner=cli).run(task, output_dir=tmp_path / arm)
+        names |= {a[a.index("--name") + 1] for a in cli.args if a[0] == "run"}
+    assert len(names) == 2 and all(n.startswith(f"dokimi-run-{task.name}-") for n in names)
