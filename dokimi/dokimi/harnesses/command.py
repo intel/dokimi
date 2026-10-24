@@ -20,6 +20,7 @@ from dokimi.utils import retry_writable
 
 from .models import HarnessResult, OperationRecord
 from .operations import load_operations
+from .harbor_export import harbor_view
 from .tasks import TaskSpec, harbor_task_problem
 
 
@@ -64,6 +65,7 @@ class CommandHarness:
         dry_run: bool = False,
     ) -> HarnessResult:
         if self.kind == "harbor":
+            task = harbor_view(task)  # a terminal-bench v1 task runs from its Harbor copy
             # Harbor's own rejection of the directory exits 1, which would read
             # as a fail; refuse first, so the cell is an error (missing data).
             problem = harbor_task_problem(task, needs_solution=self.agent == "oracle")

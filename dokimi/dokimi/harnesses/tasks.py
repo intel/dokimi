@@ -20,6 +20,13 @@ as canonical when it migrates a split task) when the ``task.md`` frontmatter
 is a BenchFlow document (every top-level key one BenchFlow knows); any other
 ``task.md`` there is an author's note and the task loads from ``task.toml``.
 When both definitions load, :func:`legacy_drift` names where they differ.
+
+``terminal-bench-v1``
+    terminal-bench 0.x: ``task.yaml`` + ``Dockerfile``/``docker-compose.yaml``
+    + ``solution.sh`` + ``run-tests.sh`` + ``tests/``, read by :mod:`.tbench_v1`.
+    The docker-* harnesses run it as it is (:attr:`TaskSpec.oracle_step`,
+    :attr:`TaskSpec.verifier_step`); the Harbor- and BenchFlow-backed ones get
+    a Harbor copy (:mod:`.harbor_export`).
 """
 
 from __future__ import annotations
@@ -34,6 +41,7 @@ from typing import Any
 
 import yaml
 
+from . import tbench_v1
 
 # Executable tasks live in a separate evaluation-content checkout, so there is
 # no in-repo default root: the caller always names one.
@@ -44,14 +52,34 @@ NO_TASKS_ROOT_MESSAGE = (
 
 FORMAT_HARBOR = "harbor"
 FORMAT_TASK_MD = "task-md"
+FORMAT_TBENCH_V1 = tbench_v1.FORMAT
+PARSER_REWARD_FILE = "reward-file"
 
 # Where each layout keeps its oracle and its verifier, in lookup order. Both
 # names are tried for either format, as BenchFlow accepts both. The order
 # differs from BenchFlow's in one case: BenchFlow always prefers oracle/ and
 # verifier/, while a Harbor-layout directory that holds both pairs uses
 # solution/ and tests/ here, the names Harbor itself reads.
-_SOLUTION_DIRS = {FORMAT_HARBOR: ("solution", "oracle"), FORMAT_TASK_MD: ("oracle", "solution")}
-_TESTS_DIRS = {FORMAT_HARBOR: ("tests", "verifier"), FORMAT_TASK_MD: ("verifier", "tests")}
+_SOLUTION_DIRS = {FORMAT_HARBOR: ("solution", "oracle"), FORMAT_TASK_MD: ("oracle", "solution"),
+                  FORMAT_TBENCH_V1: ("solution",)}
+_TESTS_DIRS = {FORMAT_HARBOR: ("tests", "verifier"), FORMAT_TASK_MD: ("verifier", "tests"),
+               FORMAT_TBENCH_V1: ("tests",)}
+
+
+@dataclass(frozen=True)
+class ContainerStep:
+    """What a docker-* run copies into the task container and runs, for the oracle or the verifier.
+
+    ``copies`` maps a host file or directory to a container path (a
+    directory's contents go into it); ``user`` ``None`` is the image's own
+    user; ``parser`` says how the verdict is read: the reward file, or
+    ``pytest`` (terminal-bench's summary parser, :func:`.tbench_v1.reward`).
+    """
+
+    copies: tuple[tuple[Path, str], ...]
+    command: str
+    user: str | None = "root"
+    parser: str = PARSER_REWARD_FILE
 
 
 @dataclass(frozen=True)
@@ -81,6 +109,54 @@ class TaskSpec:
     @property
     def tests_dir(self) -> Path:
         return _first_dir(self.path, _TESTS_DIRS[self.format])
+
+    @property
+    def _tb(self) -> dict[str, Any]:
+        return _table(self.environment.get("terminal_bench")) if self.format == FORMAT_TBENCH_V1 else {}
+
+    @property
+    def build_context(self) -> Path:
+        """The ``docker build`` context: ``environment/``, or the compose file's."""
+        if self.format == FORMAT_TBENCH_V1:
+            return self.path / str(self._tb.get("build_context") or ".")
+        return self.path / "environment"
+
+    @property
+    def dockerfile(self) -> str:
+        """The Dockerfile, relative to :attr:`build_context`."""
+        return str(self._tb.get("dockerfile") or "Dockerfile")
+
+    @property
+    def container_env(self) -> dict[str, str]:
+        """Environment the task container starts with (terminal-bench's ``TEST_DIR`` and compose env)."""
+        if self.format != FORMAT_TBENCH_V1:
+            return {}
+        return {**_table(self._tb.get("env")), "TEST_DIR": tbench_v1.TEST_DIR}
+
+    @property
+    def oracle_step(self) -> ContainerStep:
+        if self.format == FORMAT_TBENCH_V1:
+            return ContainerStep(((self.path / "solution.sh", "/oracle/solution.sh"),),
+                                 "bash /oracle/solution.sh", user=None)
+        return ContainerStep(((self.solution_dir, "/solution"), (self.solution_dir, "/oracle")),
+                             "chmod +x /solution/solve.sh && /solution/solve.sh")
+
+    @property
+    def verifier_step(self) -> ContainerStep:
+        if self.format == FORMAT_TBENCH_V1:
+            copies: tuple[tuple[Path, str], ...] = ((self.path / "run-tests.sh", f"{tbench_v1.TEST_DIR}/run-tests.sh"),)
+            if self.tests_dir.is_dir():
+                copies += ((self.tests_dir, tbench_v1.TEST_DIR),)
+            return ContainerStep(copies, f"bash {tbench_v1.TEST_DIR}/run-tests.sh", user=None,
+                                 parser=tbench_v1.PARSER_PYTEST)
+        return ContainerStep(((self.tests_dir, "/tests"), (self.tests_dir, "/verifier")),
+                             "mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh")
+
+    def local_docker_problem(self, *, oracle: bool) -> str | None:
+        """Why a docker-* harness cannot run this task as its own runner would, or ``None``."""
+        if self.format != FORMAT_TBENCH_V1:
+            return None
+        return tbench_v1.local_docker_problem(self._tb, oracle=oracle)
 
     @property
     def skills_dir(self) -> Path | None:
@@ -117,6 +193,8 @@ def task_format(path: Path) -> str | None:
             return FORMAT_TASK_MD
     if has_toml:
         return FORMAT_HARBOR
+    if tbench_v1.is_task_dir(path):
+        return FORMAT_TBENCH_V1
     return None
 
 
@@ -211,6 +289,18 @@ def discover_tasks(root: Path | None = None) -> list[TaskSpec]:
     return tasks
 
 
+def _read_tables(path: Path, fmt: str) -> tuple[dict[str, Any], str]:
+    """The raw tables and instruction of the task at *path*, read by its *fmt*."""
+    if fmt == FORMAT_TASK_MD:
+        return _read_task_md(path / "task.md")
+    if fmt == FORMAT_TBENCH_V1:
+        return tbench_v1.read(path, _load_yaml)
+    instruction_path = path / "instruction.md"
+    if not instruction_path.is_file():
+        raise FileNotFoundError(f"Task has no instruction.md: {path}")
+    return read_task_config(path), instruction_path.read_text(encoding="utf-8")
+
+
 def load_task(path_or_name: str | Path, root: Path | None = None) -> TaskSpec:
     """Load one task by directory path, or by task name relative to *root*.
 
@@ -231,16 +321,9 @@ def load_task(path_or_name: str | Path, root: Path | None = None) -> TaskSpec:
         raise FileNotFoundError(f"Task directory not found: {path_or_name}")
 
     fmt = task_format(path)
-    if fmt == FORMAT_TASK_MD:
-        data, instruction = _read_task_md(path / "task.md")
-    elif fmt == FORMAT_HARBOR:
-        instruction_path = path / "instruction.md"
-        if not instruction_path.is_file():
-            raise FileNotFoundError(f"Task has no instruction.md: {path}")
-        data = read_task_config(path)
-        instruction = instruction_path.read_text(encoding="utf-8")
-    else:
-        raise FileNotFoundError(f"Task has no task.toml or task.md: {path}")
+    if fmt is None:
+        raise FileNotFoundError(f"Task has no task.toml, task.md or task.yaml: {path}")
+    data, instruction = _read_tables(path, fmt)
 
     # BenchFlow schema 1.3 renamed [environment] to [sandbox]; either feeds
     # TaskSpec.environment. BenchFlow rejects 'environment:' inside a task.md;
@@ -290,7 +373,9 @@ def read_task_config(path: Path) -> dict[str, Any]:
         return _read_task_md(path / "task.md")[0]
     if fmt == FORMAT_HARBOR:
         return _read_task_toml(path)
-    raise FileNotFoundError(f"Task has no task.toml or task.md: {path}")
+    if fmt == FORMAT_TBENCH_V1:
+        return tbench_v1.read(path, _load_yaml)[0]
+    raise FileNotFoundError(f"Task has no task.toml, task.md or task.yaml: {path}")
 
 
 def _read_task_toml(path: Path) -> dict[str, Any]:

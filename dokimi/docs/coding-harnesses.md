@@ -107,7 +107,7 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 |---|---|---|---|
 | `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` |
 | `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` |
-| `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | none yet |
+| `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | `docker-*` run it as it is; `harbor`, `benchflow` through a cached Harbor export |
 | `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | none yet |
 | `inspect-samples` | JSON/JSONL/CSV rows with `input` and `target` (or the keys a `FieldSpec` names) | answer-only | none yet |
 | `inspect-task` | `.py` importing `inspect_ai` with a `@task` function | answer-only (executable with a `sandbox=`) | none yet |
@@ -121,6 +121,20 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 | `dokimi-questions` | questions.v1/v2 JSON | answer-only (trigger with `expected_skill`) | questions track |
 | `dokimi-explore-task` | YAML with `id`, `query` and `references[].path` | localization | explore track |
 | `git-lfs-pointer` | a git-LFS spec v1 pointer stub | unknown | none (fetch it first) |
+
+A terminal-bench v1 task (`task.yaml`, laude-institute/terminal-bench
+`original-tasks/`) runs as it is under `docker-*`: `solution.sh` is copied to
+`/oracle/solution.sh`, `run-tests.sh` and `tests/` to `/tests`, both run as the
+image's user with `TEST_DIR=/tests` and the compose `environment`, and the
+verdict is the pytest `short test summary info` (every listed test passed or
+skipped), not the exit code, as terminal-bench reads it. `docker-*` refuses,
+with the reason, a task whose `docker-compose.yaml` needs more than one
+`docker run` (a second service, volumes, tmpfs, ports), a `parser_name` other
+than `pytest`, `run_tests_in_same_shell`, or (oracle only) a `solution.yaml`.
+The Harbor-backed harnesses and `benchflow*` run a Harbor copy written on first
+use to `$TMPDIR/dokimi-harbor-export/<content hash>/` by
+[`harbor_export.py`](../dokimi/harnesses/harbor_export.py); its `test.sh` scores
+the same pytest summary, so a task gets one verdict on every backend.
 
 `tasks list` and `tasks run` still read only the first two.
 

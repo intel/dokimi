@@ -158,6 +158,16 @@ class TerminalBenchV1Probe:
         if config and not instruction:
             report.problems.append("task.yaml: no instruction")
         report.details["metadata"] = _summary(config, ("difficulty", "category", "tags", "parser_name"))
+        spec = _load(path, report) if config and instruction else None
+        if spec is None:
+            return report
+        # The docker-* harnesses run it as it is; Harbor and BenchFlow from its Harbor export.
+        problem = spec.local_docker_problem(oracle=False)
+        if problem:
+            report.problems.append(f"docker-* would refuse it: {problem}")
+        else:
+            report.consumers.append(BY_DOCKER)
+        report.consumers += [BY_HARBOR, BY_BENCHFLOW]
         return report
 
 

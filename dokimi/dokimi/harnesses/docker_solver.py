@@ -75,13 +75,17 @@ from .command import _parse_reward_text
 from .container_agent import AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, ContainerSandbox, Docker
 from .models import HarnessResult, OperationRecord
 from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, enter_phase, needs_sandbox,
-                             proxy_env_flags, resolve, skill_needs, start_args, redact as _redact)
+                             resolve, skill_needs, start_args, redact as _redact)
 from .skill_treatment import Treatment, build_plugin, check_skill, skill_listing, treatment_notice
 from .solver_stream import record_solver, run_solver
+from .task_env import _exec_env, unresolved_env  # noqa: F401  (re-exported)
+from .tbench_v1 import reward as _pytest_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
     _DEFAULT_BUILD_TIMEOUT,
     _DEFAULT_VERIFY_TIMEOUT,
     FORMAT_TASK_MD,
+    FORMAT_TBENCH_V1,
+    ContainerStep,
     TaskSpec,
     _task_build_timeout,
     _task_verify_timeout,
@@ -298,7 +302,7 @@ class DockerSolverHarness:
         built from a copy of ``environment/`` without that directory — the
         same rule BenchFlow applies to its no-skill runs.
         """
-        env_dir = task.path / "environment"
+        env_dir = task.build_context
         flags = build_args(net or DEFAULTS["build"])
         # Honor the task's own build_timeout_sec (some images need >10 min);
         # _DEFAULT_BUILD_TIMEOUT is only the fallback when the task omits it.
@@ -318,7 +322,7 @@ class DockerSolverHarness:
                 (context / "skills").mkdir()
             self._docker(
                 ["build", "-q", *flags, "-t", image,
-                 "-f", str(context / "Dockerfile"), str(context)],
+                 "-f", str(context / task.dockerfile), str(context)],
                 log, timeout=timeout,
             )
 
@@ -347,8 +351,9 @@ class DockerSolverHarness:
         lifetime = int(max(1800.0, (task.timeout_sec or _DEFAULT_SOLVE_TIMEOUT)
                            + _task_verify_timeout(task) + 600))
         self._docker(["rm", "-f", container], log, check=False)
+        env_args = [a for k, v in task.container_env.items() for a in ("-e", f"{k}={v}")]
         self._docker(
-            ["run", "-d", "--name", container, *net_args,
+            ["run", "-d", "--name", container, *net_args, *env_args,
              "--cpus", cpus, "--memory", memory, image, "sleep", str(lifetime)],
             log,
         )
@@ -367,10 +372,10 @@ class DockerSolverHarness:
         ``/solution`` (Harbor) and ``/oracle`` (BenchFlow), because a script
         written for one layout refers to its siblings by that layout's path.
         """
-        _copy_dir_into(task.solution_dir, container, ("/solution", "/oracle"), log, self._docker)
+        step = task.oracle_step
+        _copy_into(step, container, log, self._docker)
         self._docker(
-            ["exec", "-u", "root", *_exec_env(task, "oracle", net), container, "bash", "-lc",
-             "chmod +x /solution/solve.sh && /solution/solve.sh"],
+            ["exec", *_user(step), *_exec_env(task, "oracle", net), container, "bash", "-lc", step.command],
             log, check=False, timeout=timeout,
         )
 
@@ -627,16 +632,21 @@ class DockerSolverHarness:
         SkillsBench ``test.sh`` runs ``pytest /verifier/test_outputs.py`` even
         after ``bench tasks export`` has renamed the directory to ``tests/``.
         """
-        _copy_dir_into(task.tests_dir, container, ("/tests", "/verifier"), log, self._docker)
+        step = task.verifier_step
+        _copy_into(step, container, log, self._docker)
         # After an in-container agent the verifier runs its /app code as root: no
         # proxy credentials then (the sidecar kept them from the agent; see :func:`_exec_env`).
         agent_code = self.mode == "claude" and self.agent_location == "container"
         proc = self._docker(
-            ["exec", "-u", "root", *_exec_env(task, "verifier", net, credentials=not agent_code),
-             container, "bash", "-lc",
-             "mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh"],
+            ["exec", *_user(step), *_exec_env(task, "verifier", net, credentials=not agent_code),
+             container, "bash", "-lc", step.command],
             log, check=False, timeout=_task_verify_timeout(task),
         )
+        if step.parser != "reward-file":  # terminal-bench: the pytest summary is the verdict
+            verdict, tests = _pytest_reward((proc.stdout or "") + (proc.stderr or ""))
+            (output_dir / "verifier_tests.json").write_text(json.dumps(
+                {"parser": step.parser, "exit_code": proc.returncode, "tests": tests}, indent=2), encoding="utf-8")
+            return verdict
         reward_file = output_dir / "reward.txt"
         pulled = self._docker(
             ["cp", f"{container}:/logs/verifier/reward.txt", str(reward_file)],
@@ -736,16 +746,20 @@ def _refuse_unrunnable(task: TaskSpec, mode: str, agent_location: str) -> None:
     that never runs. It copies neither directory. Oracle mode is refused only
     for a missing directory.
     """
+    problem = task.local_docker_problem(oracle=mode == "oracle")
+    if problem:
+        raise ValueError(f"{task.name}: a docker-* harness cannot run it: {problem}")
     if mode != "probe":
-        needed = [("tests", task.tests_dir)] + ([("solution", task.solution_dir)] if mode == "oracle" else [])
-        for role, directory in needed:
-            if not directory.is_dir():
-                raise ValueError(f"{task.name}: no {directory.name}/ directory to copy to /{role}")
+        steps = [task.verifier_step] + ([task.oracle_step] if mode == "oracle" else [])
+        for src, dest in (c for step in steps for c in step.copies):
+            if not src.exists():
+                what = f"{src.name}/ directory" if src in (task.solution_dir, task.tests_dir) else src.name
+                raise ValueError(f"{task.name}: no {what} to copy to {dest}")
     if mode not in ("claude", "probe"):
         return
-    if agent_location == "host" and task.format == FORMAT_TASK_MD:
+    if agent_location == "host" and task.format in (FORMAT_TASK_MD, FORMAT_TBENCH_V1):
         raise ValueError(
-            f"{task.name}: a task.md task cannot be solved by a host-side agent "
+            f"{task.name}: a {task.format} task cannot be solved by a host-side agent "
             f"(its instruction names absolute container paths); {_IN_CONTAINER}"
         )
     declared = _declared_workdir(task)
@@ -819,59 +833,18 @@ def _task_workdir(task: TaskSpec, container: str, log, docker: "Docker") -> str:
     return found if found != "/" else "/app"
 
 
-def _copy_dir_into(src: Path, container: str, dests: tuple[str, ...], log, docker: "Docker") -> None:
-    """Copy *src*'s contents to each dest: ``docker cp src c:dest`` nests ``src``
-    inside a dest the image already has (``RUN mkdir -p /tests/...``), so the
+def _copy_into(step: ContainerStep, container: str, log, docker: "Docker") -> None:
+    """Copy a step's files in. A directory's contents go to its dest: ``docker cp src c:dest``
+    nests ``src`` inside a dest the image already has (``RUN mkdir -p /tests/...``), so the
     entry script would be missing. Same as BenchFlow: ``mkdir -p``, then ``src/.``."""
-    docker(["exec", "-u", "root", container, "mkdir", "-p", *dests], log)
-    for dest in dests:
-        docker(["cp", f"{src}/.", f"{container}:{dest}"], log)
+    dirs = [d if src.is_dir() else posixpath.dirname(d) for src, d in step.copies]
+    docker(["exec", "-u", "root", container, "mkdir", "-p", *dict.fromkeys(dirs)], log)
+    for src, dest in step.copies:
+        docker(["cp", f"{src}/." if src.is_dir() else str(src), f"{container}:{dest}"], log)
 
 
-def _exec_env(task: TaskSpec, table: str, net: Optional[PhasePolicy] = None, *,
-              credentials: bool = True) -> list[str]:
-    """``docker exec -e`` flags for the oracle or verifier step.
-
-    First the proxy variables of the step's network policy (:func:`.network_policy.proxy_env_flags`),
-    on the exec, not on ``docker run``, so they reach only that step: a public verifier behind
-    a corporate proxy that installs pytest at verify time (52 of 101 SkillsBench ``test.sh``)
-    otherwise fails with reward 0. With ``credentials=False`` (the verifier after an
-    in-container agent runs the agent's code) their ``user:pw@`` is dropped. Without *net*,
-    the task's own plan.
-
-    Then the task's ``[verifier.env]`` / ``[oracle.env]``: only literal values
-    are forwarded; BenchFlow's ``${VAR}`` host references are left to
-    BenchFlow, so a secret is never read from our environment on a task
-    file's say-so.
-    """
-    if net is None:
-        plan = resolve(task)
-        net = plan.verify if table == "verifier" else plan.solve
-    flags = proxy_env_flags(net, credentials=credentials)
-    source = task.verifier if table == "verifier" else task.oracle
-    env = source.get("env")
-    if not isinstance(env, dict):
-        return flags
-    for key, value in env.items():
-        if isinstance(value, bool):
-            flags += ["-e", f"{key}={'true' if value else 'false'}"]  # YAML true, not Python True
-        elif isinstance(value, (str, int, float)) and "${" not in str(value):
-            flags += ["-e", f"{key}={value}"]
-    return flags
-
-
-def unresolved_env(task: TaskSpec, table: str) -> list[str]:
-    """Names in ``[verifier.env]`` / ``[oracle.env]`` that :func:`_exec_env`
-    does not forward: a ``${VAR}`` host reference (with or without a default),
-    or a value that is not a scalar (list, table, null)."""
-    source = task.verifier if table == "verifier" else task.oracle
-    env = source.get("env")
-    if not isinstance(env, dict):
-        return []
-    return sorted(
-        str(k) for k, v in env.items()
-        if not isinstance(v, (str, int, float)) or (isinstance(v, str) and "${" in v)
-    )
+def _user(step: ContainerStep) -> list[str]:
+    return ["-u", step.user] if step.user else []
 
 
 def _ignore_top_level_skills(env_dir: Path):
