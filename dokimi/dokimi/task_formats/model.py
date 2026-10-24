@@ -24,6 +24,8 @@ BY_HARBOR = "harbor"
 BY_DOCKER = "docker-*"
 BY_BENCHFLOW = "benchflow"
 BY_QUESTIONS = "questions track"
+# Read back by `catalog trigger-set --trigger-set`, then run by the skill-catalog: arm.
+BY_TRIGGER_SET = "catalog trigger-set"
 NONE_YET = "none-yet"
 
 #: A probe at or above this confidence claims the path.

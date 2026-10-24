@@ -67,7 +67,6 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
 
     from dokimi.external import trigger_set as ts
     from dokimi.skills import discover_skills
-    from dokimi.utils import read_json_input
 
     catalog_root = Path(args.catalog)
     if not catalog_root.is_dir():
@@ -80,16 +79,11 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         if args.target not in {s.name for s in catalog}:
             raise SystemExit(f"--target {args.target!r} is not a skill in --catalog "
                              f"(have: {', '.join(sorted(s.name for s in catalog))})")
-    sources = []
-    for spec in args.questions:
-        path, _, rule = spec.rpartition("=")  # labels never contain '=', paths may
-        if not path or not rule:
-            raise SystemExit(f"--questions needs PATH=LABEL (a skill name, 'none' or '@field'): {spec}")
-        data = read_json_input(path, flag="--questions")
-        questions = data.get("questions", data) if isinstance(data, dict) else data
-        if not isinstance(questions, list) or not all(isinstance(q, dict) for q in questions):
-            raise SystemExit(f"{path}: expected a list of question objects")
-        sources.append((questions, rule))
+    sources = _question_sources(args.questions or [])
+    sources += _trigger_set_sources(args.trigger_set or [], catalog)
+    if not sources:
+        raise SystemExit("give --questions PATH=LABEL or --trigger-set PATH[=TARGET]")
+    specs = list(args.questions or []) + list(args.trigger_set or [])
 
     rewrite = None
     if args.rewrite:
@@ -107,7 +101,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     # An @field rule that resolves for no question in its source is a typo in the
     # path, not a set of negatives; refuse it rather than write "nothing loads".
     start = 0
-    for (qs, rule), spec in zip(sources, args.questions, strict=True):
+    for (qs, rule), spec in zip(sources, specs, strict=True):
         chunk = queries[start:start + len(qs)]
         start += len(qs)
         if rule.startswith("@") and chunk and not any(q.labelled for q in chunk):
@@ -143,6 +137,82 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     print(f"wrote {args.out} ({args.format}, {n_out} queries, catalog of {len(catalog)})")
 
 
+def cmd_catalog_formats(args: argparse.Namespace) -> None:
+    import json
+
+    from dokimi.skills import formats
+
+    root = Path(args.root)
+    if not root.is_dir():
+        raise SystemExit(f"--root is not a directory: {root}")
+    packages = formats.detect_skill_packages(root)
+    summary = formats.summarize(packages)
+    if args.json:
+        print(json.dumps({"root": str(root), "summary": summary,
+                          "packages": [p.to_dict(root) for p in packages]}, indent=2))
+        return
+    for p in packages:
+        problems = "; ".join(p.problems) or "ok"
+        print(f"{p.format}\t{p.name or '-'}\t{p.selected_by}\t{p.host or '-'}\t"
+              f"{p.path.relative_to(root).as_posix()}\t{problems}")
+    print()
+    for fmt, row in summary.items():
+        print(f"# {fmt}: {row['n']} ({row['loadable']} loadable as skills, "
+              f"{row['with_problems']} with problems); selected by {row['selected_by']}")
+
+
+def _question_sources(specs: list) -> list:
+    """Each ``--questions PATH=LABEL`` as a (questions, rule) source."""
+    from dokimi.utils import read_json_input
+
+    sources = []
+    for spec in specs:
+        path, _, rule = spec.rpartition("=")  # labels never contain '=', paths may
+        if not path or not rule:
+            raise SystemExit(f"--questions needs PATH=LABEL (a skill name, 'none' or '@field'): {spec}")
+        data = read_json_input(path, flag="--questions")
+        questions = data.get("questions", data) if isinstance(data, dict) else data
+        if not isinstance(questions, list) or not all(isinstance(q, dict) for q in questions):
+            raise SystemExit(f"{path}: expected a list of question objects")
+        sources.append((questions, rule))
+    return sources
+
+
+def _trigger_set_sources(specs: list, catalog) -> list:
+    """Each ``--trigger-set PATH[=TARGET]`` read back as a (questions, rule) source.
+
+    The set is read into the canonical trigger model and handed on as questions
+    labelled by their own ``expected_skill``, so it is linted (and rewritten) like
+    any other source. TARGET names the skill a skill-creator set was written for.
+    """
+    from dokimi.external import trigger_set as ts
+    from dokimi.utils import read_json_input
+
+    names = {s.name for s in catalog}
+    out = []
+    for spec in specs:
+        path, target = spec, None
+        if not Path(spec).exists() and "=" in spec:
+            path, _, target = spec.rpartition("=")
+        data = read_json_input(path, flag="--trigger-set")
+        try:
+            fmt, queries = ts.read_trigger_set(data, target=target)
+        except ValueError as exc:
+            raise SystemExit(f"{path}: {exc}") from exc
+        if fmt == ts.FORMAT_SKILL_CREATOR:
+            if target not in names:
+                raise SystemExit(f"{spec}: skill-creator target {target!r} is not a skill in "
+                                 f"--catalog (have: {', '.join(sorted(names))})")
+            if len(names) > 1:
+                print(f"note: {path}: skill-creator negatives are read as 'no skill loads'; in a "
+                      f"catalog of {len(names)} a rival load counts as a false trigger", file=sys.stderr)
+        elif target:
+            raise SystemExit(f"{spec}: =TARGET applies to skill-creator sets only, this is {fmt}")
+        print(f"read {path} as {fmt} ({len(queries)} queries)", file=sys.stderr)
+        out.append((ts.to_questions(queries)["questions"], "@expected_skill"))
+    return out
+
+
 def register(sub, positive_int) -> None:
     """Add the `catalog` subcommand group."""
 
@@ -167,15 +237,30 @@ def register(sub, positive_int) -> None:
     )
     scan_p.set_defaults(func=cmd_catalog_scan)
 
+    fm_p = catalog_sub.add_parser(
+        "formats",
+        help="List the skill/rule packages under --root by ecosystem (Agent Skills, Cursor "
+             "rules, Copilot instructions, Gemini extensions, Claude plugins)",
+    )
+    fm_p.add_argument("--root", required=True, help="Local checkout to scan")
+    fm_p.add_argument("--json", action="store_true", help="Print JSON instead of a table")
+    fm_p.set_defaults(func=cmd_catalog_formats)
+
     ts_p = catalog_sub.add_parser(
         "trigger-set",
         help="Build a skill-selection query set (labels + leakage/framing lint) from question sets",
     )
     ts_p.add_argument("--catalog", required=True, help="Directory of the skills the agent will see")
     ts_p.add_argument(
-        "--questions", action="append", required=True, metavar="PATH=LABEL",
+        "--questions", action="append", metavar="PATH=LABEL",
         help="Question file and its label: a skill name, 'none' (no skill should load), or "
              "'@field.path' read per question (e.g. @metadata.skill_under_test). Repeatable.",
+    )
+    ts_p.add_argument(
+        "--trigger-set", action="append", dest="trigger_set", metavar="PATH[=TARGET]",
+        help="An existing trigger set to read back: a skill-reach QuerySet, a skill-creator / "
+             "agentskills.io [{query, should_trigger}] set (=TARGET names its skill), or questions "
+             "with expected_skill. Repeatable; combines with --questions.",
     )
     ts_p.add_argument("--format", choices=["reach", "skill-creator", "questions"], default="reach",
                       help="reach: google/skill-reach QuerySet; skill-creator: one target's "

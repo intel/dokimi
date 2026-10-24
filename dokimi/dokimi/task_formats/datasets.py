@@ -21,7 +21,7 @@ from collections import Counter
 from typing import Any
 
 from dokimi.task_formats.model import (
-    BY_QUESTIONS, KIND_ANSWER_ONLY, KIND_EXECUTABLE, KIND_TRIGGER, Fingerprint, Report,
+    BY_QUESTIONS, BY_TRIGGER_SET, KIND_ANSWER_ONLY, KIND_EXECUTABLE, KIND_TRIGGER, Fingerprint, Report,
 )
 from dokimi.task_formats.source import FileSource, first_rows, key_share
 
@@ -234,6 +234,8 @@ class SkillCreatorTriggerProbe:
             report.problems.append(f"{bad} items have a should_trigger that is not true/false")
         report.details["should_trigger"] = sum(1 for r in rows if r.get("should_trigger") is True)
         report.details["should_not_trigger"] = sum(1 for r in rows if r.get("should_trigger") is False)
+        if not report.problems:
+            report.consumers.append(BY_TRIGGER_SET)
         return report
 
 
@@ -290,6 +292,8 @@ class SkillReachProbe:
         report.problems.extend(p for p in map(_lint_reach_query, rows) if p)
         _lint_duplicate_ids(report, rows, "query_id", "id")
         report.details["out_of_scope"] = sum(1 for r in rows if r.get("expected_skill") is None)
+        if not report.problems:
+            report.consumers.append(BY_TRIGGER_SET)
         return report
 
 

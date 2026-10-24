@@ -24,6 +24,10 @@ Writers target the formats external selection tools read: google/skill-reach
 (``QuerySet`` JSON), anthropics/skills skill-creator (``[{query, should_trigger}]``
 for one target skill), and this repo's questions artifact (for the
 ``skill-catalog:`` arm; saved with :func:`~dokimi.questions.artifact.save_questions_artifact`).
+
+Readers take the same three formats back to :class:`TriggerQuery` (the
+canonical model), so a set authored for one tool can be linted against a
+catalog and run by the ``skill-catalog:`` arm, or re-written for another tool.
 """
 
 from __future__ import annotations
@@ -257,3 +261,146 @@ def to_questions(queries: Sequence[TriggerQuery]) -> Dict[str, Any]:
             row["source_text"] = q.source_text
         rows.append(row)
     return {"questions": rows}
+
+
+# --- readers -----------------------------------------------------------------
+
+FORMAT_REACH = "reach"
+FORMAT_SKILL_CREATOR = "skill-creator"
+FORMAT_QUESTIONS = "questions"
+TRIGGER_FORMATS = (FORMAT_REACH, FORMAT_SKILL_CREATOR, FORMAT_QUESTIONS)
+
+
+def detect_trigger_format(data: Any) -> Optional[str]:
+    """Which trigger-set format *data* (parsed JSON) is, or ``None``.
+
+    By shape only: a ``{"queries": [...]}`` object is a skill-reach QuerySet, a list
+    of ``{query, should_trigger}`` rows is a skill-creator (and agentskills.io
+    ``eval_queries.json``) set, and ``{"questions": [...]}`` or a bare list of
+    ``question`` rows is a dokimi questions set.
+    """
+    if isinstance(data, dict):
+        if isinstance(data.get("queries"), list):
+            return FORMAT_REACH
+        if isinstance(data.get("questions"), list):
+            return FORMAT_QUESTIONS
+        return None
+    if isinstance(data, list) and data and all(isinstance(r, dict) for r in data):
+        if all("query" in r and "should_trigger" in r for r in data):
+            return FORMAT_SKILL_CREATOR
+        if all("question" in r or "text" in r for r in data):
+            return FORMAT_QUESTIONS
+    return None
+
+
+def _label(value: Any, where: str) -> ExpectedSkill:
+    if value is None:
+        return None
+    if isinstance(value, str) and value:
+        return value
+    if isinstance(value, list) and all(isinstance(v, str) and v for v in value):
+        return list(value) or None
+    raise ValueError(f"{where}: expected_skill must be a skill name, a list of names, or null; "
+                     f"got {value!r}")
+
+
+def _text(row: Dict[str, Any], keys: Sequence[str], where: str) -> str:
+    for key in keys:
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    raise ValueError(f"{where}: no query text (looked in {', '.join(keys)})")
+
+
+def from_reach(data: Dict[str, Any]) -> List[TriggerQuery]:
+    """A google/skill-reach ``QuerySet``; ``acceptable_skills`` join ``expected_skill``.
+
+    skill-reach credits only ``expected_skill`` and treats ``acceptable_skills`` as
+    neutral; dokimi's selection score credits any of them, so a query with
+    acceptable siblings scores at least as high here. An id-less query gets
+    skill-reach's own default, ``q-001`` by position.
+    """
+    rows = data.get("queries")
+    if not isinstance(rows, list):
+        raise ValueError("skill-reach QuerySet has no queries list")
+    out = []
+    for i, q in enumerate(rows, start=1):
+        if not isinstance(q, dict):
+            raise ValueError(f"queries[{i - 1}] is not an object")
+        qid = str(q.get("id") or q.get("query_id") or f"q-{i:03d}")
+        first = _label(q.get("expected_skill"), qid)
+        if isinstance(first, list):
+            raise ValueError(f"{qid}: skill-reach expected_skill is one name; use acceptable_skills")
+        extra = q.get("acceptable_skills") or []
+        if not isinstance(extra, list) or not all(isinstance(v, str) and v for v in extra):
+            raise ValueError(f"{qid}: acceptable_skills must be a list of skill names")
+        if first is None and extra:
+            raise ValueError(f"{qid}: acceptable_skills without an expected_skill")
+        names = [first, *[v for v in extra if v != first]] if first else []
+        label: ExpectedSkill = names if len(names) > 1 else (first or None)
+        out.append(TriggerQuery(id=qid, text=_text(q, ("text",), qid), expected_skill=label))
+    return out
+
+
+def from_skill_creator(rows: List[Dict[str, Any]], target: str) -> List[TriggerQuery]:
+    """An anthropics skill-creator / agentskills.io set ``[{query, should_trigger}]`` for *target*.
+
+    The format has no ids, so they are positional (``sc-001``). A negative is
+    read as "no skill should load": exact for a catalog of the target alone,
+    stricter than the source in a larger one, where loading a rival was not
+    something the set's author ruled out.
+    """
+    if not target:
+        raise ValueError("a skill-creator trigger set needs the target skill it was written for")
+    out = []
+    for i, r in enumerate(rows, start=1):
+        qid = f"sc-{i:03d}"
+        if not isinstance(r, dict):
+            raise ValueError(f"{qid}: row is not an object")
+        flag = r.get("should_trigger")
+        if not isinstance(flag, bool):
+            raise ValueError(f"{qid}: should_trigger must be true or false, got {flag!r}")
+        out.append(TriggerQuery(id=qid, text=_text(r, ("query",), qid),
+                                expected_skill=target if flag else None))
+    return out
+
+
+def from_questions(data: Any) -> List[TriggerQuery]:
+    """A dokimi questions set; a question without ``expected_skill`` stays unlabelled."""
+    rows = data.get("questions") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        raise ValueError("questions set has no questions list")
+    out = []
+    for i, q in enumerate(rows):
+        if not isinstance(q, dict):
+            raise ValueError(f"questions[{i}] is not an object")
+        raw = question_id(q)
+        qid = str(f"q{i + 1}" if raw is None else raw)
+        text = _text(q, ("question", "text", "prompt", "question_text"), qid)
+        tq = TriggerQuery(id=qid, text=text, expected_skill=None, labelled="expected_skill" in q)
+        if tq.labelled:
+            tq.expected_skill = _label(q["expected_skill"], qid)
+        if isinstance(q.get("source_text"), str):
+            tq.source_text = q["source_text"]
+        if isinstance(q.get("trigger_lint"), dict):
+            tq.lint = dict(q["trigger_lint"])
+        out.append(tq)
+    return out
+
+
+def read_trigger_set(data: Any, target: Optional[str] = None,
+                     fmt: Optional[str] = None) -> tuple:
+    """Read a parsed trigger set as ``(format, [TriggerQuery, ...])``.
+
+    *fmt* overrides detection; *target* is required for a skill-creator set,
+    which names no skill of its own.
+    """
+    fmt = fmt or detect_trigger_format(data)
+    if fmt == FORMAT_REACH:
+        return fmt, from_reach(data)
+    if fmt == FORMAT_SKILL_CREATOR:
+        return fmt, from_skill_creator(data, target or "")
+    if fmt == FORMAT_QUESTIONS:
+        return fmt, from_questions(data)
+    raise ValueError("not a trigger set this dokimi reads (skill-reach QuerySet, "
+                     "skill-creator [{query, should_trigger}], or questions with expected_skill)")

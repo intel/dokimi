@@ -450,6 +450,7 @@ def _load_questions(path: str) -> list[dict]:
     """
     from dokimi.questions.artifact import load_questions
 
+    _refuse_external_trigger_set(path)
     questions = load_questions(path).questions
     ids = [question_id(q) for q in questions]
     for i, qid in enumerate(ids):
@@ -459,6 +460,30 @@ def _load_questions(path: str) -> list[dict]:
     _refuse_duplicate_ids(ids, path)
     print(f"Loaded {len(questions)} questions from {path}")
     return questions
+
+
+def _refuse_external_trigger_set(path: str) -> None:
+    """Point a skill-reach or skill-creator trigger set at the command that reads it.
+
+    Those sets are read through ``catalog trigger-set --trigger-set``, which also
+    lints them against the catalog the arm will offer; a questions loader that
+    guessed at them would drop that lint and, for skill-creator, the target skill.
+    """
+    import json
+
+    from dokimi.external.trigger_set import FORMAT_QUESTIONS, detect_trigger_format
+
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return  # the questions loader reports it
+    fmt = detect_trigger_format(data)
+    if fmt and fmt != FORMAT_QUESTIONS:
+        target = "=<skill>" if fmt == "skill-creator" else ""
+        raise ValueError(
+            f"{path} is a {fmt} trigger set, not a questions set; convert it with "
+            f"`dokimi catalog trigger-set --catalog <skills> --trigger-set {path}{target} "
+            f"--format questions --out q.json`, then run the skill-catalog: arm on q.json")
 
 
 def _refuse_duplicate_ids(ids: list, path: str) -> None:

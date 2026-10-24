@@ -21,7 +21,7 @@
     "dokimi/commands/benchmark.py::cmd_benchmark_batch": {"complexity": 11},
     "dokimi/commands/benchmark.py::cmd_benchmark_preflight": {"complexity": 22},
     "dokimi/commands/catalog.py::cmd_catalog_scan": {"complexity": 12},
-    "dokimi/commands/catalog.py::cmd_catalog_trigger_set": {"complexity": 18},
+    "dokimi/commands/catalog.py::cmd_catalog_trigger_set": {"complexity": 16},
     "dokimi/commands/evaluate.py::cmd_eval_judge_validity": {"complexity": 29, "rationale": "grew on main in #73 (judge-validity --context stored) from 25 to 29 before the ratchet landed; split it in its own PR"},
     "dokimi/commands/judge_reliability.py::cmd_eval_cross_judge": {"complexity": 32, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/commands/novelty.py::cmd_novelty_routing": {"complexity": 12},
