@@ -44,14 +44,18 @@ NO_TASKS_ROOT_MESSAGE = (
 
 FORMAT_HARBOR = "harbor"
 FORMAT_TASK_MD = "task-md"
+# A SWE-bench dataset row staged by dokimi.harnesses.swebench (solution/ and tests/).
+FORMAT_SWE_BENCH = "swe-bench"
 
 # Where each layout keeps its oracle and its verifier, in lookup order. Both
 # names are tried for either format, as BenchFlow accepts both. The order
 # differs from BenchFlow's in one case: BenchFlow always prefers oracle/ and
 # verifier/, while a Harbor-layout directory that holds both pairs uses
 # solution/ and tests/ here, the names Harbor itself reads.
-_SOLUTION_DIRS = {FORMAT_HARBOR: ("solution", "oracle"), FORMAT_TASK_MD: ("oracle", "solution")}
-_TESTS_DIRS = {FORMAT_HARBOR: ("tests", "verifier"), FORMAT_TASK_MD: ("verifier", "tests")}
+_SOLUTION_DIRS = {FORMAT_HARBOR: ("solution", "oracle"), FORMAT_TASK_MD: ("oracle", "solution"),
+                  FORMAT_SWE_BENCH: ("solution",)}
+_TESTS_DIRS = {FORMAT_HARBOR: ("tests", "verifier"), FORMAT_TASK_MD: ("verifier", "tests"),
+               FORMAT_SWE_BENCH: ("tests",)}
 
 
 @dataclass(frozen=True)

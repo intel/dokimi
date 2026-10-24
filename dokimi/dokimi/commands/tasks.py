@@ -122,9 +122,24 @@ def _launch_mismatches(harnesses: list[str], baseline: str | None) -> list[str]:
             for h in harnesses if h != baseline and (loc := location(h)) not in (None, base)]
 
 
+def _select_swebench(args: argparse.Namespace) -> list:
+    """Stage the selected rows of a SWE-bench dataset file under the output dir."""
+    from dokimi.harnesses.swebench import load_swebench
+
+    ids = None if args.all else [t.strip() for t in (args.tasks or "").split(",") if t.strip()]
+    if ids == []:
+        raise SystemExit("No tasks selected. Pass --tasks <instance_id[,...]> or --all.")
+    try:
+        return load_swebench(Path(args.swe_bench), Path(args.output_dir) / "swe-bench-tasks", ids)
+    except (OSError, ValueError) as exc:  # SweBenchError and bad JSON are ValueErrors
+        raise SystemExit(f"--swe-bench: {exc}") from None
+
+
 def _select_tasks(args: argparse.Namespace) -> list:
     from dokimi.harnesses import discover_tasks, load_task
 
+    if getattr(args, "swe_bench", None):
+        return _select_swebench(args)
     root = _tasks_root(args)
     try:
         if args.all:
@@ -254,6 +269,11 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--baseline-harness", default=None, dest="baseline_harness")
     run_p.add_argument("--model", default=None, help="Model ref passed to the harness")
     run_p.add_argument("--tasks-root", default=None, help=_TASKS_ROOT_HELP)
+    run_p.add_argument(
+        "--swe-bench", default=None, dest="swe_bench", metavar="FILE",
+        help=("A SWE-bench dataset (.jsonl or .json rows); --tasks names instance ids. "
+              "Each row runs in its prebuilt swebench/sweb.eval.* image (docker-* harnesses)."),
+    )
     run_p.add_argument("--output-dir", default="results/task-runs", dest="output_dir")
     run_p.add_argument("--out-json", default=None, dest="out_json")
     run_p.add_argument("--out-md", default=None, dest="out_md",

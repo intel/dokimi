@@ -21,8 +21,8 @@ from collections import Counter
 from typing import Any
 
 from dokimi.task_formats.model import (
-    BY_EXPLORE, BY_QUESTIONS, KIND_ANSWER_ONLY, KIND_EXECUTABLE, KIND_LOCALIZATION, KIND_TRIGGER,
-    Fingerprint, Report,
+    BY_DOCKER, BY_EXPLORE, BY_QUESTIONS, KIND_ANSWER_ONLY, KIND_EXECUTABLE, KIND_LOCALIZATION,
+    KIND_TRIGGER, Fingerprint, Report,
 )
 from dokimi.task_formats.source import FileSource, first_rows, key_share
 
@@ -109,7 +109,20 @@ class SweBenchProbe:
             report.problems.append(f"{bad} items have a FAIL_TO_PASS that is not a list of test ids")
         _lint_duplicate_ids(report, rows, "instance_id")
         report.details["repos"] = sorted({str(r.get("repo")) for r in rows if r.get("repo")})[:20]
+        _swe_bench_consumers(report, rows)
         return report
+
+
+def _swe_bench_consumers(report: Report, rows: list[dict[str, Any]]) -> None:
+    """``docker-*`` (``tasks run --swe-bench``) when every row's repo has a test spec."""
+    from dokimi.harnesses.swebench import specs
+
+    known = specs()["repos"]
+    unsupported = sorted({str(r.get("repo")) for r in rows if r.get("repo") not in known})
+    if unsupported:
+        report.details["repos_without_test_spec"] = unsupported[:20]
+    elif rows and not report.problems:
+        report.consumers.append(BY_DOCKER)
 
 
 # --- Inspect AI samples and OpenAI evals --------------------------------------
