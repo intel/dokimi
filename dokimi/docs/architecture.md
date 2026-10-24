@@ -70,7 +70,7 @@ points up:
 | Layer | Modules |
 | --- | --- |
 | front end | `cli`, `commands`, `__main__` (the argparse front end; no layer below imports it) |
-| tracks | `runner`, `report`, `subjects`, `novelty`, `harnesses`, `context`, `repos`, `explore`, `tool_preference`, `external`, `dashboard`, `orchestrator`, `datasets_export`, `coverage`, and the checkers `config_check`, `schema_check`, `schema_compat` |
+| tracks | `runner`, `report`, `subjects`, `novelty`, `harnesses`, `context`, `repos`, `explore`, `tool_preference`, `external`, `dashboard`, `orchestrator`, `datasets_export`, `coverage`, `task_formats`, and the checkers `config_check`, `schema_check`, `schema_compat` |
 | evaluation | `eval`, `personas`, `questions`, `treatments`, `plugins` |
 | components | `ingest`, `metrics`, `gate`, `mcp`, `skills`, `agent_profiles` |
 | foundation | `__init__` (the `dokimi` package itself), `_version`, `artifacts`, `records`, `llm`, `process`, `caching`, `config`, `registry`, `intents`, `defaults`, `console`, `utils`, `metrics/usage.py` |
