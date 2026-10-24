@@ -1,3 +1,15 @@
+---
+depends_on:
+  - dokimi/dokimi/task_formats/imports/**
+  - dokimi/dokimi/eval/reference_checks.py
+  - dokimi/dokimi/eval/reference_run.py
+  - dokimi/dokimi/commands/answer_formats.py
+---
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Answer-only eval formats
 
 Inspect AI, OpenAI evals, skill-creator `evals.json` and promptfoo sets run on
