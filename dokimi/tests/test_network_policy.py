@@ -224,3 +224,16 @@ def test_a_skill_declares_its_hosts_and_the_run_says_which_it_did_not_grant(tmp_
     metrics = harness.run(task, output_dir=tmp_path / "out", dry_run=True).metrics
     assert metrics["network"]["skill"]["missing"] == closed["missing"]  # recorded, not widened
     assert metrics["network"]["solve"]["mode"] == "none"
+
+
+def test_an_errored_cell_still_records_its_network(tmp_path, monkeypatch):
+    harness = replace(create_harness("docker-oracle", runner=DockerCLI()), network=("verify=public",))
+
+    def broken(*_a, **_k):
+        raise RuntimeError("docker build failed (exit 1); see run.log")
+
+    monkeypatch.setattr(type(harness), "_build_image", broken)
+    with pytest.raises(RuntimeError, match="docker build failed"):
+        harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    import json
+    assert json.loads((tmp_path / "out" / "network.json").read_text())["verify"]["mode"] == "public"

@@ -207,6 +207,7 @@ class DockerSolverHarness:
         returncode = 0
         extra_metrics: dict[str, Any] = {}
         network = self._network_metrics(plan)
+        (output_dir / "network.json").write_text(json.dumps(network, indent=1), encoding="utf-8")  # errored cells too
         reward: Optional[float] = None
         sandbox: Optional[ContainerSandbox] = None
         try:
@@ -250,8 +251,7 @@ class DockerSolverHarness:
             returncode = 124
             reward = 0.0
         except Exception as exc:
-            # Nothing recorded yet (a build failure): let the runner mark it errored.
-            # After a solve (a failed copy back), keep its cost and isolation record.
+            # A build failure: the runner errors the cell. After a solve, keep its cost and isolation record.
             if not extra_metrics:
                 raise
             log.write(f"\nERROR: {type(exc).__name__}: {exc}\n")
