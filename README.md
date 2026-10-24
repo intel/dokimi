@@ -60,6 +60,8 @@ baseline with paired statistics. Arms are given as specs (`dokimi arms run
 | `skill-catalog:<root>` | a whole skill catalog, to measure whether the right skill gets selected |
 | `profile:<path>` | an agent persona / system prompt |
 | `guidance:none\|raw\|bridge` | a repository with its `AGENTS.md`/`CLAUDE.md` removed, kept, or bridged (repository mode, below) |
+| `guidance:rev:<rev>` | the same repository with the guidance files of another revision, such as a PR's `AGENTS.md` (repository mode) |
+| `patch:<file>` | the repository with a unified diff applied on top of its own guidance: a new script, a Makefile target (repository mode) |
 
 The same arms drive question answering (LLM-as-judge with judge-validity
 checks), executable Docker coding tasks through Codex, Claude Code, Harbor or
