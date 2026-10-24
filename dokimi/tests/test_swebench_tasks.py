@@ -34,7 +34,7 @@ from dokimi.harnesses.swebench import (
 )
 from dokimi.harnesses.tasks import FORMAT_SWE_BENCH
 
-FIXTURE = Path(__file__).parent / "fixtures" / "swebench" / "lite-2.jsonl"
+FIXTURE = Path(__file__).parent / "fixtures" / "swebench" / "lite-2.json"
 PYTEST_ID = "pytest-dev__pytest-5227"
 DJANGO_ID = "django__django-11099"
 
