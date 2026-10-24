@@ -127,3 +127,19 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
   branches, `dependabot/*` and `renovate/*`, are the exception).
 - When a change depends on an open PR, wait for it to merge or put both in one
   PR; PRs are not stacked on each other's branches.
+
+## Before opening a PR
+
+Review it yourself the way `REVIEW.md` asks a reviewer to, so the first round
+finds little:
+
+- For each test of changed behaviour, break the code it covers (flip a
+  condition, drop a branch), confirm the test fails, then revert the break.
+- For a bug fix, find every other site with the same bug class. Fix the ones
+  within this PR's scope; list the rest in the description or an issue.
+- Where it applies, run the changed command on a bad input: missing file,
+  empty file, wrong shape, `None` where a value is expected, a Windows path.
+  Say in the description what you could not run.
+- Check that the PR title, description, docstrings and changelog fragment say
+  what the code does (exit codes especially).
+- Re-review your own fix commits during review with the same care.
