@@ -307,11 +307,11 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
       `docker-probe` reads `violated` on a passing
       cell, because the probe requests denied hosts (`example.com`) by design;
       judge a probe by `isolation_probe.json`, not by `egress.status`.
-- **`network_mode = "public"`.** It applies to the verifier only. The
-  container joins the default bridge after the agent exits. Every
-  uxlfoundation/skills task declares it, and none of their solutions or tests
-  uses the network, so a task whose solve needs a host must list it under
-  `environment.egress`.
+- **`network_mode = "public"`.** An `[environment]`-level `public` applies
+  to the oracle and the verifier, not to an agent: every uxlfoundation/skills
+  task declares it, and none of their solutions or tests uses the network. A
+  task whose agent needs a host lists it under `environment.egress`. See
+  [Network policy](#network-policy) for the other sources.
 - **Environment.** HOME is its own tmpfs, `/run/abhome`; the image's `/tmp`
   is left alone. The environment is:
     - the provider-credential allowlist;
@@ -519,6 +519,42 @@ Both now land as errored cells.
 A `command:` harness (including a `--command-template` that wraps `harbor`)
 keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else a
 `reward: x` on its output, else exit code 0 is a pass.
+
+### Network policy
+
+Every `docker-*` run has a network per phase, recorded in
+`metrics.network` with the source of each phase's setting, so two runs can
+be checked for the same network before their verdicts are compared:
+
+| Phase | Default | What runs |
+|---|---|---|
+| `build` | `public` (host network, host proxy as build args) | `docker build` |
+| `solve` | `none` (an in-container agent still reaches its LLM through the sidecar) | the oracle, or the agent |
+| `verify` | `none` | `tests/test.sh` |
+
+The modes are Harbor's: `none` (Harbor's `no-network`), `public` (the
+default bridge plus the host's proxy variables), and `allowlist` (the listed
+`host[:port]` entries only, through an egress sidecar; the verifier's
+decisions land in `metrics.network.verify_egress`). Later sources win:
+
+1. The defaults above.
+2. The task: `[environment]` `network_mode` and `allowed_hosts` (or Harbor's
+   deprecated `allow_internet`), then `[agent]` and `[verifier]` overrides,
+   and `environment.egress` for an agent's solve. An unknown mode refuses
+   the cell.
+3. The operator: `dokimi tasks run --network PHASE=MODE[:host,...]`,
+   repeatable, with `all` for every phase. For example
+   `--network verify=none` grades a public task offline, and
+   `--network solve=allowlist:pypi.org,files.pythonhosted.org` lets every
+   arm install packages.
+
+A skill that needs the network at solve time declares it in its `SKILL.md`
+frontmatter as `metadata.network` (`allowlist:host,...` or `public`), with
+the reason for people in `compatibility`, the Agent Skills spec's field for
+environment needs. The run does not widen the skill arm for it: its baseline
+would then run on another network. `metrics.network.skill.missing` lists the
+declared hosts this run did not grant; pass them with `--network solve=...`
+so every arm gets them.
 
 ## BenchFlow Cells
 
