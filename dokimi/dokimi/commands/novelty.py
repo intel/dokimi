@@ -152,13 +152,13 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
-    from dokimi.novelty.atoms import load_atoms
+    from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, run_measurement
     from dokimi.novelty.probes import build_probe_set
     from dokimi.novelty.report import build_probe_record
 
-    atoms, saved_spans = load_atoms(args.atoms)
+    atoms, saved_spans = load_atoms_or_exit(args.atoms)
     _warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
     saved = json.loads(Path(args.atoms).read_text(encoding="utf-8"))
     verdict = check_answer_key(args.artifact, saved.get("bundle"), source=args.atoms)
@@ -415,12 +415,12 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     """Score shortening candidates on the five axes and optionally write the best one."""
     from dokimi.novelty.analyze import load_artifact_text
-    from dokimi.novelty.atoms import load_atoms
+    from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import entry_point_only
     from dokimi.novelty.retention import RetentionOracle, error_warning
     from dokimi.novelty.shorten import build_candidates, pick_best
 
-    atoms, spans = load_atoms(args.atoms)
+    atoms, spans = load_atoms_or_exit(args.atoms)
     _kind, _name, _description, frontmatter, _body = load_artifact_text(args.artifact)
     saved = json.loads(Path(args.atoms).read_text(encoding="utf-8"))
     try:

@@ -534,3 +534,11 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
         for row in data.get("spans", [])
     ]
     return atoms, spans
+
+
+def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span]]:
+    """:func:`load_atoms` for a command: exit with the file named when it is not an atom set."""
+    try:
+        return load_atoms(path)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise SystemExit(f"Error: cannot read atoms from {path}: {exc}") from None
