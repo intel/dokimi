@@ -287,11 +287,13 @@ def score_localization(
         ref_total=len(ref_paths),
     )
 
-    ref_intervals = {
-        normalize_path(p): _merge(list(ranges))
-        for p, ranges in reference.files.items()
-        if ranges
-    }
+    # Two keys that normalize to one path (``a.py`` and ``./a.py``) pool their
+    # ranges rather than the later key replacing the earlier.
+    pooled: dict[str, list[tuple[int, int]]] = {}
+    for p, ranges in reference.files.items():
+        if ranges:
+            pooled.setdefault(normalize_path(p), []).extend(ranges)
+    ref_intervals = {p: _merge(ranges) for p, ranges in pooled.items()}
     # Line metrics are only defined over files that have ranged ground truth.
     # Predicted ranges for a file referenced whole-file (or not referenced at
     # all) have no line-level truth to score against, so they must not count as

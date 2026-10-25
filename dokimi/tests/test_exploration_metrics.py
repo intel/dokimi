@@ -196,6 +196,18 @@ def test_overbroad_citation_compactness_above_one():
     assert score.line_recall == 1.0
 
 
+def test_reference_keys_that_normalize_alike_pool_their_ranges():
+    # ``a.py`` and ``./a.py`` are one file: citing both reference ranges recalls
+    # all of them, not just the range of whichever key came last.
+    pred = parse_final_answer(
+        "<final_answer>\na.py:1-5\na.py:10-12\n</final_answer>"
+    )
+    score = score_localization(pred, _ref({"a.py": ((1, 5),), "./a.py": ((10, 12),)}))
+    assert score.line_recall == 1.0
+    assert score.line_precision == 1.0
+    assert score.citation_compactness == 1.0
+
+
 def test_mixed_wholefile_and_ranged_refs_score_lines_only_for_ranged():
     # a.py is a whole-file ref (no line truth); b.py is ranged. A perfect answer
     # that cites a range for a.py + the exact b.py range must score line F1 = 1.0
