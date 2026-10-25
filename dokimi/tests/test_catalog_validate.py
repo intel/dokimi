@@ -440,3 +440,18 @@ def test_a_mirror_names_as_original_the_copy_discover_skills_keeps(tmp_path):
 
     assert [s.path.parent for s in discover_skills(tmp_path)] == [tmp_path / "skills" / "foo"]
     assert duplicate_of == {"plugin/skills/foo": "skills/foo", "skills/foo": None}
+
+
+@pytest.mark.parametrize("manifest", [True, False])
+def test_broken_yaml_outside_the_root_is_not_quoted_in_the_report(tmp_path, capsys, manifest):
+    outside = tmp_path / "private.md"
+    outside.write_text("---\napi_token: sk-SECRET-12345: x\n---\nbody\n", encoding="utf-8")
+    root = tmp_path / "cat"
+    (root / "skills" / "a").mkdir(parents=True)
+    (root / "skills" / "a" / "SKILL.md").symlink_to(outside)
+    if manifest:
+        (root / "skills.yaml").write_text("- name: a\n", encoding="utf-8")
+    report, code = _scan_json(root, capsys)
+
+    assert "SECRET" not in json.dumps(report)
+    assert report["skills"][0]["state"] == "error" and code == 1

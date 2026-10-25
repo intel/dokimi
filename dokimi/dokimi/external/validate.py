@@ -45,7 +45,7 @@ import yaml
 from dokimi.skills import Skill
 from dokimi.utils import parse_frontmatter_strict
 
-from .catalog import SkillCatalogEntry
+from .catalog import SkillCatalogEntry, _within
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
@@ -154,11 +154,17 @@ def _skill_digest(skill: Skill) -> str:
 
 
 def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
-    """A review for an entry that did not load, only when its ``SKILL.md`` has broken YAML; else None."""
+    """A review for an entry that did not load, only when its ``SKILL.md`` has broken YAML; else None.
+
+    A ``SKILL.md`` that resolves outside the scanned root is not read: the YAML message quotes
+    the offending line, and the catalog must not get a file outside it into the report.
+    """
     if entry.path is None:
         return None
     candidate = entry.path / "SKILL.md" if entry.path.is_dir() else entry.path
     if candidate.name != "SKILL.md" or not candidate.is_file():
+        return None
+    if not _within(candidate, entry.source_root):
         return None
     try:
         text = candidate.read_text(encoding="utf-8")
