@@ -218,6 +218,18 @@ def test_tasks_run_names_a_missing_swe_bench_instance(tmp_path):
               "--harnesses", "docker-oracle", "--output-dir", str(tmp_path)])
 
 
+
+def test_tasks_run_refuses_an_all_selection_with_no_runnable_row(tmp_path):
+    rows = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    data = tmp_path / "bad.json"
+    data.write_text(json.dumps([dict(rows[0], instance_id="psf__requests-863")]), encoding="utf-8")
+    out = tmp_path / "out"
+    with pytest.raises(SystemExit, match="no runnable rows"):
+        _run(["tasks", "run", "--swe-bench", str(data), "--all",
+              "--harnesses", "docker-oracle", "--output-dir", str(out), "--dry-run"])
+    assert not (out / "task_runs.json").exists()
+
+
 # ── one real instance image (opt-in) ─────────────────────────────────────────
 
 _REAL = Path(os.environ.get("DOKIMI_SWEBENCH_ROWS", ""))

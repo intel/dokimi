@@ -133,9 +133,13 @@ def _select_swebench(args: argparse.Namespace) -> list:
         print(f"--swe-bench --all skips {len(KNOWN_BAD)} known-bad rows (name them in --tasks to run them): "
               + ", ".join(sorted(KNOWN_BAD)), file=sys.stderr)
     try:
-        return load_swebench(Path(args.swe_bench), Path(args.output_dir) / "swe-bench-tasks", ids)
+        tasks = load_swebench(Path(args.swe_bench), Path(args.output_dir) / "swe-bench-tasks", ids)
     except (OSError, ValueError) as exc:  # SweBenchError and bad JSON are ValueErrors
         raise SystemExit(f"--swe-bench: {exc}") from None
+    if not tasks:  # an empty run must not exit 0 with an empty artifact
+        raise SystemExit(f"--swe-bench: no runnable rows in {args.swe_bench} "
+                         "(--all skips the known-bad rows)")
+    return tasks
 
 
 def _select_tasks(args: argparse.Namespace) -> list:
