@@ -476,3 +476,29 @@ def test_unreadable_csv_and_binary_files_are_not_claimed(tmp_path):
 def test_a_path_that_is_neither_file_nor_directory_is_read_as_a_file():
     [report] = inspect_path(Path("/dev/null"))
     assert report.format == "unknown"
+
+
+# ── one bad value does not stop a tree scan ───────────────────────────────────
+
+
+@pytest.mark.parametrize("name, text", [
+    ("promptfooconfig.json",
+     json.dumps({"prompts": ["p"], "providers": ["x"], "tests": "file://a\0b.csv"})),
+    ("task.py", 'from inspect_ai import Task, task\n@task\ndef t():\n'
+                '    return Task(dataset=json_dataset("a\0b.jsonl"))\n'),
+])
+def test_a_config_naming_a_path_with_a_nul_byte_names_nothing(tmp_path, name, text):
+    _write(tmp_path / name, text)
+    _jsonl(tmp_path / "ok" / "s.jsonl", [{"input": "q", "target": "a"}])
+    formats = sorted(r.format for r in inspect_path(tmp_path))
+    assert "inspect-samples" in formats and len(formats) == 2, formats
+
+
+def test_skill_reach_keys_yaml_reads_as_bool_or_int_are_linted_not_a_crash(tmp_path):
+    _write(tmp_path / "q.yaml", "yes: 1\nqueries:\n- query_id: q1\n  text: hi\n  expected_skill: s\n"
+                                "  on: x\n  2: y\n")
+    _jsonl(tmp_path / "ok" / "s.jsonl", [{"input": "q", "target": "a"}])
+    reports = {r.path.name: r for r in inspect_path(tmp_path)}
+    assert "QuerySet keys skill-reach refuses: True" in reports["q.yaml"].problems
+    assert "q1: keys skill-reach refuses: 2, True" in reports["q.yaml"].problems
+    assert reports["s.jsonl"].format == "inspect-samples"

@@ -36,7 +36,10 @@ def _key(path: Path) -> str:
 def _targets(ref: dict[str, Any], by_path: dict[str, int], by_name: dict[str, list[int]]) -> list[int]:
     if ref.get("match") == "name":
         return list(by_name.get(Path(ref["path"]).name, []))
-    index = by_path.get(_key(Path(ref["path"])))
+    try:
+        index = by_path.get(_key(Path(ref["path"])))
+    except (OSError, ValueError):  # a NUL byte or an unresolvable path: names nothing scanned
+        return []
     return [] if index is None else [index]
 
 

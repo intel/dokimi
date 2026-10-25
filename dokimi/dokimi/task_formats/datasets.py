@@ -265,7 +265,7 @@ def _reach_rows(source: FileSource) -> list[dict[str, Any]] | None:
 
 def _lint_reach_query(q: dict[str, Any]) -> str | None:
     qid = q.get("query_id", q.get("id", "?"))
-    unknown = sorted(set(q) - _REACH_QUERY_KEYS)
+    unknown = sorted(map(str, set(q) - _REACH_QUERY_KEYS))  # YAML 1.1 keys can be bool/int
     if unknown:
         return f"{qid}: keys skill-reach refuses: {', '.join(unknown)}"
     if (q.get("kind") == "out_of_scope") != (q.get("expected_skill") is None):
@@ -297,7 +297,7 @@ class SkillReachProbe:
                           "oracle": key_share(rows, "expected_skill") == 1,
                           "metadata": bool(data.get("catalog_id") or data.get("provenance"))})
         _lint_missing(report, rows, ("text",))
-        extra = sorted(set(data) - _REACH_SET_KEYS)
+        extra = sorted(map(str, set(data) - _REACH_SET_KEYS))
         if extra:
             report.problems.append(f"QuerySet keys skill-reach refuses: {', '.join(extra)}")
         report.problems.extend(p for p in map(_lint_reach_query, rows) if p)
