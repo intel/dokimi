@@ -11,5 +11,6 @@
 
 ### Changed
 
-- **A task's `network_mode = "public"` now also reaches the oracle**, and the
-  verifier no longer gets the network unless something grants it.
+- **A task whose `network_mode` is not `none`, `allowlist` or `public`, or that
+  lists `allowed_hosts` without `allowlist`, now errors the run** instead of
+  running offline.
