@@ -837,3 +837,14 @@ def test_dry_run_names_twin_a_when_only_twin_a_lacks_the_field(tmp_path, capsys)
                                       "--factors", "long_desc"])
     args.func(args)
     assert "long_desc: skipped for 1 of 1 groups (G09 twin A)" in capsys.readouterr().out
+
+
+def test_a_non_utf8_groups_file_exits_with_a_message(tmp_path):
+    from dokimi.cli import build_parser
+
+    path = tmp_path / "groups.json"
+    path.write_bytes(bytes([0xFF, 0xFE, 0x00]))
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(path), "--dry-run"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert str(exc.value).startswith(f"--groups {path}: ")
