@@ -126,8 +126,8 @@ A terminal-bench v1 task (`task.yaml`, laude-institute/terminal-bench
 `original-tasks/`) runs as it is under `docker-*`: `solution.sh` is copied to
 `/oracle/solution.sh`, `run-tests.sh` and `tests/` to `/tests`, both run as the
 image's user with `TEST_DIR=/tests` and the compose `environment`, and the
-verdict is the pytest `short test summary info` (every listed test passed or
-skipped), not the exit code, as terminal-bench reads it. `docker-*` refuses,
+verdict is the pytest `short test summary info` (every listed test passed, skipped or
+xfailed), not the exit code, as terminal-bench reads it. `docker-*` refuses,
 with the reason, a task whose `docker-compose.yaml` needs more than one
 `docker run` (a second service, volumes, tmpfs, ports), a `parser_name` other
 than `pytest`, `run_tests_in_same_shell`, or (oracle only) a `solution.yaml`.
