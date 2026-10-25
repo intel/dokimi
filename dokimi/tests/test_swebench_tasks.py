@@ -178,6 +178,25 @@ def test_a_skipped_test_counts_neither_way_as_upstream():
     assert report["resolved"] is True
 
 
+def test_an_xfail_fail_to_pass_test_counts_as_a_success():
+    report = grader.grade(_log("XFAIL t.py::f\nPASSED t.py::p"), _CONFIG)
+    assert report["FAIL_TO_PASS"] == {"success": ["t.py::f"], "failure": []}
+    assert report["resolved"] is True
+
+
+def test_an_empty_marked_section_falls_back_to_the_whole_log():
+    log = "PASSED t.py::f\nPASSED t.py::p\n" + _log("")
+    assert grader.grade(log, _CONFIG)["resolved"] is True
+
+
+def test_pytest_v2_reads_coloured_and_old_style_lines():
+    config = dict(_CONFIG, parser="pytest_v2")
+    coloured = _log("\x1b[32mPASSED\x1b[0m t.py::f\nPASSED t.py::p")
+    assert grader.grade(coloured, config)["resolved"] is True
+    old_style = _log("t.py::f PASSED\nPASSED t.py::p")
+    assert grader.grade(old_style, config)["resolved"] is True
+
+
 def test_a_log_without_a_test_run_does_not_resolve():
     assert grader.grade("error: patch failed\n", _CONFIG) == {"instance_id": "x", "tests_ran": False,
                                                              "resolved": False}
