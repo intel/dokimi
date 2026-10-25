@@ -78,6 +78,35 @@ refused (a few hundred bytes of nested aliases expand without bound), and
 frontmatter nested too deeply to parse is a parse error. YAML and TOML dates
 and times become ISO strings, and YAML sets sorted lists.
 
+### Other eval formats: `tasks inspect`
+
+`python cli.py tasks inspect <path> [--json]` names the eval-task format of a
+file, a task directory, or every item under a tree, and reports its structure:
+kind, item count, which parts are present or missing (instruction,
+environment, oracle, verifier, metadata), lint problems, and what in dokimi
+can consume it today. It only reads: nothing is run or converted, a Python
+file is scanned as text and never imported, and a file that does not parse is
+a problem on its report, not an error. A path no format claims is reported as
+`unknown` with its files (or keys) and likely prompt and verifier files; when
+two formats claim a path about equally, the report lists the other as
+`ambiguous` with its evidence.
+
+| Format | Recognised by | Kind | Consumed by |
+|---|---|---|---|
+| `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` |
+| `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` |
+| `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | none yet |
+| `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | none yet |
+| `inspect-samples` | rows with `input` and `target` | answer-only | none yet |
+| `inspect-task` | `.py` importing `inspect_ai` with a `@task` function | answer-only (executable with a `sandbox=`) | none yet |
+| `openai-evals` | JSONL rows with `input` (chat messages) and `ideal` | answer-only | none yet |
+| `skill-creator-evals` | `evals.json` with `skill_name` and `evals[].prompt` | answer-only | none yet |
+| `skill-creator-trigger` | rows with `query` and `should_trigger` | trigger | none yet |
+| `skill-reach` | `QuerySet` (`queries[]` with `query_id`/`id`, `text`, `expected_skill`) | trigger | none yet |
+| `dokimi-questions` | questions.v1/v2 JSON | answer-only (trigger with `expected_skill`) | questions track |
+
+`tasks list` and `tasks run` still read only the first two.
+
 The `docker-*` harnesses mount the oracle at `/solution` and `/oracle` and the
 verifier at `/tests` and `/verifier`, because a script written for one layout
 refers to its siblings by that layout's path. The directory's contents are
