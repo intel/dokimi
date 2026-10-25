@@ -60,6 +60,13 @@ def test_environment_public_reaches_the_oracle_and_verifier_but_not_an_agent(tmp
     assert agent.verify.source == "task [environment] network_mode"
 
 
+def test_an_environment_allowlist_reaches_an_agent_with_its_hosts(tmp_path):
+    toml = '[environment]\nnetwork_mode = "allowlist"\nallowed_hosts = ["pypi.org"]\n'
+    solve = resolve(load_task(_task(tmp_path, toml)), agent=True).solve
+    assert (solve.label(), solve.source) == ("allowlist:pypi.org:443", "task [environment] network_mode")
+    merged = resolve(load_task(_task(tmp_path / "e", toml + 'egress = ["huggingface.co"]\n')), agent=True).solve
+    assert merged.label() == "allowlist:huggingface.co:443,pypi.org:443"
+
 def test_harbor_phase_overrides_and_allowlists_are_honoured(tmp_path):
     task = load_task(_task(tmp_path, (
         '[environment]\nnetwork_mode = "no-network"\n'
