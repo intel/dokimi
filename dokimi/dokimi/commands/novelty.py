@@ -478,13 +478,11 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
 
 def cmd_novelty_view(args: argparse.Namespace) -> None:
     """Re-render the annotated view from a saved novelty artifact plus its atoms."""
-    from dokimi.artifacts import load_artifact
-    from dokimi.novelty.atoms import load_atoms
+    from dokimi.commands.novelty_view_inputs import load_view_inputs
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
-    artifact = load_artifact("novelty", Path(args.novelty))
-    atoms, spans = load_atoms(args.atoms)
+    artifact, atoms, spans = load_view_inputs(args.novelty, args.atoms)
     _warn_unread(spans, "they render as `unread`, not as text that carries nothing")
     # Re-rendering needs per-atom outcomes; the artifact carries aggregates, so a view
     # rebuilt from it alone would colour by category only. Say so instead of implying the
