@@ -444,3 +444,22 @@ def test_the_run_config_records_the_session_settings_only_when_set(fake_llm):
     assert "session_turns" not in ArmRunner([BaselineTreatment()])._run_config()
     config = ArmRunner([BaselineTreatment()], session_turns=2, turn_reminder="R")._run_config()
     assert (config["session_turns"], config["turn_reminder"]) == (2, "R")
+
+
+def test_a_long_skill_keeps_the_plain_runs_cache_breakpoint_in_every_turn(fake_llm, tmp_path):
+    from dokimi.caching import MIN_CACHEABLE_PREFIX_CHARS
+
+    d = tmp_path / "big-skill"
+    d.mkdir()
+    (d / "SKILL.md").write_text("---\nname: big-skill\ndescription: d\n---\n"
+                                + "x" * MIN_CACHEABLE_PREFIX_CHARS, encoding="utf-8")
+    model = {"model": "claude-sonnet-5-5", "provider": "anthropic"}
+    fake_llm.push("p1", "a1", "a2")
+    ArmRunner([SkillTreatment(load_skill(d))], **model).run("oneTBB", [SESSION_Q], concurrency=1)
+    ArmRunner([SkillTreatment(load_skill(d))], session_turns=2, **model).run(
+        "oneTBB", [SESSION_Q], concurrency=1)
+
+    plain, first, second = fake_llm.requests
+    assert first.messages == plain.messages
+    assert second.messages[0] == plain.messages[0]
+    assert plain.messages[0]["content"][0]["cache_control"] == {"type": "ephemeral"}

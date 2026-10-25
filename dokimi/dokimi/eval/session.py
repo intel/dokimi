@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
+from dokimi import caching
 from dokimi.llm import LLM
 from dokimi.metrics.usage import UsageRecord
 
@@ -69,12 +70,15 @@ def run_session(
     temperature: Optional[float] = None,
     seed: Optional[int] = None,
     reminder: Optional[str] = None,
+    cache_prefix: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Answer a conversation turn by turn, sending the full history each time.
 
     ``opening`` is the first user message (the prompt the single-turn path would
     send, context included); each ``follow_ups`` entry is a later user message.
-    ``reminder``, when set, is appended to every user message.
+    ``reminder``, when set, is appended to every user message. ``cache_prefix``, when
+    set, is the static start of the first message (``opening`` is then the rest), sent
+    as its own block with a cache breakpoint as the single-turn path sends it.
 
     Returns ``answer`` (the last assistant text, ``None`` if no turn completed),
     ``turns`` (per turn: ``user_chars``, ``answer``, ``finish_reason``,
@@ -97,7 +101,14 @@ def run_session(
 
     for i, text in enumerate([opening, *follow_ups]):
         content = _with_reminder(text, reminder)
-        messages.append({"role": "user", "content": content})
+        user_chars = len(content)
+        if i == 0 and cache_prefix:
+            built, _ = caching.build_messages(content, cache_prefix=cache_prefix,
+                                              model=model, provider=provider)
+            messages.append(built[-1])
+            user_chars += len(cache_prefix)
+        else:
+            messages.append({"role": "user", "content": content})
         try:
             # A copy: the history grows after this call, and no adapter may see it grow.
             reply = llm.chat(list(messages))
@@ -112,7 +123,7 @@ def run_session(
         answer = text_out
         turns.append({
             "turn": i,
-            "user_chars": len(content),
+            "user_chars": user_chars,
             "answer": text_out,
             "finish_reason": reply.finish_reason,
             "truncated": reply.truncated,

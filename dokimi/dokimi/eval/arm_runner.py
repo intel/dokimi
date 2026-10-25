@@ -442,11 +442,16 @@ class ArmRunner:
                              "turn only", "answer": None, "metadata": cfg_metadata}
 
         # The opening message is the single-turn prompt, context included, so turn 1 of
-        # a session is the answer the plain run would have given.
+        # a session is the answer the plain run would have given, cache breakpoint included.
+        cache_prefix = None
         if cfg.has_context:
             context = join_injected(cfg.injected_context)
-            opening = (CONTEXT_PROMPT_PREFIX.format(context=context[:MAX_CONTEXT_CHARS])
-                       + CONTEXT_PROMPT_SUFFIX.format(question=turns[0]))
+            prefix = CONTEXT_PROMPT_PREFIX.format(context=context[:MAX_CONTEXT_CHARS])
+            opening = CONTEXT_PROMPT_SUFFIX.format(question=turns[0])
+            if cfg.context_is_static:
+                cache_prefix = prefix
+            else:
+                opening = prefix + opening
         else:
             opening = ANSWER_PROMPT_PLAIN.format(question=turns[0])
 
@@ -454,7 +459,7 @@ class ArmRunner:
             model=self.model, provider=self.provider, api_key=self.api_key,
             opening=opening, follow_ups=turns[1:], system=cfg.system_prompt,
             max_tokens=self.max_tokens, temperature=self.temperature, seed=self.seed,
-            reminder=reminder,
+            reminder=reminder, cache_prefix=cache_prefix,
         )
         session_block = {
             "turns_requested": len(turns),
