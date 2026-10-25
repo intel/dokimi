@@ -18,8 +18,10 @@ follow the Agent Skills spec:
   description is a load error, raised by the loader.
 - The frontmatter is valid YAML (``frontmatter-parse``, ``error``).
 
-Identical copies: a ``SKILL.md`` whose bytes are the same as an earlier
-skill's is a ``warn`` naming that earlier skill. The model sees only the name and
+Identical copies: of the skills whose ``SKILL.md`` bytes are the same, the one
+nearest the root (fewest path parts, ties to path order) is the original, the
+copy :func:`dokimi.skills.discover_skills` keeps; each other copy is a ``warn``
+naming it. The model sees only the name and
 description, so two such skills compete for the same query even when their bundled
 files differ (a plugin copy with an extra ``agents/`` folder is still a mirror).
 Mirrors are common (one skill checked in under two plugin directories), and
@@ -35,7 +37,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Optional, Sequence
 
 import yaml
@@ -180,11 +182,11 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
     """One :class:`SkillReview` per entry, in order.
 
     None for an entry that did not load, unless its frontmatter is broken YAML: then its
-    review carries the ``frontmatter-parse`` error. The first skill of each identical
-    ``SKILL.md`` is the original; a later copy names it in ``duplicate_of``.
+    review carries the ``frontmatter-parse`` error. Of each identical ``SKILL.md``, the
+    copy nearest the root is the original; every other copy names it in ``duplicate_of``.
     """
     reviews: list[Optional[SkillReview]] = []
-    first_by_digest: dict[str, Skill] = {}
+    copies: list[tuple[SkillReview, str, str]] = []  # (review, skill directory, digest) per loaded skill
     for entry in entries:
         if not entry.loaded or entry.skill is None:
             reviews.append(_unloaded_review(entry))
@@ -195,16 +197,23 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
         )
         review = SkillReview(findings=findings, disable_model_invocation=hidden)
         review.content_sha256 = _skill_digest(skill)
-        original = first_by_digest.setdefault(review.content_sha256, skill)
-        if original is not skill:
-            where = _relative_to_root(original.path.parent, entry.source_root)
-            review.duplicate_of = where
-            review.findings.append(
-                Finding(
-                    "warn",
-                    "duplicate",
-                    f"SKILL.md is identical to {where}; the same skill is counted twice",
-                )
-            )
+        where = _relative_to_root(skill.path.parent, entry.source_root)
+        copies.append((review, where, review.content_sha256))
         reviews.append(review)
+
+    original_of: dict[str, tuple[SkillReview, str]] = {}
+    for copy, where, digest in sorted(copies, key=lambda c: (len(PurePosixPath(c[1]).parts), c[1])):
+        original_of.setdefault(digest, (copy, where))
+    for copy, _, digest in copies:
+        original, where = original_of[digest]
+        if original is copy:
+            continue
+        copy.duplicate_of = where
+        copy.findings.append(
+            Finding(
+                "warn",
+                "duplicate",
+                f"SKILL.md is identical to {where}; the same skill is counted twice",
+            )
+        )
     return reviews

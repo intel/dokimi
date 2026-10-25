@@ -50,7 +50,8 @@ way the readers expect. Substitute your own checkout path.
 ```
 
 Both manifests are optional — with no manifest, the readers fall back to a
-plain filesystem scan of the same directories. `skills.yaml` comes in two
+plain filesystem scan of the same directories (a `SKILL.md` under a `template/`
+or `templates/` directory is a scaffold and is left out). `skills.yaml` comes in two
 shapes, and both hold a *list* of entries:
 
 ```yaml
@@ -121,7 +122,9 @@ its directory name and kebab-case (at most 64 characters; a `SKILL.md` directly 
 at most 1024 characters: a violation is an `error`, printed under the skill. It
 exits 1 only with `--strict`; without it, the scan reports the error and still
 exits 0. A `name` missing from the frontmatter, or a `SKILL.md` byte-identical to
-an earlier skill's, is a `warn` that names the first copy; warnings never change
+another skill's, is a `warn`. Of identical copies, the one nearest the root (fewest
+path parts, ties to path order) is the original, the copy the `skill-catalog:` arm
+offers; each other copy is the `warn` and names it. Warnings never change
 the exit code. `disable-model-invocation: true` is printed as a `note`, because
 the model is never offered that skill.
 

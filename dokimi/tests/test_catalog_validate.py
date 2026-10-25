@@ -13,6 +13,7 @@ import yaml
 
 from dokimi.cli import build_parser
 from dokimi.external import read_skill_manifest, review_skills
+from dokimi.skills import discover_skills
 from dokimi.utils import parse_frontmatter, parse_frontmatter_strict
 
 
@@ -418,3 +419,24 @@ def test_a_root_skill_reached_by_an_equivalent_spelling_skips_the_directory_chec
     report, _ = _scan_json(root, capsys)
 
     assert report["skills"][0]["findings"] == []
+
+
+def test_a_scan_without_a_manifest_leaves_out_a_template_as_discover_skills_does(
+        tmp_path, capsys):
+    _skill(tmp_path / "skills", "foo", name="foo")
+    _skill(tmp_path / "templates", "bar", name="Bar Template")
+    report, code = _scan_json(tmp_path, capsys, strict=True)
+
+    assert [s["name"] for s in report["skills"]] == ["foo"]
+    assert code == 0
+
+
+def test_a_mirror_names_as_original_the_copy_discover_skills_keeps(tmp_path):
+    _skill(tmp_path / "plugin" / "skills", "foo", name="foo")
+    _skill(tmp_path / "skills", "foo", name="foo")
+    entries = read_skill_manifest(tmp_path)
+    duplicate_of = {e.path.relative_to(tmp_path).as_posix(): r.duplicate_of
+                    for e, r in zip(entries, review_skills(entries), strict=True)}
+
+    assert [s.path.parent for s in discover_skills(tmp_path)] == [tmp_path / "skills" / "foo"]
+    assert duplicate_of == {"plugin/skills/foo": "skills/foo", "skills/foo": None}
