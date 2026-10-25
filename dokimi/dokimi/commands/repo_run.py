@@ -124,7 +124,12 @@ def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
 def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
     path = batch_dir / "_eval" / "batch.json"
     if path.is_file():
-        old = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            old = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as exc:  # JSONDecodeError and bad UTF-8
+            old = exc
+        if not isinstance(old, dict):
+            raise ValueError(f"batch {batch_dir.name} has an unreadable pin ({path}); use another --batch")
         changed = [k for k in pin if old.get(k) != pin[k]]
         if changed:
             was = ", ".join(f"{k} {old.get(k)}" for k in changed)
