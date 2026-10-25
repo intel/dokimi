@@ -207,7 +207,6 @@ class DockerSolverHarness:
         returncode = 0
         extra_metrics: dict[str, Any] = {}
         network = self._network_metrics(plan)
-        (output_dir / "network.json").write_text(json.dumps(network, indent=1), encoding="utf-8")  # errored cells too
         reward: Optional[float] = None
         sandbox: Optional[ContainerSandbox] = None
         try:
@@ -260,6 +259,7 @@ class DockerSolverHarness:
             reward = None
         finally:
             log.close()
+            (output_dir / "network.json").write_text(json.dumps(network, indent=1), encoding="utf-8")
 
         elapsed = time.time() - start
         metrics: dict[str, Any] = {"dry_run": False, "mode": self.mode, "network": network}

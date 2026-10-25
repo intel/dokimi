@@ -302,8 +302,11 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
       data, and `scripts/check_smoke_runs.py` fails the run on it. No
       `egress.jsonl` is written for an `unknown` cell: a missing file is not
       "no requests". The file is also absent when no sandbox ran
-      (`docker-oracle`, the `-host` variants, a build failure), so use
-      `metrics.egress.status` to tell unknown from a cell that ran no sandbox.
+      (`docker-oracle` and the `-host` variants with no allowlisted phase, a
+      build failure), so use `metrics.egress.status` to tell unknown from a
+      cell that ran no sandbox. The file and `metrics.egress` cover the
+      solve's sidecar only: an allowlisted verifier's decisions are
+      `metrics.network.verify_egress`, also saved in `network.json`.
       `docker-probe` reads `violated` on a passing
       cell, because the probe requests denied hosts (`example.com`) by design;
       judge a probe by `isolation_probe.json`, not by `egress.status`.

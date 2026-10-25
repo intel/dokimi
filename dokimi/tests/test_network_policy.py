@@ -10,6 +10,7 @@ verifier execute.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import replace
 from pathlib import Path
@@ -169,6 +170,8 @@ def test_an_allowlisted_verifier_goes_through_its_own_sidecar(tmp_path):
     oracle = args[_index(args, _exec_of("solve.sh"))]
     assert not any("PROXY" in x for x in oracle)
     assert metrics["network"]["verify_egress"]["status"] == "ok"
+    saved = json.loads((tmp_path / "out" / "network.json").read_text(encoding="utf-8"))
+    assert saved["verify_egress"] == metrics["network"]["verify_egress"]  # the cell record has it too
 
 
 def test_build_none_builds_offline(tmp_path):
@@ -253,5 +256,4 @@ def test_an_errored_cell_still_records_its_network(tmp_path, monkeypatch):
     monkeypatch.setattr(type(harness), "_build_image", broken)
     with pytest.raises(RuntimeError, match="docker build failed"):
         harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
-    import json
     assert json.loads((tmp_path / "out" / "network.json").read_text())["verify"]["mode"] == "public"
