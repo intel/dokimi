@@ -100,6 +100,8 @@ The completions become an answers.v1 file. They are stored as `without_docs`,
 because the native run had no dokimi doc context. The tool's own verdicts
 become an eval.v1 file with `scorer: native:<tool>`. Running `eval reference`
 on that answers file re-grades the same completions with dokimi's checks,
-which shows where the two graders disagree. A promptfoo output must come from
+which shows where the two graders disagree. An Inspect sample that errored
+keeps its error on the answer, so `eval reference` leaves it unscored, as
+Inspect does. A promptfoo output must come from
 a single provider. Supported log formats are Inspect `json` logs (inspect-ai
 0.3.283) and promptfoo `-o *.json` (0.125.0).

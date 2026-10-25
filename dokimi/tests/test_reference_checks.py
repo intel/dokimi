@@ -226,6 +226,22 @@ def test_read_inspect_json_log(tmp_path):
     save_artifact("eval", run.eval_artifact(), tmp_path / "e.json")
 
 
+def test_errored_inspect_sample_stays_unscored_in_eval_reference(tmp_path):
+    log = {"eval": {"model": "m"}, "samples": [
+        {"id": "q1", "input": "Q1", "output": {"completion": "Paris"}, "scores": {"match": {"value": "C"}}},
+        {"id": "q2", "input": "Q2", "output": {"completion": ""}, "scores": {},
+         "error": {"message": "RuntimeError('throttled')", "traceback": "..."}},
+    ]}
+    path = tmp_path / "log.json"
+    path.write_text(json.dumps(log), encoding="utf-8")
+    run = read_log(path)
+    save_artifact("answers", run.answers_artifact(), tmp_path / "a.json")
+    checks = {"checks": [{"type": "match", "values": ["paris"], "location": "any"}]}
+    questions = [{"id": q, "question": q, "grading": checks} for q in ("q1", "q2")]
+    tally = score(run.answers_artifact(), questions).tally["without_docs"].as_dict()
+    assert (tally["n"], tally["unscored"], tally["pass_rate"]) == (1, 1, 1.0)
+
+
 def test_read_promptfoo_output_keys_by_test_and_prompt(tmp_path):
     rows = [{"testIdx": t, "promptIdx": p, "success": t == 0, "score": 1 if t == 0 else 0,
              "response": {"output": f"out{t}{p}"}, "prompt": {"raw": f"prompt{p}"}, "provider": {"id": "x:y"}}

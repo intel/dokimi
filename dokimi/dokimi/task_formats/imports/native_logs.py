@@ -53,8 +53,10 @@ def _block(score: Optional[float], passed: Optional[bool], tool: str, detail: An
 
 
 def _add(run: NativeRun, qid: Any, text: str, completion: Optional[str], score: Optional[float],
-         passed: Optional[bool], detail: Any = None) -> None:
+         passed: Optional[bool], detail: Any = None, error: Optional[str] = None) -> None:
     answer = None if completion is None else {"answer": completion, "model": run.model}
+    if answer is not None and error:
+        answer["error"] = error  # a failed sample stays unscored in `eval reference`
     run.answers.append({"question_id": str(qid), "question_text": text, "without_docs": answer})
     run.evaluations.append({"question_id": str(qid), "question_text": text,
                             NATIVE_CONDITION: _block(score, passed, run.tool, detail)})
@@ -86,8 +88,10 @@ def read_inspect(data: Mapping[str, Any]) -> NativeRun:
         value = _inspect_value(first.get("value")) if isinstance(first, Mapping) else None
         completion = (s.get("output") or {}).get("completion")
         detail = {"scorer": next(iter(scores), None), "value": first.get("value") if first else None}
+        err = s.get("error")
+        message = str(err.get("message") or "error") if isinstance(err, Mapping) else (str(err) if err else None)
         _add(run, s.get("id"), _inspect_input(s.get("input")), completion, value,
-             None if value is None else value >= 1.0, detail)
+             None if value is None else value >= 1.0, detail, error=message)
     return run
 
 
