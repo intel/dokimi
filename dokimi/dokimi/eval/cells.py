@@ -150,7 +150,12 @@ def load_matrix_cells(path: str | Path) -> list[MatrixCellDescriptor]:
     Accepted shapes are ``{"matrix": {"cells": [...]}}``, ``{"cells": [...]}``,
     or a top-level list of cells.
     """
-    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"cannot read {path}: {exc}") from None
+    except ValueError as exc:  # JSONDecodeError, or bytes that are not UTF-8
+        raise ValueError(f"{path} is not valid JSON: {exc}") from None
     cells = _extract_cells(raw)
     if not cells:
         raise ValueError("matrix config must contain at least one cell")
