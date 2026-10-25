@@ -187,6 +187,15 @@ def test_a_task_public_oracle_keeps_its_network_unless_the_operator_closes_it(tm
     assert metrics["network"]["verify"]["source"] == "cli"
 
 
+@pytest.mark.parametrize("arm", ["docker-claude-host", "docker-probe-host"])
+def test_a_verify_allowlist_leaves_a_host_arm_on_the_host(tmp_path, arm):
+    toml = '[verifier]\nnetwork_mode = "allowlist"\nallowed_hosts = ["pypi.org"]\n'
+    cli = DockerCLI(reward="1.0", solver='{"type": "result", "result": "ok"}')
+    result = create_harness(arm, runner=cli).run(load_task(_task(tmp_path, toml)), output_dir=tmp_path / "out")
+    assert result.metrics["isolation"]["agent_location"] == "host"
+    assert not any(a[0] == "exec" and "-c" in a and "--env-file" in a for a in cli.args)  # no probe inside
+    assert all(c.argv[0] != "docker" for c in cli.solver_calls())
+
 def test_the_suite_runner_refuses_network_for_a_harness_it_cannot_apply_to(tmp_path):
     task = load_task(_task(tmp_path))
     with pytest.raises(ValueError, match="docker-\\* harnesses only"):

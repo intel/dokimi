@@ -387,7 +387,7 @@ class DockerSolverHarness:
         # A rerun must not find its own previous tree or verdict during the solve.
         _rmtree(output_dir / "work")
         (output_dir / "reward.txt").unlink(missing_ok=True)
-        if sandbox is not None:
+        if sandbox is not None and self.agent_location == "container":  # a host arm stays on the host
             return self._solve_claude_in_container(task, container, output_dir, model, timeout,
                                                    operations, log, extra_metrics, sandbox)
         workdir = _require_agent_workdir(task, container, log, self._docker)
@@ -569,7 +569,7 @@ class DockerSolverHarness:
         untested = {k: "untested" for k in LEAK_CLASSES}
         # Where docker-claude is refused, its probe would vouch for an arm that never runs.
         workdir = _require_agent_workdir(task, container, log, self._docker)
-        if sandbox is not None:
+        if sandbox is not None and self.agent_location == "container":  # not for a verify allowlist
             sandbox.workdir = workdir
             sandbox.prepare(container, self._docker, log)
             skill_dir = self._resolve_skill_dir()  # docker-probe:<skill>: forbidden, never offered
@@ -673,7 +673,7 @@ class DockerSolverHarness:
         if not (agent or needs_sandbox(plan, solve_in_container=self._solve_in_container())):
             return None
         return ContainerSandbox.open(container, self._docker, log, source_env=operator_source_env(),
-                                     task_egress=list(plan.solve.hosts), with_agent=self.mode == "claude",
+                                     task_egress=list(plan.solve.hosts), with_agent=agent and self.mode == "claude",
                                      include_llm=agent, runner=self.runner)
 
     def _verify_phase(self, task: TaskSpec, net: PhasePolicy, container: str, output_dir: Path, log,
