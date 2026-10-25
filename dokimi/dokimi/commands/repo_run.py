@@ -289,19 +289,24 @@ def _harness_bin(name: str) -> Path:
 
 def cmd_repo_report(args: argparse.Namespace) -> None:
     """Per (task, arm, model): gated success, grader failures, missing cells, cost, turns."""
-    from dokimi.repos.report import format_report, summarize
+    from dokimi.repos.report import CellFileError, format_report, summarize
 
     batch_dir = Path(args.batch_dir)
     if not batch_dir.is_dir():
         print(f"✗ not a directory: {batch_dir}", file=sys.stderr)
         sys.exit(1)
-    summary = summarize(batch_dir)
+    try:
+        summary = summarize(batch_dir)
+    except CellFileError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
     print(json.dumps(summary, indent=2) if args.json else format_report(summary))
 
 
 def cmd_repo_compare(args: argparse.Namespace) -> None:
     """Per (treatment, model, measure): per-task deltas against the baseline, 95% CI, sign-flip p."""
     from dokimi.repos.compare import CompareError, compare, format_compare
+    from dokimi.repos.report import CellFileError
 
     dirs = [Path(d) for d in args.batch_dirs]
     for d in dirs:
@@ -311,7 +316,7 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     arms = [a for spec in args.arm for a in spec.split(",") if a] if args.arm else None
     try:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()))
-    except CompareError as exc:
+    except (CompareError, CellFileError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     print(json.dumps(summary, indent=2) if args.json else format_compare(summary))

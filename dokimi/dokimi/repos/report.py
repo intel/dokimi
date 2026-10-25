@@ -35,14 +35,39 @@ import math
 from .runner import UNSUPPORTED_FILE, slug
 
 
+class CellFileError(ValueError):
+    """A batch file that cannot be read as the JSON object ``repo run`` wrote."""
+
+
+def _read_object(path: Path) -> dict[str, Any]:
+    """The JSON object in ``path``, or a :class:`CellFileError` naming the file."""
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise CellFileError(f"cannot read {path}: {exc}") from exc
+    except (ValueError, RecursionError) as exc:  # JSONDecodeError, bad UTF-8, deep nesting
+        raise CellFileError(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(rec, dict):
+        raise CellFileError(f"{path} must hold a JSON object")
+    return rec
+
+
+def _planned_cells(plan_path: Path) -> set[str]:
+    """The cell names in ``plan.json``, or a :class:`CellFileError` when it holds no ``cells`` list of names."""
+    cells = _read_object(plan_path).get("cells")
+    if not isinstance(cells, list) or not all(isinstance(c, str) for c in cells):
+        raise CellFileError(f"{plan_path} must hold a `cells` list of cell names")
+    return set(cells)
+
+
 def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
     """Finished cells (their ``result.json``) and the names of missing ones."""
     plan_path = batch_dir / "_eval" / "plan.json"
-    planned = set(json.loads(plan_path.read_text(encoding="utf-8"))["cells"]) if plan_path.is_file() else set()
+    planned = _planned_cells(plan_path) if plan_path.is_file() else set()
     started = {p.parent.name for p in batch_dir.glob("*/meta.json")}
     finished = []
     for path in sorted(batch_dir.glob("*/result.json")):
-        rec = json.loads(path.read_text(encoding="utf-8"))
+        rec = _read_object(path)
         rec["cell"] = path.parent.name
         # The row's kind is the task's, not what its cells' grades say. The runner records it from the
         # eval dir's task.json; the cell's copy is in the run dir, which the grader could rewrite.
@@ -59,7 +84,7 @@ def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:
     for path in sorted(batch_dir.glob(f"*/{UNSUPPORTED_FILE}")):
         if (path.parent / "result.json").is_file():
             continue
-        rec = json.loads(path.read_text(encoding="utf-8"))
+        rec = _read_object(path)
         out.append({"cell": path.parent.name, "task": rec.get("task"), "arm": rec.get("arm"),
                     "model": rec.get("model"), "reason": rec.get("reason")})
     return out
