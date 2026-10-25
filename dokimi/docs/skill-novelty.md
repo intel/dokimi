@@ -138,7 +138,11 @@ marked. Read it as a review queue:
   `spans.capped_atom_set` is true. The `harmful_atoms` gate check reads a count of 0 as cleared only
   when the share reaches `min_conflict_coverage` (1.0 by default) and the atom set was not capped;
   otherwise it is `measured: false`, as it is when `conflict_coverage` is present but malformed. A
-  conflict that was found is always reported.
+  conflict that was found is always reported. The Markdown report `analyze` writes next to the
+  artifact says the same: in place of the `Conflicts first` line it gives the gate's reason, and its
+  `harmful_conflicting` row reads `not measured (0 found)`. An artifact written before
+  `conflict_coverage` existed has no such field and keeps the old reading, a 0 that counts as
+  cleared, unless its atom set was capped; re-run `analyze` to check it.
 - **Unchecked atoms.** A call whose reply does not parse is split and re-asked only while both
   halves keep two atoms, since one statement has no pair to look at; a chunk of two or three whose
   reply does not parse fails with its error. Atoms in a call that failed, and an atom left alone in
@@ -592,7 +596,8 @@ python cli.py novelty routing --artifact skill:path/to/skill \
 ```
 
 `--catalog <dir>` takes the competitors from a skill directory instead: every `SKILL.md`
-under it except the artifact itself.
+under it except the artifact itself (a `template/` copy and a byte-identical mirror that
+loads under the same skill name are left out).
 
 Two numbers, reported side by side and never merged:
 
@@ -757,9 +762,10 @@ Each cell carries a soft-gate verdict (`dokimi/gate/novelty_gate.py`): `added_fl
 `value_is_measured`, `order_independence`. **Every one of them is soft and none blocks a build** —
 a threshold on `added` flipped its verdict on up to 24% of artifacts at a 0.25 probe budget, so a
 blocking novelty check would be a blocking opinion about probe count. Checks whose input a run did
-not produce are marked `measured: false` at `info` severity and listed in the verdict's `not_measured`
-(rendered as `PASS (k not measured)`) rather than passed silently, so a skipped stage never reads as a
-cleared one.
+not produce are marked `measured: false` and listed in the verdict's `not_measured` (rendered as
+`PASS (k not measured)`) rather than passed silently, so a skipped stage never reads as a cleared one.
+Such a check is at `info` severity, except `harmful_atoms` and `protection_invariant`, which stay at
+`warn`.
 A cell with no check measured at all is `NOT MEASURED`, not `PASS`.
 Failing `warn`-severity checks and the artifact's own `warnings` also surface in the
 scorecard's top-level `warnings`.

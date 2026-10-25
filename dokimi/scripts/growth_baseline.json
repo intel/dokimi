@@ -1,6 +1,6 @@
 {
   "files": {
-    "dokimi/commands/novelty.py": {"lines": 863, "rationale": "W3 adds routing no_queries handling; file split tracked separately to avoid conflicts across the W-series"},
+    "dokimi/commands/novelty.py": {"lines": 864, "rationale": "W3 adds routing no_queries handling, W10 a --catalog help line; file split tracked separately to avoid conflicts across the W-series"},
     "dokimi/harnesses/benchflow.py": {"lines": 869},
     "dokimi/harnesses/docker_solver.py": {"lines": 927, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/llm.py": {"lines": 1118, "rationale": "grew on main in #180 (replay a stored retry) after #93 seeded this baseline; split it in its own PR"},
@@ -11,7 +11,7 @@
     "tests/test_judge_reliability.py": {"lines": 1695, "rationale": "grew on main in #73 (judge-validity --context stored), 1505 -> 1695, before the ratchet landed; split it in its own PR"},
     "tests/test_judge_validity.py": {"lines": 2235, "rationale": "grew on main in #73 (judge-validity --context stored), 1423 -> 2235, before the ratchet landed; split it in its own PR"},
     "tests/test_pipeline_question_set.py": {"lines": 1223},
-    "tests/test_repo_environment.py": {"lines": 1373, "rationale": "grew on main in #147 before the ratchet landed; +2 for the instructions assert of two crash tests (#103 review); split it in its own PR"},
+    "tests/test_repo_environment.py": {"lines": 1337, "rationale": "grew on main in #147 before the ratchet landed; +2 for the instructions assert of two crash tests (#103 review); split it in its own PR"},
     "tests/test_subjects.py": {"lines": 1064},
     "tests/test_task_formats.py": {"lines": 1003}
   },
@@ -43,7 +43,7 @@
     "dokimi/eval/plugin_delta.py::_validate_pair": {"complexity": 14},
     "dokimi/eval/ragas_eval.py::RagasEvaluator.evaluate": {"complexity": 17},
     "dokimi/eval/validity_scoring.py::_score_pairs": {"complexity": 13},
-    "dokimi/gate/novelty_gate.py::evaluate_novelty": {"complexity": 29, "rationale": "grew on main in #72 and #101 before the ratchet landed; split it in its own PR"},
+    "dokimi/gate/novelty_gate.py::evaluate_novelty": {"complexity": 27, "rationale": "grew on main in #72 and #101 before the ratchet landed; split it in its own PR"},
     "dokimi/harnesses/benchflow.py::BenchflowHarness.run": {"complexity": 19},
     "dokimi/harnesses/benchflow.py::skill_loads": {"complexity": 12},
     "dokimi/harnesses/command.py::CommandHarness.run": {"complexity": 15, "rationale": "pre-existing when the gate was introduced"},
@@ -61,7 +61,7 @@
     "dokimi/novelty/items.py::load_probe_cells": {"complexity": 11, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/novelty/probes.py::build_probe_set": {"complexity": 13},
     "dokimi/novelty/probes.py::check_wording": {"complexity": 14},
-    "dokimi/novelty/report.py::render_novelty_markdown": {"complexity": 18},
+    "dokimi/novelty/report.py::render_novelty_markdown": {"complexity": 15},
     "dokimi/novelty/spans.py::segment": {"complexity": 15},
     "dokimi/orchestrator/pipeline.py::EvaluationPipeline.run": {"complexity": 11},
     "dokimi/plugins.py::create_plugin": {"complexity": 11},

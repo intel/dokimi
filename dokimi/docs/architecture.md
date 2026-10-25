@@ -1,3 +1,7 @@
+---
+depends_on:
+  - dokimi/tests/test_import_architecture.py
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
@@ -11,6 +15,9 @@ pipeline: content novelty (what does an artifact add to a model?) and
 repositories as evaluation subjects (can a repo supply its own tasks?). They
 share configuration (`dokimi/config/products.yaml`, `products.yaml`, `intents.yaml`)
 and a single CLI entry point (`cli.py`) but otherwise operate independently.
+Two smaller probes sit beside them: ExploreBench (can an agent locate the right
+files?) and the tool-preference probe (what moves a model's choice between two
+equal tools?).
 
 ```text
                        ┌──────────────┐
@@ -53,27 +60,56 @@ and a single CLI entry point (`cli.py`) but otherwise operate independently.
 └───────────────────────────────┘   └───────────────────────────────┘
 ```
 
+## Layers
+
+Every module sits in one layer and imports only from its own layer or the
+layers below it. The layers, top first, are the `LAYERS` table in
+`tests/test_import_architecture.py`, which fails the build on an import that
+points up:
+
+| Layer | Modules |
+| --- | --- |
+| front end | `cli`, `commands`, `__main__` (the argparse front end; no layer below imports it) |
+| tracks | `runner`, `report`, `subjects`, `novelty`, `harnesses`, `context`, `repos`, `explore`, `tool_preference`, `external`, `dashboard`, `orchestrator`, `datasets_export`, `coverage`, and the checkers `config_check`, `schema_check`, `schema_compat` |
+| evaluation | `eval`, `personas`, `questions`, `treatments`, `plugins` |
+| components | `ingest`, `metrics`, `gate`, `mcp`, `skills`, `agent_profiles` |
+| foundation | `__init__` (the `dokimi` package itself), `_version`, `artifacts`, `records`, `llm`, `process`, `caching`, `config`, `registry`, `intents`, `defaults`, `console`, `utils`, `metrics/usage.py` |
+
+So `report` (a track) can call `gate` (a component), and `gate` cannot import
+`report`. The sections below follow the tracks, not the layers.
+
 ## Static documentation track
 
-Lives entirely under `dokimi/{ingest,metrics,gate,runner,report}`.
+Lives under `dokimi/{ingest,metrics,gate,runner,report}`. `gate/` and
+`report/` also serve the other tracks, as the steps below say.
 
-1. `ingest/` walks the configured root, loads Markdown files, and produces
-   per-file text.
+1. `ingest/` walks the configured root, loads Markdown files
+   (`ingest/loader.py`), and produces per-file text. `ingest/docling_loader.py`
+   is the optional loader that turns PDF, Office and HTML documents into
+   Markdown first ([ingestion-docling.md](ingestion-docling.md)).
 2. `metrics/` scores each file. Each metric is a small pure module:
    `coverage`, `freshness_lite`, `readability`, `example_pass_rate`. See
-   [contributing-metric.md](contributing-metric.md) for how to add one.
+   [contributing-metric.md](contributing-metric.md) for how to add one. The
+   package also holds `exploration.py`, the ExploreBench scoring (see
+   [Exploration quality](#exploration-quality)), and `usage.py`, the per-call
+   LLM token, cost and latency record (see [Shared building blocks](#shared-building-blocks)).
 3. `runner/run.py` reads `benchmarks/spec.v1.yaml`, runs the enabled
    metrics, normalizes weights, and writes a snapshot JSON.
 4. `gate/` applies soft gates, hard gates, critical bands, and regression
    thresholds (`runner/compare.py` powers `cli.py compare`).
-5. `report/` turns snapshots and comparisons into Markdown.
+5. `report/` turns snapshots and comparisons into Markdown
+   (`markdown_report.py`, `json_report.py`). It also renders the other tracks'
+   artifacts: `eval_report.py` and `generator.py` (LLM track), `arms_report.py`
+   (treatment arms), `task_runs_report.py` (executable tasks),
+   `subject_report.py` (subject scorecards), `exploration_report.py`
+   (ExploreBench), and the model, matrix-rollup and plugin-delta comparisons.
 
 Entry points: `python cli.py run`, `python cli.py compare`, `python cli.py
 report`.
 
 ## LLM evaluation track
 
-Lives under `dokimi/{personas,questions,mcp,eval,report,dashboard,orchestrator}`.
+Lives under `dokimi/{personas,questions,mcp,eval,report,gate,dashboard,orchestrator}`.
 
 1. `personas/` discovers and validates target user personas from GitHub
    activity.
@@ -90,7 +126,9 @@ Lives under `dokimi/{personas,questions,mcp,eval,report,dashboard,orchestrator}`
    reports, gates) reads it through `dokimi/records.py`, the one module that
    knows the binary (`with_docs`/`without_docs`) and N-arm (`arms`/`scores`)
    shapes.
-5. `report/eval_report.py` produces the per-product Markdown analysis.
+5. `report/eval_report.py` produces the per-product Markdown analysis;
+   `report/generator.py` builds the analysis report, with the verdict of
+   `gate/trust_gate.py` on whether the run can be trusted.
 6. `dashboard/` aggregates per-library results into a cross-library view
    (`DASHBOARD.md`, `dashboard.json`).
 7. `orchestrator/` wires steps 1–5 together for the `evaluate` one-command
@@ -114,7 +152,10 @@ where the model decides to call a doc-search or skill tool (`agent:`,
 The spec grammar — what an `--arms` entry means, where `+` splits a combined
 spec, and what each arm is *named* — is `treatments/specs.py`.
 `eval/arm_runner.py` generates and judges answers for every arm and reports
-per-arm deltas vs a baseline. Entry point: `python cli.py arms run`. Details in
+per-arm deltas vs a baseline. `dokimi/plugins.py` adds runtime plugins that
+modify every arm inside one run (`plugin:caveman`): a plugin changes the system
+prompt before the model runs or reshapes the answer after it. Entry point:
+`python cli.py arms run`. Details in
 [evaluating-treatments.md](evaluating-treatments.md).
 
 ## Content-novelty track
@@ -150,11 +191,11 @@ whose absolute calibration is poor.
    cache-backed retention oracle in `dokimi/novelty/retention.py`.
 6. `dokimi/novelty/report.py` writes the scorecard block and an
    annotated HTML view of the artifact; `dokimi/gate/novelty_gate.py`
-   turns the numbers into soft gates.
+   turns the numbers into soft gates (the novelty track's use of `gate/`).
 
 Entry points: `python cli.py novelty {analyze,atoms,probe,shorten,view}`, and
-`python cli.py subjects run` to carry the result on a subject scorecard over
-time.
+`python cli.py subjects run` to attach the result to the subject scorecard it
+builds for that run.
 
 Novelty is a property of the (artifact, model) pair, not of the file — the same
 skill is worth very different amounts to a frontier and to a small model, so the
@@ -262,7 +303,7 @@ next release.
   Code loads on the first read in that subdirectory, is not counted; and imports past the profile's `guidance.import_max_depth`,
   four hops for Claude Code, which warn naming what was skipped). It is too high by whatever the
   harness cuts from the skill listing: the listing is charged in full, and the harness cuts it past
-  its listing budget.
+  its listing budget. `--out` and `--json` write the inventory as a `repo_budget.v1` artifact.
 - `dokimi/repos/static.py` — the `repo_static.v1` schema: what the
   repository's own `static` entry point writes, so its checks can be merged
   into L0.
@@ -307,6 +348,27 @@ codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
 `repo run` needs `--agent-network` for an agent that must reach its model.
 
+## Exploration quality
+
+`dokimi/explore/` is ExploreBench, a track that asks only whether an agent can
+*locate* the right files and line ranges for a task, not whether it can then
+answer or solve. A task (`explore/tasks.py`) is a query over a tree plus
+reference locations. `explore/runner.py` runs each task through explorer arms
+(`explore/explorer.py`) and scores their `file:line` citations against the
+references with `dokimi/metrics/exploration.py`, into an `explore_runs.v1`
+artifact with per-arm rollups and baseline deltas;
+`report/exploration_report.py` renders it. Entry points:
+`python cli.py explore {list,run}`.
+
+## Tool choice
+
+`dokimi/tool_preference.py` is the tool-preference probe. A group is one user
+request with two tools that do the job equally well, plus distractors; the probe
+changes one thing about one of the two (its name, one added sentence, its place
+in the list) and measures how much the model's first-turn choice moves,
+into a `tool_preference.v1` artifact. Entry point:
+`python cli.py tools preference`. Guide: [tool-preference.md](tool-preference.md).
+
 ## Context window
 
 `dokimi/context/trace.py` reads a Claude Code `stream-json` trace into the
@@ -338,6 +400,16 @@ prints one or more traces as a comparison table; it calls no model. Guide:
   adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
   `fake_llm` fixture). `ask_parsed` is the redraw-until-it-parses loop.
   `llm_call`, `chat_completion` and `utils.get_llm` delegate to `LLM`.
+- `dokimi/caching.py` — the two caches that hang off `llm.py`: provider prompt
+  caching (the stable part of a prompt goes first, so the provider can reuse it)
+  and an opt-in response cache for byte-identical single-shot requests
+  (`DOKIMI_RESPONSE_CACHE`).
+- `dokimi/metrics/usage.py` — `UsageRecord`, the tokens, cache, cost and latency
+  of one LLM call. It sits in `metrics/` but depends on nothing, and every LLM
+  caller reads it.
+- `dokimi/datasets_export.py` — `python cli.py dataset export`: questions,
+  answers, eval, arms and task-run artifacts to JSONL, Parquet or a Hugging Face
+  dataset, with a dataset card.
 - `dokimi/registry.py` — product registry loaded from
   `products.yaml`; powers `cli.py library` (alias `product`) and
   `cli.py benchmark`.
