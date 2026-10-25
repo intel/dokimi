@@ -132,7 +132,7 @@ with the reason, a task whose `docker-compose.yaml` needs more than one
 `docker run` (a second service, volumes, tmpfs, ports), a `parser_name` other
 than `pytest`, `run_tests_in_same_shell`, or (oracle only) a `solution.yaml`.
 The Harbor-backed harnesses and `benchflow*` run a Harbor copy written on first
-use to `$TMPDIR/dokimi-harbor-export/<content hash>/` by
+use to `~/.cache/dokimi/harbor-export/<content hash>/` (mode 0700) by
 [`harbor_export.py`](../dokimi/harnesses/harbor_export.py); its `test.sh` scores
 the same pytest summary, so a task gets one verdict on every backend.
 

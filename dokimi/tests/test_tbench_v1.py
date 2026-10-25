@@ -293,10 +293,22 @@ def test_harbor_view_rewrites_the_export_when_the_memory_default_changes(tmp_pat
     assert "memory_mb = 16384" in (view.path / "task.toml").read_text()
 
 
+def test_harbor_view_ignores_an_export_planted_in_the_shared_temp_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(harbor_export.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    task = load_task(_tb1(tmp_path / "tasks"))
+    key = harbor_export._content_key(task.path, harbor_export._task_toml(task))
+    planted = tmp_path / "tmp" / "dokimi-harbor-export" / key / task.name
+    _write(planted / "task.toml", "[verifier]\ntimeout_sec = 1.0\n")
+    view = harbor_export.harbor_view(task)
+    assert "timeout_sec = 60.0" in (view.path / "task.toml").read_text()
+    assert (view.path.parents[1].stat().st_mode & 0o777) == 0o700
+
+
 def test_harbor_harness_runs_the_export_not_the_source(tmp_path, monkeypatch):
     from docker_cli_fake import DockerCLI
 
-    monkeypatch.setattr(harbor_export.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     cli = DockerCLI(reward="1")
     task = load_task(_tb1(tmp_path / "tasks"))
     out = TaskSuiteRunner([task], ["terminal-bench:oracle"], output_root=tmp_path / "runs", runner=cli).run()
@@ -304,7 +316,7 @@ def test_harbor_harness_runs_the_export_not_the_source(tmp_path, monkeypatch):
     assert row["reward"] == 1.0, row
     (harbor,) = [c for c in cli.calls if Path(c.argv[0]).name == "harbor"]
     argv = " ".join(harbor.argv)
-    assert str(tmp_path / "tmp" / "dokimi-harbor-export") in argv and str(task.path) + " " not in argv + " "
+    assert str(tmp_path / "home" / ".cache" / "dokimi" / "harbor-export") in argv and str(task.path) + " " not in argv + " "
 
 
 # ── real docker ──────────────────────────────────────────────────────────────

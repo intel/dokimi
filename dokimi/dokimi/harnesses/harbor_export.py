@@ -72,7 +72,7 @@ def harbor_view(task: TaskSpec, cache_root: Path | None = None) -> TaskSpec:
     """*task* as a Harbor-layout task: itself, or its cached Harbor copy for a terminal-bench v1 task."""
     if task.format != FORMAT_TBENCH_V1:
         return task
-    root = Path(cache_root) if cache_root else Path(tempfile.gettempdir()) / "dokimi-harbor-export"
+    root = Path(cache_root) if cache_root else default_cache_root()
     dest = root / _content_key(task.path, _task_toml(task)) / task.name
     if not (dest / "task.toml").is_file():
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -85,6 +85,13 @@ def harbor_view(task: TaskSpec, cache_root: Path | None = None) -> TaskSpec:
                 raise
         shutil.rmtree(staging.parent, ignore_errors=True)
     return replace(task, path=dest, format=FORMAT_HARBOR)
+
+
+def default_cache_root() -> Path:
+    """``~/.cache/dokimi/harbor-export``, private: a shared temp dir lets another user plant an export."""
+    root = Path.home() / ".cache" / "dokimi" / "harbor-export"
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return root
 
 
 def _content_key(path: Path, resolved: str = "") -> str:
