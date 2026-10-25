@@ -285,6 +285,14 @@ def test_harbor_view_caches_by_content_and_passes_other_formats_through(tmp_path
     assert harbor_export.harbor_view(first) is first
 
 
+def test_harbor_view_rewrites_the_export_when_the_memory_default_changes(tmp_path, monkeypatch):
+    path = _tb1(tmp_path / "tasks")
+    harbor_export.harbor_view(load_task(path), cache_root=tmp_path / "cache")
+    monkeypatch.setenv("DOKIMI_TBENCH_V1_MEMORY_MB", "16384")
+    view = harbor_export.harbor_view(load_task(path), cache_root=tmp_path / "cache")
+    assert "memory_mb = 16384" in (view.path / "task.toml").read_text()
+
+
 def test_harbor_harness_runs_the_export_not_the_source(tmp_path, monkeypatch):
     from docker_cli_fake import DockerCLI
 

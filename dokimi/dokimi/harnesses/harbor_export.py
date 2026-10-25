@@ -73,7 +73,7 @@ def harbor_view(task: TaskSpec, cache_root: Path | None = None) -> TaskSpec:
     if task.format != FORMAT_TBENCH_V1:
         return task
     root = Path(cache_root) if cache_root else Path(tempfile.gettempdir()) / "dokimi-harbor-export"
-    dest = root / _content_key(task.path) / task.name
+    dest = root / _content_key(task.path, _task_toml(task)) / task.name
     if not (dest / "task.toml").is_file():
         dest.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=dest.parent)) / task.name
@@ -87,8 +87,9 @@ def harbor_view(task: TaskSpec, cache_root: Path | None = None) -> TaskSpec:
     return replace(task, path=dest, format=FORMAT_HARBOR)
 
 
-def _content_key(path: Path) -> str:
-    digest = hashlib.sha256(EXPORT_VERSION.encode())
+def _content_key(path: Path, resolved: str = "") -> str:
+    """Hash of the task's files and of *resolved*, what the export writes from runtime state."""
+    digest = hashlib.sha256(EXPORT_VERSION.encode() + b"\0" + resolved.encode() + b"\0")
     for file in sorted(p for p in path.rglob("*") if p.is_file() and not p.is_symlink()):
         digest.update(file.relative_to(path).as_posix().encode() + b"\0")
         digest.update(hashlib.sha256(file.read_bytes()).digest())
