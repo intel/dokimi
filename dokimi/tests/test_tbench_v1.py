@@ -184,12 +184,14 @@ def test_exported_awk_verdict_matches_the_python_parser(tmp_path, output):
 
 # ── docker-oracle ────────────────────────────────────────────────────────────
 
-def _run_oracle(tmp_path, verifier_output: str, returncode: int = 0):
+def _run_oracle(tmp_path, verifier_output: str, returncode: int = 0, verifier_stderr: str = ""):
     from docker_cli_fake import DockerCLI
 
-    def answer(call):
-        if call.argv[:2] == ("docker", "exec") and call.argv[-1] == "bash /tests/run-tests.sh":
-            return reply(verifier_output, returncode=returncode)
+    def answer(call):  # bash: the step's own 2>&1 puts stderr, printed first, in the one stream
+        if call.argv[:2] == ("docker", "exec") and call.argv[-1].startswith("bash /tests/run-tests.sh"):
+            if call.argv[-1].endswith(" 2>&1"):
+                return reply(verifier_stderr + verifier_output, returncode=returncode)
+            return reply(verifier_output, verifier_stderr, returncode=returncode)
         return None
 
     cli = DockerCLI(reward=None, answer=answer)
@@ -210,7 +212,7 @@ def test_docker_oracle_runs_a_tb1_task_as_terminal_bench_does(tmp_path):
     assert build[-1] == str(task.path)
     (run,) = [c for c in cli.args if c[0] == "run" and "sleep" in " ".join(c)]
     assert "TEST_DIR=/tests" in run and "GREETING=hi there" in run
-    for step in ("bash /oracle/solution.sh", "bash /tests/run-tests.sh"):
+    for step in ("bash /oracle/solution.sh", "bash /tests/run-tests.sh 2>&1"):
         (call,) = [c for c in cli.args if c[0] == "exec" and c[-1] == step]
         assert "root" not in call[: call.index("bash")], "runs as the image user, as terminal-bench does"
 
@@ -220,6 +222,12 @@ def test_docker_oracle_verdict_is_the_summary_not_the_exit_code(tmp_path):
     assert row["reward"] == 0.0
     _, _, row = _run_oracle(tmp_path / "b", _PASS, returncode=1)
     assert row["reward"] == 1.0
+
+
+def test_docker_oracle_verdict_ignores_stderr_printed_before_the_summary(tmp_path):
+    pip = "ERROR: pip's dependency resolver does not currently take into account all the packages.\n"
+    _, _, row = _run_oracle(tmp_path, _PASS, verifier_stderr=pip)
+    assert row["reward"] == 1.0, row
 
 
 def test_docker_oracle_refuses_a_multi_service_task_without_docker(tmp_path):
@@ -299,6 +307,8 @@ def test_harbor_harness_runs_the_export_not_the_source(tmp_path, monkeypatch):
 def test_docker_oracle_passes_and_a_no_op_fails_on_real_docker(tmp_path):
     path = _tb1(tmp_path / "tasks")
     _write(path / "Dockerfile", "FROM python:3.12-slim\nRUN pip install -q pytest==8.3.3\nWORKDIR /app\n")
+    _write(path / "run-tests.sh", "#!/bin/bash\necho \"ERROR: pip's resolver warning\" >&2\n"
+           "cd /tests && python3 -m pytest -rA test_outputs.py\n")
     _write(path / "tests" / "test_outputs.py",
            "from pathlib import Path\n\ndef test_hello():\n"
            "    assert Path('/app/hello.txt').read_text().strip() == 'Hello, world!'\n")

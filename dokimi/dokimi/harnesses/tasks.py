@@ -147,7 +147,8 @@ class TaskSpec:
             copies: tuple[tuple[Path, str], ...] = ((self.path / "run-tests.sh", f"{tbench_v1.TEST_DIR}/run-tests.sh"),)
             if self.tests_dir.is_dir():
                 copies += ((self.tests_dir, tbench_v1.TEST_DIR),)
-            return ContainerStep(copies, f"bash {tbench_v1.TEST_DIR}/run-tests.sh", user=None,
+            # 2>&1: one ordered stream, as terminal-bench reads it from the tmux pane
+            return ContainerStep(copies, f"bash {tbench_v1.TEST_DIR}/run-tests.sh 2>&1", user=None,
                                  parser=tbench_v1.PARSER_PYTEST)
         return ContainerStep(((self.tests_dir, "/tests"), (self.tests_dir, "/verifier")),
                              "mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh")
