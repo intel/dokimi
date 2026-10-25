@@ -62,7 +62,7 @@ def load_spec(spec_path: Path, *, validate: bool = True) -> dict:
     """Read a spec YAML and, for full v1 specs, validate it against the schema."""
     try:
         content = Path(spec_path).read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, ValueError) as exc:  # ValueError covers bad UTF-8
         raise RuntimeError(f"Failed to read spec file: {spec_path}: {exc}") from exc
 
     try:

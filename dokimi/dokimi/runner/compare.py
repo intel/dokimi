@@ -15,12 +15,12 @@ def compare_snapshots(base_path: Path, cand_path: Path, spec: dict | None = None
     """Compare two run snapshots and return summary and metric deltas."""
     try:
         base = json.loads(base_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
         raise ValueError(f"Invalid base snapshot {base_path}: {exc}") from exc
 
     try:
         cand = json.loads(cand_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         raise ValueError(f"Invalid candidate snapshot {cand_path}: {exc}") from exc
 
     required = {"docs", "score", "coverage", "freshness_lite", "readability"}
