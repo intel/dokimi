@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 _TASKS_ROOT_HELP = (
@@ -111,14 +112,22 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
     output = runner.run()
 
     out_json = Path(args.out_json) if args.out_json else output_root / "explore_runs.json"
-    save_artifact("explore_runs", output, out_json)
+    try:
+        save_artifact("explore_runs", output, out_json)
+    except OSError as exc:
+        print(f"Error: cannot write {out_json}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
     print(f"Saved explore run artifact: {out_json}")
 
     if args.out_md:
         from dokimi.report.exploration_report import render_explore_report
 
-        Path(args.out_md).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out_md).write_text(render_explore_report(output), encoding="utf-8")
+        try:
+            Path(args.out_md).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out_md).write_text(render_explore_report(output), encoding="utf-8")
+        except OSError as exc:
+            print(f"Error: cannot write {args.out_md}: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
         print(f"Saved exploration report: {args.out_md}")
 
     for arm, stats in output["summary"]["per_arm"].items():
