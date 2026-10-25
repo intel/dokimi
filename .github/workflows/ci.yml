@@ -169,11 +169,21 @@ jobs:
         include:
           - python-version: '3.14'
             coverage: true
+        # A PR runs the two ends, 3.11 (the floor) and 3.14 (the coverage leg);
+        # the middle versions run on main, weekly and on dispatch. A break on
+        # 3.12 or 3.13 alone is rare and shows on main right after the merge.
+        # Excluded by expression, not by a computed list: ci_local.py reads
+        # python-version as a list. On other events the entries match no leg.
+        exclude:
+          - python-version: ${{ github.event_name == 'pull_request' && '3.12' || 'none' }}
+          - python-version: ${{ github.event_name == 'pull_request' && '3.13' || 'none' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
+          # Full history on the coverage leg only: the changed-lines gate diffs
+          # against the base branch. The other legs need the tree alone.
+          fetch-depth: ${{ matrix.coverage && '0' || '1' }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
@@ -280,6 +290,10 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.13']
+        # A PR runs the floor only, which is what this job is for; 3.13 runs on
+        # main, weekly and on dispatch (see the test matrix above).
+        exclude:
+          - python-version: ${{ github.event_name == 'pull_request' && '3.13' || 'none' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
