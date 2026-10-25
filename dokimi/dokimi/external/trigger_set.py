@@ -89,6 +89,7 @@ class TriggerQuery:
     source_text: Optional[str] = None
     lint: Dict[str, Any] = field(default_factory=dict)
     labelled: bool = True
+    reach: Dict[str, Any] = field(default_factory=dict)  # a read reach row's kind/notes
 
     @property
     def acceptable(self) -> List[str]:
@@ -198,6 +199,8 @@ def build_trigger_set(
                 tq = TriggerQuery(id=qid, text=text, expected_skill=None, labelled=False)
             prior = q.get("source_text")  # a re-read set keeps its pre-rewrite original
             tq.source_text = prior if isinstance(prior, str) else None
+            extra = q.get(REACH_FIELDS)
+            tq.reach = dict(extra) if isinstance(extra, dict) else {}
             if rewrite is not None:
                 tq.source_text, tq.text = tq.source_text or text, rewrite(text).strip()
                 if not tq.text:
@@ -236,8 +239,11 @@ def to_reach(queries: Sequence[TriggerQuery], catalog_id: str = "") -> Dict[str,
     for q in labelled(queries):
         acc = q.acceptable
         item: Dict[str, Any] = {"id": q.id, "text": q.text, "expected_skill": acc[0] if acc else None}
-        if not acc:
-            item["kind"] = "out_of_scope"
+        kind = q.reach.get("kind") if acc else "out_of_scope"
+        if kind and not (acc and kind == "out_of_scope"):
+            item["kind"] = kind
+        if q.reach.get("notes"):
+            item["notes"] = q.reach["notes"]
         if len(acc) > 1:
             item["acceptable_skills"] = acc[1:]
         items.append(item)
@@ -271,6 +277,8 @@ FORMAT_REACH = "reach"
 FORMAT_SKILL_CREATOR = "skill-creator"
 FORMAT_QUESTIONS = "questions"
 TRIGGER_FORMATS = (FORMAT_REACH, FORMAT_SKILL_CREATOR, FORMAT_QUESTIONS)
+#: Key carrying a reach row's kind/notes through the in-memory questions rows; never written.
+REACH_FIELDS = "_reach"
 
 
 def detect_trigger_format(data: Any) -> Optional[str]:
@@ -340,7 +348,8 @@ def from_reach(data: Dict[str, Any]) -> List[TriggerQuery]:
             raise ValueError(f"{qid}: acceptable_skills without an expected_skill")
         names = [first, *[v for v in extra if v != first]] if first else []
         label: ExpectedSkill = names if len(names) > 1 else (first or None)
-        out.append(TriggerQuery(id=qid, text=_text(q, ("text",), qid), expected_skill=label))
+        out.append(TriggerQuery(id=qid, text=_text(q, ("text",), qid), expected_skill=label,
+                                reach={k: q[k] for k in ("kind", "notes") if isinstance(q.get(k), str)}))
     return out
 
 

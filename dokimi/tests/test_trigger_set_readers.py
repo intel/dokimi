@@ -148,6 +148,20 @@ def test_cli_read_back_keeps_source_text(tmp_path, catalog):
     assert (queries[0].source_text, queries[0].text) == ("Scenario: original text", "again")
 
 
+def test_cli_reach_read_back_keeps_kind_and_notes(tmp_path, catalog):
+    src = tmp_path / "nn.json"
+    src.write_text(json.dumps({"queries": [{"id": "nn", "text": "save a numpy array to csv",
+                                            "expected_skill": "linux-perf", "kind": "neighbor_negative",
+                                            "notes": "near dpnp-io"}]}), encoding="utf-8")
+    out, q_out = tmp_path / "r.json", tmp_path / "q.json"
+    base = ["catalog", "trigger-set", "--catalog", str(catalog), "--trigger-set", str(src)]
+    _run(base + ["--out", str(out)])
+    row = json.loads(out.read_text(encoding="utf-8"))["queries"][0]
+    assert (row["kind"], row["notes"]) == ("neighbor_negative", "near dpnp-io")
+    _run(base + ["--format", "questions", "--out", str(q_out)])
+    assert ts.REACH_FIELDS not in load_questions(q_out).questions[0]
+
+
 def test_cli_refuses_bad_trigger_set_specs(tmp_path, catalog):
     sc = tmp_path / "sc.json"
     sc.write_text(json.dumps([{"query": "a", "should_trigger": True}]), encoding="utf-8")

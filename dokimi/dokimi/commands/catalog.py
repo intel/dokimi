@@ -209,7 +209,11 @@ def _trigger_set_sources(specs: list, catalog) -> list:
         elif target:
             raise SystemExit(f"{spec}: =TARGET applies to skill-creator sets only, this is {fmt}")
         print(f"read {path} as {fmt} ({len(queries)} queries)", file=sys.stderr)
-        out.append((ts.to_questions(queries)["questions"], "@expected_skill"))
+        rows = ts.to_questions(queries)["questions"]
+        for row, q in zip(rows, queries, strict=True):
+            if q.reach:
+                row[ts.REACH_FIELDS] = q.reach
+        out.append((rows, "@expected_skill"))
     return out
 
 
