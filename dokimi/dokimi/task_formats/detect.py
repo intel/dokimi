@@ -133,8 +133,8 @@ class _Scan:
             if child.name not in SKIP_DIRS and not child.name.startswith("."):
                 self.walk(child)
             return
-        if child.suffix.lower() not in SCAN_SUFFIXES:
-            return
+        if not child.is_file() or child.suffix.lower() not in SCAN_SUFFIXES:
+            return  # a FIFO or device would block or never end
         self.files += 1
         if self.files > MAX_SCAN_FILES:
             self.truncated = True

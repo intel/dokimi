@@ -18,7 +18,9 @@ Each fixture is hand-written from the upstream shape it imitates:
 
 from __future__ import annotations
 
+import importlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -519,3 +521,17 @@ def test_cli_inspect_out_writes_yaml_dates_sets_and_nan_as_plain_json(tmp_path, 
     assert written == printed
     meta = written["items"][0]["details"]["metadata"]
     assert (meta["difficulty"], meta["tags"], meta["category"]) == ("2024-01-01", ["a", "b"], None)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs os.mkfifo")
+def test_a_fifo_in_a_tree_is_not_read(tmp_path):
+    _jsonl(tmp_path / "ok.jsonl", [{"input": "q", "target": "a"}])
+    os.mkfifo(tmp_path / "x.jsonl")  # opening it for reading blocks until a writer comes
+    assert [r.path.name for r in inspect_path(tmp_path)] == ["ok.jsonl"]
+
+
+@pytest.mark.skipif(not Path("/dev/zero").exists(), reason="needs /dev/zero")
+def test_a_device_with_no_size_is_read_only_up_to_the_cap(monkeypatch):
+    monkeypatch.setattr(importlib.import_module("dokimi.task_formats.source"), "MAX_BYTES", 1024)
+    [report] = inspect_path(Path("/dev/zero"))
+    assert any("not read" in p for p in report.problems), report.problems
