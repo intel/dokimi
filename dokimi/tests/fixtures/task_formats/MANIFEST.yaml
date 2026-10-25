@@ -218,21 +218,21 @@ items:
   - path: skill-reach/queries.json
     format: skill-reach
     kind: trigger
-    consumers: [none-yet]
+    consumers: [catalog trigger-set]
     items: 3
     source: generated
     note: QuerySet fields of google/skill-reach src/reach/queries.py and models.py (query_id, kind, acceptable_skills)
   - path: writers/pdf-forms.trigger.json
     format: skill-creator-trigger
     kind: trigger
-    consumers: [none-yet]
+    consumers: [catalog trigger-set]
     items: 3
     source: generated
     note: dokimi.external.trigger_set.to_skill_creator (tests/test_task_format_corpus.py rewrites it)
   - path: writers/reach-queries.json
     format: skill-reach
     kind: trigger
-    consumers: [none-yet]
+    consumers: [catalog trigger-set]
     items: 3
     source: generated
     note: dokimi.external.trigger_set.to_reach (legacy `id` spelling)

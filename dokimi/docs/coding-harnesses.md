@@ -114,8 +114,8 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 | `openai-evals` | JSONL rows with `input` (chat messages) and `ideal` | answer-only | none yet |
 | `openai-evals-spec` | registry YAML with `class: evals.elsuite.*` run specs | answer-only | none yet |
 | `skill-creator-evals` | `evals.json` with `skill_name` and `evals[].prompt` | answer-only | none yet |
-| `skill-creator-trigger` | rows with `query` and `should_trigger` | trigger | none yet |
-| `skill-reach` | `QuerySet` (`queries[]` with `query_id`/`id`, `text`, `expected_skill`) | trigger | none yet |
+| `skill-creator-trigger` | rows with `query` and `should_trigger` | trigger | `catalog trigger-set` |
+| `skill-reach` | `QuerySet` (`queries[]` with `query_id`/`id`, `text`, `expected_skill`) | trigger | `catalog trigger-set` |
 | `promptfoo` | `promptfooconfig*.yaml`/`.json`, or a config with `prompts`, `providers`/`targets` and `tests`/`scenarios`/`redteam` | answer-only | none yet |
 | `promptfoo-tests` | CSV with `__expected` columns, or rows of `{vars, assert}` | answer-only | none yet |
 | `dokimi-questions` | questions.v1/v2 JSON | answer-only (trigger with `expected_skill`) | questions track |
