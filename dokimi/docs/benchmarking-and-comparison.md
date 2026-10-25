@@ -402,8 +402,9 @@ call (prompt, completion, cache read and write tokens, cost). The arm's
 them like any other run. A question with fewer than N-1 follow-ups fails the
 run before any answer is generated. Agentic arms (`mcp:`, `skill-agent:`,
 `skill-catalog:`) are refused per arm, and a session cannot be judged:
-`--judge` is refused with `--session-turns`, because the judge would score the
-last answer against the first question. The reminder is appended to every user
+`--judge` is refused with `--session-turns`, and every `eval` judge command
+refuses a session artifact, because the judge would score the last answer
+against the first question. The reminder is appended to every user
 turn in a `<system-reminder>` block; the assistant turns are not changed.
 
 A session that fails part-way (a turn raises, or a turn comes back empty and the

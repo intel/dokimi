@@ -484,3 +484,33 @@ def test_a_whitespace_reply_ends_the_session_as_an_empty_one(fake_llm):
     arm = records[0]["arms"]["baseline"]
     assert len(fake_llm.requests) == 2
     assert (arm["error"], arm["session"]["stopped_reason"]) == ("empty_reply: turn 1", "empty_reply")
+
+
+@pytest.mark.parametrize("cmd", [
+    ["eval", "pairwise"],
+    ["eval", "checklist", "--questions", "{questions}"],
+    ["eval", "cross-judge", "--no-stored", "--judges", "anthropic/claude-haiku-4-5"],
+])
+def test_a_session_artifact_is_refused_by_every_judge_command(cmd, fake_llm, tmp_path,
+                                                              monkeypatch, capsys):
+    import json
+    import sys
+
+    from dokimi import cli
+
+    fake_llm.push("a1", "Paris.", "b1", "Paris.")
+    runner = ArmRunner([BaselineTreatment(), _SystemPromptTreatment()], session_turns=2)
+    q = {**SESSION_Q, "expected_topics": ["parallel_for"]}
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps(runner.build_output("oneTBB", runner.run("oneTBB", [q], 1))),
+                       encoding="utf-8")
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps({"questions": [q]}), encoding="utf-8")
+    monkeypatch.setattr("dokimi.commands.arms._probe_sampling", lambda *a: None)
+    argv = [a.format(questions=questions) for a in cmd]
+    monkeypatch.setattr(sys, "argv", ["dokimi", *argv, "--answers", str(answers)])
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2 and "measurement-only" in capsys.readouterr().err
+    assert len(fake_llm.requests) == 4  # the answers only: no judge call
