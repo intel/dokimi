@@ -3,5 +3,5 @@
 
 # CodeFactor (PR status check). The task-format corpus copies upstream task files,
 # so findings in them are upstream style, not ours.
-exclude_paths:
-  - dokimi/tests/fixtures/task_formats/**
+exclude_patterns:
+  - 'dokimi/tests/fixtures/task_formats/**'
