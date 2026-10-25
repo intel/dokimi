@@ -191,3 +191,49 @@ def test_catalog_scan_reports_clean_error_on_malformed_manifest(tmp_path):
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert "invalid skills.yaml" in str(exc_info.value)
+
+
+def test_catalog_scan_reports_clean_error_on_non_utf8_skills_manifest(tmp_path):
+    (tmp_path / "skills.yaml").write_bytes(b"skills: [\xff\xfe]\n")
+
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert "invalid skills.yaml" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("kind", "manifest", "content"),
+    [
+        ("skills", "skills.yaml", "skills: []\n"),
+        ("tasks", "evaluation/harbor/suites.json", '{"suites": []}'),
+    ],
+)
+def test_catalog_scan_reports_clean_error_on_unreadable_manifest(tmp_path, monkeypatch, kind, manifest, content):
+    path = tmp_path / manifest
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    real_read_text = Path.read_text
+
+    def read_text(self, *a, **kw):
+        if self == path:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_read_text(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", kind])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert f"cannot read {path.name} at {path}" in str(exc_info.value)
+
+
+def test_catalog_scan_reports_clean_error_on_non_utf8_suites_manifest(tmp_path):
+    manifest = tmp_path / "evaluation" / "harbor" / "suites.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_bytes(b'{"suites": ["\xff"]}')
+
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert "invalid suites.json" in str(exc_info.value)
