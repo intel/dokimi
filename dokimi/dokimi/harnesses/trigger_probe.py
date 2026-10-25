@@ -211,7 +211,12 @@ def probe_trigger_set(queries: Sequence[Any], catalog: Path, cfg: ProbeConfig, *
             continue
         arms = {}
         for k in range(trials):
-            r = run_query(q.text, catalog, cfg, runner=runner)
+            try:
+                r = run_query(q.text, catalog, cfg, runner=runner)
+            except (OSError, RuntimeError) as exc:
+                # One failed run (staging, spawn) is that trial's error, not the lost set.
+                r = {"skill": parse_stream(""), "cost_usd": None, "num_turns": None,
+                     "error": f"{type(exc).__name__}: {exc}"}
             arms[f"{arm_name}#{k + 1}"] = {
                 "answer": None,
                 "error": r["error"],

@@ -6,9 +6,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
+import pytest
+
 from dokimi import process
+from dokimi.cli import build_parser
 from dokimi.eval.arm_summary import summarize_skill_selection
 from dokimi.external.trigger_set import TriggerQuery
 from dokimi.harnesses import trigger_probe as tp
@@ -175,3 +179,39 @@ def test_records_score_with_the_same_summary_as_the_emulated_arm(tmp_path):
     assert set(s) == {"claude_code#1", "claude_code#2"}
     assert s["claude_code#1"]["recall"] == 0.5 and s["claude_code#1"]["misroute_rate"] == 0.5
     assert s["claude_code#1"]["false_trigger_rate"] == 0.0
+
+
+def test_one_failed_run_is_that_trials_error_not_the_lost_set(tmp_path):
+    def runner(argv, **kw):
+        if argv[0] == "git":
+            return process.run(argv, **kw)
+        if argv[list(argv).index("-p") + 1] == "read it":
+            raise FileNotFoundError(2, "No such file or directory", argv[0])
+        return process.reply(_stream(["sum-fast"]))
+
+    queries = [TriggerQuery("a", "sum it", "sum-fast"), TriggerQuery("b", "read it", "io-read")]
+    recs = tp.probe_trigger_set(queries, _catalog(tmp_path), tp.ProbeConfig(), runner=runner)
+    assert [r["question_id"] for r in recs] == ["a", "b"]
+    assert recs[1]["arms"]["claude_code#1"]["error"].startswith("FileNotFoundError")
+    s = summarize_skill_selection(recs)["claude_code#1"]
+    assert s["recall"] == 1.0 and s["n_failed"] == 1
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a shell-script stand-in for claude")
+def test_cli_runs_a_relative_claude_from_the_scratch_cwd(tmp_path, monkeypatch, capsys):
+    (tmp_path / "stream.jsonl").write_text(_stream(["sum-fast"]), encoding="utf-8")
+    fake = tmp_path / "bin" / "claude"
+    fake.parent.mkdir()
+    fake.write_text("#!/bin/sh\nexec cat \"$STREAM\"\n".replace("$STREAM", str(tmp_path / "stream.jsonl")),
+                    encoding="utf-8")
+    fake.chmod(0o755)
+    (tmp_path / "ts.json").write_text(json.dumps({"questions": [
+        {"id": "a", "question": "sum it", "expected_skill": "sum-fast"}]}), encoding="utf-8")
+    _catalog(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    args = build_parser().parse_args(["catalog", "trigger-probe", "--catalog", "cat", "--trigger-set",
+                                      "ts.json", "--claude", "bin/claude", "--out", "probe.json"])
+    args.func(args)
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    arm = out["answers"][0]["arms"]["claude_code#1"]
+    assert arm["error"] is None and arm["tool_usage"]["skill"]["first_turn_loaded"] == ["sum-fast"]

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -21,7 +22,9 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     catalog = Path(args.catalog)
     if not catalog.is_dir():
         raise SystemExit(f"--catalog is not a directory: {catalog}")
-    if shutil.which(args.claude) is None:
+    # Absolute: each run's cwd is a scratch dir, where a relative path names nothing.
+    claude = shutil.which(args.claude)
+    if claude is None:
         raise SystemExit(f"{args.claude!r} is not on PATH")
     try:
         data = json.loads(Path(args.trigger_set).read_text(encoding="utf-8"))
@@ -31,7 +34,7 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     queries = [q for q in queries if q.labelled][: args.limit or None]
     cfg = tp.ProbeConfig(model=args.model, max_turns=args.max_turns, timeout_sec=args.timeout,
                          stock=not args.sealed, listing_budget_fraction=args.listing_budget_fraction,
-                         claude=args.claude)
+                         claude=os.path.abspath(claude))
 
     def one(q):
         rec = tp.probe_trigger_set([q], catalog, cfg, trials=args.trials)[0]
