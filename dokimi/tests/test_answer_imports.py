@@ -268,6 +268,16 @@ def test_promptfoo_two_prompts_key_by_test_and_prompt(tmp_path):
     assert [(q["id"], q["question"]) for q in imp.questions] == [("0.p0", "A 1"), ("0.p1", "B 1")]
 
 
+def test_promptfoo_text_prompt_file_splits_on_separator_lines():
+    cfg = Path(__file__).parent / "fixtures/task_formats/promptfoo/eval-custom-grader-csv/promptfooconfig.yaml"
+    imp = import_path(cfg, fmt="promptfoo")
+    assert [q["id"] for q in imp.questions] == [f"{t}.p{p}" for t in range(4) for p in (0, 1)]
+    assert imp.questions[0]["question"].startswith("Rephrase this in French: ")
+    assert imp.questions[1]["question"].startswith("Rephrase this like a pirate: ")
+    assert "---" not in imp.questions[0]["question"]
+    assert [q["metadata"]["prompt"] for q in imp.questions[:2]] == ["p0.0", "p0.1"]
+
+
 def test_promptfoo_file_refs_stay_inside_the_config_directory(tmp_path):
     _write(tmp_path / "tests.csv", "q,__expected\nhi,contains:hello\n")
     cfg = _write(tmp_path / "c" / "promptfooconfig.yaml", "prompts: ['{{q}}']\ntests: file://../tests.csv\n")

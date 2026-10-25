@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -96,6 +97,20 @@ def _inside(base: Path, ref: str) -> Path:
     return path
 
 
+def _txt_prompts(text: str) -> list[str]:
+    """promptfoo's ``processTxtFile``: prompts split on lines that are ``---``, trimmed, blanks dropped."""
+    parts: list[str] = []
+    buf: list[str] = []
+    for line in re.split(r"\r?\n", text):
+        if line.strip() == "---":
+            parts.append("\n".join(buf).strip())
+            buf = []
+        else:
+            buf.append(line)
+    parts.append("\n".join(buf).strip())
+    return [p for p in parts if p]
+
+
 def _prompts(raw: Any, base: Path, imp: Imported) -> list[tuple[str, Any]]:
     """``(label, template)`` per prompt: a template string, or a chat list."""
     out: list[tuple[str, Any]] = []
@@ -113,6 +128,10 @@ def _prompts(raw: Any, base: Path, imp: Imported) -> list[tuple[str, Any]]:
                 imp.note(f"{path.suffix} prompt file (code) not run")
                 continue
             source = FileSource(path)
+            if path.suffix == ".txt":
+                parts = _txt_prompts(source.text or "")
+                out.extend((label if len(parts) == 1 else f"{label}.{j}", part) for j, part in enumerate(parts))
+                continue
             p = source.data if path.suffix in (".json", ".yaml", ".yml") else (source.text or "")
         out.append((label, p))
     return out
