@@ -45,7 +45,7 @@ def _harbor(root: Path, name: str = "hb") -> Path:
     task = root / name
     _write(task / "task.toml", '[metadata]\ndifficulty = "easy"\ntags = ["x"]\n')
     _write(task / "instruction.md", "Fix it.")
-    (task / "environment").mkdir()
+    _write(task / "environment" / "Dockerfile", "FROM ubuntu:24.04\n")
     _write(task / "solution" / "solve.sh", "#!/bin/bash\n")
     _write(task / "tests" / "test.sh", "#!/bin/bash\n")
     return task
@@ -55,6 +55,7 @@ def _task_md(root: Path, name: str = "tm") -> Path:
     task = root / name
     _write(task / "task.md", "---\nschema_version: '1.3'\nmetadata:\n  difficulty: medium\n"
                              "verifier:\n  timeout_sec: 60\n---\n\nDo the thing.\n")
+    _write(task / "environment" / "Dockerfile", "FROM ubuntu:24.04\n")
     _write(task / "oracle" / "solve.sh", "#!/bin/bash\n")
     _write(task / "verifier" / "test.sh", "#!/bin/bash\n")
     return task
@@ -101,10 +102,11 @@ def test_harbor_task_is_executable_and_consumable_by_harbor_and_docker(tmp_path)
 
 def test_harbor_task_without_environment_reports_why_harbor_refuses_it(tmp_path):
     task = _harbor(tmp_path)
+    (task / "environment" / "Dockerfile").unlink()
     (task / "environment").rmdir()
     r = _one(task)
     assert "environment" in r.missing
-    assert r.consumers == ["docker-*"]
+    assert r.consumers == []  # docker-* builds environment/Dockerfile
     assert any("Harbor would refuse it: no environment/" in p for p in r.problems)
 
 
@@ -113,6 +115,12 @@ def test_task_md_task_is_consumable_by_benchflow(tmp_path):
     assert (r.format, r.kind) == ("task-md", "executable")
     assert r.consumers == ["benchflow", "docker-*"]
     assert r.details["schema_version"] == "1.3"
+
+
+def test_task_without_environment_dockerfile_is_not_claimed_for_docker(tmp_path):
+    for task in (_harbor(tmp_path), _task_md(tmp_path)):
+        (task / "environment" / "Dockerfile").unlink()
+        assert "docker-*" not in _one(task).consumers
 
 
 def test_terminal_bench_v1_task_has_every_part_and_no_consumer_yet(tmp_path):

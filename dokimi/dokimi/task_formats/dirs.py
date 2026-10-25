@@ -73,7 +73,7 @@ class HarborProbe:
             report.problems.append(f"Harbor would refuse it: {problem}")
         else:
             report.consumers.append(BY_HARBOR)
-        if _any_dir(path, "tests", "verifier"):
+        if _docker_runnable(path):
             report.consumers.append(BY_DOCKER)
         return report
 
@@ -115,7 +115,7 @@ class TaskMdProbe:
         report.details["metadata"] = _summary(spec.metadata)
         report.details["schema_version"] = spec.schema_version
         report.consumers.append(BY_BENCHFLOW)
-        if _any_dir(path, "verifier", "tests"):
+        if _docker_runnable(path):
             report.consumers.append(BY_DOCKER)
         return report
 
@@ -159,6 +159,11 @@ class TerminalBenchV1Probe:
             report.problems.append("task.yaml: no instruction")
         report.details["metadata"] = _summary(config, ("difficulty", "category", "tags", "parser_name"))
         return report
+
+
+def _docker_runnable(path: Path) -> bool:
+    """docker-* builds ``environment/Dockerfile`` and runs a verifier: without either it errors."""
+    return (path / "environment" / "Dockerfile").is_file() and _any_dir(path, "tests", "verifier")
 
 
 def _summary(table: dict[str, Any], keys: tuple[str, ...] = ("difficulty", "category", "tags")) -> dict[str, Any]:

@@ -105,8 +105,8 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 
 | Format | Recognised by | Kind | Consumed by |
 |---|---|---|---|
-| `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` |
-| `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` |
+| `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` (with `environment/Dockerfile`) |
+| `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` (with `environment/Dockerfile`) |
 | `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | none yet |
 | `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | none yet |
 | `inspect-samples` | JSON/JSONL/CSV rows with `input` and `target` (or the keys a `FieldSpec` names) | answer-only | none yet |
