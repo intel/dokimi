@@ -46,7 +46,7 @@ items:
     items: null
     source: skillsbench
     upstream: tasks/lake-warming-attribution
-    note: environment/skills/ left out; its data CSVs must stay unclaimed
+    note: environment/skills/ left out; its data CSVs must stay unclaimed; `pip3 install --no-cache-dir` in environment/Dockerfile and `if pytest ...` in verifier/test.sh, for CodeFactor
   - path: skillsbench/tasks/lake-warming-attribution/environment/data/climate.csv
     format: null
     source: skillsbench
@@ -58,6 +58,7 @@ items:
     items: null
     source: terminal-bench
     upstream: original-tasks/hello-world
+    note: shebang moved above the canary line in solution.sh, for CodeFactor
   - path: swe-bench/instances.jsonl
     format: swe-bench
     kind: executable
