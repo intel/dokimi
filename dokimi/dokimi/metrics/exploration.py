@@ -39,9 +39,11 @@ _RANGE_RE = re.compile(
 _FINAL_ANSWER_RE = re.compile(
     r"<final_answer>(.*?)</final_answer>", re.IGNORECASE | re.DOTALL
 )
-# Fallback when no <final_answer> block exists: scan for path:line(-line) tokens.
+# Fallback when no <final_answer> block exists: scan for path:line(-line) tokens. A path
+# does not start with an opening bracket, so ``(src/a.py:10)`` cites ``src/a.py``.
 _LOOSE_CITATION_RE = re.compile(
-    r"(?P<path>[^\s:`]+\.[A-Za-z0-9_+]+)`?:(?P<start>\d+)(?:\s*[-–:]\s*(?P<end>\d+))?"
+    r"(?P<path>[^\s:`()\[\]{}<>][^\s:`]*\.[A-Za-z0-9_+]+)`?"
+    r":(?P<start>\d+)(?:\s*[-–:]\s*(?P<end>\d+))?"
 )
 
 
