@@ -543,3 +543,38 @@ def test_a_device_with_no_size_is_read_only_up_to_the_cap(monkeypatch):
     monkeypatch.setattr(importlib.import_module("dokimi.task_formats.source"), "MAX_BYTES", 1024)
     [report] = inspect_path(Path("/dev/zero"))
     assert any("not read" in p for p in report.problems), report.problems
+
+
+# ── the guards that keep a tree scan finite ───────────────────────────────────
+
+_detect_module = importlib.import_module("dokimi.task_formats.detect")
+
+
+def test_a_scan_does_not_follow_symlinks_in_or_out_of_the_tree(tmp_path):
+    outside = tmp_path / "outside"
+    _write(outside / "t" / "task.toml", "not [toml")
+    root = tmp_path / "root"
+    _jsonl(root / "a" / "s.jsonl", [{"input": "q", "target": "a"}])
+    (root / "a" / "loop").symlink_to(root, target_is_directory=True)
+    (root / "a" / "out").symlink_to(outside, target_is_directory=True)
+    assert [r.path for r in inspect_path(root)] == [root / "a" / "s.jsonl"]
+
+
+def test_a_scan_does_not_enter_hidden_directories(tmp_path):
+    _jsonl(tmp_path / ".cache" / "s.jsonl", [{"input": "q", "target": "a"}])
+    _jsonl(tmp_path / "s.jsonl", [{"input": "q", "target": "a"}])
+    assert [r.path for r in inspect_path(tmp_path)] == [tmp_path / "s.jsonl"]
+
+
+def test_a_deeply_nested_json_file_is_not_a_crash(tmp_path):
+    path = _write(tmp_path / "deep.json", "[" * 100000 + "]" * 100000)
+    assert _one(path).format == "unknown"
+
+
+def test_a_scan_stops_at_the_file_cap_and_says_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(_detect_module, "MAX_SCAN_FILES", 2)
+    for name in "abcd":
+        _jsonl(tmp_path / f"{name}.jsonl", [{"input": "q", "target": "a"}])
+    reports = inspect_path(tmp_path)
+    assert len(reports) == 2
+    assert "scan stopped after 2 files" in reports[-1].problems
