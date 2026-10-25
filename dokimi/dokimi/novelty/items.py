@@ -228,6 +228,14 @@ class ProbeFileError(ValueError):
     """A ``novelty probe`` output that item analysis cannot use, with the reason."""
 
 
+def _read_probe_file(raw: str):
+    """The parsed JSON of one probe file; a file that cannot be read says which."""
+    try:
+        return json.loads(Path(raw).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:  # ValueError: bad JSON or bytes that are not UTF-8
+        raise ProbeFileError(f"{raw}: {exc}") from exc
+
+
 def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
     """Read ``novelty probe`` outputs into item-analysis cells, one per file.
 
@@ -242,12 +250,12 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
         "ref_digest"}`` as :func:`discrimination` reads it.
 
     Raises:
-        ProbeFileError: A file that is not probe output, or files that measured different
-            texts. A file that cannot be read or is not JSON raises as reading it does.
+        ProbeFileError: A file that cannot be read, is not JSON, is not probe output, or
+            files that measured different texts.
     """
     cells = []
     for raw in paths:
-        data = json.loads(Path(raw).read_text(encoding="utf-8"))
+        data = _read_probe_file(raw)
         if not isinstance(data, dict):
             raise ProbeFileError(
                 f"{raw} is {type(data).__name__}, not an object; "

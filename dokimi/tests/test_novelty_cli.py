@@ -471,6 +471,19 @@ def test_item_analysis_refuses_a_file_that_carries_no_probe_runs(tmp_path):
         args.func(args)
 
 
+@pytest.mark.parametrize("content", [None, "{not json", b"\xff\xfe\x00bad"])
+def test_item_analysis_exits_with_a_message_on_an_unreadable_probes_file(tmp_path, content):
+    path = tmp_path / "novelty.json"
+    if isinstance(content, str):
+        path.write_text(content, encoding="utf-8")
+    elif content is not None:
+        path.write_bytes(content)
+    args = _parse("novelty", "items", "--probes", str(path))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert str(exc.value).startswith(f"{path}: ")
+
+
 def test_item_analysis_over_three_models_reports_discrimination(tmp_path, capsys):
     def probes_file(name, outcomes):
         path = tmp_path / name
