@@ -178,7 +178,7 @@ def _installed_dest(tmp_path: Path):
     return ws, dest, Skill("lint", tmp_path / "eval/skills/lint")
 
 
-@pytest.mark.parametrize("make", ["file", "nested_file", "symlinked_dir", "dangling_link", "link_to_empty_dir"])
+@pytest.mark.parametrize("make", ["file", "nested_file", "symlinked_dir", "dangling_link", "link_to_empty_dir", "regular_file"])
 def test_a_skill_directory_that_holds_anything_but_empty_directories_is_refused_and_kept(tmp_path, make):
     """Only the emptied directories of a dropped skill are removed; real files, links and their targets stay."""
     ws, dest, skill = _installed_dest(tmp_path)
@@ -196,6 +196,8 @@ def test_a_skill_directory_that_holds_anything_but_empty_directories_is_refused_
         (dest / "references/linked").symlink_to(keep, target_is_directory=True)
     elif make == "dangling_link":
         dest.symlink_to(tmp_path / "nowhere")
+    elif make == "regular_file":
+        dest.write_text("mine\n")
     else:
         (keep / "empty").mkdir()
         dest.symlink_to(keep / "empty", target_is_directory=True)
