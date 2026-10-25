@@ -11,8 +11,14 @@ name: codeql
 on:
   push:
     branches: [main]
+  # A PR that changes no Python and no workflow has nothing for either language
+  # to analyse; push and the weekly schedule still scan the whole tree.
   pull_request:
     branches: [main]
+    paths:
+      - '**.py'
+      - '.github/workflows/**'
+      - '.github/actions/**'
   schedule:
     - cron: '23 4 * * 1'
 

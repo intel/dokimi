@@ -124,6 +124,8 @@ def _pair_key(data: dict[str, Any]) -> tuple[Any, ...]:
         tuple(data.get("arms") or []),
         data.get("baseline_arm"),
         data.get("total_questions"),
+        (data.get("run_config") or {}).get("session_turns"),
+        (data.get("run_config") or {}).get("turn_reminder"),
     )
 
 
