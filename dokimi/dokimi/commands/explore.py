@@ -26,7 +26,7 @@ def cmd_explore_list(args: argparse.Namespace) -> None:
     default_repo_root = Path(args.repo_root) if getattr(args, "repo_root", None) else None
     try:
         tasks = discover_explore_tasks(root, default_repo_root=default_repo_root)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:  # a task file that cannot be read or parsed
         raise SystemExit(str(exc)) from exc
     for task in tasks:
         n_refs = len(task.references)
@@ -90,7 +90,7 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
             tasks = [
                 load_explore_task(t, root=root, default_repo_root=default_repo_root) for t in ids
             ]
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:  # a task file that cannot be read or parsed
         raise SystemExit(str(exc)) from exc
     if not tasks:
         raise SystemExit("No tasks selected. Pass --tasks <id[,id]> or --all.")
