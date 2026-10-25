@@ -63,6 +63,26 @@ def test_invalid_yaml_config_exits(tmp_path, monkeypatch, capsys):
     assert "invalid YAML" in capsys.readouterr().err
 
 
+def test_non_utf8_config_exits_with_message(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "products.yaml"
+    path.write_bytes(b"retrieval:\n  top_k: \xff\xfe\n")
+    _point_config(monkeypatch, path)
+    with pytest.raises(SystemExit) as exc:
+        answers._load_runtime_config()
+    assert exc.value.code == 1
+    assert f"cannot read {path}" in capsys.readouterr().err
+
+
+def test_unreadable_config_exits_with_message(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "products.yaml"
+    path.mkdir()  # a directory where the file should be: read_text raises OSError
+    _point_config(monkeypatch, path)
+    with pytest.raises(SystemExit) as exc:
+        answers._load_runtime_config()
+    assert exc.value.code == 1
+    assert f"cannot read {path}" in capsys.readouterr().err
+
+
 def test_non_mapping_config_exits(tmp_path, monkeypatch, capsys):
     path = tmp_path / "products.yaml"
     path.write_text("- a\n- b\n", encoding="utf-8")
