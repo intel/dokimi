@@ -287,6 +287,22 @@ def test_eval_reference_cli_without_judge(tmp_path):
     assert (block["passed"], [c["passed"] for c in block["checks"]]) == (True, [True, None])
 
 
+def test_eval_reference_cli_without_judge_on_an_arms_run(tmp_path):
+    q = tmp_path / "q.json"
+    q.write_text(json.dumps({"questions": [{"id": "1", "question": "Q", "grading": {"checks": [
+        {"type": "match", "values": ["paris"], "location": "any"}]}}]}))
+    a = tmp_path / "a.json"
+    a.write_text(json.dumps({"baseline_arm": "baseline", "arms": ["baseline"], "answers": [
+        {"question_id": "1", "question_text": "Q", "arms": {"baseline": {"answer": "Paris"}}}]}))
+    out = tmp_path / "r.json"
+    args = build_parser().parse_args(["eval", "reference", "--answers", str(a), "--questions", str(q),
+                                      "-o", str(out), "--no-judge"])
+    args.func(args)
+    data = json.loads(out.read_text())
+    assert (data["judge_model"], data["judge_provider"]) == ("reference", "reference")
+    assert data["evaluations"][0]["scores"]["baseline"]["passed"] is True
+
+
 def test_answerer_sends_a_verbatim_question_unwrapped():
     from dokimi.eval.answerer import Answerer
 

@@ -128,6 +128,8 @@ def artifact(result: ReferenceRun, data: Any, *, judge_model: Optional[str], jud
     }
     judge = {"judge_model": judge_model, "judge_provider": judge_provider}
     if result.run.shape == "arms":
+        # arms.v1 requires judge strings next to `evaluations`; with no judge, the scorer is the stamp.
+        judge = {k: v or SCORER for k, v in judge.items()}
         base = dict(data) if isinstance(data, Mapping) else {"answers": data}
         return "arms", {**base, **judge, "evaluations": result.evaluations, "reference_scoring": meta}
     return "eval", {
