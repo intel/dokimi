@@ -133,6 +133,22 @@ def test_out_of_turns_without_a_skill_is_no_trigger_not_a_failure(tmp_path):
     assert broken["error"] == "no result event (exit 1)"
 
 
+def test_a_hang_after_the_choice_is_scored_not_dropped(tmp_path):
+    # A stock-tool Bash call can outlive the turn; the CLI is then killed at --timeout.
+    with_result = _stream(["sum-fast"])
+    no_result = with_result.rsplit('{"type": "result"', 1)[0]
+    cases = {"after-result": (with_result, None, ["sum-fast"]), "no-result": (no_result, None, ["sum-fast"]),
+             "no-skill-after-result": (_stream(), None, []), "nothing": ("", "timeout", [])}
+    for name, (stream, error, loaded) in cases.items():
+        def runner(argv, stream=stream, **kw):
+            return process.run(argv, **kw) if argv[0] == "git" else process.reply(stream, timed_out=True)
+
+        r = tp.run_query("q", _catalog(tmp_path / name), tp.ProbeConfig(), runner=runner,
+                         source_env={"PATH": "/usr/bin:/bin"})
+        assert r["error"] == error, name
+        assert r["skill"]["first_turn_loaded"] == loaded, name
+
+
 def test_records_score_with_the_same_summary_as_the_emulated_arm(tmp_path):
     answers = {"sum it": ["sum-fast"], "read it": ["sum-fast"], "hello": []}
 

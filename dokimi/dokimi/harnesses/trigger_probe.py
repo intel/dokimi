@@ -176,13 +176,14 @@ def run_query(query: str, catalog: Path, cfg: ProbeConfig, *, runner: process.Ru
         skill = parse_stream(stream)
         result = result_event(stream) or {}
         error = None
-        if done.timed_out:
-            error = "timeout"
+        # A Skill call seen is the choice, whatever came after it (a hang, a timeout, an
+        # error). A result event read decides the rest, even if the CLI then hung.
+        if skill["first_turn_loaded"]:
+            pass
         elif not result:
-            error = f"no result event (exit {done.returncode})"
+            error = "timeout" if done.timed_out else f"no result event (exit {done.returncode})"
         # Out of turns without a Skill call is an observation (nothing triggered), not a failure.
-        elif result.get("is_error") and result.get("subtype") != "error_max_turns" \
-                and not skill["first_turn_loaded"]:
+        elif result.get("is_error") and result.get("subtype") != "error_max_turns":
             error = str(result.get("subtype") or "error")
         return {"skill": skill, "cost_usd": result.get("total_cost_usd"),
                 "num_turns": result.get("num_turns"), "error": error}
