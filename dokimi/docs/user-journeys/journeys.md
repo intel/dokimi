@@ -610,8 +610,11 @@ differs between them, model, repetitions, judge, spend.
 
 **Today.** Two-run and multi-run comparison on a pinned question set is
 available and traced. More than two arms run with `python cli.py arms run`.
-Declaring an arbitrary change (OS, dependency, subagents) as a variant of one
-experiment is **proposed**, as is adaptive allocation across many variants.
+For repository arms, `repo compare` warns when the compared cells ran from a
+different eval directory, image, harness version or resolved model
+(AC-J10-008, partial). Declaring an arbitrary change (OS, dependency,
+subagents) as a variant of one experiment is **proposed**, as is adaptive
+allocation across many variants.
 
 **Connections.** Underlies J2, J4 (effect), J6, J8, J9, J12, J13.
 
@@ -637,7 +640,7 @@ cost of both runs.
 
 #### UC-J10-003 Declare an arbitrary change as the variant
 
-- **AC-J10-008** An experiment declares what differs between its variants, records the resolved settings of each, and reports differences it did not declare as confounds. *Proposed.*
+- **AC-J10-008** An experiment declares what differs between its variants, records the resolved settings of each, and reports differences it did not declare as confounds. *Partial: repository arms only; `repo compare` warns in free text, not as structured confounds.*
 
 #### UC-J10-004 Know whether a result is stable
 
