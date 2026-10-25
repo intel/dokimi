@@ -183,7 +183,10 @@ def skill_needs(skill_dir: Optional[Path], plan: NetworkPlan) -> Optional[dict[s
     if not declared:
         return None
     mode, _, hosts = str(declared).partition(":")
-    want = policy(mode, [h for h in hosts.split(",") if h.strip()], "skill metadata.network")
+    try:
+        want = policy(mode, [h for h in hosts.split(",") if h.strip()], "skill metadata.network")
+    except ValueError as exc:  # only recorded: a value we cannot read must not error the arm
+        return {"declared": str(declared), "missing": None, "error": str(exc)}
     if plan.solve.mode == "public":
         missing: list[str] = []
     elif want.mode == "public":

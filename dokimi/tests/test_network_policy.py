@@ -235,6 +235,15 @@ def test_a_skill_declares_its_hosts_and_the_run_says_which_it_did_not_grant(tmp_
     assert metrics["network"]["solve"]["mode"] == "none"
 
 
+@pytest.mark.parametrize("value", ["pypi.org", "true", "allowlist:bad host!"])
+def test_an_unreadable_skill_network_is_recorded_and_the_arm_still_runs(tmp_path, value):
+    skill = _skill(tmp_path, value)
+    harness = create_harness(f"docker-claude-skill:{skill}")
+    metrics = harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out", dry_run=True).metrics
+    got = metrics["network"]["skill"]
+    assert got["declared"] == value and got["missing"] is None and got["error"]
+
+
 def test_an_errored_cell_still_records_its_network(tmp_path, monkeypatch):
     harness = replace(create_harness("docker-oracle", runner=DockerCLI()), network=("verify=public",))
 

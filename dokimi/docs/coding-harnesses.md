@@ -554,7 +554,8 @@ the reason for people in `compatibility`, the Agent Skills spec's field for
 environment needs. The run does not widen the skill arm for it: its baseline
 would then run on another network. `metrics.network.skill.missing` lists the
 declared hosts this run did not grant; pass them with `--network solve=...`
-so every arm gets them.
+so every arm gets them. A value that does not parse is recorded as it is, with
+`error` and `missing: null`, and the arm still runs.
 
 ## BenchFlow Cells
 
