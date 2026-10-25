@@ -270,17 +270,10 @@ def print_validation_stats(stats: Dict[str, Any]) -> None:
 
 def cmd_questions_generate(args: argparse.Namespace) -> None:
     """Generate questions from personas and seed topics."""
-    import yaml
+    from dokimi.commands.answers import _load_runtime_config
     from dokimi.questions import RagasSeedExtractor, QuestionGenerator, QuestionValidator
 
-    # Load config
-    from dokimi.config import runtime_config_path
-
-    config_path = runtime_config_path()
-    if config_path.exists():
-        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    else:
-        config = {}
+    config = _load_runtime_config()
 
     _product_config = config.get("products", {}).get(args.product, {})
     _retrieval_cfg = config.get("retrieval", {})
