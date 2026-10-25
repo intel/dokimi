@@ -814,7 +814,7 @@ task outcomes, and differences inside the judge band are not quoted.
 - **AC-J14-003** The documented authoring path (routing, estimate, extraction, probing, shortening, view) runs end to end on stub models through the CLI and writes its intermediate artifacts.
 - **AC-J14-004** Probing an inventory against an artifact that changed since extraction is refused.
 - **AC-J14-008** A novelty record states the share of the skill's readable words it did not measure and the basis of that share; the gate judges a stored record on its own stamped basis, and a record with an unknown basis is reported unmeasured.
-- **AC-J14-011** The novelty report shows a conflict count the gate did not clear as not measured, never as a clean 0. *Proposed.*
+- **AC-J14-011** The novelty report shows a conflict count the gate did not clear as not measured, never as a clean 0.
 - **AC-J14-012** Analyze states on its output the share of readable words it measured, and warns when it is half or less. *Proposed.*
 
 #### UC-J14-002 Inspect a run's context

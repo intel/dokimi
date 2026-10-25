@@ -418,8 +418,11 @@ criteria:
     delivery: proposed
     decision_ref: https://github.com/intel/dokimi/pull/172
   AC-J14-011:
-    delivery: proposed
-    decision_ref: https://github.com/intel/dokimi/pull/197
+    delivery: available
+    enforce: true
+    capability: novelty
+    evidence:
+      - {id: cjm-novelty-uncleared-conflicts, kind: unit, stubs: []}
   AC-J14-012:
     delivery: proposed
     decision_ref: https://github.com/intel/dokimi/pull/173
