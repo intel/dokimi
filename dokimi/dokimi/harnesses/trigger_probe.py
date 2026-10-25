@@ -132,20 +132,24 @@ def parse_stream(stream: str) -> Dict[str, Any]:
     """Skills listed and invoked, per the transcript; ``first_turn_loaded`` is the choice."""
     listed: List[str] = []
     version = None
-    turns: List[List[str]] = []
+    # Claude Code emits one assistant event per content block; the blocks of one turn
+    # share message.id. Subagent events (parent_tool_use_id set) are not the choice.
+    by_turn: Dict[str, List[str]] = {}
     other_tools: List[str] = []
-    for ev in _events(stream):
+    for n, ev in enumerate(_events(stream)):
         if ev.get("type") == "system" and ev.get("subtype") == "init":
             listed = [str(s) for s in ev.get("skills") or []]
             version = ev.get("claude_code_version")
-        if ev.get("type") != "assistant":
+        if ev.get("type") != "assistant" or ev.get("parent_tool_use_id"):
             continue
-        content = (ev.get("message") or {}).get("content") or []
-        uses = [c for c in content if isinstance(c, dict) and c.get("type") == "tool_use"]
+        message = ev.get("message") or {}
+        uses = [c for c in message.get("content") or [] if isinstance(c, dict) and c.get("type") == "tool_use"]
         skills = [_skill_name((c.get("input") or {}).get("skill")) for c in uses if c.get("name") == "Skill"]
         other_tools += [str(c.get("name")) for c in uses if c.get("name") != "Skill"]
         if skills:
-            turns.append(skills)
+            turn = by_turn.setdefault(str(message.get("id") or f"#{n}"), [])
+            turn += [s for s in dict.fromkeys(skills) if s not in turn]
+    turns = list(by_turn.values())
     first = turns[0] if turns else []
     return {
         "offered": True,

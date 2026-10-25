@@ -49,6 +49,27 @@ def test_parse_stream_takes_the_first_skill_turn_as_the_choice():
     assert tp.parse_stream(_stream())["selected"] is None
 
 
+def test_parse_stream_groups_per_block_events_by_message_id():
+    # Claude Code streams each content block as its own event; one turn shares message.id.
+    def block(mid, block, parent=None):
+        return {"type": "assistant", "parent_tool_use_id": parent, "message": {"id": mid, "content": [block]}}
+
+    def skill(s):
+        return {"type": "tool_use", "name": "Skill", "input": {"skill": s}}
+
+    events = [block("m1", {"type": "thinking", "thinking": "..."}), block("m1", skill("sum-fast")),
+              block("m1", skill("io-read")), {"type": "user", "message": {"content": []}},
+              block("m2", skill("dataviz"), parent="toolu_1"), block("m3", skill("sum-fast")),
+              {"type": "result", "subtype": "success", "is_error": False}]
+    s = tp.parse_stream("\n".join(json.dumps(e) for e in events))
+    assert s["first_turn_loaded"] == ["sum-fast", "io-read"]
+    assert s["loaded"] == ["sum-fast", "io-read", "sum-fast"]
+    rec = {"question_id": "a", "expected_skill": "sum-fast",
+           "arms": {"cc": {"answer": None, "error": None, "tool_usage": {"skill": s}}}}
+    summary = summarize_skill_selection([rec])["cc"]
+    assert summary["recall"] == 0.0 and summary["multi_load_rate"] == 1.0
+
+
 def test_argv_is_the_query_verbatim_and_pins_only_what_is_asked():
     cfg = tp.ProbeConfig(model="haiku", max_turns=2)
     argv = tp.probe_argv("How do I sum?", cfg)
