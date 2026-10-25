@@ -158,7 +158,8 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 | `dokimi-explore-task` | YAML with `id`, `query` and `references[].path` | localization | explore track |
 | `git-lfs-pointer` | a git-LFS spec v1 pointer stub | unknown | none (fetch it first) |
 
-`tasks list` and `tasks run` still read only the first two.
+`tasks list` and `tasks run` read only the first two; `tasks run --swe-bench`
+also takes a SWE-bench file.
 
 The `docker-*` harnesses mount the oracle at `/solution` and `/oracle` and the
 verifier at `/tests` and `/verifier`, because a script written for one layout
