@@ -718,15 +718,16 @@ cost.
 (`python cli.py repo scan --fail-on-fail`). `baseline compare --strict` adds a
 non-zero exit only when a model cannot be verified or differs from the
 baseline; a regression in the scores is printed and exits 0. Failing on a regression beyond
-a threshold is **proposed** (AC-J12-001), and so is configurable blocking policy
-across check kinds (AC-J12-002).
+a threshold is **proposed** (AC-J12-001). Blocking policy is **partial**
+(AC-J12-002): `repo tasks check --allow-unsupported` decides host-unsupported
+tasks; budget-stopped and inconclusive judge results have no policy.
 
 ### Use cases and acceptance
 
 #### UC-J12-001 Gate a PR on a budgeted check
 
 - **AC-J12-001** A strict baseline comparison exits non-zero on a regression beyond the threshold.
-- **AC-J12-002** An inconclusive or budget-stopped check is reported as such, and whether it blocks is the configured policy's decision.
+- **AC-J12-002** An inconclusive or budget-stopped check is reported as such, and whether it blocks is the configured policy's decision. *Partial: one flag, for host-unsupported tasks; budget-stopped and inconclusive judge results have none.*
 - **AC-J12-003** The reusable CI check runs only the tasks a change touches, adds a smoke set when shared harness files change, and fails on an unknown task name instead of checking nothing.
 - **AC-J12-004** A gate on a run whose result lacks planned cells reports it incomplete and names the missing cells; it never passes on the cells that finished. *Proposed.*
 
