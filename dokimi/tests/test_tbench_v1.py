@@ -258,6 +258,31 @@ def test_export_writes_the_harbor_layout(tmp_path):
     assert os.access(dest / "tests" / "test.sh", os.X_OK)
 
 
+def test_export_puts_a_subdir_context_and_its_named_dockerfile_where_harbor_builds(tmp_path):
+    compose = _COMPOSE.replace("      dockerfile: Dockerfile\n",
+                               "      context: ./env\n      dockerfile: Dockerfile.x\n    working_dir: /srv\n")
+    path = _tb1(tmp_path / "tasks", compose=compose)
+    (path / "Dockerfile").unlink()
+    _write(path / "env" / "Dockerfile.x", "FROM ubuntu:24.04\nCOPY data.txt /data.txt\n")
+    _write(path / "env" / "data.txt", "x\n")
+    task = load_task(path)
+    assert task.environment["terminal_bench"]["workdir"] == "/srv"
+    dest = harbor_export.export(task, tmp_path / "out")
+    env = sorted(p.relative_to(dest / "environment").as_posix() for p in (dest / "environment").rglob("*"))
+    assert env == ["Dockerfile", "data.txt"]
+    dockerfile = (dest / "environment" / "Dockerfile").read_text()
+    assert dockerfile.startswith("FROM ubuntu:24.04\nCOPY data.txt") and "\nWORKDIR /srv\n" in dockerfile
+
+
+def test_export_keeps_tests_and_solution_the_dockerfile_copies(tmp_path):
+    path = _tb1(tmp_path / "tasks")
+    _write(path / "Dockerfile", "FROM ubuntu:24.04\nCOPY tests /tests\nCOPY ./solution.sh /s.sh\n")
+    dest = harbor_export.export(load_task(path), tmp_path / "out")
+    assert (dest / "environment" / "tests" / "test_outputs.py").is_file()
+    assert (dest / "environment" / "solution.sh").is_file()
+    assert not (dest / "environment" / "run-tests.sh").exists()
+
+
 def test_export_keeps_a_multi_service_compose_with_main_renamed(tmp_path):
     import yaml
 

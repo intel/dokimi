@@ -115,7 +115,12 @@ def export(task: TaskSpec, dest: Path) -> Path:
     dest.mkdir(parents=True)
     env_dir = dest / "environment"
     _copy_context(task, env_dir)
-    _append_dockerfile(env_dir / task.dockerfile, tb)
+    dockerfile = env_dir / "Dockerfile"  # the one path every Harbor environment builds
+    if (env_dir / task.dockerfile).resolve() != dockerfile.resolve():
+        if dockerfile.exists():
+            raise ValueError(f"{task.name}: the build context has a Dockerfile besides {task.dockerfile}")
+        (env_dir / task.dockerfile).rename(dockerfile)
+    _append_dockerfile(dockerfile, tb)
     compose = _harbor_compose(task)
     if compose is not None:
         (env_dir / "docker-compose.yaml").write_text(yaml.safe_dump(compose, sort_keys=False), encoding="utf-8")
