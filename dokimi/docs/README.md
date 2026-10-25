@@ -188,7 +188,7 @@ Marketplaces rank agent artifacts by popularity, which buries niche expert
 tooling such as HPC and performance libraries (the bundled examples use
 oneTBB, oneDAL and oneMKL).
 Here, every shipped skill, doc source, or profile carries the **scorecard
-that earned it**, kept alive as models and docs change. See the
+that earned it**, built from the run that measured it. See the
 [repository overview](../../README.md) for what this framework is and where the
 content it measures comes from.
 

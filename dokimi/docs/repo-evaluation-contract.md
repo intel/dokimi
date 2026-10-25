@@ -57,6 +57,9 @@ SPDX-License-Identifier: Apache-2.0
 > python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on-warning]
 > ```
 >
+> `--out` and `--json` carry the inventory as a `repo_budget.v1` artifact (`schemas/repo_budget.v1.json`),
+> stamped with its `schema_version`, so a CI gate on the JSON can tell a changed shape.
+>
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
 >
 > ```bash

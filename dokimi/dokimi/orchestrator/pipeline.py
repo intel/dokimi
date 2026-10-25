@@ -11,6 +11,7 @@ from pathlib import Path
 
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K
 from dokimi.mcp.factory import create_doc_source_client
+from dokimi.records import BASELINE, CONTEXT, records as read_records
 
 logger = logging.getLogger(__name__)
 
@@ -380,9 +381,10 @@ class EvaluationPipeline:
         }
         
         # Compute summary stats
-        with_scores = [e["with_docs"]["aggregate"] for e in evaluations if e.get("with_docs")]
-        without_scores = [e["without_docs"]["aggregate"] for e in evaluations if e.get("without_docs")]
-        deltas = [e["delta"] for e in evaluations if e.get("delta") is not None]
+        scored = read_records(evaluations, source="evaluations", kind="evaluations")
+        with_scores = [s for s in (r.score(CONTEXT) for r in scored) if s is not None]
+        without_scores = [s for s in (r.score(BASELINE) for r in scored) if s is not None]
+        deltas = [r.delta for r in scored if r.delta is not None]
         
         if with_scores and without_scores and deltas:
             results["steps"]["evaluation"]["summary"] = {

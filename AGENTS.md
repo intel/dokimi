@@ -87,7 +87,8 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 - Code that reads answers, eval or arms records goes through
   `dokimi/dokimi/records.py` (`read`/`load`/`records`), not
   `.get("with_docs")` on the dict: it is the one place that knows the keys
-  the writers write.
+  the writers write. `dokimi/tests/test_records_guard.py` fails a new such read
+  and lists the exceptions, which only shrink.
 
 ## What goes in the tree
 
