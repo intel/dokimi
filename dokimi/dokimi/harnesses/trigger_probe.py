@@ -34,7 +34,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from dokimi import process
-from dokimi.harnesses.agent_sandbox import _SEAL_ENV, AgentWorkspace, agent_env, operator_source_env
+from dokimi.harnesses.agent_sandbox import (
+    _SEAL_ENV, _SEAL_SETTINGS, AgentWorkspace, agent_env, operator_source_env,
+)
 from dokimi.harnesses.claude_json import result_event
 
 #: Fixed identity and dates for the staging commit, so the git context the harness
@@ -105,8 +107,12 @@ def probe_argv(query: str, cfg: ProbeConfig) -> List[str]:
             "--max-turns", str(cfg.max_turns), "--no-session-persistence"]
     if cfg.model:
         argv += ["--model", cfg.model]
+    # One --settings: sealed carries the arms' plugin seal, merged with any listing budget.
+    settings: Dict[str, Any] = {} if cfg.stock else json.loads(json.dumps(_SEAL_SETTINGS))
     if cfg.listing_budget_fraction is not None:
-        argv += ["--settings", json.dumps({"skillListingBudgetFraction": cfg.listing_budget_fraction})]
+        settings["skillListingBudgetFraction"] = cfg.listing_budget_fraction
+    if settings:
+        argv += ["--settings", json.dumps(settings)]
     return argv + list(cfg.extra_args)
 
 

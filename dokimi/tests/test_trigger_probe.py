@@ -12,6 +12,7 @@ from dokimi import process
 from dokimi.eval.arm_summary import summarize_skill_selection
 from dokimi.external.trigger_set import TriggerQuery
 from dokimi.harnesses import trigger_probe as tp
+from dokimi.harnesses.agent_sandbox import solver_cli_flags
 from dokimi.harnesses.payload_audit import audit_payload, markers_for
 
 
@@ -77,6 +78,14 @@ def test_argv_is_the_query_verbatim_and_pins_only_what_is_asked():
     assert "--settings" not in argv and "--tools" not in argv and "--plugin-dir" not in argv
     pinned = tp.probe_argv("q", tp.ProbeConfig(listing_budget_fraction=0.03))
     assert json.loads(pinned[pinned.index("--settings") + 1]) == {"skillListingBudgetFraction": 0.03}
+
+
+def test_sealed_argv_switches_off_the_builtin_plugins_as_the_arms_do():
+    seal = json.loads(solver_cli_flags()[solver_cli_flags().index("--settings") + 1])
+    for frac, extra in ((None, {}), (0.05, {"skillListingBudgetFraction": 0.05})):
+        argv = tp.probe_argv("q", tp.ProbeConfig(stock=False, listing_budget_fraction=frac))
+        assert argv.count("--settings") == 1
+        assert json.loads(argv[argv.index("--settings") + 1]) == {**seal, **extra}
 
 
 def test_env_keeps_operator_config_out_and_bundled_skills_on_in_stock_mode(tmp_path):
