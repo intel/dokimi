@@ -463,3 +463,24 @@ def test_a_long_skill_keeps_the_plain_runs_cache_breakpoint_in_every_turn(fake_l
     assert first.messages == plain.messages
     assert second.messages[0] == plain.messages[0]
     assert plain.messages[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+
+
+# "Why?" has no space: a sentence would fail the blank check even if the list check went.
+@pytest.mark.parametrize("follow_ups", ["Why?", ["ok", "   "], [1]])
+def test_follow_ups_must_be_a_list_of_non_blank_strings(fake_llm, follow_ups):
+    runner = ArmRunner([BaselineTreatment()], session_turns=2)
+    bad = {"id": "q9", "question": "Q?", "follow_ups": follow_ups}
+
+    with pytest.raises(ValueError, match="q9: 'follow_ups' must be a list of non-blank strings"):
+        runner.run("oneTBB", [bad], concurrency=1)
+    assert fake_llm.requests == []
+
+
+def test_a_whitespace_reply_ends_the_session_as_an_empty_one(fake_llm):
+    fake_llm.push("a1", "   ", "never sent")
+    records = ArmRunner([BaselineTreatment()], session_turns=3).run(
+        "oneTBB", [SESSION_Q], concurrency=1)
+
+    arm = records[0]["arms"]["baseline"]
+    assert len(fake_llm.requests) == 2
+    assert (arm["error"], arm["session"]["stopped_reason"]) == ("empty_reply: turn 1", "empty_reply")
