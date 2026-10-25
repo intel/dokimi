@@ -115,7 +115,9 @@ def _task_product_tags(tasks_dir: Path) -> dict[str, set[str]]:
         tags = meta_tbl.get("tags") if isinstance(meta_tbl, dict) else None
         if not tags:
             tags = meta.get("tags", [])
-        out[task_dir.name] = {str(t).lower() for t in (tags or []) if isinstance(t, str)}
+        if isinstance(tags, str):  # a single tag, not a sequence of letters
+            tags = [tags]
+        out[task_dir.name] = {t.lower() for t in (tags or []) if isinstance(t, str)}
     return out
 
 
@@ -137,7 +139,7 @@ def _tag_aliases(cfg: dict) -> set[str]:
 def _tasks_for_product(
     key: str, task_tags: dict[str, set[str]], aliases: set[str] | None = None
 ) -> list[str]:
-    wanted = {key} | (aliases or set())
+    wanted = {key.lower()} | (aliases or set())
     return sorted(name for name, tags in task_tags.items() if wanted & tags)
 
 
