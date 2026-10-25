@@ -73,13 +73,16 @@ def _relabel(entries: list[Entry], index: int, ref: dict[str, Any], referrer: Pa
     entries[index] = (path, report)
 
 
-def resolve(entries: list[Entry], probes: Mapping[str, Probe]) -> list[Report]:
+def resolve(entries: list[Entry], probes: Mapping[str, Probe],
+            unread: Mapping[Path, Report] | None = None) -> list[Report]:
     """The scan's reports, each file a config names read as that config says.
 
     *entries* is every file and task directory the scan looked at, in order, with its
     report or ``None`` when no probe claimed it; *probes* maps a format to its probe.
-    An unclaimed file no config names is dropped.
+    An unclaimed file no config names is dropped, unless *unread* holds a report for
+    it (a file that could not be read or parsed: it may be a task, and says why not).
     """
+    unread = unread or {}
     by_path = {_key(p): i for i, (p, _) in enumerate(entries)}
     by_name: dict[str, list[int]] = {}
     for i, (p, _) in enumerate(entries):
@@ -89,4 +92,4 @@ def resolve(entries: list[Entry], probes: Mapping[str, Probe]) -> list[Report]:
         for ref in report.details["references"]:
             for index in _targets(ref, by_path, by_name):
                 _relabel(entries, index, ref, referrer, probes)
-    return [r for _, r in entries if r is not None]
+    return [r if r is not None else unread[p] for p, r in entries if r is not None or p in unread]

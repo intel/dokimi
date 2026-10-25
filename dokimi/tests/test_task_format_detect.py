@@ -578,3 +578,18 @@ def test_a_scan_stops_at_the_file_cap_and_says_so(tmp_path, monkeypatch):
     reports = inspect_path(tmp_path)
     assert len(reports) == 2
     assert "scan stopped after 2 files" in reports[-1].problems
+
+
+def test_a_file_a_scan_could_not_read_is_reported_with_its_problem(tmp_path, monkeypatch):
+    monkeypatch.setattr(importlib.import_module("dokimi.task_formats.source"), "MAX_BYTES", 64)
+    _jsonl(tmp_path / "ok.jsonl", [{"input": "q", "target": "a"}])
+    _write(tmp_path / "evals.json", '{"skill_name": "x", "evals": [')
+    _jsonl(tmp_path / "big.jsonl", [{"input": "q" * 80, "target": "a"}])
+    _write(tmp_path / "package.json", '{"name": "x"}')  # read cleanly, claimed by nothing
+    found = {r.path.name: r for r in inspect_path(tmp_path)}
+    assert sorted(found) == ["big.jsonl", "evals.json", "ok.jsonl"]
+    for name in ("big.jsonl", "evals.json"):  # what inspecting the file alone says
+        alone = _one(tmp_path / name)
+        assert (found[name].format, found[name].problems) == ("unknown", alone.problems)
+    assert found["big.jsonl"].problems[0].endswith("MiB: not read")
+    assert found["evals.json"].problems[0].startswith("not valid JSON:")
