@@ -455,3 +455,39 @@ def test_broken_yaml_outside_the_root_is_not_quoted_in_the_report(tmp_path, caps
 
     assert "SECRET" not in json.dumps(report)
     assert report["skills"][0]["state"] == "error" and code == 1
+
+
+def test_default_kind_exits_1_on_a_broken_skill_and_no_tasks(tmp_path, capsys):
+    (tmp_path / "skills" / "bad").mkdir(parents=True)
+    (tmp_path / "skills" / "bad" / "SKILL.md").write_text("---\nname: bad\n---\n", encoding="utf-8")
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+
+    assert exc.value.code == 1
+    assert "ERROR" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("manifest", [True, False])
+def test_an_unreadable_skill_is_an_error_row_and_the_rest_are_listed(
+        tmp_path, capsys, monkeypatch, manifest):
+    import dokimi.external.catalog as external_catalog
+
+    real_load = external_catalog.load_skill
+
+    def load(path):
+        if "b" in Path(path).parts:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_load(path)
+
+    monkeypatch.setattr(external_catalog, "load_skill", load)
+    for name in ("a", "b"):
+        _skill(tmp_path / "skills", name, name=name)
+    if manifest:
+        (tmp_path / "skills.yaml").write_text("- name: a\n- name: b\n", encoding="utf-8")
+    report, code = _scan_json(tmp_path, capsys)
+
+    states = {s["name"]: (s["state"], s["error"]) for s in report["skills"]}
+    assert states["a"] == ("ok", None)
+    assert states["b"][0] == "error" and "Permission denied" in states["b"][1]
+    assert code == 1
