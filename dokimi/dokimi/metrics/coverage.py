@@ -8,16 +8,42 @@ from __future__ import annotations
 import re
 
 
-HEADING_RE = re.compile(r"^#{1,6}\s+", re.MULTILINE)
-CODE_BLOCK_RE = re.compile(r"```", re.MULTILINE)
+HEADING_RE = re.compile(r"#{1,6}(?:\s|$)")
+FENCE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})(.*)$")
+
+
+def _count_headings_and_blocks(text: str) -> tuple[int, int]:
+    """Count headings outside code and closed fenced blocks.
+
+    A ``#`` line inside a fence is a code comment, not a heading. A fence opens
+    with 3+ backticks or tildes and closes on the same character, at least as
+    long, with nothing after it; a block left open at the end is not counted.
+    """
+    headings = blocks = 0
+    fence = ""
+    for line in text.splitlines():
+        m = FENCE_RE.match(line)
+        if not fence:
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                fence = m.group(1)
+            elif HEADING_RE.match(line):
+                headings += 1
+        elif (
+            m
+            and m.group(1)[0] == fence[0]
+            and len(m.group(1)) >= len(fence)
+            and not m.group(2).strip()
+        ):
+            fence = ""
+            blocks += 1
+    return headings, blocks
 
 
 def score(text: str) -> float:
     """Return simple structure/body coverage score in [0, 1]."""
     if not text.strip():
         return 0.0
-    headings = len(HEADING_RE.findall(text))
-    code_blocks = len(CODE_BLOCK_RE.findall(text)) // 2
+    headings, code_blocks = _count_headings_and_blocks(text)
     words = len(text.split())
 
     heading_signal = min(headings / 6.0, 1.0)
