@@ -53,6 +53,16 @@ def _load_answers(path: str):
         sys.exit(2)
 
 
+def _write_json_or_exit(path: Path, payload: dict) -> None:
+    """Write ``payload`` as JSON to ``path``, or exit 1 naming ``path`` when it cannot be written."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def _require_ragas() -> None:
     """Exit before any model call when the ragas extra is not installed."""
     if importlib.util.find_spec("ragas") is None:
@@ -243,9 +253,6 @@ def cmd_eval_ragas(args: argparse.Namespace) -> None:
 
 def cmd_eval_grounding(args: argparse.Namespace) -> None:
     """Compute reference-free grounding/citation metrics (no LLM calls)."""
-    import json
-    from pathlib import Path
-
     from dokimi.eval.grounding import evaluate_grounding
 
     answers = _load_answers(args.answers).records
@@ -260,8 +267,7 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
 
     if args.output:
         out = Path(args.output)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        _write_json_or_exit(out, result)
         print(f"\n✅ Grounding report saved to {out}")
 
 
@@ -405,14 +411,13 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     # Written before anything is printed: a console that cannot encode the summary must not lose the run.
     if args.output:
         out = Path(args.output)
-        out.parent.mkdir(parents=True, exist_ok=True)
         result = {**report.to_dict(), "judge_temperature": args.judge_temperature}
         # Which answers the gate was measured on: a judge that passes on one
         # answer model's output is not thereby validated on another's.
         result["summary"]["answers_model"] = run.meta.get("model")
         if typed is not None:
             result["summary"]["typed_arm"] = typed.report_fields()
-        out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+        _write_json_or_exit(out, result)
 
     print()
     print(report.format_summary())
