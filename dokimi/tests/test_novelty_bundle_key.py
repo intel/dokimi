@@ -310,3 +310,17 @@ def test_the_stored_measured_share_is_rounded_to_four_places(tmp_path):
     # 2 entry words and 7 reference words: 2/9 is 0.2222..., stored as 0.2222, not 0.2222222.
     bundle = load_bundle(f"skill:{_skill_with_evals(tmp_path, entry=2, refs=7)}")
     assert bundle.summary()["measured_share"] == 0.2222
+
+
+@pytest.mark.parametrize("include_resources", [False, True])
+def test_an_artifact_with_no_readable_words_stores_no_share_and_prints_none(
+        tmp_path, capsys, include_resources):
+    # Only eval words, which are policy-excluded: the schema promises null, not "100% read",
+    # and the headline has no share to state, not "a bundled file did not decode".
+    from dokimi.commands.novelty import _print_coverage
+
+    root = _skill_with_evals(tmp_path, entry=0, refs=0, evals=4)
+    record = load_bundle(f"skill:{root}", include_resources=include_resources).summary()
+    assert record["entry_point_words"] == 0 and record["measured_share"] is None
+    _print_coverage(record)
+    assert "coverage:" not in capsys.readouterr().out
