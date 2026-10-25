@@ -25,6 +25,25 @@ def test_extract_examples_with_metadata():
     assert examples == [("python", "print(1)"), ("bash", "ls")]
 
 
+def test_extract_examples_tilde_fence():
+    md = "~~~python\nprint(1)\n~~~\n"
+    assert extract_examples(md) == [("python", "print(1)")]
+
+
+def test_extract_examples_longer_fence_keeps_inner_fence_as_content():
+    md = "````markdown\n```python\nprint(1)\n```\n````\n"
+    assert extract_examples(md) == [("markdown", "```python\nprint(1)\n```")]
+
+
+def test_extract_examples_untagged_block_is_not_paired_across_blocks():
+    md = "```\nplain\n```\ntext\n```python\nprint(1)\n```\n"
+    assert extract_examples(md) == [("python", "print(1)")]
+
+
+def test_extract_examples_unclosed_fence_is_not_an_example():
+    assert extract_examples("```python\nprint(1)\n") == []
+
+
 def test_default_backend_does_not_execute(tmp_path, monkeypatch):
     """Default policy is 'none': nothing runs, examples are skipped."""
     monkeypatch.delenv("DOC_BENCH_EXAMPLE_BACKEND", raising=False)

@@ -40,6 +40,10 @@ EXECUTORS: dict[str, tuple[str, list[str]]] = {
 }
 
 
+_FENCE_OPEN_RE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
+_FENCE_CLOSE_RE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
+
+
 @dataclass
 class ExampleResult:
     """Single example execution result.
@@ -98,10 +102,30 @@ def extract_examples(markdown: str) -> list[tuple[str, str]]:
 
     Supports optional metadata after the language tag (e.g.
     ```python title="x.py"```). Normalizes language tags to lowercase.
+    A fence is ``` or ~~~, closed by a fence of the same character at least as
+    long, so a shorter fence inside is content. Any indentation is accepted so
+    that blocks nested in list items are found. A fence that is never closed,
+    or has no language tag, yields no example.
     Returns a list of (language, code) tuples.
     """
-    pattern = re.compile(r"```(\w+)[^\n]*\n(.*?)```", re.DOTALL)
-    return [(m.group(1).lower(), m.group(2).strip()) for m in pattern.finditer(markdown)]
+    examples: list[tuple[str, str]] = []
+    opener: re.Match[str] | None = None
+    body: list[str] = []
+    for line in markdown.splitlines():
+        if opener is None:
+            m = _FENCE_OPEN_RE.match(line)
+            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                opener, body = m, []
+            continue
+        close = _FENCE_CLOSE_RE.match(line)
+        if close and close.group(1)[0] == opener.group(1)[0] and len(close.group(1)) >= len(opener.group(1)):
+            lang = re.match(r"\w+", opener.group(2).strip())
+            if lang:
+                examples.append((lang.group().lower(), "\n".join(body).strip()))
+            opener = None
+        else:
+            body.append(line)
+    return examples
 
 
 def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
