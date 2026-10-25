@@ -762,6 +762,14 @@ def test_an_abstention_can_be_the_modal_pick():
     assert query["agreement"] == pytest.approx(2 / 3, abs=1e-4)
 
 
+def test_the_modal_pick_is_the_most_frequent_not_the_first():
+    client = _scripted([TBB.name, PERF.name, PERF.name])
+    (query,) = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"][
+        "per_query"]
+    assert query["modal_pick"] == PERF.name
+    assert query["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+
+
 def test_a_single_usable_repeat_has_no_half_range():
     from dokimi.novelty.routing import _noise
 
