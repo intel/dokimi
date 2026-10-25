@@ -477,6 +477,18 @@ def test_trigger_set_cli_writes_each_format(tmp_path, catalog, capsys):
     assert "skill-reach credits only the first" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("fmt", ["reach", "skill-creator", "questions"])
+def test_trigger_set_cli_exits_with_a_message_when_out_cannot_be_written(tmp_path, catalog, fmt):
+    q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])
+    out = tmp_path / "taken"
+    out.mkdir()  # a directory where the file should go
+    with pytest.raises(SystemExit, match=rf"Error: cannot write --out {out}: ") as exc:
+        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(out),
+                  "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
+    assert exc.value.code != 0 and isinstance(exc.value.code, str)
+    assert list(out.iterdir()) == []
+
+
 # ── review round 3 ───────────────────────────────────────────────────────
 def _loop_result(answer="a", skill=None):
     return {"answer": answer, "transcript": [], "iterations": 1, "tool_call_count": 0,
