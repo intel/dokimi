@@ -115,3 +115,21 @@ def test_catalog_formats_cli(tmp_path, capsys):
     args = build_parser().parse_args(["catalog", "formats", "--root", str(root)])
     args.func(args)
     assert "# gemini-extension: 1" in capsys.readouterr().out
+
+
+def test_catalog_formats_counts_loadable_skills_as_discover_skills(tmp_path, capsys):
+    _skill(tmp_path / "template", "template-skill")
+    for host in (".agents", ".claude"):
+        _skill(tmp_path / host / "skills/bar", "bar")
+    args = build_parser().parse_args(["catalog", "formats", "--root", str(tmp_path), "--json"])
+    args.func(args)
+    row = json.loads(capsys.readouterr().out)["summary"]["agent-skill"]
+    assert (row["n"], row["loadable"]) == (3, len(discover_skills(tmp_path))) == (3, 1)
+
+
+def test_catalog_formats_survives_a_skill_md_that_is_not_utf8(tmp_path, capsys):
+    (tmp_path / "bad").mkdir()
+    (tmp_path / "bad" / "SKILL.md").write_bytes(b"---\nname: bad\ndescription: caf\xe9\n---\nbody\n")
+    args = build_parser().parse_args(["catalog", "formats", "--root", str(tmp_path), "--json"])
+    args.func(args)
+    assert json.loads(capsys.readouterr().out)["summary"]["agent-skill"]["n"] == 1

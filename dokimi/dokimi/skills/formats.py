@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dokimi.skills.loader import skill_files
 from dokimi.utils import parse_frontmatter
 
 FORMAT_AGENT_SKILL = "agent-skill"
@@ -207,12 +208,14 @@ def classify(path: Path) -> Optional[SkillPackage]:
 def detect_skill_packages(root) -> List[SkillPackage]:
     """Every package under *root*, in path order (VCS and dependency dirs skipped)."""
     root = Path(root)
+    kept = set(skill_files(root))  # a template or a mirror is not loadable, as discover_skills
     found = []
     for path in sorted(root.rglob("*")):
         if not path.is_file() or _SKIP_DIRS.intersection(path.relative_to(root).parts):
             continue
         pkg = classify(path)
         if pkg is not None:
+            pkg.loadable = pkg.loadable and path in kept
             found.append(pkg)
     return found
 
