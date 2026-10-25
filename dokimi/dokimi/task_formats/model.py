@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -77,8 +78,25 @@ class Report:
             "problems": list(self.problems),
             "consumers": list(self.consumers) or [NONE_YET],
             "alternatives": list(self.alternatives),
-            "details": dict(self.details),
+            "details": _plain(self.details),
         }
+
+
+def _plain(value: Any) -> Any:
+    """*value* as plain JSON: what YAML loads beyond it (dates, sets, bytes, NaN) made JSON."""
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, (set, frozenset)):
+        return sorted((_plain(v) for v in value), key=str)
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, bytes):
+        return f"<{len(value)} bytes>"
+    if value is None or isinstance(value, (str, int, float)):
+        return value
+    return str(value)
 
 
 class Probe(Protocol):

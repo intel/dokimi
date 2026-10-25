@@ -502,3 +502,20 @@ def test_skill_reach_keys_yaml_reads_as_bool_or_int_are_linted_not_a_crash(tmp_p
     assert "QuerySet keys skill-reach refuses: True" in reports["q.yaml"].problems
     assert "q1: keys skill-reach refuses: 2, True" in reports["q.yaml"].problems
     assert reports["s.jsonl"].format == "inspect-samples"
+
+
+def test_cli_inspect_out_writes_yaml_dates_sets_and_nan_as_plain_json(tmp_path, capsys):
+    task = _tb1(tmp_path)
+    _write(task / "task.yaml", "instruction: do it\ndifficulty: 2024-01-01\n"
+                               "tags: !!set {b: null, a: null}\ncategory: .nan\n")
+    out = tmp_path / "report.json"
+    _run(["tasks", "inspect", str(tmp_path), "--json", "--out", str(out)])
+    printed = json.loads(capsys.readouterr().out)
+
+    def refuse(name):
+        raise ValueError(name)
+
+    written = json.loads(out.read_text(), parse_constant=refuse)
+    assert written == printed
+    meta = written["items"][0]["details"]["metadata"]
+    assert (meta["difficulty"], meta["tags"], meta["category"]) == ("2024-01-01", ["a", "b"], None)
