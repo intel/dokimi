@@ -196,8 +196,10 @@ def build_trigger_set(
                 tq = TriggerQuery(id=qid, text=text, expected_skill=resolve_label(q, rule))
             except LabelUnresolved:
                 tq = TriggerQuery(id=qid, text=text, expected_skill=None, labelled=False)
+            prior = q.get("source_text")  # a re-read set keeps its pre-rewrite original
+            tq.source_text = prior if isinstance(prior, str) else None
             if rewrite is not None:
-                tq.source_text, tq.text = text, rewrite(text).strip()
+                tq.source_text, tq.text = tq.source_text or text, rewrite(text).strip()
                 if not tq.text:
                     raise ValueError(f"rewrite returned empty text for question {qid}")
             tq.lint = lint_query(tq, catalog)

@@ -133,6 +133,21 @@ def test_cli_reads_each_format_back_and_relints_against_the_catalog(tmp_path, ca
     assert "as reach (3 queries)" in err and "rival load counts as a false trigger" in err
 
 
+def test_cli_read_back_keeps_source_text(tmp_path, catalog):
+    src = tmp_path / "rw.json"
+    src.write_text(json.dumps({"questions": [{"id": "r1", "question": "rewritten text",
+                                              "source_text": "Scenario: original text",
+                                              "expected_skill": "linux-perf"}]}), encoding="utf-8")
+    out = tmp_path / "q.json"
+    _run(["catalog", "trigger-set", "--catalog", str(catalog), "--format", "questions",
+          "--trigger-set", str(src), "--out", str(out)])
+    assert load_questions(out).questions[0]["source_text"] == "Scenario: original text"
+    queries = ts.build_trigger_set([(ts.to_questions(ts.from_questions(json.loads(
+        src.read_text(encoding="utf-8"))))["questions"], "@expected_skill")],
+        discover_skills(catalog), rewrite=lambda t: "again")
+    assert (queries[0].source_text, queries[0].text) == ("Scenario: original text", "again")
+
+
 def test_cli_refuses_bad_trigger_set_specs(tmp_path, catalog):
     sc = tmp_path / "sc.json"
     sc.write_text(json.dumps([{"query": "a", "should_trigger": True}]), encoding="utf-8")
