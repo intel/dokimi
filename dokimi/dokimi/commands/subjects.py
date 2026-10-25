@@ -122,16 +122,12 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         print(f"Error loading subject work: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    out_dir = Path(args.out_dir) if args.out_dir else Path("results/subjects") / _safe_subject_id(descriptor.id)
+    out_dir, baseline_arm, questions = _run_plan(descriptor, args)
     out_dir.mkdir(parents=True, exist_ok=True)
     matrix_path = out_dir / "matrix.cells.json"
     matrix_path.write_text(json.dumps(_matrix_config_for_run(descriptor, args), indent=2), encoding="utf-8")
-    baseline_arm = _baseline_arm_name(descriptor.baseline, args)
-    _validate_unique_awareness_arm_names(awareness_arm_specs(descriptor), args)
 
     awareness_runs: list[dict] = []
-    questions = _questions_for_products(descriptor.suite.products, descriptor.suite.questions)
-    _validate_unique_product_output_dirs(descriptor.suite.products)
     for product, questions_path in zip(descriptor.suite.products, questions, strict=True):
         run_dir = out_dir / _safe_name(product)
         rollup_json = run_dir / "matrix-rollup.json"
@@ -271,6 +267,24 @@ def register(sub, positive_int) -> None:
         help="Skip suite.tasks even when the subject descriptor declares them.",
     )
     run_p.set_defaults(func=cmd_subjects_run)
+
+
+def _run_plan(descriptor, args: argparse.Namespace) -> tuple[Path, str, list[str]]:
+    """The output dir, baseline arm name and per-product questions, or exit 1 when the descriptor cannot run.
+
+    Checked before anything is written, so a descriptor that cannot run leaves no output dir behind."""
+    from dokimi.subjects.loader import awareness_arm_specs
+
+    try:
+        out_dir = Path(args.out_dir) if args.out_dir else Path("results/subjects") / _safe_subject_id(descriptor.id)
+        baseline_arm = _baseline_arm_name(descriptor.baseline, args)
+        _validate_unique_awareness_arm_names(awareness_arm_specs(descriptor), args)
+        questions = _questions_for_products(descriptor.suite.products, descriptor.suite.questions)
+        _validate_unique_product_output_dirs(descriptor.suite.products)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    return out_dir, baseline_arm, questions
 
 
 def _questions_for_products(products: tuple[str, ...], questions: tuple[str, ...]) -> list[str]:
