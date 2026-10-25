@@ -99,6 +99,33 @@ def test_inspect_task_inline_samples_and_scorer_kwargs(tmp_path):
     assert {"solver `chain_of_thought` not reproduced", "sandbox not provided (answer-only)"} <= set(imp.lossy)
 
 
+def test_inspect_partial_field_spec_keeps_the_default_id_and_choices_columns(tmp_path):
+    _jsonl(tmp_path / "geo.jsonl", [{"id": "geo-7", "question": "Capital?", "choices": ["Lyon", "Paris"],
+                                     "answer": "B"}])
+    task = _write(tmp_path / "t.py", (
+        "@task\n"
+        "def t():\n"
+        "    return Task(dataset=json_dataset('geo.jsonl', FieldSpec(input='question', target='answer')),\n"
+        "                solver=multiple_choice(), scorer=choice())\n"))
+    imp = import_path(task, fmt="inspect-task")
+    assert imp.questions[0]["id"] == "geo-7"
+    assert _checks(imp) == [{"type": "choice", "values": ["B"], "choices": ["Lyon", "Paris"]}]
+
+
+def test_inspect_csv_choices_string_splits_like_read_choices():
+    path = Path(__file__).parent / "fixtures/task_formats/inspect/test_dataset/samples-mcq.csv"
+    imp = import_path(path, fmt="inspect-samples")
+    assert _checks(imp) == [{"type": "choice", "values": ["A"], "choices": [str(n) for n in range(1, 11)]}]
+
+
+def test_inspect_sample_whose_target_matches_no_choice_is_skipped(tmp_path):
+    path = _jsonl(tmp_path / "s.jsonl", [{"id": "q1", "input": "x?", "choices": ["x", "y"], "target": "B"},
+                                         {"id": "q2", "input": "two?", "choices": ["2", "3"], "target": "two"}])
+    imp = import_path(path, fmt="inspect-samples")
+    assert [q["id"] for q in imp.questions] == ["q1"]
+    assert "sample whose target matches no choice skipped" in imp.lossy
+
+
 @pytest.mark.parametrize("dataset,message", [
     ("hf_dataset('x')", "run it natively"),
     ("json_dataset(PATH)", "computed"),

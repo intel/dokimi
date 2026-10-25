@@ -30,6 +30,23 @@ FORMAT_TASK = "inspect-task"
 #: Scorers with a translation, and their default keyword arguments.
 SCORERS = ("match", "includes", "exact", "choice", "pattern", "model_graded_qa", "model_graded_fact")
 
+#: Inspect's ``FieldSpec`` defaults: a field the FieldSpec does not name is read from its own column.
+_FIELD_DEFAULTS = {k: k for k in ("input", "target", "choices", "id", "metadata", "files", "setup", "sandbox")}
+
+
+def _choices(value: Any) -> list[str]:
+    """Inspect's ``read_choices``: a string splits on commas, else on whitespace; blanks are dropped."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        parts = value.split(",")
+        if len(parts) == 1:
+            parts = value.split()
+        return [p.strip() for p in parts if p.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(c) for c in value if str(c).strip()]
+    return [str(value)]
+
 
 def _checks(scorer: str, kwargs: Mapping[str, Any], targets: list[str], imp: Imported) -> list[dict[str, Any]]:
     if scorer == "match":
@@ -52,14 +69,17 @@ def _checks(scorer: str, kwargs: Mapping[str, Any], targets: list[str], imp: Imp
 
 
 def _sample_question(row: Mapping[str, Any], idx: int, *, scorer: Optional[str], kwargs: Mapping[str, Any],
-                     mcq: bool, system: Optional[str], fmt: str, path: Path, imp: Imported) -> dict[str, Any]:
+                     mcq: bool, system: Optional[str], fmt: str, path: Path, imp: Imported) -> Optional[dict[str, Any]]:
     text = render_input(row.get("input", ""), imp)
     targets = [str(t) for t in as_list(row.get("target"))]
-    choices = [str(c) for c in as_list(row.get("choices"))]
+    choices = _choices(row.get("choices"))
     chosen = scorer or ("choice" if choices else "match")
     if choices and (mcq or chosen == "choice"):
         text = render_mcq(text, choices)
         letters = choice_targets(targets, choices)
+        if not letters:
+            imp.note("sample whose target matches no choice skipped")
+            return None
         checks = [{"type": "choice", "values": letters, "choices": choices}]
         if len(letters) != len(targets):
             imp.note("choice target matching no choice")
@@ -91,14 +111,16 @@ def import_samples(path: Path, *, scorer: Optional[str] = None, fields: Optional
         imp.note("samples file names no scorer: default used")
     source = FileSource(path)
     rows = source.rows if source.rows is not None else ([source.data] if isinstance(source.data, dict) else [])
-    spec = dict(fields or {})
+    spec = {**_FIELD_DEFAULTS, **fields} if fields else {}
     for i, raw in enumerate(rows):
         row = {k: raw.get(v) for k, v in spec.items() if v in raw} if spec else raw
         if "input" not in row:
             imp.note("sample without input skipped")
             continue
-        imp.questions.append(_sample_question(row, i, scorer=scorer, kwargs=kwargs or {}, mcq=mcq,
-                                              system=system, fmt=fmt, path=path, imp=imp))
+        q = _sample_question(row, i, scorer=scorer, kwargs=kwargs or {}, mcq=mcq, system=system, fmt=fmt,
+                             path=path, imp=imp)
+        if q is not None:
+            imp.questions.append(q)
     return imp
 
 
@@ -230,6 +252,8 @@ def import_task(path: Path, *, task: Optional[str] = None) -> Imported:
         return import_samples(file, scorer=scorer, fields=spec, kwargs=kwargs,
                               mcq=mcq, system=system, fmt=FORMAT_TASK, imp=imp)
     for i, row in enumerate(rows):
-        imp.questions.append(_sample_question(row, i, scorer=scorer, kwargs=kwargs, mcq=mcq, system=system, fmt=FORMAT_TASK,
-                                              path=path, imp=imp))
+        q = _sample_question(row, i, scorer=scorer, kwargs=kwargs, mcq=mcq, system=system, fmt=FORMAT_TASK,
+                             path=path, imp=imp)
+        if q is not None:
+            imp.questions.append(q)
     return imp
