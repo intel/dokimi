@@ -38,6 +38,25 @@ def _extract_questions(questions_data, source: str) -> list:
     return raw
 
 
+def _read_json_input(path: str):
+    """The parsed JSON at ``path``, or exit 1 with a message naming the file."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
+        print(f"Error: cannot read {path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _load_personas(path: str) -> list:
+    """The ``personas`` list of a personas file, or exit 1 with a message naming the file."""
+    data = _read_json_input(path)
+    personas = data.get("personas") if isinstance(data, dict) else None
+    if not isinstance(personas, list):
+        print(f"Error: {path} must be a JSON object with a 'personas' list", file=sys.stderr)
+        sys.exit(1)
+    return personas
+
+
 def cmd_questions_panel_review(args: argparse.Namespace) -> None:
     """Panel review of question quality with 3 role-differentiated LLM reviewers."""
     from dokimi.questions.panel_reviewer import QuestionPanelReviewer, DEFAULT_REVIEWERS
@@ -269,13 +288,12 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
         args.top_k = _retrieval_cfg.get("top_k", 3)
 
     # Load personas
-    personas_data = json.loads(Path(args.personas).read_text(encoding="utf-8"))
-    personas = personas_data["personas"]
+    personas = _load_personas(args.personas)
     print(f"Loaded {len(personas)} personas from {args.personas}")
 
     # Get or extract topics
     if args.topics:
-        topics = json.loads(Path(args.topics).read_text(encoding="utf-8"))
+        topics = _read_json_input(args.topics)
     else:
         print(f"Extracting seed topics for {args.product}...")
 
