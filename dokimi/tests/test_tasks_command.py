@@ -122,6 +122,37 @@ def test_tasks_run_with_a_missing_skill_path_exits_before_writing_anything(tmp_p
     assert not out.exists()
 
 
+def test_tasks_run_with_an_unwritable_out_json_exits_with_a_message(tmp_path):
+    _fixture_task(tmp_path)
+    blocker = tmp_path / "blocker"
+    blocker.write_text("a file, not a directory", encoding="utf-8")
+    out = blocker / "runs.json"
+    args = build_parser().parse_args([
+        "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
+        "--harnesses", "codex", "--model", "m", "--out-json", str(out), "--dry-run",
+    ])
+    with pytest.raises(SystemExit) as excinfo:
+        args.func(args)
+    assert f"cannot write {out}" in str(excinfo.value)
+
+
+def test_tasks_run_with_an_unwritable_out_md_keeps_the_artifact_and_exits_with_a_message(tmp_path):
+    _fixture_task(tmp_path)
+    blocker = tmp_path / "blocker"
+    blocker.write_text("a file, not a directory", encoding="utf-8")
+    out = tmp_path / "runs.json"
+    md = blocker / "report.md"
+    args = build_parser().parse_args([
+        "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
+        "--harnesses", "codex", "--model", "m", "--out-json", str(out), "--out-md", str(md),
+        "--dry-run",
+    ])
+    with pytest.raises(SystemExit) as excinfo:
+        args.func(args)
+    assert f"cannot write {md}" in str(excinfo.value)
+    assert out.is_file()
+
+
 def test_tasks_list_rejects_a_root_that_is_not_a_directory(tmp_path):
     """A mistyped --tasks-root must not read as a suite with zero tasks."""
     parser = build_parser()
