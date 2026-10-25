@@ -177,7 +177,7 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
 
 def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
     """Compare paired no-plugin/plugin arms artifacts."""
-    from dokimi.artifacts import load_artifact, save_artifact
+    from dokimi.artifacts import load_artifact
     from dokimi.eval.plugin_delta import PluginDeltaError, compare_plugin_runs
     from dokimi.records import records
     from dokimi.report.plugin_delta_report import render_plugin_delta_report
@@ -194,12 +194,11 @@ def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     out_json = Path(args.out_json) if args.out_json else Path("results/arms/plugin_delta.json")
-    save_artifact("plugin_delta", output, out_json)
+    _save_artifact_or_exit("plugin_delta", output, out_json)
     print(f"OK Saved plugin delta: {out_json}")
 
     out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
-    out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_md.write_text(render_plugin_delta_report(output), encoding="utf-8")
+    _write_report(out_md, render_plugin_delta_report(output))
     print(f"OK Saved plugin delta report: {out_md}")
 
     print(
@@ -724,6 +723,27 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
         args.product, records, evaluations=evaluations, baseline_arm=args.baseline_arm,
         judge=judge,
     )
+
+
+def _write_report(path: Path, text: str) -> None:
+    """Write a Markdown report, or exit 1 naming ``path`` when it cannot be written."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _save_artifact_or_exit(kind: str, payload: dict, path: Path) -> None:
+    """``save_artifact``, or exit 1 naming ``path`` when it cannot be written."""
+    from dokimi.artifacts import save_artifact
+
+    try:
+        save_artifact(kind, payload, path)
+    except OSError as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _save_arms_output(output: dict, out_json: Path, out_md: Path) -> None:
