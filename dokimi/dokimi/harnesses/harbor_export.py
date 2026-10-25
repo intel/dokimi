@@ -77,13 +77,14 @@ def harbor_view(task: TaskSpec, cache_root: Path | None = None) -> TaskSpec:
     if not (dest / "task.toml").is_file():
         dest.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=dest.parent)) / task.name
-        export(task, staging)
         try:
+            export(task, staging)
             os.replace(staging, dest)  # atomic: a concurrent run sees all of it or none
         except OSError:
             if not (dest / "task.toml").is_file():
                 raise
-        shutil.rmtree(staging.parent, ignore_errors=True)
+        finally:
+            shutil.rmtree(staging.parent, ignore_errors=True)
     return replace(task, path=dest, format=FORMAT_HARBOR)
 
 

@@ -107,7 +107,7 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 |---|---|---|---|
 | `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` |
 | `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` |
-| `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | `docker-*` run it as it is; `harbor`, `benchflow` through a cached Harbor export |
+| `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | `docker-*` run it as it is; `harbor`, `benchflow` through a cached Harbor export (not a `solution.yaml` task) |
 | `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | none yet |
 | `inspect-samples` | JSON/JSONL/CSV rows with `input` and `target` (or the keys a `FieldSpec` names) | answer-only | none yet |
 | `inspect-task` | `.py` importing `inspect_ai` with a `@task` function | answer-only (executable with a `sandbox=`) | none yet |
@@ -143,7 +143,7 @@ sets `deploy.resources.limits.memory`, which `docker compose` honours and
 dokimi reads as the task's own value. `DOKIMI_TBENCH_V1_MEMORY_MB` changes the
 8192 default. The Harbor export writes the same value to `task.toml`.
 
-`tasks list` and `tasks run` still read only the first two.
+`tasks list` and `tasks run` still read only the first three.
 
 The `docker-*` harnesses mount the oracle at `/solution` and `/oracle` and the
 verifier at `/tests` and `/verifier`, because a script written for one layout

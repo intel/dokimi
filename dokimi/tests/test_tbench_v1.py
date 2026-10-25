@@ -17,6 +17,7 @@ from dokimi.harnesses import TaskSuiteRunner, discover_tasks, load_task
 from dokimi.harnesses import harbor_export, tbench_v1
 from dokimi.harnesses.network_policy import resolve
 from dokimi.process import reply
+from dokimi.task_formats import inspect_path
 
 
 def _write(path: Path, text: str) -> Path:
@@ -273,6 +274,11 @@ def test_export_refuses_solution_yaml(tmp_path):
     _write(path / "solution.yaml", "- keys: ls\n")
     with pytest.raises(ValueError, match="solution.yaml"):
         harbor_export.export(load_task(path), tmp_path / "out")
+    with pytest.raises(ValueError, match="solution.yaml"):
+        harbor_export.harbor_view(load_task(path), cache_root=tmp_path / "cache")
+    assert not list((tmp_path / "cache").rglob(".staging-*")), "a refused export leaves no staging dir"
+    (report,) = inspect_path(path)
+    assert report.consumers == ["docker-*"] and any("solution.yaml" in p for p in report.problems)
 
 
 def test_harbor_view_caches_by_content_and_passes_other_formats_through(tmp_path):

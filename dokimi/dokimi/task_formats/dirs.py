@@ -167,7 +167,10 @@ class TerminalBenchV1Probe:
             report.problems.append(f"docker-* would refuse it: {problem}")
         else:
             report.consumers.append(BY_DOCKER)
-        report.consumers += [BY_HARBOR, BY_BENCHFLOW]
+        if (spec.environment.get("terminal_bench") or {}).get("solution") == "solution.yaml":
+            report.problems.append("no Harbor export: solution.yaml (tmux keystrokes) has no Harbor equivalent")
+        else:
+            report.consumers += [BY_HARBOR, BY_BENCHFLOW]
         return report
 
 
