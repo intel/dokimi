@@ -41,7 +41,7 @@ _FINAL_ANSWER_RE = re.compile(
 )
 # Fallback when no <final_answer> block exists: scan for path:line(-line) tokens.
 _LOOSE_CITATION_RE = re.compile(
-    r"(?P<path>[^\s:`]+\.[A-Za-z0-9_+]+):(?P<start>\d+)(?:\s*[-–:]\s*(?P<end>\d+))?"
+    r"(?P<path>[^\s:`]+\.[A-Za-z0-9_+]+)`?:(?P<start>\d+)(?:\s*[-–:]\s*(?P<end>\d+))?"
 )
 
 
@@ -160,6 +160,8 @@ def _clean_citation_line(line: str) -> str:
     # with nothing after it (``\s*`` — the outer strip already removed trailing
     # space, so a bullet-only line like "- " arrives as "-").
     text = re.sub(r"^([-*+]\s*|\d+[.)]\s*)", "", text)
+    # The model quoted only the path, so the backticks close before the range.
+    text = re.sub(r"^`([^\s:`]+)`(?=:\d)", r"\1", text.strip())
     text = text.strip().strip("`").strip()
     # A line with no alphanumerics (a stray/unicode bullet) is not a citation;
     # treat it as blank so it never parses into a phantom Citation(path="-").

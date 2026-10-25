@@ -104,6 +104,21 @@ def test_fallback_scan_without_block():
     assert cs.malformed == ()
 
 
+def test_backticked_path_followed_by_range_is_a_citation():
+    # Models often quote only the path: `src/a.py`:10-20, not `src/a.py:10-20`.
+    cs = parse_final_answer(
+        "<final_answer>\n- `src/a.py`:10-20\n`src/b.py`:7\n</final_answer>"
+    )
+    assert cs.citations == (Citation("src/a.py", 10, 20), Citation("src/b.py", 7, 7))
+    assert cs.malformed == ()
+    assert citation_path("`src/a.py`:10-20") == "src/a.py"
+
+
+def test_loose_scan_reads_backticked_path_followed_by_range():
+    cs = parse_final_answer("The bug is in `src/pkg/mod.py`:42-58 near the top.")
+    assert cs.citations == (Citation("src/pkg/mod.py", 42, 58),)
+
+
 def test_normalize_path_variants():
     assert normalize_path("./a/b.py") == "a/b.py"
     assert normalize_path("/a/b.py") == "a/b.py"
