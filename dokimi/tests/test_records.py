@@ -89,6 +89,13 @@ def test_a_non_numeric_aggregate_is_unscored_not_an_error():
     assert (r.score(CONTEXT), r.score(BASELINE)) == (None, None)
 
 
+def test_a_non_finite_aggregate_is_unscored_not_a_number():
+    """``json.loads`` accepts NaN and Infinity; a judge that wrote one has not scored the answer."""
+    text = '{"question_id": "q1", "with_docs": {"aggregate": NaN}, "without_docs": {"aggregate": -Infinity}}'
+    r = records.record(json.loads(text), kind="evaluations")
+    assert (r.score(CONTEXT), r.score(BASELINE)) == (None, None)
+
+
 def test_the_panels_question_key_is_read_as_question_text():
     """The panel's eval output writes `question`; it is the same field."""
     r = records.record({"question_id": "q1", "question": "Why?", "delta": None,

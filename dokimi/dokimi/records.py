@@ -55,6 +55,7 @@ condition, and :meth:`Record.score` returns ``None``.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -526,8 +527,11 @@ def _text(value: Any) -> Optional[str]:
 
 
 def _number(value: Any) -> Optional[float]:
-    """``value`` when it is an int or float (not a bool), unchanged; else ``None``."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    """``value`` when it is a finite int or float (not a bool), unchanged; else ``None``.
+
+    ``json.loads`` reads ``NaN`` and ``Infinity``; neither is a score a mean can use.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         return None
     return value
 
