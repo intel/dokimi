@@ -860,5 +860,42 @@ def _print_headline(artifact: dict) -> None:
         f"degraded: {paired['lenient']['degraded']}, "
         f"dead tokens: {artifact['spans'].get('frac_carrying_nothing')}"
     )
+    _print_coverage(artifact.get("bundle") or {})
     for warning in artifact.get("warnings", []):
         print(f"WARNING {warning}", file=sys.stderr)
+
+
+def _print_coverage(bundle: dict) -> None:
+    """How much of the artifact's readable words this run read, on stdout.
+
+    The share is stated on stdout because the headline is what a user copies. A run under
+    the floor also says so on stdout: a stderr-only warning is one a user piping the
+    headline never sees, and a rate quoted off half-read skill is not a property of it.
+    """
+    from dokimi.novelty.bundle import MEASURED_SHARE_WARN_AT, Coverage
+
+    coverage = Coverage.from_record(bundle)
+    if coverage is None or not coverage.denominator("readable"):
+        return
+    share = coverage.measured_share
+    scope = "" if coverage.include_resources else " (entry point only)"
+    # The warnings below need readable words outside the entry point, so the flag always adds some.
+    rerun = "" if coverage.include_resources else "; pass --include-resources to measure the bundled files"
+    if share is None:
+        print("coverage: unknown (a bundled file did not decode, so its words are not "
+              f"counted){scope}")
+        # The share is unknowable, but a floor on what was left unread is not: for an
+        # entry-point run it is the stderr warning's figure, and a capped bundle run has one too.
+        if coverage.counted_unmeasured_share >= 1 - MEASURED_SHARE_WARN_AT:
+            part = "what this run read is" if coverage.include_resources else "the entry point is"
+            print(f"WARNING: {part} half or less of the artifact's readable words, so every "
+                  f"rate here describes that part, not the artifact{rerun}")
+        return
+    # Floored on the 4-place share, in integers: a float product floors 0.29 to 28, and
+    # 49.99% must not print as "50%" beside a "below 50%" warning. A true 49.996% is already
+    # 0.5 by the time it is stored.
+    pct = "<1%" if 0 < share < 0.01 else f"{round(share * 10000) // 100}%"
+    print(f"coverage: {pct} of the artifact's readable words were measured{scope}")
+    if share <= MEASURED_SHARE_WARN_AT:
+        print(f"WARNING: only {pct} of the artifact's readable words were measured, so every "
+              f"rate here describes that part, not the artifact{rerun}")
