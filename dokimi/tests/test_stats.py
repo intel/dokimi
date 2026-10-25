@@ -425,6 +425,18 @@ def test_mean_ci_falls_back_and_collapses_on_degenerate_input():
     assert degenerate["method"] == "degenerate"
 
 
+@pytest.mark.parametrize("confidence", [0.0, 1.0, 1.5, -0.2])
+def test_mean_ci_rejects_a_confidence_outside_zero_one(confidence):
+    """The Student-t path must refuse what the bootstrap path refuses.
+
+    Without the check, ``confidence=1.5`` reaches ``t.ppf`` outside (0, 1) and
+    the interval comes back as ``nan`` bounds instead of an error.
+    """
+    pytest.importorskip("scipy")
+    with pytest.raises(ValueError, match="confidence"):
+        stats.mean_ci([50.0, 52.0, 48.0, 51.0], confidence=confidence)
+
+
 def test_near_zero_variance_is_treated_as_degenerate():
     """Float noise must not become an "effect: large" verdict.
 
