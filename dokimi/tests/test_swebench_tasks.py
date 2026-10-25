@@ -114,6 +114,21 @@ def test_a_row_without_a_test_spec_or_a_field_is_refused(tmp_path):
         repo_spec("pytest-dev/pytest", "0.0")
 
 
+
+def test_an_unsafe_or_duplicate_instance_id_is_refused(tmp_path):
+    row = _row(PYTEST_ID)
+    for bad in ("../../escaped__x-1", str(tmp_path / "abs__x-1"), "a/b", ".hidden"):
+        with pytest.raises(SweBenchError, match="instance_id must match"):
+            stage(dict(row, instance_id=bad), tmp_path / "root")
+    assert list(tmp_path.iterdir()) == []
+    data = tmp_path / "dup.json"
+    data.write_text(json.dumps([row, dict(row, patch="SECOND")]), encoding="utf-8")
+    for ids in (None, [PYTEST_ID]):
+        with pytest.raises(SweBenchError, match=f"duplicate instance_id {PYTEST_ID}"):
+            load_swebench(data, tmp_path / "d", ids)
+    assert not (tmp_path / "d").exists()
+
+
 # ── the eval script ──────────────────────────────────────────────────────────
 
 
