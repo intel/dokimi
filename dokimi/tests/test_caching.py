@@ -121,7 +121,9 @@ def test_supports_explicit_cache(provider, model, expected):
 
 
 @pytest.mark.parametrize("value,enabled", [("0", False), ("false", False), ("off", False),
-                                           ("", False), ("1", True), ("yes", True)])
+                                           ("", False), ("1", True), ("yes", True),
+                                           (" off ", False), ("OFF", False),
+                                           ("False\n", False)])
 def test_prompt_cache_env_switch(monkeypatch, value, enabled):
     monkeypatch.setenv(caching.PROMPT_CACHE_ENV, value)
     assert caching.prompt_cache_enabled() is enabled
