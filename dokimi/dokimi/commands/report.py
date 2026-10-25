@@ -150,8 +150,12 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
 
     # Save output
     output_path = Path(args.output) if args.output else Path(f"reports/{args.product}.{args.format}")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(report, encoding="utf-8")
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(report, encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot write {output_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
 
     print(f"\n✅ Generated report: {output_path}")
 

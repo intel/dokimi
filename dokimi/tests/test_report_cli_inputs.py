@@ -56,6 +56,29 @@ def test_eval_json_that_is_not_an_object_is_rejected(tmp_path, capsys, text):
     assert f"Error: {bad} must hold a JSON object" in _err(tmp_path, bad, capsys)
 
 
+@pytest.mark.parametrize("target", ["is_a_directory", "parent_is_a_file"])
+def test_an_unwritable_output_exits_1_naming_the_path(tmp_path, capsys, monkeypatch, target):
+    monkeypatch.setattr("dokimi.report.ReportGenerator.generate_report", lambda self, **kw: "report")
+    ev = tmp_path / "ev.json"
+    ev.write_text('{"evaluations": []}', encoding="utf-8")
+    questions = tmp_path / "questions.json"
+    questions.write_text('{"questions": []}', encoding="utf-8")
+    if target == "is_a_directory":
+        out = tmp_path / "out.md"
+        out.mkdir()
+    else:
+        (tmp_path / "blocker").write_text("x", encoding="utf-8")
+        out = tmp_path / "blocker" / "out.md"
+    args = build_parser().parse_args([
+        "report", "generate", "--product", "p", "--eval", str(ev),
+        "--questions", str(questions), "--output", str(out),
+    ])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert f"Error: cannot write {out}" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("evaluations", ["null", "5"])
 def test_non_list_evaluations_exit_1_with_its_path(tmp_path, capsys, evaluations):
     bad = tmp_path / "evd.json"
