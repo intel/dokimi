@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
+from dokimi.commands.inputs import read_text_or_exit
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -74,6 +75,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
                   "at a dollar figure.", file=sys.stderr)
         return
 
+    placebo_text = read_text_or_exit(args.placebo_text, "--placebo-text")
     extractor, answerer, judge = _clients(args)
     config = AnalyzeConfig(
         artifact_ref=args.artifact,
@@ -85,10 +87,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         budgets=tuple(args.budgets),
         concurrency=args.concurrency,
         allow_self_judge=args.allow_self_judge,
-        placebo_text=(
-            Path(args.placebo_text).read_text(encoding="utf-8")
-            if args.placebo_text else None
-        ),
+        placebo_text=placebo_text,
         cache_dir=Path(args.cache_dir) if args.cache_dir else None,
         seed=args.seed,
         include_resources=args.include_resources,
@@ -168,6 +167,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     for note in verdict.notes:
         print(note, file=sys.stderr)
     settings = _settings(args)
+    placebo_text = read_text_or_exit(args.placebo_text, "--placebo-text")
     extractor, answerer, judge = _clients(args)
     if saved.get("extractor") == answerer.model:
         print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
@@ -189,9 +189,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             atoms, probe_set.probes, verdict.text, answerer=answerer, judge=judge,
             arms=_arms(args.arms), concurrency=args.concurrency,
             allow_self_judge=args.allow_self_judge, seed=args.seed,
-            placebo_text=(
-                Path(args.placebo_text).read_text(encoding="utf-8") if args.placebo_text else None
-            ),
+            placebo_text=placebo_text,
         )
     except (SelfJudgeError, ValueError) as exc:
         raise SystemExit(str(exc)) from None
