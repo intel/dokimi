@@ -173,9 +173,22 @@ def _answers_by_id(answers_path: str) -> dict[str, Record]:
     return out
 
 
+def _load_eval(eval_path: str) -> dict:
+    """The eval file's JSON object, or a RecordError naming the file."""
+    try:
+        with open(eval_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except OSError as exc:
+        raise RecordError(f"cannot read {eval_path}: {exc}") from exc
+    except ValueError as exc:  # not JSON, or not UTF-8
+        raise RecordError(f"{eval_path} is not valid UTF-8 JSON: {exc}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("evaluations"), list):
+        raise RecordError(f"{eval_path} is not a JSON object with an `evaluations` list")
+    return data
+
+
 def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = None):
-    with open(eval_path, encoding="utf-8") as f:
-        data = json.load(f)
+    data = _load_eval(eval_path)
 
     evals = records(data["evaluations"], source=eval_path, kind="evaluations")
     meta = data.get("run_metadata", {})
