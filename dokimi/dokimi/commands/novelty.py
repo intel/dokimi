@@ -414,14 +414,14 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     """Score shortening candidates on the five axes and optionally write the best one."""
-    from dokimi.novelty.analyze import load_artifact_text
+    from dokimi.novelty.artifact import load_artifact_or_exit
     from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import entry_point_only
     from dokimi.novelty.retention import RetentionOracle, error_warning
     from dokimi.novelty.shorten import build_candidates, pick_best
 
     atoms, spans = load_atoms_or_exit(args.atoms)
-    _kind, _name, _description, frontmatter, _body = load_artifact_text(args.artifact)
+    _kind, _name, _description, frontmatter, _body = load_artifact_or_exit(args.artifact)
     saved = json.loads(Path(args.atoms).read_text(encoding="utf-8"))
     try:
         spans, atoms, note = entry_point_only(saved.get("bundle"), spans, atoms)
