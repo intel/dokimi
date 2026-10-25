@@ -132,6 +132,9 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
     # set is validated when it is written.
     try:
         raw = load_questions(args.questions, validate=False).questions
+    except OSError as exc:
+        print(f"Error: cannot read {args.questions}: {exc}", file=sys.stderr)
+        sys.exit(1)
     except ValueError as exc:  # ArtifactValidationError: malformed JSON structure
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
