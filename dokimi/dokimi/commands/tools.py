@@ -91,6 +91,15 @@ def _print_skipped(skipped: dict, n_groups: int) -> None:
         print(f"  {factor}: skipped for {len(ids)} of {n_groups} groups ({', '.join(ids)})")
 
 
+def _write_items(path: str, items: list) -> None:
+    """Write the probe items to ``path``, or exit 1 naming it when it cannot be written."""
+    try:
+        Path(path).write_text(json.dumps(items, indent=1), encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot write --items-out {path}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+
 def cmd_tools_preference(args: argparse.Namespace) -> None:
     from dokimi.artifacts import save_artifact
     from dokimi import tool_preference as tp
@@ -110,7 +119,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
           + (f", stopping at ${args.max_cost_usd:g}" if args.max_cost_usd else ""))
     _print_skipped(tp.skipped_factors(doc, factors), len(doc["groups"]))
     if args.items_out:
-        Path(args.items_out).write_text(json.dumps(items, indent=1), encoding="utf-8")
+        _write_items(args.items_out, items)
         print(f"items -> {args.items_out}")
     if args.dry_run:
         return
