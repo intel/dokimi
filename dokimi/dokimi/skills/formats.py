@@ -179,7 +179,11 @@ def _manifest(path: Path, fmt: str) -> SkillPackage:
     if fmt == FORMAT_GEMINI_EXTENSION:
         pkg.details["context_file"] = data.get("contextFileName") or (
             "GEMINI.md" if (bundle / "GEMINI.md").is_file() else None)
-        pkg.details["mcp_servers"] = len(data.get("mcpServers") or {})
+        servers = data.get("mcpServers") or {}
+        if isinstance(servers, dict):
+            pkg.details["mcp_servers"] = len(servers)
+        else:
+            pkg.problems.append("mcpServers is not an object")
     return pkg
 
 

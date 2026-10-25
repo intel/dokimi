@@ -87,6 +87,16 @@ def test_every_loadable_package_is_one_the_skill_loader_loads(tmp_path):
     assert loadable == {s.name for s in discover_skills(root)} - {"x"}
 
 
+def test_a_malformed_manifest_is_a_problem_not_a_crash(tmp_path):
+    for value in (5, True, "abc"):
+        root = tmp_path / str(value)
+        _w(root / "ext/gemini-extension.json", json.dumps({"name": "e", "mcpServers": value}))
+        _skill(root / "s/ok", "ok")
+        by_format = {p.format: p for p in sf.detect_skill_packages(root)}
+        ext = by_format["gemini-extension"]
+        assert ext.problems == ["mcpServers is not an object"] and "mcp_servers" not in ext.details
+        assert by_format["agent-skill"].name == "ok"
+
 def test_spec_lint_rules():
     f = Path("a-b/SKILL.md")
     assert sf.lint_agent_skill({"name": "a-b", "description": "d"}, f) == []
