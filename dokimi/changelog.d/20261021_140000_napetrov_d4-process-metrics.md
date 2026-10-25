@@ -1,7 +1,7 @@
 ### Added
 
 - **Process metrics in `result.json`** — every `repo run` cell's `result.json` has a
-  `process` object counted from `events.jsonl`: `tool_calls`, `commands`,
+  `process` object (`null` when the agent left no readable trace) counted from `events.jsonl`: `tool_calls`, `commands`,
   `failed_commands` (not denied, `rc` neither 0 nor null), `denied_commands`, and `guidance_read` (the
   workspace paths read, not denied, that the manifest's guidance globs match). A manifest's new `process_metrics:` maps
   a name to a regex, searched in each command's text, or its `output` (`match: output|any`),
