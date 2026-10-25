@@ -659,15 +659,18 @@ def test_a_repeat_run_through_the_cli_writes_the_noise_block(tmp_path, monkeypat
     assert "noise    2 repeats per query" in capsys.readouterr().out
 
 
-def test_repeats_without_a_model_are_refused_on_the_cli(tmp_path):
+@pytest.mark.parametrize("repeats", ["2", "3"])
+def test_repeats_without_a_model_are_refused_on_the_cli(tmp_path, repeats):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
+    out = tmp_path / "routing.json"
     args = _parse("novelty", "routing",
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--repeats", "3")
+                  "--queries", str(queries), "--repeats", repeats, "--out", str(out))
     with pytest.raises(SystemExit, match="needs --model"):
         args.func(args)
+    assert not out.exists()
 
 
 def test_a_declining_model_is_named_on_the_cli_with_where_its_replies_are(
