@@ -659,12 +659,24 @@ def _readable_record(**over):
 
 
 def test_an_undecodable_file_in_a_bundle_run_does_not_claim_an_entry_point_only_warning(capsys):
-    # --include-resources was passed: the unknown-share line must not say the entry point is
-    # half or less of the words, which is false for a bundle run.
-    record = _readable_record(include_resources=True, unreadable_files=1)
+    # --include-resources was passed and every counted word was read: the unknown-share line
+    # must not say the entry point is half or less of the words, which is false for a bundle run.
+    record = _readable_record(include_resources=True, unreadable_files=1,
+                              resource_words_measured=30)
     novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record))
     out = capsys.readouterr().out
     assert "coverage: unknown" in out and "WARNING" not in out
+
+
+def test_an_undecodable_file_in_a_capped_bundle_run_still_warns(capsys):
+    # The budgets left 30 of the 40 counted words unread; the undecoded file's words are unread
+    # too, so this run read at most a quarter, and stdout says so as it does without that file.
+    record = _readable_record(include_resources=True, unreadable_files=1)
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record))
+    out = capsys.readouterr().out
+    assert "coverage: unknown" in out
+    assert "WARNING: what this run read is half or less of the artifact's readable words" in out
+    assert "entry point" not in out and "--include-resources" not in out
 
 
 def test_an_unknown_share_warns_at_exactly_half_as_the_stderr_warning_does(capsys):

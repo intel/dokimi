@@ -253,6 +253,15 @@ class Coverage:
         """
         return self.outside_share_on("readable")
 
+    @property
+    def counted_unmeasured_share(self) -> float:
+        """Share of the counted readable words this run did not read, to 4 places.
+
+        Known even when a file did not decode, and then a floor: that file's words are
+        unread too. For an entry-point run it equals ``outside_share_on("readable")``.
+        """
+        return _share(self.unmeasured_words, self.denominator("readable"))
+
     def unmeasured_share(self, basis: str) -> float | None:
         """Share of the ``basis`` words this run did not read; ``None`` when unknowable.
 

@@ -884,12 +884,12 @@ def _print_coverage(bundle: dict) -> None:
     if share is None:
         print("coverage: unknown (a bundled file did not decode, so its words are not "
               f"counted){scope}")
-        # The share is unknowable, but the entry point's part of the readable words is not:
-        # the stderr warning fires on it, so stdout says it too.
-        if (not coverage.include_resources
-                and coverage.outside_share_on("readable") >= 1 - MEASURED_SHARE_WARN_AT):
-            print("WARNING: the entry point is half or less of the artifact's readable words, "
-                  f"so every rate here describes that part, not the artifact{rerun}")
+        # The share is unknowable, but a floor on what was left unread is not: for an
+        # entry-point run it is the stderr warning's figure, and a capped bundle run has one too.
+        if coverage.counted_unmeasured_share >= 1 - MEASURED_SHARE_WARN_AT:
+            part = "what this run read is" if coverage.include_resources else "the entry point is"
+            print(f"WARNING: {part} half or less of the artifact's readable words, so every "
+                  f"rate here describes that part, not the artifact{rerun}")
         return
     # Floored on the 4-place share, in integers: a float product floors 0.29 to 28, and
     # 49.99% must not print as "50%" beside a "below 50%" warning. A true 49.996% is already

@@ -14,5 +14,5 @@
   as before. The stdout line is wider than the stderr one in two cases: a `--include-resources`
   run whose word budgets left half or more of the readable words unread now warns on stdout
   (its `warnings` list is unchanged), and `coverage: unknown` (a bundled file did not decode)
-  keeps the `(entry point only)` scope and warns when the entry point is half or less of the
-  readable words. `bundle.measured_share` is `null` when the share is unknowable.
+  keeps the `(entry point only)` scope and warns when the words it counted show the run read
+  half or less of the readable words (the entry point, or a bundle run capped by the budgets). `bundle.measured_share` is `null` when the share is unknowable.
