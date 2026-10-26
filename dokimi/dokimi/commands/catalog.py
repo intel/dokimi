@@ -102,7 +102,7 @@ def _scan_tasks(args: argparse.Namespace, root: Path, report: dict, as_json: boo
     try:
         tasks = read_task_manifest(root, tasks_subdir=args.tasks_subdir)
     except ValueError as exc:
-        raise SystemExit(f"suites.json: {exc}") from exc
+        raise SystemExit(str(exc)) from exc
     if not as_json:
         print(f"# tasks ({len(tasks)} declared under {root})")
     failed = False
