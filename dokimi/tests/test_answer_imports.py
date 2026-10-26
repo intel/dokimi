@@ -176,6 +176,19 @@ def test_openai_includes_and_modelgraded_fact(tmp_path):
     assert _checks(fact)[0]["reference"] == "x = 3"
 
 
+_EVALS = Path(__file__).parent / "fixtures" / "task_formats" / "openai-evals" / "registry"
+
+
+def test_openai_modelgraded_rows_without_ideal_import():
+    data = _EVALS / "data" / "test_modelgraded" / "joke_fruits.jsonl"
+    humor = import_path(data, fmt="openai-evals", grader=str(_EVALS / "evals" / "test-modelgraded.yaml"))
+    assert humor.questions[0]["question"] == "write a 1-2 funny lines about apple"
+    # The humor spec's prompt is not in the registry YAML: nothing to grade against, so not counted.
+    assert _checks(humor) == [{"type": "unsupported", "native": "modelgraded:humor"}]
+    with pytest.raises(ValueError, match="no questions"):  # a Match row still needs its ideal
+        import_path(data, fmt="openai-evals", grader="match")
+
+
 def test_openai_custom_eval_class_is_refused(tmp_path):
     data = _jsonl(tmp_path / "s.jsonl", _BORN)
     yaml = _write(tmp_path / "c.yaml", "c.dev.v0:\n  class: evals.elsuite.custom:Thing\n  args: {}\n")

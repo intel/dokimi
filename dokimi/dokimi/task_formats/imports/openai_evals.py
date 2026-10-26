@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from dokimi.task_formats.imports.common import (
-    Imported, as_list, judge, match, question, render_input,
+    Imported, as_list, judge, match, question, render_input, unsupported,
 )
 from dokimi.task_formats.source import FileSource
 
@@ -93,6 +93,10 @@ def _checks(template: str, args: Mapping[str, Any], ideals: list[Any], imp: Impo
     spec_args = args.get("modelgraded_spec_args")
     criteria = spec_args.get("criteria") if isinstance(spec_args, Mapping) else None
     reference = " | ".join(texts)
+    if not (criteria or reference):
+        # The spec's own prompt lives in registry/modelgraded/<spec>.yaml, which is not read.
+        imp.note(f"modelgraded spec `{spec}` with no ideal and no criteria: not graded")
+        return [unsupported(f"modelgraded:{spec}")]
     return [judge(criterion=str(criteria or ""), reference=reference, native=f"modelgraded:{spec}")]
 
 
@@ -106,10 +110,11 @@ def import_file(path: Path, *, grader: Optional[str] = None) -> Imported:
     if args.get("num_few_shot"):
         imp.note("few-shot samples (num_few_shot) not added")
     for i, row in enumerate(rows):
-        if "input" not in row or "ideal" not in row:
+        # ModelBasedClassify rows often carry only `input`: the spec grades the completion alone.
+        if "input" not in row or ("ideal" not in row and not template.startswith("modelgraded")):
             imp.note("row without input or ideal skipped")
             continue
-        ideals = as_list(row["ideal"])
+        ideals = as_list(row.get("ideal"))
         text = render_input(row["input"], imp)
         checks = _checks(template, args, ideals, imp)
         imp.questions.append(question(
