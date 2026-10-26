@@ -85,7 +85,7 @@ def cmd_personas_approve(args: argparse.Namespace) -> None:
         print(f"✗ Cannot read {persona_file}: {e}", file=sys.stderr)
         sys.exit(1)
     except ValueError as e:  # JSONDecodeError and bad UTF-8
-        print(f"✗ Invalid JSON: {e}", file=sys.stderr)
+        print(f"✗ Cannot parse {persona_file}: {e}", file=sys.stderr)
         sys.exit(1)
 
     required_keys = {"product", "personas"}
