@@ -254,6 +254,8 @@ def test_validate_grading_names_the_problem():
     ({"checks": [{"type": "match", "values": [""]}]}, "match has a blank value"),
     ({"checks": [{"type": "match", "values": ["x", "  "]}]}, "match has a blank value"),
     ({"checks": [{"type": "match", "values": [" "]}]}, "match has a blank value"),
+    ({"checks": [{"type": "match", "values": ["..."]}]}, "match has a blank value"),
+    ({"checks": [{"type": "match", "values": ["x", "!!"], "strip": False}]}, "match has a blank value"),
     ({"checks": [{"type": "regex", "values": [""]}]}, "regex has a blank value"),
     ({"checks": [{"type": "match", "values": ["x"], "weight": -1}]}, "weight must not be negative"),
 ])
@@ -320,6 +322,17 @@ def test_no_retrieval_placeholder_is_unscored_not_graded():
 def test_grading_by_id_refuses_an_ungradable_block():
     with pytest.raises(ValueError, match="2: check 0: unknown type"):
         grading_by_id([{"id": "2", "question": "q", "grading": {"checks": [{"type": "bogus"}]}}])
+
+
+@pytest.mark.parametrize("value, location", [("...", "end"), ("!!", "any")])
+def test_a_punctuation_only_match_value_is_refused_not_passed(value, location):
+    # Under the default ignore_punctuation the value is "", which every answer contains.
+    check = {"type": "match", "values": [value], "location": location}
+    with pytest.raises(ValueError, match="1: check 0: match has a blank value"):
+        grading_by_id([{"id": "1", "question": "q", "grading": {"checks": [check]}}])
+    kept = {"checks": [{**check, "ignore_punctuation": False}]}
+    assert validate_grading(kept) == []
+    assert grade(kept, "Q?", "I refuse to answer").passed is False
 
 
 # --- native logs ---------------------------------------------------------------------------------

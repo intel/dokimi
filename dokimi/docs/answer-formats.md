@@ -61,8 +61,9 @@ question is `<testIdx>` when the config has one prompt and
 | `judge` | One required point (`criterion`, `reference` or both), asked of the [checklist](benchmarking-and-comparison.md) judge in both polarities. 1 when the two agree that it is covered, 0 when they agree that it is not, 0.5 when they split. | Inspect `model_graded_qa`/`model_graded_fact`; OpenAI `ModelBasedClassify` specs; promptfoo `llm-rubric`, `g-eval`, `factuality`, `model-graded-closedqa`; every skill-creator expectation |
 | `unsupported` | Listed with the native name and never counted | promptfoo `javascript`, `python`, `similar`, `cost`, `latency`, negated judge asserts (`not-llm-rubric`) and other asserts; Inspect `pattern` (it compares an extracted group with the target) and unknown Inspect scorers; a row whose `ideal` or `target` is blank or missing |
 
-A blank value is not a check. A `match` value that is blank once stripped, or
-an empty `regex` pattern, is found in every answer, so a row whose
+A blank value is not a check. A `match` value that is blank once the check has
+normalised it (stripped, and with `ignore_punctuation` on, `...` too), or an
+empty `regex` pattern, is found in every answer, so a row whose
 `ideal`/`target` is blank imports as `unsupported`, and a hand-written `values`
 list with such an entry is refused by `eval reference`. A promptfoo assert
 whose value is blank (whitespace included) imports as `unsupported` too.

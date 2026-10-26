@@ -373,11 +373,13 @@ def _number_or_none(value: Any) -> bool:
     return value is None or _is_number(value)
 
 
-def _blank(kind: str, c: Mapping[str, Any], value: Any) -> bool:
+def blank_value(kind: str, c: Mapping[str, Any], value: Any) -> bool:
     """Whether a value is found in every answer, or never met, once the check has normalised it."""
     text = str(value)
     if kind == "regex":
         return text == ""  # the empty pattern matches anywhere; " " is a real "contains a space" check
+    if kind == "match" and c.get("ignore_punctuation", True):
+        text = _strip_punct(text)  # "..." is then "", found in every answer
     if kind == "match" and not c.get("strip", True):
         return text == ""  # unstripped, " " is a real "contains a space" check
     return not text.strip()
@@ -392,7 +394,7 @@ def _check_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
         values = _values(c)
         if not values:
             out.append(f"{kind} has no values")
-        elif any(_blank(kind, c, v) for v in values):
+        elif any(blank_value(kind, c, v) for v in values):
             # A blank value is found in every answer (match, regex), so it would pass everything.
             out.append(f"{kind} has a blank value")
     if kind in DETERMINISTIC and str(c.get("mode", "any")) not in ("any", "all"):

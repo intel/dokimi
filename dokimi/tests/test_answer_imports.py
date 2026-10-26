@@ -148,6 +148,17 @@ def test_inspect_blank_or_missing_target_is_unsupported_not_a_pass(tmp_path):
     assert _checks(imp) == _checks(imp, 1) == [{"type": "unsupported", "native": "match"}]
 
 
+def test_inspect_punctuation_only_target_is_unsupported_for_match_only(tmp_path):
+    # `match` drops punctuation, so "..." would be found in every answer; `includes` keeps it.
+    path = _jsonl(tmp_path / "s.jsonl", [{"input": "q", "target": "..."},
+                                         {"input": "r", "target": ["!!", "x"]}])
+    imp = import_path(path, fmt="inspect-samples")
+    assert _checks(imp) == [{"type": "unsupported", "native": "match"}]
+    assert _checks(imp, 1)[0]["values"] == ["x"]
+    kept = import_path(path, fmt="inspect-samples", scorer="includes")
+    assert grade(kept.questions[0]["grading"], "q", "I refuse to answer").passed is False
+
+
 def test_inspect_partial_field_spec_keeps_the_default_id_and_choices_columns(tmp_path):
     _jsonl(tmp_path / "geo.jsonl", [{"id": "geo-7", "question": "Capital?", "choices": ["Lyon", "Paris"],
                                      "answer": "B"}])
@@ -265,6 +276,15 @@ def test_blank_or_empty_ideals_are_unsupported_not_a_pass_for_every_answer(tmp_p
     assert validate_grading(imp.questions[2]["grading"]) == []
 
 
+@pytest.mark.parametrize("grader", ["match", "includes"])
+def test_a_punctuation_only_ideal_is_a_real_check_not_a_pass(tmp_path, grader):
+    # OpenAI `Match`/`Includes` keep punctuation: "!!" is found only in answers that contain it.
+    data = _jsonl(tmp_path / "s.jsonl", [{"input": "q", "ideal": "!!"}])
+    grading = import_path(data, fmt="openai-evals", grader=grader).questions[0]["grading"]
+    assert validate_grading(grading) == []
+    assert grade(grading, "q", "I refuse to answer").passed is False
+
+
 def test_an_ambiguous_file_is_refused_unless_the_format_is_named():
     # Alone, joke_fruits.jsonl reads as Inspect samples or OpenAI evals rows (`tasks inspect`
     # lists the second as an alternative); only test-modelgraded.yaml says which it is.
@@ -379,6 +399,15 @@ def test_promptfoo_blank_values_are_unsupported_not_refused_later(tmp_path):
     imp = import_path(_write(tmp_path / "promptfooconfig.yaml", cfg), fmt="promptfoo")
     assert [c["type"] for c in _checks(imp)] == ["unsupported", "unsupported", "unsupported", "match"]
     assert validate_grading(imp.questions[0]["grading"]) == []
+
+
+def test_promptfoo_punctuation_only_values_are_real_checks_not_a_pass(tmp_path):
+    # promptfoo compares raw text, so "..." and "!!" are found only in answers that contain them.
+    cfg = ("prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    assert:\n"
+           "      - {type: contains, value: '...'}\n      - {type: equals, value: '!!'}\n")
+    imp = import_path(_write(tmp_path / "promptfooconfig.yaml", cfg), fmt="promptfoo")
+    assert validate_grading(imp.questions[0]["grading"]) == []
+    assert [grade({"checks": [c]}, "x", "I refuse to answer").passed for c in _checks(imp)] == [False, False]
 
 
 def test_promptfoo_two_prompts_key_by_test_and_prompt(tmp_path):
