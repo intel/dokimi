@@ -87,7 +87,8 @@ def _checks(template: str, args: Mapping[str, Any], ideals: list[Any], imp: Impo
                 values.append(json.loads(t))
             except ValueError:
                 imp.note("ideal that is not JSON dropped")
-        return [{"type": "json", "values": values}]
+        # An empty `values` means "any JSON" to the grader; with no ideal left nothing is compared.
+        return [{"type": "json", "values": values}] if values else [unsupported("json_match")]
     spec = template.split(":", 1)[1] or "unnamed"
     imp.note(f"modelgraded spec `{spec}` approximated by a yes/no judge")
     spec_args = args.get("modelgraded_spec_args")

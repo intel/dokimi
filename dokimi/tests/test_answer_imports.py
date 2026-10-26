@@ -176,6 +176,14 @@ def test_openai_includes_and_modelgraded_fact(tmp_path):
     assert _checks(fact)[0]["reference"] == "x = 3"
 
 
+def test_openai_json_match_with_no_json_ideal_is_not_any_json(tmp_path):
+    data = _jsonl(tmp_path / "s.jsonl", [{"input": "q", "ideal": "not json"}, {"input": "r", "ideal": '{"a": 1}'}])
+    imp = import_path(data, fmt="openai-evals", grader="json_match")
+    assert _checks(imp) == [{"type": "unsupported", "native": "json_match"}]
+    assert grade(imp.questions[0]["grading"], "q", '{"anything": 1}').passed is None
+    assert _checks(imp, 1) == [{"type": "json", "values": [{"a": 1}]}]
+
+
 _EVALS = Path(__file__).parent / "fixtures" / "task_formats" / "openai-evals" / "registry"
 
 
