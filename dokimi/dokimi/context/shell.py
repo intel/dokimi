@@ -23,7 +23,7 @@ HIDING = {";", "\n", "||", "&"}
 _OPERATORS = {"|", "||", "&&", ";", "&", ">", ">>", ">|", ">&", "<", "<<", "&>", "&>>", "(", ")"}
 _SHELL_WRITERS = {"sed", "perl", "echo", "printf", "cat", "tee"}  # their output written to a file is an edit
 _KEYWORDS = r"(?:if|then|else|elif|do|while|until|!|\{)"
-_NO_COMMAND = re.compile(r"^(?:for|select|fi|done|esac|\}|in|function)\b")
+_NO_COMMAND = re.compile(r"^(?:(?:for|select|fi|done|esac|in|function)\b|\}(?=[\s<>|&]|$))")
 # `-i`, `-i.bak`, `-ni`, `--in-place`: the in-place flag by its tool's own option letters, so that
 # `perl -Mstrict` is not an edit.
 _IN_PLACE = {"sed": re.compile(r"^(-[nEsrzu]*i[^-\s]*|--in-place(=.*)?)$"),
