@@ -106,6 +106,21 @@ def test_artifacts_round_trip_and_reject_an_unknown_status(tmp_path):
         save_artifact("result", result, tmp_path / "bad.json")
 
 
+@pytest.mark.parametrize("kind, where", [
+    ("plan", ("subjects", 0)), ("plan", ("suites", 0)), ("plan", ("grader",)), ("plan", ("budget",)),
+    ("result", ("cells", 0)),
+])
+def test_a_misspelled_key_in_a_closed_object_is_refused(tmp_path, kind, where):
+    plan = _plan(tmp_path)
+    artifact = copy.deepcopy(plan if kind == "plan" else _result(plan, ["pass"] * 6))
+    target = artifact
+    for part in where:
+        target = target[part]
+    target["fingerprnt"] = "typo"
+    with pytest.raises(ArtifactValidationError):
+        save_artifact(kind, artifact, tmp_path / "bad.json")
+
+
 def test_a_plan_with_two_free_variables_needs_the_tuple_form(tmp_path):
     _plan(tmp_path, varied_variable=["code", "guidance"])
     with pytest.raises(ArtifactValidationError):
