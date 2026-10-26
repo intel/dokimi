@@ -154,6 +154,38 @@ def test_a_body_repeated_under_another_name_is_a_duplicate():
         def test_a(self):
             assert run() == 1
     """,
+    # every part of the signature counts: keyword-only and positional-only fixtures,
+    # keyword-only defaults, *args and **kwargs
+    """
+    def test_a(*, tmp_path):
+        assert run() == 1
+    def test_b(*, monkeypatch):
+        assert run() == 1
+    """,
+    """
+    def test_a(tmp_path, /):
+        assert run() == 1
+    def test_b(monkeypatch, /):
+        assert run() == 1
+    """,
+    """
+    def test_a(*, x=1):
+        assert transform(x) == x * 10
+    def test_b(*, x=2):
+        assert transform(x) == x * 10
+    """,
+    """
+    def test_a(*args):
+        assert run() == 1
+    def test_b():
+        assert run() == 1
+    """,
+    """
+    def test_a(**kwargs):
+        assert run() == 1
+    def test_b():
+        assert run() == 1
+    """,
 ])
 def test_a_body_with_other_inputs_is_not_a_duplicate(source):
     assert "duplicate" not in {f for flags in _flags(source).values() for f in flags}
@@ -262,11 +294,21 @@ def test_the_report_and_json_list_every_flagged_test(tmp_path, capsys):
         ("test_mod.py", "test_x", ["no_assert"], False)]
 
 
-def test_every_file_pytest_collects_is_audited(tmp_path):
+@pytest.mark.parametrize("where", [".", "unit/llm"])
+def test_every_file_pytest_collects_is_audited(tmp_path, where):
+    folder = tmp_path / where
+    folder.mkdir(parents=True, exist_ok=True)
     for name in ("test_a.py", "b_test.py"):
-        (tmp_path / name).write_text(textwrap.dedent(FLAGGED["no_assert"]), encoding="utf-8")
+        (folder / name).write_text(textwrap.dedent(FLAGGED["no_assert"]), encoding="utf-8")
     flagged, total = atq.audit_tree(tmp_path)
     assert (sorted(Path(a.file).name for a in flagged), total) == (["b_test.py", "test_a.py"], 2)
+
+
+def test_the_report_marks_only_an_exempt_test_as_exempt():
+    flagged = [atq.Audit("tests/test_m.py", 3, "test_x", ("no_assert",), exempt=True),
+               atq.Audit("tests/test_m.py", 7, "test_y", ("no_assert",))]
+    assert atq.report(flagged, 2).splitlines()[-2:] == [
+        "tests/test_m.py::test_x  no_assert  (exempt)", "tests/test_m.py::test_y  no_assert"]
 
 
 def test_constructor_tracking_invalidates_after_mutation():
@@ -291,6 +333,18 @@ def test_tuple_comparison_is_not_mock_only():
             assert (send.call_count, out) == (1, 42)
         """)
     assert "mock_echo" not in flags["test_tuple_and_value"]
+
+
+def test_a_patched_test_that_expects_a_raise_is_not_a_mock_echo():
+    """The raise is the outcome; the called check next to it does not make it an echo."""
+    flags = _flags("""
+        def test_x():
+            with patch("m.y") as y:
+                with pytest.raises(ValueError):
+                    run()
+            assert y.called
+        """)
+    assert "mock_echo" not in flags["test_x"]
 
 
 def test_weak_assert_with_asserting_helper_is_not_type_only():
