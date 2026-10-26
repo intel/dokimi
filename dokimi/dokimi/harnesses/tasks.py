@@ -286,6 +286,9 @@ def discover_tasks(root: Path | None = None) -> list[TaskSpec]:
             # that directory still raises.
             _warn_once(f"skipping {path}: task.md has no YAML frontmatter")
             continue
+        if fmt == FORMAT_TBENCH_V1 and not tbench_v1.has_instruction(path, _load_yaml):
+            _warn_once(f"skipping {path}: task.yaml has no instruction")  # some other tool's task.yaml
+            continue
         tasks.append(load_task(path))
     return tasks
 

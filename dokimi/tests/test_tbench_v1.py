@@ -130,6 +130,16 @@ def test_discovery_finds_terminal_bench_v1_tasks(tmp_path):
         ("a", "terminal-bench-v1"), ("b", "terminal-bench-v1")]
 
 
+def test_discovery_skips_a_task_yaml_without_an_instruction(tmp_path):
+    _tb1(tmp_path, "hello-world")
+    _write(tmp_path / "not-a-task" / "task.yaml", "name: foo\nsteps: []\n")
+    _write(tmp_path / "not-a-task" / "Dockerfile", "FROM ubuntu:24.04\n")
+    with pytest.warns(UserWarning, match="not-a-task: task.yaml has no instruction"):
+        assert [t.name for t in discover_tasks(tmp_path)] == ["hello-world"]
+    with pytest.raises(ValueError, match="no instruction"):
+        load_task(tmp_path / "not-a-task")
+
+
 @pytest.mark.parametrize("edit, oracle, match", [
     (lambda p: _write(p / "docker-compose.yaml", _COMPOSE + "  db:\n    image: postgres\n"), False, "service db"),
     (lambda p: _write(p / "docker-compose.yaml", _COMPOSE + "    tmpfs: [/run]\n"), False, "client.tmpfs"),

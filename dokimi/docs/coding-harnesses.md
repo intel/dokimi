@@ -69,8 +69,8 @@ Jekyll or Hugo, an unclosed block) is an author's note, and the task loads
 from `task.toml` with a warning (none for a note without frontmatter, or with
 Hugo's TOML `+++` frontmatter, which is not frontmatter here).
 
-Discovery skips a lone `task.md` without frontmatter with a warning;
-`load_task` on it raises. A lone `task.md` with frontmatter is a task, whatever
+Discovery skips a lone `task.md` without frontmatter, and a `task.yaml`
+mapping with no `instruction`, with a warning; `load_task` on either raises. A lone `task.md` with frontmatter is a task, whatever
 its keys. One that opens with `---` but does not parse (a horizontal rule, an
 unclosed block, invalid YAML, a non-mapping) fails discovery of the whole
 root, as a malformed `task.toml` does; `coverage` skips it. YAML aliases are

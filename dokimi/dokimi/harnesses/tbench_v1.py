@@ -83,6 +83,15 @@ def is_task_dir(path: Path) -> bool:
     return (path / CONFIG).is_file() and any((path / n).is_file() for n in _SIGNALS)
 
 
+def has_instruction(path: Path, load_yaml: Callable[[str], Any]) -> bool:
+    """False for a ``task.yaml`` that parses as a mapping without an instruction (not a task)."""
+    try:
+        config = _load(path / CONFIG, load_yaml)
+    except ValueError:
+        return True  # broken, not absent: loading it reports why
+    return not isinstance(config, dict) or bool(config.get("instruction"))
+
+
 def read(path: Path, load_yaml: Callable[[str], Any]) -> tuple[dict[str, Any], str]:
     """The TaskSpec tables of the task at *path*, and its instruction.
 
