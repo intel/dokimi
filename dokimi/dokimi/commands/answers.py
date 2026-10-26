@@ -34,7 +34,7 @@ def _load_runtime_config() -> dict:
     except yaml.YAMLError as exc:
         print(f"Error: invalid YAML in {config_path}: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
-    except (OSError, ValueError) as exc:  # unreadable or not UTF-8
+    except (OSError, ValueError) as exc:  # ValueError covers bad UTF-8
         print(f"Error: cannot read {config_path}: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
     if loaded is not None and not isinstance(loaded, dict):
