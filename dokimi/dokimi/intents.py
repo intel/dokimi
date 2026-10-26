@@ -38,7 +38,7 @@ def _domain_from_config(raw_key: str, cfg: dict) -> Optional[IntentDomain]:
     """One ``domains:`` entry as an :class:`IntentDomain`, or ``None`` when its products are malformed.
 
     A blank ``products:`` or ``name:`` (YAML null) is an unset field, as an absent
-    one is: a domain with no products yet is listed, and a blank name reads as the key.
+    one is: a domain with no products yet is listed, and a null name reads as the key.
     """
     products = cfg.get("products")
     if products is None:
