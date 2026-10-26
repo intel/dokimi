@@ -13,51 +13,125 @@ for the manifest formats understood.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 
-def cmd_catalog_scan(args: argparse.Namespace) -> None:
-    from dokimi.external import read_skill_manifest, read_task_manifest
+def _skill_row(skill, review) -> dict:
+    """One skill of the scan report. ``state`` is ``error`` for a load error or an error finding,
+    ``warn`` for a warning finding only, else ``ok``. A skill that did not load has a review only
+    when its frontmatter is broken YAML, and that review's finding is its only finding."""
+    if not skill.loaded:
+        state, findings = "error", (review.findings if review else [])
+    else:
+        state, findings = review.state, review.findings
+    return {
+        "name": skill.name,
+        "manifest_status": None if skill.status is None else str(skill.status),
+        "path": str(skill.path) if skill.path else None,
+        "state": state,
+        "error": skill.error,
+        "disable_model_invocation": bool(review and review.disable_model_invocation),
+        "content_sha256": review.content_sha256 if review else None,
+        "duplicate_of": review.duplicate_of if review else None,
+        "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in findings],
+    }
 
+
+def _print_skill_row(row: dict) -> None:
+    if row["error"] is not None:
+        state = f"ERROR: {row['error']}"
+    elif row["state"] == "ok":
+        state = "ok"
+    else:
+        worst = next(f for f in row["findings"] if f["level"] == row["state"])
+        state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {worst['message']}"
+    print(f"{row['name']}\t{row['manifest_status'] or '-'}\t{row['path'] or '-'}\t{state}")
+    for f in row["findings"]:
+        print(f"  {f['level']} {f['code']}: {f['message']}")
+    if row["disable_model_invocation"]:
+        print("  note disable-model-invocation: true (the model is never offered this skill)")
+
+
+def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bool) -> bool:
+    """Review the skills under *root* into ``report``; True when the scan must exit 1."""
+    from dokimi.external import read_skill_manifest
+    from dokimi.external.validate import review_skills
+
+    try:
+        skills = read_skill_manifest(root)
+    except ValueError as exc:
+        raise SystemExit(f"skills.yaml: {exc}") from exc
+    reviews = review_skills(skills)
+    counts = {"ok": 0, "warn": 0, "error": 0}
+    failed = False
+    for skill, review in zip(skills, reviews, strict=True):
+        row = _skill_row(skill, review)
+        counts[row["state"]] += 1
+        report["skills"].append(row)
+        # A load error always fails; a spec error fails only with --strict.
+        if not skill.loaded or (args.strict and row["state"] == "error"):
+            failed = True
+    if not as_json:
+        print(
+            f"# skills ({len(skills)} declared under {root}; "
+            f"{counts['ok']} ok, {counts['warn']} warn, {counts['error']} error)"
+        )
+        for row in report["skills"]:
+            _print_skill_row(row)
+        print()
+    return failed
+
+
+def _task_row(task) -> dict:
+    return {
+        "name": task.name,
+        "manifest_status": None if task.status is None else str(task.status),
+        "track": task.track,
+        "path": str(task.path) if task.path else None,
+        "state": "ok" if task.loaded else "skipped" if task.skipped else "error",
+        "reason": task.reason,
+    }
+
+
+def _scan_tasks(args: argparse.Namespace, root: Path, report: dict, as_json: bool) -> bool:
+    """List the tasks under *root* into ``report``; True when the scan must exit 1."""
+    from dokimi.external import read_task_manifest
+
+    try:
+        tasks = read_task_manifest(root, tasks_subdir=args.tasks_subdir)
+    except ValueError as exc:
+        raise SystemExit(f"suites.json: {exc}") from exc
+    if not as_json:
+        print(f"# tasks ({len(tasks)} declared under {root})")
+    failed = False
+    for task in tasks:
+        row = _task_row(task)
+        report["tasks"].append(row)
+        failed = failed or row["state"] == "error"
+        if not as_json:
+            state = {"ok": "ok", "skipped": f"skipped: {task.reason}"}.get(
+                row["state"], f"ERROR: {task.reason}"
+            )
+            print(f"{task.name}\t{task.status or '-'}\t{task.track or '-'}\t{state}")
+    return failed
+
+
+def cmd_catalog_scan(args: argparse.Namespace) -> None:
     root = Path(args.root)
     if not root.is_dir():
         raise SystemExit(f"--root is not a directory: {root}")
 
+    as_json = args.format == "json"
+    report: dict = {"root": str(root), "skills": [], "tasks": []}
     any_failure = False
-
     if args.kind in ("skills", "all"):
-        try:
-            skills = read_skill_manifest(root)
-        except ValueError as exc:
-            raise SystemExit(f"skills.yaml: {exc}") from exc
-        print(f"# skills ({len(skills)} declared under {root})")
-        for skill in skills:
-            state = "ok" if skill.loaded else f"ERROR: {skill.error}"
-            status = skill.status or "-"
-            print(f"{skill.name}\t{status}\t{skill.path}\t{state}")
-            if not skill.loaded:
-                any_failure = True
-        print()
-
+        any_failure = _scan_skills(args, root, report, as_json)
     if args.kind in ("tasks", "all"):
-        try:
-            tasks = read_task_manifest(root, tasks_subdir=args.tasks_subdir)
-        except ValueError as exc:
-            raise SystemExit(f"suites.json: {exc}") from exc
-        print(f"# tasks ({len(tasks)} declared under {root})")
-        for task in tasks:
-            if task.loaded:
-                state = "ok"
-            elif task.skipped:
-                state = f"skipped: {task.reason}"
-            else:
-                state = f"ERROR: {task.reason}"
-                any_failure = True
-            track = task.track or "-"
-            status = task.status or "-"
-            print(f"{task.name}\t{status}\t{track}\t{state}")
-
+        any_failure = _scan_tasks(args, root, report, as_json) or any_failure
+    if as_json:
+        print(json.dumps(report, indent=2))
     if any_failure:
         raise SystemExit(1)
 
@@ -67,7 +141,6 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
 
     from dokimi.external import trigger_set as ts
     from dokimi.skills import discover_skills
-    from dokimi.utils import read_json_input
 
     catalog_root = Path(args.catalog)
     if not catalog_root.is_dir():
@@ -80,16 +153,11 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         if args.target not in {s.name for s in catalog}:
             raise SystemExit(f"--target {args.target!r} is not a skill in --catalog "
                              f"(have: {', '.join(sorted(s.name for s in catalog))})")
-    sources = []
-    for spec in args.questions:
-        path, _, rule = spec.rpartition("=")  # labels never contain '=', paths may
-        if not path or not rule:
-            raise SystemExit(f"--questions needs PATH=LABEL (a skill name, 'none' or '@field'): {spec}")
-        data = read_json_input(path, flag="--questions")
-        questions = data.get("questions", data) if isinstance(data, dict) else data
-        if not isinstance(questions, list) or not all(isinstance(q, dict) for q in questions):
-            raise SystemExit(f"{path}: expected a list of question objects")
-        sources.append((questions, rule))
+    sources = _question_sources(args.questions or [])
+    sources += _trigger_set_sources(args.trigger_set or [], catalog)
+    if not sources:
+        raise SystemExit("give --questions PATH=LABEL or --trigger-set PATH[=TARGET]")
+    specs = list(args.questions or []) + list(args.trigger_set or [])
 
     rewrite = None
     if args.rewrite:
@@ -107,7 +175,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     # An @field rule that resolves for no question in its source is a typo in the
     # path, not a set of negatives; refuse it rather than write "nothing loads".
     start = 0
-    for (qs, rule), spec in zip(sources, args.questions, strict=True):
+    for (qs, rule), spec in zip(sources, specs, strict=True):
         chunk = queries[start:start + len(qs)]
         start += len(qs)
         if rule.startswith("@") and chunk and not any(q.labelled for q in chunk):
@@ -143,6 +211,86 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     print(f"wrote {args.out} ({args.format}, {n_out} queries, catalog of {len(catalog)})")
 
 
+def cmd_catalog_formats(args: argparse.Namespace) -> None:
+    import json
+
+    from dokimi.skills import formats
+
+    root = Path(args.root)
+    if not root.is_dir():
+        raise SystemExit(f"--root is not a directory: {root}")
+    packages = formats.detect_skill_packages(root)
+    summary = formats.summarize(packages)
+    if args.json:
+        print(json.dumps({"root": str(root), "summary": summary,
+                          "packages": [p.to_dict(root) for p in packages]}, indent=2))
+        return
+    for p in packages:
+        problems = "; ".join(p.problems) or "ok"
+        print(f"{p.format}\t{p.name or '-'}\t{p.selected_by}\t{p.host or '-'}\t"
+              f"{p.path.relative_to(root).as_posix()}\t{problems}")
+    print()
+    for fmt, row in summary.items():
+        print(f"# {fmt}: {row['n']} ({row['loadable']} loadable as skills, "
+              f"{row['with_problems']} with problems); selected by {row['selected_by']}")
+
+
+def _question_sources(specs: list) -> list:
+    """Each ``--questions PATH=LABEL`` as a (questions, rule) source."""
+    from dokimi.utils import read_json_input
+
+    sources = []
+    for spec in specs:
+        path, _, rule = spec.rpartition("=")  # labels never contain '=', paths may
+        if not path or not rule:
+            raise SystemExit(f"--questions needs PATH=LABEL (a skill name, 'none' or '@field'): {spec}")
+        data = read_json_input(path, flag="--questions")
+        questions = data.get("questions", data) if isinstance(data, dict) else data
+        if not isinstance(questions, list) or not all(isinstance(q, dict) for q in questions):
+            raise SystemExit(f"{path}: expected a list of question objects")
+        sources.append((questions, rule))
+    return sources
+
+
+def _trigger_set_sources(specs: list, catalog) -> list:
+    """Each ``--trigger-set PATH[=TARGET]`` read back as a (questions, rule) source.
+
+    The set is read into the canonical trigger model and handed on as questions
+    labelled by their own ``expected_skill``, so it is linted (and rewritten) like
+    any other source. TARGET names the skill a skill-creator set was written for.
+    """
+    from dokimi.external import trigger_set as ts
+    from dokimi.utils import read_json_input
+
+    names = {s.name for s in catalog}
+    out = []
+    for spec in specs:
+        path, target = spec, None
+        if not Path(spec).exists() and "=" in spec:
+            path, _, target = spec.rpartition("=")
+        data = read_json_input(path, flag="--trigger-set")
+        try:
+            fmt, queries = ts.read_trigger_set(data, target=target)
+        except ValueError as exc:
+            raise SystemExit(f"{path}: {exc}") from exc
+        if fmt == ts.FORMAT_SKILL_CREATOR:
+            if target not in names:
+                raise SystemExit(f"{spec}: skill-creator target {target!r} is not a skill in "
+                                 f"--catalog (have: {', '.join(sorted(names))})")
+            if len(names) > 1:
+                print(f"note: {path}: skill-creator negatives are read as 'no skill loads'; in a "
+                      f"catalog of {len(names)} a rival load counts as a false trigger", file=sys.stderr)
+        elif target:
+            raise SystemExit(f"{spec}: =TARGET applies to skill-creator sets only, this is {fmt}")
+        print(f"read {path} as {fmt} ({len(queries)} queries)", file=sys.stderr)
+        rows = ts.to_questions(queries)["questions"]
+        for row, q in zip(rows, queries, strict=True):
+            if q.reach:
+                row[ts.REACH_FIELDS] = q.reach
+        out.append((rows, "@expected_skill"))
+    return out
+
+
 def register(sub, positive_int) -> None:
     """Add the `catalog` subcommand group."""
 
@@ -161,11 +309,32 @@ def register(sub, positive_int) -> None:
         help="Restrict the scan to skills, tasks, or both (default: all)",
     )
     scan_p.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 on a skill spec error (name not the directory name or not kebab-case, "
+        "description over 1024 characters) as well as on a skill that does not load",
+    )
+    scan_p.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="text: one line per entry; json: one object with a row per skill and task (default: text)",
+    )
+    scan_p.add_argument(
         "--tasks-subdir", default="evaluation/harbor/tasks",
         help="Task directory relative to --root (default: evaluation/harbor/tasks, "
              "the uxlfoundation/skills convention)",
     )
     scan_p.set_defaults(func=cmd_catalog_scan)
+
+    fm_p = catalog_sub.add_parser(
+        "formats",
+        help="List the skill/rule packages under --root by ecosystem (Agent Skills, Cursor "
+             "rules, Copilot instructions, Gemini extensions, Claude plugins)",
+    )
+    fm_p.add_argument("--root", required=True, help="Local checkout to scan")
+    fm_p.add_argument("--json", action="store_true", help="Print JSON instead of a table")
+    fm_p.set_defaults(func=cmd_catalog_formats)
 
     ts_p = catalog_sub.add_parser(
         "trigger-set",
@@ -173,9 +342,15 @@ def register(sub, positive_int) -> None:
     )
     ts_p.add_argument("--catalog", required=True, help="Directory of the skills the agent will see")
     ts_p.add_argument(
-        "--questions", action="append", required=True, metavar="PATH=LABEL",
+        "--questions", action="append", metavar="PATH=LABEL",
         help="Question file and its label: a skill name, 'none' (no skill should load), or "
              "'@field.path' read per question (e.g. @metadata.skill_under_test). Repeatable.",
+    )
+    ts_p.add_argument(
+        "--trigger-set", action="append", dest="trigger_set", metavar="PATH[=TARGET]",
+        help="An existing trigger set to read back: a skill-reach QuerySet, a skill-creator / "
+             "agentskills.io [{query, should_trigger}] set (=TARGET names its skill), or questions "
+             "with expected_skill. Repeatable; combines with --questions.",
     )
     ts_p.add_argument("--format", choices=["reach", "skill-creator", "questions"], default="reach",
                       help="reach: google/skill-reach QuerySet; skill-creator: one target's "

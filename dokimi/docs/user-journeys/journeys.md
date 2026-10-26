@@ -166,6 +166,16 @@ records it as a gap.
 
 - **AC-J02-005** The edited and the original skill run on the same task set, model and repetitions, and the report gives the effect with its uncertainty. *Proposed as one step; today two separate runs.*
 
+#### UC-J02-003 Improve a skill automatically
+
+A loop proposes edits to the skill, measures each on the skill's tasks and probes, and keeps what the measured reward supports: a reinforcement-style search over the skill text, not over model weights. *Research.*
+
+- **AC-J02-006** The proposer and the trace analyst see only the development split; the confirmation split is never shown to them, and the report states both splits. *Proposed.*
+- **AC-J02-007** An accepted edit is confirmed on the confirmation split with fresh trials, and its gain is reported with its interval; a gain inside the noise band is reported as no improvement. *Proposed.*
+- **AC-J02-008** Before the loop scores candidates, each verifier is run against gaming answers; a verifier that passes one blocks the loop and is reported. *Proposed.*
+- **AC-J02-009** An accepted edit that copies evaluation answers into the skill, or drops a must-hold constraint of the skill's contract, is blocked and named. *Proposed.*
+- **AC-J02-010** The loop stops at its spend cap and returns each kept edit as a diff with its measurement, for the author to accept; it never replaces the skill on its own. *Proposed.*
+
 ---
 
 ## J3 — Enable my repository for agents
@@ -226,6 +236,8 @@ working.
 #### UC-J03-001 Find what stops agents in this repository
 
 - **AC-J03-001** A static scan of a repository at a commit reports each guidance file's failing checks and writes a versioned readiness artifact; with a fail gate requested, a failing check exits non-zero.
+- **AC-J03-007** A static inspection reports, per project root, the instruction files with their scope and activation, the build, test, lint and type checks with how each is known, and launch risks such as hooks, without running anything from the repository; it writes a versioned environment artifact, and with an error gate a blocking finding exits non-zero.
+- **AC-J03-008** A context budget lists, per file, what the repository puts into an agent's context at start, lazily, on demand or not at all under a named harness profile, writes a versioned budget artifact, and with a warning gate a warning exits non-zero.
 
 #### UC-J03-002 Prepare the evaluation tree
 
@@ -236,10 +248,11 @@ working.
 - **AC-J03-003** A repeated run skips cells that already have a result, unless forced, so an interrupted batch resumes without paying twice.
 - **AC-J03-004** A task that needs network egress is refused before any cell runs, and no cell is recorded for it.
 - **AC-J03-005** A batch report lists the cells that are missing rather than averaging over what finished. *Proposed as an enforced criterion; the behaviour exists.*
+- **AC-J03-006** A task whose host requirements this host does not meet is not run: its cells are marked unsupported with the reason, the report lists them as unsupported rather than failed or missing, and a host that meets them runs those cells later.
 
 ---
 
-## J4 — Check AGENTS.md or other instructions
+## J4 — Check AGENTS.md, other instructions or installed skills
 
 **Actor and intent.** A maintainer or skill author, or their agent. "Is my
 AGENTS.md any good?" "Do agents even read it?" Trigger: new or edited guidance,
@@ -317,6 +330,15 @@ so rather than implying the fixed, reached file helps.
 #### UC-J04-004 Check the instructions improve task outcomes
 
 - **AC-J04-006** With and without the guidance, the same tasks run on the same model and repetitions, and the comparison reports the effect per task with missing cells listed.
+- **AC-J04-007** A guidance arm taken from another revision is pinned to the full commit once per batch, so a moved branch starts a new arm and never adds cells to the old one.
+- **AC-J04-008** A patch arm is recorded by path and digest, and a patch that does not apply fails that cell's preparation.
+- **AC-J04-009** For an arm that adds files, tools or servers, each cell records whether the agent used them; a comparison warns when the treatment used none, and a cell that left no trace is unmeasured, not a non-use.
+
+#### UC-J04-005 Check an installed skill reaches the agent
+
+- **AC-J04-010** A skill installed with no treatment notice runs beside the same skill announced, on the same tasks, model and repetitions, and the report gives both pass rates, their gap and both skill-invocation rates; the gap is withheld when the two arms attempted or lost different cells.
+- **AC-J04-011** Each skill cell records whether the prompt announced the skill and how much of its description the agent's skill listing shows. *Partial: the warning for a cut description is not asserted by a test.*
+- **AC-J04-012** A zero skill-invocation rate is reported as "the skill tool was not invoked", never as "the skill was not read". *Manual.*
 
 ---
 
@@ -350,6 +372,7 @@ novelty exist. A per-claim assessment report is **proposed**.
 
 - **AC-J05-001** The assessment lists each claim with its evidence or with "not verified", and does not certify general usefulness from structure checks.
 - **AC-J05-002** The assessment states the models, tasks and probe sets it covered and what it did not cover. *Manual.*
+- **AC-J05-003** A catalog scan reports each skill's Agent Skills specification violations as findings, and fails on them only in strict mode. *Proposed.*
 
 ---
 
@@ -383,6 +406,7 @@ uncertainty.
 
 - **AC-J06-001** The comparison runs on tasks the user supplied or approved, and the report names their source.
 - **AC-J06-002** The report gives the effect per task and overall, with uncertainty, against the user's current configuration.
+- **AC-J06-003** A skill or a whole catalog can be installed as an arm on the user's repository tasks, and each cell records which skills were used and whether the expected one was selected. *Proposed.*
 
 ---
 
@@ -456,6 +480,7 @@ down in the PR.
 - **AC-J07-002** The self-check fails a task whose reference solution does not pass its grader, and passes a task where null fails and oracle passes.
 - **AC-J07-003** The self-check flags an image that exposes the task tree to the agent, and reports an egress task as unsupported rather than passed.
 - **AC-J07-004** A passing self-check is not reported as evidence that the tasks are relevant or cover the subject. *Manual.*
+- **AC-J07-008** A review task can be graded by a built-in grader (seeded problems with decoys, or a replay of past review threads) with no grader in the repository; the self-check runs it on null and oracle, an empty or unparseable review scores zero recall rather than unmeasured, and an unknown built-in name is refused.
 
 #### UC-J07-002 Check an existing judge
 
@@ -471,7 +496,7 @@ down in the PR.
 
 ---
 
-## J8 — Which models can handle this?
+## J8 — Which models or harnesses can handle this?
 
 **Actor and intent.** A maintainer or team choosing a model for a task type or a
 repository. "Which models can do our work?" Trigger: a new model, or a
@@ -498,6 +523,17 @@ threshold-based feasibility verdict is **proposed**.
 
 - **AC-J08-001** Runs on different models are compared only on the same question or task set; a mismatch is reported.
 - **AC-J08-002** Each model's result states its repetitions and interval, and a model whose cells are missing is not ranked as failing.
+- **AC-J08-003** A cell answered by a model other than the one requested records the model that answered, and report and compare warn; provider-prefix spellings of one model are the same model.
+
+#### UC-J08-002 Compare harnesses on one task set
+
+- **AC-J08-004** The same tasks run under different harness profiles (Claude Code, Codex CLI, Copilot CLI) on the same arms, model and repetitions, each cell records the harness, its version and its execution settings, and harnesses are compared only on the same task set. *Proposed.*
+- **AC-J08-005** A run with subagent delegation is labelled as such and never compared as a single-agent baseline against a run without it. *Proposed.*
+
+#### UC-J08-003 Compare code-review agents
+
+- **AC-J08-006** A review task graded by seeded problems or a replayed review reports recall, false positives on decoys and severe findings per harness and model, and a review with no parseable findings counts as a failure, not dropped. *Proposed.*
+- **AC-J08-007** A harness's native review mode and the same harness given a review prompt run as separate arms on the same review tasks, and the report names which arm used the native mode. *Proposed.*
 
 ---
 
@@ -574,8 +610,11 @@ differs between them, model, repetitions, judge, spend.
 
 **Today.** Two-run and multi-run comparison on a pinned question set is
 available and traced. More than two arms run with `python cli.py arms run`.
-Declaring an arbitrary change (OS, dependency, subagents) as a variant of one
-experiment is **proposed**, as is adaptive allocation across many variants.
+For repository arms, `repo compare` warns when the compared cells ran from a
+different eval directory, image, harness version or resolved model
+(AC-J10-008, partial). Declaring an arbitrary change (OS, dependency,
+subagents) as a variant of one experiment is **proposed**, as is adaptive
+allocation across many variants.
 
 **Connections.** Underlies J2, J4 (effect), J6, J8, J9, J12, J13.
 
@@ -601,7 +640,21 @@ cost of both runs.
 
 #### UC-J10-003 Declare an arbitrary change as the variant
 
-- **AC-J10-008** An experiment declares what differs between its variants, records the resolved settings of each, and reports differences it did not declare as confounds. *Proposed.*
+- **AC-J10-008** An experiment declares what differs between its variants, records the resolved settings of each, and reports differences it did not declare as confounds. *Partial: repository arms only; `repo compare` warns in free text, not as structured confounds.*
+
+#### UC-J10-004 Know whether a result is stable
+
+- **AC-J10-009** Repeated runs of one task report pass@k, pass^k and path stability separately, so a stable success is told apart from an unstable one with the same success rate. *Proposed.*
+
+#### UC-J10-005 See how the agent worked, not only whether it passed
+
+- **AC-J10-010** Each repository cell records tool calls, failed and denied commands and guidance files read, counted over the agent and its subagents. *Proposed.*
+- **AC-J10-011** Report and compare show the process counts per arm as descriptive measures, outside the corrected significance family. *Proposed.*
+
+#### UC-J10-006 Measure a change across a multi-turn session
+
+- **AC-J10-012** A session run asks the question and its follow-ups with the history kept, records usage and cost per turn, and reports the session total with the reason the session stopped. *Proposed.*
+- **AC-J10-013** A reminder variant differs from its arm only by the reminder added to each user turn, and the comparison reports the per-turn effect, not only the final answer. *Proposed.*
 
 ---
 
@@ -633,10 +686,12 @@ explain-this-run command is **proposed**.
 
 - **AC-J11-001** A grader crash is recorded as an evaluation failure and counted as a failure, not dropped from the denominator.
 - **AC-J11-002** A sample cap reached without a decision is reported as inconclusive, never as pass.
+- **AC-J11-005** A check or run with no task, or where every cell is unsupported or errored, exits non-zero as incomplete with its counts, never as a pass. *Proposed.*
 
 #### UC-J11-002 Resume a stopped run
 
 - **AC-J11-003** Resuming runs only the missing cells and keeps the finished ones.
+- **AC-J11-004** A resumed run whose stored cell was produced under different execution settings refuses to reuse it unless forced. *Proposed.*
 
 ---
 
@@ -663,15 +718,18 @@ cost.
 (`python cli.py repo scan --fail-on-fail`). `baseline compare --strict` adds a
 non-zero exit only when a model cannot be verified or differs from the
 baseline; a regression in the scores is printed and exits 0. Failing on a regression beyond
-a threshold is **proposed** (AC-J12-001), and so is configurable blocking policy
-across check kinds (AC-J12-002).
+a threshold is **proposed** (AC-J12-001). Blocking policy is **partial**
+(AC-J12-002): `repo tasks check --allow-unsupported` decides host-unsupported
+tasks; budget-stopped and inconclusive judge results have no policy.
 
 ### Use cases and acceptance
 
 #### UC-J12-001 Gate a PR on a budgeted check
 
 - **AC-J12-001** A strict baseline comparison exits non-zero on a regression beyond the threshold.
-- **AC-J12-002** An inconclusive or budget-stopped check is reported as such, and whether it blocks is the configured policy's decision.
+- **AC-J12-002** An inconclusive or budget-stopped check is reported as such, and whether it blocks is the configured policy's decision. *Partial: one flag, for host-unsupported tasks; budget-stopped and inconclusive judge results have none.*
+- **AC-J12-003** The reusable CI check runs only the tasks a change touches, adds a smoke set when shared harness files change, and fails on an unknown task name instead of checking nothing.
+- **AC-J12-004** A gate on a run whose result lacks planned cells reports it incomplete and names the missing cells; it never passes on the cells that finished. *Proposed.*
 
 ---
 
@@ -756,6 +814,9 @@ task outcomes, and differences inside the judge band are not quoted.
 - **AC-J14-002** The estimate prices the bundle the run will actually send, and points at the spend cap.
 - **AC-J14-003** The documented authoring path (routing, estimate, extraction, probing, shortening, view) runs end to end on stub models through the CLI and writes its intermediate artifacts.
 - **AC-J14-004** Probing an inventory against an artifact that changed since extraction is refused.
+- **AC-J14-008** A novelty record states the share of the skill's readable words it did not measure and the basis of that share; the gate judges a stored record on its own stamped basis, and a record with an unknown basis is reported unmeasured.
+- **AC-J14-011** The novelty report shows a conflict count the gate did not clear as not measured, never as a clean 0.
+- **AC-J14-012** Analyze states on its output the share of readable words it measured, and warns when it is half or less. *Proposed.*
 
 #### UC-J14-002 Inspect a run's context
 
@@ -764,6 +825,8 @@ task outcomes, and differences inside the judge band are not quoted.
 #### UC-J14-003 Probe reach, routing or a judge on its own
 
 - **AC-J14-006** Each of reach, routing and judge validity can be run alone with explicit inputs and writes structured output; reach is traced under AC-J04-003.
+- **AC-J14-009** A routing run that calls a model records its calls, tokens and dollars, or no dollar figure when a call has no known price. *Proposed.*
+- **AC-J14-010** Routing builds its candidate field the way the harness does (catalog manifest, hidden skills left out, each mirror once), and with repeats reports agreement per query as its noise floor. *Proposed.*
 
 #### UC-J14-004 Re-render saved evidence
 

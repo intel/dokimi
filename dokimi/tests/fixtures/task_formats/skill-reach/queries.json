@@ -1,0 +1,27 @@
+{
+  "catalog_id": "demo",
+  "notes": "",
+  "queries": [
+    {
+      "query_id": "pdf-1",
+      "text": "Merge these two PDFs",
+      "kind": "implicit",
+      "expected_skill": "pdf-forms"
+    },
+    {
+      "query_id": "chart-1",
+      "text": "Bar chart of sales.csv",
+      "kind": "contextual",
+      "expected_skill": "charts",
+      "acceptable_skills": [
+        "plotting"
+      ]
+    },
+    {
+      "query_id": "oos-1",
+      "text": "Tell me a joke",
+      "kind": "out_of_scope",
+      "expected_skill": null
+    }
+  ]
+}
