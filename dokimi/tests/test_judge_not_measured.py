@@ -192,6 +192,35 @@ def test_cross_judge_judge_dependent_exits_1_only_with_strict(tmp_path, monkeypa
     assert _strict_exit([*argv, "--strict"]) == 1
 
 
+def test_cross_judge_strict_exits_1_when_one_of_several_arms_is_judge_dependent(tmp_path, monkeypatch, capsys):
+    import json
+
+    from dokimi.eval import judge as judge_mod
+
+    class SplitJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, *, answer, **_):  # the baseline beats skill, and skill2 beats the baseline
+            return {"aggregate": {"b": 90.0, "s": 50.0, "t": 95.0}[answer[0]]}
+
+    monkeypatch.setattr(judge_mod, "Judge", SplitJudge)
+    data = _material_run()
+    for ans in data["answers"]:  # skill2: the stored judge scores it above the baseline, as it does skill
+        ans["arms"]["skill2"] = {**ans["arms"]["skill"], "answer": "t" + ans["arms"]["skill"]["answer"][1:]}
+    for ev in data["evaluations"]:
+        ev["scores"]["skill2"] = dict(ev["scores"]["skill"])
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(path), "--judges", "amazon-bedrock/m",
+            "--output", str(tmp_path / "cj.json")]
+    assert _strict_exit(argv) == 0
+    capsys.readouterr()
+    arms = json.loads((tmp_path / "cj.json").read_text())["summary"]["arms"]
+    assert arms["skill"]["label"] == "JUDGE-DEPENDENT" and arms["skill2"]["label"] == "CONSISTENT +"
+    assert _strict_exit([*argv, "--strict"]) == 1
+
+
 def test_judge_wording_fragile_variant_exits_1_only_with_strict(tmp_path, monkeypatch, capsys):
     import json
 
