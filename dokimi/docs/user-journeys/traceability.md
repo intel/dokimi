@@ -94,7 +94,7 @@ shows the measurement and its artifact, not how any real harness behaves.
 Some claims sound alike and are not:
 
 - Instructions: correctness, reach, adherence and task effect are separate
-  criteria ([J4](journeys.md#j4--check-agentsmd-or-other-instructions)).
+  criteria ([J4](journeys.md#j4--check-agentsmd-other-instructions-or-installed-skills)).
 - Third-party skills: a structure check cannot certify general usefulness.
 - Context: telemetry about context size cannot certify downstream behaviour.
 - Evals: schema validity, grader correctness, task relevance and coverage are

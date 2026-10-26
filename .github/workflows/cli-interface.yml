@@ -12,8 +12,18 @@ name: cli-interface
 # matches the base again. The check reports; it never fails a PR for a change.
 # Fork PRs get a read-only token, so there the label and comment are skipped and
 # the CLI diff is shown only in the job summary.
+# Only for a PR that touches what the surface is dumped from (the package and
+# cli.py), the dump script or the lock it runs on. Once a PR touches one of
+# them the filter keeps matching (it compares the whole PR with its base), so a
+# later push that reverts the change still runs and clears the label.
 on:
   pull_request:
+    paths:
+      - 'dokimi/dokimi/**'
+      - 'dokimi/cli.py'
+      - 'dokimi/scripts/cli_surface.py'
+      - 'dokimi/requirements.lock.txt'
+      - '.github/workflows/cli-interface.yml'
 
 permissions:
   contents: read

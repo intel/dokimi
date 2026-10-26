@@ -139,14 +139,17 @@ class ContainerSandbox:
     @classmethod
     def open(cls, run_id: str, docker: Docker, log, *, source_env: dict[str, str],
              task_egress: Optional[list[str] | str] = None,
-             with_agent: bool = True, runner: process.Runner = process.run) -> "ContainerSandbox":
+             with_agent: bool = True, include_llm: bool = True,
+             runner: process.Runner = process.run) -> "ContainerSandbox":
+        """The network and sidecar for one run; ``include_llm`` off (the oracle) allows only *task_egress*."""
         if with_agent:
             preflight(source_env)
         binary = claude_binary() if with_agent else None
         extra_hosts = [task_egress] if isinstance(task_egress, str) else list(task_egress or [])
         # Every entry, not only the task's: a malformed one (a Vertex region with a comma)
         # fails here with its name, before the sidecar splits it into extra allowed hosts.
-        allow = [normalize_entry(h) for h in llm_hosts(source_env) + [str(h) for h in extra_hosts]]
+        llm = llm_hosts(source_env) if include_llm else []
+        allow = [normalize_entry(h) for h in llm + [str(h) for h in extra_hosts]]
         files = {v: Path(source_env[v]) for v in _FILE_VARS
                  if source_env.get(v) and Path(source_env[v]).is_file()}
         sandbox = cls(network=f"dokimi-net-{run_id}", proxy_name=f"dokimi-egress-{run_id}",
@@ -182,6 +185,21 @@ class ContainerSandbox:
                 return
             time.sleep(0.2)
         raise RuntimeError(f"egress proxy {self.proxy_name} did not start; see run.log")
+
+    def verifier_sidecar(self, docker: Docker, log, allow: list[str]) -> "ContainerSandbox":
+        """A fresh sidecar on this network for the verifier's allowlist, after :meth:`stop_proxy`.
+
+        Its own name and decision log; no LLM hosts. The caller stops it before :meth:`close`.
+        """
+        side = ContainerSandbox(network=self.network, proxy_name=f"{self.proxy_name}-verify",
+                                allow=sorted(allow), binary=None, label=self.label, runner=self.runner)
+        docker(["rm", "-f", side.proxy_name], log, check=False)
+        try:
+            side._start_proxy(docker, log)
+        except BaseException:  # started, it holds the upstream proxy env and the network: close() can't see it
+            docker(["rm", "-f", side.proxy_name], log, check=False)
+            raise
+        return side
 
     @property
     def proxy_url(self) -> str:
