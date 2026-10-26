@@ -60,6 +60,22 @@ def _planned_cells(plan_path: Path) -> set[str]:
     return set(cells)
 
 
+_AGENT_KEYS = ("timed_out", "is_error", "over_budget", "cost_usd", "num_turns")
+
+
+def _check_cell(path: Path, rec: dict[str, Any]) -> None:
+    """Raise a :class:`CellFileError` unless ``rec`` has the fields the report and compare read."""
+    grade = rec.get("grade")
+    if not isinstance(grade, dict) or "status" not in grade:
+        raise CellFileError(f"{path} has no usable `grade`")
+    agent = rec.get("agent")
+    if not isinstance(agent, dict) or any(k not in agent for k in _AGENT_KEYS):
+        raise CellFileError(f"{path} has no usable `agent`")
+    for key in ("task", "arm", "model"):
+        if not isinstance(rec.get(key), str):
+            raise CellFileError(f"{path} has no usable `{key}`")
+
+
 def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
     """Finished cells (their ``result.json``) and the names of missing ones."""
     plan_path = batch_dir / "_eval" / "plan.json"
@@ -68,9 +84,7 @@ def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
     finished = []
     for path in sorted(batch_dir.glob("*/result.json")):
         rec = _read_object(path)
-        grade = rec.get("grade")
-        if not isinstance(grade, dict) or "status" not in grade:
-            raise CellFileError(f"{path} has no usable `grade`")
+        _check_cell(path, rec)
         rec["cell"] = path.parent.name
         # The row's kind is the task's, not what its cells' grades say. The runner records it from the
         # eval dir's task.json; the cell's copy is in the run dir, which the grader could rewrite.

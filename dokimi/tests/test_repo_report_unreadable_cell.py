@@ -94,3 +94,32 @@ def test_a_result_file_without_a_usable_grade_exits_1(tmp_path, capsys, argv, co
     err = capsys.readouterr().err
     assert f"{batch / 't__a__m__r1' / 'result.json'} has no usable `grade`" in err
     assert "Traceback" not in err
+
+
+_GOOD = {"grade": {"status": "ok", "score_only": False, "success": True}, "task": "t", "arm": "a", "model": "m",
+         "agent": {"timed_out": False, "is_error": False, "over_budget": False, "cost_usd": 0.1, "num_turns": 2}}
+
+_BAD_FIELDS = [
+    pytest.param("agent", None, id="missing-agent"),
+    pytest.param("agent", [], id="agent-not-a-dict"),
+    pytest.param("agent", {"timed_out": False}, id="agent-missing-keys"),
+    pytest.param("task", None, id="missing-task"),
+    pytest.param("arm", None, id="missing-arm"),
+    pytest.param("model", None, id="missing-model"),
+    pytest.param("task", 3, id="task-not-a-string"),
+]
+
+
+@pytest.mark.parametrize("key, value", _BAD_FIELDS)
+@pytest.mark.parametrize("argv", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
+def test_a_result_file_without_usable_agent_task_arm_or_model_exits_1(tmp_path, capsys, argv, key, value):
+    rec = {k: v for k, v in _GOOD.items() if k != key}
+    if value is not None:
+        rec[key] = value
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
+    with pytest.raises(SystemExit) as exc:
+        _run(argv[0], str(batch), *argv[1:])
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert f"{batch / 't__a__m__r1' / 'result.json'} has no usable `{key}`" in err
+    assert "Traceback" not in err
