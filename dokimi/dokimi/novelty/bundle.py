@@ -530,7 +530,7 @@ def check_answer_key(ref: str, record: dict | None, *,
             "rather than probing against an answer key whose provenance cannot be checked"))
     try:
         now = load_bundle(ref, **_replay_selection(record))
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         return AnswerKeyVerdict(problem="unloadable", message=f"cannot load {ref}: {exc}")
 
     # An answer key is for one artifact. Without this, skill A's atoms were accepted

@@ -49,6 +49,14 @@ _WRONG_SHAPES = {
     "atom_question_is_a_number": _record(atom={"question": 5}),
     "atom_statement_is_null": _record(atom={"statement": None}),
     "atom_span_ids_has_a_list": _record(atom={"span_ids": [[1]]}),
+    "atom_span_ids_is_a_string": _record(atom={"span_ids": "s0001"}),
+    "span_id_is_a_list": _record(span={"id": [1]}),
+    "span_kind_is_a_number": _record(span={"kind": 5}),
+    "span_heading_path_is_a_string": _record(span={"heading_path": "x"}),
+    "span_protection_has_a_number": _record(span={"protection": [1]}),
+    "spans_not_a_list": json.dumps({"atoms": [], "spans": "x"}),
+    "spans_has_a_string": json.dumps({"atoms": [], "spans": ["x"]}),
+    "atoms_has_a_number": json.dumps({"atoms": [5], "spans": []}),
     "bundle_max_file_words_is_a_bool": _bundle('"max_file_words": true'),
     "bundle_max_total_words_is_a_bool": _bundle('"max_total_words": true'),
     "bundle_roles_is_a_number": _bundle('"resource_roles": 5'),
@@ -105,3 +113,49 @@ def test_a_bundle_block_of_the_right_shape_is_not_refused(tmp_path, bundle):
     path.write_text('{"atoms": [], "spans": [], "bundle": %s}' % bundle, encoding="utf-8")
     atoms, spans, record = load_atoms_or_exit(path)
     assert (atoms, spans, record["bundle"]) == ([], [], json.loads(bundle))
+
+
+def test_an_atom_with_only_a_statement_is_accepted(tmp_path):
+    from dokimi.novelty.atoms import load_atoms_or_exit
+
+    path = tmp_path / "atoms.json"
+    span = {"id": "s0001", "kind": "sentence", "text": "S.", "start": 0, "end": 2}
+    path.write_text(json.dumps({"atoms": [{"statement": "S."}], "spans": [span]}), encoding="utf-8")
+    atoms, spans, _ = load_atoms_or_exit(path)
+    assert [(a.statement, a.question, a.span_ids) for a in atoms] == [("S.", "", ())]
+    assert [(s.id, s.heading_path, s.protection) for s in spans] == [("s0001", (), ())]
+
+
+@pytest.mark.parametrize("record, fragment", [
+    pytest.param(_record(span={"text": 5}), "'text' is not a string", id="span_text"),
+    pytest.param(_record(span={"start": True}), "'start' or 'end' is not an integer",
+                 id="span_start_bool"),
+    pytest.param(_record(span={"end": None}), "'start' or 'end' is not an integer",
+                 id="span_end_null"),
+    pytest.param(_record(span={"id": [1]}), "'id' or 'kind' is not a string", id="span_id"),
+    pytest.param(_record(span={"kind": 5}), "'id' or 'kind' is not a string", id="span_kind"),
+    pytest.param(_record(span={"protection": [1]}), "'heading_path' or 'protection' is not a list",
+                 id="span_protection"),
+    pytest.param(_record(span={"heading_path": "x"}), "'heading_path' or 'protection' is not a list",
+                 id="span_heading_path"),
+    pytest.param(_record(atom={"id": [1]}), "'id', 'question' or 'statement' is not a string",
+                 id="atom_id"),
+    pytest.param(_record(atom={"question": 5}), "'id', 'question' or 'statement' is not a string",
+                 id="atom_question"),
+    pytest.param(_record(atom={"statement": None}),
+                 "'id', 'question' or 'statement' is not a string", id="atom_statement"),
+    pytest.param(_record(atom={"span_ids": "s0001"}), "'span_ids' is not a list of strings",
+                 id="atom_span_ids"),
+    pytest.param(json.dumps({"atoms": [], "spans": "x"}), "'spans' is not a list of objects",
+                 id="spans_not_a_list"),
+    pytest.param(json.dumps({"atoms": [5], "spans": []}), "'atoms' is not a list of objects",
+                 id="atoms_has_a_number"),
+])
+def test_a_wrong_span_or_atom_field_is_named_in_the_refusal(tmp_path, record, fragment):
+    from dokimi.novelty.atoms import load_atoms_or_exit
+
+    path = tmp_path / "atoms.json"
+    path.write_text(record, encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        load_atoms_or_exit(path)
+    assert fragment in str(exc.value)

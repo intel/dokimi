@@ -236,6 +236,29 @@ def _read_probe_file(raw: str):
         raise ProbeFileError(f"{raw}: {exc}") from None
 
 
+def _check_probe_strings(raw: str, data: dict) -> None:
+    """Refuse a probe file whose model, artifact or ref_digest is not a string."""
+    for key in ("model", "artifact", "ref_digest"):
+        value = data.get(key)
+        if value is None and key != "model":  # older output records no artifact or digest
+            continue
+        if key in data and not isinstance(value, str):
+            raise ProbeFileError(
+                f"{raw} has `{key}` as {type(value).__name__}, not a string; "
+                "it is not `novelty probe` output"
+            )
+
+
+def _check_run_strings(raw: str, row: dict) -> None:
+    """Refuse a probe run whose id, kind, arm or verdict is not a string."""
+    for key in ("atom_id", "probe_kind", "arm", "verdict"):
+        if key in row and not isinstance(row[key], str):
+            raise ProbeFileError(
+                f"{raw} has a probe run whose `{key}` is {type(row[key]).__name__}, "
+                "not a string; it is not `novelty probe` output"
+            )
+
+
 def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
     """Read ``novelty probe`` outputs into item-analysis cells, one per file.
 
@@ -267,6 +290,7 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
                 f"{raw} has `runs` as {type(runs_value).__name__}, not a list; "
                 "it is not `novelty probe` output"
             )
+        _check_probe_strings(raw, data)
         runs = []
         for row in runs_value:
             if not isinstance(row, dict):
@@ -274,6 +298,7 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
                     f"{raw} has a run entry as {type(row).__name__}, not an object; "
                     "it is not `novelty probe` output"
                 )
+            _check_run_strings(raw, row)
             try:
                 runs.append(ProbeRun(
                     atom_id=row["atom_id"], probe_kind=row["probe_kind"], arm=row["arm"],

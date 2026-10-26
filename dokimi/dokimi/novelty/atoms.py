@@ -523,6 +523,34 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
     return _atoms_from_record(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
+def _is_str_list(value) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _check_span_row(row: dict) -> None:
+    """Raise ValueError unless a span row's fields have the types the readers use."""
+    if not isinstance(row.get("text"), str):
+        raise ValueError("'spans' has a row whose 'text' is not a string")
+    if not (_is_int(row.get("start")) and _is_int(row.get("end"))):
+        raise ValueError("'spans' has a row whose 'start' or 'end' is not an integer")
+    if any(key in row and not isinstance(row[key], str) for key in ("id", "kind")):
+        raise ValueError("'spans' has a row whose 'id' or 'kind' is not a string")
+    if any(key in row and not _is_str_list(row[key])
+           for key in ("heading_path", "protection")):
+        raise ValueError("'spans' has a row whose 'heading_path' or 'protection' is not a "
+                         "list of strings")
+
+
+def _check_atom_row(row: dict) -> None:
+    """Raise ValueError unless an atom row's fields have the types the readers use."""
+    if not isinstance(row.get("statement"), str) or any(
+            key in row and not isinstance(row[key], str) for key in ("id", "question")):
+        raise ValueError(
+            "'atoms' has a row whose 'id', 'question' or 'statement' is not a string")
+    if not _is_str_list(row.get("span_ids", [])):
+        raise ValueError("'atoms' has a row whose 'span_ids' is not a list of strings")
+
+
 def _check_record_fields(data: dict) -> None:
     """Raise ValueError unless the span and atom fields the readers use have their types."""
     for key in ("spans", "atoms"):
@@ -530,18 +558,9 @@ def _check_record_fields(data: dict) -> None:
         if not (isinstance(rows, list) and all(isinstance(row, dict) for row in rows)):
             raise ValueError(f"'{key}' is not a list of objects")
     for row in data.get("spans", []):
-        if not isinstance(row.get("text"), str):
-            raise ValueError("'spans' has a row whose 'text' is not a string")
-        if not (_is_int(row.get("start")) and _is_int(row.get("end"))):
-            raise ValueError("'spans' has a row whose 'start' or 'end' is not an integer")
+        _check_span_row(row)
     for row in data.get("atoms", []):
-        if not isinstance(row.get("statement"), str) or any(
-                key in row and not isinstance(row[key], str) for key in ("id", "question")):
-            raise ValueError(
-                "'atoms' has a row whose 'id', 'question' or 'statement' is not a string")
-        span_ids = row.get("span_ids", [])
-        if not (isinstance(span_ids, list) and all(isinstance(s, str) for s in span_ids)):
-            raise ValueError("'atoms' has a row whose 'span_ids' is not a list of strings")
+        _check_atom_row(row)
 
 
 def _atoms_from_record(data: dict) -> tuple[list[Atom], list[Span]]:

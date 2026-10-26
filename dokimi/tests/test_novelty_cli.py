@@ -515,6 +515,25 @@ def test_item_analysis_exits_with_a_message_on_an_unreadable_probes_file(tmp_pat
     assert str(exc.value).startswith(f"{path}: ")
 
 
+@pytest.mark.parametrize("top, run", [
+    ({"model": ["m"]}, {}),
+    ({"artifact": {"a": 1}}, {}),
+    ({"ref_digest": [1]}, {}),
+    ({}, {"atom_id": ["a"]}),
+    ({}, {"probe_kind": ["x"]}),
+    ({}, {"arm": {}}),
+    ({}, {"verdict": ["x"]}),
+], ids=["model", "artifact", "ref_digest", "atom_id", "probe_kind", "arm", "verdict"])
+def test_item_analysis_refuses_a_probe_field_that_is_not_a_string(tmp_path, top, run):
+    path = tmp_path / "novelty.json"
+    body = {"model": "m", "runs": [{"atom_id": "a1", "probe_kind": "direct", "arm": "full",
+                                    "verdict": "correct", **run}], **top}
+    path.write_text(json.dumps(body), encoding="utf-8")
+    args = _parse("novelty", "items", "--probes", str(path))
+    with pytest.raises(SystemExit, match="not a string"):
+        args.func(args)
+
+
 def test_item_analysis_over_three_models_reports_discrimination(tmp_path, capsys):
     def probes_file(name, outcomes):
         path = tmp_path / name
@@ -829,3 +848,14 @@ def test_a_command_given_a_frontmatter_nested_too_deeply_exits_with_a_message(tm
         args.func(args)
     assert "maximum recursion" in str(exc.value)
     assert "RecursionError" not in str(exc.value)
+
+
+def test_item_analysis_accepts_a_probe_file_that_records_no_digest(tmp_path):
+    from dokimi.novelty.items import load_probe_cells
+
+    path = tmp_path / "novelty.json"
+    path.write_text(json.dumps({"model": "m", "artifact": "skill:x", "ref_digest": None, "runs": [
+        {"atom_id": "a1", "probe_kind": "direct", "arm": "full", "verdict": "correct"}]}),
+        encoding="utf-8")
+    cells, _ = load_probe_cells([str(path)])
+    assert (cells[0]["artifact"], cells[0]["ref_digest"]) == ("skill:x", None)
