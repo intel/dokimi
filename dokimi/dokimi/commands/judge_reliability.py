@@ -19,6 +19,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
+from dokimi.utils import write_text_or_exit
 
 
 def _read_json(path: str):
@@ -165,10 +166,9 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
         sys.exit(2)
     md = report.format_markdown()
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_pairwise.json"))
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({**report.to_dict(), "judge_temperature": getattr(args, "judge_temperature", None)},
-                              indent=2), encoding="utf-8")
-    out.with_suffix(".md").write_text(md, encoding="utf-8")
+    write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": getattr(args, "judge_temperature", None)},
+                                       indent=2), code=2)
+    write_text_or_exit(out.with_suffix(".md"), md, code=2)
     if not report.verdicts:
         # Written first, so the reasons are not lost with the run.
         print(f"Error: all {len(report.errors)} comparison(s) failed; see `errors` in {out}", file=sys.stderr)
@@ -204,12 +204,10 @@ def cmd_eval_checklist(args: argparse.Namespace) -> None:
         print("Error: no question in the answers file has expected_topics in --questions", file=sys.stderr)
         sys.exit(2)
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_checklist.json"))
-    out.parent.mkdir(parents=True, exist_ok=True)
     # The JSON first: the paid calls are in it, and a rendering error must not lose them.
-    out.write_text(json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
-                   encoding="utf-8")
+    write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2), code=2)
     md = report.format_markdown()
-    out.with_suffix(".md").write_text(md, encoding="utf-8")
+    write_text_or_exit(out.with_suffix(".md"), md, code=2)
     print()
     print(md)
     print(f"✅ Coverage report saved to {out} (+ .md)")
@@ -252,9 +250,8 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     )
     if args.output:
         out = Path(args.output)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
-                       encoding="utf-8")
+        write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
+                           code=2)
     print()
     print(report.format_summary())
     if args.output:
@@ -417,10 +414,9 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         sys.exit(2)
     md = report.format_markdown()
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_crossjudge.json"))
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
-                   encoding="utf-8")
-    out.with_suffix(".md").write_text(md, encoding="utf-8")
+    write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
+                       code=2)
+    write_text_or_exit(out.with_suffix(".md"), md, code=2)
     print()
     print(md)
     print(f"✅ Cross-judge report saved to {out} (+ .md)")

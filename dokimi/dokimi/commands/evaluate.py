@@ -20,7 +20,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
-from dokimi.utils import normalize_model_ref
+from dokimi.utils import normalize_model_ref, write_text_or_exit
 
 
 def _warn_judge_independence(
@@ -55,12 +55,7 @@ def _load_answers(path: str):
 
 def _write_json_or_exit(path: Path, payload: dict, code: int = 1) -> None:
     """Write ``payload`` as JSON to ``path``, or exit ``code`` naming ``path`` when it cannot be written."""
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    except OSError as exc:
-        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
-        sys.exit(code)
+    write_text_or_exit(path, json.dumps(payload, indent=2), code)
 
 
 def _require_ragas() -> None:
@@ -86,10 +81,8 @@ def _run_ragas_eval(answers, output_path, args) -> None:
         result = evaluator.evaluate(answers, include_without_docs=True)
 
         # Save ragas results alongside answers
-        import json
         ragas_path = output_path.with_name(output_path.stem + "_ragas.json")
-        ragas_path.parent.mkdir(parents=True, exist_ok=True)
-        ragas_path.write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
+        _write_json_or_exit(ragas_path, result.to_dict(), code=2)
 
         print(result.format_summary())
         print(f"✅ Saved RAGAS results to {ragas_path}")
@@ -156,11 +149,15 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
     print(f"Roles: {', '.join(roles)}\nModel: {args.provider}/{args.model}\n")
 
     output_path = Path(args.output) if args.output else Path(f"eval/{args.product}_panel.json")
-    results = panel.evaluate_answers(answers, library_name=args.product,
-                                     output_path=output_path,
-                                     limit=getattr(args, "limit", None),
-                                     run_metadata={"answer_model": answer_model,
-                                                   "answer_provider": answer_provider})
+    try:
+        results = panel.evaluate_answers(answers, library_name=args.product,
+                                         output_path=output_path,
+                                         limit=getattr(args, "limit", None),
+                                         run_metadata={"answer_model": answer_model,
+                                                       "answer_provider": answer_provider})
+    except OSError as exc:
+        print(f"Error: cannot write {exc.filename or output_path}: {exc.strerror or exc}", file=sys.stderr)
+        sys.exit(2)
 
     # Summary: the context arm's own quality, not a comparison.
     from dokimi.records import CONTEXT, records
@@ -229,11 +226,13 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
     try:
         evaluations = judge.evaluate_answers(args.product, answers, output_path=output_path,
                                              concurrency=args.concurrency)
+        judge.save_evaluations(evaluations, output_path)
     except RecordError as exc:
         print(f"Error: {args.answers}: {exc}", file=sys.stderr)
         sys.exit(2)
-
-    judge.save_evaluations(evaluations, output_path)
+    except OSError as exc:
+        print(f"Error: cannot write {exc.filename or output_path}: {exc.strerror or exc}", file=sys.stderr)
+        sys.exit(2)
     print(f"\n✅ Saved evaluations to {output_path}")
 
 
@@ -267,7 +266,7 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
 
     if args.output:
         out = Path(args.output)
-        _write_json_or_exit(out, result)
+        _write_json_or_exit(out, result, code=2)
         print(f"\n✅ Grounding report saved to {out}")
 
 
