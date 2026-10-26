@@ -228,7 +228,13 @@ _STATUSES = _PASSING | {"FAILED", "XPASS", "ERROR"}
 
 
 def parse_pytest(output: str) -> dict[str, bool] | None:
-    """terminal-bench's ``PytestParser``: test name -> passed, or ``None`` with no summary."""
+    """terminal-bench's ``PytestParser``: test id -> passed, or ``None`` with no summary.
+
+    Keyed by the full node id, where terminal-bench keys by the part after the
+    file: there a later ``PASSED b.py::test_x`` hides an earlier ``FAILED
+    a.py::test_x``, and the export's ``test.sh`` (any failed line fails) would
+    disagree with the docker-* verdict.
+    """
     parts = _SUMMARY_RE.split(output, maxsplit=1)
     if len(parts) < 2:
         return None
@@ -240,7 +246,7 @@ def parse_pytest(output: str) -> dict[str, bool] | None:
         if len(fields) < 2:
             continue
         status = fields[0].strip().strip(":")
-        name = fields[1].strip().split("::", 1)[-1]
+        name = fields[1].strip()
         if status in _STATUSES and name:
             results[name] = status in _PASSING
     return results

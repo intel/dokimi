@@ -57,6 +57,7 @@ def _tb1(root: Path, name: str = "hello-world", *, compose: str = _COMPOSE, yaml
 _PASS = "===== short test summary info =====\nPASSED test_outputs.py::test_hello\n"
 _FAIL = ("===== short test summary info =====\nPASSED test_outputs.py::test_a\n"
          "FAILED test_outputs.py::test_b - AssertionError: x\n")
+_SAME_NAME = "===== short test summary info =====\nFAILED tests/a.py::test_x\nPASSED tests/b.py::test_x\n"
 
 
 # ── loading ───────────────────────────────────────────────────────────────────
@@ -155,6 +156,7 @@ def test_solution_is_needed_by_the_oracle_only(tmp_path):
 @pytest.mark.parametrize("output, reward", [
     (_PASS, 1.0),
     (_FAIL, 0.0),
+    (_SAME_NAME, 0.0),  # one file's pass does not hide another's failure
     ("===== short test summary info =====\nSKIPPED [1] t.py:3: why\nXFAIL t.py::test_x\n", 1.0),
     ("===== short test summary info =====\nXPASS t.py::test_x\n", 0.0),
     ("===== short test summary info =====\nERROR t.py::test_x - ImportError\n", 0.0),
@@ -167,13 +169,13 @@ def test_reward_follows_the_pytest_summary(output, reward):
 
 
 def test_parse_pytest_names_tests_and_strips_failure_messages():
-    assert tbench_v1.parse_pytest(_FAIL) == {"test_a": True, "test_b": False}
+    assert tbench_v1.parse_pytest(_FAIL) == {"test_outputs.py::test_a": True, "test_outputs.py::test_b": False}
     assert tbench_v1.parse_pytest("no summary") is None
 
 
 @pytest.mark.skipif(shutil.which("awk") is None, reason="needs awk")
 @pytest.mark.parametrize("output", [
-    _PASS, _FAIL, "===== short test summary info =====\n", "1 passed\n", "",
+    _PASS, _FAIL, _SAME_NAME, "===== short test summary info =====\n", "1 passed\n", "",
     "== SHORT TEST SUMMARY INFO ==\nERROR t.py::x\n", "===== short test summary info =====\nXPASS t.py::y\n",
 ])
 def test_exported_awk_verdict_matches_the_python_parser(tmp_path, output):
