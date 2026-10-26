@@ -636,11 +636,11 @@ def register(sub, positive_int) -> None:
                                 "candidate is not routing: the sibling confusion is the "
                                 "failure mode (every `dpnp-*` skill scored 0.0 lexically)")
     routing_p.add_argument("--catalog", default=None,
-                           help="Directory of skills to take the competitors from: every "
-                                "SKILL.md under it except the artifact itself (a template/ "
-                                "copy and a byte-identical mirror that loads under the same "
-                                "skill name are left out), i.e. the siblings a harness "
-                                "lists next to it. Combines with --competitors")
+                           help="Directory of skills to take the competitors from: every SKILL.md "
+                                "under it except the artifact itself (a template/ copy, a byte-"
+                                "identical mirror that loads under the same skill name, and "
+                                "vendored or VCS directories like .git are left out), i.e. the "
+                                "siblings a harness lists next to it. Combines with --competitors")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")
