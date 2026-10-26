@@ -523,6 +523,16 @@ def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_
     assert "usd_extrapolated" not in payload
 
 
+def test_the_extractor_defaults_to_the_judge_provider_not_the_answerer(tmp_path):
+    from dokimi.commands.novelty import _role_models
+
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--provider", "anthropic",
+                  "--judge-model", "judge-m", "--judge-provider", "openai", "--estimate-only")
+    models = _role_models(args)
+    assert models["judge"] == ("judge-m", "openai")
+    assert models["extractor"] == models["judge"]
+
+
 def test_list_cost_usd_distinguishes_an_unpriced_model_from_a_free_one(monkeypatch):
     import litellm
 
