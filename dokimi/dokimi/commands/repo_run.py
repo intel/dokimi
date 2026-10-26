@@ -331,6 +331,10 @@ def _harness_bin(name: str) -> Path:
     return Path(found).resolve()
 
 
+# what a cell field of the wrong shape raises past the field checks in repos/report.py
+_MALFORMED_CELL = (KeyError, TypeError, AttributeError, OverflowError, ValueError)
+
+
 def cmd_repo_report(args: argparse.Namespace) -> None:
     """Per (task, arm, model): gated success, grader failures, missing cells, cost, turns."""
     from dokimi.repos.report import CellFileError, format_report, summarize
@@ -343,6 +347,9 @@ def cmd_repo_report(args: argparse.Namespace) -> None:
         summary = summarize(batch_dir)
     except CellFileError as exc:
         print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    except _MALFORMED_CELL as exc:
+        print(f"✗ {batch_dir}: a cell file has an unexpected shape ({type(exc).__name__}: {exc})", file=sys.stderr)
         sys.exit(1)
     print(json.dumps(summary, indent=2) if args.json else format_report(summary))
 
@@ -362,6 +369,9 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()))
     except (CompareError, CellFileError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    except _MALFORMED_CELL as exc:
+        print(f"✗ a cell file has an unexpected shape ({type(exc).__name__}: {exc})", file=sys.stderr)
         sys.exit(1)
     print(json.dumps(summary, indent=2) if args.json else format_compare(summary))
 

@@ -197,9 +197,10 @@ def _three_task_batch(tmp_path, cost_a, cost_b):
     return _batch(tmp_path, "b1", files)
 
 
+@pytest.mark.parametrize("cost", [1e154, 1e300])
 @pytest.mark.parametrize("cmd", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
-def test_deltas_that_would_overflow_when_squared_are_rejected_with_a_message(tmp_path, capsys, cmd):
-    batch = _three_task_batch(tmp_path, 1e300, -1e300)
+def test_deltas_that_would_overflow_when_squared_are_rejected_with_a_message(tmp_path, capsys, cmd, cost):
+    batch = _three_task_batch(tmp_path, cost, -cost)
     with pytest.raises(SystemExit) as exc:
         _run(cmd[0], str(batch), *cmd[1:])
     assert exc.value.code == 1
@@ -304,3 +305,17 @@ def test_a_score_task_result_file_without_grade_success_exits_1(tmp_path, capsys
         _run("report", str(batch))
     assert exc.value.code == 1
     assert "has no usable `grade`" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("cmd", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
+def test_a_cell_shape_the_checks_miss_exits_1_without_a_traceback(tmp_path, capsys, monkeypatch, cmd):
+    from dokimi.repos import report
+
+    monkeypatch.setattr(report, "_check_cell", lambda path, rec: None)
+    rec = {**_GOOD, "grade": "x"}
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode(),
+                                    "t__b__m__r1/result.json": json.dumps({**rec, "arm": "b"}).encode()})
+    with pytest.raises(SystemExit) as exc:
+        _run(cmd[0], str(batch), *cmd[1:])
+    assert exc.value.code == 1
+    assert "unexpected shape" in capsys.readouterr().err

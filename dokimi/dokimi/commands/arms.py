@@ -88,7 +88,7 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
         output = _build_arms_output(args, specs, questions)
     except EmptyQuestionError:
         raise  # a bad input record, not an arm setup error: cli.main reports it (exit 2)
-    except (ValueError, FileNotFoundError) as exc:
+    except (ValueError, OSError, RecursionError) as exc:
         print(f"Error building arms/plugins: {exc}", file=sys.stderr)
         sys.exit(1)
 
@@ -484,7 +484,7 @@ def _refuse_external_trigger_set(path: str) -> None:
 
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return  # the questions loader reports it
     fmt = detect_trigger_format(data)
     if fmt and fmt != FORMAT_QUESTIONS:

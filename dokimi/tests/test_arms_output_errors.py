@@ -156,3 +156,18 @@ def test_matrix_run_exits_1_naming_an_unwritable_delta_or_rollup(tmp_path, monke
     assert exc.value.code == 1
     err = capsys.readouterr().err
     assert f"Error: cannot write {bad}" in err and "Traceback" not in err
+
+
+@pytest.mark.parametrize("kind", ["directory", "deep"])
+def test_arms_run_exits_1_on_an_unreadable_questions_file(tmp_path, capsys, kind):
+    questions = tmp_path / "q.json"
+    if kind == "directory":
+        questions.mkdir()
+    else:
+        questions.write_text("[" * 100000, encoding="utf-8")
+    args = build_parser().parse_args(["arms", "run", "--product", "p", "--arms", "a:spec.yaml",
+                                      "--questions", str(questions)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert capsys.readouterr().err.startswith("Error building arms/plugins:")
