@@ -32,5 +32,5 @@ def test_an_unwritable_output_dir_exits_1_with_a_message(tmp_path, capsys):
         _evaluate("--output-dir", str(blocker))
     assert exc.value.code == 1
     err = capsys.readouterr().err
-    assert "Error: " in err and "Not a directory" in err
+    assert err.startswith("Error: ") and str(blocker) in err
     assert "Traceback" not in err
