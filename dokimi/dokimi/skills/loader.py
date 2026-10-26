@@ -96,7 +96,7 @@ def _resolve_skill_file(path: Path) -> Path:
     """Resolve a skill reference (file or directory) to its ``SKILL.md`` file."""
     if path.is_dir():
         candidate = path / "SKILL.md"
-        if not candidate.exists():
+        if not candidate.is_file():
             raise FileNotFoundError(f"No SKILL.md found in skill directory: {path}")
         return candidate
     if path.is_file():
@@ -183,6 +183,8 @@ def skill_files(root, *, notes: Optional[List[str]] = None) -> List[Path]:
     root = Path(root)
     found: List[Path] = []
     for skill_file in sorted(root.rglob("SKILL.md")):
+        if not skill_file.is_file():
+            continue
         if TEMPLATE_DIR_NAMES.intersection(skill_file.relative_to(root).parts[:-1]):
             if notes is not None:
                 notes.append(f"left out {skill_file}: a template, not a skill")

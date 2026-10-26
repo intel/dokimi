@@ -249,6 +249,35 @@ def test_a_blank_frontmatter_name_is_refused(tmp_path):
         load_skill(skill)
 
 
+def test_a_skill_md_that_is_a_directory_is_not_a_skill(tmp_path):
+    skill = tmp_path / "perf"
+    (skill / "SKILL.md").mkdir(parents=True)
+    with pytest.raises(FileNotFoundError, match="No SKILL.md found"):
+        load_skill(skill)
+
+
+def test_discovery_ignores_a_directory_named_skill_md(tmp_path):
+    root = tmp_path / "catalog"
+    (root / "broken" / "SKILL.md").mkdir(parents=True)
+    _write_skill(root / "linux-perf", "linux-perf", "Profile Linux programs.")
+    assert [s.name for s in discover_skills(root)] == ["linux-perf"]
+
+
+def test_arms_run_exits_1_with_a_message_when_skill_md_is_a_directory(tmp_path, monkeypatch, capsys):
+    from dokimi import cli
+
+    skill = tmp_path / "perf"
+    (skill / "SKILL.md").mkdir(parents=True)
+    questions = tmp_path / "q.json"
+    questions.write_text('{"questions": [{"id": "q1", "question": "How?"}]}', encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "arms", "run", "--product", "lib", "--questions", str(questions),
+                                     "--arms", f"skill:{skill}", "--out-json", str(tmp_path / "out.json")])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert "No SKILL.md found" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("quoted", ['"perf "', '" perf"', r'"\tperf\n"'])
 def test_a_frontmatter_name_is_stripped(tmp_path, quoted):
     skill = tmp_path / "perf"

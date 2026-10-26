@@ -41,13 +41,13 @@ adds two fragments (or two sections in one).
 | `Security` | vulnerabilities and hardening |
 | `Documentation` | docs-only changes worth announcing |
 
-Commit the fragment in the same PR as the change. The `changelog` workflow
+Commit the fragment in the same PR as the change. The `Fragment for package changes` step in `ci.yml`'s `static` job
 (`scripts/check_changelog_fragment.py`) fails a PR that touches any of these
 without a fragment that has an entry in it (the unedited template, or its
 example bullet left under an uncommented category, does not count). For a
 change with no user-visible effect (an internal refactor, a test-only or CI-only
 change inside the package) a maintainer adds the `skip-changelog` label
-instead. Changes outside them
+instead; adding or removing the label re-runs the check. Changes outside them
 (tests, docs, scripts, CI, the `dev` extra and tool settings such as
 `[tool.ruff]` in `pyproject.toml`) need no fragment.
 

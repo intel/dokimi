@@ -34,10 +34,18 @@ def _load_runtime_config() -> dict:
     except yaml.YAMLError as exc:
         print(f"Error: invalid YAML in {config_path}: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
+    except (OSError, ValueError) as exc:  # ValueError covers bad UTF-8
+        print(f"Error: cannot read {config_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
     if loaded is not None and not isinstance(loaded, dict):
         print(f"Error: expected a mapping in {config_path}", file=sys.stderr)
         raise SystemExit(1)
-    return loaded or {}
+    config = loaded or {}
+    for key in ("products", "retrieval"):
+        if config.get(key) is not None and not isinstance(config[key], dict):
+            print(f"Error: '{key}' in {config_path} must be a mapping", file=sys.stderr)
+            raise SystemExit(1)
+    return config
 
 
 def _load_questions(path: str) -> list:
@@ -47,6 +55,9 @@ def _load_questions(path: str) -> list:
         return load_questions(path).questions
     except ValueError as exc:  # ArtifactValidationError: names the record and the fix
         print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    except OSError as exc:
+        print(f"Error: cannot read {path}: {exc.strerror or exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
 
@@ -69,7 +80,7 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     )
 
     config = _load_runtime_config()
-    _retrieval_cfg = config.get("retrieval", {})
+    _retrieval_cfg = config.get("retrieval") or {}
     if args.top_k is None:
         args.top_k = _retrieval_cfg.get("top_k", DEFAULT_RETRIEVAL_TOP_K)
 
@@ -109,19 +120,23 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     )
 
     output_path = _output_path(args)
-    answers = answerer.generate_answers(
-        library_name=args.product,
-        library_id=library_id,
-        questions=questions,
-        max_tokens_per_question=args.max_tokens,
-        output_path=output_path,
-        concurrency=args.concurrency,
-    )
+    try:
+        answers = answerer.generate_answers(
+            library_name=args.product,
+            library_id=library_id,
+            questions=questions,
+            max_tokens_per_question=args.max_tokens,
+            output_path=output_path,
+            concurrency=args.concurrency,
+        )
 
-    # generate_answers already saves incrementally to output_path after each
-    # question, so the final write here is a safety flush only (ensures the
-    # file reflects any last-second ordering fix).
-    answerer.save_answers(answers, output_path)
+        # generate_answers already saves incrementally to output_path after each
+        # question, so the final write here is a safety flush only (ensures the
+        # file reflects any last-second ordering fix).
+        answerer.save_answers(answers, output_path)
+    except OSError as exc:
+        print(f"Error: cannot write {output_path}: {exc.strerror or exc}", file=sys.stderr)
+        sys.exit(2)
     print(f"\n✅ Saved answers to {output_path}")
 
     # Optional RAGAS meta-evaluation (--ragas flag)

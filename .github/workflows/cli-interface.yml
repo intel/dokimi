@@ -36,11 +36,11 @@ defaults:
   run:
     working-directory: dokimi
 
-# intel-ubuntu-latest: see ci.yml.
+# ubuntu-latest: see ci.yml.
 jobs:
   cli-surface:
     name: CLI interface diff
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write  # create/apply the label, write the comment
