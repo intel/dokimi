@@ -574,6 +574,9 @@ def _check_bundle_fields(bundle: dict) -> None:
     if excluded is not None and not (
             isinstance(excluded, list) and all(isinstance(row, dict) for row in excluded)):
         raise ValueError("'bundle.excluded' is not a list of objects")
+    for row in excluded or ():
+        if "path" in row and not isinstance(row["path"], str):
+            raise ValueError("'bundle.excluded' has a row whose 'path' is not a string")
 
 
 def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span], dict]:

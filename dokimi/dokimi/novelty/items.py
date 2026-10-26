@@ -232,7 +232,7 @@ def _read_probe_file(raw: str):
     """The parsed JSON of one probe file; a file that cannot be read says which."""
     try:
         return json.loads(Path(raw).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:  # ValueError: bad JSON or bytes that are not UTF-8
+    except (OSError, ValueError, RecursionError) as exc:  # bad JSON, non-UTF-8 bytes, or too deep
         raise ProbeFileError(f"{raw}: {exc}") from None
 
 

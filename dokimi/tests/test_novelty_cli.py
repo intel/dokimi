@@ -499,7 +499,10 @@ def test_item_analysis_refuses_a_file_that_carries_no_probe_runs(tmp_path):
         args.func(args)
 
 
-@pytest.mark.parametrize("content", [None, "{not json", b"\xff\xfe\x00bad"])
+@pytest.mark.parametrize("content", [
+    None, "{not json", b"\xff\xfe\x00bad",
+    pytest.param("[" * 100000 + "]" * 100000, id="nested_deeply"),
+])
 def test_item_analysis_exits_with_a_message_on_an_unreadable_probes_file(tmp_path, content):
     path = tmp_path / "novelty.json"
     if isinstance(content, str):
