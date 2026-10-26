@@ -185,7 +185,9 @@ def _harbor_compose(task: TaskSpec) -> dict[str, Any] | None:
 
 def _task_toml(task: TaskSpec) -> str:
     def value(v: Any) -> str:
-        return json.dumps(v)  # a TOML basic string, number, bool or array of them
+        # A TOML basic string, number, bool or array of them; ASCII escaping would
+        # write a non-BMP character as a surrogate pair, which TOML rejects.
+        return json.dumps(v, ensure_ascii=False)
 
     lines = ["[metadata]"]
     lines += [f"{k} = {value(v)}" for k, v in task.metadata.items() if v is not None]

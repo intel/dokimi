@@ -258,6 +258,15 @@ def test_export_writes_the_harbor_layout(tmp_path):
     assert os.access(dest / "tests" / "test.sh", os.X_OK)
 
 
+def test_exported_task_toml_parses_with_a_non_bmp_character(tmp_path):
+    import tomllib
+
+    author = "Zo\u00eb \U0001f600"
+    task = load_task(_tb1(tmp_path / "tasks", yaml_extra=f'author_email: "{author}"\n'))
+    dest = harbor_export.export(task, tmp_path / "out")
+    assert tomllib.loads((dest / "task.toml").read_text(encoding="utf-8"))["metadata"]["author_email"] == author
+
+
 def test_export_puts_a_subdir_context_and_its_named_dockerfile_where_harbor_builds(tmp_path):
     compose = _COMPOSE.replace("      dockerfile: Dockerfile\n",
                                "      context: ./env\n      dockerfile: Dockerfile.x\n    working_dir: /srv\n")
