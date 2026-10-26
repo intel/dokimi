@@ -74,7 +74,7 @@ def test_existing_tests_untouched_and_passing():
 | Run | Expected | Observed |
 |---|---|---|
 | oracle (`docker-oracle`) | pass | pass |
-| untouched (manual `docker run`) | fail | fail: `"5-"` raises `IndexError` |
+| untouched (no-op `solve.sh` through `docker-oracle`) | fail | fail: `"5-"` raises `IndexError` |
 | mutation: deleted tests | fail | fail: hash check |
 | mutation: weakened criterion (`except Exception: raise ValueError`) | fail | **pass** |
 
