@@ -26,6 +26,9 @@ than 5% on an arm with no effect.
   other way, but some point estimates disagree.
 * ``JUDGE-DEPENDENT`` — significant in both directions. Do not ship on it.
 * ``NO DETECTABLE EFFECT`` — no measure significant.
+* ``NOT MEASURED`` — no measure that votes scored a single question of the arm
+  against baseline (every call errored, or every judge is gated out). It is not
+  "no effect": nothing was compared.
 
 A label whose significant measures all rest on one judge says so —
 ``CONSISTENT + (one judge)`` — because then it is one judge's verdict, not
@@ -132,6 +135,8 @@ def label(rows: Sequence[Dict[str, Any]], *, require_validated: bool = False) ->
     """Verdict over the rows allowed to vote (see :func:`votes`), on Holm-adjusted p."""
     apply_holm(rows, require_validated=require_validated)
     rows = [r for r in rows if r["votes"]]
+    if not any(r.get("n", 1) for r in rows):  # no voter compared a single question
+        return "NOT MEASURED"
     sig = {r["sign"] for r in rows if r["significant"] and r["sign"]}
     if not sig:
         return "NO DETECTABLE EFFECT"
