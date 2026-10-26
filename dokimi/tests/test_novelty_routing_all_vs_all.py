@@ -485,3 +485,42 @@ def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
     assert field == {"include_disabled": True, "competitors": ["db"], "left_out": []}
+
+
+def test_console_says_how_many_tied_and_unscored_queries_are_not_counted_as_picks(
+        tmp_path, capsys):
+    # A tie and a query with no content word are the two cases where no pick is named. The
+    # summary must not read "no skill was picked" without saying what was left out beside it.
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "fft", "fast transforms")
+    _catalog_skill(root, "linalg", "fast transforms")
+    _catalog_skill(root, "gold", "something unrelated entirely")
+    queries = _write_queries(tmp_path, {"gold": ["fast transforms", "the of and"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args.func(args)
+    stdout = capsys.readouterr().out
+    assert "lexical: no skill was picked for another skill's query" in stdout
+    assert "lexical: 1 tied and 1 unscored queries are not counted as picks" in stdout
+
+
+def test_console_warns_when_the_lexical_arm_cannot_score_any_query_of_a_skill(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "fft", "fast transforms")
+    _catalog_skill(root, "gold", "something unrelated entirely")
+    queries = _write_queries(tmp_path, {"gold": ["the of and", "a an the"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args.func(args)
+    err = capsys.readouterr().err
+    assert "the lexical arm cannot score any query of gold" in err
+    assert "no content word" in err
+
+
+def test_two_contentless_queries_of_one_skill_are_two_unscored_and_no_rate():
+    field = [Candidate("alpha", "convert a json file to yaml"),
+             Candidate("beta", "tune a slow database query")]
+    lexical = all_vs_all(field, {"alpha": ["the of and", "a an the"]})["lexical"]
+    assert lexical["n_unscored"] == {"alpha": 2}
+    assert lexical["n_scored"] == {"alpha": 0}
+    assert lexical["own_rate"]["alpha"] is None

@@ -359,6 +359,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     if without:
         print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
               f"compete: {', '.join(sorted(without))}", file=sys.stderr)
+    _warn_blind_skills(result, queries_by_skill)
 
     model_arm = result.get("model") or {}
     failed = model_arm.get("n_failed", 0)
@@ -404,17 +405,39 @@ def _check_all_vs_all_args(args: argparse.Namespace) -> None:
         raise SystemExit("--all-vs-all needs --out <file>")
 
 
+def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
+    """Warn when the lexical arm scores none of a skill's queries: its own rate is then None."""
+    lexical = result.get("lexical")
+    if not lexical:
+        return
+    blind = [name for name in sorted(queries_by_skill) if lexical["n_scored"].get(name) == 0]
+    if blind:
+        print(f"WARNING: the lexical arm cannot score any query of {', '.join(blind)} "
+              "(no content word in them), so their lexical own_rate is None", file=sys.stderr)
+
+
 def _print_attractors(result: dict) -> None:
-    """The top five attractors of each arm, one line each."""
+    """The top five attractors of each arm, one line each, and what the arm left out.
+
+    A tie and an unscored query name no pick, so a "no skill was picked" line beside them
+    would read as a clean result; the line after the attractors says how many there were.
+    """
+    from dokimi.novelty.all_vs_all import TIE
+
     for arm in ("lexical", "model"):
         if arm not in result:
             continue
-        rows = result[arm]["attractors"][:5]
+        section = result[arm]
+        rows = section["attractors"][:5]
         if not rows:
             print(f"{arm}: no skill was picked for another skill's query")
         for row in rows:
             print(f"{arm}: {row['skill']} picked for {row['wrongly_picked']} of "
                   f"{row['sibling_queries']} sibling queries (from {', '.join(row['from'])})")
+        tied = sum(picks.get(TIE, 0) for picks in section["confusion"].values())
+        unscored = sum(section["n_unscored"].values())
+        if tied or unscored:
+            print(f"{arm}: {tied} tied and {unscored} unscored queries are not counted as picks")
 
 
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
