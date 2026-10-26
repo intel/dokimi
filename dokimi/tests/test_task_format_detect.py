@@ -21,6 +21,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import shutil
 import time
 from pathlib import Path
 
@@ -122,6 +123,14 @@ def test_task_without_environment_dockerfile_is_not_claimed_for_docker(tmp_path)
     for task in (_harbor(tmp_path), _task_md(tmp_path)):
         (task / "environment" / "Dockerfile").unlink()
         assert "docker-*" not in _one(task).consumers
+
+
+def test_task_without_tests_or_verifier_is_not_claimed_for_docker(tmp_path):
+    for task in (_harbor(tmp_path), _task_md(tmp_path)):
+        for verifier in ("tests", "verifier"):
+            shutil.rmtree(task / verifier, ignore_errors=True)
+        r = _one(task)
+        assert "verifier" in r.missing and "docker-*" not in r.consumers
 
 
 def test_terminal_bench_v1_task_has_every_part_and_no_consumer_yet(tmp_path):
