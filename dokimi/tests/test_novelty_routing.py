@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,7 +17,6 @@ from dokimi.novelty.routing import (
     RoutingInputError,
     catalog_competitors,
     check_field,
-    disables_model_invocation,
     headings_as_queries,
     lexical_routing,
     load_queries,
@@ -511,225 +511,274 @@ def test_catalog_competitors_with_name_in_competitors_excludes_it_from_catalog(t
 
 
 
-def _catalog_skill(root, name, description):
-    skill_dir = root / "skills" / name
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        f"---\nname: {name}\ndescription: {description}\n---\n\n# B\n", encoding="utf-8")
+def _answer_as(name: str):
+    """A transport reply that picks the card called ``name``, wherever it is shown."""
+    def reply(prompt: str) -> str:
+        lines = prompt.split("TOOLS:", 1)[1].strip().splitlines()
+        return json.dumps({"pick": next(i + 1 for i, line in enumerate(lines)
+                                        if line.split(" ", 1)[1].startswith(name))})
+    return reply
 
 
-def test_the_catalog_is_the_skills_yaml_manifest_when_there_is_one(tmp_path):
-    # A manifest decides which skills the catalog has: a SKILL.md it does not list is not a
-    # sibling, and a listed skill with no directory is reported rather than aborting the run.
-    root = tmp_path / "catalog"
-    _catalog_skill(root, "xpu", "profile a slow GPU kernel")
-    _catalog_skill(root, "db", "tune a slow database query")
-    _catalog_skill(root, "unlisted", "profile a slow thing")
-    (root / "skills.yaml").write_text("- name: xpu\n- name: db\n- name: ghost\n",
-                                      encoding="utf-8")
-    notes: list[str] = []
-    names = [c.name for c in catalog_competitors(str(root), {"perf"}, notes)]
-    assert names == ["xpu", "db"]
-    assert len(notes) == 1 and "ghost" in notes[0]
+@pytest.mark.parametrize("reply", [
+    "I think the best one is the third.", '{"pick": 0}', '{"pick": 999}',
+])
+def test_a_declined_reply_is_recorded_verbatim(reply):
+    client = LLMClient(model="m", role="selector", transport=lambda p, s: (reply, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert row["abstained"] is True
+    assert row["raw_reply"] == reply
 
 
-def test_a_non_skill_file_among_competitors_is_skipped_with_a_warning(tmp_path, capsys):
-    # A shell glob over a skills directory passes the helper scripts and an empty directory
-    # too; that used to abort the whole run on the first .mjs file.
-    helper = tmp_path / "activation-rule.mjs"
-    helper.write_text("export {}\n", encoding="utf-8")
-    empty = tmp_path / "generated"
-    empty.mkdir()
+def test_a_very_long_declined_reply_is_cut_at_the_recording_limit():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: ("x" * 5000, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert len(row["raw_reply"]) == 2000
+
+
+def test_a_long_declined_reply_keeps_its_head_not_its_tail():
+    reply = "a" * 2000 + "b" * 3000
+    client = LLMClient(model="m", role="selector", transport=lambda p, s: (reply, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert row["raw_reply"] == reply[:2000]
+
+
+def test_repeats_below_one_are_refused():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: (json.dumps({"pick": 1}), None))
+    with pytest.raises(ValueError, match="at least 1"):
+        model_routing([PERF, TBB], ["q1"], client=client, repeats=0)
+
+
+def test_one_repeat_has_no_noise_block():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: (json.dumps({"pick": 1}), None))
+    result = model_routing([PERF, TBB], ["q1", "q2"], client=client)
+    assert (result["repeats"], result["noise"]) == (1, None)
+    assert [row["repeat"] for row in result["per_query"]] == [0, 0]
+
+
+def test_noise_reports_each_query_s_agreement_and_the_spread_between_repeats():
+    # Query 1 is answered PERF, PERF, TBB; query 2 is PERF three times. Calls run query by
+    # query, repeat by repeat, so this script is the order the model is asked in.
+    script = iter([PERF.name, PERF.name, TBB.name, PERF.name, PERF.name, PERF.name])
+
+    def transport(prompt: str, system: str | None):
+        return _answer_as(next(script))(prompt), None
+
+    client = LLMClient(model="m", role="selector", transport=transport)
+    result = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=3)
+    noise = result["noise"]
+    assert result["repeats"] == 3
+    assert [q["modal_pick"] for q in noise["per_query"]] == [PERF.name, PERF.name]
+    assert noise["per_query"][0]["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+    assert noise["per_query"][1]["agreement"] == 1.0
+    assert noise["per_query"][0]["n_correct"] == 2
+    assert noise["unstable_queries"] == 1
+    # Repeat 2 gets query 1 wrong: the rate goes 1.0, 1.0, 0.5, so the half range is 0.25.
+    assert noise["selection_rate_by_repeat"] == [1.0, 1.0, 0.5]
+    assert noise["half_range"] == 0.25
+    assert [row["repeat"] for row in result["per_query"]] == [0, 1, 2, 0, 1, 2]
+
+
+def test_a_query_that_failed_on_every_repeat_has_no_agreement_to_report():
+    def transport(prompt: str, system: str | None):
+        raise RuntimeError("provider down")
+
+    client = LLMClient(model="m", role="selector", transport=transport)
+    noise = model_routing([PERF, TBB], ["q1"], client=client, repeats=2)["noise"]
+    assert noise == {
+        "mean_agreement": None, "unstable_queries": 0,
+        "selection_rate_by_repeat": [None, None], "half_range": None,
+        "n_queries_compared": 0,
+        "per_query": [{"query": "q1", "modal_pick": None, "agreement": None, "picks": [],
+                       "n_correct": 0}],
+    }
+
+
+def _completions(monkeypatch, tmp_path, replies: list[str]) -> list[list[dict]]:
+    """Route the real default transport into scripted completions, with the cache on."""
+    import litellm
+
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "responses"))
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    asked: list[list[dict]] = []
+
+    def completion(model, messages, api_key=None, **kw):
+        reply = replies[min(len(asked), len(replies) - 1)]
+        asked.append(messages)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=reply),
+                                     finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+
+    monkeypatch.setattr(litellm, "completion", completion)
+    return asked
+
+
+def test_with_the_response_cache_on_each_repeat_is_asked_again(monkeypatch, tmp_path):
+    # Identical prompts: without a draw index the cache would replay the first reply and
+    # every repeat would agree by construction, reporting a noise floor of zero.
+    asked = _completions(monkeypatch, tmp_path,
+                         [json.dumps({"pick": 1}), json.dumps({"pick": 2}),
+                          json.dumps({"pick": 3})])
+    client = LLMClient(model="m", provider="openai", role="selector")
+    result = model_routing([PERF, TBB, MKL], ["q1"], client=client, repeats=3)
+    assert result["n_failed"] == 0          # a refused draw would read as zero calls
+    assert len(asked) == 3
+    assert [row["picked_at"] for row in result["per_query"]] == [1, 2, 3]
+
+
+def test_a_repeat_run_through_the_cli_writes_the_noise_block(tmp_path, monkeypatch, capsys):
+    import dokimi.commands.novelty as novelty
+
+    def answer(prompt: str) -> str:
+        return _answer_as("perf")(prompt)
+
+    monkeypatch.setattr(
+        novelty, "_client",
+        lambda model, provider, role, args: LLMClient(
+            model=model, role=role, transport=lambda p, s: (answer(p), None)),
+    )
+    artifact = _skill(tmp_path, "perf", "record and annotate a perf profile")
+    competitor = _skill(tmp_path, "tbb", "parallelize C++ loops with task groups")
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["record a perf profile", "profile my binary"]),
+                       encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing", "--artifact", artifact, "--competitors", competitor,
+                  "--queries", str(queries), "--model", "m", "--repeats", "2",
+                  "--out", str(out))
+    args.func(args)
+    model = json.loads(out.read_text(encoding="utf-8"))["model"]
+    assert model["repeats"] == 2
+    assert model["noise"]["selection_rate_by_repeat"] == [1.0, 1.0]
+    assert model["noise"]["half_range"] == 0.0
+    assert "noise    2 repeats per query" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("repeats", ["2", "3"])
+def test_repeats_without_a_model_are_refused_on_the_cli(tmp_path, repeats):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
     out = tmp_path / "routing.json"
     args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
-                  "--competitors", f"skill:{helper}", f"skill:{empty}",
-                  _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(out))
-    args.func(args)
-    assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 2
-    err = capsys.readouterr().err
-    assert "skipped competitor" in err and "activation-rule.mjs is not a SKILL.md" in err
-    assert "the directory has no SKILL.md" in err
-
-
-def test_a_non_skill_artifact_is_still_refused(tmp_path):
-    helper = tmp_path / "activation-rule.mjs"
-    helper.write_text("export {}\n", encoding="utf-8")
-    args = _parse("novelty", "routing", "--artifact", f"skill:{helper}",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", "x")
-    with pytest.raises(SystemExit, match="cannot load an artifact"):
+                  "--queries", str(queries), "--repeats", repeats, "--out", str(out))
+    with pytest.raises(SystemExit, match="needs --model"):
         args.func(args)
+    assert not out.exists()
 
 
-def _model_hidden_skill(root, name, description):
-    skill_dir = root / name
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        f"---\nname: {name}\ndescription: {description}\n"
-        "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
-    return f"skill:{skill_dir}"
+def test_a_declining_model_is_named_on_the_cli_with_where_its_replies_are(
+        tmp_path, monkeypatch, capsys):
+    import dokimi.commands.novelty as novelty
 
-
-def test_a_disable_model_invocation_skill_is_not_a_competitor_unless_asked(tmp_path, capsys):
-    # ultracave and megacave set the flag: no harness lists them, so a card for them scores a
-    # choice the model cannot make.
-    catalog = tmp_path / "skills"
-    catalog.mkdir()
-    gold = _skill(catalog, "perf", "profile a slow binary with perf")
-    _skill(catalog, "db", "tune a slow database query")
-    _model_hidden_skill(catalog, "ultra", "compress output hard")
-    queries = tmp_path / "q.json"
-    queries.write_text(json.dumps(["my binary is slow"]), encoding="utf-8")
-    out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--artifact", gold, "--catalog", str(catalog),
-                  "--queries", str(queries), "--out", str(out))
-    args.func(args)
-    assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 2
-    assert "left out catalog skill 'ultra'" in capsys.readouterr().err
-
-    kept = tmp_path / "kept.json"
-    args = _parse("novelty", "routing", "--artifact", gold, "--catalog", str(catalog),
-                  "--queries", str(queries), "--out", str(kept), "--include-disabled")
-    args.func(args)
-    assert json.loads(kept.read_text(encoding="utf-8"))["n_candidates"] == 3
-
-
-def test_an_explicit_disabled_competitor_is_skipped_with_a_warning(tmp_path, capsys):
-    queries = tmp_path / "q.json"
-    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
-    hidden = _model_hidden_skill(tmp_path, "ultra", "compress output hard")
-    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", hidden, _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(tmp_path / "r.json"))
-    args.func(args)
-    assert json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))["n_candidates"] == 2
-    assert f"skipped competitor {hidden}: disable-model-invocation" in capsys.readouterr().err
-
-
-def test_include_disabled_keeps_a_disabled_skill_named_as_a_competitor(tmp_path, capsys):
-    queries = tmp_path / "q.json"
-    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
-    hidden = _model_hidden_skill(tmp_path, "ultra", "compress output hard")
-    out = tmp_path / "r.json"
-    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", hidden, _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(out), "--include-disabled")
-    args.func(args)
-    assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 3
-    assert "skipped competitor" not in capsys.readouterr().err
-
-
-def test_a_disabled_artifact_is_still_routed_but_warned_about(tmp_path, capsys):
-    queries = tmp_path / "q.json"
-    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
-    artifact = _model_hidden_skill(tmp_path, "ultra", "compress output hard")
-    args = _parse("novelty", "routing", "--artifact", artifact,
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(tmp_path / "r.json"))
-    args.func(args)
-    assert "the model cannot select it" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize("line, hidden", [
-    ("disable-model-invocation: true", True), ("disable-model-invocation: false", False),
-    ("disable-model-invocation: yes", True), ("description: x", False),
-    # Unquoted yes/on parse to True; the quoted and numeric spellings reach the string branch.
-    ("disable-model-invocation: 'yes'", True), ("disable-model-invocation: 'on'", True),
-    ("disable-model-invocation: 1", True), ("disable-model-invocation: 0", False),
-    ("disable-model-invocation: 'TRUE'", True), ("disable-model-invocation: 'no'", False),
-])
-def test_the_disable_flag_is_read_the_way_the_repo_budget_reads_it(tmp_path, line, hidden):
-    path = tmp_path / "SKILL.md"
-    path.write_text(f"---\nname: x\ndescription: x\n{line}\n---\n\nbody\n", encoding="utf-8")
-    assert disables_model_invocation(path) is hidden
-
-
-def test_a_mirror_of_a_catalog_skill_is_counted_once(tmp_path, capsys):
-    # A plugin copy of the skills/ tree: byte-identical SKILL.md, same name. It used to make
-    # the field name db twice and refuse the run.
-    root = tmp_path / "catalog"
-    _catalog_skill(root, "perf", "profile a slow binary with perf")
-    _catalog_skill(root, "db", "tune a slow database query")
-    mirror = root / "plugins" / "x" / "skills" / "db"
-    mirror.mkdir(parents=True)
-    (mirror / "SKILL.md").write_bytes((root / "skills" / "db" / "SKILL.md").read_bytes())
-    queries = tmp_path / "q.json"
-    queries.write_text(json.dumps(["my binary is slow"]), encoding="utf-8")
-    out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
-                  "--catalog", str(root), "--queries", str(queries), "--out", str(out))
-    args.func(args)
-    assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 2
-    err = capsys.readouterr().err
-    assert "identical to" in err and "skills" in err
-
-
-def test_the_mirror_kept_is_the_copy_nearest_the_catalog_root(tmp_path):
-    root = tmp_path / "catalog"
-    _catalog_skill(root, "db", "tune a slow database query")
-    deep = root / "plugins" / "x" / "skills" / "db"
-    deep.mkdir(parents=True)
-    (deep / "SKILL.md").write_bytes((root / "skills" / "db" / "SKILL.md").read_bytes())
-    notes: list[str] = []
-    assert [c.name for c in catalog_competitors(str(root), set(), notes)] == ["db"]
-    assert "plugins" in notes[0] and "identical to" in notes[0]
-    # The note names the copy that was kept, not only the one left out.
-    assert notes[0].endswith(f"identical to {root / 'skills' / 'db' / 'SKILL.md'}")
-
-
-def test_mirrors_at_one_depth_keep_the_path_that_sorts_first(tmp_path):
-    root = tmp_path / "catalog"
-    for branch in ("b", "a"):
-        copy = root / branch / "skills" / "db"
-        copy.mkdir(parents=True)
-        (copy / "SKILL.md").write_text(
-            "---\nname: db\ndescription: tune a slow database query\n---\n\n# B\n",
-            encoding="utf-8")
-    notes: list[str] = []
-    assert [c.name for c in catalog_competitors(str(root), set(), notes)] == ["db"]
-    assert notes[0].endswith(f"identical to {root / 'a' / 'skills' / 'db' / 'SKILL.md'}")
-    assert f"left out {root / 'b' / 'skills' / 'db' / 'SKILL.md'}" in notes[0]
-
-
-def test_two_catalog_skills_with_one_name_and_different_content_are_refused_by_name(
-    tmp_path, capsys
-):
-    # Not "pass each competitor once": the catalog holds two different cards under one name,
-    # and the refusal names both copies rather than the duplicate-competitor check.
-    root = tmp_path / "catalog"
-    _catalog_skill(root, "perf", "profile a slow binary with perf")
-    _catalog_skill(root, "db", "tune a slow database query")
-    fork = root / "plugins" / "x" / "skills" / "db"
-    fork.mkdir(parents=True)
-    (fork / "SKILL.md").write_text(
-        "---\nname: db\ndescription: a different card\n---\n\n# B\n", encoding="utf-8"
+    monkeypatch.setattr(
+        novelty, "_client",
+        lambda model, provider, role, args: LLMClient(
+            model=model, role=role,
+            transport=lambda p, s: ("I would rather not choose.", None)),
     )
     queries = tmp_path / "q.json"
-    queries.write_text(json.dumps(["my binary is slow"]), encoding="utf-8")
+    queries.write_text(json.dumps(["record a perf profile"]), encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse(
-        "novelty",
-        "routing",
-        "--artifact",
-        f"skill:{root / 'skills' / 'perf'}",
-        "--catalog",
-        str(root),
-        "--queries",
-        str(queries),
-        "--out",
-        str(out),
-    )
-    with pytest.raises(SystemExit) as refused:
-        args.func(args)
-    message = str(refused.value)
-    assert message.startswith("catalog has db at ") and "dedupe or rename" in message
-    assert str(root / "skills" / "db" / "SKILL.md") in message
-    assert str(fork / "SKILL.md") in message
-    assert "more than once" not in message and not out.exists()
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "perf", "record and annotate a perf profile"),
+                  "--competitors", _skill(tmp_path, "tbb", "parallelize C++ loops"),
+                  "--queries", str(queries), "--model", "m", "--out", str(out))
+    args.func(args)
+    model = json.loads(out.read_text(encoding="utf-8"))["model"]
+    assert model["per_query"][0]["raw_reply"] == "I would rather not choose."
+    assert "1 abstained or unparseable" in capsys.readouterr().out
+
+
+class _Boom(Exception):
+    pass
+
+
+def _scripted(script):
+    """A selector whose n-th call answers a card name, abstains ("-"), or fails ("!")."""
+    calls = iter(script)
+
+    def transport(prompt: str, system: str | None):
+        step = next(calls)
+        if step == "!":
+            raise _Boom("provider down")
+        if step == "-":
+            return json.dumps({"pick": 0}), None
+        return _answer_as(step)(prompt), None
+
+    return LLMClient(model="m", role="selector", transport=transport)
+
+
+def test_a_failed_repeat_is_not_reported_as_sampling_noise():
+    # q1 is wrong in both repeats. q2 fails in repeat 0 and is right in repeat 1. Per-repeat
+    # rates over each repeat's own answered rows would be [0.0, 0.5]: a half range of 0.25
+    # from an error, not from the model.
+    client = _scripted([TBB.name, TBB.name, "!", PERF.name])
+    noise = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=2)["noise"]
+    assert noise["selection_rate_by_repeat"] == [0.0, 0.0]
+    assert noise["half_range"] == 0.0
+    assert noise["n_queries_compared"] == 1
+
+
+def test_noise_counts_an_abstention_as_a_pick_and_an_error_as_no_answer():
+    # One query, three repeats: PERF, abstained, failed. Agreement is over the two answered
+    # repeats (1/2), not the three calls (1/3), and the abstention has its own label.
+    client = _scripted([PERF.name, "-", "!"])
+    noise = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"]
+    (query,) = noise["per_query"]
+    assert query["picks"] == [PERF.name, "(abstained)"]
+    assert query["agreement"] == 0.5
+    assert noise["mean_agreement"] == 0.5 and noise["unstable_queries"] == 1
+    assert noise["n_queries_compared"] == 0
+    assert noise["selection_rate_by_repeat"] == [None, None, None]
+    assert noise["half_range"] is None
+
+
+def test_the_output_counts_calls_and_the_noise_means_each_agreement():
+    # q1: PERF, PERF, TBB (agreement 2/3). q2: PERF three times (agreement 1.0).
+    client = _scripted([PERF.name, PERF.name, TBB.name, PERF.name, PERF.name, PERF.name])
+    result = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=3)
+    assert result["n_calls"] == 6  # queries x repeats, not queries
+    assert result["noise"]["mean_agreement"] == pytest.approx(5 / 6, abs=1e-3)  # the mean of 2/3 and 1.0, not the max
+
+
+def test_a_failed_call_elsewhere_does_not_change_the_rate_of_the_complete_queries():
+    # q1 is right in both repeats; q2 fails once. The rate is over the complete queries only
+    # (q1), so 1.0 in each repeat; dividing by all queries would give 0.5.
+    client = _scripted([PERF.name, PERF.name, "!", TBB.name])
+    noise = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=2)["noise"]
+    assert noise["selection_rate_by_repeat"] == [1.0, 1.0]
+    assert noise["n_queries_compared"] == 1
+
+
+def test_an_abstention_can_be_the_modal_pick():
+    client = _scripted(["-", "-", PERF.name])
+    (query,) = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"][
+        "per_query"]
+    assert query["modal_pick"] == "(abstained)"
+    assert query["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+
+
+def test_the_modal_pick_is_the_most_frequent_not_the_first():
+    client = _scripted([TBB.name, PERF.name, PERF.name])
+    (query,) = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"][
+        "per_query"]
+    assert query["modal_pick"] == PERF.name
+    assert query["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+
+
+def test_a_single_usable_repeat_has_no_half_range():
+    from dokimi.novelty.routing import _noise
+
+    noise = _noise([[{"query": "q", "repeat": 0, "picked": PERF.name, "correct": True}]])
+    assert noise["selection_rate_by_repeat"] == [1.0]
+    assert noise["half_range"] is None
 
 def test_headings_inside_code_only_refuse_the_run_and_say_why(tmp_path):
     out = tmp_path / "routing.json"

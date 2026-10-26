@@ -87,7 +87,8 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 - Code that reads answers, eval or arms records goes through
   `dokimi/dokimi/records.py` (`read`/`load`/`records`), not
   `.get("with_docs")` on the dict: it is the one place that knows the keys
-  the writers write.
+  the writers write. `dokimi/tests/test_records_guard.py` fails a new such read
+  and lists the exceptions, which only shrink.
 
 ## What goes in the tree
 
@@ -96,8 +97,10 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
   `baselines/`. Logs, coverage files and tarballs stay local too.
 - `dokimi/data/` holds only the fixtures this repo's own tests and
   examples read: `data/skills/fastcontext/`, `data/agent_profiles/`,
-  `data/explore_tasks/`. Question sets, product skills and tasks belong in
-  their content repository.
+  `data/explore_tasks/`. The one other skill there, `data/skills/dokimi-design-evals/`,
+  is guidance for using dokimi itself, not a product skill; its links and
+  commands are checked by `tests/test_bundled_skills.py`. Question sets,
+  product skills and tasks belong in their content repository.
 - A file the package reads at run time goes inside `dokimi/dokimi/` and into
   `[tool.setuptools.package-data]`, or the installed wheel goes without it.
 - Design rationale, status and plans go in the PR description or an issue;

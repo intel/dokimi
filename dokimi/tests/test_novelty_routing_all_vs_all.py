@@ -11,12 +11,8 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
-from dokimi.novelty.routing import (
-    Candidate,
-    RoutingInputError,
-    all_vs_all,
-    load_queries_by_skill,
-)
+from dokimi.novelty.all_vs_all import all_vs_all, load_queries_by_skill
+from dokimi.novelty.routing import Candidate, RoutingInputError
 
 PERF = Candidate(name="linux-perf",
                  description="Profile a Linux binary with perf: record, report, annotate")
@@ -285,16 +281,16 @@ def test_a_selector_that_abstains_is_none_and_counted_in_the_model_arm():
 
 
 def test_the_model_arm_seeds_each_gold_apart_and_hands_model_routing_the_gold(monkeypatch):
-    import dokimi.novelty.routing as routing
+    import dokimi.novelty.all_vs_all as all_vs_all_module
 
     seen = []
-    real = routing.model_routing
+    real = all_vs_all_module.model_routing
 
     def spy(candidates, queries, **kwargs):
         seen.append((kwargs["gold"], kwargs["seed"]))
         return real(candidates, queries, **kwargs)
 
-    monkeypatch.setattr(routing, "model_routing", spy)
+    monkeypatch.setattr(all_vs_all_module, "model_routing", spy)
     all_vs_all(ALL_FIELD, ALL_QUERIES, client=_positional_client(lambda p: 1), seed=10)
     assert seen == [(0, 10), (2, 12)]
 

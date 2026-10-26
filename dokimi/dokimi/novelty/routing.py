@@ -232,11 +232,15 @@ def _as_pick_position(value: object) -> int:
     return 0
 
 
+# A reply that declines to route is kept verbatim, up to this many characters.
+_RAW_REPLY_CHARS = 2000
+
+
 def model_routing(
     candidates: list[Candidate], queries: list[str], *, client: LLMClient, gold: int = 0,
-    seed: int = 0,
+    seed: int = 0, repeats: int = 1,
 ) -> dict:
-    """Ask a model to pick from the same cards, one call per query.
+    """Ask a model to pick from the same cards, ``repeats`` times per query.
 
     The candidate order is a seeded random permutation per query, so a model that always
     picks the first (or last) option scores about ``1/N`` rather than a figure set by how
@@ -245,14 +249,24 @@ def model_routing(
     second-to-last -- exactly the positions where primacy and recency bias are strongest.
     The permutation is recorded per query, so a result can be re-read or replayed.
 
+    Each query keeps one card order across its repeats, so the spread between repeats is
+    the model's own sampling noise rather than a change of layout. Each repeat is its own
+    sample (``draw``), so with the response cache on a repeat is not a replay.
+
     Returns:
-        ``selection_rate``, ``n_queries``, ``n_abstained``, ``n_failed``, the per-query pick
-        with the position the gold card was shown at, and the caveat that this bounds
-        harness behaviour from above.
+        ``selection_rate``, ``n_queries``, ``n_calls`` (queries x repeats; ``n_abstained`` and
+        ``n_failed`` count calls), ``n_abstained``, ``n_failed``, the per-query pick
+        with the position the gold card was shown at, the raw reply of every abstention or
+        unparseable pick, and the caveat that this bounds harness behaviour from above.
+        With ``repeats > 1``, ``noise`` holds each query's agreement across its repeats and
+        the run-to-run spread of the selection rate; it is ``None`` for one repeat.
     """
     if not 0 <= gold < len(candidates):
         raise ValueError(f"gold index {gold} is outside 0..{len(candidates) - 1}")
+    if repeats < 1:
+        raise ValueError(f"repeats must be at least 1, not {repeats}")
     picks: list[dict] = []
+    groups: list[list[dict]] = []
     for index_of_query, query in enumerate(queries):
         shuffler = random.Random(f"{seed}:{index_of_query}:{len(candidates)}")
         order = list(range(len(candidates)))
@@ -261,28 +275,36 @@ def model_routing(
             f"{position + 1}. {candidates[index].card}"
             for position, index in enumerate(order)
         )
-        try:
-            reply = client.text(
-                _SELECT_PROMPT.format(query=query, cards=cards),
-                accept=partial(_is_pick_reply, n_cards=len(order)),
-            )
-        except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
-            picks.append({"query": query, "picked": None, "error": str(exc)[:200]})
-            continue
-        # A reply that is not a usable pick is the model declining to route, not a
-        # transport failure: it stays in the denominator like an explicit abstention.
-        try:
-            raw = _as_pick_position(parse_json_object(reply).get("pick", 0))
-        except ValueError:
-            raw = 0
-        if raw < 1 or raw > len(order):
-            picks.append({"query": query, "picked": None, "abstained": True})
-            continue
-        chosen = order[raw - 1]
-        picks.append({"query": query, "picked": candidates[chosen].name,
-                      "correct": chosen == gold, "picked_at": raw,
-                      "gold_shown_at": order.index(gold) + 1,
-                      "order": [candidates[i].name for i in order]})
+        prompt = _SELECT_PROMPT.format(query=query, cards=cards)
+        group: list[dict] = []
+        for repeat in range(repeats):
+            base = {"query": query, "repeat": repeat}
+            try:
+                reply = client.text(
+                    prompt, accept=partial(_is_pick_reply, n_cards=len(order)), draw=repeat,
+                )
+            except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
+                row = {**base, "picked": None, "error": str(exc)[:200]}
+            else:
+                # A reply that is not a usable pick is the model declining to route, not a
+                # transport failure: it stays in the denominator like an explicit abstention,
+                # and its raw text is kept so the decline can be read rather than inferred.
+                try:
+                    raw = _as_pick_position(parse_json_object(reply).get("pick", 0))
+                except ValueError:
+                    raw = 0
+                if raw < 1 or raw > len(order):
+                    row = {**base, "picked": None, "abstained": True,
+                           "raw_reply": reply[:_RAW_REPLY_CHARS]}
+                else:
+                    chosen = order[raw - 1]
+                    row = {**base, "picked": candidates[chosen].name,
+                           "correct": chosen == gold, "picked_at": raw,
+                           "gold_shown_at": order.index(gold) + 1,
+                           "order": [candidates[i].name for i in order]}
+            picks.append(row)
+            group.append(row)
+        groups.append(group)
 
     answered = [p for p in picks if "correct" in p]
     hits = sum(1 for p in answered if p["correct"])
@@ -292,6 +314,8 @@ def model_routing(
         "model": client.model,
         "n_candidates": len(candidates),
         "n_queries": len(queries),
+        "repeats": repeats,
+        "n_calls": len(picks),
         "n_abstained": sum(1 for p in picks if p.get("abstained")),
         "n_failed": sum(1 for p in picks if p.get("error")),
         "seed": seed,
@@ -303,12 +327,65 @@ def model_routing(
         "selection_rate_among_answered": (
             round(hits / len(answered), 4) if answered else None
         ),
+        "noise": _noise(groups) if repeats > 1 else None,
         "per_query": picks,
         "note": (
             "An upper bound on harness behaviour, not a harness measurement: a harness "
             "whose own skill listing truncates or omits descriptions selects on less text "
             "than this. Only a run inside the harness settles that."
         ),
+    }
+
+
+def _noise(groups: list[list[dict]]) -> dict:
+    """Agreement across the repeats of each query, and the run-to-run spread of the rate.
+
+    A query's agreement is the share of its answered repeats that gave its most common
+    pick; an abstention counts as a pick. ``selection_rate_by_repeat`` reads each repeat as
+    its own run over the same queries, and ``half_range`` is half the gap between the
+    highest and the lowest of those rates. It is a crude sampling noise floor: a few repeats
+    estimate it coarsely, and it says nothing about a change of cards or queries. The
+    per-repeat rates cover only the queries with no failed call in any repeat
+    (``n_queries_compared``), so a transient error does not read as noise.
+
+    Args:
+        groups: One list per query, holding that query's rows in repeat order.
+    """
+    per_query: list[dict] = []
+    for group in groups:
+        labels = [
+            "(abstained)" if row.get("abstained") else row["picked"]
+            for row in group if not row.get("error")
+        ]
+        modal, agreement = None, None
+        if labels:
+            modal, count = Counter(labels).most_common(1)[0]
+            agreement = round(count / len(labels), 4)
+        per_query.append({
+            "query": group[0]["query"],
+            "modal_pick": modal,
+            "agreement": agreement,
+            "picks": labels,
+            "n_correct": sum(1 for row in group if row.get("correct")),
+        })
+    repeats = len(groups[0]) if groups else 0
+    rates: list[float | None] = []
+    # Every repeat's rate is taken over the same queries: those with no failed call in any
+    # repeat. Dividing each repeat by its own non-errored rows would compare different
+    # denominators and report a transient provider error as sampling noise.
+    complete = [group for group in groups if not any(row.get("error") for row in group)]
+    for repeat in range(repeats):
+        rates.append(round(sum(1 for g in complete if g[repeat].get("correct")) / len(complete), 4)
+                     if complete else None)
+    known = [rate for rate in rates if rate is not None]
+    agreements = [row["agreement"] for row in per_query if row["agreement"] is not None]
+    return {
+        "mean_agreement": round(sum(agreements) / len(agreements), 4) if agreements else None,
+        "unstable_queries": sum(1 for a in agreements if a < 1),
+        "selection_rate_by_repeat": rates,
+        "n_queries_compared": len(complete),
+        "half_range": round((max(known) - min(known)) / 2, 4) if len(known) > 1 else None,
+        "per_query": per_query,
     }
 
 
@@ -550,203 +627,3 @@ def load_queries(path: str) -> list[str]:
     return [q for q in listed if q.strip()]
 
 
-NO_PICK = "(none)"
-TIE = "(tie)"
-
-
-def _no_repeated_key(path: str):
-    """A ``json`` object hook that refuses a key written twice, which ``dict`` would merge."""
-    def build(pairs: list[tuple[str, object]]) -> dict:
-        seen: set[str] = set()
-        for key, _value in pairs:
-            if key in seen:
-                raise RoutingInputError(f"{path}: skill {key!r} appears more than once")
-            seen.add(key)
-        return dict(pairs)
-    return build
-
-
-def load_queries_by_skill(path: str) -> dict[str, list[str]]:
-    """Queries per skill, from a JSON object ``{"<skill name>": ["request", ...]}``.
-
-    Each request is one the named skill should be selected for, written independently of
-    it. Blank requests are dropped, and a skill left with none is dropped with them.
-
-    Raises:
-        RoutingInputError: The file is not JSON, is not an object, names a skill twice, or a
-            value is not a list of strings.
-    """
-    try:
-        data = json.loads(Path(path).read_text(encoding="utf-8-sig"),
-                          object_pairs_hook=_no_repeated_key(path))
-    except json.JSONDecodeError as exc:
-        raise RoutingInputError(f"{path}: not JSON: {exc}") from None
-    if not isinstance(data, dict):
-        raise RoutingInputError(f"{path}: expected an object of skill name to query list")
-    by_skill: dict[str, list[str]] = {}
-    for name, listed in data.items():
-        if not isinstance(listed, list) or not all(isinstance(q, str) for q in listed):
-            raise RoutingInputError(f"{path}: the queries for {name!r} must be a list of strings")
-        queries = [q for q in listed if q.strip()]
-        if queries:
-            by_skill[name] = queries
-    return by_skill
-
-
-def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str]], *,
-               client: LLMClient | None = None, seed: int = 0) -> dict:
-    """Each skill's queries, routed against the whole field: a confusion matrix and attractors.
-
-    Every skill that has queries is the gold in turn. Its queries go to the whole field, and
-    the pick is recorded. The lexical arm always runs (free); the model arm runs when
-    ``client`` is given. A query no card shares a word with is ``(none)``, not the first card:
-    the tie-break in ``lexical_routing`` would otherwise name a card that matched nothing.
-
-    An attractor is a skill picked for queries written for other skills. ``wrongly_picked``
-    counts those queries, ``sibling_queries`` is how many queries the other skills have, and
-    ``from`` names the skills whose queries it took.
-
-    Returns:
-        ``n_skills``, ``n_queries``, and per arm (``lexical``, ``model``): ``confusion`` (gold
-        skill to picked skill to count, ``(none)`` and ``(tie)`` included), ``own_rate`` per gold
-        skill (``None`` when none of its queries was scored), ``n_scored`` and ``n_unscored``
-        per gold skill, and ``attractors`` ordered by ``wrongly_picked``. The model arm also records ``model``,
-        ``seed``, ``n_failed``, ``n_abstained`` and ``first_error``.
-
-    Raises:
-        RoutingInputError: Fewer than two skills in the field; a name repeated in the field; a
-            query file that names a skill outside the field; no skill with any queries.
-    """
-    names = [c.name for c in candidates]
-    _check_all_vs_all_input(names, queries_by_skill)
-    result: dict = {
-        "n_skills": len(candidates),
-        "n_queries": sum(len(q) for q in queries_by_skill.values()),
-        "lexical": _attractor_table(*_lexical_picks(candidates, queries_by_skill, names),
-                                    names),
-    }
-    if client is not None:
-        result["model"] = _model_arm(candidates, queries_by_skill, names, client, seed)
-    return result
-
-
-def _check_all_vs_all_input(names: list[str], queries_by_skill: dict[str, list[str]]) -> None:
-    """Refuse a field or query file :func:`all_vs_all` cannot measure."""
-    if len(names) < 2:
-        raise RoutingInputError("all-vs-all needs at least two skills in the field")
-    if len(set(names)) != len(names):
-        raise RoutingInputError("all-vs-all: the field names a skill more than once")
-    unknown = sorted(set(queries_by_skill) - set(names))
-    if unknown:
-        raise RoutingInputError("the queries name skills that are not in the field: "
-                                + ", ".join(f"`{n}`" for n in unknown)
-                                + "; a skill that sets disable-model-invocation is left out "
-                                "unless you pass --include-disabled")
-    if not queries_by_skill:
-        raise RoutingInputError("no skill in the field has queries to route")
-
-
-def _lexical_pick(bm25: BM25, tokens: list[str], gold: int, candidates: list[Candidate]) -> str:
-    """The card the lexical arm picks for one query written for ``candidates[gold]``.
-
-    The gold is a pick only when it scores strictly above every other card. Two or more other
-    cards tied at the top are ``(tie)``, not whichever comes first in the field, so the result
-    does not depend on the order of the field. One other card tied with the gold is that card:
-    the gold sorts after what it ties with, as in ``lexical_routing``.
-    """
-    scores = [bm25.score(tokens, i) for i in range(len(candidates))]
-    top = max(scores)
-    if top <= 0:
-        return NO_PICK
-    at_top = [i for i, score in enumerate(scores) if math.isclose(score, top, rel_tol=1e-12)]
-    others = [i for i in at_top if i != gold]
-    if not others:
-        return candidates[gold].name
-    return candidates[others[0]].name if len(others) == 1 else TIE
-
-
-def _lexical_picks(candidates: list[Candidate], queries_by_skill: dict[str, list[str]],
-                   names: list[str]) -> tuple[dict[str, Counter], dict[str, int]]:
-    """The lexical arm of :func:`all_vs_all`: picks per gold skill, and the unscored counts.
-
-    A query with no content word cannot be scored; it is counted in the second dict and left
-    out of the picks, as ``lexical_routing`` leaves it out of its rates.
-    """
-    bm25 = BM25([tokenize(c.card) for c in candidates])
-    lexical: dict[str, Counter] = {}
-    unscored: dict[str, int] = {}
-    for name, queries in queries_by_skill.items():
-        picks: Counter = Counter()
-        for query in queries:
-            tokens = tokenize(query)
-            if not tokens:
-                unscored[name] = unscored.get(name, 0) + 1
-                continue
-            picks[_lexical_pick(bm25, tokens, names.index(name), candidates)] += 1
-        lexical[name] = picks
-    return lexical, unscored
-
-
-def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str]],
-               names: list[str], client: LLMClient, seed: int) -> dict:
-    """The model arm of :func:`all_vs_all`: attractor table plus failure counts."""
-    model: dict[str, Counter] = {}
-    unscored: dict[str, int] = {}
-    n_failed = n_abstained = 0
-    first_error = None
-    for index, name in enumerate(names):
-        if name not in queries_by_skill:
-            continue
-        routed = model_routing(candidates, queries_by_skill[name], client=client,
-                               gold=index, seed=seed + index)
-        rows = routed["per_query"]
-        n_failed += routed["n_failed"]
-        n_abstained += routed["n_abstained"]
-        if first_error is None:
-            first_error = next((r["error"] for r in rows if r.get("error")), None)
-        # A failed call measured nothing: it is not a pick, so it is left out of every rate.
-        model[name] = Counter(row.get("picked") or NO_PICK for row in rows if not row.get("error"))
-        if routed["n_failed"]:
-            unscored[name] = routed["n_failed"]
-    return dict(_attractor_table(model, unscored, names), model=client.model, seed=seed,
-                n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
-
-
-def _attractor_table(picks_by_gold: dict[str, Counter], unscored: dict[str, int],
-                     names: list[str]) -> dict:
-    """The confusion matrix, own rate and attractor table for one arm of :func:`all_vs_all`.
-
-    Every rate is over the queries that were scored: ``n_scored`` per gold skill, with
-    ``n_unscored`` beside it. A skill with none scored has an ``own_rate`` of ``None``, which
-    is not the 0.0 of a skill the arm really never picked.
-    """
-    scored = {gold: sum(picks.values()) for gold, picks in picks_by_gold.items()}
-    attractors: list[dict] = []
-    for name in names:
-        wrong = {gold: picks[name] for gold, picks in picks_by_gold.items()
-                 if gold != name and picks[name]}
-        if not wrong:
-            continue
-        sibling_queries = sum(n for gold, n in scored.items() if gold != name)
-        attractors.append({
-            "skill": name,
-            "wrongly_picked": sum(wrong.values()),
-            "sibling_queries": sibling_queries,
-            "rate": round(sum(wrong.values()) / sibling_queries, 4) if sibling_queries else None,
-            "from": sorted(wrong, key=lambda gold: (-wrong[gold], gold)),
-        })
-    attractors.sort(key=lambda row: (-row["wrongly_picked"], row["skill"]))
-    return {
-        "confusion": {gold: dict(sorted(picks.items()))
-                      for gold, picks in sorted(picks_by_gold.items())},
-        "own_rate": {gold: round(picks[gold] / scored[gold], 4) if scored[gold] else None
-                     for gold, picks in sorted(picks_by_gold.items())},
-        "n_scored": dict(sorted(scored.items())),
-        "n_unscored": dict(sorted(unscored.items())),
-        "attractors": attractors,
-        "note": (f"{NO_PICK} counts a query no card shares a word with; in the model arm it "
-                 f"also counts an abstention. {TIE} counts a query on which two or more other "
-                 "cards tie for the top score, so no field order decides it. A query with no "
-                 "content word, and a failed model call, is not scored: it is in neither the "
-                 "confusion matrix nor any rate (see n_unscored)."),
-    }

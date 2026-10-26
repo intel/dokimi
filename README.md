@@ -60,6 +60,8 @@ baseline with paired statistics. Arms are given as specs (`dokimi arms run
 | `skill-catalog:<root>` | a whole skill catalog, to measure whether the right skill gets selected |
 | `profile:<path>` | an agent persona / system prompt |
 | `guidance:none\|raw\|bridge` | a repository with its `AGENTS.md`/`CLAUDE.md` removed, kept, or bridged (repository mode, below) |
+| `guidance:rev:<rev>` | the same repository with the guidance files of another revision, such as a PR's `AGENTS.md` (repository mode) |
+| `patch:<file>` | the repository with a unified diff applied on top of its own guidance: a new script, a Makefile target (repository mode) |
 
 The same arms drive question answering (LLM-as-judge with judge-validity
 checks), executable Docker coding tasks through Codex, Claude Code, Harbor or
@@ -154,7 +156,7 @@ the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
 
 | Step | Command | Cost |
 |---|---|---|
-| 1. Does it load? | `dokimi catalog scan --root <catalog> --kind skills` | free |
+| 1. Does it load? | `dokimi catalog scan --root <catalog> --kind skills [--strict]` | free |
 | 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --catalog <catalog> --queries queries.json [--model …]` | free without `--model` |
 | 3. What will step 4 cost? | `dokimi novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
 | 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |

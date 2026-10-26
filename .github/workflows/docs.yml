@@ -13,7 +13,17 @@ name: docs
 on:
   push:
     branches: [ main ]
+  # Not for a PR that changes only tests, changelog fragments or other workflows:
+  # the site is built from docs/, the package (API and CLI reference) and pages
+  # that link anywhere else in the tree, but never into tests/ or .github/.
+  # (No check is required on main, so a skipped workflow blocks no merge.)
   pull_request:
+    paths:
+      - '**'
+      - '!dokimi/tests/**'
+      - '!dokimi/changelog.d/[0-9]*.md'
+      - '!.github/**'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:

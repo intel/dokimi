@@ -157,8 +157,14 @@ class MCPProtocolClient(MCPClient):
                         await session.initialize()
                         yield session
             elif transport == "http":
-                from mcp.client.streamable_http import streamablehttp_client
-                async with streamablehttp_client(url) as (read, write, _):
+                try:
+                    # mcp >= 1.24; mcp 2.x removed the old streamablehttp_client name
+                    from mcp.client.streamable_http import streamable_http_client as http_client
+                except ImportError:
+                    from mcp.client.streamable_http import streamablehttp_client as http_client
+                # mcp 1.x yields (read, write, get_session_id); mcp 2.x yields (read, write)
+                async with http_client(url) as streams:
+                    read, write = streams[0], streams[1]
                     async with ClientSession(read, write) as session:
                         await session.initialize()
                         yield session
