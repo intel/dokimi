@@ -71,6 +71,17 @@ CASES = [
      {("path", "third/dep/lib.h"): "unresolved"}),
     ("outside the repository", "`../../x.md`", {}, {("path", "../../x.md"): "fail"}),
     ("bare directory name", "`metrics/`", {"pkg/metrics/a.py": ""}, {("path", "metrics/"): "ok_basename"}),
+    # a missing path the repository's .gitignore ignores is ignored
+    ("gitignored file", "`pkg/gen.h`", {"pkg/.gitignore": "*.h\n", "pkg/a.c": ""},
+     {("path", "pkg/gen.h"): "unresolved"}),
+    ("gitignored directory contents", "`pkg/include/`", {"pkg/.gitignore": "include/*\n", "pkg/a.c": ""},
+     {("path", "pkg/include/"): "unresolved"}),
+    ("gitignored glob", "`pkg/*.cxx`", {"pkg/.gitignore": "*.cxx\n", "pkg/a.pyx": ""},
+     {("path", "pkg/*.cxx"): "unresolved"}),
+    ("re-included by the .gitignore: a rename again", "`pkg/keep.h`",
+     {"pkg/.gitignore": "*.h\n!keep.h\n", "pkg/a.c": ""}, {("path", "pkg/keep.h"): "fail"}),
+    ("ignored elsewhere only", "`pkg/gen.h`", {"other/.gitignore": "*.h\n", "pkg/a.c": ""},
+     {("path", "pkg/gen.h"): "fail"}),
     # links
     ("link outside the repository", "[x](../../x.md)", {}, {("link", "../../x.md"): "fail"}),
     ("percent-encoded link", "[x](docs/my%20file.md)", {"docs/my file.md": ""},
@@ -277,6 +288,11 @@ def test_a_path_into_a_submodule_says_so(tmp_path):
     payload = _scan(tmp_path, "`third/dep/lib.h`\n", {".gitmodules": '[submodule "d"]\n\tpath = third/dep\n',
                                                      "third/README": ""})
     assert "inside the submodule third/dep" in payload["claims"][0]["why"]
+
+
+def test_a_gitignored_path_names_the_line_that_ignores_it(tmp_path):
+    payload = _scan(tmp_path, "`pkg/include/`\n", {"pkg/.gitignore": "*.o\ninclude/*\n", "pkg/a.c": ""})
+    assert "pkg/.gitignore:2 (`include/*`) ignores it" in payload["claims"][0]["why"]
 
 
 def test_no_claim_for_options_or_operators(tmp_path):

@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..source import RepoTree, SourceError
+from .gitignore import GitIgnore
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 
 # Files whose words are prose, not code: an identifier found only there is not in the code.
@@ -305,7 +306,7 @@ class Scan:
         for c in cands:
             parent = posixpath.dirname(c)
             if parent and parent in self.dir_set:
-                return "fail", f"{parent}/ exists but {c} does not"
+                return self._missing(c, rel.endswith("/"), f"{parent}/ exists but {c} does not")
         hits = [x for x in self.by_name.get(posixpath.basename(target), []) if x.endswith("/" + target)]
         if hits:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
@@ -327,13 +328,31 @@ class Scan:
             for b in bases:
                 d = posixpath.normpath(posixpath.join(b, parent))
                 if d in self.dir_set:
-                    return "fail", f"{d}/ exists but nothing in it matches {posixpath.basename(pat)}"
+                    instance = posixpath.join(b, re.sub(r"\*+|\?", "x", pat.replace("**/", "")))
+                    return self._missing(instance, False,
+                                         f"{d}/ exists but nothing in it matches {posixpath.basename(pat)}")
         if parent:
             rx = glob_regex("*/" + pat)
             hit = next((x for x in every if rx.match(x)), None)
             if hit:
                 return "ok_suffix", f"below a directory the text does not name; e.g. {hit}"
         return "unresolved", f"glob {pat} matches nothing in the tree; a build may create it"
+
+    def _missing(self, path: str, is_dir: bool, why: str) -> tuple[str, str]:
+        """``fail`` for a path the tree lacks, unless a ``.gitignore`` ignores it: a build output.
+
+        A directory counts as ignored when a file directly inside it would be (``include/*``).
+        """
+        rule = self.gitignore().ignored_by(posixpath.join(path, "file") if is_dir else path)
+        if rule is None:
+            return "fail", why
+        return "unresolved", f"{why}; {rule.source}:{rule.line} (`{rule.pattern}`) ignores it, so it is not meant to be tracked"
+
+    def gitignore(self) -> GitIgnore:
+        def load() -> GitIgnore:
+            self.preload([f for f in self.files if posixpath.basename(f) == ".gitignore"])
+            return GitIgnore(self.files, self.text)
+        return self.cached("gitignore", load)
 
     def _every(self) -> list[str]:
         return self.cached("every", lambda: sorted(self.file_set | self.dir_set))
