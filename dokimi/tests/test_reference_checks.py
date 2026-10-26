@@ -184,6 +184,11 @@ def test_a_settled_any_mode_regex_does_not_wait_for_a_later_pattern():
     assert time.monotonic() - started < REGEX_TIMEOUT
 
 
+def test_an_all_mode_regex_is_not_settled_by_its_first_match():
+    # "a" matches, so only the second pattern, which does not, can decide the check.
+    assert _one({"type": "regex", "values": ["a", "zzz"], "mode": "all"}, "a").passed is False
+
+
 def test_the_regex_limit_is_shared_by_every_pattern_of_one_check():
     started = time.monotonic()
     g = _one({"type": "regex", "values": ["(a|aa)+$", "(a|aa)+$"]}, "a" * 40 + "!")
@@ -250,6 +255,10 @@ def test_validate_grading_names_the_problem():
     ({"checks": [{"type": "judge"}]}, "a judge check needs a criterion or a reference"),
     ({"checks": [{"type": "exact", "values": ["4"]}], "threshold": "most"}, "threshold is not a number"),
     ({"checks": [{"type": "match", "values": ["x"], "weight": None}]}, "weight is not a number"),
+    ({"checks": [{"type": "match", "values": ["x"], "weight": float("nan")}]}, "weight is not a number"),
+    ({"checks": [{"type": "match", "values": ["x"], "weight": float("inf")}]}, "weight is not a number"),
+    ({"checks": [{"type": "exact", "values": ["4"]}], "threshold": float("nan")}, "threshold is not a number"),
+    ({"checks": [{"type": "exact", "values": ["4"]}], "threshold": float("inf")}, "threshold is not a number"),
     ({"checks": [{"type": ["match"], "values": ["x"]}]}, "unknown type"),
     ({"checks": [{"type": "match", "values": [""]}]}, "match has a blank value"),
     ({"checks": [{"type": "match", "values": ["x", "  "]}]}, "match has a blank value"),
