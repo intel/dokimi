@@ -15,18 +15,17 @@ on:
 permissions:
   contents: read
 
-# Runners: every PR check runs on intel-ubuntu-latest, Intel's ephemeral runner
-# pool, the seconds-long `static` job too. ubuntu-latest is shared by every
-# intel/ repository: a job there waited 28 min or more for a runner one time in
-# ten (October 2026), and a PR's CI finishes when its last job does. The pool
-# boots a runner per job, a wait of about 4 min (median), p90 8 min, so a check
-# that takes seconds costs as much as one that takes minutes: the small checks
-# share `static` instead of each booting a runner of its own. Both ends of a
-# `needs:` chain are on the pool (`static` -> `test` here, `build` -> `deploy` in
-# docs.yml), so no chain waits on both queues. Fork PRs against intel/dokimi run on the pool as well
-# (repository_owner is the base repository's); an outside contributor's runs
-# need a maintainer's approval first. A fork's own pushes fall back to
-# ubuntu-latest. release.yml and stack-health.yml, not PR checks, stay on
+# Runners: a job that takes more than 3 minutes runs on intel-ubuntu-latest,
+# Intel's ephemeral runner pool; a shorter one runs on ubuntu-latest. ubuntu-latest
+# is shared by every intel/ repository: a job there waited 28 min or more for a
+# runner one time in ten (October 2026). The pool boots a fresh runner per job, a
+# wait of about 4 min (median), p90 8 min, so a seconds-long check costs more on
+# the pool than it takes to run. That is why the small checks share `static`
+# instead of each booting a runner, and why only the test matrix (`test` and
+# `test-latest`, about 4-5 min each) is on the pool. Fork PRs against intel/dokimi
+# run on the pool as well (repository_owner is the base repository's); an outside
+# contributor's runs need a maintainer's approval first. A fork's own pushes fall
+# back to ubuntu-latest. release.yml and stack-health.yml, not PR checks, stay on
 # ubuntu-latest. windows-smoke, a PR check, runs on windows-latest.
 
 # A new push to a PR supersedes the run in flight. Every other run gets a group of its
@@ -55,7 +54,7 @@ jobs:
   # runner for the same reason.
   static:
     name: Static checks (ruff, schema, zizmor, licenses, pre-commit, bandit, secrets, changelog, schema compat)
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       # Full history: the commit scan, the changelog and schema checks diff
       # against the base branch's tip (fetched by this checkout).
@@ -240,7 +239,7 @@ jobs:
 
   typecheck:
     name: mypy
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -262,11 +261,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: deptry .
 
-  # The pool jobs that cost the most (the test matrix, package-smoke) wait for
-  # `static`: a PR that fails lint stops there instead of taking six more
-  # runners. The cost is the wall time of `static` plus one more pool boot on a
-  # green run. typecheck, one job, still runs alongside `static`; windows-smoke,
-  # on windows-latest, does not wait, so no chain spans both queues.
+  # The test matrix waits for `static` (ubuntu-latest): a PR that fails lint
+  # stops there instead of booting the matrix on the pool. A green run waits in
+  # both queues in turn. typecheck, one job, still runs alongside `static`;
+  # windows-smoke, on windows-latest, does not wait.
   test:
     name: Tests (py${{ matrix.python-version }})
     needs: static
@@ -401,7 +399,7 @@ jobs:
   package-smoke:
     name: Package install smoke test (py${{ matrix.python-version }})
     needs: static
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
