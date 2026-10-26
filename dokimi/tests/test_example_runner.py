@@ -25,6 +25,18 @@ def test_extract_examples_with_metadata():
     assert examples == [("python", "print(1)"), ("bash", "ls")]
 
 
+def test_extract_examples_tab_indented_fence_is_dedented():
+    doc = "-\tstep\n\n\t```python\n\tx = 1\n\ty = 2\n\t```\n"
+    [(lang, code)] = extract_examples(doc)
+    assert (lang, code) == ("python", "x = 1\ny = 2")
+    compile(code, "<example>", "exec")
+
+
+def test_extract_examples_body_line_indented_less_than_fence_keeps_its_indent():
+    doc = "    ```python\n  x = 1\n    y = 2\n    ```\n"
+    assert extract_examples(doc) == [("python", "x = 1\ny = 2")]
+
+
 def test_extract_examples_tilde_fence():
     md = "~~~python\nprint(1)\n~~~\n"
     assert extract_examples(md) == [("python", "print(1)")]

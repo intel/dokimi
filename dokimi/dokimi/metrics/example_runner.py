@@ -129,7 +129,7 @@ def extract_examples(markdown: str) -> list[tuple[str, str]]:
             # Drop up to the opener's indentation, as CommonMark does, so a
             # block nested in a list item keeps its relative indentation.
             indent = len(opener.group(1))
-            stripped = len(line) - len(line.lstrip(" "))
+            stripped = len(line) - len(line.lstrip())
             body.append(line[min(indent, stripped):])
     return examples
 
