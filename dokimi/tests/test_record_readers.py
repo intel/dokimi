@@ -659,3 +659,38 @@ def test_cross_judge_names_a_result_file_measure_after_its_summary_judge(tmp_pat
     cli.main()
     md = out.with_suffix(".md").read_text(encoding="utf-8")
     assert " · judge-a |" in md and " · result |" not in md
+
+
+_GOOD_QUESTION = {"question_id": "q0", "arms": {"skill": {"coverage": 1}}}
+
+
+@pytest.mark.parametrize("flag, content, where", [
+    ("--pairwise", {"verdicts": {"skill": {"q1": {}}}}, "verdicts.skill.q1"),
+    ("--pairwise", {"verdicts": {"skill": {"q1": 5}}}, "verdicts.skill.q1"),
+    ("--pairwise", {"verdicts": {"skill": {"q1": {"score": "x"}}}}, "verdicts.skill.q1"),
+    ("--pairwise", {"verdicts": {"skill": {"q1": {"score": None}}}}, "verdicts.skill.q1"),
+    ("--pairwise", {"verdicts": {"skill": 5}}, "verdicts.skill"),
+    ("--checklist", {"questions": [5]}, "questions[0]"),
+    ("--checklist", {"questions": [_GOOD_QUESTION, {"arms": {"skill": {"coverage": 1}}}]}, "questions[1]"),
+    ("--checklist", {"questions": [{"question_id": "q1", "arms": [1]}]}, "questions[0]"),
+    ("--checklist", {"questions": [{"question_id": "q1", "arms": {"skill": 5}}]}, "questions[0]"),
+    ("--checklist", {"questions": [{"question_id": "q1", "arms": {"skill": {"coverage": "x"}}}]}, "questions[0]"),
+    ("--checklist", {"questions": [{"question_id": ["q1"], "arms": {"skill": {"coverage": 1}}}]}, "questions[0]"),
+], ids=["no-score", "verdict-not-an-object", "score-not-a-number", "null-score", "arm-not-an-object",
+        "question-not-an-object", "no-question-id", "arms-not-an-object", "arm-not-an-object",
+        "coverage-not-a-number", "unhashable-question-id"])
+def test_cross_judge_names_a_result_entry_of_the_wrong_shape_before_any_judge_call(
+        tmp_path, capsys, monkeypatch, flag, content, where):
+    from tests.test_judge_reliability import _cross_judge_args, _material_arms_run, _recording_judge
+
+    seen: dict = {}
+    _recording_judge(monkeypatch, seen)
+    wrong = tmp_path / "wrong.json"
+    wrong.write_text(json.dumps(content), encoding="utf-8")
+    args = _cross_judge_args(tmp_path, _material_arms_run(), "--no-stored", "--judges", "amazon-bedrock/m",
+                             flag, str(wrong))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert capsys.readouterr().err.startswith(f"Error: {wrong}: {where} ")
+    assert seen == {}  # no paid judge call was made

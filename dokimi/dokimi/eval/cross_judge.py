@@ -230,19 +230,40 @@ def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional
 
 
 def coverage_measure(checklist: Dict[str, Any], name: str) -> Measure:
+    """An `eval checklist` report as a measure: each arm scores its coverage.
+
+    Raises ValueError naming the first question that is not ``{question_id, arms: {arm:
+    {coverage}}}`` with a number or null coverage.
+    """
     m = Measure(name=name, kind="coverage")
-    for q in checklist.get("questions") or []:
-        for arm, v in (q.get("arms") or {}).items():
-            m.scores[(q["question_id"], arm)] = v.get("coverage")
+    for i, q in enumerate(checklist.get("questions") or []):
+        try:
+            for arm, v in (q.get("arms") or {}).items():
+                coverage = v.get("coverage")
+                if coverage is not None and not isinstance(coverage, (int, float)):
+                    raise TypeError(coverage)
+                m.scores[(q["question_id"], arm)] = coverage
+        except (AttributeError, KeyError, TypeError):
+            raise ValueError(f"questions[{i}] is not a checklist question: a question_id and "
+                             "an arms object of {arm: {coverage: number or null}}") from None
     return m
 
 
 def pairwise_measure(pairwise: Dict[str, Any], name: str, baseline_arm: str) -> Measure:
-    """An `eval pairwise` report as a measure: the arm scores its verdict, the baseline 0."""
+    """An `eval pairwise` report as a measure: the arm scores its verdict, the baseline 0.
+
+    Raises ValueError naming the first verdict that is not an object with a numeric ``score``.
+    """
     m = Measure(name=name, kind="pairwise")
     for arm, by_q in (pairwise.get("verdicts") or {}).items():
+        if not isinstance(by_q, dict):
+            raise ValueError(f"verdicts.{arm} is not an object of per-question verdicts")
         for qid, v in by_q.items():
-            m.scores[(qid, arm)] = float(v["score"])
+            try:
+                score = float(v["score"])
+            except (KeyError, TypeError, ValueError):
+                raise ValueError(f"verdicts.{arm}.{qid} has no numeric score") from None
+            m.scores[(qid, arm)] = score
             m.scores[(qid, baseline_arm)] = 0.0
     return m
 
