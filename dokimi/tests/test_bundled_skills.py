@@ -95,14 +95,14 @@ def test_the_link_check_catches_a_dangling_and_an_escaping_link(tmp_path):
         "s/SKILL.md -> references/gone.md", "s/SKILL.md -> references/a b.md"]
 
 
-HARNESSES_FLAG = re.compile(r"--harnesses[=\s\\]+([^\s\\]+)")
+HARNESSES_FLAG = re.compile(r"--harnesses[=\s\\]+([A-Za-z][\w:.,-]*)")
 
 
 def _harness_names(skill_dir: Path) -> list[str]:
     names = []
     for doc in sorted(skill_dir.rglob("*.md")):
         for value in HARNESSES_FLAG.findall(doc.read_text(encoding="utf-8")):
-            names += [n.strip("`'\".,);") for n in value.split(",")]
+            names += [n.strip("`'\".,);") for n in value.split(",") if n]
     return names
 
 
@@ -115,6 +115,8 @@ def test_the_harness_name_check_reads_the_skills_commands():
     ("(--harnesses docker-oracle).", ["docker-oracle"]),
     ("--harnesses docker-oracle,docker-probe \\\n  --out-json x", ["docker-oracle", "docker-probe"]),
     ("--harnesses \\\n  docker-oracle --out-json x", ["docker-oracle"]),
+    ("--harnesses docker-oracle, docker-probe", ["docker-oracle"]),
+    ("--harnesses docker-oracle,\\\n  docker-probe", ["docker-oracle"]),
 ])
 def test_the_harness_name_extractor_reads_every_flag_form(tmp_path, text, names):
     (tmp_path / "SKILL.md").write_text(text + "\n", encoding="utf-8")
