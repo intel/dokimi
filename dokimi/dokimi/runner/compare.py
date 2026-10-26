@@ -11,32 +11,37 @@ from pathlib import Path
 from dokimi.gate.regression import detect_regressions
 
 
+_REQUIRED_SUMMARY_KEYS = {"docs", "score", "coverage", "freshness_lite", "readability"}
+
+
+def _load_snapshot(path: Path, role: str) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
+        raise ValueError(f"Invalid {role} snapshot {path}: {exc}") from exc
+
+
+def _check_summary(path: Path, payload: object, role: str) -> None:
+    summary = payload.get("summary") if isinstance(payload, dict) else None
+    if not isinstance(summary, dict):
+        raise ValueError(f"Snapshot missing summary object: {path}")
+    missing = _REQUIRED_SUMMARY_KEYS - set(summary.keys())
+    # example_pass_rate is optional (may not be present in old snapshots)
+    if missing:
+        raise ValueError(f"Snapshot {path} missing summary keys: {sorted(missing)}")
+    for key in sorted(_REQUIRED_SUMMARY_KEYS | {"example_pass_rate"}):
+        value = summary.get(key)
+        if key in summary and (isinstance(value, bool) or not isinstance(value, (int, float))):
+            raise ValueError(f"Invalid {role} snapshot {path}: summary `{key}` must be a number, got {value!r}")
+
+
 def compare_snapshots(base_path: Path, cand_path: Path, spec: dict | None = None) -> dict:
     """Compare two run snapshots and return summary and metric deltas."""
-    try:
-        base = json.loads(base_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
-        raise ValueError(f"Invalid base snapshot {base_path}: {exc}") from exc
+    base = _load_snapshot(base_path, "base")
+    cand = _load_snapshot(cand_path, "candidate")
 
-    try:
-        cand = json.loads(cand_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError) as exc:
-        raise ValueError(f"Invalid candidate snapshot {cand_path}: {exc}") from exc
-
-    required = {"docs", "score", "coverage", "freshness_lite", "readability"}
     for path, payload in ((base_path, base), (cand_path, cand)):
-        summary = payload.get("summary") if isinstance(payload, dict) else None
-        if not isinstance(summary, dict):
-            raise ValueError(f"Snapshot missing summary object: {path}")
-        missing = required - set(summary.keys())
-        # example_pass_rate is optional (may not be present in old snapshots)
-        if missing:
-            raise ValueError(f"Snapshot {path} missing summary keys: {sorted(missing)}")
-        role = "base" if path == base_path else "candidate"
-        for key in sorted(required | {"example_pass_rate"}):
-            value = summary.get(key)
-            if key in summary and (isinstance(value, bool) or not isinstance(value, (int, float))):
-                raise ValueError(f"Invalid {role} snapshot {path}: summary `{key}` must be a number, got {value!r}")
+        _check_summary(path, payload, "base" if path == base_path else "candidate")
 
     diff = {
         "docs": cand["summary"]["docs"] - base["summary"]["docs"],
