@@ -31,6 +31,8 @@ _WRONG_SHAPES = {
     "bundle_files_not_a_list": '{"atoms": [], "spans": [], "bundle": {"files": "x"}}',
     "bundle_max_file_words_is_a_list": _bundle('"max_file_words": [1]'),
     "bundle_max_total_words_is_a_list": _bundle('"max_total_words": [1]'),
+    "bundle_max_file_words_is_a_bool": _bundle('"max_file_words": true'),
+    "bundle_max_total_words_is_a_bool": _bundle('"max_total_words": true'),
     "bundle_roles_is_a_number": _bundle('"resource_roles": 5'),
     "bundle_roles_is_a_string": _bundle('"resource_roles": "entry"'),
     "bundle_roles_has_a_number": _bundle('"resource_roles": ["a", 1]'),
