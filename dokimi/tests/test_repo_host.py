@@ -184,6 +184,7 @@ def _check(root, out, runner, monkeypatch, *extra):
           "--cache-root", str(out / "caches"), *extra], monkeypatch, runner)
 
 
+@pytest.mark.outcome("cjm-tasks-check-host")
 def test_tasks_check_reports_a_task_the_host_cannot_show_as_unsupported(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     runner = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
@@ -215,6 +216,7 @@ def test_tasks_check_refuses_a_bad_host_shape_before_any_container(tmp_path, mon
     assert "task fix_race: task.json host.min_cpus must be an integer >= 1, got '4'" in capsys.readouterr().err
 
 
+@pytest.mark.outcome("cjm-tasks-check-host")
 def test_allow_unsupported_lets_host_unsupported_tasks_pass_the_exit_code(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     amd = _probe_out(affinity=2, cpuinfo=AMD_CPUINFO)
@@ -231,6 +233,7 @@ def test_allow_unsupported_lets_host_unsupported_tasks_pass_the_exit_code(tmp_pa
     ({"fix_nobug": {"family": "fix", "grader": "calc", "gate": ["tests_pass"], "prompt": "x"}}, "broken"),
     ({"fix_pip": {"family": "fix", "grader": "calc", "egress": ["pypi.org"], "prompt": "x"}}, "egress"),
 ])
+@pytest.mark.outcome("cjm-tasks-check-host")
 def test_allow_unsupported_still_fails_broken_and_egress_tasks(tmp_path, monkeypatch, capsys, extra, why):
     root, _ = make_repo(tmp_path, {"fix_race": RACE, **extra})
     (task,) = extra
@@ -255,6 +258,7 @@ def _run(root, out, runner, monkeypatch, *extra):
          monkeypatch, runner)
 
 
+@pytest.mark.outcome("cjm-repo-host-unsupported")
 def test_run_skips_unsupported_cells_and_the_report_shows_them(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     out = tmp_path / "runs"
@@ -348,6 +352,7 @@ def test_force_checks_the_kept_cells_of_the_unsupported_task_and_not_the_replace
         assert "2 ran, 2 already done" in capsys.readouterr().out
 
 
+@pytest.mark.outcome("cjm-repo-host-unsupported")
 def test_a_capable_run_that_stops_early_leaves_the_unreached_cells_missing(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     out = tmp_path / "runs"
@@ -360,6 +365,7 @@ def test_a_capable_run_that_stops_early_leaves_the_unreached_cells_missing(tmp_p
     assert summary["unsupported"] == [] and summary["missing"] == ["fix_race__guidance-raw__m-1__r2"]
 
 
+@pytest.mark.outcome("cjm-repo-host-unsupported")
 def test_run_refuses_a_bad_host_shape_before_any_agent(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path, host={"cpu_flags": "avx512f"})
     runner = HostRunner(_probe_out())
@@ -514,6 +520,7 @@ def test_cpu_flags_match_regardless_of_case():
     assert unmet(_task({"cpu_flags": ["AVX512F"]}), upper) == (None, None)
 
 
+@pytest.mark.outcome("cjm-tasks-check-host")
 def test_probe_failure_is_marked_host_probe_never_hidden_by_allow_unsupported(tmp_path, monkeypatch, capsys):
     """Regression: probe failure (unsupported_by='host-probe') must not be hidden by --allow-unsupported.
 
@@ -642,6 +649,7 @@ def test_a_host_miss_still_probes_isolation_and_skips_only_null(tmp_path, monkey
     assert "isolation" in race and "oracle" in race and "null" not in race
 
 
+@pytest.mark.outcome("cjm-tasks-check-host")
 def test_warm_judges_the_host_like_an_offline_check(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     runner = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
@@ -703,6 +711,7 @@ def test_warm_runs_the_grade_with_the_bridge_network(tmp_path, monkeypatch):
     assert {s.network for s in plain.specs if (s.name or "").split("-")[-2] == "grade"} == {"none"}
 
 
+@pytest.mark.outcome("cjm-tasks-check-host")
 def test_warm_with_allow_unsupported_judges_the_host(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     runner = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))

@@ -44,6 +44,7 @@ from typing import Any, NamedTuple, Optional
 from dokimi import process
 
 from .command import clear_run_dir
+from .harbor_export import harbor_view
 from .models import HarnessResult, OperationRecord, PreflightError
 from .tasks import TaskSpec
 
@@ -95,8 +96,7 @@ _SKILL_KINDS = (None, "", "other", "tool", "skill")
 # the LiteLLM it starts all the same.
 _BRIDGE_NO_PROXY = ("172.17.0.1", "host.docker.internal")
 _PROXY_VARS = ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")
-# Paths bench and docker read from the env; see _subprocess_env.
-_PATH_VARS = ("BENCHFLOW_SKILL_CREATOR_DIR", "DOCKER_CONFIG")
+_PATH_VARS = ("BENCHFLOW_SKILL_CREATOR_DIR", "DOCKER_CONFIG")  # read from the env; see _subprocess_env
 
 
 @dataclass(frozen=True)
@@ -122,8 +122,8 @@ class BenchflowHarness:
         timeout_sec: Optional[float] = None,
         dry_run: bool = False,
     ) -> HarnessResult:
-        # bench runs with cwd=<cell>: every path it is given must be absolute.
-        # The row records the dir as given, like a docker-* row.
+        # bench runs with cwd=<cell>: every path absolute; the row records the dir as given.
+        task = harbor_view(task)  # a terminal-bench v1 task runs from its Harbor copy
         given_dir = Path(output_dir) if output_dir else None
         output_dir = given_dir.resolve() if given_dir else None
         if output_dir:
