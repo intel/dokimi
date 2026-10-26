@@ -44,8 +44,8 @@ def test_run_exits_2_on_a_bad_spec(tmp_path, monkeypatch, capsys, content):
 
 
 @pytest.mark.parametrize("which", ["--base", "--candidate"])
-@pytest.mark.parametrize("content", [None, "{not json", b"\xff\xfe", "[1]", "{}"],
-                         ids=["missing", "malformed", "not-utf8", "not-an-object", "no-summary"])
+@pytest.mark.parametrize("content", [None, "{not json", b"\xff\xfe", "[1]", "{}", "[" * 100000],
+                         ids=["missing", "malformed", "not-utf8", "not-an-object", "no-summary", "too-deep"])
 def test_compare_exits_2_on_a_bad_snapshot(tmp_path, monkeypatch, capsys, which, content):
     bad = tmp_path / "bad.json"
     _write(bad, content)

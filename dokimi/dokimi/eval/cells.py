@@ -154,7 +154,7 @@ def load_matrix_cells(path: str | Path) -> list[MatrixCellDescriptor]:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
     except OSError as exc:
         raise ValueError(f"cannot read {path}: {exc}") from None
-    except ValueError as exc:  # JSONDecodeError, or bytes that are not UTF-8
+    except (ValueError, RecursionError) as exc:  # JSONDecodeError, bad UTF-8, deep nesting
         raise ValueError(f"{path} is not valid JSON: {exc}") from None
     cells = _extract_cells(raw)
     if not cells:

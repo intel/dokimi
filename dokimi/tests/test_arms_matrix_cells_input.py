@@ -37,7 +37,8 @@ def test_a_directory_as_matrix_cells_is_reported_as_unreadable(tmp_path, capsys,
 
 
 @pytest.mark.parametrize("command", ["run", "matrix-run"])
-def test_matrix_cells_that_are_not_json_name_the_file(tmp_path, capsys, command):
+@pytest.mark.parametrize("content", ["{not json", "[" * 100000], ids=["malformed", "too-deep"])
+def test_matrix_cells_that_are_not_json_name_the_file(tmp_path, capsys, command, content):
     bad = tmp_path / "cells.json"
-    bad.write_text("{not json", encoding="utf-8")
+    bad.write_text(content, encoding="utf-8")
     assert f"{bad} is not valid JSON" in _run(tmp_path, bad, capsys, command)
