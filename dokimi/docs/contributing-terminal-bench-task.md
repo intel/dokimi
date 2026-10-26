@@ -30,6 +30,8 @@ read it. Contribute the task itself to the content repository; contribute change
 to this format here, next to the code that parses it
 ([`dokimi/harnesses/tasks.py`](../dokimi/harnesses/tasks.py),
 [`dokimi/harnesses/docker_solver.py`](../dokimi/harnesses/docker_solver.py)).
+An existing terminal-bench v1 task (`task.yaml` + `run-tests.sh`) runs without
+conversion; see the format table in [coding-harnesses.md](coding-harnesses.md).
 
 ## 1 — Pick a task
 

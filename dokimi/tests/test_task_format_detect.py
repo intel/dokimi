@@ -133,10 +133,10 @@ def test_task_without_tests_or_verifier_is_not_claimed_for_docker(tmp_path):
         assert "verifier" in r.missing and "docker-*" not in r.consumers
 
 
-def test_terminal_bench_v1_task_has_every_part_and_no_consumer_yet(tmp_path):
+def test_terminal_bench_v1_task_has_every_part_and_runs_natively_or_exported(tmp_path):
     r = _one(_tb1(tmp_path))
     assert (r.format, r.kind, r.missing) == ("terminal-bench-v1", "executable", [])
-    assert r.as_dict()["consumers"] == ["none-yet"]
+    assert r.as_dict()["consumers"] == ["docker-*", "harbor", "benchflow"]
     assert r.details["metadata"]["difficulty"] == "easy"
 
 
@@ -372,11 +372,12 @@ def test_inspect_missing_path_raises(tmp_path):
         inspect_path(tmp_path / "nope")
 
 
-def test_existing_discovery_is_unchanged_by_new_formats_in_the_root(tmp_path):
+def test_discovery_runs_terminal_bench_v1_next_to_the_other_layouts(tmp_path):
     _harbor(tmp_path, "a")
     _task_md(tmp_path, "b")
     _tb1(tmp_path, "c")
-    assert [(t.name, t.format) for t in discover_tasks(tmp_path)] == [("a", "harbor"), ("b", "task-md")]
+    assert [(t.name, t.format) for t in discover_tasks(tmp_path)] == [
+        ("a", "harbor"), ("b", "task-md"), ("c", "terminal-bench-v1")]
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -402,7 +403,7 @@ def test_cli_inspect_json(tmp_path, capsys):
     _run(["tasks", "inspect", str(tmp_path), "--json"])
     payload = json.loads(capsys.readouterr().out)
     assert [i["format"] for i in payload["items"]] == ["terminal-bench-v1"]
-    assert payload["items"][0]["consumers"] == ["none-yet"]
+    assert payload["items"][0]["consumers"] == ["docker-*", "harbor", "benchflow"]
 
 
 def test_cli_inspect_shows_ambiguity_and_problems(tmp_path, capsys):
