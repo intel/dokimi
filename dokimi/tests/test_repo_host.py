@@ -34,7 +34,7 @@ from dokimi.repos.manifest import parse_manifest
 from dokimi.repos.report import format_report, load_cells, load_unsupported, summarize
 from dokimi.repos.runner import UNSUPPORTED_FILE, _mark_unsupported, run_batch
 from dokimi.repos.workspace import PrepError, Task, prepare_workspace
-from repo_eval_fixture import MANIFEST, FakeRunner, fake_harness, make_repo
+from repo_eval_fixture import MANIFEST, FakeRunner, fake_harness, git, make_repo, write
 
 INTEL_CPUINFO = ("processor\t: 0\nvendor_id\t: GenuineIntel\nmodel name\t: Intel(R) Xeon(R) Platinum 8480+\n"
                  "flags\t\t: fpu sse2 avx2 avx512f\n")
@@ -229,6 +229,39 @@ def test_allow_unsupported_lets_host_unsupported_tasks_pass_the_exit_code(tmp_pa
     assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host"
 
 
+def _taskless_repo(tmp_path):
+    from repo_eval_fixture import git
+
+    root, _ = make_repo(tmp_path)
+    git(root, "rm", "-rqf", ".agent-eval/tasks")
+    (root / ".agent-eval/tasks").mkdir(parents=True)
+    (root / ".agent-eval/tasks/.keep").write_text("")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "no tasks")
+    return root
+
+
+def test_tasks_check_with_no_task_checked_is_not_a_pass(tmp_path, monkeypatch, capsys):
+    # No task at all: 0/0 ok was exit 0.
+    with pytest.raises(SystemExit) as exc:
+        _check(_taskless_repo(tmp_path / "e"), tmp_path / "a", HostRunner(_probe_out()), monkeypatch)
+    assert exc.value.code == 1 and "no task under" in capsys.readouterr().err
+    # Every task unsupported and allowed: 0/1 ok was exit 0, with nothing self-checked.
+    with pytest.raises(SystemExit) as exc:
+        _check(_repo(tmp_path), tmp_path / "b", HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)),
+               monkeypatch, "--allow-unsupported", "--task", "fix_race")
+    assert exc.value.code == 1
+    assert "incomplete: no task passed the self-check (0 ok, 1 unsupported)" in capsys.readouterr().err
+
+
+def test_allow_unsupported_help_says_a_check_with_no_ok_task_still_exits_1(capsys):
+    from dokimi.cli import build_parser
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["repo", "tasks", "check", "--help"])
+    assert "and so does a check in which no task is ok" in " ".join(capsys.readouterr().out.split())
+
+
 @pytest.mark.parametrize("extra, why", [
     ({"fix_nobug": {"family": "fix", "grader": "calc", "gate": ["tests_pass"], "prompt": "x"}}, "broken"),
     ({"fix_pip": {"family": "fix", "grader": "calc", "egress": ["pypi.org"], "prompt": "x"}}, "egress"),
@@ -305,11 +338,74 @@ def test_run_skips_unsupported_cells_and_the_report_shows_them(tmp_path, monkeyp
     assert len(load_cells(batch)[0]) == 4 and not list(batch.glob("*/unsupported.json"))
 
 
+def test_force_refuses_to_keep_cells_of_another_execution_for_a_task_the_host_cannot_run(
+        tmp_path, monkeypatch, capsys):
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_add", "--task", "fix_race")
+    capsys.readouterr()
+    small = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
+    plan = (out / "b1" / "_eval" / "plan.json").read_text()
+    with pytest.raises(SystemExit):  # fix_race's cells would stay as they ran, next to a new fix_add
+        _run(root, out, small, monkeypatch, "--task", "fix_add", "--task", "fix_race", "--force", "--tools", "read",
+             "--reps", "4")
+    assert "holds cells of another execution" in capsys.readouterr().err
+    assert (out / "b1" / "_eval" / "plan.json").read_text() == plan  # a refused run adds no cell to the plan
+    assert not [s for s in small.specs if "-p" in s.argv]
+    _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch,
+         "--task", "fix_add", "--task", "fix_race", "--force")  # the same execution: fix_add replaced, fix_race kept
+    assert "2 ran, 2 already done" in capsys.readouterr().out
+
+
+def _restamp(batch, task_id, execution_id="old"):
+    """Make the finished cells of one task look like they ran with another execution."""
+    for path in batch.glob(f"{task_id}__*/result.json"):
+        record = json.loads(path.read_text())
+        record["execution"] = {"id": execution_id}
+        path.write_text(json.dumps(record))
+
+
+@pytest.mark.parametrize("stale,refused", [("fix_race", True), ("fix_add", False)])
+def test_force_checks_the_kept_cells_of_the_unsupported_task_and_not_the_replaced_ones(
+        tmp_path, monkeypatch, capsys, stale, refused):
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_add", "--task", "fix_race")
+    capsys.readouterr()
+    _restamp(out / "b1", stale)  # fix_race is kept as it ran on this host; fix_add is replaced
+    small = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
+    args = (root, out, small, monkeypatch, "--task", "fix_add", "--task", "fix_race", "--force")
+    if refused:
+        with pytest.raises(SystemExit):
+            _run(*args)
+        assert "holds cells of another execution" in capsys.readouterr().err
+        assert not [s for s in small.specs if "-p" in s.argv]
+    else:
+        _run(*args)
+        assert "2 ran, 2 already done" in capsys.readouterr().out
+
+
+def test_a_run_with_no_cell_result_is_not_a_pass(tmp_path, monkeypatch, capsys):
+    # No task at all: this crashed with IndexError in the isolation probe.
+    with pytest.raises(SystemExit) as exc:
+        _run(_taskless_repo(tmp_path / "e"), tmp_path / "e/runs", HostRunner(_probe_out()), monkeypatch)
+    assert exc.value.code == 1 and "no task under" in capsys.readouterr().err
+    # Every cell unsupported on this host: "0 ran, 0 already done, 0 crashed" was exit 0.
+    with pytest.raises(SystemExit) as exc:
+        _run(_repo(tmp_path), tmp_path / "runs", HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)),
+             monkeypatch, "--task", "fix_race")
+    assert exc.value.code == 1
+    logged = capsys.readouterr()
+    assert "0 ran, 0 already done, 0 crashed, 0 not started (batch budget), 2 unsupported" in logged.out
+    assert "incomplete: no cell has a result (2 cells, 2 unsupported)" in logged.err
+
+
 @pytest.mark.outcome("cjm-repo-host-unsupported")
 def test_a_capable_run_that_stops_early_leaves_the_unreached_cells_missing(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     out = tmp_path / "runs"
-    _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
+    with pytest.raises(SystemExit):  # every cell unsupported: no result
+        _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
     with pytest.raises(SystemExit):  # the budget stops it after one cell
         _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race",
              "--max-batch-usd", "0.005")
@@ -595,8 +691,9 @@ def test_a_host_miss_still_checks_the_oracle_when_only_cpus_are_short(tmp_path, 
 
 def test_a_host_miss_still_probes_isolation_and_skips_only_null(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path, host={"min_cpus": 4})
-    _check(root, tmp_path / "a", HostRunner(_probe_out(affinity=2)), monkeypatch, "--task", "fix_race",
-           "--allow-unsupported")
+    with pytest.raises(SystemExit):  # the only task is unsupported: nothing was self-checked
+        _check(root, tmp_path / "a", HostRunner(_probe_out(affinity=2)), monkeypatch, "--task", "fix_race",
+               "--allow-unsupported")
     race = json.loads((tmp_path / "a/check/check.json").read_text())["tasks"][0]
     assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host"
     assert "isolation" in race and "oracle" in race and "null" not in race
@@ -612,7 +709,8 @@ def test_warm_judges_the_host_like_an_offline_check(tmp_path, monkeypatch, capsy
     race = json.loads((tmp_path / "a/check/check.json").read_text())["tasks"][0]
     assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host" and race["warm"] is True
     assert "null" not in race
-    _check(root, tmp_path / "b", runner, monkeypatch, "--task", "fix_race", "--warm", "--allow-unsupported")
+    _check(root, tmp_path / "b", runner, monkeypatch, "--task", "fix_add", "--task", "fix_race", "--warm",
+           "--allow-unsupported")  # a check with no ok task would exit 1, so one task must pass
     assert "allowed by --allow-unsupported: fix_race" in capsys.readouterr().out
 
 
@@ -668,8 +766,10 @@ def test_warm_runs_the_grade_with_the_bridge_network(tmp_path, monkeypatch):
 def test_warm_with_allow_unsupported_judges_the_host(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path)
     runner = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
-    _check(root, tmp_path / "a", runner, monkeypatch, "--task", "fix_race", "--warm", "--allow-unsupported")
-    race = json.loads((tmp_path / "a/check/check.json").read_text())["tasks"][0]
+    _check(root, tmp_path / "a", runner, monkeypatch, "--task", "fix_add", "--task", "fix_race", "--warm",
+           "--allow-unsupported")  # fix_add is ok: a check with no ok task exits 1
+    res = {t["task"]: t for t in json.loads((tmp_path / "a/check/check.json").read_text())["tasks"]}
+    race = res["fix_race"]
     assert race["verdict"] == "unsupported" and race["unsupported_by"] == "host" and race["warm"] is True
     assert "null" not in race and "isolation" in race
     assert "allowed by --allow-unsupported: fix_race" in capsys.readouterr().out
@@ -706,3 +806,17 @@ def test_vendors_compare_in_any_case_and_unknown_names_are_refused():
     assert unmet(_task({"cpu_vendors": ["genuineintel"]}), intel) == (None, None)
     with pytest.raises(HostSpecError, match="unknown vendor.*Intel"):
         requirements(_task({"cpu_vendors": ["Intel"]}))
+
+
+def test_a_skill_arm_cell_of_an_unsupported_task_is_marked_not_run(tmp_path, monkeypatch):
+    root = _repo(tmp_path)
+    write(root, ".agent-eval/skills/lint/SKILL.md", "---\nname: lint\ndescription: lint\n---\nLint.\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skill")
+    out = tmp_path / "runs"
+    runner = HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO))
+    _run(root, out, runner, monkeypatch, "--task", "fix_add", "--task", "fix_race", "--arm", "skill:skills/lint")
+    batch = out / "b1"
+    assert [p.name for p in (batch / "fix_race__skill-lint__m-1__r1").iterdir()] == ["unsupported.json"]
+    assert (batch / "fix_add__skill-lint__m-1__r1/result.json").is_file()
+    assert {u["cell"] for u in summarize(batch)["unsupported"]} >= {"fix_race__skill-lint__m-1__r1"}

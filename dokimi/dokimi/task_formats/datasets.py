@@ -346,7 +346,8 @@ class QuestionsProbe:
         from dokimi.questions.artifact import load_questions
 
         data = source.data if isinstance(source.data, dict) else {}
-        rows = [q for q in data.get("questions", []) if isinstance(q, dict)]
+        questions = data.get("questions")
+        rows = [q for q in (questions if isinstance(questions, list) else []) if isinstance(q, dict)]
         kind = KIND_TRIGGER if any("expected_skill" in q for q in rows) else KIND_ANSWER_ONLY
         report = _base(source, self.name, kind, rows)
         has_text = all(q.get("question") or q.get("text") for q in rows) and bool(rows)

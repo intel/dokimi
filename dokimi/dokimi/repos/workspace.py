@@ -12,7 +12,8 @@ Every task runs in ``<run_dir>/workspace``, made from the task's ``base``:
 3. ``git init`` and commit (no history, so an upstream fix cannot leak)
 4. apply ``setup_patches``
 5. apply the arm (``guidance:none`` | ``guidance:raw`` | ``guidance:bridge`` |
-   ``guidance:rev:<sha>`` | ``patch:<name>@<digest>``, see :class:`Arm`)
+   ``guidance:rev:<sha>`` | ``patch:<name>@<digest>``, see :class:`Arm`), then its
+   skills into ``.claude/skills/`` (:mod:`.arms`)
 6. amend the commit
 7. apply ``review_patch`` with ``git am`` under a neutral author
 8. expire the reflog and prune unreachable objects, so the commits steps 6
@@ -48,16 +49,19 @@ from typing import Any
 
 from dokimi import process
 
+from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .errors import PrepError
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
 from .uptake import MCP_CONFIG, base_servers, mcp_servers
 
-ARMS = ("guidance:none", "guidance:raw", "guidance:bridge")
+ARMS = ("guidance:none", "guidance:raw", "guidance:bridge")  # the guidance parts
 REV_ARM, PATCH_ARM = "guidance:rev:", "patch:"
 #: Every form ``repo run --arm`` takes
-ARM_FORMS = (*ARMS, f"{REV_ARM}<rev>", f"{PATCH_ARM}<file>")
+ARM_FORMS = (*ARMS, f"{REV_ARM}<rev>", f"{PATCH_ARM}<file>", "skill:<dir>", "skill-catalog:<dir>")
+SKILL_JOIN = "+"
+_SKILL_PREFIXES = ("skill:", "skill-catalog:")
 SNAPSHOT_AUTHOR = ("dokimi", "dokimi@example.invalid")
 REVIEW_AUTHOR = ("Contributor", "contributor@example.invalid")
 FIXED_DATE = "2000-01-01T00:00:00+00:00"
@@ -76,6 +80,12 @@ class Arm(str):
     :func:`pin_arm`, so a branch that moved gives a new arm rather than more cells of the old one.
     ``patch:<file>`` is named ``patch:<file name>@<first 12 hex of its sha256>``; the file is read
     once, so every cell applies the same bytes, and its path and full digest go to ``meta.json``.
+
+    A guidance part may be joined with skills by ``+`` (``guidance:none+skill:lint``): ``skill:<path>``
+    installs one skill directory (it holds ``SKILL.md``) at ``.claude/skills/<dir name>/``,
+    ``skill-catalog:<dir>`` every subdirectory of ``<dir>`` that holds one. The arm is named by the
+    directory names (``skill:lint``), so it holds no ``/`` whatever the path is; ``skills`` keeps the
+    paths as written, ``base`` is the guidance part alone (``guidance:raw`` when none is written).
     """
 
     spec: str
@@ -84,11 +94,15 @@ class Arm(str):
     patch: bytes | None
     patch_path: str | None
     patch_sha256: str | None
+    skills: tuple[tuple[str, str], ...]  # (kind, path) as written
+    base: str
 
     def __new__(cls, name: str, *, spec: str | None = None, rev: str | None = None, rev_sha: str | None = None,
-                patch: bytes | None = None, patch_path: str | None = None) -> Arm:
+                patch: bytes | None = None, patch_path: str | None = None,
+                skills: tuple[tuple[str, str], ...] = (), base: str | None = None) -> Arm:
         self = super().__new__(cls, name)
         self.spec = spec or name
+        self.skills, self.base = skills, base or name
         self.rev, self.rev_sha = rev, rev_sha
         self.patch, self.patch_path = patch, patch_path
         self.patch_sha256 = hashlib.sha256(patch).hexdigest() if patch is not None else None
@@ -96,10 +110,40 @@ class Arm(str):
 
 
 def parse_arm(spec: str) -> Arm:
-    """``spec`` as ``repo run --arm`` takes it. A patch file is read here; a revision is resolved by
-    :func:`pin_arm`, which needs the source's git dir."""
+    """``spec`` as ``repo run --arm`` takes it: a guidance part, skill parts, or both joined with ``+``.
+    A patch file is read here; a revision is resolved by :func:`pin_arm`, which needs the source's git dir."""
     if isinstance(spec, Arm):
         return spec
+    parts: list[str] = []
+    for piece in spec.split(SKILL_JOIN):
+        if parts and not _starts_part(piece):  # a patch path may hold a "+"
+            parts[-1] += SKILL_JOIN + piece
+        else:
+            parts.append(piece)
+    skills = tuple((p.partition(":")[0], p.partition(":")[2]) for p in parts if p.startswith(_SKILL_PREFIXES))
+    guidance = [p for p in parts if not p.startswith(_SKILL_PREFIXES)]
+    if not skills:
+        return _parse_guidance(spec)
+    if len(guidance) > 1:
+        raise PrepError(f"arm {spec!r}: more than one guidance part")
+    base = _parse_guidance(guidance[0]) if guidance else Arm("guidance:raw")
+    names = []
+    for kind, path in skills:
+        leaf = PurePosixPath(path).name if path else ""
+        if leaf in ("", ".", ".."):
+            raise PrepError(f"arm {spec!r}: {kind}: needs the path of a directory (its name names the arm)")
+        names.append(f"{kind}:{leaf}")
+    name = SKILL_JOIN.join(([str(base)] if guidance else []) + names)
+    return Arm(name, spec=spec, rev=base.rev, patch=base.patch, patch_path=base.patch_path, skills=skills,
+               base=str(base))
+
+
+def _starts_part(text: str) -> bool:
+    return text in ARMS or text.startswith((REV_ARM, PATCH_ARM, *_SKILL_PREFIXES))
+
+
+def _parse_guidance(spec: str) -> Arm:
+    """A guidance part: ``guidance:none|raw|bridge``, ``guidance:rev:<rev>`` or ``patch:<file>``."""
     if spec in ARMS:
         return Arm(spec)
     if spec.startswith(REV_ARM):
@@ -148,7 +192,9 @@ def pin_arm(arm: Arm, git_dir: Path, fetch: bool = False, worktree_dir: Path | N
     sha = proc.stdout.strip() if proc.ok else ""
     if not _FULL_SHA_RE.match(sha):
         raise PrepError(f"arm {arm.spec}: no commit {arm.rev!r} in {git_dir}")
-    return Arm(REV_ARM + sha, spec=arm.spec, rev=arm.rev, rev_sha=sha)
+    tail = str(arm)[len(arm.base):] if str(arm).startswith(arm.base) else ""  # the skill parts
+    return Arm(REV_ARM + sha + tail, spec=arm.spec, rev=arm.rev, rev_sha=sha, skills=arm.skills,
+               base=REV_ARM + sha)
 
 
 @dataclass(frozen=True)
@@ -182,15 +228,23 @@ class Task:
         return tuple(self.raw.get("egress") or ())
 
     @property
+    def expected_skill(self) -> str | None:
+        return self.raw.get("expected_skill") or None
+
+    @property
     def score(self) -> dict[str, Any] | None:
         return self.raw.get("score")
 
 
 def load_tasks(content_dir: Path, manifest: RepoManifest, ids: list[str] | None = None) -> list[Task]:
-    """Tasks of the exported eval dir; ``ids`` selects (and must name existing tasks)."""
+    """Tasks of the exported eval dir; ``ids`` selects (and must name existing tasks).
+
+    No task at all is refused: a check or run over none would report 0/0 as a pass."""
     eval_dir, tasks = manifest.run_paths()
     tasks_dir = content_dir / PurePosixPath(tasks).relative_to(eval_dir)
     found = {p.parent.name: p for p in sorted(tasks_dir.glob("*/task.json"))}
+    if not found:
+        raise PrepError(f"no task under {manifest.tasks} (no */task.json): nothing to check or run")
     wanted = ids or sorted(found)
     missing = [t for t in wanted if t not in found]
     if missing:
@@ -264,16 +318,50 @@ def _export(tree: RepoTree, dest: Path, only: str | None, exclude: str | None) -
         tmp.rename(dest)
 
 
+def _apply_setup_patches(ws: Path, env: Any, task: Task) -> list[dict[str, str]]:
+    """Apply the task's ``setup_patches`` to ``ws`` (step 4); the record of each for ``meta.json``."""
+    patches = []
+    for rel in task.setup_patches:
+        path = _task_file(task, rel)
+        try:
+            _git(ws, env, "apply", "--whitespace=nowarn", str(path))
+        except PrepError as exc:
+            raise PrepError(f"task {task.id}: setup patch {rel} does not apply: {exc}") from exc
+        patches.append({"path": rel, "sha256": _sha256(path)})
+    return patches
+
+
+def _apply_review_patch(ws: Path, task: Task, patches: list[dict[str, str]]) -> None:
+    """Apply the task's ``review_patch`` as a commit on ``ws`` (step 7) and append its record to ``patches``."""
+    if not task.review_patch:
+        return
+    path = _task_file(task, task.review_patch)
+    review_env = _git_env(REVIEW_AUTHOR)
+    try:
+        _git(ws, review_env, "am", "-q", "--no-gpg-sign", str(path))
+    except PrepError as exc:
+        _git(ws, review_env, "am", "--abort", check=False)
+        raise PrepError(f"task {task.id}: review patch {task.review_patch} does not apply: {exc}") from exc
+    # the patch's own author would name the upstream contributor
+    _git(ws, review_env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--no-edit", "--reset-author")
+    patches.append({"path": task.review_patch, "sha256": _sha256(path)})
+
+
 def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: str, run_dir: Path,
-                      profile: HarnessProfile | None = None) -> dict[str, Any]:
+                      profile: HarnessProfile | None = None, content_dir: Path | None = None) -> dict[str, Any]:
     """Steps 1-7 into ``run_dir/workspace``; returns the ``meta.json`` fields prep owns.
 
     ``arm`` is an :class:`Arm` (``repo run`` parses and pins each once per batch) or an arm
-    string, parsed and pinned here.
+    string, parsed and pinned here. ``content_dir`` (the exported ``{eval_dir}``) is where
+    relative skill paths of the arm are found.
     """
     arm = pin_arm(parse_arm(arm), git_dir)
+    try:
+        skills = resolve_skills(arm, content_dir or _content_dir(manifest, task)) if arm.skills else []
+    except ArmError as exc:
+        raise PrepError(str(exc)) from exc
     bridge = profile.bridge if profile is not None else None
-    if arm == "guidance:bridge" and not bridge:
+    if arm.base == "guidance:bridge" and not bridge:
         name = profile.name if profile is not None else "no harness"
         raise PrepError(f"guidance:bridge needs a harness profile with a `bridge` key; {name} has none")
     try:
@@ -292,38 +380,59 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     _git(ws, env, "init", "-q")                                                               # 3
     _git(ws, env, "add", "-A")
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--allow-empty", "--no-verify", "-m", "snapshot")
-    patches = []
-    for rel in task.setup_patches:                                                           # 4
-        path = _task_file(task, rel)
-        try:
-            _git(ws, env, "apply", "--whitespace=nowarn", str(path))
-        except PrepError as exc:
-            raise PrepError(f"task {task.id}: setup patch {rel} does not apply: {exc}") from exc
-        patches.append({"path": rel, "sha256": _sha256(path)})
+    patches = _apply_setup_patches(ws, env, task)                                            # 4
     try:
         arm_files, arm_meta = _apply_arm(ws, env, git_dir, manifest, arm, bridge)            # 5
     except PrepError as exc:
         raise PrepError(f"task {task.id}: {exc}") from exc
+    installed = _install_skills(ws, task, skills)
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
-    if task.review_patch:                                                                     # 7
-        path = _task_file(task, task.review_patch)
-        review_env = _git_env(REVIEW_AUTHOR)
-        try:
-            _git(ws, review_env, "am", "-q", "--no-gpg-sign", str(path))
-        except PrepError as exc:
-            _git(ws, review_env, "am", "--abort", check=False)
-            raise PrepError(f"task {task.id}: review patch {task.review_patch} does not apply: {exc}") from exc
-        # the patch's own author would name the upstream contributor
-        _git(ws, review_env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--no-edit", "--reset-author")
-        patches.append({"path": task.review_patch, "sha256": _sha256(path)})
+    _apply_review_patch(ws, task, patches)                                                    # 7
     _forget(ws, env)                                                                          # 8
     start_sha = _git(ws, env, "rev-parse", "HEAD").strip()
     meta: dict[str, Any] = {
         "task": task.id, "arm": str(arm), "base_rev": task.base, "base_sha": base_sha, "base_date": base_date,
         "patches": patches, "start_sha": start_sha, "arm_files": arm_files, **arm_meta,
     }
+    if installed:
+        meta["skills"] = installed
     return meta
+
+
+def _content_dir(manifest: RepoManifest, task: Task) -> Path:
+    """The exported eval dir a task directory of :func:`load_tasks` is in."""
+    eval_dir, tasks = manifest.run_paths()
+    return task.dir.parents[len(PurePosixPath(tasks).relative_to(eval_dir).parts)]
+
+
+def _only_empty_dirs(path: Path) -> bool:
+    """``path`` is a real directory with nothing but real directories under it."""
+    if path.is_symlink() or not path.is_dir():
+        return False
+    return all(not f and not any(Path(d, n).is_symlink() for n in dn) for d, dn, f in os.walk(path))
+
+
+def _install_skills(ws: Path, task: Task, skills: list[Skill]) -> list[dict[str, str]]:
+    """Copy each skill to ``.claude/skills/<name>/``; a skill the repository already has there is refused,
+    as replacing it would change what the guidance arm measures."""
+    out = []
+    for skill in skills:
+        dest = ws / skill.target
+        for part in (ws / ".claude", ws / ".claude" / "skills"):  # a repository link would write to the host
+            if part.is_symlink():
+                raise PrepError(f"task {task.id}: {part.relative_to(ws)} is a symlink in the repository; "
+                                f"refusing to install {skill.name} through it")
+        if _only_empty_dirs(dest):
+            shutil.rmtree(dest)  # what dropping the guidance of a skill the base ships left: its emptied directory
+        if dest.exists() or dest.is_symlink():
+            raise PrepError(f"task {task.id}: the workspace already has {skill.target}")
+        if not dest.parent.resolve().is_relative_to(ws.resolve()):
+            raise PrepError(f"task {task.id}: {skill.target} resolves outside the workspace")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(skill.dir, dest, symlinks=False)  # resolve_skills refused any link out of the skill
+        out.append({"name": skill.name, "path": skill.target, "sha256": tree_sha256(dest)})
+    return out
 
 
 def _forget(ws: Path, env: dict[str, str]) -> None:
@@ -340,13 +449,13 @@ def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManif
                bridge: dict[str, str] | None) -> tuple[list[str], dict[str, Any]]:
     """The files the arm removed (none), wrote (bridge, rev) or changed (patch), and its other
     ``meta.json`` fields: bridge targets left alone, the revision, the patch file."""
-    if arm == "guidance:raw":
+    if arm.base == "guidance:raw":
         return [], {}
     if arm.patch is not None:
         return _apply_patch(ws, env, manifest, arm)
     tracked = [p for p in _git(ws, env, "ls-files", "-z").split("\0") if p]
     matched = sorted(p for p in tracked if any(match_glob(g, p) for g in manifest.guidance_globs))
-    if arm == "guidance:none" or arm.rev_sha is not None:
+    if arm.base == "guidance:none" or arm.rev_sha is not None:
         for rel in matched:
             (ws / rel).unlink()
         if arm.rev_sha is None:

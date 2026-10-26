@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
 from dokimi.cli import build_parser
 from dokimi.repos.container import CONTENT_DIR, HARNESS_DIR, RUN_DIR, SOURCE_DIR, WORKSPACE
@@ -121,6 +122,197 @@ def test_already_graded_cells_are_skipped_unless_forced(setup, capsys):
     assert "0 ran, 1 already done" in capsys.readouterr().out
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--force")
     assert "1 ran, 0 already done" in capsys.readouterr().out
+
+
+def test_a_cell_is_reused_only_by_the_same_execution(setup, capsys):
+    raw = yaml.safe_load(setup["profile"].read_text())
+    raw["delegation"] = {"none": {"all": [*raw["tools"]["all"], "--no-agents"]}}
+    setup["profile"].write_text(yaml.safe_dump(raw))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    rd = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"
+    ran = json.loads((rd / "result.json").read_text())["execution"]
+    assert ran["delegation"] == "native" and ran["tools"] == "all"
+    assert json.loads((rd / "meta.json").read_text())["execution"] == ran
+    with pytest.raises(SystemExit):  # refused before any cell runs
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
+    assert "holds cells of another execution" in capsys.readouterr().err
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none", "--force")
+    assert "1 ran" in capsys.readouterr().out
+    rec = json.loads((rd / "result.json").read_text())
+    assert rec["execution"]["delegation"] == "none" and rec["execution"]["id"] != ran["id"]
+    agent = [s for s in setup["runner"].specs if "-p" in s.argv][-1]
+    assert "--no-agents" in agent.argv
+
+
+def test_force_does_not_pool_executions_across_the_plan(setup, capsys):
+    raw = yaml.safe_load(setup["profile"].read_text())
+    raw["delegation"] = {"none": {"all": [*raw["tools"]["all"], "--no-agents"]}}
+    setup["profile"].write_text(yaml.safe_dump(raw))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2")
+    capsys.readouterr()
+    setup["runner"].specs.clear()
+    with pytest.raises(SystemExit):  # r2 stays native next to a new r1 under none
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "1", "--delegation", "none", "--force")
+    assert "holds cells of another execution" in capsys.readouterr().err
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
+    # the cells of the plan itself are still replaced
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2", "--delegation", "none", "--force")
+    assert "2 ran" in capsys.readouterr().out
+
+
+def test_a_result_from_before_execution_ids_is_not_reused(setup, capsys):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    rd = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"
+    rec = json.loads((rd / "result.json").read_text())
+    del rec["execution"]  # written by an earlier version
+    (rd / "result.json").write_text(json.dumps(rec))
+    capsys.readouterr()
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert "unrecorded" in capsys.readouterr().err
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--force")
+    assert "1 ran" in capsys.readouterr().out
+
+
+def test_a_cell_finished_with_another_execution_is_not_reused_even_if_the_batch_check_is_skipped(
+        setup, capsys, monkeypatch):
+    """``run_cell`` guards itself: the up-front batch check is not the only thing between a cell and its reuse."""
+    raw = yaml.safe_load(setup["profile"].read_text())
+    raw["delegation"] = {"none": {"all": [*raw["tools"]["all"], "--no-agents"]}}
+    setup["profile"].write_text(yaml.safe_dump(raw))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    setup["runner"].specs.clear()
+    monkeypatch.setattr("dokimi.repos.runner.check_batch_executions", lambda *a, **k: None)
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
+    assert "finished with another execution" in capsys.readouterr().out
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
+
+
+def test_a_cell_finished_without_an_execution_is_not_reused_even_if_the_batch_check_is_skipped(
+        setup, capsys, monkeypatch):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    result = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json"
+    done = json.loads(result.read_text())
+    del done["execution"]
+    result.write_text(json.dumps(done))
+    setup["runner"].specs.clear()
+    monkeypatch.setattr("dokimi.repos.runner.check_batch_executions", lambda *a, **k: None)
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert "unrecorded" in capsys.readouterr().out
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
+
+
+def test_the_same_harness_bytes_resume_from_any_path(setup, capsys, tmp_path):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    moved = tmp_path / "elsewhere" / "fake-harness"
+    moved.parent.mkdir()
+    moved.write_bytes(setup["exe"].read_bytes())
+    moved.chmod(0o755)
+    setup["exe"].unlink()
+    setup["exe"].symlink_to(moved)
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert "1 already done" in capsys.readouterr().out
+
+
+def test_a_changed_harness_binary_is_refused_on_resume(setup, capsys):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    # Same name, same reported version, other bytes: the id is the executable's digest
+    setup["exe"].write_text(setup["exe"].read_text() + "\n# upgraded in place\n")
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert "holds cells of another execution" in capsys.readouterr().err
+
+
+def test_a_batch_dir_with_cells_of_another_execution_is_refused_up_front(setup, capsys):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    setup["runner"].specs.clear()
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw,guidance:none", "--task", "fix_add", "--tools", "read")
+    assert "holds cells of another execution" in capsys.readouterr().err
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
+
+
+def test_the_cell_records_the_tools_mode_it_ran_with(setup):
+    rd = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--tools", "read")
+    for name in ("result.json", "meta.json"):
+        assert json.loads((rd / name).read_text())["execution"]["tools"] == "read", name
+
+
+def test_an_unreadable_or_unparsable_result_does_not_stop_the_batch_check(setup, capsys):
+    from dokimi.repos.harness_profile import load_profile
+    from dokimi.repos.runner import AgentOptions, ExecutionMismatch, check_batch_executions
+
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    batch = setup["out"] / "b1"
+    (batch / "broken").mkdir()
+    (batch / "broken" / "result.json").write_text("{not json", encoding="utf-8")  # ValueError
+    (batch / "adir").mkdir()
+    (batch / "adir" / "result.json").mkdir()  # OSError (a directory)
+    options = [AgentOptions(profile=load_profile(setup["profile"]), model="m-1", harness_bin=setup["exe"],
+                            harness_version="1.2.3")]
+    check_batch_executions(batch, options)  # skipped, not raised
+    (batch / "fix_add__guidance-raw__m-1__r1" / "result.json").unlink()
+    (batch / "other").mkdir()
+    (batch / "other" / "result.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ExecutionMismatch, match="unrecorded"):  # a parsable one is still checked
+        check_batch_executions(batch, options)
+
+
+def test_a_harness_reporting_another_version_with_the_same_bytes_is_another_execution(setup, monkeypatch, capsys):
+    """A wrapper script or launcher keeps its bytes while the agent behind it changes: the version is an input."""
+    monkeypatch.setattr("dokimi.repos.runner.harness_version", lambda *a, **k: "1.2.3")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    capsys.readouterr()
+    setup["runner"].specs.clear()
+    monkeypatch.setattr("dokimi.repos.runner.harness_version", lambda *a, **k: "1.2.4")
+    with pytest.raises(SystemExit):  # refused before any cell runs
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    assert "holds cells of another execution" in capsys.readouterr().err
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
+
+
+def test_a_refused_delegation_none_starts_no_harness_version_probe(setup, monkeypatch, capsys):
+    probes = []
+    monkeypatch.setattr("dokimi.repos.runner.harness_version", lambda *a, **k: probes.append(a) or "1")
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
+    capsys.readouterr()
+    assert probes == []
+
+
+def test_the_cell_records_the_delegation_whose_arguments_ran(setup, capsys):
+    raw = yaml.safe_load(setup["profile"].read_text())
+    raw["delegation"] = {"none": {"all": [*raw["tools"]["all"], "--no-agents"], "none": raw["tools"]["none"]}}
+    setup["profile"].write_text(yaml.safe_dump(raw))
+    rd = setup["out"] / "b1/fix_add__guidance-raw__m-1__r1"
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--tools", "none", "--delegation", "none")
+    assert json.loads((rd / "result.json").read_text())["execution"]["delegation"] == "native"
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--tools", "all", "--delegation", "none", "--force")
+    assert json.loads((rd / "result.json").read_text())["execution"]["delegation"] == "none"
+
+
+def test_delegation_none_is_refused_before_anything_runs_when_the_profile_cannot(setup, capsys):
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
+    assert "declares no `delegation: none`" in capsys.readouterr().err
+    assert not [s for s in setup["runner"].specs if "-p" in s.argv]
+
+
+def test_a_refused_delegation_none_leaves_no_batch_behind(setup, capsys):
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--delegation", "none")
+    capsys.readouterr()
+    assert not (setup["out"] / "b1").exists()  # no pin, no eval content, no image build for a refused run
 
 
 @pytest.mark.outcome("cjm-repo-grader-crash")
@@ -255,7 +447,7 @@ def test_timed_out_cell_counts_toward_batch_budget(setup, monkeypatch, capsys):
         _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2", "--timeout", "2",
              "--budget", "0.5", "--max-batch-usd", "0.01")
     assert exc.value.code == 1
-    assert "1 ran" in (out := capsys.readouterr().out) and "1 not started (batch budget); $0.5000" in out
+    assert "1 ran" in (out := capsys.readouterr().out) and "1 not started (batch budget), 0 unsupported; $0.5000" in out
     rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
     assert rec["agent"]["cost_usd"] is None and rec["agent"]["charged_usd"] == 0.5
     assert _report(setup)["rows"][0]["cost_unknown"] == 1
