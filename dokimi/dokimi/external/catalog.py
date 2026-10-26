@@ -30,7 +30,7 @@ from typing import Optional
 
 from dokimi.harnesses.tasks import TaskSpec, discover_tasks, is_task_dir, load_task
 from dokimi.skills import Skill, load_skill
-from dokimi.skills.loader import TEMPLATE_DIR_NAMES
+from dokimi.skills.loader import TEMPLATE_DIR_NAMES, walk_skill_files
 
 DEFAULT_TASKS_SUBDIR = "evaluation/harbor/tasks"
 DEFAULT_SUITES_MANIFEST = "evaluation/harbor/suites.json"
@@ -99,10 +99,11 @@ def _scan_skill_files(root: Path) -> list[SkillCatalogEntry]:
 
     A skill that does not load is an error row, so one broken skill does not abort the scan.
     A ``SKILL.md`` under a ``template``/``templates`` directory is a scaffold and is left
-    out, as :func:`dokimi.skills.discover_skills` leaves it out.
+    out, as :func:`dokimi.skills.discover_skills` leaves it out; one under a vendored or
+    VCS directory is a dependency's copy and is not walked, as there too.
     """
     found: list[SkillCatalogEntry] = []
-    for skill_file in sorted(root.rglob("SKILL.md")):
+    for skill_file in walk_skill_files(root):
         if TEMPLATE_DIR_NAMES.intersection(skill_file.relative_to(root).parts[:-1]):
             continue
         try:

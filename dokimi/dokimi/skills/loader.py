@@ -159,7 +159,7 @@ def load_skill(path) -> Skill:
     )
 
 
-def _skill_files(root: Path) -> List[Path]:
+def walk_skill_files(root: Path) -> List[Path]:
     """Every ``SKILL.md`` below *root*, sorted, without walking :data:`VENDORED_DIR_NAMES`."""
     found: List[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
@@ -202,7 +202,7 @@ def skill_files(root, *, notes: Optional[List[str]] = None) -> List[Path]:
     """The ``SKILL.md`` files :func:`discover_skills` loads, in path order, unloaded."""
     root = Path(root)
     found: List[Path] = []
-    for skill_file in _skill_files(root):
+    for skill_file in walk_skill_files(root):
         if TEMPLATE_DIR_NAMES.intersection(skill_file.relative_to(root).parts[:-1]):
             if notes is not None:
                 notes.append(f"left out {skill_file}: a template, not a skill")
