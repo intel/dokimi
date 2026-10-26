@@ -259,3 +259,10 @@ def test_extract_examples_language_tag_is_lowercased():
 def test_extract_examples_indented_fence_body_is_dedented_by_the_fence_indent():
     md = "1. Step\n\n   ```python\n   def f():\n       return 1\n   ```\n"
     assert extract_examples(md) == [("python", "def f():\n    return 1")]
+
+
+def test_extract_examples_tab_fence_with_nested_indent_compiles():
+    doc = "1. item\n\n\t```python\n\tif x:\n\t    y()\n\t```"
+    [(lang, code)] = extract_examples(doc)
+    assert code == "if x:\n    y()"
+    compile(code, "<example>", "exec")

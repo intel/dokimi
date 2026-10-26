@@ -633,3 +633,19 @@ def test_fallback_scan_keeps_leading_brackets_of_a_path(path):
 def test_fallback_scan_strips_a_wrapping_pair_but_keeps_a_bracketed_path():
     cs = parse_final_answer("Seen in ([id].tsx:5) and (app)/x.tsx:3.")
     assert [c.path for c in cs.citations] == ["[id].tsx", "(app)/x.tsx"]
+
+
+@pytest.mark.parametrize(
+    ("text", "paths"),
+    [
+        ("(see (app)/page.tsx:10)", ["(app)/page.tsx"]),
+        ("see [id].tsx:3", ["[id].tsx"]),
+        ("see [...slug]/page.tsx:3", ["[...slug]/page.tsx"]),
+        ("(src/a.py:10, src/b.py:20)", ["src/a.py", "src/b.py"]),
+        ("(src/a.py:10 and more)", ["src/a.py"]),
+    ],
+)
+def test_loose_scan_keeps_a_bracket_only_when_the_path_closes_it(text, paths):
+    from dokimi.metrics.exploration import _parse_loose
+
+    assert [c.path for c in _parse_loose(text).citations] == paths

@@ -209,9 +209,8 @@ def _parse_loose(text: str) -> CitationSet:
     citations: list[Citation] = []
     for m in _LOOSE_CITATION_RE.finditer(text):
         opener = m.group("open")
-        wrapped = opener is not None and _WRAPPERS[opener] == m.group("close")
         cite = _citation_from_match(m)
-        if opener is not None and not wrapped:
+        if opener in _WRAPPERS and _WRAPPERS[opener] in m.group("path"):
             cite = replace(cite, path=normalize_path(opener + m.group("path")))
         citations.append(cite)
     return _finish(citations, [])
