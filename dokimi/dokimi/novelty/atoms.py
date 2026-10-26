@@ -560,5 +560,5 @@ def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span], dict]:
                     isinstance(files, list) and all(isinstance(row, dict) for row in files)):
                 raise ValueError("'bundle.files' is not a list of objects")
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
-        raise SystemExit(f"Error: cannot read atoms from {path}: {exc}") from None
+        raise SystemExit(f"cannot read atoms from {path}: {exc}") from None
     return atoms, spans, data

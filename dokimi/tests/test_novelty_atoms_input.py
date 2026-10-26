@@ -46,7 +46,7 @@ def test_an_unreadable_atoms_file_exits_with_a_message_naming_it(tmp_path, sub, 
     with pytest.raises(SystemExit) as excinfo:
         args.func(args)
     message = str(excinfo.value)
-    assert message.startswith("Error: cannot read atoms from ")
+    assert message.startswith("cannot read atoms from ")
     assert str(atoms) in message
 
 
