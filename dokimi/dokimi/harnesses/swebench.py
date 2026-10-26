@@ -127,8 +127,9 @@ def repo_spec(repo: str, version: str) -> tuple[str, dict[str, Any]]:
 
 def patch_files(patch: str) -> tuple[list[str], list[str]]:
     """(files the patch modifies or deletes, every file it names), from its headers."""
-    old = re.findall(r"^--- a/(\S+)", patch, re.MULTILINE)
-    new = re.findall(r"^\+\+\+ b/(\S+)", patch, re.MULTILINE)
+    # A name with a space is followed by a tab in git's ---/+++ lines; the tab is not part of it.
+    old = re.findall(r"^--- a/(.+?)\t?$", patch, re.MULTILINE)
+    new = re.findall(r"^\+\+\+ b/(.+?)\t?$", patch, re.MULTILINE)
     return list(dict.fromkeys(old)), list(dict.fromkeys(old + new))
 
 

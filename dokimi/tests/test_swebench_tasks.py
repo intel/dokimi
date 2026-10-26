@@ -157,6 +157,15 @@ def test_the_eval_script_passes_row_values_as_words_not_shell():
     assert ["pytest", "-rA", "t$(touch pwned2).py", "a b.py", "t.py"] in words
 
 
+def test_a_tracked_test_file_with_a_space_is_reset_by_its_whole_name():
+    # git puts a tab after a name with a space in its ---/+++ header lines.
+    test_patch = "diff --git a/a b.py b/a b.py\n--- a/a b.py\t\n+++ b/a b.py\t\n"
+    row = dict(_row(PYTEST_ID), test_patch=test_patch)
+    lines = eval_script(row, repo_spec("pytest-dev/pytest", "4.4")[1]).splitlines()
+    words = [shlex.split(line) for line in lines if line.startswith("git checkout")]
+    assert words == [["git", "checkout", row["base_commit"], "a b.py"]] * 2
+
+
 def test_django_directives_are_dotted_test_modules():
     assert directives("django/django", _row(DJANGO_ID)["test_patch"]) == ["auth_tests.test_validators"]
     script = eval_script(_row(DJANGO_ID), repo_spec("django/django", "3.0")[1])
