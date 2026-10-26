@@ -407,6 +407,16 @@ def test_harbor_harness_runs_the_export_not_the_source(tmp_path, monkeypatch):
     assert str(tmp_path / "home" / ".cache" / "dokimi" / "harbor-export") in argv and str(task.path) + " " not in argv + " "
 
 
+def test_benchflow_harness_runs_the_export_not_the_source(tmp_path, monkeypatch):
+    from dokimi.harnesses.registry import create_harness
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    task = load_task(_tb1(tmp_path / "tasks"))
+    res = create_harness("benchflow:oracle").run(task, output_dir=tmp_path / "o", dry_run=True)
+    tasks_dir = Path(res.command[res.command.index("--tasks-dir") + 1])
+    assert tasks_dir != task.path and (tasks_dir / "task.toml").is_file()
+
+
 # ── real docker ──────────────────────────────────────────────────────────────
 
 @pytest.mark.timeout(900)
