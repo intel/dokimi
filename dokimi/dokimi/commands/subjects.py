@@ -400,7 +400,7 @@ def _run_subject_work(descriptor, args: argparse.Namespace, *, out_dir: Path, ta
     try:
         artifact = runner.run()
     except PreflightError as exc:
-        raise SystemExit(f"error: {exc}") from None
+        raise SystemExit(f"Error: {exc}") from None
     save_artifact("task_runs", artifact, task_runs_path)
     task_runs_md = task_runs_path.with_suffix(".md")
     task_runs_md.parent.mkdir(parents=True, exist_ok=True)
