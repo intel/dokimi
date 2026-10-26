@@ -13,6 +13,9 @@ from dokimi.cli import build_parser
 
 
 _WRONG_SHAPES = {
+    "top_level_list": "[]",
+    "top_level_null": "null",
+    "top_level_number": "5",
     "wrong_shape": '{"atoms": [{"unexpected": 1}], "spans": []}',
     "atoms_not_a_list": '{"atoms": "x"}',
     "bundle_is_a_list": '{"atoms": [], "spans": [], "bundle": [1]}',
@@ -50,6 +53,7 @@ def test_an_unreadable_atoms_file_exits_with_a_message_naming_it(tmp_path, sub, 
     message = str(excinfo.value)
     assert message.startswith("cannot read atoms from ")
     assert str(atoms) in message
+    assert "has no attribute" not in message
 
 
 @pytest.mark.parametrize("bundle", ['null', '{}', '{"files": []}'])

@@ -550,6 +550,8 @@ def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span], dict]:
 
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("not an object")
         atoms, spans = _atoms_from_record(data)
         bundle = data.get("bundle")
         if bundle is not None:
