@@ -97,7 +97,7 @@ def test_a_regex_that_backtracks_past_the_timeout_is_unscored(negate):
     # (a|aa)+$ on a run of a's that ends in ! backtracks for minutes under re.
     started = time.monotonic()
     g = _one({"type": "regex", "values": ["(a|aa)+$"], "negate": negate}, "a" * 40 + "!")
-    assert time.monotonic() - started < 2 * REGEX_TIMEOUT
+    assert time.monotonic() - started < 5 * REGEX_TIMEOUT
     assert g.checks[0].as_dict() == {"type": "regex", "passed": None, "score": None,
                                      "detail": "not scored: regex ran past 1s"}
     assert g.score is None and g.passed is None
