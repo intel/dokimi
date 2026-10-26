@@ -22,5 +22,7 @@ def chunk_text(text: str, chunk_size: int = 800, overlap: int = 80) -> list[str]
     i = 0
     while i < len(text):
         chunks.append(text[i : i + chunk_size])
+        if i + chunk_size >= len(text):
+            break  # the tail is already in this chunk; another would only repeat the overlap
         i += step
     return chunks

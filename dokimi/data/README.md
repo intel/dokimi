@@ -19,7 +19,8 @@ write to the git-ignored `results/`, `reports/`, and the default scratch dirs
 
 | Path | What it is | Produced by / consumed by |
 | --- | --- | --- |
-| `skills/fastcontext/SKILL.md` | The one committed skill: a product-neutral "explore before you act" skill, used by the explore track and as the skill fixture in examples | `skill:`/`skill-agent:` treatment arms |
+| `skills/fastcontext/SKILL.md` | A product-neutral "explore before you act" skill, used by the explore track and as the skill fixture in examples | `skill:`/`skill-agent:` treatment arms |
+| `skills/dokimi-design-evals/` | The one committed skill about dokimi itself: how to design and self-test evals with its commands (`SKILL.md` plus `references/`). It is not product content. | `skill:` arms; `tests/test_bundled_skills.py` checks its loading, links and the commands it names |
 | `agent_profiles/concise_expert.md` | An answer-style persona (terse, code-first) | `profile:` treatment arm |
 | `agent_profiles/generic-expert.md` | Negative control: an expert framing that names no product, to pair with a product persona | `profile:` treatment arm |
 | `explore_tasks/<name>.yaml` | Localization tasks over this repository's own code, with known-good references | `cli.py explore run` |

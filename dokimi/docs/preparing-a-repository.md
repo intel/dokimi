@@ -7,9 +7,11 @@ SPDX-License-Identifier: Apache-2.0
 
 > **Status: recommendations.** §1–§7 apply today. The measurement loop in §8 runs
 > today for guidance arms (`guidance:none`, `guidance:raw`, `guidance:bridge`).
-> `guidance:bridge` measures the `CLAUDE.md` import (§7). Arms that add a tool are
-> planned; a changed guidance line can be tested today with two tasks that differ
-> in a `setup_patches` entry (§8).
+> `guidance:bridge` measures the `CLAUDE.md` import (§7). The `skill:` and
+> `skill-catalog:` arms, which install skills, run today too
+> ([skill arms](benchmarking-and-comparison.md#skill-arms-in-repository-mode)). Arms
+> that add any other tool are planned; a changed guidance line can be tested today
+> with two tasks that differ in a `setup_patches` entry (§8).
 
 This page is for repository owners who want coding agents (Claude Code, Codex,
 Copilot and others) to build, test, change and review their code reliably. It
@@ -240,7 +242,7 @@ Treat each item above as a hypothesis for your repository.
    use. Today an arm can remove or keep the guidance (`guidance:none`,
    `guidance:raw`), or inject a file (`guidance:bridge`, which writes a `CLAUDE.md`
    containing `@AGENTS.md` next to each `AGENTS.md` for profiles with a bridge key).
-   Testing an added tool needs planned arms. Today, test one added guidance line
+   Testing an added tool, other than a skill (`skill:`, `skill-catalog:`), needs planned arms. Today, test one added guidance line
    with two task directories that differ only in a `setup_patches` entry (same
    prompt, same graders, distinct ids), or in their `base` commit (see
    [workspace preparation](repo-evaluation-contract.md#workspace-preparation-done-by-the-framework)).
@@ -251,9 +253,12 @@ Treat each item above as a hypothesis for your repository.
    Wilson intervals in `repo report` do not overlap, or raise the cell count. A patch or a second `base` changes only the
    workspace tree: one image serves every task, so a tool or binary (a pinned
    formatter, a navigation server) has to be in the image already. With the
-   `claude-code` profile, which passes `--strict-mcp-config` with no
-   `--mcp-config`, an MCP server added by a patch is not loaded, so this route
-   cannot test an added MCP tool yet.
+   `claude-code` profile, which passes `--strict-mcp-config`, an MCP server is
+   loaded only from the `.mcp.json` at the workspace root, and only with
+   `--tools all` (the profile's `args_if_present` rule: the file must exist in the
+   workspace, and `read` and `none` never pass `--mcp-config`). A patch that adds
+   or edits that file therefore adds the server in `all` mode; `repo run --tools all`
+   refuses a task base whose `.mcp.json` is malformed before any cell starts.
 3. Look at whether the agent used the change, not only at the score. A guidance
    line can move the score without the tool it names being called; tool use tells
    you whether the tool itself mattered. An arm in which the tool was never called
