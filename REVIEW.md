@@ -9,6 +9,10 @@ For anyone reviewing a dokimi PR, person or agent. CI already enforces lint,
 types, coverage, growth, import layers and test quality (`AGENTS.md`); do not
 repeat what it checks.
 
+Review bots (Copilot, the Claude Code Review app) read this file. Coding agents
+read `AGENTS.md`, whose "Before opening a PR" section holds the author-side
+checks.
+
 ## What a defect looks like here
 
 - A command gives a wrong number, verdict or exit code, or crashes where it
@@ -29,8 +33,9 @@ repeat what it checks.
   of them.
 - Where a fix and a test are short, push them or put them in a suggestion
   instead of describing them.
-- Mark each finding must-fix or nit. At most three nits per review; skip the
-  style of `dokimi/changelog.d/` fragments, not their accuracy.
+- Mark each finding must-fix or nit. Post nits only after the must-fix
+  findings, at most three; skip the style of `dokimi/changelog.d/` fragments,
+  not their accuracy.
 - A nit is one the author can take: no style point the configured ruff rules
   leave out (line length, quotes, import order), and no suggestion that fails
   CI, such as one that adds a line to a file at its growth baseline.
