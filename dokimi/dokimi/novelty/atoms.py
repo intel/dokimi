@@ -540,6 +540,42 @@ def _atoms_from_record(data: dict) -> tuple[list[Atom], list[Span]]:
     return atoms, spans
 
 
+def _is_int(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _check_bundle_shape(bundle) -> None:
+    """Raise ValueError unless a ``bundle`` record has the types its readers rely on."""
+    if bundle is None:
+        return
+    if not isinstance(bundle, dict):
+        raise ValueError("'bundle' is not an object")
+    files = bundle.get("files")
+    if files is not None and not (
+            isinstance(files, list) and all(isinstance(row, dict) for row in files)):
+        raise ValueError("'bundle.files' is not a list of objects")
+    _check_bundle_fields(bundle)
+    for row in files or ():
+        if any(key in row and not _is_int(row[key]) for key in ("end", "words")):
+            raise ValueError("'bundle.files' has a row whose 'end' or 'words' is not an integer")
+        if any(key in row and not isinstance(row[key], str) for key in ("role", "path")):
+            raise ValueError("'bundle.files' has a row whose 'role' or 'path' is not a string")
+
+
+def _check_bundle_fields(bundle: dict) -> None:
+    """Raise ValueError unless the budgets, roles and exclusions of a bundle have their types."""
+    for key in ("max_file_words", "max_total_words"):
+        if bundle.get(key) is not None and not _is_int(bundle[key]):
+            raise ValueError(f"'bundle.{key}' is not an integer")
+    roles = bundle.get("resource_roles")
+    if roles is not None and not (isinstance(roles, list) and all(isinstance(r, str) for r in roles)):
+        raise ValueError("'bundle.resource_roles' is not a list of strings")
+    excluded = bundle.get("excluded")
+    if excluded is not None and not (
+            isinstance(excluded, list) and all(isinstance(row, dict) for row in excluded)):
+        raise ValueError("'bundle.excluded' is not a list of objects")
+
+
 def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span], dict]:
     """:func:`load_atoms` plus the parsed record, for a command.
 
@@ -553,14 +589,7 @@ def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span], dict]:
         if not isinstance(data, dict):
             raise ValueError("not an object")
         atoms, spans = _atoms_from_record(data)
-        bundle = data.get("bundle")
-        if bundle is not None:
-            if not isinstance(bundle, dict):
-                raise ValueError("'bundle' is not an object")
-            files = bundle.get("files")
-            if files is not None and not (
-                    isinstance(files, list) and all(isinstance(row, dict) for row in files)):
-                raise ValueError("'bundle.files' is not a list of objects")
-    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        _check_bundle_shape(data.get("bundle"))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError) as exc:
         raise SystemExit(f"cannot read atoms from {path}: {exc}") from None
     return atoms, spans, data

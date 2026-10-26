@@ -12,6 +12,12 @@ import pytest
 from dokimi.cli import build_parser
 
 
+def _bundle(extra, end="5"):
+    row = '{"role": "entry", "path": "SKILL.md", "end": %s}' % end
+    inner = '"include_resources": true, "files": [%s]' % row
+    return '{"atoms": [], "spans": [], "bundle": {%s%s}}' % (inner, ", " + extra if extra else "")
+
+
 _WRONG_SHAPES = {
     "top_level_list": "[]",
     "top_level_null": "null",
@@ -23,6 +29,14 @@ _WRONG_SHAPES = {
     "bundle_files_not_objects":
         '{"atoms": [], "spans": [], "bundle": {"include_resources": true, "files": [1]}}',
     "bundle_files_not_a_list": '{"atoms": [], "spans": [], "bundle": {"files": "x"}}',
+    "bundle_budget_is_a_list": _bundle('"max_file_words": [1], "max_total_words": [1]'),
+    "bundle_roles_is_a_number": _bundle('"resource_roles": 5'),
+    "bundle_excluded_not_objects": _bundle('"excluded": ["x"]'),
+    "bundle_file_end_is_a_string": _bundle('', end='"x"'),
+    "bundle_file_words_is_a_string": _bundle('', end='5, "words": "x"'),
+    "bundle_file_role_is_a_list": _bundle('', end='5, "role": ["entry"]'),
+    "nested_deeply": "[" * 100000 + "]" * 100000,
+    "atoms_nested_deeply": '{"atoms": ' + "[" * 100000 + "]" * 100000 + "}",
 }
 
 

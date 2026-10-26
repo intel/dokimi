@@ -24,12 +24,12 @@ def load_view_inputs(novelty_path: str, atoms_path: str):
         artifact = load_artifact("novelty", Path(novelty_path))
     except OSError as exc:
         _fail(f"cannot read {novelty_path}: {exc}")
-    except ValueError as exc:  # not UTF-8, not JSON, or not a novelty artifact
+    except (ValueError, RecursionError) as exc:  # not UTF-8, not JSON, or not a novelty artifact
         _fail(f"{novelty_path} is not a valid novelty artifact: {exc}")
     try:
         atoms, spans = load_atoms(atoms_path)
     except OSError as exc:
         _fail(f"cannot read {atoms_path}: {exc}")
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:  # not JSON, or not an atoms record
+    except (ValueError, KeyError, TypeError, AttributeError, RecursionError) as exc:  # not JSON, or not an atoms record
         _fail(f"{atoms_path} is not a valid atoms file: {exc}")
     return artifact, atoms, spans

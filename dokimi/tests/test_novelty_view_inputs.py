@@ -36,7 +36,7 @@ def test_a_directory_as_novelty_is_reported_as_unreadable(tmp_path, capsys):
     assert f"Error: cannot read {tmp_path}" in _err(tmp_path, tmp_path, tmp_path / "a.json", capsys)
 
 
-@pytest.mark.parametrize("payload", [b"", b"{not json", bytes([0xFF, 0xFE]), b"[1, 2]", b"{}"])
+@pytest.mark.parametrize("payload", [b"", b"{not json", bytes([0xFF, 0xFE]), b"[1, 2]", b"{}", pytest.param(b"[" * 100000 + b"]" * 100000, id="nested_deeply")])
 def test_a_novelty_file_that_is_not_a_novelty_artifact_is_reported_as_invalid(tmp_path, capsys, payload):
     bad = tmp_path / "bad.json"
     bad.write_bytes(payload)
@@ -54,7 +54,7 @@ def test_a_missing_atoms_file_is_reported_as_unreadable(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("payload", [
-    b"", b"{not json", bytes([0xFF, 0xFE]), b"[1, 2]",
+    b"", b"{not json", bytes([0xFF, 0xFE]), b"[1, 2]", pytest.param(b"[" * 100000 + b"]" * 100000, id="nested_deeply"),
     b'{"atoms": [{"unexpected": 1}]}', b'{"atoms": "x"}', b'{"spans": [1]}',
 ])
 def test_an_atoms_file_that_is_not_an_atoms_record_is_reported_as_invalid(tmp_path, capsys, payload):
