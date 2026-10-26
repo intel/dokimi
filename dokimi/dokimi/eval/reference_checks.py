@@ -30,7 +30,8 @@ type       passes when                                   native names it maps
 
 ``mode: all`` makes a multi-value check need every value (promptfoo ``contains-all``); ``negate``
 inverts it (promptfoo ``not-*``). A check of type ``unsupported`` records what an importer could
-not translate (code asserts, embeddings, cost); it is reported and never counted.
+not translate (code asserts, embeddings, cost); it is reported and never counted. A ``regex``
+check that runs past :data:`REGEX_TIMEOUT` is left unscored the same way.
 
 A ``judge`` check is one required point of :mod:`dokimi.eval.checklist`, asked in both
 polarities, so a judge's yes/no bias scores 0.5 instead of a pass. A question's score is the
@@ -44,8 +45,14 @@ import json
 import math
 import re
 import string
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Optional, Sequence
+
+import regex
+
+#: Seconds a ``regex`` check may run before it is left unscored (``re`` has no timeout).
+REGEX_TIMEOUT = 1.0
 
 #: Check types this module grades without a model.
 DETERMINISTIC = frozenset({"match", "exact", "fuzzy", "regex", "choice", "json"})
@@ -248,7 +255,21 @@ def _combine(hits: Sequence[bool], mode: str) -> bool:
     return bool(hits) and (all(hits) if mode == "all" else any(hits))
 
 
-def _deterministic(check: Mapping[str, Any], answer: str) -> tuple[bool, str]:
+def _regex(check: Mapping[str, Any], values: list[Any], answer: str, mode: str) -> tuple[Optional[bool], str]:
+    """The ``regex`` check, ``None`` when its patterns run past :data:`REGEX_TIMEOUT` together."""
+    flags = regex.I if check.get("ignore_case") else 0
+    deadline = time.monotonic() + REGEX_TIMEOUT
+    try:
+        hits = [regex.search(str(v), answer, flags, timeout=max(deadline - time.monotonic(), 0.001)) is not None
+                for v in values]
+        return _combine(hits, mode), ""
+    except TimeoutError:
+        return None, f"not scored: regex ran past {REGEX_TIMEOUT:g}s"
+    except regex.error as exc:
+        raise CheckError(f"regex {values!r} does not compile: {exc}") from exc
+
+
+def _deterministic(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool], str]:
     kind = check["type"]
     values = _values(check)
     mode = str(check.get("mode", "any"))
@@ -267,11 +288,7 @@ def _deterministic(check: Mapping[str, Any], answer: str) -> tuple[bool, str]:
         hits = [(a == t) if not (a and t) else (a in t or t in a) for t in map(squad_normalize, map(str, values))]
         return _combine(hits, mode), ""
     if kind == "regex":
-        flags = re.I if check.get("ignore_case") else 0
-        try:
-            return _combine([re.search(str(v), answer, flags) is not None for v in values], mode), ""
-        except re.error as exc:
-            raise CheckError(f"regex {values!r} does not compile: {exc}") from exc
+        return _regex(check, values, answer, mode)
     if kind == "choice":
         picked = chosen_letters(answer)
         want = frozenset(str(v).strip().upper() for v in values)
@@ -313,6 +330,8 @@ def grade_check(check: Mapping[str, Any], question: str, answer: str, ask: Optio
             score = 1.0 - score
         return CheckResult(kind, None if score is None else score == 1.0, score, weight)
     passed, detail = _deterministic(check, answer)
+    if passed is None:
+        return CheckResult(kind, None, None, weight, detail)
     if check.get("negate"):
         passed = not passed
     return CheckResult(kind, passed, 1.0 if passed else 0.0, weight, detail)
@@ -351,8 +370,8 @@ def _check_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
     if kind == "regex":
         for v in _values(c):
             try:
-                re.compile(str(v))
-            except re.error as exc:
+                regex.compile(str(v))
+            except regex.error as exc:
                 out.append(f"regex {v!r} does not compile: {exc}")
     if kind == "judge" and not (str(c.get("criterion") or "").strip() or str(c.get("reference") or "").strip()):
         out.append("a judge check needs a criterion or a reference")

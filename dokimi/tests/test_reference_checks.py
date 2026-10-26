@@ -13,12 +13,15 @@ fake ``ask`` that answers the checklist's two polarities.
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
 from dokimi.artifacts import save_artifact
 from dokimi.eval.checklist import ASK_COVERED
-from dokimi.eval.reference_checks import chosen_letters, grade, match_text, parse_json, validate_grading
+from dokimi.eval.reference_checks import (
+    REGEX_TIMEOUT, chosen_letters, grade, match_text, parse_json, validate_grading,
+)
 from dokimi.eval.reference_run import ConditionTally, artifact, grading_by_id, score
 from dokimi.task_formats.imports.native_logs import read_log
 
@@ -87,6 +90,17 @@ def test_regex_check_and_a_bad_pattern():
     assert _one({"type": "regex", "values": [r"\d{3}-\d{4}"]}, "call 555-1234").passed is True
     with pytest.raises(ValueError, match="does not compile"):
         _one({"type": "regex", "values": ["("]}, "x")
+
+
+@pytest.mark.parametrize("negate", [False, True])
+def test_a_regex_that_backtracks_past_the_timeout_is_unscored(negate):
+    # (a|aa)+$ on a run of a's that ends in ! backtracks for minutes under re.
+    started = time.monotonic()
+    g = _one({"type": "regex", "values": ["(a|aa)+$"], "negate": negate}, "a" * 40 + "!")
+    assert time.monotonic() - started < 2 * REGEX_TIMEOUT
+    assert g.checks[0].as_dict() == {"type": "regex", "passed": None, "score": None,
+                                     "detail": "not scored: regex ran past 1s"}
+    assert g.score is None and g.passed is None
 
 
 @pytest.mark.parametrize("answer,letters", [

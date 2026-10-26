@@ -10,6 +10,8 @@
 - **`eval reference`**: scores `answers generate` or `arms run` output against
   those checks. Deterministic checks need no model. `judge` checks go to the
   checklist judge in both polarities. It writes eval.v1 or an arms artifact.
+  A `regex` check runs through the `regex` package (now a dependency) with a
+  1 s limit; one that runs past it is unscored, not failed.
 - **`eval native-import <log>`**: reads an `inspect eval --log-format json`
   log or a `promptfoo eval -o` output as answers.v1 plus eval.v1, so native
   verdicts can be compared with dokimi's on the same completions.
