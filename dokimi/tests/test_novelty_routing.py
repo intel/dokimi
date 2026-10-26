@@ -267,8 +267,9 @@ def test_an_unreadable_queries_file_exits_with_a_message(tmp_path, content):
         queries.write_bytes(content)
     args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
                   "--competitors", _skill(tmp_path, "b", "e"), "--queries", str(queries))
-    with pytest.raises(SystemExit, match=f"cannot read --queries {queries}"):
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
+    assert str(exc.value).startswith(f"cannot read --queries {queries}: ")
 
 
 def test_a_catalog_that_is_not_a_directory_is_refused(tmp_path):

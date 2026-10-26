@@ -512,7 +512,7 @@ def test_item_analysis_exits_with_a_message_on_an_unreadable_probes_file(tmp_pat
     args = _parse("novelty", "items", "--probes", str(path))
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert str(exc.value).startswith(f"{path}: ")
+    assert str(exc.value).startswith(str(path))  # 3.14 parses deep nesting, then refuses the list
 
 
 @pytest.mark.parametrize("top, run", [

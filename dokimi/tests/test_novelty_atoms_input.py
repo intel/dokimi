@@ -70,6 +70,26 @@ _WRONG_SHAPES = {
     "bundle_file_words_is_a_string": _bundle('', end='5, "words": "x"'),
     "bundle_file_role_is_a_list": _bundle('', end='5, "role": ["entry"]'),
     "bundle_file_path_is_a_number": _bundle('', end='5, "path": 5'),
+    "span_has_no_id": json.dumps({"atoms": [], "spans": [
+        {k: v for k, v in _SPAN.items() if k != "id"}]}),
+    "span_atom_ids_has_a_number": _record(span={"atom_ids": [1]}),
+    "atom_answer_is_a_number": _record(atom={"answer": 5}),
+    "atom_kind_is_a_list": _record(atom={"kind": ["x"]}),
+    "atom_faithfulness_is_a_number": _record(atom={"faithfulness": 5}),
+    "atom_tags_is_a_string": _record(atom={"tags": "x"}),
+    "atom_meta_is_a_list": _record(atom={"meta": [1]}),
+    "extraction_is_a_list": json.dumps({"atoms": [], "spans": [], "extraction": [1]}),
+    "extraction_unread_has_a_list": json.dumps(
+        {"atoms": [], "spans": [], "extraction": {"unread_span_ids": [[1]]}}),
+    "bundle_file_has_no_path": '{"atoms": [], "spans": [], "bundle": {"include_resources": '
+                               'true, "files": [{"role": "entry", "end": 5}]}}',
+    "bundle_file_start_is_a_string": _bundle('', end='5, "start": "x"'),
+    "bundle_file_sha256_is_a_number": _bundle('', end='5, "sha256": 5'),
+    "bundle_artifact_name_is_a_list": _bundle('"artifact_name": ["s"]'),
+    "bundle_n_files_is_a_string": _bundle('"n_files": "1"'),
+    "bundle_resource_words_is_a_list": _bundle('"resource_words_measured": [1]'),
+    "bundle_excluded_role_is_a_number": _bundle('"excluded": [{"path": "a", "role": 5}]'),
+    "bundle_excluded_words_is_a_string": _bundle('"excluded": [{"path": "a", "words": "x"}]'),
     "nested_deeply": "[" * 100000 + "]" * 100000,
     "atoms_nested_deeply": '{"atoms": ' + "[" * 100000 + "]" * 100000 + "}",
 }
@@ -128,22 +148,22 @@ def test_an_atom_with_only_a_statement_is_accepted(tmp_path):
 
 @pytest.mark.parametrize("record, fragment", [
     pytest.param(_record(span={"text": 5}), "'text' is not a string", id="span_text"),
-    pytest.param(_record(span={"start": True}), "'start' or 'end' is not an integer",
+    pytest.param(_record(span={"start": True}), "'start' is not an integer",
                  id="span_start_bool"),
-    pytest.param(_record(span={"end": None}), "'start' or 'end' is not an integer",
+    pytest.param(_record(span={"end": None}), "'end' is not an integer",
                  id="span_end_null"),
-    pytest.param(_record(span={"id": [1]}), "'id' or 'kind' is not a string", id="span_id"),
-    pytest.param(_record(span={"kind": 5}), "'id' or 'kind' is not a string", id="span_kind"),
-    pytest.param(_record(span={"protection": [1]}), "'heading_path' or 'protection' is not a list",
+    pytest.param(_record(span={"id": [1]}), "'spans' has a row whose 'id' is not a string", id="span_id"),
+    pytest.param(_record(span={"kind": 5}), "'kind' is not a string", id="span_kind"),
+    pytest.param(_record(span={"protection": [1]}), "'protection' is not a list",
                  id="span_protection"),
-    pytest.param(_record(span={"heading_path": "x"}), "'heading_path' or 'protection' is not a list",
+    pytest.param(_record(span={"heading_path": "x"}), "'heading_path' is not a list",
                  id="span_heading_path"),
-    pytest.param(_record(atom={"id": [1]}), "'id', 'question' or 'statement' is not a string",
+    pytest.param(_record(atom={"id": [1]}), "'atoms' has a row whose 'id' is not a string",
                  id="atom_id"),
-    pytest.param(_record(atom={"question": 5}), "'id', 'question' or 'statement' is not a string",
+    pytest.param(_record(atom={"question": 5}), "'question' is not a string",
                  id="atom_question"),
     pytest.param(_record(atom={"statement": None}),
-                 "'id', 'question' or 'statement' is not a string", id="atom_statement"),
+                 "'statement' is not a string", id="atom_statement"),
     pytest.param(_record(atom={"span_ids": "s0001"}), "'span_ids' is not a list of strings",
                  id="atom_span_ids"),
     pytest.param(json.dumps({"atoms": [], "spans": "x"}), "'spans' is not a list of objects",
@@ -159,3 +179,39 @@ def test_a_wrong_span_or_atom_field_is_named_in_the_refusal(tmp_path, record, fr
     with pytest.raises(SystemExit) as exc:
         load_atoms_or_exit(path)
     assert fragment in str(exc.value)
+
+
+@pytest.mark.parametrize("kind, fragment", [
+    ("span_has_no_id", "'spans' has a row without 'id'"),
+    ("span_atom_ids_has_a_number", "'atom_ids' is not a list of strings"),
+    ("atom_answer_is_a_number", "'answer' is not a string"),
+    ("atom_kind_is_a_list", "'atoms' has a row whose 'kind' is not a string"),
+    ("atom_faithfulness_is_a_number", "'faithfulness' is not a string"),
+    ("atom_tags_is_a_string", "'tags' is not a list of strings"),
+    ("atom_meta_is_a_list", "'meta' is not an object"),
+    ("extraction_is_a_list", "'extraction' is not an object"),
+    ("extraction_unread_has_a_list", "'extraction.unread_span_ids' is not a list of strings"),
+    ("bundle_file_has_no_path", "'bundle.files' has a row without 'path'"),
+    ("bundle_file_start_is_a_string", "'start' is not an integer"),
+    ("bundle_file_sha256_is_a_number", "'sha256' is not a string or null"),
+    ("bundle_artifact_name_is_a_list", "'bundle.artifact_name' is not a string"),
+    ("bundle_n_files_is_a_string", "'bundle.n_files' is not an integer"),
+    ("bundle_resource_words_is_a_list", "'bundle.resource_words_measured' is not an integer"),
+    ("bundle_excluded_role_is_a_number", "'bundle.excluded' has a row whose 'role'"),
+    ("bundle_excluded_words_is_a_string", "'bundle.excluded' has a row whose 'words'"),
+])
+def test_every_field_a_reader_uses_is_checked(tmp_path, kind, fragment):
+    from dokimi.novelty.atoms import load_atoms_or_exit
+
+    with pytest.raises(SystemExit) as exc:
+        load_atoms_or_exit(_atoms_file(tmp_path, kind))
+    assert fragment in str(exc.value)
+
+
+def test_a_file_row_without_a_role_is_left_to_the_answer_key_check(tmp_path):
+    from dokimi.novelty.atoms import load_atoms_or_exit
+
+    path = tmp_path / "atoms.json"
+    path.write_text(json.dumps({"atoms": [], "spans": [], "bundle": {
+        "files": [{"path": "SKILL.md", "end": 5}]}}), encoding="utf-8")
+    assert load_atoms_or_exit(path)[2]["bundle"]["files"][0]["path"] == "SKILL.md"
