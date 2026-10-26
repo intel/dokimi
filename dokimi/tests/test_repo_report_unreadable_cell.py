@@ -112,6 +112,13 @@ _BAD_FIELDS = [
     pytest.param("grade", {"status": "ok", "score_only": False}, id="grade-without-success"),
     pytest.param("agent", {**_GOOD["agent"], "cost_usd": "0.1"}, id="cost-a-string"),
     pytest.param("agent", {**_GOOD["agent"], "cost_usd": True}, id="cost-a-bool"),
+    pytest.param("grade", {**_GOOD["grade"], "score": True}, id="grade-score-a-bool"),
+    pytest.param("grade", {**_GOOD["grade"], "score": 10**400}, id="grade-score-overflows-a-float"),
+    pytest.param("score_max", True, id="score-max-a-bool"),
+    pytest.param("agent", {**_GOOD["agent"], "num_turns": 10**400}, id="num-turns-overflows"),
+    pytest.param("agent", {**_GOOD["agent"], "input_tokens": True}, id="input-tokens-a-bool"),
+    pytest.param("skills", [], id="skills-not-a-mapping"),
+    pytest.param("skills", {"measured": True, "expected_skill": "s"}, id="skills-no-skill-invoked"),
 ]
 
 

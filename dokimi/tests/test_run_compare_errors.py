@@ -62,13 +62,17 @@ def test_compare_exits_2_on_a_bad_snapshot(tmp_path, monkeypatch, capsys, which,
 @pytest.mark.parametrize(
     "content",
     [None, "a: [", "- a\n", "[" * 100000, "thresholds:\n", "thresholds: []\n", "thresholds: {regressions: 3}\n",
-     "thresholds: {regressions: }\n", "thresholds: {regressions: {score: null}}\n",
-     "thresholds: {regressions: {score: [1]}}\n", "thresholds: {regressions: {score: .nan}}\n",
-     "thresholds: {regressions: {score: .inf}}\n", "thresholds: {regressions: {score: -1}}\n",
-     "thresholds: {regressions: {score: true}}\n", "thresholds: {regressions: {score: " + "9" * 400 + "}}\n"],
+     "thresholds: {regressions: }\n", "thresholds: {regressions: {score_drop_warn: null}}\n",
+     "thresholds: {regressions: {score_drop_warn: [1]}}\n",
+     "thresholds: {regressions: {score_drop_warn: .nan}}\n",
+     "thresholds: {regressions: {score_drop_warn: .inf}}\n",
+     "thresholds: {regressions: {score_drop_warn: -1}}\n",
+     "thresholds: {regressions: {score_drop_warn: true}}\n",
+     "thresholds: {regressions: {score_drop_warn: " + "9" * 400 + "}}\n",
+     "thresholds: {regressions: {score_drop_warn: 0.1, score_drop_critical: .nan}}\n"],
     ids=["missing", "malformed", "not-a-mapping", "too-deep", "thresholds-empty", "thresholds-list",
          "regressions-scalar", "regressions-empty", "value-null", "value-list", "value-nan",
-         "value-inf", "value-negative", "value-bool", "value-huge-int"])
+         "value-inf", "value-negative", "value-bool", "value-huge-int", "second-value-nan"])
 def test_compare_exits_2_on_a_bad_spec(tmp_path, monkeypatch, capsys, content):
     spec = tmp_path / "spec.yaml"
     _write(spec, content)
@@ -78,6 +82,18 @@ def test_compare_exits_2_on_a_bad_spec(tmp_path, monkeypatch, capsys, content):
     assert code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(spec) in err and "Traceback" not in err
+
+
+@pytest.mark.parametrize("value", ["0", "0.05", "3"])
+def test_compare_accepts_a_non_negative_regression_threshold(tmp_path, monkeypatch, value):
+    spec = tmp_path / "spec.yaml"
+    spec.write_text(f"thresholds: {{regressions: {{score_drop_warn: {value}}}}}\n", encoding="utf-8")
+    good = _snapshot(tmp_path / "good.json")
+    argv = ["dokimi", "compare", "--base", good, "--candidate", good, "--spec", str(spec),
+            "--out-json", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md")]
+    monkeypatch.setattr("sys.argv", argv)
+    cli.main()
+    assert (tmp_path / "c.json").is_file()
 
 
 _SPEC_MIN_DOCS = (

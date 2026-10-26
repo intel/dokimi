@@ -234,7 +234,7 @@ def test_score_headroom_is_measured_against_score_max(tmp_path):
     assert _row(compare([e], "guidance:none"), "score")["headroom"] is None
 
 
-@pytest.mark.parametrize("turns,expected", [(None, None), (1, None), (2, "floor"), (5, "floor"), ("1", None)])
+@pytest.mark.parametrize("turns,expected", [(None, None), (1, None), (2, "floor"), (5, "floor")])
 def test_an_agent_outage_is_unmeasured_not_a_floor(tmp_path, turns, expected):
     b = tmp_path / "b1"
     for i in range(3):
@@ -736,17 +736,26 @@ def test_an_empty_arm_list_is_refused_not_an_empty_comparison(tmp_path, capsys, 
 
 
 @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
-def test_non_finite_values_are_not_measurements(tmp_path, bad):
+def test_non_finite_metrics_are_not_measurements(tmp_path, bad):
     b = tmp_path / "b1"
     for i in range(4):
         _cell(b, f"fix_{i}", "guidance:none", 1, cost=0.1, metrics={"m": bad})
-        _cell(b, f"fix_{i}", "guidance:raw", 1, cost=bad if i == 0 else 0.2, metrics={"m": 1})
+        _cell(b, f"fix_{i}", "guidance:raw", 1, cost=0.2, metrics={"m": 1})
     s = compare([b], "guidance:none", metrics=("m",))
     assert not [r for r in s["comparisons"] if r["measure"] == "metric:m"]  # no task has a finite value in both arms
-    cost = _row(s, "cost_usd")
-    assert [t["task"] for t in cost["tasks"]] == ["fix_1", "fix_2", "fix_3"]  # fix_0's cost is not a number
-    assert cost["up"] + cost["down"] + cost["tied"] == cost["n_tasks"] == 3
     json.dumps(s, allow_nan=False)
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+def test_a_non_finite_cost_rejects_the_cell_with_a_message(tmp_path, capsys, bad):
+    b = tmp_path / "b1"
+    _cell(b, "fix_0", "guidance:none", 1, cost=bad)
+    _cell(b, "fix_0", "guidance:raw", 1)
+    args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 1 and "has no usable `agent`" in err and "Traceback" not in err
 
 
 def test_a_batch_given_as_dot_keeps_its_directory_name(tmp_path, monkeypatch):
