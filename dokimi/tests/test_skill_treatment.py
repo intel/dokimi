@@ -483,6 +483,7 @@ def test_a_malformed_token_count_reads_as_zero():
     assert usage is not None and (usage.prompt_tokens, usage.completion_tokens) == (0, 3)
 
 
+@pytest.mark.outcome("cjm-skill-listing")
 def test_skill_listing_counts_what_the_listing_shows(tmp_path):
     short = _skill(tmp_path, name="a")
     assert skill_listing(short) == {"description_chars": len("Use for a things."),
@@ -494,6 +495,7 @@ def test_skill_listing_counts_what_the_listing_shows(tmp_path):
     assert listing["truncated"] is True
 
 
+@pytest.mark.outcome("cjm-skill-listing")
 @pytest.mark.parametrize("chars, truncated", [(1536, False), (1537, True)])
 def test_skill_listing_cuts_only_past_the_cap(tmp_path, chars, truncated):
     skill = tmp_path / "s"

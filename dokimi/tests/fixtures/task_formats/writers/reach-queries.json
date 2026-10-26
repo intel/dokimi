@@ -1,0 +1,24 @@
+{
+  "catalog_id": "demo",
+  "queries": [
+    {
+      "id": "q1",
+      "text": "Fill in this PDF form for me",
+      "expected_skill": "pdf-forms"
+    },
+    {
+      "id": "q2",
+      "text": "Plot this CSV as a bar chart",
+      "expected_skill": "charts",
+      "acceptable_skills": [
+        "pdf-forms"
+      ]
+    },
+    {
+      "id": "q3",
+      "text": "What is the capital of France?",
+      "expected_skill": null,
+      "kind": "out_of_scope"
+    }
+  ]
+}

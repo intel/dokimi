@@ -1,0 +1,82 @@
+{
+  "schema_version": "repo_budget.v1",
+  "tree": "toy",
+  "entries": [
+    {
+      "path": "AGENTS.md",
+      "kind": "guidance",
+      "when": "off",
+      "chars": 18
+    },
+    {
+      "path": "CLAUDE.md",
+      "kind": "guidance",
+      "when": "start",
+      "chars": 34
+    },
+    {
+      "path": "sub/CLAUDE.md",
+      "kind": "guidance",
+      "when": "lazy",
+      "chars": 17
+    },
+    {
+      "path": "docs/style.md",
+      "kind": "import",
+      "when": "start",
+      "chars": 17
+    },
+    {
+      "path": ".claude/skills/audit/SKILL.md",
+      "kind": "skill listing",
+      "when": "start",
+      "chars": 90
+    },
+    {
+      "path": ".claude/skills/audit/SKILL.md",
+      "kind": "skill body",
+      "when": "on demand",
+      "chars": 13
+    },
+    {
+      "path": ".claude/skills/hidden/SKILL.md",
+      "kind": "skill body",
+      "when": "on demand",
+      "chars": 5
+    },
+    {
+      "path": ".claude/skills/review/SKILL.md",
+      "kind": "skill listing",
+      "when": "start",
+      "chars": 91
+    },
+    {
+      "path": ".claude/skills/review/SKILL.md",
+      "kind": "skill body",
+      "when": "on demand",
+      "chars": 13
+    }
+  ],
+  "totals": {
+    "start": 232,
+    "lazy": 17,
+    "on demand": 31,
+    "off": 18
+  },
+  "skills": 3,
+  "duplicate_skills": [
+    {
+      "a": "audit",
+      "b": "review",
+      "overlap": 1.0
+    }
+  ],
+  "mcp_servers": [
+    "db",
+    "docs"
+  ],
+  "warnings": [
+    "CLAUDE.md turns AGENTS.md loading off and no CLAUDE.md imports these, so Claude Code reads none of AGENTS.md unless the agent opens them (import each with `@AGENTS.md` from a CLAUDE.md beside it; `repo reach` measures it)",
+    "skills audit and review have near-duplicate descriptions (Jaccard 1.00 on words, stop words removed); the listing is all the agent picks from"
+  ]
+}
