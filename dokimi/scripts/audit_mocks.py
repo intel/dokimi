@@ -42,13 +42,13 @@ def _dotted(node: ast.expr) -> str:
         return ""
     return ".".join([node.id, *reversed(parts)])
 
-def _own_nodes(body: Iterable[ast.stmt]) -> Iterator[ast.AST]:
-    """Every node of a body, not descending into nested functions or classes."""
-    stack: list[ast.AST] = [n for n in body if not isinstance(n, _SCOPES)]
+def _own_nodes(body: Iterable[ast.stmt], skip: tuple[type, ...] = _SCOPES) -> Iterator[ast.AST]:
+    """Every node of a body, not descending into nested functions or classes (or *skip*)."""
+    stack: list[ast.AST] = [n for n in body if not isinstance(n, skip)]
     while stack:
         node = stack.pop()
         yield node
-        stack.extend(c for c in ast.iter_child_nodes(node) if not isinstance(c, _SCOPES))
+        stack.extend(c for c in ast.iter_child_nodes(node) if not isinstance(c, skip))
 
 def _stored_names(target: ast.expr) -> list[str]:
     """Every name a ``for`` or ``with`` target binds."""
@@ -257,22 +257,51 @@ def _returns_mock(fn: _FuncDef) -> bool:
                and _holds_mock(n.value, mocks) for n in nodes)
 
 
+def _parametrize_arg(dec: ast.Call, position: int, keyword: str) -> ast.expr | None:
+    return dec.args[position] if len(dec.args) > position else next(
+        (k.value for k in dec.keywords if k.arg == keyword), None)
+
+
+def _strings(node: ast.expr | None) -> set[str]:
+    """The strings of a constant or of a list or tuple of them, each split at commas."""
+    items = node.elts if isinstance(node, ast.List | ast.Tuple) else [node]
+    return {p.strip() for i in items if isinstance(i, ast.Constant) and isinstance(i.value, str)
+            for p in i.value.split(",")}
+
+
 def _parametrized(node: _FuncDef | ast.ClassDef) -> set[str]:
-    """The names a ``parametrize`` decorator gives: a parameter it fills is not a fixture."""
+    """The names a ``parametrize`` decorator fills: such a parameter is not a fixture's value.
+
+    A name ``indirect=`` hands to its fixture is (``True`` hands them all, a list the ones it names)."""
     names: set[str] = set()
     for dec in node.decorator_list:
         if not (isinstance(dec, ast.Call) and _dotted(dec.func).endswith("parametrize")):
             continue
-        first = dec.args[0] if dec.args else next((k.value for k in dec.keywords if k.arg == "argnames"), None)
-        items = first.elts if isinstance(first, ast.List | ast.Tuple) else [first]
-        names.update(p.strip() for i in items if isinstance(i, ast.Constant) and isinstance(i.value, str)
-                     for p in i.value.split(","))
+        given = _strings(_parametrize_arg(dec, 0, "argnames"))
+        indirect = _parametrize_arg(dec, 2, "indirect")
+        if isinstance(indirect, ast.Constant) and indirect.value:
+            continue
+        names |= given - _strings(indirect)
     return names
 
 
+_COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
 def _rebound(fn: _FuncDef) -> set[str]:
-    """Names the test assigns: after ``stats = run()`` the parameter's value is gone."""
-    return {n.id for n in _own_nodes(fn.body) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    """Names the test assigns and then reads: after ``stats = run()`` the parameter's value is gone.
+
+    A comprehension's variable is its own, and a store after the last read leaves the checked value."""
+    first_store: dict[str, tuple[int, int]] = {}
+    last_load: dict[str, tuple[int, int]] = {}
+    for n in _own_nodes(fn.body, _SCOPES + _COMPREHENSIONS):
+        if isinstance(n, ast.Name):
+            at = (n.lineno, n.col_offset)
+            if isinstance(n.ctx, ast.Store):
+                first_store[n.id] = min(first_store.get(n.id, at), at)
+            elif isinstance(n.ctx, ast.Load):
+                last_load[n.id] = max(last_load.get(n.id, at), at)
+    return {name for name, at in first_store.items() if at < last_load.get(name, (0, 0))}
 
 
 def _add_fixture_params(scope: ast.Module | ast.ClassDef, visible: dict[str, bool],
