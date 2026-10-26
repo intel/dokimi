@@ -159,6 +159,20 @@ def test_validate_grading_names_the_problem():
     assert validate_grading({"checks": [{"type": "exact"}]}) == ["check 0: exact has no values"]
 
 
+@pytest.mark.parametrize("block, problem", [
+    ({"checks": [{"type": "regex", "values": ["(unclosed"]}]}, "regex '(unclosed' does not compile"),
+    ({"checks": [{"type": "match", "values": ["x"], "location": "middle"}]}, "match location must be one of"),
+    ({"checks": [{"type": "match", "values": ["x"], "mode": "ALL"}]}, "mode must be 'any' or 'all'"),
+    ({"checks": [{"type": "match", "values": ["x"], "weight": "high"}]}, "weight is not a number"),
+    ({"checks": [{"type": "judge"}]}, "a judge check needs a criterion or a reference"),
+    ({"checks": [{"type": "exact", "values": ["4"]}], "threshold": "most"}, "threshold is not a number"),
+])
+def test_validate_grading_catches_what_grading_would_raise_on(block, problem):
+    # Each of these used to pass validation and then abort `eval reference` mid-run.
+    found = validate_grading(block)
+    assert len(found) == 1 and problem in found[0]
+
+
 # --- eval reference ------------------------------------------------------------------------------
 
 _QUESTIONS = [

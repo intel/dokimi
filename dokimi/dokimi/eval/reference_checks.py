@@ -320,14 +320,38 @@ def validate_grading(grading: Any) -> list[str]:
     checks = grading.get("checks")
     if not isinstance(checks, list) or not checks:
         return ["grading has no checks"]
-    problems = []
+    problems = [] if _number_or_none(grading.get("threshold")) else ["threshold is not a number"]
     for i, c in enumerate(checks):
         kind = c.get("type") if isinstance(c, Mapping) else None
         if kind not in KNOWN:
             problems.append(f"check {i}: unknown type {kind!r}")
-        elif kind in DETERMINISTIC and kind not in ("json",) and not _values(c):
-            problems.append(f"check {i}: {kind} has no values")
+            continue
+        # Everything grade_check would raise on, so a bad block stops the run before any judge call.
+        problems.extend(f"check {i}: {p}" for p in _check_problems(kind, c))
     return problems
+
+
+def _number_or_none(value: Any) -> bool:
+    return value is None or (isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value))
+
+
+def _check_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
+    out = [] if _number_or_none(c.get("weight")) else ["weight is not a number"]
+    if kind in DETERMINISTIC and kind != "json" and not _values(c):
+        out.append(f"{kind} has no values")
+    if kind in DETERMINISTIC and str(c.get("mode", "any")) not in ("any", "all"):
+        out.append(f"mode must be 'any' or 'all', not {c.get('mode')!r}")
+    if kind == "match" and str(c.get("location", "end")) not in _LOCATIONS:
+        out.append(f"match location must be one of {', '.join(_LOCATIONS)}, not {c.get('location')!r}")
+    if kind == "regex":
+        for v in _values(c):
+            try:
+                re.compile(str(v))
+            except re.error as exc:
+                out.append(f"regex {v!r} does not compile: {exc}")
+    if kind == "judge" and not (str(c.get("criterion") or "").strip() or str(c.get("reference") or "").strip()):
+        out.append("a judge check needs a criterion or a reference")
+    return out
 
 
 def grade(grading: Mapping[str, Any], question: str, answer: Optional[str], ask: Optional[Ask] = None) -> Grade:
