@@ -325,8 +325,11 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
       data, and `scripts/check_smoke_runs.py` fails the run on it. No
       `egress.jsonl` is written for an `unknown` cell: a missing file is not
       "no requests". The file is also absent when no sandbox ran
-      (`docker-oracle`, the `-host` variants, a build failure), so use
-      `metrics.egress.status` to tell unknown from a cell that ran no sandbox.
+      (`docker-oracle` and the `-host` variants with no allowlisted phase, a
+      build failure), so use `metrics.egress.status` to tell unknown from a
+      cell that ran no sandbox. The file and `metrics.egress` cover the
+      solve's sidecar only: an allowlisted verifier's decisions are
+      `metrics.network.verify_egress`, also saved in `network.json`.
       `docker-probe` reads `violated` on a passing
       cell, because the probe requests denied hosts (`example.com`) by design;
       judge a probe by `isolation_probe.json`, not by `egress.status`.
@@ -564,7 +567,7 @@ decisions land in `metrics.network.verify_egress`). Later sources win:
 2. The task: `[environment]` `network_mode` and `allowed_hosts` (or Harbor's
    deprecated `allow_internet`), then `[agent]` and `[verifier]` overrides,
    and `environment.egress` for an agent's solve. An unknown mode refuses
-   the cell.
+   the cell, and its `network.json` holds the reason.
 3. The operator: `dokimi tasks run --network PHASE=MODE[:host,...]`,
    repeatable, with `all` for every phase. For example
    `--network verify=none` grades a public task offline, and
@@ -577,7 +580,8 @@ the reason for people in `compatibility`, the Agent Skills spec's field for
 environment needs. The run does not widen the skill arm for it: its baseline
 would then run on another network. `metrics.network.skill.missing` lists the
 declared hosts this run did not grant; pass them with `--network solve=...`
-so every arm gets them.
+so every arm gets them. A value that does not parse is recorded as it is, with
+`error` and `missing: null`, and the arm still runs.
 
 ## BenchFlow Cells
 

@@ -10,6 +10,7 @@ verifier execute.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import replace
 from pathlib import Path
@@ -19,6 +20,7 @@ import pytest
 from dokimi.harnesses import TaskSuiteRunner, load_task
 from dokimi.harnesses.network_policy import parse_override, resolve
 from dokimi.harnesses.registry import create_harness
+from dokimi.process import reply
 from docker_cli_fake import DockerCLI
 
 
@@ -58,6 +60,13 @@ def test_environment_public_reaches_the_oracle_and_verifier_but_not_an_agent(tmp
     assert agent.solve.mode == "none" and agent.verify.mode == "public"
     assert agent.verify.source == "task [environment] network_mode"
 
+
+def test_an_environment_allowlist_reaches_an_agent_with_its_hosts(tmp_path):
+    toml = '[environment]\nnetwork_mode = "allowlist"\nallowed_hosts = ["pypi.org"]\n'
+    solve = resolve(load_task(_task(tmp_path, toml)), agent=True).solve
+    assert (solve.label(), solve.source) == ("allowlist:pypi.org:443", "task [environment] network_mode")
+    merged = resolve(load_task(_task(tmp_path / "e", toml + 'egress = ["huggingface.co"]\n')), agent=True).solve
+    assert merged.label() == "allowlist:huggingface.co:443,pypi.org:443"
 
 def test_harbor_phase_overrides_and_allowlists_are_honoured(tmp_path):
     task = load_task(_task(tmp_path, (
@@ -110,6 +119,9 @@ def test_an_unknown_task_network_mode_refuses_the_cell(tmp_path):
     task = load_task(_task(tmp_path, '[environment]\nnetwork_mode = "host"\n'))
     with pytest.raises(ValueError, match="network mode 'host'"):
         create_harness("docker-oracle").run(task, output_dir=tmp_path / "out", dry_run=True)
+    with pytest.raises(ValueError, match="network mode 'host'"):
+        create_harness("docker-oracle", runner=DockerCLI()).run(task, output_dir=tmp_path / "run")
+    assert "network mode 'host'" in json.loads((tmp_path / "run" / "network.json").read_text())["error"]
 
 
 # ── what each phase gets ────────────────────────────────────────────────────
@@ -169,6 +181,39 @@ def test_an_allowlisted_verifier_goes_through_its_own_sidecar(tmp_path):
     oracle = args[_index(args, _exec_of("solve.sh"))]
     assert not any("PROXY" in x for x in oracle)
     assert metrics["network"]["verify_egress"]["status"] == "ok"
+    saved = json.loads((tmp_path / "out" / "network.json").read_text(encoding="utf-8"))
+    assert saved["verify_egress"] == metrics["network"]["verify_egress"]  # the cell record has it too
+    after = args[_index(args, _exec_of("test.sh")):]
+    assert ["rm", "-f", side[side.index("--name") + 1]] in after  # stopped once the verifier is done
+
+
+def test_an_allowlisted_oracle_solves_through_the_sidecar(tmp_path):
+    cli, metrics = _oracle(tmp_path, "solve=allowlist:pypi.org")
+    args = cli.args
+    side = next(a for a in args if a[0] == "create" and "--allow" in a)
+    assert side[side.index("--allow") + 1] == "pypi.org:443"
+    assert "HTTPS_PROXY=http://egress:3128" in args[_index(args, _exec_of("solve.sh"))]
+    assert metrics["network"]["solve_enforced"] is True
+
+
+def test_a_public_oracle_solve_gets_the_host_proxy(tmp_path, monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://user:pw@proxy.corp:912")
+    cli, _ = _oracle(tmp_path, "solve=public")
+    assert "HTTPS_PROXY=http://user:pw@proxy.corp:912" in cli.args[_index(cli.args, _exec_of("solve.sh"))]
+
+
+def test_a_verify_sidecar_that_never_gets_ready_is_removed(tmp_path, monkeypatch):
+    monkeypatch.setattr("dokimi.harnesses.container_agent.time.sleep", lambda _s: None)
+
+    def never_ready(call):
+        return reply("") if call.argv[1] == "logs" and call.argv[-1].endswith("-verify") else None
+
+    cli = DockerCLI(answer=never_ready)
+    harness = replace(create_harness("docker-oracle", runner=cli), network=("verify=allowlist:pypi.org",))
+    result = harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    assert "-verify did not start" in result.metrics["error"]
+    started = _index(cli.args, lambda a: a[0] == "start" and a[-1].endswith("-verify"))
+    assert any(a[:2] == ["rm", "-f"] and a[-1].endswith("-verify") for a in cli.args[started:])
 
 
 def test_build_none_builds_offline(tmp_path):
@@ -186,6 +231,16 @@ def test_a_task_public_oracle_keeps_its_network_unless_the_operator_closes_it(tm
     assert run[run.index("--network") + 1] == "none"
     assert metrics["network"]["verify"]["source"] == "cli"
 
+
+@pytest.mark.parametrize("arm", ["docker-claude-host", "docker-probe-host"])
+def test_a_verify_allowlist_leaves_a_host_arm_on_the_host(tmp_path, arm):
+    toml = '[verifier]\nnetwork_mode = "allowlist"\nallowed_hosts = ["pypi.org"]\n'
+    cli = DockerCLI(reward="1.0", solver='{"type": "result", "result": "ok"}')
+    result = create_harness(arm, runner=cli).run(load_task(_task(tmp_path, toml)), output_dir=tmp_path / "out")
+    assert result.metrics["isolation"]["agent_location"] == "host"
+    assert result.metrics["network"]["solve_enforced"] is False  # the host agent's solve is not ours
+    assert not any(a[0] == "exec" and "-c" in a and "--env-file" in a for a in cli.args)  # no probe inside
+    assert all(c.argv[0] != "docker" for c in cli.solver_calls())
 
 def test_the_suite_runner_refuses_network_for_a_harness_it_cannot_apply_to(tmp_path):
     task = load_task(_task(tmp_path))
@@ -226,6 +281,15 @@ def test_a_skill_declares_its_hosts_and_the_run_says_which_it_did_not_grant(tmp_
     assert metrics["network"]["solve"]["mode"] == "none"
 
 
+@pytest.mark.parametrize("value", ["pypi.org", "true", "allowlist:bad host!"])
+def test_an_unreadable_skill_network_is_recorded_and_the_arm_still_runs(tmp_path, value):
+    skill = _skill(tmp_path, value)
+    harness = create_harness(f"docker-claude-skill:{skill}")
+    metrics = harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out", dry_run=True).metrics
+    got = metrics["network"]["skill"]
+    assert got["declared"] == value and got["missing"] is None and got["error"]
+
+
 def test_an_errored_cell_still_records_its_network(tmp_path, monkeypatch):
     harness = replace(create_harness("docker-oracle", runner=DockerCLI()), network=("verify=public",))
 
@@ -235,5 +299,4 @@ def test_an_errored_cell_still_records_its_network(tmp_path, monkeypatch):
     monkeypatch.setattr(type(harness), "_build_image", broken)
     with pytest.raises(RuntimeError, match="docker build failed"):
         harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
-    import json
     assert json.loads((tmp_path / "out" / "network.json").read_text())["verify"]["mode"] == "public"
