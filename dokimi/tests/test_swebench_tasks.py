@@ -272,7 +272,8 @@ def test_an_empty_marked_section_falls_back_to_the_whole_log():
 
 def test_a_bare_seaborn_status_word_is_skipped_not_an_index_error():
     # A line that is only FAILED or PASSED has no test name; it must not raise.
-    assert grader.parse_seaborn("FAILED\nPASSED\nPASSED t.py::f\n") == {"t.py::f": "PASSED"}
+    log = "FAILED\nPASSED\n PASSED \nPASSED t.py::f\n"
+    assert grader.parse_seaborn(log) == {"t.py::f": "PASSED"}
 
 
 def test_pytest_v2_reads_coloured_and_old_style_lines():
