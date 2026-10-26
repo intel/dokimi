@@ -245,3 +245,27 @@ def test_two_catalog_skills_with_one_name_and_different_content_are_refused_by_n
     assert str(fork / "SKILL.md") in message
     assert "more than once" not in message and not out.exists()
 
+def test_two_differently_named_skills_with_identical_text_both_stay_in_the_field(tmp_path):
+    # Without a frontmatter name the name is the directory's, so identical text under skills/a
+    # and skills/b is two skills, not a mirror: both are siblings the field must show.
+    text = "---\ndescription: tune a slow database query\n---\n\n# B\n"
+    for name in ("a", "b"):
+        (tmp_path / "skills" / name).mkdir(parents=True)
+        (tmp_path / "skills" / name / "SKILL.md").write_text(text, encoding="utf-8")
+    notes: list[str] = []
+    names = [c.name for c in catalog_competitors(str(tmp_path), set(), notes)]
+    assert names == ["a", "b"]
+    assert not any("identical to" in note for note in notes)
+
+
+def test_two_manifest_entries_with_identical_text_and_different_names_both_stay(tmp_path):
+    # The same rule for a skills.yaml that lists two skills pointing at identical bytes.
+    text = "---\ndescription: tune a slow database query\n---\n\n# B\n"
+    for name in ("a", "b"):
+        (tmp_path / "skills" / name).mkdir(parents=True)
+        (tmp_path / "skills" / name / "SKILL.md").write_text(text, encoding="utf-8")
+    (tmp_path / "skills.yaml").write_text("- name: a\n- name: b\n", encoding="utf-8")
+    notes: list[str] = []
+    names = [c.name for c in catalog_competitors(str(tmp_path), set(), notes)]
+    assert names == ["a", "b"]
+    assert not any("identical to" in note for note in notes)

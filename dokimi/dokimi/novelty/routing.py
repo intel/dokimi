@@ -505,13 +505,13 @@ def catalog_competitors(root: str, exclude: set[str],
         raise ValueError(f"--catalog is not a directory: {root}")
     eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled)
     _refuse_conflicting_names(eligible)
-    keeper = _keepers_by_digest(eligible)
+    keeper = _keepers_by_copy(eligible)
     candidates: list[Candidate] = []
     for skill, digest in eligible:
-        if keeper[digest] is not skill:
+        if keeper[(skill.name, digest)] is not skill:
             if notes is not None:
                 notes.append(f"left out catalog skill {skill.name!r} at {skill.path}: "
-                             f"identical to {keeper[digest].path}")
+                             f"identical to {keeper[(skill.name, digest)].path}")
             continue
         candidates.append(Candidate(name=skill.name, description=skill.description))
     return candidates
@@ -559,17 +559,20 @@ def _refuse_conflicting_names(eligible: list[tuple[Skill, str]]) -> None:
             )
 
 
-def _keepers_by_digest(eligible: list[tuple[Skill, str]]) -> dict[str, Skill]:
-    """The copy with the fewest path parts stands for each byte-identical group.
+def _keepers_by_copy(eligible: list[tuple[Skill, str]]) -> dict[tuple[str, str], Skill]:
+    """The copy with the fewest path parts stands for each group of identical copies.
 
+    A group is one name with one digest: two skills with identical text but different names
+    (``skills/a`` and ``skills/b`` without a frontmatter name) are two cards, not copies.
     Ties go to the path that sorts first, so the choice does not depend on directory order.
     """
-    keeper: dict[str, Skill] = {}
+    keeper: dict[tuple[str, str], Skill] = {}
     for skill, digest in eligible:
-        best = keeper.get(digest)
+        group = (skill.name, digest)
+        best = keeper.get(group)
         if best is None or (len(skill.path.parts), skill.path.as_posix()) < (
                 len(best.path.parts), best.path.as_posix()):
-            keeper[digest] = skill
+            keeper[group] = skill
     return keeper
 
 
