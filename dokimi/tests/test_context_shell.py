@@ -49,6 +49,18 @@ def _steps(command: str) -> list[tuple[str, str]]:
     ("uv run --with rich pytest", [("Bash:pytest", "Bash:pytest(uv run --with rich pytest)")]),
     ("time -p pytest", [("Bash:pytest", "Bash:pytest(time -p pytest)")]),
     ("command -v make", [("Bash:make", "Bash:make(command -v make)")]),
+    ("time -f %e pytest", [("Bash:pytest", "Bash:pytest(time -f %e pytest)")]),
+    ("time --format %e pytest", [("Bash:pytest", "Bash:pytest(time --format %e pytest)")]),
+    ("uv run --extra dev pytest", [("Bash:pytest", "Bash:pytest(uv run --extra dev pytest)")]),
+    ("uv run --group dev pytest", [("Bash:pytest", "Bash:pytest(uv run --group dev pytest)")]),
+    ("uv run -p 3.11 -w rich pytest", [("Bash:pytest", "Bash:pytest(uv run -p 3.11 -w rich pytest)")]),
+    ("uv run --package x --with-requirements r.txt pytest",
+     [("Bash:pytest", "Bash:pytest(uv run --package x --with-requirements r.txt pytest)")]),
+    ("sudo --user bob make", [("Bash:make", "Bash:make(sudo --user bob make)")]),
+    ("env --unset FOO make", [("Bash:make", "Bash:make(env --unset FOO make)")]),
+    ("timeout --signal KILL 5 make", [("Bash:make", "Bash:make(timeout --signal KILL 5 make)")]),
+    ("timeout --kill-after 5 300 make", [("Bash:make", "Bash:make(timeout --kill-after 5 300 make)")]),
+    ("nice --adjustment 5 make", [("Bash:make", "Bash:make(nice --adjustment 5 make)")]),
 ])
 def test_control_syntax_and_wrappers_are_not_steps(command, steps):
     assert _steps(command) == steps
@@ -85,6 +97,15 @@ def test_a_multi_file_in_place_edit_records_every_file():
     assert written_files("sed -i s/a/b/ a.py b.py") == ["a.py", "b.py"]
     assert [e.input.get("file_path") for e in _events("Bash", {"command": "sed -i s/a/b/ a.py b.py"})] == [
         "a.py", "b.py"]
+
+
+@pytest.mark.parametrize("command, files", [
+    ("sed -i --expression=s/a/b/ a.py", ["a.py"]), ("sed -i -es/a/b/ a.py", ["a.py"]),
+    ("sed -i -f a.sed -f b.sed f", ["f"]), ("sed -i '' s/a/b/ a.py", ["a.py"]),
+    ("sed -i s/a/b/ f > log.txt", ["f"]), ("sed -i s/a/b/ f 2>err.log", ["f"]),
+])
+def test_written_files_of_an_in_place_edit(command, files):
+    assert written_files(command) == files
 
 
 def test_a_hash_inside_a_word_does_not_cut_the_line_before_a_pipe():

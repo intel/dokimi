@@ -183,8 +183,16 @@ def _words(segment: str) -> list[str]:
 
 _DURATION = re.compile(r"^\d+(\.\d+)?[smhd]?$")
 #: Options of a wrapper that take the next word as their value (`sudo -u bob`, `env -u FOO`).
-_VALUE_OPTIONS = {"sudo": {"-u", "-g", "-h", "-p", "-C", "-D", "-R", "-T", "-U"}, "env": {"-u", "-C", "-S"},
-                  "time": {"-f", "-o"}, "uv": {"--with", "--python", "--project", "--directory", "--env-file"}}
+_VALUE_OPTIONS = {
+    "sudo": {"-u", "-g", "-h", "-p", "-C", "-D", "-R", "-T", "-U",
+             "--user", "--group", "--host", "--prompt", "--close-from", "--chdir", "--chroot",
+             "--command-timeout", "--other-user"},
+    "env": {"-u", "-C", "-S", "--unset", "--chdir", "--split-string"},
+    "time": {"-f", "-o", "--format", "--output"},
+    "uv": {"--with", "--python", "--project", "--directory", "--env-file", "-p", "-w", "--extra", "--group",
+           "--package", "--with-requirements"},
+    "nice": {"-n", "--adjustment"}, "timeout": {"-k", "-s", "--kill-after", "--signal"},
+}
 
 
 def _flags_end(words: list[str], start: int, value_options: set[str]) -> int:
@@ -203,14 +211,14 @@ def _wrapper_length(words: list[str]) -> int:
     if head in ("sudo", "env", "nice"):
         n = 1
         while n < len(words) and (words[n].startswith("-") or (head == "env" and re.match(r"^\w+=", words[n]))):
-            n += 2 if (head == "nice" and words[n] == "-n") or words[n] in _VALUE_OPTIONS.get(head, ()) else 1
+            n += 2 if words[n] in _VALUE_OPTIONS.get(head, ()) else 1
         return n
     if head in ("time", "command"):
         return _flags_end(words, 1, _VALUE_OPTIONS.get(head, set()))
     if head == "timeout":
         n = 1
         while n < len(words) and words[n].startswith("-"):
-            n += 2 if words[n] in ("-k", "-s") else 1
+            n += 2 if words[n] in _VALUE_OPTIONS["timeout"] else 1
         return n + (n < len(words) and bool(_DURATION.match(words[n])))
     if words[:2] == ["uv", "run"]:
         return _flags_end(words, 2, _VALUE_OPTIONS["uv"])
@@ -281,18 +289,24 @@ def _stage_writes(stage: list[str]) -> list[str]:
 
 
 _SCRIPT_OPTIONS = {"-e", "-f", "--expression", "--file"}
+#: A script given in the same word as its option: `-es/a/b/`, `-fa.sed`, `--expression=s/a/b/`.
+_SCRIPT_ATTACHED = re.compile(r"^(?:--expression=|--file=|-[nEsrzu]*[ef]\S)")
 
 
 def _edited_files(args: list[str]) -> list[str]:
     """The files named after an in-place edit's options. Its script is the first word unless `-e` / `-f`
-    gives one, and is not a file; a digit before a redirect is a stream number, not a file."""
+    gives one, and is not a file; a digit before a redirect is a stream number, not a file. An empty
+    word is the BSD `sed -i ''` suffix."""
     files, script_given, i = [], False, 0
     while i < len(args) and args[i] not in _OPERATORS:
         w = args[i]
         if w in _SCRIPT_OPTIONS:
             script_given, i = True, i + 2
             continue
-        if w.startswith("-") or (w.isdigit() and i + 1 < len(args) and args[i + 1] in _OPERATORS):
+        if _SCRIPT_ATTACHED.match(w):
+            script_given, i = True, i + 1
+            continue
+        if not w or w.startswith("-") or (w.isdigit() and i + 1 < len(args) and args[i + 1] in _OPERATORS):
             i += 1
             continue
         files.append(w)
