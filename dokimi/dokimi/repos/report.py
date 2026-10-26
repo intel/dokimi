@@ -13,10 +13,18 @@
 - **unsupported**: cells not run because the host did not meet their task's
   ``host`` requirements (``unsupported.json``, with the reason). They are
   neither failures nor missing.
-- cost and turns are means over finished cells, as the harness reported them.
+- cost, turns and tokens (``input_tokens``, ``output_tokens``,
+  ``cache_read_tokens``, ``cache_write_tokens``) are means over
+  finished cells, as the harness reported them.
 - **uptake**: for an arm that added a file or an MCP server, the cells whose
   agent used it (``result.json`` ``uptake``, see :mod:`.uptake`) over the
   cells with a trace to count from.
+- skill arms add ``skill_invoked`` (cells whose agent used the expected skill,
+  or any installed one when the task names none) and, when the task has an
+  ``expected_skill``, ``skill_selected_correct`` (cells that used it first; ``skill_expected``
+  counts the cells that have one).
+  Cells whose trace could not be read, or holds no event and no result (the
+  harness did not start), are left out of both (``skill_measured`` counts the rest).
 
 A warning is printed when the trace says a model other than the requested one
 answered a cell (``model_resolved``): a harness alias can pin an older model.
@@ -37,6 +45,8 @@ import math
 
 from .process_counts import process_line, process_means
 from .runner import UNSUPPORTED_FILE, slug
+
+_TOKENS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
 
 
 def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
@@ -96,6 +106,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
                                "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in recs), 6),
                                "turns": _mean([r["agent"]["num_turns"] for r in recs]),
                                "process": process_means(recs),
+                               **{k: _mean([r["agent"].get(k) for r in recs]) for k in _TOKENS},
                                "networks": sorted({str(r["agent"].get("network")) for r in recs}),
                                "model_resolved": sorted({m for r in recs for m in resolved_models(r)})}
         uptake = uptake_counts(recs)
@@ -107,6 +118,14 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
         else:
             wins = sum(bool(r["grade"]["success"]) for r in recs)
             row.update(kind="gate", successes=wins, success_rate=round(wins / n, 4), ci95=wilson(wins, n))
+        used = [r["skills"] for r in recs if r.get("skills") and r["skills"].get("measured", True)]
+        if used:  # cells whose trace was unreadable are not counted: no rate from a missing measurement
+            row["skill_measured"] = len(used)
+            row["skill_invoked"] = sum(bool(u["skill_invoked"]) for u in used)
+            expecting = [u for u in used if u.get("expected_skill")]  # a task naming no skill has nothing to select
+            if expecting:
+                row["skill_expected"] = len(expecting)
+                row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
         rows.append(row)
     return {"batch": str(batch_dir), "cells": len(cells), "missing": missing, "rows": rows,
             "unsupported": load_unsupported(batch_dir),
@@ -136,6 +155,9 @@ def format_report(summary: dict[str, Any]) -> str:
                      f"{result:<22}  {r['grader_failures']:>11}  {r['missing']:>7}  {cost:>8}  {turns:>6}")
         noted = ("agent_timeouts", "agent_errors", "over_budget", "cost_unknown")
         notes = [f"{r[k]} {k.replace('_', ' ')}" for k in noted if r[k]]
+        notes += [f"{r[k]}/{r[d]} {k.replace('_', ' ')}"
+                  for k, d in (("skill_invoked", "skill_measured"), ("skill_selected_correct", "skill_expected"))
+                  if k in r]
         if "uptake" in r:
             notes.append(f"arm's additions used in {r['uptake']['used']}/{r['uptake']['cells']} cell(s)"
                          + unmeasured_note(r["uptake"]))

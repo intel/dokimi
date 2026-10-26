@@ -7,9 +7,16 @@ from pathlib import Path
 from typing import Iterable
 
 
+# Directories whose markdown is someone else's (package READMEs, VCS metadata), not the docs under test.
+_SKIPPED_DIRS = frozenset({".git", "node_modules", ".venv", "venv", "__pycache__", "site-packages"})
+
+
 def discover_markdown(root: Path) -> list[Path]:
-    """Return sorted markdown files under ``root``."""
-    return sorted(p for p in root.rglob("*.md") if p.is_file())
+    """Return sorted markdown files under ``root``, skipping vendored and VCS directories."""
+    return sorted(
+        p for p in root.rglob("*.md")
+        if p.is_file() and _SKIPPED_DIRS.isdisjoint(p.relative_to(root).parts[:-1])
+    )
 
 
 def load_text(path: Path) -> str:
