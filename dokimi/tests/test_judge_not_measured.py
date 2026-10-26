@@ -221,6 +221,29 @@ def test_cross_judge_strict_exits_1_when_one_of_several_arms_is_judge_dependent(
     assert _strict_exit([*argv, "--strict"]) == 1
 
 
+def test_cross_judge_strict_exits_0_when_every_arm_is_measured_and_none_is_judge_dependent(
+        tmp_path, monkeypatch, capsys):
+    import json
+
+    from dokimi.eval import judge as judge_mod
+
+    class AgreeingJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, *, answer, **_):  # prefers the skill, as the stored judge does
+            return {"aggregate": 90.0 if answer.startswith("s") else 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", AgreeingJudge)
+    path = tmp_path / "run.json"
+    path.write_text(json.dumps(_material_run()), encoding="utf-8")
+    argv = ["eval", "cross-judge", "--answers", str(path), "--judges", "amazon-bedrock/m",
+            "--output", str(tmp_path / "cj.json")]
+    assert _strict_exit([*argv, "--strict"]) == 0
+    assert "incomplete" not in capsys.readouterr().err
+    assert json.loads((tmp_path / "cj.json").read_text())["summary"]["arms"]["skill"]["label"] == "CONSISTENT +"
+
+
 def test_judge_wording_fragile_variant_exits_1_only_with_strict(tmp_path, monkeypatch, capsys):
     import json
 
