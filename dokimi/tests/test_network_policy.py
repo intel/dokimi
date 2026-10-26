@@ -216,6 +216,22 @@ def test_a_verify_sidecar_that_never_gets_ready_is_removed(tmp_path, monkeypatch
     assert any(a[:2] == ["rm", "-f"] and a[-1].endswith("-verify") for a in cli.args[started:])
 
 
+def test_a_verify_sidecar_removal_that_times_out_keeps_the_verdict_and_is_retried(tmp_path):
+    def slow_removal(call):
+        return reply(timed_out=True) if call.argv[1] == "rm" and call.argv[-1].endswith("-verify") else None
+
+    cli = DockerCLI(answer=slow_removal)
+    harness = replace(create_harness("docker-oracle", runner=cli), network=("verify=allowlist:pypi.org",))
+    result = harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    assert (result.returncode, result.reward) == (0, 1.0)  # the verifier had finished: its verdict stands
+    assert result.metrics["network"]["verify_egress"]["status"] == "ok"
+    verified = _index(cli.args, _exec_of("test.sh"))
+    removals = [i for i, a in enumerate(cli.args) if a[:2] == ["rm", "-f"] and a[-1].endswith("-verify")]
+    network_rm = max(i for i, a in enumerate(cli.args) if a[:2] == ["network", "rm"])
+    # stopped after the verifier, then retried by close() before the network goes
+    assert len([i for i in removals if verified < i < network_rm]) == 2 and removals[-1] < network_rm
+
+
 def test_build_none_builds_offline(tmp_path):
     cli, _ = _oracle(tmp_path, "build=none")
     build = next(a for a in cli.args if a[0] == "build")

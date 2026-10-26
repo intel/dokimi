@@ -135,6 +135,7 @@ class ContainerSandbox:
     _log_read: bool = False  # a teardown read of the sidecar's log has succeeded
     _scratch: Optional[Path] = None
     runner: process.Runner = field(default=process.run, repr=False)  # starts the probe's docker exec
+    _verifier: Optional["ContainerSandbox"] = field(default=None, repr=False)  # close() retries its removal
 
     @classmethod
     def open(cls, run_id: str, docker: Docker, log, *, source_env: dict[str, str],
@@ -189,7 +190,8 @@ class ContainerSandbox:
     def verifier_sidecar(self, docker: Docker, log, allow: list[str]) -> "ContainerSandbox":
         """A fresh sidecar on this network for the verifier's allowlist, after :meth:`stop_proxy`.
 
-        Its own name and decision log; no LLM hosts. The caller stops it before :meth:`close`.
+        Its own name and decision log; no LLM hosts. The caller stops it once the verifier is
+        done (:meth:`stop_proxy_quietly`); :meth:`close` retries a removal that timed out.
         """
         side = ContainerSandbox(network=self.network, proxy_name=f"{self.proxy_name}-verify",
                                 allow=sorted(allow), binary=None, label=self.label, runner=self.runner)
@@ -199,6 +201,7 @@ class ContainerSandbox:
         except BaseException:  # started, it holds the upstream proxy env and the network: close() can't see it
             docker(["rm", "-f", side.proxy_name], log, check=False)
             raise
+        self._verifier = side
         return side
 
     @property
@@ -358,14 +361,21 @@ class ContainerSandbox:
             raise subprocess.TimeoutExpired(removed.argv, DOCKER_STEP_TIMEOUT)
         self._stopped = True
 
-    def close(self, docker: Docker, log, output_dir: Optional[Path]) -> None:
-        """Stop the sidecar, save its decisions as ``egress.jsonl``, drop the network.
-        No file when the log is unknown: an empty one would read as a clean run."""
+    def stop_proxy_quietly(self, docker: Docker, log) -> None:
+        """:meth:`stop_proxy` once nothing runs behind the sidecar: a removal that times out is
+        logged, not raised, and :meth:`close` retries it."""
         try:
             self.stop_proxy(docker, log)
         except subprocess.TimeoutExpired as exc:  # teardown is best-effort: go on to the network
             if log is not None:
-                log.write(f"\n[sidecar removal] timed out after {exc.timeout:g}s\n")
+                log.write(f"\n[sidecar removal] {self.proxy_name} timed out after {exc.timeout:g}s\n")
+
+    def close(self, docker: Docker, log, output_dir: Optional[Path]) -> None:
+        """Stop the sidecars, save the solve's decisions as ``egress.jsonl``, drop the network.
+        No file when the log is unknown: an empty one would read as a clean run."""
+        for side in (self._verifier, self):  # a verifier sidecar left running holds the network too
+            if side is not None:
+                side.stop_proxy_quietly(docker, log)
         if output_dir is not None and self.log_known:
             with (output_dir / "egress.jsonl").open("w", encoding="utf-8") as fh:
                 for row in self.log:
