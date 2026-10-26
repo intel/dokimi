@@ -20,6 +20,8 @@ from __future__ import annotations
 import html
 from datetime import datetime, timezone
 
+from dokimi.gate.novelty_gate import uncleared_conflicts
+
 from .attribute import COLOURS, LEGEND, SpanAttribution
 from .bundle import Coverage, named_exclusions
 
@@ -340,6 +342,38 @@ def _render_knowledge_kinds(artifact: dict) -> list[str]:
     return lines
 
 
+def _uncleared_conflicts(artifact: dict) -> str | None:
+    """The gate's reason a count of 0 conflicting atoms is not a cleared check, as a sentence."""
+    reason = uncleared_conflicts(artifact)
+    return reason[:1].upper() + reason[1:] if reason else None
+
+
+def _render_conflicts(artifact: dict, uncleared: str | None) -> list[str]:
+    """The banner above the triage: conflicts found, or why a count of 0 is not a cleared check."""
+    conflicts = artifact.get("conflicts") or []
+    harmful = (artifact.get("categories") or {}).get("harmful_conflicting", 0)
+    if conflicts or harmful:
+        return [
+            f"> **Conflicts first: {harmful} conflicting atoms, {len(conflicts)} pairs.** "
+            "This is the only category that can make the artifact worse than nothing. Fix "
+            "content before shortening it.",
+            "",
+        ]
+    return [f"> **Conflicts not cleared.** {uncleared}.", ""] if uncleared else []
+
+
+def _render_categories(artifact: dict, uncleared: str | None) -> list[str]:
+    categories = artifact.get("categories") or {}
+    if not categories:
+        return []
+    lines = ["## Content categories", "", "| category | atoms |", "|---|---|"]
+    for name, count in categories.items():
+        if name == "harmful_conflicting" and uncleared:
+            count = f"not measured ({count} found)"
+        lines.append(f"| {name} | {count} |")
+    return [*lines, ""]
+
+
 def render_novelty_markdown(artifact: dict) -> str:
     """Render the summary report, in the order an author should act on it."""
     lines: list[str] = []
@@ -354,15 +388,8 @@ def render_novelty_markdown(artifact: dict) -> str:
     )
     lines.append("")
 
-    conflicts = artifact.get("conflicts") or []
-    harmful = (artifact.get("categories") or {}).get("harmful_conflicting", 0)
-    if conflicts or harmful:
-        lines.append(
-            f"> **Conflicts first: {harmful} conflicting atoms, {len(conflicts)} pairs.** "
-            "This is the only category that can make the artifact worse than nothing. Fix "
-            "content before shortening it."
-        )
-        lines.append("")
+    uncleared = _uncleared_conflicts(artifact)
+    lines.extend(_render_conflicts(artifact, uncleared))
 
     spans = artifact.get("spans", {})
     lines.append("## Triage")
@@ -415,15 +442,7 @@ def render_novelty_markdown(artifact: dict) -> str:
         lines.append("Arms (lenient): " + ", ".join(f"`{k}` {v}" for k, v in arms.items()))
         lines.append("")
 
-    categories = artifact.get("categories") or {}
-    if categories:
-        lines.append("## Content categories")
-        lines.append("")
-        lines.append("| category | atoms |")
-        lines.append("|---|---|")
-        for name, count in categories.items():
-            lines.append(f"| {name} | {count} |")
-        lines.append("")
+    lines.extend(_render_categories(artifact, uncleared))
 
     attribution = artifact.get("attribution", {})
     if attribution.get("tokens_by_label"):

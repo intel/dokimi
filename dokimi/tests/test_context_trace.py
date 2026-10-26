@@ -65,6 +65,7 @@ RUN = _jsonl(
 )
 
 
+@pytest.mark.outcome("cjm-context-trace")
 def test_counts_one_call_per_message_id_and_sums_the_three_input_parts():
     trace = parse_trace(RUN)
     main = trace.main_calls()
@@ -133,6 +134,7 @@ def _run_cli(argv, capsys):
     return capsys.readouterr()
 
 
+@pytest.mark.outcome("cjm-context-trace")
 def test_cli_table_compares_traces(tmp_path, capsys):
     a, b = tmp_path / "a.jsonl", tmp_path / "b.jsonl"
     a.write_text(RUN, encoding="utf-8")
@@ -146,6 +148,7 @@ def test_cli_table_compares_traces(tmp_path, capsys):
     assert f"{a}: largest tool results (chars): Bash 650" in out
 
 
+@pytest.mark.outcome("cjm-context-trace")
 def test_cli_json_single_trace(tmp_path, capsys):
     a = tmp_path / "a.jsonl"
     a.write_text("garbage\n" + RUN, encoding="utf-8")
@@ -156,6 +159,7 @@ def test_cli_json_single_trace(tmp_path, capsys):
     assert "line 1: not JSON" in got.err
 
 
+@pytest.mark.outcome("cjm-context-trace")
 def test_cli_missing_trace_exits_1(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         _run_cli(["context", "trace", str(tmp_path / "missing.jsonl")], capsys)

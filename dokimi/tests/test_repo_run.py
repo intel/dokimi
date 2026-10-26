@@ -113,6 +113,7 @@ def test_an_unreadable_trace_leaves_process_null_and_still_grades(setup, monkeyp
     assert rec["grade"]["status"] == "grader_failure"
 
 
+@pytest.mark.outcome("cjm-model-answered")
 def test_a_run_answered_by_another_model_is_recorded_and_reported(setup, monkeypatch, capsys):
     # The record must carry what the harness reported, not the request, or the mismatch warning never fires.
     monkeypatch.setenv("FAKE_ANSWER_MODEL", "m-0")
