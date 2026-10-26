@@ -208,7 +208,7 @@ def test_deltas_that_would_overflow_when_squared_are_rejected_with_a_message(tmp
 
 @pytest.mark.parametrize("cmd", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
 def test_deltas_at_the_bound_compare_without_overflow(tmp_path, capsys, cmd):
-    batch = _three_task_batch(tmp_path, 1e150, -1e150)
+    batch = _three_task_batch(tmp_path, _SAFE_MAGNITUDE, -_SAFE_MAGNITUDE)
     _run(cmd[0], str(batch), *cmd[1:], "--json")
     assert json.loads(capsys.readouterr().out)
 
