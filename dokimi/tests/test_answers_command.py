@@ -73,6 +73,35 @@ def test_non_mapping_config_exits(tmp_path, monkeypatch, capsys):
     assert "expected a mapping" in capsys.readouterr().err
 
 
+def test_non_utf8_config_exits(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "products.yaml"
+    path.write_bytes(b"\xff\xfe\x00bad: [")
+    _point_config(monkeypatch, path)
+    with pytest.raises(SystemExit) as exc:
+        answers._load_runtime_config()
+    assert exc.value.code == 1
+    assert f"cannot read {path}" in capsys.readouterr().err
+
+
+def test_unreadable_config_path_exits(tmp_path, monkeypatch, capsys):
+    _point_config(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        answers._load_runtime_config()
+    assert exc.value.code == 1
+    assert f"cannot read {tmp_path}" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("text", "key"), [("retrieval: 5", "retrieval"), ("products: [1]", "products")])
+def test_config_section_of_the_wrong_shape_exits(tmp_path, monkeypatch, capsys, text, key):
+    path = tmp_path / "products.yaml"
+    path.write_text(text, encoding="utf-8")
+    _point_config(monkeypatch, path)
+    with pytest.raises(SystemExit) as exc:
+        answers._load_runtime_config()
+    assert exc.value.code == 1
+    assert f"'{key}' in {path} must be a mapping" in capsys.readouterr().err
+
+
 def test_questions_load_error_exits(monkeypatch, capsys):
     def fail(path):
         raise ValueError("record 3 has no question text")

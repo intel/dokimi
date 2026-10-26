@@ -123,9 +123,13 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     out_dir, baseline_arm, questions = _run_plan(descriptor, args)
-    out_dir.mkdir(parents=True, exist_ok=True)
     matrix_path = out_dir / "matrix.cells.json"
-    matrix_path.write_text(json.dumps(_matrix_config_for_run(descriptor, args), indent=2), encoding="utf-8")
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        matrix_path.write_text(json.dumps(_matrix_config_for_run(descriptor, args), indent=2), encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot write {out_dir}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     awareness_runs: list[dict] = []
     for product, questions_path in zip(descriptor.suite.products, questions, strict=True):

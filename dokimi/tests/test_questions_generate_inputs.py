@@ -9,7 +9,7 @@ import pytest
 
 from dokimi import cli
 
-GOOD_PERSONAS = {"personas": [{"name": "dev"}]}
+GOOD_PERSONAS = {"personas": [{"id": "p1", "name": "dev", "skill_level": "beginner"}]}
 
 
 def _generate(monkeypatch, *extra):
@@ -28,6 +28,27 @@ def test_generate_exits_1_on_an_unusable_personas_file(tmp_path, monkeypatch, ca
     assert _generate(monkeypatch, "--personas", str(bad)) == 1
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(bad) in err
+
+
+@pytest.mark.parametrize("personas", [[1, "x"], [{"id": "p1", "name": "dev"}]],
+                         ids=["items-not-objects", "missing-skill-level"])
+def test_generate_exits_1_on_personas_missing_required_fields(tmp_path, monkeypatch, capsys, personas):
+    bad = tmp_path / "personas.json"
+    bad.write_text(json.dumps({"personas": personas}), encoding="utf-8")
+    assert _generate(monkeypatch, "--personas", str(bad)) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(bad) in err and "skill_level" in err
+
+
+@pytest.mark.parametrize("content", ["5", '{"a": 1}'], ids=["number", "object"])
+def test_generate_exits_1_when_topics_is_not_a_list(tmp_path, monkeypatch, capsys, content):
+    personas = tmp_path / "personas.json"
+    personas.write_text(json.dumps(GOOD_PERSONAS), encoding="utf-8")
+    bad = tmp_path / "topics.json"
+    bad.write_text(content, encoding="utf-8")
+    assert _generate(monkeypatch, "--personas", str(personas), "--topics", str(bad)) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(bad) in err and "list" in err
 
 
 @pytest.mark.parametrize("content", [None, "{not json"], ids=["missing", "malformed"])

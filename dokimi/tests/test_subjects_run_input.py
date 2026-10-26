@@ -12,10 +12,13 @@ import pytest
 from dokimi.cli import build_parser
 
 
-def _run(tmp_path: Path, monkeypatch, *, subject_id: str, products: str, questions: str):
+def _run(tmp_path: Path, monkeypatch, *, subject_id: str, products: str, questions: str, baseline: str = "baseline",
+         extra_args: tuple[str, ...] = ()):
     descriptor = tmp_path / "subject.toml"
     descriptor.write_text(
         f"""
+baseline = "{baseline}"
+
 [subject]
 id = "{subject_id}"
 kind = "doc-source"
@@ -28,7 +31,7 @@ questions = {questions}
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
-    args = build_parser().parse_args(["subjects", "run", str(descriptor)])
+    args = build_parser().parse_args(["subjects", "run", str(descriptor), *extra_args])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 1
@@ -49,3 +52,42 @@ def test_an_unrunnable_descriptor_exits_1_with_its_reason(
 
     assert message in capsys.readouterr().err.splitlines()[0]
     assert not (tmp_path / "results").exists()
+
+
+def test_an_unknown_baseline_spec_exits_1_with_its_reason(tmp_path, monkeypatch, capsys):
+    _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]', baseline="nosuchkind:x")
+
+    first_line = capsys.readouterr().err.splitlines()[0]
+    assert first_line.startswith("Error: ") and "nosuchkind" in first_line
+    assert not (tmp_path / "results").exists()
+
+
+def test_a_baseline_named_like_an_awareness_arm_exits_1_with_its_reason(tmp_path, monkeypatch, capsys):
+    other = tmp_path / "other" / "docs"
+    other.mkdir(parents=True)
+    _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]',
+         baseline=f"docs:local:{other.as_posix()}")
+
+    assert "duplicate runtime names" in capsys.readouterr().err.splitlines()[0]
+    assert not (tmp_path / "results").exists()
+
+
+def test_an_out_dir_that_is_a_file_exits_1_naming_it(tmp_path, monkeypatch, capsys):
+    blocker = tmp_path / "out"
+    blocker.write_text("x", encoding="utf-8")
+    _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]',
+         extra_args=("--out-dir", str(blocker)))
+
+    first_line = capsys.readouterr().err.splitlines()[0]
+    assert first_line.startswith(f"Error: cannot write {blocker}: ")
+    assert blocker.read_text(encoding="utf-8") == "x"
+
+
+def test_an_out_dir_under_a_file_exits_1_naming_it(tmp_path, monkeypatch, capsys):
+    blocker = tmp_path / "out"
+    blocker.write_text("x", encoding="utf-8")
+    target = blocker / "sub"
+    _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]',
+         extra_args=("--out-dir", str(target)))
+
+    assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")

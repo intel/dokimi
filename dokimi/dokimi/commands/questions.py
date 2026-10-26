@@ -54,6 +54,11 @@ def _load_personas(path: str) -> list:
     if not isinstance(personas, list):
         print(f"Error: {path} must be a JSON object with a 'personas' list", file=sys.stderr)
         sys.exit(1)
+    for persona in personas:
+        if not isinstance(persona, dict) or not {"id", "name", "skill_level"} <= persona.keys():
+            print(f"Error: each persona in {path} must be an object with 'id', 'name' and "
+                  f"'skill_level', got: {persona!r}", file=sys.stderr)
+            sys.exit(1)
     return personas
 
 
@@ -278,8 +283,8 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
 
     config = _load_runtime_config()
 
-    _product_config = config.get("products", {}).get(args.product, {})
-    _retrieval_cfg = config.get("retrieval", {})
+    _product_config = (config.get("products") or {}).get(args.product, {})
+    _retrieval_cfg = config.get("retrieval") or {}
     if args.top_k is None:
         args.top_k = _retrieval_cfg.get("top_k", 3)
 
@@ -290,6 +295,9 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
     # Get or extract topics
     if args.topics:
         topics = _read_json_input(args.topics)
+        if not isinstance(topics, list):
+            print(f"Error: {args.topics} must be a JSON list of topics", file=sys.stderr)
+            sys.exit(1)
     else:
         print(f"Extracting seed topics for {args.product}...")
 

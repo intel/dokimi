@@ -34,10 +34,18 @@ def _load_runtime_config() -> dict:
     except yaml.YAMLError as exc:
         print(f"Error: invalid YAML in {config_path}: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
+    except (OSError, ValueError) as exc:  # ValueError covers bad UTF-8
+        print(f"Error: cannot read {config_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
     if loaded is not None and not isinstance(loaded, dict):
         print(f"Error: expected a mapping in {config_path}", file=sys.stderr)
         raise SystemExit(1)
-    return loaded or {}
+    config = loaded or {}
+    for key in ("products", "retrieval"):
+        if config.get(key) is not None and not isinstance(config[key], dict):
+            print(f"Error: '{key}' in {config_path} must be a mapping", file=sys.stderr)
+            raise SystemExit(1)
+    return config
 
 
 def _load_questions(path: str) -> list:
@@ -69,7 +77,7 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     )
 
     config = _load_runtime_config()
-    _retrieval_cfg = config.get("retrieval", {})
+    _retrieval_cfg = config.get("retrieval") or {}
     if args.top_k is None:
         args.top_k = _retrieval_cfg.get("top_k", DEFAULT_RETRIEVAL_TOP_K)
 
