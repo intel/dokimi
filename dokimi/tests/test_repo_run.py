@@ -114,6 +114,20 @@ def test_an_unreadable_trace_leaves_process_null_and_still_grades(setup, monkeyp
     assert rec["grade"]["status"] == "grader_failure"
 
 
+def test_a_process_metrics_error_leaves_process_null_and_keeps_the_cost_and_the_grade(setup, monkeypatch):
+    # The metric is best-effort: a counter that raises must not fail the task or drop the cost the harness reported.
+    def refuse(*args, **kwargs):
+        raise ValueError("a counter blew up")
+
+    monkeypatch.setattr("dokimi.repos.runner.run_process_metrics", refuse)
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
+    assert rec["process"] is None
+    assert rec["grade"]["status"] == "graded" and rec["grade"]["success"] is True
+    assert rec["agent"]["cost_usd"] == 0.01 and rec["agent"]["num_turns"] == 3
+    assert any("process metrics failed" in e and "a counter blew up" in e for e in rec["agent"]["trace_errors"])
+
+
 @pytest.mark.outcome("cjm-model-answered")
 def test_a_run_answered_by_another_model_is_recorded_and_reported(setup, monkeypatch, capsys):
     # The record must carry what the harness reported, not the request, or the mismatch warning never fires.

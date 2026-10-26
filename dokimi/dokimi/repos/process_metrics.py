@@ -15,7 +15,8 @@ The framework counts what every repository asks of a trace:
 
 ``counters`` holds the manifest's ``process_metrics``: for each name, how many ``command`` events
 its regex finds a match in (``re.search``). A counter matches the command text unless it names
-``output`` (the command's output, as clipped in the event) or ``any`` (either).
+``output`` (the command's output, as clipped in the event) or ``any`` (either). A refused command
+(``denied``) is searched in its text only: its output is the hook's refusal message.
 """
 
 from __future__ import annotations
@@ -38,7 +39,9 @@ class Counter:
     field: str = "text"
 
     def hits(self, event: Mapping[str, Any]) -> bool:
-        fields = ("text", "output") if self.field == "any" else (self.field,)
+        fields: tuple[str, ...] = ("text", "output") if self.field == "any" else (self.field,)
+        if event.get("denied"):  # a refused command's output is the hook's refusal message, not the command's
+            fields = tuple(f for f in fields if f != "output")
         return any(self.pattern.search(str(event.get(f) or "")) for f in fields)
 
 

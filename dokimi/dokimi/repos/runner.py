@@ -294,7 +294,6 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         _write_json(rd / "meta.json", meta)
         if transcript.events or transcript.num_turns is not None:  # else the agent never started
             events = transcript.events
-            process = run_process_metrics(ctx, events)
         cost = transcript.cost_usd
         agent.update(
             cost_usd=cost, charged_usd=cost if cost is not None else caps["budget_usd"],
@@ -304,6 +303,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             cache_write_tokens=transcript.cache_write_tokens, usage_scope=transcript.usage_scope,
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
+        if events is not None:  # after the cost is recorded: a metric that fails must not cost the cell its record
+            process = _process_or_null(ctx, events, agent["trace_errors"])
         if meta.get("skills") and (transcript.events or transcript.num_turns is not None):  # else it never started
             skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
@@ -333,6 +334,15 @@ def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]]) -> dict[
     globs = ctx.manifest.guidance_globs
     return process_metrics(events, lambda path: any(match_glob(g, path) for g in globs),
                            ctx.manifest.process_metrics)
+
+
+def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: list[str]) -> dict[str, Any] | None:
+    """The cell's ``process``, or None when its metrics raise: a best-effort count must not fail the task."""
+    try:
+        return run_process_metrics(ctx, events)
+    except Exception as exc:  # noqa: BLE001  # a metric that fails is recorded, the grade still counts
+        errors.append(f"process metrics failed ({type(exc).__name__}): {str(exc)[:200]}")
+        return None
 
 
 class CellCrash(Exception):

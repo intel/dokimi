@@ -215,7 +215,8 @@ Rules:
   given as a string or as `{regex: <regex>, match: text|output|any}`. For each
   name the framework counts the `command` events of the run whose `text`
   (default), `output` or either contains a match (`re.search`); denied commands
-  count too, since the agent asked for them. `repo validate` refuses a regex
+  count too, since the agent asked for them, but a denied command is searched in
+  its `text` only (its `output` is the hook's refusal message). `repo validate` refuses a regex
   that does not compile.
 - `eval_dir` is a proper subdirectory, and `tasks` and `explore_tasks` sit inside it: it is the
   one directory deleted from every workspace (§3).

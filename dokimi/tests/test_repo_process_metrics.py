@@ -170,6 +170,16 @@ def test_counters_search_command_events_only():
     assert process_metrics(events, _guidance, counters)["counters"] == {"bazel": 1}
 
 
+def test_a_refused_command_is_searched_in_its_text_not_in_the_hook_message():
+    # A PreToolUse hook's refusal is kept as the command's output; that message is not what the command printed.
+    events = [{"kind": "command", "text": "make all &", "rc": 1, "denied": True,
+               "output": "PreToolUse:Bash hook error: no background jobs"}]
+    counters = _counters(errors={"regex": "error", "match": "output"},
+                         errors_any={"regex": "error", "match": "any"},
+                         make_text={"regex": "make", "match": "text"})
+    assert process_metrics(events, _guidance, counters)["counters"] == {"errors": 0, "errors_any": 0, "make_text": 1}
+
+
 @pytest.mark.parametrize("rc, failed", [(1, 1), (2, 1), (-9, 1), (137, 1), (0, 0), (None, 0)])
 def test_failed_commands_counts_every_non_zero_rc(rc, failed):
     events = [{"kind": "command", "text": "x", "rc": rc}]
