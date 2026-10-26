@@ -580,6 +580,18 @@ def test_a_non_list_tests_or_questions_value_is_not_iterated(tmp_path, name, dat
     assert reports["s.jsonl"].format == "inspect-samples"
 
 
+@pytest.mark.parametrize("name, text, fmt", [
+    ("cases.yaml", "- vars: {a: 1}\n  assert: [{type: equals, value: x}]\n  1: y\n", "promptfoo-tests"),
+    ("e.yaml", "id: e\nquery: where?\nreferences: [{path: a.py, lines: [.inf]}]\n", "dokimi-explore-task"),
+])
+def test_a_non_string_key_or_an_infinite_line_does_not_stop_the_scan(tmp_path, name, text, fmt):
+    _write(tmp_path / name, text)
+    _jsonl(tmp_path / "ok" / "s.jsonl", [{"input": "q", "target": "a"}])
+    reports = {r.path.name: r for r in inspect_path(tmp_path)}
+    assert reports[name].format == fmt
+    assert reports["s.jsonl"].format == "inspect-samples"
+
+
 def test_cli_inspect_out_writes_yaml_dates_sets_and_nan_as_plain_json(tmp_path, capsys):
     task = _tb1(tmp_path)
     _write(task / "task.yaml", "instruction: do it\ndifficulty: 2024-01-01\n"

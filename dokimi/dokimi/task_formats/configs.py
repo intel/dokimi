@@ -125,7 +125,7 @@ class PromptfooTestsProbe:
         rows = source.rows or []
         report = Report(source.path, self.name, KIND_ANSWER_ONLY, items=len(rows))
         report.problems.extend(source.problems)
-        expected = any(k.startswith("__expected") for r in rows[:1] for k in r)
+        expected = any(str(k).startswith("__expected") for r in rows[:1] for k in r)
         report.set_parts({
             "instruction": bool(rows),
             "verifier": expected or any(r.get("assert") for r in rows),

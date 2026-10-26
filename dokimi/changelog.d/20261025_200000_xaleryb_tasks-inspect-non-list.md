@@ -1,6 +1,7 @@
 ### Fixed
 
-- **`dokimi tasks inspect` no longer crashes on a non-list `tests` or `questions`** — a
-  promptfoo config with `tests: 5` or a dokimi questions file with `"questions": null` raised
-  `TypeError` and ended the scan, so no other file under the path was reported. The value is
-  now read as no items and the scan goes on.
+- **`dokimi tasks inspect` no longer stops on one malformed file** — a promptfoo config with
+  `tests: 5`, a dokimi questions file with `"questions": null`, a promptfoo tests file with a
+  non-string row key, or an explore task with `lines: [.inf]` raised and ended the scan, so no
+  other file under the path was reported. Each file is now reported on its own and the scan
+  goes on.
