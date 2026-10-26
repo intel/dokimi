@@ -53,14 +53,14 @@ def _load_answers(path: str):
         sys.exit(2)
 
 
-def _write_json_or_exit(path: Path, payload: dict) -> None:
-    """Write ``payload`` as JSON to ``path``, or exit 1 naming ``path`` when it cannot be written."""
+def _write_json_or_exit(path: Path, payload: dict, code: int = 1) -> None:
+    """Write ``payload`` as JSON to ``path``, or exit ``code`` naming ``path`` when it cannot be written."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     except OSError as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(code)
 
 
 def _require_ragas() -> None:
@@ -417,7 +417,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         result["summary"]["answers_model"] = run.meta.get("model")
         if typed is not None:
             result["summary"]["typed_arm"] = typed.report_fields()
-        _write_json_or_exit(out, result)
+        _write_json_or_exit(out, result, code=2)
 
     print()
     print(report.format_summary())

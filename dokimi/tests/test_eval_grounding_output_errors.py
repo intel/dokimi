@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`eval grounding` and `eval judge-validity`: an unwritable --output exits 1 with a message."""
+"""`eval grounding` and `eval grounding` exits 1, `eval judge-validity` exits 2 (malformed input), when --output cannot be written."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def test_output_below_a_file_exits_1_naming_the_path(tmp_path, capsys):
     assert "Traceback" not in err
 
 
-def test_judge_validity_output_below_a_file_exits_1_naming_the_path(tmp_path, monkeypatch, capsys):
+def test_judge_validity_output_below_a_file_exits_2_naming_the_path(tmp_path, monkeypatch, capsys):
     import dokimi.eval.judge as judge_mod
     import dokimi.eval.judge_validity as jv
 
@@ -62,7 +62,7 @@ def test_judge_validity_output_below_a_file_exits_1_naming_the_path(tmp_path, mo
                                       "--variants", "truncate_20", "--output", str(target)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: cannot write {target}" in capsys.readouterr().err
 
 
