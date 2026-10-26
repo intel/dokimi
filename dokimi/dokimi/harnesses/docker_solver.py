@@ -699,7 +699,7 @@ class DockerSolverHarness:
             return self._verify(task, container, output_dir, log, net)
         finally:
             if side is not None:
-                side.stop_proxy(self._docker, log)
+                side.stop_proxy_quietly(self._docker, log)
                 network["verify_egress"] = side.egress_summary()
 
     # ── helpers ─────────────────────────────────────────────────────────────
