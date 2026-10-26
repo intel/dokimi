@@ -701,6 +701,24 @@ def test_run_refuses_a_malformed_mcp_json_that_an_arms_patch_wrote(tmp_path, mon
     assert ".mcp.json in the workspace is not valid JSON" in out.out + out.err
 
 
+def test_run_refuses_a_non_utf8_mcp_json_in_the_workspace_as_the_runner_reads_it(tmp_path, monkeypatch, capsys):
+    # The base check would stop a tracked file first, so the workspace is written after preparation.
+    from dokimi.repos import runner
+
+    real_prepare = runner.prepare_workspace
+
+    def prepare_then_write_non_utf8(*args, **kwargs):
+        meta = real_prepare(*args, **kwargs)
+        (args[4] / "workspace" / ".mcp.json").write_bytes(b"\xff{}")  # args[4] is the cell directory
+        return meta
+
+    monkeypatch.setattr(runner, "prepare_workspace", prepare_then_write_non_utf8)
+    code, agents = _claude_run(tmp_path, monkeypatch, None, "--arm", "guidance:raw", "--tools", "all")
+    out = capsys.readouterr()
+    assert code == 1 and agents == []
+    assert ".mcp.json in the workspace is not valid UTF-8 text" in out.out + out.err
+
+
 def test_a_guidance_none_arm_installs_a_skill_the_base_ships_under_the_guidance_globs(tmp_path):
     _skill(tmp_path / "toy", ".claude/skills/lint", "lint")
     root, base = make_repo(tmp_path)
