@@ -79,7 +79,7 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
   to widen it. A change that would reject an artifact already written under it
   is a new version: add `<kind>.v<N+1>.json`, point
   `artifacts.SCHEMA_VERSIONS` at it, list the old one in `SUPERSEDED_VERSIONS`.
-  CI's `schema_compat` job checks this against the PR base.
+  CI's `schema_compat` step (ci.yml, `static`) checks this against the PR base.
 - Answer and eval JSON name the two answer conditions `with_docs` and
   `without_docs`, and every stored run uses them: writers, readers, schemas
   and data files keep those keys. Text people read (report headings, console

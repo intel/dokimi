@@ -171,7 +171,7 @@ major, a monthly lock refresh, and security fixes as soon as an advisory
 appears. A pre-commit hook rev and the tool's pin in `requirements-ci.txt` (the
 tools lock CI and `.agent-eval/Dockerfile` install) come in one PR of their own
 for ruff and zizmor, with ruff's pin in the dev extra too; gitleaks in
-`gitleaks.yml` follows the same rule. Renovate does not update
+the gitleaks pin in `ci.yml` follows the same rule. Renovate does not update
 `requirements-docs.lock.txt` yet; pip-audit in CI still audits it.
 
 Guidelines:
