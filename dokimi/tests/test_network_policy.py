@@ -213,7 +213,33 @@ def test_a_verify_sidecar_that_never_gets_ready_is_removed(tmp_path, monkeypatch
     result = harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
     assert "-verify did not start" in result.metrics["error"]
     started = _index(cli.args, lambda a: a[0] == "start" and a[-1].endswith("-verify"))
-    assert any(a[:2] == ["rm", "-f"] and a[-1].endswith("-verify") for a in cli.args[started:])
+    # removed once: close() leaves a sidecar it saw removed alone
+    assert sum(a[:2] == ["rm", "-f"] and a[-1].endswith("-verify") for a in cli.args[started:]) == 1
+
+
+def test_a_verify_sidecar_whose_failed_start_cannot_be_removed_is_retried_by_close(tmp_path, monkeypatch):
+    monkeypatch.setattr("dokimi.harnesses.container_agent.time.sleep", lambda _s: None)
+
+    def stuck(call):
+        if call.argv[-1].endswith("-verify") and call.argv[1] in ("logs", "rm"):
+            return reply("") if call.argv[1] == "logs" else reply(timed_out=True)
+        return None
+
+    cli = DockerCLI(answer=stuck)
+    harness = replace(create_harness("docker-oracle", runner=cli), network=("verify=allowlist:pypi.org",))
+    result = harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    assert "-verify did not start" in result.metrics["error"]
+    started = _index(cli.args, lambda a: a[0] == "start" and a[-1].endswith("-verify"))
+    network_rm = max(i for i, a in enumerate(cli.args) if a[:2] == ["network", "rm"])
+    removals = [i for i, a in enumerate(cli.args) if a[:2] == ["rm", "-f"] and a[-1].endswith("-verify")]
+    # the failed start's own removal, then close()'s retry, both before the network goes
+    assert len([i for i in removals if started < i < network_rm]) == 2
+
+
+def test_open_clears_a_verify_sidecar_a_crashed_run_left(tmp_path):
+    cli, _ = _oracle(tmp_path, "verify=allowlist:pypi.org")
+    create = _index(cli.args, lambda a: a[:3] == ["network", "create", "--internal"])
+    assert any(a[:2] == ["rm", "-f"] and a[-1].endswith("-verify") for a in cli.args[:create])
 
 
 def test_a_verify_sidecar_removal_that_times_out_keeps_the_verdict_and_is_retried(tmp_path):

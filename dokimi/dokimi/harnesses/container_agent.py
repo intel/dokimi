@@ -156,8 +156,9 @@ class ContainerSandbox:
         sandbox = cls(network=f"dokimi-net-{run_id}", proxy_name=f"dokimi-egress-{run_id}",
                       allow=sorted(set(allow)), binary=binary, files=files,
                       label=f"{LABEL}={run_id}", runner=runner)
-        # A crashed run with the same id may still hold the network: container first.
-        for leftover in (run_id, sandbox.proxy_name):
+        # A crashed run with the same id may still hold the network: containers first,
+        # its verifier sidecar too (a removal that timed out twice leaves it running).
+        for leftover in (run_id, sandbox.proxy_name, f"{sandbox.proxy_name}-verify"):
             docker(["rm", "-f", leftover], log, check=False)
         docker(["network", "rm", sandbox.network], log, check=False)
         docker(["network", "create", "--internal", "--label", sandbox.label, sandbox.network], log)
@@ -196,12 +197,12 @@ class ContainerSandbox:
         side = ContainerSandbox(network=self.network, proxy_name=f"{self.proxy_name}-verify",
                                 allow=sorted(allow), binary=None, label=self.label, runner=self.runner)
         docker(["rm", "-f", side.proxy_name], log, check=False)
+        self._verifier = side  # before the start: close() retries a removal that times out below
         try:
             side._start_proxy(docker, log)
-        except BaseException:  # started, it holds the upstream proxy env and the network: close() can't see it
-            docker(["rm", "-f", side.proxy_name], log, check=False)
+        except BaseException:  # started, it holds the upstream proxy env and the network
+            side._stopped = not docker(["rm", "-f", side.proxy_name], log, check=False).timed_out
             raise
-        self._verifier = side
         return side
 
     @property
