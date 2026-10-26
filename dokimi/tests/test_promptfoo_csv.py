@@ -237,6 +237,13 @@ def test_a_blank_cell_adds_no_check(tmp_path, cell):
     assert _csv_checks(tmp_path, [cell, "contains: x"]) == [_match(["x"], "any")]
 
 
+@pytest.mark.parametrize("kind", ["regex", "equals", "starts-with", "contains", "contains-any", "not-regex"])
+def test_a_text_assert_with_no_value_is_unsupported_not_graded(tmp_path, kind):
+    # A bare `regex` used to search for "None" and pass any answer that contains it.
+    assert _yaml_checks(tmp_path, [{"type": kind}]) == [_unsupported(kind)]
+    assert _csv_checks(tmp_path, [kind]) == [_unsupported(kind)]
+
+
 def test_a_contains_all_list_is_trimmed_so_the_words_are_found_in_any_order(tmp_path):
     grading = {"checks": _csv_checks(tmp_path, ["contains-all: apple, banana"])}
     assert grade(grading, "q", "banana and apple").passed is True
