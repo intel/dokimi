@@ -55,11 +55,11 @@ question is `<testIdx>` when the config has one prompt and
 | `match` | The value at `location` (`begin`, `end`, `any`, `exact`), with optional `ignore_case`, `ignore_punctuation`, `strip`, `numeric` (Inspect `match_str`) | Inspect `match`, `includes`; OpenAI `Match` (case-sensitive `startswith`), `Includes`; promptfoo `contains*`, `icontains*`, `equals`, `starts-with` |
 | `exact` | SQuAD-normalised equality | Inspect `exact` |
 | `fuzzy` | Normalised containment, in either direction | OpenAI `FuzzyMatch` |
-| `regex` | `re.search` | promptfoo `regex`, Inspect `pattern` (approximated) |
+| `regex` | `re.search` | promptfoo `regex` |
 | `choice` | The letters of the last `ANSWER: ...` line, parsed the way Inspect parses them | Inspect `choice` with `multiple_choice()` |
 | `json` | Parses as JSON. With `values`, it must equal one of them. With `contains`, it is the first JSON value anywhere in the answer. | OpenAI `JsonMatch`; promptfoo `is-json`, `contains-json`, `equals` with an object value |
 | `judge` | One required point (`criterion`, `reference` or both), asked of the [checklist](evaluating-treatments.md) judge in both polarities. 1 when the two agree that it is covered, 0 when they agree that it is not, 0.5 when they split. | Inspect `model_graded_qa`/`model_graded_fact`; OpenAI `ModelBasedClassify` specs; promptfoo `llm-rubric`, `g-eval`, `factuality`, `model-graded-closedqa`; every skill-creator expectation |
-| `unsupported` | Listed with the native name and never counted | promptfoo `javascript`, `python`, `similar`, `cost`, `latency` and other asserts; unknown Inspect scorers |
+| `unsupported` | Listed with the native name and never counted | promptfoo `javascript`, `python`, `similar`, `cost`, `latency` and other asserts; Inspect `pattern` (it compares an extracted group with the target) and unknown Inspect scorers |
 
 Every check accepts `mode` (`any`/`all` over its `values`), `negate` and
 `weight`. A question's score is the weighted mean of the checks that were

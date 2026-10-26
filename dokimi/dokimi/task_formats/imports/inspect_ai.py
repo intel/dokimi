@@ -59,8 +59,10 @@ def _checks(scorer: str, kwargs: Mapping[str, Any], targets: list[str], imp: Imp
     if scorer == "exact":
         return [{"type": "exact", "values": targets}]
     if scorer == "pattern":
-        imp.note("pattern scorer: graded as a regex search for the target")
-        return [{"type": "regex", "values": [str(kwargs.get("pattern", ""))], "ignore_case": True}]
+        # Inspect extracts the pattern's group and compares it with the target; a bare regex
+        # search would pass `ANSWER: 5` for target 4.
+        imp.note("pattern scorer: group-vs-target comparison not translated")
+        return [unsupported("pattern")]
     if scorer in ("model_graded_qa", "model_graded_fact"):
         imp.note(f"{scorer}: C/P/I grade approximated by a yes/no judge")
         return [judge(reference=" | ".join(targets), native=scorer)]
@@ -106,6 +108,8 @@ def import_samples(path: Path, *, scorer: Optional[str] = None, fields: Optional
     """Rows of ``path`` as questions; ``fields`` maps Sample field -> column (Inspect ``FieldSpec``)."""
     if fmt == FORMAT_SAMPLES and scorer is not None and scorer not in SCORERS:
         raise ValueError(f"unknown Inspect scorer {scorer!r}: one of {', '.join(SCORERS)}")
+    if fmt == FORMAT_SAMPLES and scorer == "pattern":
+        raise ValueError("--scorer pattern needs the pattern its @task passes; import the @task file")
     imp = imp or Imported(fmt, path, native_scorer=scorer)
     if scorer is None and fmt == FORMAT_SAMPLES:
         imp.note("samples file names no scorer: default used")

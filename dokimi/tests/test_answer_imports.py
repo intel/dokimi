@@ -99,6 +99,19 @@ def test_inspect_task_inline_samples_and_scorer_kwargs(tmp_path):
     assert {"solver `chain_of_thought` not reproduced", "sandbox not provided (answer-only)"} <= set(imp.lossy)
 
 
+def test_inspect_pattern_scorer_is_not_a_bare_regex_search(tmp_path):
+    task = _write(tmp_path / "t.py", (
+        "@task\n"
+        "def t():\n"
+        "    return Task(dataset=[Sample(input='2+2?', target='4')], scorer=pattern(r'ANSWER: (\\d+)'))\n"))
+    imp = import_path(task, fmt="inspect-task")
+    assert _checks(imp) == [{"type": "unsupported", "native": "pattern"}]
+    assert grade(imp.questions[0]["grading"], "2+2?", "ANSWER: 5").passed is None
+    samples = _jsonl(tmp_path / "s.jsonl", [{"input": "2+2?", "target": "4"}])
+    with pytest.raises(ValueError, match="needs the pattern"):
+        import_path(samples, fmt="inspect-samples", scorer="pattern")
+
+
 def test_inspect_partial_field_spec_keeps_the_default_id_and_choices_columns(tmp_path):
     _jsonl(tmp_path / "geo.jsonl", [{"id": "geo-7", "question": "Capital?", "choices": ["Lyon", "Paris"],
                                      "answer": "B"}])

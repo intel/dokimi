@@ -17,7 +17,7 @@ type       passes when                                   native names it maps
            ``strip`` / ``numeric`` normalisation
 ``exact``  SQuAD-normalised text equals a value           Inspect ``exact``
 ``fuzzy``  normalised answer and value contain each other OpenAI ``FuzzyMatch``
-``regex``  the pattern is found                          promptfoo ``regex``, Inspect ``pattern``
+``regex``  the pattern is found                          promptfoo ``regex``
 ``choice`` the ``ANSWER: <letters>`` line names exactly   Inspect ``choice`` (with
            the target letters                            ``multiple_choice``)
 ``json``   the answer parses as JSON (equal to a value,  OpenAI ``JsonMatch``, promptfoo
