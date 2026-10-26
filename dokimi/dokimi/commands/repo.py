@@ -243,6 +243,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
 
 def cmd_repo_budget(args: argparse.Namespace) -> None:
     """What the repository puts into an agent's context at start-up, lazily and on demand."""
+    from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos import RepoSource, SourceError, open_source
     from dokimi.repos.budget import budget
     from dokimi.repos.harness_profile import ProfileError, load_profile
@@ -255,9 +256,13 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         sys.exit(1)
     payload = budget(tree, profile.guidance_names, profile.import_max_depth)
     if args.out:
-        _write_json(args.out, payload)
+        try:
+            save_artifact("repo_budget", payload, Path(args.out))
+        except OSError as exc:
+            print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
+            sys.exit(1)
     if args.json:
-        print(json.dumps(payload, indent=2))
+        print(json.dumps(stamp("repo_budget", dict(payload)), indent=2))
     else:
         t = payload["totals"]
         print(f"{payload['tree']}: start {t['start']:,} chars, lazy {t['lazy']:,}, "
@@ -383,7 +388,7 @@ def register(sub, positive_int) -> None:
     scan_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
     scan_p.add_argument("--fail-on-fail", action="store_true", dest="fail_on_fail",
                         help="Exit 1 when any claim fails, an also_scan file is missing, a guidance file "
-                        "cannot be read, or no guidance file matched (for a CI gate)")
+                        "or Bazel build input cannot be read, or no guidance file matched (for a CI gate)")
     scan_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     scan_p.set_defaults(func=cmd_repo_scan)
 
@@ -459,8 +464,8 @@ def register(sub, positive_int) -> None:
                           help="Built-in profile name or a harness_profile.v1 YAML path; its guidance names "
                           "supply the file names, but the classification rules (root vs nested, off rule) are "
                           "hardcoded to Claude Code until other harnesses are measured (default: claude-code)")
-    budget_p.add_argument("--out", default=None, help="Write the full inventory as JSON to this file")
-    budget_p.add_argument("--json", action="store_true", help="Print the full inventory as JSON")
+    budget_p.add_argument("--out", default=None, help="Write the repo_budget.v1 inventory to this file")
+    budget_p.add_argument("--json", action="store_true", help="Print the repo_budget.v1 inventory as JSON")
     budget_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
                           help="Exit 1 when any warning is printed (for a CI gate)")
     budget_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)

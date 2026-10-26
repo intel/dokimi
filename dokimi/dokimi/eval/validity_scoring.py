@@ -105,6 +105,13 @@ class ValidityRow:
         }
 
 
+def _call(scorer: Scorer, pair: Dict[str, Any], answer: str) -> float:
+    """Score one member of a pair, with the arm's stored material when the pair carries it."""
+    if "context" in pair:
+        return float(scorer(pair["library"], pair["question"], answer, context=pair["context"]))  # type: ignore[call-arg]
+    return float(scorer(pair["library"], pair["question"], answer))
+
+
 def _score_pairs(
     scorer: Scorer,
     pairs: Sequence[Dict[str, Any]],
@@ -129,7 +136,7 @@ def _score_pairs(
         failure: Exception = RuntimeError("intact answer was not scored")
         for _ in range(INTACT_ATTEMPTS):
             try:
-                return key, float(scorer(pair["library"], pair["question"], pair["intact"]))
+                return key, _call(scorer, pair, pair["intact"])
             except Exception as exc:  # one bad pair must not lose the whole run
                 failure = exc
         return key, failure
@@ -153,9 +160,7 @@ def _score_pairs(
             if isinstance(base, Exception):
                 raise base
             row.intact_score = base
-            row.degraded_score = float(
-                scorer(pair["library"], pair["question"], pair["degraded"])
-            )
+            row.degraded_score = _call(scorer, pair, pair["degraded"])
         except Exception as exc:  # one bad pair must not lose the whole run
             row.error = f"{type(exc).__name__}: {exc}"[:200]
         return row

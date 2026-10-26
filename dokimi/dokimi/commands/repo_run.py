@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from dokimi.repos.manifest import RepoManifest
     from dokimi.repos.workspace import Arm
 
 
@@ -29,6 +30,7 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     from dokimi.repos import RepoSource, open_source
     from dokimi.repos.container import DockerRunner
     from dokimi.repos.grading import EvalContext
+    from dokimi.repos.graders import graders_digest
     from dokimi.repos.runner import slug
     from dokimi.repos.source import default_cache_dir
     from dokimi.repos.workspace import export_build_context, export_eval_dir, source_git_dir
@@ -60,7 +62,10 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     elif not runner.image_exists(image):
         raise ValueError(f"--image {image} does not exist")
     if pin:
-        _pin_batch(out, {"tree": tree.label, "eval_dir": context_digest(staged), "image": image})
+        stamp = {"tree": tree.label, "eval_dir": context_digest(staged), "image": image}
+        if _uses_builtin_graders(staged, manifest):  # else no score depends on them: an upgrade keeps the batch
+            stamp["graders"] = graders_digest()
+        _pin_batch(out, stamp)
         shutil.rmtree(content, ignore_errors=True)
         staged.rename(content)
     if not args.image and (args.rebuild_image or not runner.image_exists(image)):
@@ -104,6 +109,18 @@ def context_digest(root: Path) -> str:
     return h.hexdigest()
 
 
+def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
+    """Whether a task of the exported eval dir names a ``dokimi:`` grader; an unreadable task.json counts."""
+    from dokimi.repos.graders import builtin_name
+    from dokimi.repos.workspace import load_tasks
+
+    try:
+        tasks = load_tasks(content, manifest)
+    except (OSError, ValueError):
+        return True
+    return any(isinstance(t.raw, dict) and builtin_name(t.raw.get("grader")) is not None for t in tasks)
+
+
 def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
     path = batch_dir / "_eval" / "batch.json"
     if path.is_file():
@@ -123,6 +140,12 @@ def _pair(text: str) -> tuple[str, str]:
     if not sep or not name or not path:
         raise ValueError(f"--cache takes NAME=PATH, got {text!r}")
     return name, path
+
+
+def _progress(line: str) -> None:
+    """One progress line, flushed: under a pipe (CI) stdout is block-buffered and the per-task
+    lines would otherwise all appear when the command exits."""
+    print(line, flush=True)
 
 
 def _errors():
@@ -145,7 +168,7 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
               file=sys.stderr)
-        results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs)
+        results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs, log=_progress)
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -206,7 +229,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         print(f"{profile.name} {version} in {ctx.image}; {len(tasks)} task(s) x {len(arms)} arm(s) x "
               f"{len(options)} model(s) x {args.reps} rep(s) -> {batch_dir}", file=sys.stderr)
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
-                            max_batch_usd=args.max_batch_usd)
+                            max_batch_usd=args.max_batch_usd, log=_progress)
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -329,8 +352,9 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                          help="Run null and oracle with network to fill the caches before offline runs")
     check_p.add_argument("--allow-unsupported", action="store_true", dest="allow_unsupported",
                          help="Exit 0 when the only tasks that are not ok are unsupported because this host "
-                         "misses their task.json `host` requirements (still printed with the reason). Broken "
-                         "tasks, tasks that need egress and tasks whose host probe failed still exit 1")
+                         "misses their task.json `host` requirements (still printed with the reason; "
+                         "with --warm the host is judged too). Broken tasks, tasks that need egress "
+                         "and tasks whose host probe failed still exit 1")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
 

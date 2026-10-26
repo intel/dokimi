@@ -1,7 +1,9 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 import os
+from pathlib import Path
 from typing import Tuple, Dict, Any
 
 from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
@@ -12,7 +14,9 @@ def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
 
     Supports a leading YAML frontmatter block delimited by ``---`` lines, the
     same convention used by Claude Code skill files and most static-site
-    generators. When no frontmatter is present, returns ``({}, text)``.
+    generators. When no frontmatter is present, returns ``({}, text)``. Frontmatter
+    that is not valid YAML also returns ``{}``; use :func:`parse_frontmatter_strict`
+    to see that error.
 
     Args:
         text: Raw file contents.
@@ -20,6 +24,23 @@ def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
     Returns:
         Tuple of (metadata dict, body string with frontmatter stripped).
     """
+    return _split_frontmatter(text, strict=False)
+
+
+def parse_frontmatter_strict(text: str) -> "Tuple[Dict[str, Any], str]":
+    """Like :func:`parse_frontmatter`, but frontmatter that is not valid YAML raises.
+
+    For a validator that must name the YAML error rather than read the document
+    as having no metadata. The lenient :func:`parse_frontmatter` is unchanged for
+    every other caller.
+
+    Raises:
+        yaml.YAMLError: The frontmatter block is not valid YAML.
+    """
+    return _split_frontmatter(text, strict=True)
+
+
+def _split_frontmatter(text: str, *, strict: bool) -> "Tuple[Dict[str, Any], str]":
     import yaml
 
     if not text:
@@ -40,6 +61,8 @@ def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
             try:
                 meta = yaml.safe_load(raw_meta) or {}
             except yaml.YAMLError:
+                if strict:
+                    raise
                 meta = {}
             if not isinstance(meta, dict):
                 meta = {}
@@ -178,3 +201,15 @@ def question_id(q: Dict[str, Any]) -> Any:
             return q[key]
     return None
 
+
+class InputError(Exception):
+    """A user-supplied input file that cannot be used; ``cli.main`` prints it and exits 2."""
+
+
+def read_json_input(path: str | os.PathLike[str], *, flag: str) -> Any:
+    """The parsed JSON at ``path``, or raises :class:`InputError` naming ``flag`` and the file."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError) as exc:  # JSONDecodeError and bad UTF-8 are ValueErrors
+        reason = exc.strerror if isinstance(exc, OSError) and exc.strerror else exc
+        raise InputError(f"{flag} {path}: {reason}") from exc

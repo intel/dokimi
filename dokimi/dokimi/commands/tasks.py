@@ -47,6 +47,50 @@ def cmd_tasks_list(args: argparse.Namespace) -> None:
         print(f"{task.name}\t{difficulty}\t{','.join(tags)}")
 
 
+def _inspect_line(report: dict) -> str:
+    n = report["items"]
+    items = "" if n is None else f"\t{n} item{'' if n == 1 else 's'}"
+    return f"{report['path']}\t{report['format']}\t{report['kind']}{items}\t-> {', '.join(report['consumers'])}"
+
+
+def _print_inspect(reports: list[dict]) -> None:
+    for r in reports:
+        print(_inspect_line(r))
+        if r["present"] or r["missing"]:
+            print(f"  parts: {', '.join(r['present']) or '-'}; missing: {', '.join(r['missing']) or '-'}")
+        for alt in r["alternatives"]:
+            print(f"  ambiguous: also {alt['format']} ({alt['confidence']:.2f}: {', '.join(alt['evidence'])})")
+        for problem in r["problems"]:
+            print(f"  problem: {problem}")
+    by_format: dict[str, int] = {}
+    for r in reports:
+        by_format[r["format"]] = by_format.get(r["format"], 0) + 1
+    print(f"{len(reports)} item{'' if len(reports) == 1 else 's'}: " + ", ".join(f"{f} {n}" for f, n in sorted(by_format.items())))
+
+
+def cmd_tasks_inspect(args: argparse.Namespace) -> None:
+    """Detect the eval-task format of a path (or of everything under it) and report its structure."""
+    import json
+
+    from dokimi.artifacts import save_artifact, stamp
+    from dokimi.task_formats import inspect_path
+
+    try:
+        reports = [r.as_dict() for r in inspect_path(Path(args.path))]
+    except FileNotFoundError as exc:
+        raise SystemExit(f"error: {exc}") from None
+    payload = {"root": str(args.path), "items": reports}
+    if args.out:
+        try:
+            save_artifact("task_inspect", payload, Path(args.out))
+        except OSError as exc:
+            raise SystemExit(f"error: cannot write {args.out}: {exc}") from None
+    if args.json:
+        print(json.dumps(stamp("task_inspect", dict(payload)), indent=2, default=str))
+    else:
+        _print_inspect(reports)
+
+
 def cmd_tasks_harnesses(args: argparse.Namespace) -> None:
     from dokimi.harnesses import known_harnesses
 
@@ -78,8 +122,8 @@ def _launch_mismatches(harnesses: list[str], baseline: str | None) -> list[str]:
             for h in harnesses if h != baseline and (loc := location(h)) not in (None, base)]
 
 
-def cmd_tasks_run(args: argparse.Namespace) -> None:
-    from dokimi.harnesses import PreflightError, TaskSuiteRunner, discover_tasks, load_task
+def _select_tasks(args: argparse.Namespace) -> list:
+    from dokimi.harnesses import discover_tasks, load_task
 
     root = _tasks_root(args)
     try:
@@ -92,6 +136,39 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
         raise SystemExit(str(exc)) from None
     if not tasks:
         raise SystemExit("No tasks selected. Pass --tasks <name[,name]> or --all.")
+    return tasks
+
+
+def _print_summary(output: dict) -> None:
+    for harness, stats in output["summary"]["per_harness"].items():
+        rate = stats["pass_rate"]
+        rate_s = "n/a" if rate is None else f"{rate:.2%}"
+        cost = stats.get("cost", {}).get("total_cost_usd")
+        cost_s = "" if cost is None else f", cost=${cost:.4f}"
+        scored = stats.get("scored", stats["n"])
+        errored_s = f", {stats['errored']} errored" if stats.get("errored") else ""
+        print(
+            f"{harness}: {stats['passed']}/{scored} pass ({rate_s}){errored_s}, "
+            f"ops={stats['operation_count']}, elapsed={stats['elapsed_sec']:.2f}s{cost_s}"
+        )
+    for harness, cmp_row in output["summary"]["comparisons"].items():
+        delta = cmp_row["pass_rate_delta"]
+        delta_s = "n/a" if delta is None else f"{delta:+.2%}"
+        cost_delta = cmp_row.get("cost_delta_usd")
+        cost_s = "" if cost_delta is None else f", cost delta ${cost_delta:+.4f}"
+        print(f"{harness} vs {cmp_row['baseline_harness']}: pass-rate delta {delta_s}{cost_s}")
+    per_harness = output["summary"]["per_harness"].values()
+    cells = sum(s["n"] for s in per_harness)
+    errored = sum(s.get("errored", 0) for s in per_harness)
+    if cells and errored == cells:  # no cell has a verdict: "0/0 pass (n/a)" is not a result
+        print(f"✗ incomplete: every cell errored (0 scored, {errored} errored of {cells} cells)", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_tasks_run(args: argparse.Namespace) -> None:
+    from dokimi.harnesses import PreflightError, TaskSuiteRunner
+
+    tasks = _select_tasks(args)
 
     harnesses = [h.strip() for h in args.harnesses.split(",") if h.strip()]
     if not harnesses:
@@ -112,6 +189,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
         command_template=args.command_template,
         dry_run=args.dry_run,
         repeats=args.repeats,
+        network=tuple(args.network),
     )
     try:
         runner.validate_harnesses()
@@ -136,23 +214,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     out_md.write_text(render_task_runs_report(output), encoding="utf-8")
     print(f"Saved task run report:   {out_md}")
 
-    for harness, stats in output["summary"]["per_harness"].items():
-        rate = stats["pass_rate"]
-        rate_s = "n/a" if rate is None else f"{rate:.2%}"
-        cost = stats.get("cost", {}).get("total_cost_usd")
-        cost_s = "" if cost is None else f", cost=${cost:.4f}"
-        scored = stats.get("scored", stats["n"])
-        errored_s = f", {stats['errored']} errored" if stats.get("errored") else ""
-        print(
-            f"{harness}: {stats['passed']}/{scored} pass ({rate_s}){errored_s}, "
-            f"ops={stats['operation_count']}, elapsed={stats['elapsed_sec']:.2f}s{cost_s}"
-        )
-    for harness, cmp_row in output["summary"]["comparisons"].items():
-        delta = cmp_row["pass_rate_delta"]
-        delta_s = "n/a" if delta is None else f"{delta:+.2%}"
-        cost_delta = cmp_row.get("cost_delta_usd")
-        cost_s = "" if cost_delta is None else f", cost delta ${cost_delta:+.4f}"
-        print(f"{harness} vs {cmp_row['baseline_harness']}: pass-rate delta {delta_s}{cost_s}")
+    _print_summary(output)
 
 
 def register(sub, positive_int) -> None:
@@ -167,6 +229,15 @@ def register(sub, positive_int) -> None:
     list_p = tasks_sub.add_parser("list", help="List terminal-bench task metadata")
     list_p.add_argument("--tasks-root", default=None, help=_TASKS_ROOT_HELP)
     list_p.set_defaults(func=cmd_tasks_list)
+
+    inspect_p = tasks_sub.add_parser(
+        "inspect",
+        help="Detect the eval-task format of a file or directory tree and report its structure (no run)",
+    )
+    inspect_p.add_argument("path", help="A task directory, a dataset file, or a tree holding either")
+    inspect_p.add_argument("--json", action="store_true", help="Print the task_inspect.v1 report as JSON")
+    inspect_p.add_argument("--out", default=None, help="Write the task_inspect.v1 report to this file")
+    inspect_p.set_defaults(func=cmd_tasks_inspect)
 
     harnesses_p = tasks_sub.add_parser("harnesses", help="List known coding harness aliases")
     harnesses_p.set_defaults(func=cmd_tasks_harnesses)
@@ -197,6 +268,14 @@ def register(sub, positive_int) -> None:
         help=(
             "Override command for every harness. Placeholders: {task_path}, {task}, "
             "{model}, {output_dir}, {prompt}, {prompt_quoted}."
+        ),
+    )
+    run_p.add_argument(
+        "--network", action="append", default=[], metavar="PHASE=MODE",
+        help=(
+            "Network for a docker-* phase (build, solve, verify, or all): none, public, or "
+            "allowlist:host[:port],... Repeatable; overrides the task's own network_mode. "
+            "Default build=public solve=none verify=none"
         ),
     )
     run_p.add_argument(

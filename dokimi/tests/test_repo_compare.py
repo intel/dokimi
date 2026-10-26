@@ -21,7 +21,9 @@ from dokimi.repos.compare import CompareError, compare, format_compare, parse_se
 
 def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = True, score: float | None = None,
           failure: bool = False, cost: float | None = 0.1, turns: int = 10, metrics: dict | None = None,
-          model: str = "m-1", harness_version: str = "1.0", model_resolved: str | list[str] | None = None) -> None:
+          model: str = "m-1", harness_version: str = "1.0", score_max: float | None = 1.0,
+          model_resolved: str | list[str] | None = None, is_error: bool = False, rc: int | None = None,
+          timed_out: bool = False) -> None:
     rd = batch / f"{task}__{arm.replace(':', '-')}__{model}__r{rep}"
     rd.mkdir(parents=True)
     score_task = score is not None
@@ -29,8 +31,9 @@ def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = 
              "success": False if failure else (None if score_task else success),
              "score": None if failure else score, "score_only": score_task and not failure, "reasons": []}
     rec = {"task": task, "arm": arm, "model": model, "rep": rep, "score_task": score_task, "grade": grade,
-           "harness_version": harness_version, "model_resolved": model_resolved,
-           "agent": {"cost_usd": cost, "num_turns": turns, "timed_out": False, "is_error": False,
+           "harness_version": harness_version, "score_max": score_max if score_task else None,
+           "model_resolved": model_resolved,
+           "agent": {"cost_usd": cost, "num_turns": turns, "timed_out": timed_out, "is_error": is_error, "rc": rc,
                      "over_budget": False, "network": "none"}}
     (rd / "meta.json").write_text("{}")
     (rd / "result.json").write_text(json.dumps(rec))
@@ -171,6 +174,260 @@ def test_score_tasks_are_their_own_measure_and_a_grader_failure_scores_zero(tmp_
     assert _row(s, "gate")["n_tasks"] == 1  # the gated task, not the score task
 
 
+@pytest.mark.parametrize("base,treat,expected", [
+    ((True, True, True), (True, True, True), "ceiling"),
+    ((False, False, False), (False, False, False), "floor"),
+    ((True, True, False), (True, True, True), "near_ceiling"),  # one task can move up
+    ((True, True, True), (True, False, True), None),  # a loss is an effect, not "too few can improve"
+    ((True, True, True), (False, False, False), None),  # the treatment collapsed
+    ((True, False, False), (True, True, True), None),
+    ((False, True, False), (False, True, False), None),  # all tied, but not all at one end
+])
+def test_gate_headroom_flags_a_task_set_that_cannot_move(tmp_path, base, treat, expected):
+    b = tmp_path / "b1"
+    for i, (was, now) in enumerate(zip(base, treat, strict=True)):
+        _cell(b, f"fix_{i}", "guidance:none", 1, success=was)
+        _cell(b, f"fix_{i}", "guidance:raw", 1, success=now)
+    s = compare([b], "guidance:none")
+    gate = _row(s, "gate")
+    assert gate["headroom"] == expected and _row(s, "cost_usd")["headroom"] is None
+    text = format_compare(s)
+    if expected == "ceiling":
+        assert gate["p"] is None and gate["p_holm"] is None  # the flag is a note: p and Holm are unchanged
+        assert "gate ceiling: both arms pass all 3 paired tasks; no headroom to show an effect" in text
+    elif expected == "floor":
+        assert "gate floor: both arms fail all 3 paired tasks" in text
+    elif expected == "near_ceiling":
+        assert "gate near ceiling: the baseline passes all but at most one of 3 paired tasks" in text
+    else:
+        assert "ceiling" not in text and "floor" not in text
+
+
+def test_score_headroom_is_measured_against_score_max(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(2):
+        _cell(b, f"review_{i}", "guidance:none", 1, score=4.0, score_max=4.0)
+        _cell(b, f"review_{i}", "guidance:raw", 1, score=4.0, score_max=4.0)
+        _cell(b, f"old_{i}", "guidance:none", 1, score=1.0, score_max=None)  # a batch from before score_max
+        _cell(b, f"old_{i}", "guidance:raw", 1, score=1.0, score_max=None)
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] is None  # old_* has no known top
+    for i in range(2):
+        for arm in ("guidance:none", "guidance:raw"):
+            (b / f"old_{i}__{arm.replace(':', '-')}__m-1__r1/result.json").unlink()
+    s = compare([b], "guidance:none")
+    assert _row(s, "score")["headroom"] == "ceiling"
+    assert "score ceiling: both arms reach score.max on all 2 paired tasks" in format_compare(s)
+    c = tmp_path / "b2"
+    for i in range(2):
+        _cell(c, f"review_{i}", "guidance:none", 1, score=0.0)
+        _cell(c, f"review_{i}", "guidance:raw", 1, score=0.0, failure=True)  # a grader failure scores 0
+    assert _row(compare([c], "guidance:none"), "score")["headroom"] is None  # the zeros include a grader failure
+    d = tmp_path / "b3"
+    for i in range(2):
+        _cell(d, f"review_{i}", "guidance:none", 1, score=0.0)
+        _cell(d, f"review_{i}", "guidance:raw", 1, score=0.0)
+    assert _row(compare([d], "guidance:none"), "score")["headroom"] == "floor"
+    e = tmp_path / "b4"
+    for i in range(2):
+        _cell(e, f"review_{i}", "guidance:none", 1, score=0.0, failure=True)
+        _cell(e, f"review_{i}", "guidance:raw", 1, score=0.0, failure=True)
+    assert _row(compare([e], "guidance:none"), "score")["headroom"] is None
+
+
+@pytest.mark.parametrize("turns,expected", [(None, None), (1, None), (2, "floor"), (5, "floor"), ("1", None)])
+def test_an_agent_outage_is_unmeasured_not_a_floor(tmp_path, turns, expected):
+    b = tmp_path / "b1"
+    for i in range(3):
+        for arm in ("guidance:none", "guidance:raw"):
+            _cell(b, f"fix_{i}", arm, 1, success=False, turns=turns, is_error=True)
+    assert _row(compare([b], "guidance:none"), "gate")["headroom"] == expected
+
+
+@pytest.mark.parametrize("rc,turns,timed_out,expected", [
+    (1, None, False, None), (137, None, False, None),  # exited non-zero, no result record: the agent never ran
+    (-9, None, False, None),  # killed by a signal: Completed.returncode is negative
+    (True, None, False, "floor"),  # a stray bool is not an exit code
+    (0, None, False, "floor"), (None, None, False, "floor"),  # exit 0 or no rc recorded: not an outage
+    (1, 5, False, "floor"),  # it reported turns: an attempt
+    (137, None, True, "floor"),  # killed at its timeout: an attempt
+])
+def test_a_harness_that_exits_non_zero_with_no_result_is_an_agent_outage(tmp_path, rc, turns, timed_out, expected):
+    b = tmp_path / "b1"
+    for i in range(3):
+        for arm in ("guidance:none", "guidance:raw"):
+            _cell(b, f"fix_{i}", arm, 1, success=False, turns=turns, rc=rc, timed_out=timed_out)
+    assert _row(compare([b], "guidance:none"), "gate")["headroom"] == expected
+    b2 = tmp_path / "b2"
+    for i in range(3):
+        for arm in ("guidance:none", "guidance:raw"):
+            _cell(b2, f"r_{i}", arm, 1, score=0.0, turns=turns, rc=rc, timed_out=timed_out)
+    assert _row(compare([b2], "guidance:none"), "score")["headroom"] == expected
+
+
+def test_score_headroom_is_unknown_when_the_arms_have_different_score_max(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(2):
+        _cell(b, f"r{i}", "guidance:none", 1, score=4.0, score_max=4.0)
+        _cell(b, f"r{i}", "guidance:raw", 1, score=1.0, score_max=1.0)
+    s = compare([b], "guidance:none")
+    row = _row(s, "score")
+    assert row["delta"]["mean"] == -3.0 and row["headroom"] is None
+
+
+def test_score_floor_is_unknown_when_the_arms_have_different_score_max(tmp_path):
+    """Both arms score 0 on every task, so only the tops decide: the treatment's top (1.0) must count, not the baseline's."""
+    b = tmp_path / "b1"
+    for i in range(2):
+        _cell(b, f"r{i}", "guidance:none", 1, score=0.0, score_max=4.0)
+        _cell(b, f"r{i}", "guidance:raw", 1, score=0.0, score_max=1.0)
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] is None
+
+
+def test_score_headroom_unknown_when_pooling_legacy_and_current_cells(tmp_path):
+    """Regression: when legacy cells (score_max=None) and current cells (score_max=1.0) appear for the same task,
+    do not report ceiling if the legacy cells' maxima are unknown."""
+    b = tmp_path / "b1"
+    for i in range(2):
+        # Current cells with known score_max
+        _cell(b, f"task_{i}", "guidance:none", 1, score=1.0, score_max=1.0)
+        _cell(b, f"task_{i}", "guidance:raw", 1, score=1.0, score_max=1.0)
+        # Legacy cells from before score_max tracking, same task IDs
+        _cell(b, f"task_{i}", "guidance:none", 2, score=1.0, score_max=None)
+        _cell(b, f"task_{i}", "guidance:raw", 2, score=1.0, score_max=None)
+    # Both arms reach 1.0, but legacy cells have unknown maxima: headroom should be None, not "ceiling"
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] is None
+
+
+def test_a_grader_failure_in_either_arm_is_not_floor(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(2):
+        _cell(b, f"review_{i}", "guidance:raw", 1, score=0.0)
+    _cell(b, "review_0", "guidance:none", 1, score=0.0)
+    _cell(b, "review_1", "guidance:none", 1, score=0.0, failure=True)  # baseline only: the treatment is clean
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] is None
+
+
+def test_a_gate_task_with_a_grader_failure_on_one_rep_is_not_floor(tmp_path):
+    b = tmp_path / "b1"
+    for arm in ("guidance:none", "guidance:raw"):
+        _cell(b, "fix_a", arm, 1, success=False)
+        _cell(b, "fix_a", arm, 2, success=False, failure=True)  # the second rep only
+        _cell(b, "fix_b", arm, 1, success=False)
+        _cell(b, "fix_b", arm, 2, success=False)
+    assert _row(compare([b], "guidance:none"), "gate")["headroom"] is None
+
+
+def test_a_grader_failure_on_the_one_task_that_can_move_is_not_near_ceiling(tmp_path):
+    b = tmp_path / "b1"
+    _cell(b, "r0", "guidance:none", 1, score=1.0, score_max=1.0)
+    _cell(b, "r0", "guidance:raw", 1, score=1.0, score_max=1.0)
+    _cell(b, "r1", "guidance:none", 1, score=0.0, score_max=1.0, failure=True)  # not measured, not "room"
+    _cell(b, "r1", "guidance:raw", 1, score=1.0, score_max=1.0)
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] is None
+    c = tmp_path / "b2"
+    _cell(c, "r0", "guidance:none", 1, score=1.0, score_max=1.0)
+    _cell(c, "r0", "guidance:raw", 1, score=1.0, score_max=1.0)
+    _cell(c, "r1", "guidance:none", 1, score=0.0, score_max=1.0)  # the same, measured as a zero
+    _cell(c, "r1", "guidance:raw", 1, score=1.0, score_max=1.0)
+    assert _row(compare([c], "guidance:none"), "score")["headroom"] == "near_ceiling"
+
+
+@pytest.mark.parametrize("pairs,tops,failed,expected", [
+    # two all-zero pairs; one grader failure is not a floor (any, not all)
+    ([{"baseline": 0.0, "treatment": 0.0}] * 2, [(1.0, 1.0)] * 2, [True, False], None),
+    # a legacy baseline (unknown top) against a known one: two scales, whatever the values
+    ([{"baseline": 0.0, "treatment": 0.0}] * 2, [(None, 4.0), (4.0, 4.0)], None, None),
+    # tops that differ on one pair
+    ([{"baseline": 4.0, "treatment": 4.0}, {"baseline": 1.0, "treatment": 1.0}], [(4.0, 4.0), (4.0, 1.0)], None, None),
+    # equal tops on every pair and all zeros: a floor
+    ([{"baseline": 0.0, "treatment": 0.0}] * 2, [(4.0, 4.0), (4.0, 4.0)], None, "floor"),
+    # the one non-top pair is a grader failure: no near_ceiling
+    ([{"baseline": 1.0, "treatment": 1.0}, {"baseline": 0.5, "treatment": 1.0}], [(1.0, 1.0)] * 2,
+     [False, True], None),
+    ([{"baseline": 1.0, "treatment": 1.0}, {"baseline": 0.5, "treatment": 1.0}], [(1.0, 1.0)] * 2,
+     [False, False], "near_ceiling"),
+    # one arm at 0 is not a floor; one task is not near_ceiling; a small loss is still a loss
+    ([{"baseline": 0.0, "treatment": 1.0}] * 3, [(1.0, 1.0)] * 3, None, None),
+    ([{"baseline": 0.0, "treatment": 1.0}], [(1.0, 1.0)], None, None),
+    ([{"baseline": 1.0, "treatment": 1.0}, {"baseline": 1.0, "treatment": 0.7}], [(1.0, 1.0)] * 2, None, None),
+])
+def test_headroom_on_mixed_tops_and_grader_failures(pairs, tops, failed, expected):
+    assert compare_mod.headroom(pairs, tops, failed) == expected
+
+
+@pytest.mark.parametrize("pairs,expected", [
+    # both arms 0.05 short of the top: a task that still has room is no ceiling, nor near_ceiling
+    ([{"baseline": 0.95, "treatment": 0.95}] * 2, None),
+    # the baseline at the top on both tasks, the treatment 0.05 below it on one: a small loss, not near_ceiling
+    ([{"baseline": 1.0, "treatment": 1.0}, {"baseline": 1.0, "treatment": 0.95}], None),
+    # the treatment 0.3 past score.max on both tasks: an effect, not a top
+    ([{"baseline": 1.0, "treatment": 1.3}] * 2, None),
+])
+def test_headroom_tolerances_are_exact_not_coarse(pairs, expected):
+    assert compare_mod.headroom(pairs, [(1.0, 1.0)] * len(pairs), None) == expected
+
+
+def test_gate_headroom_top_is_one_not_half(tmp_path):
+    # both arms pass half of their reps on every task: a rep mean of 0.5 is not at the gate top of 1.0
+    b = tmp_path / "b1"
+    for i in range(2):
+        _cell(b, f"fix_{i}", "guidance:none", 1, success=True)
+        _cell(b, f"fix_{i}", "guidance:none", 2, success=False)
+        _cell(b, f"fix_{i}", "guidance:raw", 1, success=True)
+        _cell(b, f"fix_{i}", "guidance:raw", 2, success=False)
+    assert _row(compare([b], "guidance:none"), "gate")["headroom"] is None
+
+
+def test_score_headroom_allows_for_float_means_and_needs_one_known_top(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(2):
+        for arm in ("guidance:none", "guidance:raw"):
+            for rep in (1, 2, 3):  # a mean of 0.6999999999999998
+                _cell(b, f"r{i}", arm, rep, score=0.7, score_max=0.7)
+    assert _row(compare([b], "guidance:none"), "score")["headroom"] == "ceiling"
+    c = tmp_path / "b2"
+    for i in range(2):
+        for arm in ("guidance:none", "guidance:raw"):  # two eval trees in one task: no single top
+            _cell(c, f"r{i}", arm, 1, score=4.0, score_max=1.0)
+            _cell(c, f"r{i}", arm, 2, score=4.0, score_max=4.0)
+    assert _row(compare([c], "guidance:none"), "score")["headroom"] is None
+
+
+def test_cost_and_turns_rows_never_carry_a_headroom_flag(tmp_path):
+    b = tmp_path / "b1"
+    for i in range(2):
+        for arm in ("guidance:none", "guidance:raw"):  # values that equal the gate's top
+            _cell(b, f"fix_{i}", arm, 1, cost=1.0, turns=1)
+    s = compare([b], "guidance:none")
+    assert _row(s, "cost_usd")["headroom"] is None and _row(s, "turns")["headroom"] is None
+
+
+@pytest.mark.parametrize("baseline,expected", [
+    ((80.0,) * 8, None),  # a gain past score.max on every task: an effect, not a ceiling
+    ((70.0,) + (80.0,) * 7, None),  # nor near_ceiling
+    ((90.0,) * 8, "ceiling"),  # both past score.max and tied: no movement
+])
+def test_a_score_past_score_max_is_at_the_top_only_when_the_arms_tie(tmp_path, baseline, expected):
+    b = tmp_path / "b1"
+    for i, was in enumerate(baseline):
+        _cell(b, f"cov_{i}", "guidance:none", 1, score=was, score_max=80.0)
+        _cell(b, f"cov_{i}", "guidance:raw", 1, score=90.0, score_max=80.0)
+    s = compare([b], "guidance:none")
+    assert _row(s, "score")["headroom"] == expected
+    assert ("ceiling" in format_compare(s)) == (expected is not None)
+
+
+@pytest.mark.parametrize("score_max", [0.0, -1.0])
+def test_a_grader_failure_is_not_ceiling_when_score_max_is_not_above_zero(tmp_path, score_max):
+    b = tmp_path / "b1"
+    for i in range(3):  # a lower-is-better metric negated, say; the grader failed everywhere and scored 0
+        _cell(b, f"r{i}", "guidance:none", 1, score=0.0, score_max=score_max, failure=True)
+        _cell(b, f"r{i}", "guidance:raw", 1, score=0.0, score_max=score_max, failure=True)
+    s = compare([b], "guidance:none")
+    assert _row(s, "score")["headroom"] is None and "ceiling" not in format_compare(s)
+
+
+@pytest.mark.outcome("cjm-repo-compare-arms")
 def test_unpaired_tasks_are_listed_not_compared(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1)
@@ -386,6 +643,7 @@ def test_unreadable_grade_json_leaves_the_metric_out(tmp_path):
     assert (pair["baseline"], pair["treatment"]) == (1.0, 0.0)  # the unreadable cells count for neither
 
 
+@pytest.mark.outcome("cjm-repo-compare-arms")
 def test_missing_cells_are_counted_and_left_out(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1)
@@ -409,6 +667,7 @@ def test_parse_selector_keeps_the_arm_whole():
     assert parse_selector("r1/guidance:raw") == ("r1", "guidance:raw")
 
 
+@pytest.mark.outcome("cjm-repo-compare-arms")
 def test_cli_prints_the_table_and_json(tmp_path, capsys):
     b = tmp_path / "b1"
     for arm in ("guidance:none", "guidance:raw", "guidance:bridge"):
@@ -529,6 +788,7 @@ def test_each_selector_names_its_batches_and_a_bare_arm_over_several_warns(tmp_p
     assert compare([b1, b2], "b1/guidance:none", ["b1/guidance:raw"])["warnings"] == []
 
 
+@pytest.mark.outcome("cjm-arm-stamp-warn")
 @pytest.mark.parametrize("key", ["eval_dir", "image"])
 def test_arms_from_differently_stamped_batches_warn(tmp_path, key):
     old, new = tmp_path / "old", tmp_path / "new"
@@ -558,7 +818,7 @@ def test_an_unstamped_batch_beside_a_stamped_one_is_named(tmp_path):
     _cell(old, "fix_a", "guidance:raw", 1)
     _cell(new, "fix_a", "guidance:raw", 1)
     s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
-    assert s["warnings"] == ["batch new has no stamp (_eval/batch.json); its eval_dir and image are not compared"]
+    assert s["warnings"] == ["batch new has no stamp (_eval/batch.json); its eval_dir, image and graders are not compared"]
 
 
 def test_images_built_from_each_tree_follow_the_tree(tmp_path):
@@ -575,6 +835,7 @@ def test_images_built_from_each_tree_follow_the_tree(tmp_path):
         "t4c2/A vs t4c1/A: the batches ran from different image (dokimi/x:111111111111, my/own:image)"]
 
 
+@pytest.mark.outcome("cjm-arm-stamp-warn")
 def test_cells_on_different_harness_versions_warn(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1, harness_version="2.1.286")
@@ -586,6 +847,8 @@ def test_cells_on_different_harness_versions_warn(tmp_path):
                                   "model_resolved": []}}
 
 
+@pytest.mark.outcome("cjm-model-answered")
+@pytest.mark.outcome("cjm-arm-stamp-warn")
 def test_arms_answered_by_different_models_warn(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1, model_resolved="m-1")
@@ -610,6 +873,7 @@ def test_model_warnings_follow_the_selected_model(tmp_path):
     assert len(compare([b], "guidance:none", models=["m-1"])["warnings"]) == 2
 
 
+@pytest.mark.outcome("cjm-model-answered")
 def test_model_matches_equivalence_does_not_warn(tmp_path):
     """Equivalent model IDs (Bedrock provider-prefix variants) do not trigger a warning."""
     b = tmp_path / "b1"
@@ -679,3 +943,13 @@ def test_an_unreadable_batch_stamp_is_no_stamp(tmp_path):
     _cell(b, "fix_a", "guidance:none", 1)
     _cell(b, "fix_a", "guidance:raw", 1)
     assert compare([b], "guidance:none")["stamps"]["b1"] == {"harness_versions": ["1.0"], "model_resolved": []}
+
+
+def test_arms_from_batches_with_different_built_in_graders_warn(tmp_path):
+    old, new = tmp_path / "old", tmp_path / "new"
+    _stamp(old, tree="repo@abc", eval_dir="e1", image="img:1", graders="g1")
+    _stamp(new, tree="repo@abc", eval_dir="e1", image="img:1", graders="g2")
+    _cell(old, "fix_a", "guidance:raw", 1)
+    _cell(new, "fix_a", "guidance:raw", 1)
+    s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
+    assert s["warnings"] == ["new/guidance:raw vs old/guidance:raw: the batches ran from different graders (g1, g2)"]

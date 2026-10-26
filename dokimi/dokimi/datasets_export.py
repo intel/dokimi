@@ -62,14 +62,16 @@ def flatten(kind: str, data: dict) -> list[dict]:
     Top-level metadata is attached to each row; nested dict/list fields are
     JSON-encoded so the result has a flat, stable column set.
     """
+    if not isinstance(data, dict):
+        raise ValueError(f"Artifact must be a JSON object, got {type(data).__name__}")
     if kind not in RECORD_KEY:
-        raise KeyError(f"Unknown artifact kind: {kind!r}")
+        raise ValueError(f"Unknown artifact kind: {kind!r}")
     record_key = RECORD_KEY[kind]
     if record_key not in data:
-        raise KeyError(f"Artifact is missing the required {record_key!r} array for kind {kind!r}")
+        raise ValueError(f"Artifact is missing the required {record_key!r} array for kind {kind!r}")
     records = data[record_key]
     if not isinstance(records, list):
-        raise TypeError(f"Artifact {record_key!r} must be a list, got {type(records).__name__}")
+        raise ValueError(f"Artifact {record_key!r} must be a list, got {type(records).__name__}")
     meta = {k: data[k] for k in META_KEYS if k in data}
     rows: list[dict] = []
     for rec in records:

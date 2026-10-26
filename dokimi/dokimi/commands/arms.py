@@ -46,6 +46,8 @@ FORWARDED_RUN_CONFIG_FIELDS = (
     "judge_panel",
     "concurrency",
     "stats_correction",
+    "session_turns",
+    "turn_reminder",
 )
 
 
@@ -289,6 +291,14 @@ def register(sub, positive_int) -> None:
                                  "'technical_expert,developer_advocate,doc_reviewer'). When "
                                  "set, --judge scores each answer with a panel and records "
                                  "grader spread and agreement instead of one opinion.")
+    arms_run_p.add_argument("--session-turns", type=positive_int, default=None, dest="session_turns",
+                            help="Measure multi-turn sessions: each question is asked as its question "
+                                 "followed by the first N-1 entries of its 'follow_ups' list, with the "
+                                 "history kept, and each turn's token and cache usage recorded. Non-agentic "
+                                 "arms only. Measurement only: refused with --judge")
+    arms_run_p.add_argument("--turn-reminder", default=None, dest="turn_reminder",
+                            help="With --session-turns, also run each arm as '<arm>+reminder', with this "
+                                 "text appended to every user turn in a <system-reminder> block")
     arms_run_p.add_argument("--concurrency", type=positive_int, default=5)
     arms_run_p.add_argument("--out-json", default=None, dest="out_json",
                             help="Output JSON path (default: results/arms/{product}.json)")
@@ -450,6 +460,7 @@ def _load_questions(path: str) -> list[dict]:
     """
     from dokimi.questions.artifact import load_questions
 
+    _refuse_external_trigger_set(path)
     questions = load_questions(path).questions
     ids = [question_id(q) for q in questions]
     for i, qid in enumerate(ids):
@@ -459,6 +470,30 @@ def _load_questions(path: str) -> list[dict]:
     _refuse_duplicate_ids(ids, path)
     print(f"Loaded {len(questions)} questions from {path}")
     return questions
+
+
+def _refuse_external_trigger_set(path: str) -> None:
+    """Point a skill-reach or skill-creator trigger set at the command that reads it.
+
+    Those sets are read through ``catalog trigger-set --trigger-set``, which also
+    lints them against the catalog the arm will offer; a questions loader that
+    guessed at them would drop that lint and, for skill-creator, the target skill.
+    """
+    import json
+
+    from dokimi.external.trigger_set import FORMAT_QUESTIONS, detect_trigger_format
+
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return  # the questions loader reports it
+    fmt = detect_trigger_format(data)
+    if fmt and fmt != FORMAT_QUESTIONS:
+        target = "=<skill>" if fmt == "skill-creator" else ""
+        raise ValueError(
+            f"{path} is a {fmt} trigger set, not a questions set; convert it with "
+            f"`dokimi catalog trigger-set --catalog <skills> --trigger-set {path}{target} "
+            f"--format questions --out q.json`, then run the skill-catalog: arm on q.json")
 
 
 def _refuse_duplicate_ids(ids: list, path: str) -> None:
@@ -562,6 +597,12 @@ def _probe_sampling(model: str, provider: str, temperature, seed) -> None:
         ) from exc
 
 
+def _refuse_judged_session(args: argparse.Namespace) -> None:
+    """Refused before any answer is paid for: a session is measured, not judged."""
+    if getattr(args, "session_turns", None) is not None and args.judge:
+        raise ValueError("--session-turns is measurement-only; drop --judge")
+
+
 def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: list[dict]) -> dict:
     from dokimi.eval import Judge, JudgePanel
     from dokimi.eval.panel import JUDGE_ROLES, JudgeConfig
@@ -574,6 +615,7 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
     )
     from dokimi.treatments import create_treatments
 
+    _refuse_judged_session(args)
     treatments = create_treatments(specs, top_k=args.top_k, rerank_threshold=args.rerank_threshold)
     _validate_expected_skills(questions, treatments)
     try:
@@ -657,6 +699,8 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
         stats_correction=getattr(args, "stats_correction", "holm"),
         temperature=getattr(args, "temperature", None),
         seed=getattr(args, "seed", None),
+        session_turns=getattr(args, "session_turns", None),
+        turn_reminder=getattr(args, "turn_reminder", None),
     )
     records = runner.run(
         library_name=args.product,

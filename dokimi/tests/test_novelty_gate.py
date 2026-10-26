@@ -10,6 +10,7 @@ import pytest
 from dokimi.gate.novelty_gate import (
     evaluate_novelty,
     format_novelty_block,
+    uncleared_conflicts,
 )
 from dokimi.subjects.novelty_track import (
     build_novelty_block,
@@ -474,3 +475,38 @@ def test_a_capped_atom_set_does_not_clear_harmful_atoms():
         "harmful_atoms")
     assert found.measured is True and found.passed is False
     assert "lower bound" in found.message
+
+
+def test_an_artifact_with_no_check_measured_is_not_a_pass():
+    # `{}` carries no stage: every check passed unmeasured and the cell read PASS.
+    empty = evaluate_novelty({})
+    assert len(empty.not_measured) == len(empty.checks) > 0
+    assert empty.status == "NOT MEASURED"
+    assert empty.as_dict()["status"] == "NOT MEASURED"
+    assert "— NOT MEASURED (10 of 10 not measured)" in format_novelty_block([empty])
+    # One measured check is enough for PASS; the rest stay counted as not measured.
+    assert evaluate_novelty(_artifact(
+        categories={}, shortening=[], attribution={}, controls={}, spans={"n": 60},
+        bundle={}, probes={}, items={})).status == "PASS"
+
+
+@pytest.mark.parametrize("overrides", [
+    {"conflict_coverage": {"pairs_compared": 970, "pairs_total": 1770}},
+    {"spans": {"capped_atom_set": True, "n_atoms_indexed": 300}},
+    {"conflict_coverage": {"pairs_total": 1770}},
+], ids=["partial", "capped", "malformed"])
+def test_the_reason_a_zero_is_not_cleared_is_the_harmful_atoms_row(overrides):
+    artifact = _artifact(**overrides)
+    row = next(c for c in evaluate_novelty(artifact).checks if c.name == "harmful_atoms")
+    reason = uncleared_conflicts(artifact)
+    assert not row.measured and reason and row.message.startswith(f"not measured: {reason}")
+
+
+@pytest.mark.parametrize("overrides", [
+    {},  # every pair compared, nothing capped
+    {"categories": {"harmful_conflicting": 2},
+     "conflict_coverage": {"pairs_compared": 970, "pairs_total": 1770}},  # found conflicts lead
+    {"categories": {}},  # nothing classified: not a 0 to clear
+], ids=["cleared", "found", "unclassified"])
+def test_there_is_no_uncleared_reason_without_a_zero_left_unchecked(overrides):
+    assert uncleared_conflicts(_artifact(**overrides)) is None

@@ -52,7 +52,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.datasets_export", "dokimi.explore", "dokimi.external", "dokimi.harnesses",
         "dokimi.novelty", "dokimi.orchestrator", "dokimi.report", "dokimi.repos",
         "dokimi.runner", "dokimi.schema_check", "dokimi.schema_compat", "dokimi.subjects",
-        "dokimi.tool_preference",
+        "dokimi.task_formats", "dokimi.tool_preference",
     )),
     # The LLM evaluation engine: answering, judging, panels, arms, questions, personas.
     ("evaluation", (
@@ -78,26 +78,15 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 #: Imports that already cross a layer upward, (importer, imported): reason.
-LAYER_BASELINE: dict[tuple[str, str], str] = {
-    ("dokimi.gate.novelty_gate", "dokimi.novelty.bundle"):
-        "the novelty gate reads Coverage and its basis from the bundle; the bundle "
-        "record belongs below gate (and closes the novelty cycle below)",
-}
+#: Empty: the novelty gate reads coverage from dokimi.metrics.bundle_coverage.
+LAYER_BASELINE: dict[tuple[str, str], str] = {}
 
 #: Import cycles that exist today, each the exact module set of one SCC: reason.
 CYCLE_BASELINE: dict[frozenset[str], str] = {
-    frozenset({"dokimi.eval.judge", "dokimi.eval.panel"}):
-        "panel imports Judge lazily; judge imports the panel's numeric-claim prompts",
-    frozenset({"dokimi.eval.interactions", "dokimi.eval.stats"}):
-        "stats re-exports interactions at its end, which imports stats' private helpers",
     frozenset({"dokimi.eval.judge_sequential", "dokimi.eval.judge_validity"}):
         "judge_validity imports the SPRT bounds lazily from judge_sequential",
     frozenset({"dokimi.harnesses.exploration", "dokimi.harnesses.models"}):
         "models imports summarize_exploration lazily; exploration needs OperationRecord",
-    frozenset({"dokimi.gate.novelty_gate", "dokimi.novelty.analyze", "dokimi.novelty.bundle",
-               "dokimi.novelty.report"}):
-        "bundle imports load_artifact_text lazily from analyze; analyze imports the gate "
-        "DEFAULTS lazily; the gate imports the bundle",
     frozenset({"dokimi.repos.bases", "dokimi.repos.manifest"}):
         "manifest imports check_bases lazily; bases needs RepoCheckReport",
     frozenset({"dokimi.repos.l0.adapters", "dokimi.repos.l0.core"}):
@@ -201,17 +190,34 @@ def _kinds(tree: ast.Module) -> dict[int, str]:
     return kinds
 
 
+def _owner_module(name: str, modules: frozenset[str]) -> str | None:
+    """The longest prefix of ``name`` that is a module of the package, if any."""
+    while name and name not in modules:
+        name = name.rpartition(".")[0]
+    return name or None
+
+
+def _import_targets(node: ast.Import | ast.ImportFrom, here: str,
+                    modules: frozenset[str]) -> list[str]:
+    """The dotted names one import statement reaches, relative imports resolved."""
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    if node.level:
+        base = here.split(".")[: len(here.split(".")) - node.level + 1]
+        origin = ".".join(base + ([node.module] if node.module else []))
+    else:
+        origin = node.module or ""
+    # `from pkg import sub` depends on pkg.sub; any other name, on pkg.
+    subs = [f"{origin}.{a.name}" for a in node.names if f"{origin}.{a.name}" in modules]
+    return subs if len(subs) == len(node.names) else [*subs, origin]
+
+
 def build_imports(root: Path, package: str = PACKAGE) -> Imports:
     """Parse every module under ``root/package``; nothing is imported."""
     paths = {_module_name(p, root): p for p in sorted((root / package).rglob("*.py"))}
     modules = frozenset(paths)
     trees = {m: ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
              for m, p in paths.items()}
-
-    def resolve(name: str) -> str | None:
-        while name and name not in modules:
-            name = name.rpartition(".")[0]
-        return name or None
 
     edges: dict[str, dict[str, tuple[str, int]]] = {}
     external: dict[str, dict[str, int]] = {}
@@ -221,31 +227,30 @@ def build_imports(root: Path, package: str = PACKAGE) -> Imports:
         out = edges.setdefault(mod, {})
         ext = external.setdefault(mod, {})
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                targets = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                if node.level:
-                    base = here.split(".")[: len(here.split(".")) - node.level + 1]
-                    origin = ".".join(base + ([node.module] if node.module else []))
-                else:
-                    origin = node.module or ""
-                # `from pkg import sub` depends on pkg.sub; any other name, on pkg.
-                subs = [f"{origin}.{a.name}" for a in node.names
-                        if f"{origin}.{a.name}" in modules]
-                targets = subs if len(subs) == len(node.names) else [*subs, origin]
-            else:
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
                 continue
             kind = kinds.get(id(node), MODULE)
-            for target in targets:
+            for target in _import_targets(node, here, modules):
                 if target != package and not target.startswith(package + "."):
                     ext.setdefault(target.partition(".")[0], node.lineno)
                     continue
-                dst = resolve(target)
+                dst = _owner_module(target, modules)
                 if dst is None or dst == mod:
                     continue
                 if dst not in out or _RANK[kind] < _RANK[out[dst][0]]:
                     out[dst] = (kind, node.lineno)
     return Imports(modules, edges, external, trees)
+
+
+def _pop_component(stack: list[str], on_stack: set[str], root: str) -> set[str]:
+    """Pop the Tarjan stack down to ``root``: that is one component."""
+    component = set()
+    while True:
+        w = stack.pop()
+        on_stack.discard(w)
+        component.add(w)
+        if w == root:
+            return component
 
 
 def strongly_connected(imports: Imports, kinds: Iterable[str] = (MODULE, LAZY)
@@ -271,13 +276,7 @@ def strongly_connected(imports: Imports, kinds: Iterable[str] = (MODULE, LAZY)
             elif w in on_stack:
                 low[v] = min(low[v], index[w])
         if low[v] == index[v]:
-            component = set()
-            while True:
-                w = stack.pop()
-                on_stack.discard(w)
-                component.add(w)
-                if w == v:
-                    break
+            component = _pop_component(stack, on_stack, v)
             if len(component) > 1:
                 found.append(frozenset(component))
 
@@ -340,17 +339,11 @@ def banned_imports(imports: Imports, banned=BANNED_IMPORTS) -> dict[tuple[str, s
             if name in banned and mod != banned[name]}
 
 
-def spawn_sites(tree: ast.Module) -> list[int]:
-    """Lines that start a child process without :mod:`dokimi.process`.
-
-    Each launch counts once: an attribute call (``subprocess.run(...)``) or a call
-    through a directly imported name (``execute(...)`` after ``from subprocess import
-    run as execute``). A directly imported name that is never called counts at its
-    import line, since it may be passed around and called there.
-    """
-    module_aliases: dict[str, str] = {}  # alias -> module name
-    name_aliases: dict[str, tuple[int, str]] = {}  # alias -> (import line, module)
-    lines: list[int] = []
+def _spawn_imports(tree: ast.Module) -> tuple[dict[str, str], dict[str, tuple[int, str]]]:
+    """Module aliases (alias -> module) and directly imported spawn names
+    (alias -> (import line, module)) of a file."""
+    module_aliases: dict[str, str] = {}
+    name_aliases: dict[str, tuple[int, str]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
@@ -363,6 +356,19 @@ def spawn_sites(tree: ast.Module) -> list[int]:
                     # Keep the earliest import (not the latest) for consistent error reporting
                     if alias not in name_aliases:
                         name_aliases[alias] = (node.lineno, node.module)
+    return module_aliases, name_aliases
+
+
+def spawn_sites(tree: ast.Module) -> list[int]:
+    """Lines that start a child process without :mod:`dokimi.process`.
+
+    Each launch counts once: an attribute call (``subprocess.run(...)``) or a call
+    through a directly imported name (``execute(...)`` after ``from subprocess import
+    run as execute``). A directly imported name that is never called counts at its
+    import line, since it may be passed around and called there.
+    """
+    module_aliases, name_aliases = _spawn_imports(tree)
+    lines: list[int] = []
     called: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):

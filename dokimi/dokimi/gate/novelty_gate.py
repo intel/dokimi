@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from dokimi.novelty.bundle import COVERAGE_BASES, Coverage
+from dokimi.metrics.bundle_coverage import COVERAGE_BASES, Coverage
 
 # ── Thresholds (override per call) ────────────────────────────────────────────
 
@@ -125,10 +125,16 @@ class NoveltyVerdict:
 
     @property
     def status(self) -> str:
-        """``PASS`` / ``WARN`` / ``FAIL``, without a build meaning attached."""
+        """``PASS`` / ``WARN`` / ``FAIL`` / ``NOT MEASURED``, without a build meaning attached.
+
+        ``NOT MEASURED`` when no check was measured: every check passes unmeasured, so
+        ``PASS`` would be read off a run that cleared nothing.
+        """
         if self.blocking:
             return "FAIL"
-        return "WARN" if self.warnings else "PASS"
+        if self.warnings:
+            return "WARN"
+        return "PASS" if any(c.measured for c in self.checks) else "NOT MEASURED"
 
     @property
     def not_measured(self) -> list[str]:
@@ -164,6 +170,50 @@ def _pair_coverage(raw: Any) -> tuple[int, int] | None:
     ):
         return None
     return compared, total
+
+
+def _conflict_reading(artifact: dict, cfg: dict[str, Any]) -> tuple[int, int, bool, str | None]:
+    """``(pairs compared, pairs total, capped, reason)`` of the conflict check: the reason is why a
+    count of 0 is not a cleared check, ``None`` when it is.
+
+    A count of 0 clears the check only when the conflict check read the pair space: enough of the
+    pairs compared, over an atom set that was not capped. A missing ``conflict_coverage`` is an
+    artifact written before the field existed and keeps the historical reading; one that is
+    present but unreadable is not measured.
+    """
+    has_coverage = "conflict_coverage" in artifact
+    coverage = _pair_coverage(artifact.get("conflict_coverage"))
+    compared, total = coverage or (0, 0)
+    spans = artifact.get("spans", {}) or {}
+    capped = bool(spans.get("capped_atom_set"))
+    if has_coverage and coverage is None:
+        reason: str | None = "the conflict_coverage record is malformed, so a count of 0 is not a cleared check"
+    elif coverage is not None and (compared / total if total else 1.0) < cfg["min_conflict_coverage"]:
+        reason = (
+            f"the conflict check compared {compared} of {total} atom pairs (floor "
+            f"{cfg['min_conflict_coverage']:.0%} of pairs), so a count of 0 is not a cleared check"
+        )
+    elif capped:
+        reason = (
+            f"the atom set was capped ({spans.get('n_atoms_indexed')} indexed), so 0 conflicts "
+            "among the sampled atoms is not a cleared check of the artifact"
+        )
+    else:
+        reason = None
+    return compared, total, capped, reason
+
+
+def uncleared_conflicts(artifact: dict, thresholds: dict[str, Any] | None = None) -> str | None:
+    """Why ``harmful_atoms`` leaves this artifact's count of 0 conflicting atoms unchecked.
+
+    ``None`` when that check clears the 0, and when there is no 0 to clear: atoms were found
+    (a found conflict is always reported) or were not classified. The Markdown report quotes it,
+    so the report and the gate row give the same reason.
+    """
+    categories = artifact.get("categories") or {}
+    if not categories or categories.get("harmful_conflicting", 0):
+        return None
+    return _conflict_reading(artifact, {**DEFAULTS, **(thresholds or {})})[3]
 
 
 def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -> NoveltyVerdict:
@@ -204,16 +254,9 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     categories = artifact.get("categories") or {}
     harmful = categories.get("harmful_conflicting", 0)
     degraded = (paired.get("strict") or {}).get("degraded")
-    # A count of 0 clears the check only when the conflict check read the pair space: enough
-    # of the pairs compared, over an atom set that was not capped. A conflict that was found is
-    # reported whatever the coverage. A missing `conflict_coverage` is an artifact written
-    # before the field existed and keeps the historical reading; one that is present but
-    # unreadable is not measured.
-    has_coverage = "conflict_coverage" in artifact
-    conflict_coverage = _pair_coverage(artifact.get("conflict_coverage"))
-    compared, total = conflict_coverage or (0, 0)
-    share = compared / total if total else 1.0
-    capped = bool(spans.get("capped_atom_set"))
+    # A conflict that was found is reported whatever the coverage; a count of 0 only when the
+    # conflict check read the pair space (_conflict_reading).
+    compared, total, capped, uncleared = _conflict_reading(artifact, cfg)
     if not categories:
         message = (
             "not measured: atoms were not classified, so harmful/conflicting content is "
@@ -223,24 +266,8 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     elif harmful:
         message = f"{harmful} atoms classified harmful/conflicting"
         measured = True
-    elif has_coverage and conflict_coverage is None:
-        message = (
-            "not measured: the conflict_coverage record is malformed, so a count of 0 is not "
-            "a cleared check"
-        )
-        measured = False
-    elif conflict_coverage is not None and share < cfg["min_conflict_coverage"]:
-        message = (
-            f"not measured: the conflict check compared {compared} of {total} atom "
-            f"pairs (floor {cfg['min_conflict_coverage']:.0%} of pairs), so a count of 0 "
-            "is not a cleared check"
-        )
-        measured = False
-    elif capped:
-        message = (
-            f"not measured: the atom set was capped ({spans.get('n_atoms_indexed')} indexed), "
-            "so 0 conflicts among the sampled atoms is not a cleared check of the artifact"
-        )
+    elif uncleared:
+        message = f"not measured: {uncleared}"
         measured = False
     else:
         message = "0 atoms classified harmful/conflicting"

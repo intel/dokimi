@@ -1,3 +1,9 @@
+---
+depends_on:
+  - dokimi/dokimi/novelty/**
+  - dokimi/dokimi/metrics/bundle_coverage.py
+  - dokimi/dokimi/commands/novelty.py
+---
 <!--
 Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
@@ -35,7 +41,8 @@ python cli.py novelty routing --artifact skill:skills/my-skill \
 ```
 
 The competitors are the skills a harness lists next to this one: `--catalog <dir>` takes
-every other `SKILL.md` under the directory, and `--competitors` adds or names them one by
+every other `SKILL.md` under the directory (a `template/` copy and a byte-identical mirror
+that loads under the same skill name are left out), and `--competitors` adds or names them one by
 one. With no real siblings at hand, skip this step and say so; a field of competitors made
 up for the run measures nothing.
 

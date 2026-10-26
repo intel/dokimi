@@ -11,11 +11,15 @@ live alongside it and are recorded but not executed by the loader — executing
 bundled scripts is the job of the agentic task track, not this loader.
 """
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List, Optional, Tuple
 
 from dokimi.utils import parse_frontmatter
+
+# Directory names that hold a scaffold to copy, not a skill to use (see discover_skills).
+TEMPLATE_DIR_NAMES = frozenset({"template", "templates"})
 
 
 @dataclass
@@ -102,6 +106,11 @@ def _resolve_skill_file(path: Path) -> Path:
     raise FileNotFoundError(f"Skill path does not exist: {path}")
 
 
+def _skill_name(meta: Dict[str, Any], skill_file: Path) -> str:
+    """The skill's name: frontmatter ``name``, else the directory's name."""
+    return str(meta.get("name") or skill_file.parent.name).strip()
+
+
 def load_skill(path) -> Skill:
     """Load a single skill from a ``SKILL.md`` file or its containing directory.
 
@@ -118,7 +127,7 @@ def load_skill(path) -> Skill:
     skill_file = _resolve_skill_file(Path(path))
     meta, body = parse_frontmatter(skill_file.read_text(encoding="utf-8"))
 
-    name = str(meta.get("name") or skill_file.parent.name).strip()
+    name = _skill_name(meta, skill_file)
     if not name:
         raise ValueError(f"Skill at '{skill_file}' has an empty 'name' after normalization.")
     description = str(meta.get("description") or "").strip()
@@ -145,10 +154,60 @@ def load_skill(path) -> Skill:
     )
 
 
-def discover_skills(root) -> List[Skill]:
-    """Load every skill under *root* (each subdirectory with a ``SKILL.md``)."""
+def discover_skills(root, *, notes: Optional[List[str]] = None) -> List[Skill]:
+    """Load every skill under *root* (each subdirectory with a ``SKILL.md``).
+
+    Two kinds of ``SKILL.md`` are not skills of *root* and are left out:
+
+    - one under a ``template`` or ``templates`` directory at any depth below *root*, a
+      scaffold to copy (anthropics/skills keeps a blank one at ``template/SKILL.md``).
+      A real skill kept under such a directory is left out too;
+    - a mirror, a ``SKILL.md`` byte-identical to another one under *root* that loads
+      under the same skill name (a plugin's copy of the ``skills/`` tree). Without a
+      frontmatter ``name`` the name is the directory's, so identical text in two
+      differently named directories is two skills. The copy with the fewest path parts
+      stands for the group; ties go to the path that sorts first.
+
+    Args:
+        root: Directory to scan.
+        notes: When given, one line per skipped template or mirror is appended to it.
+
+    Returns:
+        The skills, in path order.
+    """
+    return [load_skill(f) for f in skill_files(root, notes=notes)]
+
+
+def skill_files(root, *, notes: Optional[List[str]] = None) -> List[Path]:
+    """The ``SKILL.md`` files :func:`discover_skills` loads, in path order, unloaded."""
     root = Path(root)
-    skills: List[Skill] = []
+    found: List[Path] = []
     for skill_file in sorted(root.rglob("SKILL.md")):
-        skills.append(load_skill(skill_file))
-    return skills
+        if TEMPLATE_DIR_NAMES.intersection(skill_file.relative_to(root).parts[:-1]):
+            if notes is not None:
+                notes.append(f"left out {skill_file}: a template, not a skill")
+            continue
+        found.append(skill_file)
+
+    key_of: Dict[Path, Tuple[str, str]] = {}
+    copies_of: Dict[Tuple[str, str], List[Path]] = {}
+    for skill_file in found:
+        data = skill_file.read_bytes()
+        meta, _ = parse_frontmatter(data.decode("utf-8", errors="replace"))  # the name only groups mirrors
+        key = (_skill_name(meta, skill_file), hashlib.sha256(data).hexdigest())
+        key_of[skill_file] = key
+        copies_of.setdefault(key, []).append(skill_file)
+    keeper = {
+        group: min(copies, key=lambda p: (len(p.parts), p.as_posix()))
+        for group, copies in copies_of.items()
+    }
+
+    kept_files: List[Path] = []
+    for skill_file in found:
+        kept = keeper[key_of[skill_file]]
+        if kept != skill_file:
+            if notes is not None:
+                notes.append(f"left out {skill_file}: identical to {kept}")
+            continue
+        kept_files.append(skill_file)
+    return kept_files

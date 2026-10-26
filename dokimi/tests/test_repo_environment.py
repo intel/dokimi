@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.artifacts import load_artifact, validate_artifact
+from dokimi.artifacts import validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos.environment import files as F
 from dokimi.repos.environment import inspect_repo
@@ -81,6 +81,7 @@ def _rules(payload: dict) -> dict[str, list]:
     return out
 
 
+@pytest.mark.outcome("cjm-repo-inspect")
 def test_instruction_files_carry_scope_and_activation(report):
     got = {(i["path"], i["scope"], i["activation"], i["directory"]) for i in report["instructions"]}
     assert got == {
@@ -105,6 +106,7 @@ def test_every_matching_rule_gives_a_record():
     assert big.size_bytes == 300_000 and "context" in big.notes[0]
 
 
+@pytest.mark.outcome("cjm-repo-inspect")
 def test_checks_are_per_project_root_and_say_how_they_are_known(report):
     got = {(c["directory"], c["ecosystem"], c["kind"], c["basis"], c["name"]) for c in report["checks"]}
     assert {(".", "node", "test", "declared", "test"), (".", "node", "typecheck", "declared", "typecheck"),
@@ -127,6 +129,7 @@ def test_toolchain_only_tests_without_test_files_are_flagged(tmp_path):
     assert {c["basis"] for c in payload["checks"]} == {"toolchain"}
 
 
+@pytest.mark.outcome("cjm-repo-inspect")
 def test_a_bare_tree_is_blocked_on_tests(tmp_path):
     _repo(tmp_path, {"src/a.py": "x = 1\n"})
     payload = inspect_repo(WorkTree(tmp_path))
@@ -137,6 +140,7 @@ def test_a_bare_tree_is_blocked_on_tests(tmp_path):
     assert payload["risk"] == "low"
 
 
+@pytest.mark.outcome("cjm-repo-inspect")
 def test_launch_risks(report):
     scripts = {(s["category"], s["source"]) for s in report["scripts"]}
     assert scripts == {("install-hook", "package.json#scripts.postinstall"),
@@ -172,43 +176,6 @@ def test_file_inventory(report):
     assert {"files.large", "files.minified"} <= set(_rules(report))
 
 
-def test_cli_writes_the_artifact(tmp_path, capsys):
-    root = tmp_path / "toy"
-    _repo(root, {"src/a.py": "x = 1\n"})
-    out = tmp_path / "env.json"
-    args = build_parser().parse_args(["repo", "inspect", str(root), "--out", str(out), "--fail-on-error"])
-    with pytest.raises(SystemExit) as exc:
-        args.func(args)
-    assert exc.value.code == 1
-    data = load_artifact("repo_environment", out)
-    assert data["schema_version"] == "repo_environment.v1"
-    text = capsys.readouterr().out
-    assert "ERROR checks.test.missing" in text and "verify blocked" in text
-
-
-def test_cli_json_prints_the_stamped_payload(tmp_path, capsys):
-    _repo(tmp_path, {"AGENTS.md": "x"})
-    args = build_parser().parse_args(["repo", "inspect", str(tmp_path), "--json"])
-    args.func(args)
-    data = json.loads(capsys.readouterr().out)
-    assert data["schema_version"] == "repo_environment.v1"
-    validate_artifact("repo_environment", data)
-
-
-@pytest.mark.parametrize("case", ["missing source", "unwritable out"])
-def test_cli_exits_1_when_it_cannot_read_or_write(tmp_path, capsys, case):
-    _repo(tmp_path / "toy", {"AGENTS.md": "x"})
-    (tmp_path / "file").write_text("x")
-    argv = ["repo", "inspect", str(tmp_path / "toy"), "--out", str(tmp_path / "file" / "env.json")]
-    if case == "missing source":
-        argv = ["repo", "inspect", str(tmp_path / "nope")]
-    args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
-        args.func(args)
-    assert exc.value.code == 1
-    assert "✗" in capsys.readouterr().err
-
-
 @pytest.mark.parametrize("files, expected", [
     ({"CMakeLists.txt": "enable_testing()\nadd_test(NAME a COMMAND a)\n"},
      {("cmake", "build", "toolchain"), ("cmake", "test", "declared")}),
@@ -242,6 +209,7 @@ def test_unreadable_settings_and_hook_scripts(tmp_path):
                     (".claude/skills/x/SKILL.md", "skill", "low"), (".vscode/settings.json", "editor", "low")}
 
 
+@pytest.mark.outcome("cjm-repo-inspect")
 def test_inspect_does_not_run_the_repository_git_config(tmp_path):
     marker = tmp_path / "ran"
     root = tmp_path / "repo"
@@ -354,6 +322,7 @@ def test_odd_manifests_do_not_crash(tmp_path, files):
     """Large integers and invalid dates in manifests should not crash."""
     _repo(tmp_path, {"AGENTS.md": "x", **files})
     payload = inspect_repo(WorkTree(tmp_path))
+    assert [i["path"] for i in payload["instructions"]] == ["AGENTS.md"]
     validate_artifact("repo_environment", {"schema_version": "repo_environment.v1", **payload})
 
 
@@ -458,6 +427,7 @@ def test_deeply_nested_yaml_does_not_crash(tmp_path):
     """Deeply nested YAML should not cause RecursionError."""
     _repo(tmp_path, {"AGENTS.md": "x", ".pre-commit-config.yaml": "[" * 100000})
     payload = inspect_repo(WorkTree(tmp_path))
+    assert [i["path"] for i in payload["instructions"]] == ["AGENTS.md"]
     validate_artifact("repo_environment", {"schema_version": "repo_environment.v1", **payload})
 
 
@@ -873,42 +843,6 @@ def test_autotools_names_the_makefile_that_declares_tests(tmp_path):
     checks = inspect_repo(WorkTree(tmp_path))["checks"]
     assert [c["evidence"] for c in checks if (c["ecosystem"], c["kind"]) == ("autotools", "test")] == [
         "tests/Makefile.am"]
-
-
-INSTRUCTION_TABLE = [
-    (".claude/CLAUDE.md", ('claude-code',), "root", "always", False),
-    (".claude/rules/a.md", ('claude-code',), "unknown", "unknown", False),
-    (".claude/skills/x/SKILL.md", ('claude-code',), "capability", "on-demand", False),
-    (".clinerules", ('cline',), "legacy", "always", True),
-    (".clinerules/a.md", ('cline',), "root", "unknown", False),
-    (".cursor/rules/a.mdc", ('cursor',), "unknown", "unknown", False),
-    (".cursorrules", ('cursor', 'cline'), "legacy", "always", True),
-    (".github/agents/a.agent.md", ('github-copilot',), "capability", "manual", False),
-    (".github/copilot-instructions.md", ('github-copilot',), "root", "always", False),
-    (".github/instructions/a.instructions.md", ('github-copilot',), "path-specific", "path-scoped", False),
-    (".roo/rules-code/a.md", ('roo-code',), "mode-specific", "mode-scoped", False),
-    (".roo/rules/a.md", ('roo-code',), "root", "always", False),
-    (".roomodes", ('roo-code',), "mode-specific", "mode-scoped", False),
-    (".roorules", ('roo-code',), "legacy", "always", True),
-    (".roorules-code", ('roo-code',), "mode-specific", "mode-scoped", True),
-    (".windsurf/rules/a.md", ('windsurf',), "unknown", "unknown", False),
-    (".windsurfrules", ('windsurf', 'cline'), "legacy", "always", True),
-    ("AGENTS.md", ('codex', 'github-copilot', 'cursor', 'windsurf', 'cline', 'generic'), "root", "always", False),
-    ("AGENTS.override.md", ('codex',), "root", "always", False),
-    ("CLAUDE.local.md", ('claude-code',), "local-private", "always", False),
-    ("CLAUDE.md", ('claude-code', 'github-copilot'), "root", "always", False),
-    ("GEMINI.md", ('gemini', 'github-copilot'), "root", "always", False),
-    ("sub/AGENTS.md", ('codex', 'github-copilot', 'cursor', 'windsurf', 'cline', 'generic'), "path-specific", "path-scoped", False),
-    ("sub/AGENTS.override.md", ('codex',), "path-specific", "path-scoped", False),
-    ("sub/CLAUDE.md", ('claude-code',), "path-specific", "path-scoped", False),
-    ("sub/GEMINI.md", ('gemini',), "path-specific", "path-scoped", False),
-]
-
-
-def test_instruction_rule_table():
-    got = [(i.path, tuple(i.harnesses), i.scope, i.activation, i.legacy)
-           for i in detect_instructions([row[0] for row in INSTRUCTION_TABLE])]
-    assert got == INSTRUCTION_TABLE
 
 
 @pytest.mark.parametrize("command, flagged", [

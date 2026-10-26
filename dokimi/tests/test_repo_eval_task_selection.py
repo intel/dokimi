@@ -133,6 +133,7 @@ def _select(repo: Path, tmp_path: Path, **overrides: str) -> list[str]:
     return json.loads(line.removeprefix("tasks="))
 
 
+@pytest.mark.outcome("cjm-repo-eval-selection")
 def test_a_task_directory_with_a_space_is_selected_whole(repo, tmp_path):
     _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
     assert _select(repo, tmp_path) == ["my task"]
@@ -167,6 +168,7 @@ def test_a_deleted_task_directory_runs_the_smoke_set(repo, tmp_path):
     assert _select(repo, tmp_path) == ["t1"]
 
 
+@pytest.mark.outcome("cjm-repo-eval-selection")
 def test_a_harness_file_in_the_eval_dir_adds_the_smoke_set_to_the_changed_task(repo, tmp_path):
     _write(repo, f"{EVAL_DIR}/Dockerfile")
     _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
@@ -188,6 +190,7 @@ def test_the_manifest_is_compared_normalised(repo, tmp_path, manifest):
     assert _select(repo, tmp_path, MANIFEST=manifest) == ["t1"]
 
 
+@pytest.mark.outcome("cjm-repo-eval-selection")
 def test_an_empty_smoke_set_means_every_task(repo, tmp_path):
     _write(repo, f"{EVAL_DIR}/Dockerfile")
     assert _select(repo, tmp_path, SMOKE_TASKS="") == ["my task", "t1"]
@@ -198,6 +201,7 @@ def test_a_guidance_only_manifest_checks_no_task(repo, tmp_path):
     assert _select(repo, tmp_path, manifest_tasks=None) == []
 
 
+@pytest.mark.outcome("cjm-repo-eval-selection")
 def test_an_unrelated_file_selects_nothing(repo, tmp_path):
     _write(repo, "README.md", "changed\n")
     assert _select(repo, tmp_path) == []
@@ -236,6 +240,7 @@ def test_a_push_diffs_against_the_previous_tip(repo, tmp_path):
     assert _select(repo, tmp_path, EVENT="push", BEFORE="origin/main") == ["my task"]
 
 
+@pytest.mark.outcome("cjm-repo-eval-selection")
 def test_a_push_without_a_previous_tip_checks_every_task(repo, tmp_path):
     _write(repo, f"{TASKS}/my task/grader.py", "changed\n")
     assert _select(repo, tmp_path, EVENT="push", BEFORE="0" * 40) == ["my task", "t1"]
@@ -312,6 +317,7 @@ def test_a_smoke_directory_without_its_slash_is_a_prefix_as_given(repo, tmp_path
     assert _select(repo, tmp_path, SMOKE_PATHS="vendor/") == []
 
 
+@pytest.mark.outcome("cjm-repo-eval-selection")
 def test_an_unknown_explicit_task_fails_the_run(repo, tmp_path):
     result, _ = _run_step(repo, tmp_path, TASKS="nope")
     assert result.returncode != 0 and "no such task(s): nope" in result.stdout + result.stderr
@@ -343,6 +349,7 @@ def _summary(tmp_path: Path, job_status: str) -> tuple[str, Path]:
     return result.stdout, temp / "repo-check" / "check" / "check.json"
 
 
+@pytest.mark.outcome("cjm-repo-eval-workflow")
 def test_a_job_cancelled_before_the_verdict_records_a_timeout(tmp_path):
     summary, check = _summary(tmp_path, "cancelled")
     assert json.loads(check.read_text(encoding="utf-8"))["tasks"][0]["verdict"] == "timeout"
@@ -361,3 +368,40 @@ def test_the_check_results_artifact_keeps_the_stderr_files():
     upload = next(s for s in _steps() if "Upload the check results" in str(s.get("name", "")))
     paths = [ln.strip() for ln in str(upload["with"]["path"]).splitlines()]
     assert "${{ runner.temp }}/repo-check/check/*/*.err" in paths
+
+
+def _tasks_check_argv(tmp_path: Path, inputs: dict[str, bool]) -> list[str]:
+    """Run the ``repo tasks check`` step with a stub ``dokimi`` and return its argv."""
+    step = next(s for s in _steps() if s.get("name") == "repo tasks check")
+    values = {f"inputs.{k}": str(v).lower() for k, v in inputs.items()}
+    values |= {"inputs.manifest": "m.yml", "matrix.task": "t1"}
+    env = {**os.environ, "RUNNER_TEMP": str(tmp_path)}
+    for key, value in step["env"].items():
+        ref = re.fullmatch(r"\$\{\{ ([\w.-]+) \}\}", str(value))
+        env[key] = values[ref.group(1)] if ref else str(value)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "dokimi"
+    stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$RUNNER_TEMP/argv"\n', encoding="utf-8")
+    stub.chmod(0o755)
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    subprocess.run(["bash", "-eo", "pipefail", "-c", step["run"]], env=env, check=True)
+    return (tmp_path / "argv").read_text(encoding="utf-8").splitlines()
+
+
+def test_allow_unsupported_is_a_boolean_input_that_is_off_by_default():
+    doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    declared = doc[True]["workflow_call"]["inputs"]["allow-unsupported"]  # `on` reads as True
+    assert declared["type"] == "boolean"
+    assert declared["default"] is False
+
+
+@pytest.mark.outcome("cjm-repo-eval-workflow")
+@pytest.mark.skipif(sys.platform == "win32", reason="the step is a bash script")
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize("allow", [False, True])
+def test_the_tasks_check_step_forwards_warm_and_allow_unsupported(tmp_path, warm, allow):
+    argv = _tasks_check_argv(tmp_path, {"warm": warm, "allow-unsupported": allow})
+    assert argv[:6] == ["repo", "tasks", "check", ".", "--manifest", "m.yml"]
+    assert ("--warm" in argv) is warm
+    assert ("--allow-unsupported" in argv) is allow

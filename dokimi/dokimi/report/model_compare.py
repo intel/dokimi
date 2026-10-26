@@ -307,8 +307,9 @@ def _check_judge_context(runs: list[tuple[str, dict]], group_name: str) -> None:
             f"Error [{group_name}]: runs were judged under different judge_context "
             f"protocols ({detail}). The judge saw different evidence for the same "
             "answers, so the scores cannot be pooled. Re-run answering and judging "
-            "together for the older runs: re-judging an answers file only sees the "
-            "200-char report snippets, which is the unstamped protocol again."
+            "together for the older runs: re-judging an answers file written before "
+            "judge_materials only sees the 200-char report snippets, which is the "
+            "unstamped protocol again."
         )
 
 
@@ -755,208 +756,208 @@ def generate_section_report(
     question into a single labelled row, so the report ranks configurations
     rather than individual samples of one configuration.
     """
-
-    # Extract and intersect to common questions only
-    all_run_scores_raw: dict[str, list[dict]] = {}
-    for run_id, run_data in runs:
-        all_run_scores_raw[run_id] = extract_scores(
-            run_data, force_treatment_arm=treatment_arm
-        )
-
+    raw_scores = {run_id: extract_scores(data, force_treatment_arm=treatment_arm) for run_id, data in runs}
     replicate_note: list[str] = []
     if pool_replicates:
-        groups = group_replicates(runs)
-        run_data_by_id = dict(runs)
-        pooled_runs: list[tuple[str, dict]] = []
-        pooled_ids: list[str] = []
-        pooled_scores: dict[str, list[dict]] = {}
-        for _key, ids in groups.items():
-            present = [rid for rid in run_ids if rid in ids]
-            if not present:
-                continue
-            label = replicate_label(present)
-            while label in pooled_scores:          # keep labels unique
-                label += "'"
-            pooled_scores[label] = pool_replicate_scores(all_run_scores_raw, present)
-            pooled_run = run_data_by_id[present[0]]
-            if len(present) > 1:
-                pooled_run = {**pooled_run, "cost_summary": pool_cost_summaries(
-                    [run_data_by_id[rid].get("cost_summary") for rid in present])}
-            pooled_runs.append((label, pooled_run))
-            pooled_ids.append(label)
-            if len(present) > 1:
-                seen = {s["question_id"] for rid in present for s in all_run_scores_raw.get(rid, [])}
-                dropped = len(seen) - len(pooled_scores[label])
-                replicate_note.append(
-                    f"- **{label}** pools {len(present)} replicates: {', '.join(present)}; "
-                    f"{dropped} question(s) dropped for not being scored in every replicate"
-                )
-        runs = pooled_runs
-        run_ids = pooled_ids
-        all_run_scores_raw = pooled_scores
-
-    question_sets = [
-        set(s["question_id"] for s in scores)
-        for scores in all_run_scores_raw.values()
-    ]
-    common_questions = set.intersection(*question_sets) if question_sets else set()
-
-    # All metrics below use the common-question subset exclusively
-    all_run_scores: dict[str, list[dict]] = {
-        run_id: [
-            s for s in all_run_scores_raw.get(run_id, [])
-            if s["question_id"] in common_questions
-        ]
-        for run_id in run_ids
-    }
+        runs, run_ids, raw_scores, replicate_note = _pool_section(runs, run_ids, raw_scores)
+    common_questions, all_run_scores = _common_scores(raw_scores, run_ids)
 
     # The arm that was actually scored, taken from the extracted records rather than the
     # artifact header, so the label can never disagree with the numbers beside it. Named
     # explicitly because a `profile:` run and a `docs` run otherwise render identically:
     # a reader of the Markdown alone could not tell which treatment it measured.
-    scored_arms = {
-        s["treatment_arm"]
+    scored = {s["treatment_arm"] for scores in all_run_scores.values() for s in scores if s.get("treatment_arm")}
+    arm_label = next(iter(scored)) if len(scored) == 1 else "Context arm"
+    # Single-arm vs multi-arm: without a scored pair there is no delta to analyse.
+    has_treatment = any(
+        s.get("with_docs") is not None and s.get("delta") is not None
         for scores in all_run_scores.values()
         for s in scores
-        if s.get("treatment_arm")
+    )
+    summary_stats = {run_id: _run_summary(all_run_scores[run_id]) for run_id in run_ids}
+
+    lines = _pooling_lines(replicate_note) + _models_compared_lines(runs, all_run_scores, common_questions)
+    if not has_treatment:
+        lines += _BASELINE_ONLY_LIMITATION
+    lines += _resource_usage_lines(runs, bool(replicate_note))
+    lines += _overall_summary_lines(run_ids, summary_stats, arm_label)
+    if HAS_SCIPY:
+        lines += _significance_lines(run_ids, all_run_scores, has_treatment, correction)
+    lines += _difficulty_lines(run_ids, all_run_scores, has_treatment)
+    lines += _head_to_head_lines(run_ids, all_run_scores, common_questions, has_treatment)
+    lines += _benefit_lines(run_ids, summary_stats, has_treatment, arm_label if len(scored) == 1 else None)
+    return lines + _ranking_lines(summary_stats, has_treatment, arm_label)
+
+
+def _pool_section(
+    runs: list[tuple[str, dict]], run_ids: list[str], raw_scores: dict[str, list[dict]]
+) -> tuple[list[tuple[str, dict]], list[str], dict[str, list[dict]], list[str]]:
+    """Runs, run ids and scores with each configuration's replicates pooled into one labelled run,
+    plus the note naming what each pooled run holds."""
+    run_data_by_id = dict(runs)
+    pooled_runs: list[tuple[str, dict]] = []
+    pooled_scores: dict[str, list[dict]] = {}
+    note: list[str] = []
+    for ids in group_replicates(runs).values():
+        present = [rid for rid in run_ids if rid in ids]
+        if not present:
+            continue
+        label = replicate_label(present)
+        while label in pooled_scores:          # keep labels unique
+            label += "'"
+        pooled_scores[label] = pool_replicate_scores(raw_scores, present)
+        pooled_run = run_data_by_id[present[0]]
+        if len(present) > 1:
+            pooled_run = {**pooled_run, "cost_summary": pool_cost_summaries(
+                [run_data_by_id[rid].get("cost_summary") for rid in present])}
+            seen = {s["question_id"] for rid in present for s in raw_scores.get(rid, [])}
+            dropped = len(seen) - len(pooled_scores[label])
+            note.append(
+                f"- **{label}** pools {len(present)} replicates: {', '.join(present)}; "
+                f"{dropped} question(s) dropped for not being scored in every replicate"
+            )
+        pooled_runs.append((label, pooled_run))
+    return pooled_runs, [label for label, _ in pooled_runs], pooled_scores, note
+
+
+def _common_scores(
+    raw_scores: dict[str, list[dict]], run_ids: list[str]
+) -> tuple[set[str], dict[str, list[dict]]]:
+    """The question ids every run scored, and each run's scores cut to them.
+
+    All metrics of a section use this common-question subset exclusively."""
+    question_sets = [set(s["question_id"] for s in scores) for scores in raw_scores.values()]
+    common = set.intersection(*question_sets) if question_sets else set()
+    return common, {
+        run_id: [s for s in raw_scores.get(run_id, []) if s["question_id"] in common] for run_id in run_ids
     }
-    arm_label = next(iter(scored_arms)) if len(scored_arms) == 1 else "Context arm"
 
-    lines: list[str] = []
 
-    # --- Models Compared ---
-    if replicate_note:
-        lines += [
-            "## Replicate Pooling",
-            "",
-            "Runs sharing a configuration were averaged per question, so each row "
-            "below is one configuration rather than one sample of it. Each pooled "
-            "score is a mean of k runs, so its spread and confidence intervals are "
-            "narrower than a single run's: that reflects the k runs spent, not a "
-            "sharper measurement.",
-            "",
-            *replicate_note,
-            "",
-        ]
-
-    lines += [
-        "## Models Compared",
-        "| Run ID | Answer model | Judge model | Treatment arm |",
-        "|---|---|---|---|",
+def _pooling_lines(replicate_note: list[str]) -> list[str]:
+    if not replicate_note:
+        return []
+    return [
+        "## Replicate Pooling",
+        "",
+        "Runs sharing a configuration were averaged per question, so each row "
+        "below is one configuration rather than one sample of it. Each pooled "
+        "score is a mean of k runs, so its spread and confidence intervals are "
+        "narrower than a single run's: that reflects the k runs spent, not a "
+        "sharper measurement.",
+        "",
+        *replicate_note,
+        "",
     ]
-    for run_id, run_data in runs:
-        model = run_data.get("model", "unknown")
-        provider = run_data.get("provider", "unknown")
-        judge_model = run_data.get("judge_model", "same")
-        judge_provider = run_data.get("judge_provider", provider)
-        run_arms = sorted(
-            {
-                s["treatment_arm"]
-                for s in all_run_scores.get(run_id, [])
-                if s.get("treatment_arm")
-            }
-        )
-        arm_cell = ", ".join(f"`{a}`" for a in run_arms) if run_arms else "— (baseline only)"
-        lines.append(
-            f"| **{run_id}** | {model} ({provider}) | {judge_model} ({judge_provider}) "
-            f"| {arm_cell} |"
-        )
 
-    lines += [
+
+def _models_compared_lines(
+    runs: list[tuple[str, dict]], all_run_scores: dict[str, list[dict]], common_questions: set[str]
+) -> list[str]:
+    lines = ["## Models Compared", "| Run ID | Answer model | Judge model | Treatment arm |", "|---|---|---|---|"]
+    for run_id, run_data in runs:
+        provider = run_data.get("provider", "unknown")
+        judge = f"{run_data.get('judge_model', 'same')} ({run_data.get('judge_provider', provider)})"
+        run_arms = sorted({s["treatment_arm"] for s in all_run_scores.get(run_id, []) if s.get("treatment_arm")})
+        arm_cell = ", ".join(f"`{a}`" for a in run_arms) if run_arms else "— (baseline only)"
+        lines.append(f"| **{run_id}** | {run_data.get('model', 'unknown')} ({provider}) | {judge} | {arm_cell} |")
+    return lines + [
         "",
         f"Common questions evaluated: **{len(common_questions)}**",
         "_All summary, significance, ranking, and head-to-head metrics use only this common question set._",
         "",
     ]
 
-    # Detect report limitations (single-arm vs multi-arm)
-    has_treatment = any(
-        s.get("with_docs") is not None and s.get("delta") is not None
-        for scores in all_run_scores.values()
-        for s in scores
-    )
 
-    if not has_treatment:
-        lines += [
-            "> **⚠️ Report Limitation:** These runs contain only **baseline arm** (no treatment comparison).",
-            "> ",
-            "> **Missing from this report:**",
-            "> - Context-arm vs Baseline delta analysis",
-            "> - Statistical significance tests",
-            "> - Head-to-head winner comparisons",
-            "> ",
-            "> **Available in this report:**",
-            "> - Absolute baseline quality scores per model",
-            "> - Resource usage metrics (cost, tokens, latency)",
-            "> - Model ranking by absolute baseline quality",
-            "> ",
-            "> **To generate full comparison with delta analysis, add a treatment arm:**",
-            "> ```bash",
-            "> python cli.py arms run \\",
-            ">   --arms \"baseline,docs\" \\",
-            ">   --judge \\",
-            ">   --judge-model claude-sonnet-5-5 \\",
-            ">   [other parameters]",
-            "> ```",
-            "> ",
-            "> Treatment arm options: `docs` (Context7 documentation), `skill:<path>` (local skill), `agent` (agentic doc retrieval).",
-            "> ",
-            "> See: `docs/benchmarking-and-comparison.md#treatment-arm-comparison`",
-            "",
-        ]
+_BASELINE_ONLY_LIMITATION = [
+    "> **⚠️ Report Limitation:** These runs contain only **baseline arm** (no treatment comparison).",
+    "> ",
+    "> **Missing from this report:**",
+    "> - Context-arm vs Baseline delta analysis",
+    "> - Statistical significance tests",
+    "> - Head-to-head winner comparisons",
+    "> ",
+    "> **Available in this report:**",
+    "> - Absolute baseline quality scores per model",
+    "> - Resource usage metrics (cost, tokens, latency)",
+    "> - Model ranking by absolute baseline quality",
+    "> ",
+    "> **To generate full comparison with delta analysis, add a treatment arm:**",
+    "> ```bash",
+    "> python cli.py arms run \\",
+    ">   --arms \"baseline,docs\" \\",
+    ">   --judge \\",
+    ">   --judge-model claude-sonnet-5-5 \\",
+    ">   [other parameters]",
+    "> ```",
+    "> ",
+    "> Treatment arm options: `docs` (Context7 documentation), `skill:<path>` (local skill), `agent` (agentic doc retrieval).",
+    "> ",
+    "> See: `docs/benchmarking-and-comparison.md#treatment-arm-comparison`",
+    "",
+]
 
-    # --- Resource Usage ---
-    # Extract cost_summary from each run (baseline arm only for now)
-    cost_data_available = any(
-        run_data.get("cost_summary") for _, run_data in runs
-    )
-    if cost_data_available:
-        lines += [
-            "## Resource Usage (baseline arm)",
-            "| Run | Total Cost | Prompt tok | Completion tok | Total tok | Avg latency/Q | Cache hit |",
-            "|---|---:|---:|---:|---:|---:|---:|",
-        ]
-        for run_id, run_data in runs:
-            cost_summary = run_data.get("cost_summary", {})
-            baseline_arm = run_data.get("baseline_arm", "baseline")
-            cs = cost_summary.get(baseline_arm, {})
+#: Resource-usage columns after the cost: the cost-summary field and its cell format.
+_RESOURCE_CELLS = (("prompt_tokens", "{:,}"), ("completion_tokens", "{:,}"), ("total_tokens", "{:,}"),
+                   ("mean_latency_sec", "{:.2f}s"), ("cache_hit_ratio", "{:.1%}"))
 
-            # Extract metrics
-            cost_usd = cs.get("total_cost_usd")
-            cost_str = f"${cost_usd:.4f}" if cost_usd is not None else "—"
-            if cost_usd is not None:
-                cost_known = cs.get("cost_known_n")
-                total_calls = cs.get("total_llm_calls", cs.get("n"))
-                if cost_known is not None and total_calls is not None and cost_known < total_calls:
-                    cost_str += f" ({cost_known}/{total_calls})"
 
-            prompt_tok = cs.get("prompt_tokens")
-            prompt_str = f"{prompt_tok:,}" if prompt_tok is not None else "—"
+def _cost_cell(cs: dict) -> str:
+    """Total cost, with the share of calls it covers when some had no known price."""
+    cost_usd = cs.get("total_cost_usd")
+    if cost_usd is None:
+        return "—"
+    cost_known, total_calls = cs.get("cost_known_n"), cs.get("total_llm_calls", cs.get("n"))
+    if cost_known is not None and total_calls is not None and cost_known < total_calls:
+        return f"${cost_usd:.4f} ({cost_known}/{total_calls})"
+    return f"${cost_usd:.4f}"
 
-            completion_tok = cs.get("completion_tokens")
-            completion_str = f"{completion_tok:,}" if completion_tok is not None else "—"
 
-            total_tok = cs.get("total_tokens")
-            total_str = f"{total_tok:,}" if total_tok is not None else "—"
+def _resource_usage_lines(runs: list[tuple[str, dict]], pooled: bool) -> list[str]:
+    """Baseline-arm cost, tokens, latency and cache hits; nothing when no run has a cost summary."""
+    if not any(run_data.get("cost_summary") for _, run_data in runs):
+        return []
+    lines = [
+        "## Resource Usage (baseline arm)",
+        "| Run | Total Cost | Prompt tok | Completion tok | Total tok | Avg latency/Q | Cache hit |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for run_id, run_data in runs:
+        cs = run_data.get("cost_summary", {}).get(run_data.get("baseline_arm", "baseline"), {})
+        cells = [_cost_cell(cs), *("—" if cs.get(f) is None else t.format(cs.get(f)) for f, t in _RESOURCE_CELLS)]
+        lines.append(f"| **{run_id}** | " + " | ".join(cells) + " |")
+    if pooled:
+        lines += ["", "_A pooled `[n=k]` row shows the total cost, calls and tokens of its k runs "
+                      "and their mean latency._"]
+    return lines + [""]
 
-            latency = cs.get("mean_latency_sec")
-            latency_str = f"{latency:.2f}s" if latency is not None else "—"
 
-            cache_ratio = cs.get("cache_hit_ratio")
-            cache_str = f"{cache_ratio:.1%}" if cache_ratio is not None else "—"
+def _run_summary(scores: list[dict]) -> dict:
+    """One run's arm means and paired-delta counts over the common questions."""
+    with_docs_scores = [s["with_docs"] for s in scores if s["with_docs"] is not None]
+    without_docs_scores = [s["without_docs"] for s in scores if s["without_docs"] is not None]
+    # Average the per-question deltas rather than differencing the two arm
+    # means. The arm means are filtered independently, so when any question
+    # is missing a score they cover different question subsets and their
+    # difference is not a paired delta.
+    paired_deltas = [s["delta"] for s in scores if s.get("delta") is not None]
+    # Per-run, distinct from the section-level has_treatment: a single run may
+    # lack a treatment arm while others in the comparison have one.
+    paired = bool(with_docs_scores) and bool(paired_deltas)
+    return {
+        "n": len(scores),
+        "n_paired": len(paired_deltas),
+        # Questions that reached the intersection but lack a usable pair.
+        "unpaired": len(scores) - len(paired_deltas),
+        "with_avg": _avg(with_docs_scores) if with_docs_scores else None,
+        "without_avg": _avg(without_docs_scores) if without_docs_scores else None,
+        "delta_avg": round(sum(paired_deltas) / len(paired_deltas), 1) if paired else None,
+        "improved": sum(1 for d in paired_deltas if d > 0) if paired else None,
+        "degraded": sum(1 for d in paired_deltas if d < 0) if paired else None,
+    }
 
-            lines.append(
-                f"| **{run_id}** | {cost_str} | {prompt_str} | {completion_str} | "
-                f"{total_str} | {latency_str} | {cache_str} |"
-            )
-        if replicate_note:
-            lines += ["", "_A pooled `[n=k]` row shows the total cost, calls and tokens of its k runs "
-                          "and their mean latency._"]
 
-        lines += [""]
-
-    # --- Overall Summary ---
-    lines += [
+def _overall_summary_lines(run_ids: list[str], summary_stats: dict[str, dict], arm_label: str) -> list[str]:
+    lines = [
         "## Overall Summary",
         "_Delta is the mean of per-question paired differences. Scored pairs is the"
         " number of questions with a usable score in both arms; Delta, Improved and"
@@ -964,333 +965,246 @@ def generate_section_report(
         f"| Run | N | Scored pairs | {arm_label} | Baseline | Delta | Improved | Degraded |",
         "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
-
-    summary_stats: dict[str, dict] = {}
     for run_id in run_ids:
-        scores = all_run_scores[run_id]
-
-        # Handle both single-arm (baseline-only) and multi-arm runs
-        with_docs_scores = [s["with_docs"] for s in scores if s["with_docs"] is not None]
-        without_docs_scores = [s["without_docs"] for s in scores if s["without_docs"] is not None]
-
-        # Per-run, distinct from the section-level has_treatment above: a single
-        # run may lack a treatment arm while others in the comparison have one.
-        run_has_treatment = bool(with_docs_scores)
-        with_avg = _avg(with_docs_scores) if with_docs_scores else None
-        without_avg = _avg(without_docs_scores) if without_docs_scores else None
-
-        # Average the per-question deltas rather than differencing the two arm
-        # means. The arm means are filtered independently, so when any question
-        # is missing a score they cover different question subsets and their
-        # difference is not a paired delta.
-        paired_deltas = [s["delta"] for s in scores if s.get("delta") is not None]
-
-        if run_has_treatment and paired_deltas:
-            delta_avg = round(sum(paired_deltas) / len(paired_deltas), 1)
-            improved = sum(1 for d in paired_deltas if d > 0)
-            degraded = sum(1 for d in paired_deltas if d < 0)
-        else:
-            delta_avg = None
-            improved = None
-            degraded = None
-
-        # Questions that reached the intersection but lack a usable pair.
-        unpaired = len(scores) - len(paired_deltas)
-
-        summary_stats[run_id] = {
-            "n": len(scores),
-            "n_paired": len(paired_deltas),
-            "unpaired": unpaired,
-            "with_avg": with_avg,
-            "without_avg": without_avg,
-            "delta_avg": delta_avg,
-            "improved": improved,
-            "degraded": degraded,
-        }
-
+        st = summary_stats[run_id]
         # An arm with no usable score prints as "—" rather than a numeric zero,
         # which would read as a legitimate score of 0/100.
-        with_avg_str = "—" if with_avg is None else str(with_avg)
-        without_avg_str = "—" if without_avg is None else str(without_avg)
-        delta_str = "—" if delta_avg is None else f"**{_fmt_delta(delta_avg)}**"
-        improved_str = "—" if improved is None else str(improved)
-        degraded_str = "—" if degraded is None else str(degraded)
+        delta_str = "—" if st["delta_avg"] is None else f"**{_fmt_delta(st['delta_avg'])}**"
         # Make partial coverage visible: a delta over fewer pairs than questions
         # is weaker evidence than the question count alone suggests.
-        scored_str = str(len(paired_deltas)) if not unpaired else f"{len(paired_deltas)} ({unpaired} unscored)"
+        scored_str = f"{st['n_paired']} ({st['unpaired']} unscored)" if st["unpaired"] else str(st["n_paired"])
+        cells = [str(st["n"]), scored_str, _num_or_dash(st["with_avg"]), _num_or_dash(st["without_avg"]),
+                 delta_str, _num_or_dash(st["improved"]), _num_or_dash(st["degraded"])]
+        lines.append(f"| **{run_id}** | " + " | ".join(cells) + " |")
+    return lines + [""]
 
-        lines.append(
-            f"| **{run_id}** | {len(scores)} | {scored_str} | {with_avg_str} | {without_avg_str} | "
-            f"{delta_str} | {improved_str} | {degraded_str} |"
-        )
 
-    lines += [""]
+def _adjusted_significance(
+    run_ids: list[str], all_run_scores: dict[str, list[dict]], correction: str
+) -> tuple[dict[str, dict | None], int]:
+    """Each run's paired test with its p-value adjusted across the runs, and how many were tested.
 
-    # --- Statistical Significance ---
-    if HAS_SCIPY:
-        lines += [
-            "## Statistical Significance of Delta (α = 0.05)",
-        ]
-
-        if not has_treatment:
-            lines += [
-                "",
-                "> **⚠️ Skipped:** Statistical tests require treatment arm (e.g., docs, skills).",
-                "> Add `--arms \"baseline,docs\"` to enable delta analysis.",
-                "",
-            ]
+    Every run in the section is one test of the same "did the treatment help?"
+    question, so they form a family: with k runs, the chance that at least one
+    clears 0.05 by luck alone is far above 0.05. Correct across the family before
+    calling anything significant, exactly as the arms report does across arms.
+    """
+    sigs: dict[str, dict | None] = {}
+    for run_id in run_ids:
+        # Filter for paired scores: both baseline and treatment must be non-None
+        paired = [(s["with_docs"], s["without_docs"]) for s in all_run_scores[run_id]
+                  if s["with_docs"] is not None and s["without_docs"] is not None]
+        if paired:
+            with_paired, without_paired = zip(*paired, strict=True)
+            sigs[run_id] = significance_test(list(with_paired), list(without_paired))
         else:
-            # Every run in the section is one test of the same "did the
-            # treatment help?" question, so they form a family: with k runs,
-            # the chance that at least one clears 0.05 by luck alone is far
-            # above 0.05. Correct across the family before calling anything
-            # significant, exactly as the arms report does across arms.
-            sigs: dict[str, dict | None] = {}
-            for run_id in run_ids:
-                scores = all_run_scores[run_id]
-                # Filter for paired scores: both baseline and treatment must be non-None
-                paired = [(s["with_docs"], s["without_docs"]) for s in scores
-                          if s["with_docs"] is not None and s["without_docs"] is not None]
-                if paired:
-                    with_paired, without_paired = zip(*paired, strict=True)
-                    sigs[run_id] = significance_test(list(with_paired), list(without_paired))
-                else:
-                    sigs[run_id] = None
+            sigs[run_id] = None
 
-            tested = [sig for rid in run_ids if (sig := sigs[rid]) and sig["p_ttest"] is not None]
-            adjusted = arm_stats.adjust_pvalues(
-                [sig["p_ttest"] for sig in tested], method=correction
-            )
-            for sig, p_adj in zip(tested, adjusted, strict=True):
-                sig["p_adjusted"] = p_adj
-                # Same conjunction as the raw verdict, with the adjusted p in
-                # place of the raw one.
-                sig["significant_adjusted"] = bool(
-                    p_adj is not None and p_adj < arm_stats.ALPHA
-                    and (sig["p_wilcoxon"] is None or sig["p_wilcoxon"] < arm_stats.ALPHA)
-                )
+    tested = [sig for rid in run_ids if (sig := sigs[rid]) and sig["p_ttest"] is not None]
+    adjusted = arm_stats.adjust_pvalues([sig["p_ttest"] for sig in tested], method=correction)
+    for sig, p_adj in zip(tested, adjusted, strict=True):
+        sig["p_adjusted"] = p_adj
+        # Same conjunction as the raw verdict, with the adjusted p in place of the raw one.
+        sig["significant_adjusted"] = bool(
+            p_adj is not None and p_adj < arm_stats.ALPHA
+            and (sig["p_wilcoxon"] is None or sig["p_wilcoxon"] < arm_stats.ALPHA)
+        )
+    return sigs, len(tested)
 
-            label = "Holm-Bonferroni" if correction == "holm" else "Benjamini-Hochberg"
-            lines += [
-                f"_p-values are adjusted across the {len(tested)} run(s) compared here "
-                f"({label}); the raw column is shown for reference. "
-                "Significant = adjusted p < 0.05 and Wilcoxon < 0.05 (or unavailable)._",
-                "",
-                "| Run | Delta | p (t-test) | p (adjusted) | p (Wilcoxon) | Cohen's d_z "
-                "| Effect | Significant? |",
-                "|---|---:|---:|---:|---:|---:|---|---|",
-            ]
-            for run_id in run_ids:
-                sig = sigs[run_id]
-                if sig:
-                    # p-values are None when no test could run (zero-variance
-                    # deltas); "N/A" is honest where "None" would just look broken.
-                    verdict = sig.get("significant_adjusted")
-                    if sig["significant"] is None or verdict is None:
-                        sig_mark = "N/A"
-                    else:
-                        sig_mark = "OK Yes" if verdict else "No"
-                    p_ttest = sig["p_ttest"] if sig["p_ttest"] is not None else "N/A"
-                    p_adj = sig.get("p_adjusted")
-                    p_adj_str = p_adj if p_adj is not None else "N/A"
-                    p_wilcox = sig["p_wilcoxon"] if sig["p_wilcoxon"] is not None else "N/A"
-                    lines.append(
-                        f"| **{run_id}** | {_fmt_delta(sig['delta_mean'])} | {p_ttest} | "
-                        f"{p_adj_str} | {p_wilcox} | {_fmt_delta(sig['cohens_d'])} "
-                        f"| {sig['effect']} | {sig_mark} |"
-                    )
-        lines += [""]
 
-    # --- By Difficulty ---
-    difficulty_groups: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+def _significance_row(run_id: str, sig: dict) -> str:
+    # p-values are None when no test could run (zero-variance deltas); "N/A" is
+    # honest where "None" would just look broken.
+    verdict = sig.get("significant_adjusted")
+    if sig["significant"] is None or verdict is None:
+        sig_mark = "N/A"
+    else:
+        sig_mark = "OK Yes" if verdict else "No"
+    p_ttest = sig["p_ttest"] if sig["p_ttest"] is not None else "N/A"
+    p_adj = sig.get("p_adjusted")
+    p_adj_str = p_adj if p_adj is not None else "N/A"
+    p_wilcox = sig["p_wilcoxon"] if sig["p_wilcoxon"] is not None else "N/A"
+    return (
+        f"| **{run_id}** | {_fmt_delta(sig['delta_mean'])} | {p_ttest} | "
+        f"{p_adj_str} | {p_wilcox} | {_fmt_delta(sig['cohens_d'])} "
+        f"| {sig['effect']} | {sig_mark} |"
+    )
+
+
+def _significance_lines(
+    run_ids: list[str], all_run_scores: dict[str, list[dict]], has_treatment: bool, correction: str
+) -> list[str]:
+    lines = ["## Statistical Significance of Delta (α = 0.05)"]
+    if not has_treatment:
+        return lines + [
+            "",
+            "> **⚠️ Skipped:** Statistical tests require treatment arm (e.g., docs, skills).",
+            "> Add `--arms \"baseline,docs\"` to enable delta analysis.",
+            "",
+            "",
+        ]
+    sigs, n_tested = _adjusted_significance(run_ids, all_run_scores, correction)
+    label = "Holm-Bonferroni" if correction == "holm" else "Benjamini-Hochberg"
+    lines += [
+        f"_p-values are adjusted across the {n_tested} run(s) compared here "
+        f"({label}); the raw column is shown for reference. "
+        "Significant = adjusted p < 0.05 and Wilcoxon < 0.05 (or unavailable)._",
+        "",
+        "| Run | Delta | p (t-test) | p (adjusted) | p (Wilcoxon) | Cohen's d_z "
+        "| Effect | Significant? |",
+        "|---|---:|---:|---:|---:|---:|---|---|",
+    ]
+    lines += [_significance_row(run_id, sig) for run_id in run_ids if (sig := sigs[run_id])]
+    return lines + [""]
+
+
+_DIFFICULTY_ORDER = ("easy", "beginner", "intermediate", "medium", "advanced", "hard")
+
+
+def _difficulty_cells(sc: list[dict], has_treatment: bool) -> str:
+    """One run's cells of a difficulty row: context mean and delta, or the baseline."""
+    if not sc:
+        return " — | — |" if has_treatment else " — |"
+    with_scores = [s["with_docs"] for s in sc if s["with_docs"] is not None]
+    if with_scores:
+        # Same pairing rule as the overall summary: average the per-question
+        # deltas, never the difference of two means filtered over different
+        # question subsets.
+        diff_deltas = [s["delta"] for s in sc if s.get("delta") is not None]
+        delta_cell = _fmt_delta(round(sum(diff_deltas) / len(diff_deltas), 1)) if diff_deltas else "—"
+        return f" {_avg(with_scores)} | {delta_cell} |"
+    # No treatment score in this bucket: report the baseline.
+    without_scores = [s["without_docs"] for s in sc if s["without_docs"] is not None]
+    wo = _avg(without_scores) if without_scores else None
+    if has_treatment:
+        wo_cell = "—" if wo is None else f"{wo} (baseline)"
+        return f" — | {wo_cell} |"
+    return f" {'—' if wo is None else wo} |"
+
+
+def _difficulty_lines(run_ids: list[str], all_run_scores: dict[str, list[dict]], has_treatment: bool) -> list[str]:
+    groups: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
     for run_id in run_ids:
         for s in all_run_scores[run_id]:  # already common questions only
-            difficulty_groups[s["difficulty"]][run_id].append(s)
+            groups[s["difficulty"]][run_id].append(s)
+    if not groups:
+        return []
+    # Adapt header to single-arm vs multi-arm scenario
+    if has_treatment:
+        header = "| Difficulty | N | " + " | ".join(f"{rid} context | {rid} Δ" for rid in run_ids) + " |"
+        separator = "|---|---:|" + "|".join([" :---: | :---: "] * len(run_ids)) + "|"
+    else:
+        header = "| Difficulty | N | " + " | ".join(f"{rid} baseline" for rid in run_ids) + " |"
+        separator = "|---|---:|" + "| :---: " * len(run_ids) + "|"
+    lines = ["## By Difficulty (common questions only)", header, separator]
+    for diff in [d for d in _DIFFICULTY_ORDER if d in groups]:
+        by_run = groups[diff]
+        cells = "".join(_difficulty_cells(by_run.get(run_id, []), has_treatment) for run_id in run_ids)
+        lines.append(f"| {diff} | {len(next(iter(by_run.values())))} |{cells}")
+    return lines + [""]
 
-    if difficulty_groups:
-        # Adapt header to single-arm vs multi-arm scenario
-        if has_treatment:
-            header = "| Difficulty | N | " + " | ".join(
-                f"{rid} context | {rid} Δ" for rid in run_ids
-            ) + " |"
-            separator = "|---|---:|" + "|".join([" :---: | :---: "] * len(run_ids)) + "|"
-        else:
-            header = "| Difficulty | N | " + " | ".join(
-                f"{rid} baseline" for rid in run_ids
-            ) + " |"
-            separator = "|---|---:|" + "| :---: " * len(run_ids) + "|"
 
-        lines += [
-            "## By Difficulty (common questions only)",
-            header,
-            separator,
-        ]
-        for diff in ["easy", "beginner", "intermediate", "medium", "advanced", "hard"]:
-            if diff not in difficulty_groups:
-                continue
-            run_data = difficulty_groups[diff]
-            n = len(next(iter(run_data.values())))
-            row = f"| {diff} | {n} |"
-            for run_id in run_ids:
-                sc = run_data.get(run_id, [])
-                if sc:
-                    with_scores = [s["with_docs"] for s in sc if s["with_docs"] is not None]
-                    without_scores = [s["without_docs"] for s in sc if s["without_docs"] is not None]
-                    # Same pairing rule as the overall summary: average the
-                    # per-question deltas, never the difference of two means
-                    # filtered over different question subsets.
-                    diff_deltas = [s["delta"] for s in sc if s.get("delta") is not None]
-                    if with_scores:
-                        wa = _avg(with_scores)
-                        delta_cell = (
-                            _fmt_delta(round(sum(diff_deltas) / len(diff_deltas), 1))
-                            if diff_deltas else "—"
-                        )
-                        row += f" {wa} | {delta_cell} |"
-                    else:
-                        # No treatment score in this bucket: report the baseline.
-                        wo = _avg(without_scores) if without_scores else None
-                        wo_cell = "—" if wo is None else f"{wo} (baseline)"
-                        if has_treatment:
-                            row += f" — | {wo_cell} |"
-                        else:
-                            row += f" {'—' if wo is None else wo} |"
-                else:
-                    if has_treatment:
-                        row += " — | — |"
-                    else:
-                        row += " — |"
-            lines.append(row)
-        lines += [""]
+def _winner_counts(run_ids: list[str], all_run_scores: dict[str, list[dict]], common_questions: set[str]) -> dict:
+    """Per run, the questions it alone scored highest on in the context arm; shared tops under "tie"."""
+    winner_counts: dict[str, int] = defaultdict(int)
+    for qid in common_questions:
+        question_scores = {}
+        for run_id in run_ids:
+            score = next((s["with_docs"] for s in all_run_scores[run_id]
+                          if s["question_id"] == qid and s["with_docs"] is not None), None)
+            if score is not None:
+                question_scores[run_id] = score
+        if question_scores:
+            max_score = max(question_scores.values())
+            winners = [rid for rid, score in question_scores.items() if score == max_score]
+            winner_counts[winners[0] if len(winners) == 1 else "tie"] += 1
+    return winner_counts
 
-    # --- Head-to-Head ---
-    lines += [
+
+def _head_to_head_lines(
+    run_ids: list[str], all_run_scores: dict[str, list[dict]], common_questions: set[str], has_treatment: bool
+) -> list[str]:
+    lines = [
         "## Head-to-Head (context arm, common questions)",
         "_On how many questions did each model achieve the highest absolute score (in the context arm)? This measures which model produces the best answers overall, not which benefits most from the treatment._",
         "",
     ]
-
     if not has_treatment:
-        lines += [
+        return lines + [
             "",
             "> **⚠️ Skipped:** Head-to-head requires treatment arm scores.",
             "> Single-arm runs only have baseline scores.",
             "",
         ]
-    else:
-        lines += [
-            "| Winner | Count | % |",
-            "|---|---:|---:|",
-        ]
-        winner_counts: dict[str, int] = defaultdict(int)
-        for qid in common_questions:
-            question_scores = {}
-            for run_id in run_ids:
-                for s in all_run_scores[run_id]:
-                    if s["question_id"] == qid and s["with_docs"] is not None:
-                        question_scores[run_id] = s["with_docs"]
-                        break
-            if question_scores:
-                max_score = max(question_scores.values())
-                winners = [rid for rid, score in question_scores.items() if score == max_score]
-                if len(winners) == 1:
-                    winner_counts[winners[0]] += 1
-                else:
-                    winner_counts["tie"] += 1
+    winner_counts = _winner_counts(run_ids, all_run_scores, common_questions)
+    total = len(common_questions)
+    lines += ["| Winner | Count | % |", "|---|---:|---:|"]
+    for label, key in [*((f"**{rid}**", rid) for rid in run_ids), ("tie", "tie")]:
+        count = winner_counts.get(key, 0)
+        lines.append(f"| {label} | {count} | {round(100 * count / total) if total > 0 else 0}% |")
+    return lines + [""]
 
-        total = len(common_questions)
-        for run_id in run_ids:
-            count = winner_counts.get(run_id, 0)
-            pct = round(100 * count / total) if total > 0 else 0
-            lines.append(f"| **{run_id}** | {count} | {pct}% |")
-        tie_count = winner_counts.get("tie", 0)
-        lines.append(f"| tie | {tie_count} | {round(100 * tie_count / total) if total > 0 else 0}% |")
-        lines += [""]
 
-    # --- Context-Arm Benefit ---
-    lines += [
-        "## Context-Arm Benefit — Delta Comparison",
-    ]
-
+def _benefit_lines(
+    run_ids: list[str], summary_stats: dict[str, dict], has_treatment: bool, single_arm: str | None
+) -> list[str]:
+    """Per run, the mean delta and the share of scored pairs the treatment helped and hurt."""
+    lines = ["## Context-Arm Benefit — Delta Comparison"]
     if not has_treatment:
-        lines += [
+        return lines + [
             "",
             "> **⚠️ Skipped:** Delta comparison requires treatment arm.",
             "> Single-arm runs cannot compute context benefit.",
             "",
         ]
-    else:
-        subtitle = (
-            f"_Which model benefits more from the treatment arm `{arm_label}`?_"
-            if len(scored_arms) == 1
-            else "_Which model benefits more from the non-baseline treatment arm?_"
-        )
-        lines += [
-            subtitle,
-            "",
-            "| Run | Avg Delta | Questions context helped | Questions context hurt |",
-            "|---|---:|---:|---:|",
-        ]
-        for run_id in run_ids:
-            st = summary_stats[run_id]
-            # Percentages are over scored pairs, the same population the
-            # improved/degraded counts come from.
-            n_paired = st["n_paired"]
-            if st["improved"] is None or not n_paired:
-                lines.append(f"| **{run_id}** | — | — | — |")
-                continue
-            helped_pct = round(100 * st["improved"] / n_paired)
-            hurt_pct = round(100 * st["degraded"] / n_paired)
-            lines.append(
-                f"| **{run_id}** | **{_fmt_delta(st['delta_avg'])}** | "
-                f"{st['improved']} ({helped_pct}%) | {st['degraded']} ({hurt_pct}%) |"
-            )
-        lines += [""]
-
-    # --- Model Ranking ---
     lines += [
-        "## Model Ranking",
+        f"_Which model benefits more from the treatment arm `{single_arm}`?_"
+        if single_arm is not None
+        else "_Which model benefits more from the non-baseline treatment arm?_",
         "",
+        "| Run | Avg Delta | Questions context helped | Questions context hurt |",
+        "|---|---:|---:|---:|",
     ]
+    for run_id in run_ids:
+        st = summary_stats[run_id]
+        # Percentages are over scored pairs, the same population the
+        # improved/degraded counts come from.
+        n_paired = st["n_paired"]
+        if st["improved"] is None or not n_paired:
+            lines.append(f"| **{run_id}** | — | — | — |")
+            continue
+        helped_pct = round(100 * st["improved"] / n_paired)
+        hurt_pct = round(100 * st["degraded"] / n_paired)
+        lines.append(
+            f"| **{run_id}** | **{_fmt_delta(st['delta_avg'])}** | "
+            f"{st['improved']} ({helped_pct}%) | {st['degraded']} ({hurt_pct}%) |"
+        )
+    return lines + [""]
 
-    if has_treatment:
-        lines += [
-            f"### By absolute quality ({arm_label})",
-            f"| Rank | Run | {arm_label} avg |",
-            "|---:|---|---:|",
-        ]
-        for rank, (run_id, st) in enumerate(
-            sorted(summary_stats.items(), key=_rank_key("with_avg"), reverse=True), 1
-        ):
-            lines.append(f"| {rank} | **{run_id}** | {_num_or_dash(st['with_avg'])} |")
-    else:
-        lines += [
+
+def _rank_table(summary_stats: dict[str, dict], field: str, column: str, fmt) -> list[str]:
+    """Runs ranked by *field*, those without a value last."""
+    ranked = sorted(summary_stats.items(), key=_rank_key(field), reverse=True)
+    return [f"| Rank | Run | {column} |", "|---:|---|---:|",
+            *(f"| {rank} | **{run_id}** | {fmt(st[field])} |" for rank, (run_id, st) in enumerate(ranked, 1))]
+
+
+def _ranking_lines(summary_stats: dict[str, dict], has_treatment: bool, arm_label: str) -> list[str]:
+    lines = ["## Model Ranking", ""]
+    if not has_treatment:
+        return lines + [
             "### By absolute quality (baseline)",
-            "| Rank | Run | Baseline avg |",
-            "|---:|---|---:|",
-        ]
-        for rank, (run_id, st) in enumerate(
-            sorted(summary_stats.items(), key=_rank_key("without_avg"), reverse=True), 1
-        ):
-            lines.append(f"| {rank} | **{run_id}** | {_num_or_dash(st['without_avg'])} |")
-
-    if has_treatment:
-        lines += [
-            "",
-            "### By treatment utilisation (Delta)",
-            "| Rank | Run | Delta |",
-            "|---:|---|---:|",
-        ]
-        for rank, (run_id, st) in enumerate(
-            sorted(summary_stats.items(), key=_rank_key("delta_avg"), reverse=True), 1
-        ):
-            lines.append(f"| {rank} | **{run_id}** | {_fmt_delta(st['delta_avg'])} |")
-    else:
-        lines += [
+            *_rank_table(summary_stats, "without_avg", "Baseline avg", _num_or_dash),
             "",
             "> **Note:** Treatment utilization ranking requires treatment arm.",
             "",
+            "",
         ]
-
-    lines += [""]
-    return lines
+    return lines + [
+        f"### By absolute quality ({arm_label})",
+        *_rank_table(summary_stats, "with_avg", f"{arm_label} avg", _num_or_dash),
+        "",
+        "### By treatment utilisation (Delta)",
+        *_rank_table(summary_stats, "delta_avg", "Delta", _fmt_delta),
+        "",
+    ]

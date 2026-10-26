@@ -37,7 +37,7 @@ flowchart LR
 | `skill:` | a skill (`SKILL.md`) injected as context |
 | `profile:` | an agent persona system prompt |
 | `agent:` / `skill-agent:` | **agentic** use — the model gets a tool and *decides* whether to fetch docs / load the skill |
-| `skill-catalog:` | **selection** — every skill in a catalog is offered; scored on which one loads (`catalog trigger-set` builds the queries) |
+| `skill-catalog:` | **selection** — every skill in a catalog is offered (a copy under a `template/` or `templates/` directory and a byte-identical mirror that loads under the same skill name are left out); scored on which one loads (`catalog trigger-set` builds the queries) |
 
 Two fine-print notes:
 
@@ -188,7 +188,7 @@ Marketplaces rank agent artifacts by popularity, which buries niche expert
 tooling such as HPC and performance libraries (the bundled examples use
 oneTBB, oneDAL and oneMKL).
 Here, every shipped skill, doc source, or profile carries the **scorecard
-that earned it**, kept alive as models and docs change. See the
+that earned it**, built from the run that measured it. See the
 [repository overview](../../README.md) for what this framework is and where the
 content it measures comes from.
 
@@ -321,3 +321,5 @@ code.
   metric extracts and runs fenced code examples in isolation.
 - [ingestion-docling.md](ingestion-docling.md) — ingesting non-Markdown
   documents (PDF, HTML, …) via Docling, installed with the optional `ocr` extra.
+- [research-register.md](research-register.md) — the register of Dokimi's own
+  ideas, experiments (negative ones included), findings and decisions.

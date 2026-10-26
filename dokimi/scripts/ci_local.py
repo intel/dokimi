@@ -20,9 +20,9 @@ Differences from CI, all printed as notices:
   windows-smoke, conda-forge-deps) run in a throwaway venv on a copy of the
   tracked tree instead, so the dev venv stays as CI's.
 - Every step runs even when an earlier one fails, so one failure does not hide
-  the next (CI stops a job's checks at its first failing step, except
-  `static`, whose steps after the install all run under
-  `if: ${{ !cancelled() }}`).
+  the next (CI stops a job's checks at its first failing step, except for
+  steps under `if: ${{ !cancelled() }}`: every step of `static` after the
+  install, and the deptry step of `typecheck`).
 - A matrix runs one leg: the dev venv's Python, standing in for the coverage
   leg too (`matrix.coverage` is true), so the changed-lines gate runs here. A
   notice says so when that is not the Python CI's single-version jobs use.
@@ -288,7 +288,7 @@ def run(args: argparse.Namespace) -> int:
         summary = tmp / "step-summary.md"
         base_env = dict(os.environ, RUNNER_TEMP=str(tmp), GITHUB_STEP_SUMMARY=str(summary),
                         GITHUB_OUTPUT=str(tmp / "github-output"), GITHUB_WORKSPACE=str(REPO),
-                        CI="true")
+                        CI="true", DOKIMI_GROWTH_BASE=base_ref)
         for wf_name, wf in workflows:
             default_wd = wf.get("defaults", {}).get("run", {}).get("working-directory", ".")
             for job_id, job in wf["jobs"].items():
@@ -311,7 +311,7 @@ def run(args: argparse.Namespace) -> int:
                 root, env = REPO, base_env
                 if job_id in ISOLATED:
                     root, iso_env = make_isolated_env(tmp / job_id, py)
-                    env = {**iso_env, **{k: base_env[k] for k in ("RUNNER_TEMP", "CI")}}
+                    env = {**iso_env, **{k: base_env[k] for k in ("RUNNER_TEMP", "CI", "DOKIMI_GROWTH_BASE")}}
                 for i, step in enumerate(job.get("steps", [])):
                     if "run" not in step:
                         continue

@@ -143,6 +143,7 @@ def test_rev_arm_copies_no_object_of_the_revision_but_the_guidance_blobs_it_uses
         assert b"# sub guidance" not in blobs and b"# guidance\n" not in blobs  # the base's replaced guidance
 
 
+@pytest.mark.outcome("cjm-guidance-rev-arm")
 def test_rev_arm_is_named_by_the_sha_it_resolved_to_once(toy):
     by_ref = pin_arm(parse_arm("guidance:rev:pr"), toy["git_dir"])
     assert by_ref == pin_arm(parse_arm(f"guidance:rev:{toy['pr']}"), toy["git_dir"]) == f"guidance:rev:{toy['pr']}"
@@ -162,6 +163,7 @@ def test_a_bad_arm_is_a_prep_error(toy, spec):
         pin_arm(parse_arm(spec), toy["git_dir"])
 
 
+@pytest.mark.outcome("cjm-patch-arm")
 def test_patch_arm_applies_on_raw_guidance_and_records_the_file(toy):
     patch = toy["tmp"] / "patches" / "tooling.diff"
     write(patch.parent, patch.name, TOOLING_PATCH)
@@ -171,13 +173,15 @@ def test_patch_arm_applies_on_raw_guidance_and_records_the_file(toy):
     patch.write_text("changed after the batch read it\n")  # every cell applies the bytes read once
     meta, ws = _prep(toy, arm)
     assert meta["arm"] == str(arm) and meta["arm_files"] == ["AGENTS.md", "Makefile"]
-    assert meta["arm_patch"] == {"path": str(patch.resolve()), "sha256": digest}
+    assert meta["arm_patch"] == {"path": str(patch.resolve()), "sha256": digest, "added": ["Makefile"],
+                                 "mcp_servers": []}
     assert (ws / "AGENTS.md").read_text() == "# guidance\nRun `make check`.\n"
     assert (ws / "Makefile").is_file() and (ws / "sub/AGENTS.md").is_file()  # the rest of guidance:raw
     assert git(ws, "status", "--porcelain") == "" and git(ws, "rev-list", "--count", "HEAD") == "1"
     assert git(ws, "fsck", "--unreachable", "--no-reflogs") == ""
 
 
+@pytest.mark.outcome("cjm-patch-arm")
 @pytest.mark.parametrize("text, message", [(STALE_PATCH, "does not apply"), (INTO_EVAL_DIR_PATCH, "eval_dir")])
 def test_a_patch_arm_that_cannot_be_applied_is_a_prep_error_for_the_cell(toy, text, message):
     patch = toy["tmp"] / "bad.diff"
@@ -230,6 +234,8 @@ def _run(s, *arms):
     args.func(args)
 
 
+@pytest.mark.outcome("cjm-guidance-rev-arm")
+@pytest.mark.outcome("cjm-repo-compare-arms")
 def test_repo_run_names_cells_by_the_resolved_arm_and_compare_reads_them(setup, capsys):
     patch = setup["tmp"] / "tooling.diff"
     patch.write_text(TOOLING_PATCH)
