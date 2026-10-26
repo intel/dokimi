@@ -9,8 +9,9 @@ import argparse
 import errno
 import json
 import math
+import os
 import sys
-import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -126,8 +127,10 @@ def _check_out_json_writable(path: str) -> None:
         resolved = _write_target(target)
         if resolved.is_dir():
             raise IsADirectoryError(errno.EISDIR, "Is a directory", path)
-        with tempfile.NamedTemporaryFile(dir=resolved.parent, prefix=resolved.name + ".", suffix=".tmp"):
+        tmp = resolved.with_name(f"{resolved.name}.{os.getpid()}.{threading.get_ident()}.tmp")  # the save's name
+        with tmp.open("xb"):
             pass
+        tmp.unlink()
     except (OSError, ValueError) as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
         raise SystemExit(2) from None

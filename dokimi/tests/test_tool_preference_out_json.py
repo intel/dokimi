@@ -138,6 +138,21 @@ def test_out_json_check_probes_the_symlink_target_directory(tmp_path):
         ro.chmod(0o755)
 
 
+def test_out_json_check_refuses_a_name_too_long_for_the_save_temp_file(tmp_path, capsys):
+    from dokimi.commands.tools import _check_out_json_writable
+
+    out = tmp_path / ("a" * 230 + ".json")
+    try:
+        out.touch()
+    except OSError:
+        pytest.skip("this file system takes no 235-character name")
+    out.unlink()
+    with pytest.raises(SystemExit) as exc:
+        _check_out_json_writable(str(tmp_path / ("a" * 235 + ".json")))
+    assert exc.value.code == 2
+    assert "cannot write" in capsys.readouterr().err
+
+
 def test_out_json_check_refuses_a_symlink_to_a_directory(tmp_path, capsys):
     from dokimi.commands.tools import _check_out_json_writable
 
