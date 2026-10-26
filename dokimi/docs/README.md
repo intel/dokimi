@@ -261,6 +261,11 @@ code.
   its Claude Code trace with `cli.py context trace`: start-up load, growth,
   compactions, tool-result weight. No LLM call.
 
+- [what-it-measures.md](what-it-measures.md) — the three things Dokimi measures:
+  enabled vs disabled arms, novel vs known content, and repositories.
+- [reviewing.md](reviewing.md) — review a skill or a repository's agent setup,
+  cheapest step first, with costs and how to read the results.
+
 ## Content novelty
 
 - [skill-novelty.md](skill-novelty.md) — what a skill *adds* to a given model

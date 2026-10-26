@@ -16,9 +16,7 @@ SPDX-License-Identifier: Apache-2.0
 <sub>Illustrative numbers. Change one thing, hold the model, eval set, grader
 and harness fixed, report the delta with its p-value.</sub>
 
-**Documentation: <https://intel.github.io/dokimi/>** — guides, plus a
-[CLI reference](https://intel.github.io/dokimi/reference/cli/) and an
-[API reference](https://intel.github.io/dokimi/reference/api/dokimi/) generated from the code.
+**Documentation: <https://intel.github.io/dokimi/>**
 
 ## What it is
 
@@ -29,304 +27,74 @@ buries niche expert tooling such as HPC and numerical libraries.
 
 Dokimi treats context like an experiment. It runs the same questions, coding
 tasks or repository tasks with and without one change, grades both the same
-way (an LLM judge for answers, tests in Docker for code, file/line F1 for
-localization), and reports the difference with paired statistics. Then it goes
-past the single number: which parts of a skill the model already knew, which
-it added and which it broke; and which guidance files a harness really loads.
-An artifact ships with the scorecard that earned it.
+way (an LLM judge for answers, tests in Docker for code), and reports the
+difference with paired statistics, per model. An artifact ships with the
+scorecard that earned it.
 
-> **dokimi** — Greek *δοκιμή*, "test, proof". The name is the method: an
-> artifact does not get trusted because it was written or because it is popular,
-> it gets trusted because it passed a test that could have failed.
+> **dokimi** — Greek *δοκιμή*, "test, proof". An artifact does not get trusted
+> because it was written or because it is popular; it gets trusted because it
+> passed a test that could have failed.
 
-It answers three questions, each ending in a decision:
+![1. Does it help? Ship it or cut it. 2. Which parts help? Edit it. 3. Does guidance land? Fix the repo](dokimi/docs/assets/readme/f03-three-questions.png)
 
-![1. Does it help? dokimi arms run: ship it or cut it. 2. Which parts help? dokimi novelty analyze: edit it. 3. Does guidance land? dokimi repo reach: fix the repo](dokimi/docs/assets/readme/f03-three-questions.png)
+## Which parts help: novelty
 
-Who it is for: **skill authors and repository maintainers**, and the coding
-agents that drive the CLI on their behalf. You start from an intent ("is my
-skill any good?", "improve my repo for agents", "is it still true for the new
-model?"), not a command name; the
-[user-journey map](dokimi/docs/user-journeys/README.md) maps each intent to
-commands. They connect into one loop:
+A single delta says whether a skill helps, not which of its parts do. Dokimi
+splits the skill (or any document, such as an `AGENTS.md`) into individual
+claims and asks the model about each one twice: without the skill and with
+it. A different model grades both answers. Every claim lands in one of four
+outcomes:
 
-![Assess, diagnose, change, re-measure, then: better means keep it and guard it in CI; none or worse means reject it with numbers; unclear means explain and design the next experiment. A new model, harness or time means reassess](dokimi/docs/assets/readme/f11-loop.png)
+![A 2x2 grid. Wrong without, right with: added, keep it. Right without and with: redundant, cut it for this model. Wrong both times: still missing, rewrite it. Right without, wrong with: degraded, fix it first](dokimi/docs/assets/readme/f05-novelty-2x2.png)
 
-A measured null or negative effect is a result, not a failure.
+The four outcomes are the direction to optimize in, claim by claim:
+
+- **Added** — the skill's real value. Keep it, and protect it when shortening.
+- **Redundant** — the model already knew it. Cut it to save context, for this model only.
+- **Still missing** — written but not picked up. Rewrite it: clearer, earlier, or as an exact value.
+- **Degraded** — the skill made the answer worse. Fix this first.
+
+Dokimi maps the outcomes back onto the skill's own text and proposes shorter
+versions that drop redundant claims while keeping the added ones and the
+safety clauses. Re-measure the edited skill and the loop closes:
+
+![Assess, diagnose, change, re-measure, then: better means keep it and guard it in CI; none or worse means reject it with numbers; unclear means explain and design the next experiment. A new model, harness or time means reassess](dokimi/docs/assets/readme/f11-loop-plain.png)
+
+More: [content novelty](dokimi/docs/skill-novelty.md).
 
 ## What measuring shows
 
 From the studies so far ([evidence](dokimi/docs/skill-novelty-evidence.md)):
 
-- **Much of a skill repeats what the model already knows, and the rest is
-  exact detail.** For `claude-opus-5` under lenient grading, 70% of what a
-  skill says the model already produces unprompted. Under strict grading,
-  which also checks qualifiers and exact values, only 22% is already known
-  and 38% is still missing even with the skill in context. Read the two
-  gradings together.
+- **Much of a skill repeats what the model already knows.** For a frontier
+  model under lenient grading, 70% of what a skill says the model already
+  produces unprompted. Under strict grading, which also checks exact values,
+  38% is still missing even with the skill in context.
 - **Models believe their context, even when it is wrong.** A plausible wrong
   value planted in a skill is repeated 94% of the time.
 - **Value depends on the model.** What a small model needs, a frontier model
   may already know, so every verdict is per model.
 
-The framework is vendor-neutral: any model reachable through LiteLLM, any
-docs, skills or tasks. Why it exists and where it is going:
-[`VISION.md`](VISION.md).
-
-## What it measures
-
-### 1. Does it help? Enabled vs disabled arms
-
-An *arm* is one context condition. Every arm runs the same question or task
-set against the same model, and the report gives the per-arm delta against the
-baseline with paired statistics. Arms are given as specs (`dokimi arms run
---arms …`):
-
-| Arm | What the agent gets |
-|---|---|
-| `baseline` | nothing extra |
-| `docs:<source>` | product documentation (local Markdown, URLs, Context7) |
-| `mcp:<server>` | an MCP documentation server it can call |
-| `skill:<path>` | one skill, its instructions in context |
-| `skill-agent:<path>` | one skill offered by name and description; the model must decide to load it |
-| `skill-catalog:<root>` | a whole skill catalog, to measure whether the right skill gets selected |
-| `profile:<path>` | an agent persona / system prompt |
-| `guidance:none\|raw\|bridge` | a repository with its `AGENTS.md`/`CLAUDE.md` removed, kept, or bridged (repository mode, below) |
-| `guidance:rev:<rev>` | the same repository with the guidance files of another revision, such as a PR's `AGENTS.md` (repository mode) |
-| `patch:<file>` | the repository with a unified diff applied on top of its own guidance: a new script, a Makefile target (repository mode) |
-
-The same arms drive question answering (LLM-as-judge with judge-validity
-checks), executable Docker coding tasks through Codex, Claude Code, Harbor or
-BenchFlow harnesses (`dokimi tasks run`), and file/line localization
-(`dokimi explore run`). Results roll up per subject (`dokimi subjects run`):
-a skill, MCP server, doc source, profile, bundle or repository, each with
-a scorecard.
-
-### 2. What does it add? Novel vs known content
-
-An arm delta says whether an artifact helps; it does not say which parts.
-`dokimi novelty analyze --artifact skill:<path>|text:<path>` splits the
-artifact into knowledge atoms and probes each one against the model with and
-without the artifact. Each atom comes out **added** (new to the model),
-**redundant** (the model already knew it), **degraded** (the artifact broke
-something the model knew) or **still missing** (stated but not picked up).
-`text:` takes any file, so the same analysis runs on a documentation page or
-a repository's `AGENTS.md`. The output is per (artifact, model) pair, with
-shortening candidates (`novelty shorten`) and a check that the artifact can be
-selected among competitors at all (`novelty routing`). See
-[`skill-novelty.md`](dokimi/docs/skill-novelty.md).
-
-### 3. Repositories: scan the guidance, then measure agents working in them
-
-A repository is a subject in its own right, described by a `repo-eval.yaml`
-manifest it owns:
-
-- `dokimi repo scan` (L0, no LLM): do the links, paths, identifiers, commands
-  and build labels the guidance names exist in the tree?
-- `dokimi repo budget` (no LLM): how many characters of guidance and skill
-  listing every model call pays for at start-up, what loads lazily or on
-  demand, and which AGENTS.md files a CLAUDE.md turns off.
-- `dokimi repo reach` (L1): which guidance files does a given harness actually
-  load?
-- `dokimi repo inspect` (static, no LLM): which instruction files, checks,
-  capability surfaces and risky hooks or scripts the repository offers an
-  agent, with findings per stage.
-- `dokimi repo run`: run an agent per (task, arm, model, repetition) inside the
-  repository's image, grade each run with the repository's own tests, and
-  `dokimi repo report` the per (task, arm, model) table. With the `guidance:*`
-  arms this measures what the repository's agent guidance does to the agent's
-  work; `dokimi repo compare` puts each arm against a baseline arm, paired by
-  task.
-
-See the [repository evaluation contract](dokimi/docs/repo-evaluation-contract.md).
-LLM-free static checks on the documentation itself (`dokimi run`) round this out.
-
-## Repository layout
-
-```text
-README.md                          This overview
-VISION.md                          Why the project exists and where it is going
-Makefile                           Delegates targets into dokimi/
-dokimi/                            The framework (self-contained Python project)
-LICENSE  NOTICE                    Apache-2.0 + attribution (repo-wide)
-.github/workflows/                 CI (runs inside dokimi/)
-```
-
-All code, tests and CI live in [`dokimi/`](dokimi/). The
-evaluation content that gets measured — skills, executable tasks, golden
-question sets — lives in its own repository and is passed in by path, so the
-framework can measure artifacts it does not own.
-
-## Reviewing a skill or a repository
-
-The usual request is "use dokimi to review this skill" or "review this
-repository's agent setup". This section is for whoever runs that request, a
-person or a coding agent. Run the steps in order: each one costs more than
-the step before it, and the first ones are free.
-
-Setup, from [`dokimi/`](dokimi/):
+## Get started
 
 ```bash
 cd dokimi
-pip install -e .                 # installs the `dokimi` command
+pip install -e .
 ```
 
-The `novelty` and `arms` steps take `--model` and `--provider`; `arms run` also
-needs `--judge-provider` (it does not fall back to `--provider` for the judge);
-`tasks run` and `repo` take `--model` only. The provider is one of `openai`,
-`anthropic`, `amazon-bedrock`, `google-vertex` or `openrouter`.
-Credentials are read from the environment: `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AWS_REGION` with
-`AWS_BEARER_TOKEN_BEDROCK` for Bedrock, and Google application-default
-credentials (`GOOGLE_APPLICATION_CREDENTIALS`, with `VERTEXAI_PROJECT` and
-`VERTEXAI_LOCATION`) for Vertex. The judge must be a different model from the
-one under measurement, because a model that grades its own answers inflates
-the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
-`--judge --judge-model <other> --judge-provider <judge-provider>` yourself.
+Vendor-neutral: any model reachable through LiteLLM, any docs, skills or tasks.
 
-### A skill
-
-| Step | Command | Cost |
-|---|---|---|
-| 1. Does it load? | `dokimi catalog scan --root <catalog> --kind skills [--strict]` | free |
-| 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --catalog <catalog> --queries queries.json [--model …]` | free without `--model` |
-| 3. What will step 4 cost? | `dokimi novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
-| 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
-| 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <model> --provider <provider> --judge --judge-model <judge-model> --judge-provider <judge-provider>` | one answer and one grade per question and arm |
-| 5b. Does code improve? | `dokimi tasks run --tasks-root <checkout>/evaluation/harbor/tasks --all --harnesses docker-claude,docker-claude-skill:<dir> --baseline-harness docker-claude` ([coding-harnesses.md](dokimi/docs/coding-harnesses.md)) | one agent run per task and harness; needs Docker and Claude credentials (`AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`), not the provider keys above; run with `--dry-run` first |
-
-- **Competitors** are the other skills an agent sees next to this one when it
-  picks a skill to load. For a catalog skill they are its siblings in the
-  same catalog: `--catalog <dir>` takes every other skill under it (a `template/` copy and a
-  byte-identical mirror that loads under the same skill name are left out, and vendored and
-  VCS directories such as `.git`, `node_modules`, `site-packages` and virtualenvs are not walked), and
-  `--competitors skill:<path> …` names them one by one. Routing asks whether
-  this skill wins the user requests meant for it. If you only have the one
-  skill, skip step 2 and say so in the review: a number measured against
-  invented competitors measures nothing.
-- **Queries** are 5–10 requests written the way a user would phrase them.
-  Write them without looking at the skill's own headings.
-- **Stop after triage (step 4)** and report. The `standard` and `study`
-  tiers cost 5–20 times more, so run them only when whoever asked agrees to
-  the bill. Pass `--max-usd` to `novelty` steps: the run stops once it has
-  spent that much (calls in flight can overshoot), writes no artifact when the
-  cap trips, and stops at the first call to a model with no known price. Set
-  the cap above the expected dollar spend: the triage example below was about
-  $1.80. `arms run` and `tasks run` have no cap, so size them first: questions
-  times arms, or tasks times harnesses. One measured example: triage on a
-  19k-token skill with a mid-size model was 103 calls, about $1.80; `study` on
-  the same skill was 1,900 calls, about $14.50.
-- **At triage** with `--include-resources`, the 25-atom cap takes atoms in
-  document order, and the entry point comes first: the flag reaches
-  `references/` only if `SKILL.md` has fewer than 25 atoms. For such skills,
-  use `--tier standard` (60 atoms), or add `--all-atoms` to the tier command for
-  a full sweep; run `--estimate-only` first, it costs more.
-- Step 5 needs evaluation content: a golden question set for 5a, executable
-  tasks for 5b. `arms run` takes no tasks. That content lives outside this repository
-  ([external-content.md](dokimi/docs/external-content.md)). Without it, the
-  review covers selection and content, not outcomes, and should say so.
-
-The full path with reading notes: [skill-novelty-walkthrough.md](dokimi/docs/skill-novelty-walkthrough.md).
-
-### A repository's agent setup
-
-| Step | Command | Cost |
-|---|---|---|
-| 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
-| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
-| 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
-| 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>` | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
-
-With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
-guidance globs (`<repo>/**/AGENTS.md`, `<repo>/**/CLAUDE.md`,
-`<repo>/.github/copilot-instructions.md`, `<repo>/.github/instructions/*.md`)
-and say so.
-To choose the files for `scan`, write a guidance-only manifest outside the tree and pass
-it with `--manifest-file`:
-
-```yaml
-schema: repo_manifest.v1
-id: my-repo
-guidance:
-  globs: ["**/AGENTS.md", "**/CLAUDE.md", ".github/copilot-instructions.md"]
-  also_scan: ["CONTRIBUTING.md"]
-```
-
-The `id` must be lowercase: start with a letter or digit, then use only letters, digits, `.`, `_` and `-`.
-`reach` always adds the harness's own guidance file names (for example `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md`).
-
-A guidance-only manifest has no tasks, so step 4 refuses it.
-
-How to read the results:
-
-- **Scan:** `fail` counts against the guidance and each one still needs a
-  look. Harness tool names (`run_in_background`) and placeholders
-  (`<name>`, `caseNN_*`) can show up as `fail` too. `unresolved` also needs
-  a look: it can be a path the scan could not check, or one whose directory
-  is gone. The scan checks that a path, identifier or command exists, not
-  that what the guidance says about it is true: a count or a description of
-  the code (`public api` where the code declares `cdef api`) can be stale
-  while every claim is `ok`. A review that lists the scan under what it
-  checked names what the scan covers.
-- **Reach:** a guidance file nobody loads cannot help anyone. Run `reach`
-  before you judge the guidance's content. `loaded` comes from the harness
-  itself, not from the harness's documentation, so a result that contradicts
-  the docs is a finding. `reach` probes the tree as it is: with no
-  `CLAUDE.md` in the tree, it does not show what one would turn off.
-- **Step 4:** without tasks there is no outcome measurement. The review
-  should say so rather than infer one from steps 1–3.
-
-A review also says which of its points come from reading rather than from a command:
-
-- **Past review comments:** no command counts how many of them the guidance
-  would have prevented. To count by hand, take the comments the author then
-  addressed, and read the reply before counting a miss: a change the author
-  meant, or declined with a reason, is none. Count each comment once, and
-  check that a fix the review cites is still on the default branch. The
-  count takes every addressed comment, not only issues raised in at least
-  two PRs: that filter picks which comments become review rules
-  ([preparing-a-repository.md](dokimi/docs/preparing-a-repository.md#6-review-rules-learned-from-past-reviews)),
-  while the count asks what the guidance would have caught. To measure it
-  instead, replay the merged pull requests as `dokimi:review_replay` tasks
-  and compare `guidance:none` with `guidance:raw` in step 4.
-- **A rule the review proposes:** read every file it names; that the name
-  exists is not enough (a workflow that calls another one holds no matrix of
-  its own). Check it against the existing guidance: a nested `AGENTS.md` may
-  keep old code on purpose. Put what applies to one directory in that
-  directory's file.
-
-The contract a repository codes against: [repo-evaluation-contract.md](dokimi/docs/repo-evaluation-contract.md).
-
-## Developing dokimi
-
-```bash
-make benchmark-run    # delegates into dokimi/ (see its README)
-make test             # runs the dokimi test suite
-```
-
-For the framework's quickstart, CLI surface, and architecture, see
-[`dokimi/README.md`](dokimi/README.md).
-
-## Where to start reading
-
-The **Documentation** links at the top go to the published site and its CLI and API
-reference. The hand-written pages can also be read on GitHub under
-[`dokimi/docs/`](dokimi/docs/README.md).
-
-| You want to understand… | Read |
+| To… | Read |
 |---|---|
-| Why the project exists and where it is going | [`VISION.md`](VISION.md) |
-| Why measure context at all, and what an arm is | [`dokimi/docs/README.md`](dokimi/docs/README.md) |
-| How to point the framework at your own questions, tasks and skills | [`dokimi/docs/external-content.md`](dokimi/docs/external-content.md) |
-| How the measurement engine works | [`dokimi/docs/architecture.md`](dokimi/docs/architecture.md) |
-| How to run an evaluation end to end | [`dokimi/docs/quickstart.md`](dokimi/docs/quickstart.md) |
-| How to compare treatment arms (docs / skills / profiles) | [`dokimi/docs/evaluating-treatments.md`](dokimi/docs/evaluating-treatments.md) |
-| How coding agents are run against executable Docker tasks | [`dokimi/docs/coding-harnesses.md`](dokimi/docs/coding-harnesses.md) |
-| What a skill actually adds to a model, and what can be cut | [`dokimi/docs/skill-novelty.md`](dokimi/docs/skill-novelty.md) |
-| How a whole repository is evaluated as a subject | [`dokimi/docs/repo-evaluation-contract.md`](dokimi/docs/repo-evaluation-contract.md) |
-| What products are registered | [`dokimi/dokimi/products.yaml`](dokimi/dokimi/products.yaml) |
-| What user problems map to which product | [`dokimi/dokimi/intents.yaml`](dokimi/dokimi/intents.yaml) |
-| What changed in each release | [`dokimi/CHANGELOG.md`](dokimi/CHANGELOG.md) |
+| Review a skill or a repository's agent setup, cheapest step first | [Reviewing a skill or a repository](dokimi/docs/reviewing.md) |
+| See everything Dokimi measures (arms, novelty, repositories) | [What Dokimi measures](dokimi/docs/what-it-measures.md) |
+| Run an evaluation end to end | [Quickstart](dokimi/docs/quickstart.md) |
+| Point it at your own questions, tasks and skills | [External content](dokimi/docs/external-content.md) |
+| Understand why the project exists | [`VISION.md`](VISION.md) |
+
+All code, tests and CI live in [`dokimi/`](dokimi/); its
+[README](dokimi/README.md) covers development. Evaluation content (skills,
+tasks, question sets) lives in its own repositories and is passed in by path.
 
 ## License
 
