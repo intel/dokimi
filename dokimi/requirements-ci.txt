@@ -9,7 +9,7 @@
 # the static job, which installs no other lock.
 ruff==0.17.0
 zizmor==1.30.1
-pre-commit==4.6.2
+pre-commit==4.7.0
 bandit==1.9.4
 pip-audit==2.10.1
 mypy==2.4.0
@@ -20,5 +20,8 @@ types-jsonschema
 deptry==0.25.1
 diff-cover
 build
+# The build backend ([build-system] in pyproject.toml): package-smoke and the release job
+# build with --no-isolation, so setuptools comes from this lock, hashed, not from PyPI.
+setuptools
 twine
 uv==0.13.4

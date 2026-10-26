@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/repo_budget.v1.json",
+  "title": "Repository context budget v1",
+  "description": "What a repository puts into an agent's context before any run, in characters, from the tree alone: no LLM call (docs/repo-evaluation-contract.md, `repo budget`). One entry per file, or per skill listing and skill body, tagged with when the harness loads it: `start` (every model call pays for it), `lazy` (when the agent works in that subtree), `on demand` (when the agent invokes the skill) or `off` (a file the harness will not read). `totals` sums `chars` by `when`. Characters, not tokens: the token cost depends on the model.",
+  "type": "object",
+  "required": ["schema_version", "tree", "entries", "totals", "skills", "duplicate_skills", "mcp_servers", "warnings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "repo_budget.v1"},
+    "tree": {"type": "string", "description": "Label of the inspected tree."},
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "kind", "when", "chars"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {"type": "string"},
+          "kind": {"enum": ["guidance", "import", "skill listing", "skill body"], "description": "`import` is a file a CLAUDE.md or AGENTS.md `@import`s; a skill has a `skill listing` entry unless it is hidden from the model, and always a `skill body` entry."},
+          "when": {"enum": ["start", "lazy", "on demand", "off"]},
+          "chars": {"type": "integer", "minimum": 0, "description": "Characters in context; 0 for an unreadable file, which is also named in `warnings`."}
+        }
+      }
+    },
+    "totals": {
+      "type": "object",
+      "required": ["start", "lazy", "on demand", "off"],
+      "additionalProperties": false,
+      "properties": {
+        "start": {"type": "integer", "minimum": 0},
+        "lazy": {"type": "integer", "minimum": 0},
+        "on demand": {"type": "integer", "minimum": 0},
+        "off": {"type": "integer", "minimum": 0}
+      },
+      "description": "Sum of the entries' `chars` per `when`."
+    },
+    "skills": {"type": "integer", "minimum": 0, "description": "Project skills found, listed or not."},
+    "duplicate_skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["a", "b", "overlap"],
+        "additionalProperties": false,
+        "properties": {
+          "a": {"type": "string", "description": "Skill name; its path when two skills share a name."},
+          "b": {"type": "string"},
+          "overlap": {"type": "number", "minimum": 0, "maximum": 1, "description": "Jaccard index of the two descriptions' words with stop words removed, rounded to two places."}
+        }
+      },
+      "description": "Pairs of listed skills with near-duplicate descriptions; the agent picks between them from the listing alone."
+    },
+    "mcp_servers": {"type": "array", "items": {"type": "string"}, "description": "Server names in the root .mcp.json, sorted; their tools are listed by the server at start-up and not counted."},
+    "warnings": {"type": "array", "items": {"type": "string"}, "description": "What `repo budget --fail-on-warning` gates on: unreadable files, skills with no description, near-duplicate skills, AGENTS.md files turned off, imports past the harness's hop limit."}
+  }
+}

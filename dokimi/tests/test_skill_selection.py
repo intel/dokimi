@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace as NS
 
@@ -100,6 +101,8 @@ def test_selection_summary_scores_hits_misroutes_and_false_triggers():
     assert s["recall"] == 0.5
     assert s["misroute_rate"] == 0.25
     assert s["false_trigger_rate"] == 0.5
+    # Loaded on 4 of 6: two hits, one misroute, one false trigger.
+    assert s["precision"] == 0.5
     assert s["selection_accuracy"] == round(3 / 6, 3)
     assert s["confusion"]["linux-perf"] == {"linux-perf": 1, "onetbb-quickstart": 1, "(none)": 1}
     assert s["confusion"]["(none)"] == {"(none)": 1, "linux-perf": 1}
@@ -116,7 +119,7 @@ def test_report_renders_selection_table():
         "skill_selection_summary": summarize_skill_selection([_rec("a", "a"), _rec(None, "a")]),
     })
     assert "## Skill selection" in md
-    assert "| `cat` | 50% | 100% | 100% | 0% | 0% | 100% | 1/1 | 2 | 0 |" in md
+    assert "| `cat` | 50% | 100% | 50% | 100% | 0% | 0% | 100% | 1/1 | 2 | 0 |" in md
 
 
 # ── trigger set ──────────────────────────────────────────────────────────
@@ -251,6 +254,57 @@ def test_trigger_set_cli_rejects_a_label_path_that_never_resolves(tmp_path, cata
                   "--questions", f"{qfile}=@metadata.skil_under_test", "--out", str(tmp_path / "o.json")])
 
 
+@pytest.mark.parametrize(
+    "content, reason",
+    [
+        (None, "No such file"),
+        ("{not json", "Expecting"),
+        (b'["\xe9"]', "utf-8"),  # \xe9 is latin-1, not UTF-8
+        (..., "Is a directory|Permission denied|Access is denied"),
+    ],
+    ids=["missing", "malformed", "not-utf8", "directory"],
+)
+def test_trigger_set_exits_2_with_a_message_on_an_unreadable_questions_file(
+    tmp_path, catalog, monkeypatch, capsys, content, reason
+):
+    from dokimi import cli
+
+    qfile = tmp_path / "q.json"
+    if content is ...:
+        qfile.mkdir()
+    elif isinstance(content, str):
+        qfile.write_text(content, encoding="utf-8")
+    elif content is not None:
+        qfile.write_bytes(content)
+    out = tmp_path / "o.json"
+    monkeypatch.setattr("sys.argv", ["dokimi", "catalog", "trigger-set", "--catalog", str(catalog),
+                                     "--questions", f"{qfile}=none", "--out", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2  # bad input; 1 is the verdict of the gates
+    err = capsys.readouterr().err
+    prefix = f"Error: --questions {qfile}: "
+    assert err.startswith(prefix)
+    assert len(err.strip()) > len(prefix)
+    assert re.search(reason, err)
+    assert err.count(qfile.name) == 1  # the path is named once, by the prefix
+    assert not out.exists()
+
+
+def test_read_json_input_reports_a_json_recursion_error_as_an_input_error(tmp_path, monkeypatch):
+    from dokimi.utils import InputError, read_json_input
+
+    qfile = tmp_path / "q.json"
+    qfile.write_text("[]", encoding="utf-8")
+
+    def too_deep(_text):
+        raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
+
+    monkeypatch.setattr("json.loads", too_deep)  # CPython 3.14 parses 100k levels, so it cannot trigger this
+    with pytest.raises(InputError, match="--questions .*q.json: maximum recursion depth exceeded"):
+        read_json_input(qfile, flag="--questions")
+
+
 def test_skill_catalog_rejects_tool_name_collisions_and_long_names(tmp_path):
     root = tmp_path / "c"
     _write_skill(root, "a-b", "first")
@@ -376,7 +430,7 @@ def test_combined_arm_rejects_duplicate_tools(catalog):
 def test_report_renders_dash_for_missing_rates():
     md = render_arms_report({"arms": ["cat"], "answers": [],
                              "skill_selection_summary": summarize_skill_selection([_rec(None, None)])})
-    assert "| `cat` | 100% | — | — | — | — | 0% | 0/1 | 1 | 0 |" in md
+    assert "| `cat` | 100% | — | — | — | — | — | 0% | 0/1 | 1 | 0 |" in md
 
 
 def _qfile(tmp_path, name, rows):
@@ -674,3 +728,11 @@ def test_loading_the_whole_catalog_in_one_turn_is_not_a_hit(catalog):
     assert (s["recall"], s["misroute_rate"], s["recall_any"]) == (0.0, 1.0, 1.0)
     assert s["mean_first_turn_loads"] == 3.0
     assert s["confusion"] == {"linux-perf": {"dpnp-io+linux-perf+onetbb-quickstart": 1}}
+
+
+def test_selection_precision_is_none_when_nothing_loaded_and_strict_on_multi_load():
+    assert summarize_skill_selection([_rec("a", None), _rec(None, None)])["cat"]["precision"] is None
+    rec = _rec("a", "a")
+    rec["arms"]["cat"]["tool_usage"]["skill"]["first_turn_loaded"] = ["a", "b"]
+    s = summarize_skill_selection([rec, _rec("a", "a")])["cat"]
+    assert (s["precision"], s["recall_any"]) == (0.5, 1.0)

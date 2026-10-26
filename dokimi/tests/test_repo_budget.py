@@ -56,6 +56,7 @@ def _by_path(payload):
     return {(e["path"], e["kind"]): e for e in payload["entries"]}
 
 
+@pytest.mark.outcome("cjm-repo-budget")
 def test_root_guidance_starts_nested_is_lazy(tmp_path):
     tree = _tree(tmp_path, {"AGENTS.md": "a" * 100, "src/AGENTS.md": "b" * 40, "README.md": "x"})
     got = budget(tree, NAMES)
@@ -205,6 +206,7 @@ def test_a_link_to_a_loaded_file_is_not_counted_again(tmp_path):
     assert got["totals"]["off"] == 0 and got["warnings"] == []
 
 
+@pytest.mark.outcome("cjm-repo-budget")
 def test_skill_listing_starts_body_on_demand(tmp_path):
     tree = _tree(tmp_path, {".claude/skills/fmt/SKILL.md": _skill("fmt", "Format code.", "x" * 50)})
     got = budget(tree, NAMES)
@@ -285,6 +287,7 @@ def test_identical_two_word_descriptions_are_duplicates(tmp_path):
     assert budget(tree, NAMES)["duplicate_skills"] == [{"a": "one", "b": "two", "overlap": 1.0}]
 
 
+@pytest.mark.outcome("cjm-repo-budget")
 def test_gate_passes_a_clean_tree(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, ".claude/skills/a/SKILL.md": _skill("a", "Format Python code.")})
     out = _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys).out  # no SystemExit
@@ -298,6 +301,7 @@ def _run(argv, capsys):
     return capsys.readouterr()
 
 
+@pytest.mark.outcome("cjm-repo-budget")
 def test_cli_table_and_gate(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, "AGENTS.md": "a" * 10, ".mcp.json": '{"mcpServers": {"docs": {}}}'})
     with pytest.raises(SystemExit) as exc:
@@ -320,14 +324,15 @@ def test_cli_json_and_bad_source(tmp_path, capsys):
     assert exc.value.code == 1
 
 
+@pytest.mark.outcome("cjm-repo-budget")
 def test_cli_out_writes_the_inventory(tmp_path, capsys):
     _tree(tmp_path, {"AGENTS.md": "a"})
     dest = tmp_path / "budget.json"
     out = _run(["repo", "budget", str(tmp_path), "--out", str(dest)], capsys).out
     assert json.loads(dest.read_text(encoding="utf-8"))["totals"]["start"] == 1
     assert "| start | guidance | AGENTS.md | 1 |" in out  # the table still prints
-    with pytest.raises(SystemExit) as exc:
-        _run(["repo", "budget", str(tmp_path), "--out", str(tmp_path / "no" / "dir" / "b.json")], capsys)
+    with pytest.raises(SystemExit) as exc:  # a parent that is a file cannot become a directory
+        _run(["repo", "budget", str(tmp_path), "--out", str(tmp_path / "AGENTS.md" / "b.json")], capsys)
     assert exc.value.code == 1
 
 
@@ -918,6 +923,13 @@ def test_a_git_import_through_an_escaping_directory_link_is_refused(tmp_path, li
     with pytest.raises(SourceError, match="escapes"):
         tree.read_text("docs/a.md")
     assert not any(e["kind"] == "import" for e in budget(tree, NAMES)["entries"])
+
+
+def test_a_git_path_that_climbs_out_after_a_directory_link_is_refused(tmp_path):
+    """``docs -> real`` stays in the tree, but ``docs/../../x.md`` then climbs out of it."""
+    tree = _linked_repo(tmp_path, {"real/x.md": "x"}, {"docs": "real"})
+    with pytest.raises(SourceError, match="escapes the repository"):
+        tree.read_text("docs/../../x.md")
 
 
 def test_a_cut_import_another_chain_loaded_through_a_link_is_not_warned(tmp_path):

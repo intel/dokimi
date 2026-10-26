@@ -202,7 +202,7 @@ The default static benchmark is configured in `benchmarks/spec.v1.yaml` and curr
 | `readability` | Estimates text readability with a Flesch-Kincaid-style score. |
 | `example_pass_rate` | Executes supported fenced code examples in isolation. |
 
-Weights are normalized across enabled metrics. The benchmark also supports soft gates, hard gates, critical bands, and regression thresholds. Hard gates and critical bands are enforced only when `--strict` is passed.
+Weights are normalized across enabled metrics. The benchmark also supports soft gates, hard gates, critical bands, and regression thresholds. Hard gates and critical bands are enforced only when `--strict` is passed. `--strict` also exits 1 when no document was measured.
 
 ## LLM and treatment evaluation workflow
 

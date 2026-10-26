@@ -89,6 +89,7 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert raw["model_resolved"] == ["m-1"] and summary["model_mismatch"] == {}
 
 
+@pytest.mark.outcome("cjm-model-answered")
 def test_a_run_answered_by_another_model_is_recorded_and_reported(setup, monkeypatch, capsys):
     # The record must carry what the harness reported, not the request, or the mismatch warning never fires.
     monkeypatch.setenv("FAKE_ANSWER_MODEL", "m-0")
@@ -254,7 +255,7 @@ def test_timed_out_cell_counts_toward_batch_budget(setup, monkeypatch, capsys):
         _run(setup, "--arm", "guidance:raw", "--task", "fix_add", "--reps", "2", "--timeout", "2",
              "--budget", "0.5", "--max-batch-usd", "0.01")
     assert exc.value.code == 1
-    assert "1 ran" in (out := capsys.readouterr().out) and "1 not started (batch budget); $0.5000" in out
+    assert "1 ran" in (out := capsys.readouterr().out) and "1 not started (batch budget), 0 unsupported; $0.5000" in out
     rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
     assert rec["agent"]["cost_usd"] is None and rec["agent"]["charged_usd"] == 0.5
     assert _report(setup)["rows"][0]["cost_unknown"] == 1

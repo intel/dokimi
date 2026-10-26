@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -170,6 +171,38 @@ def test_headings_are_offered_only_as_self_derived_queries():
     assert headings_as_queries(body) == ["Recording a profile", "Reading the report"]
 
 
+@pytest.mark.parametrize("fence", ["```", "~~~"])
+def test_a_heading_inside_a_code_fence_is_not_a_query(fence):
+    # A shell comment such as "## Not a heading" is a line of code, not a request.
+    body = (f"# Title\n\n## Recording a profile\n\n{fence}bash\n## Not a heading here\n"
+            f"perf record\n{fence}\n\n## Reading the report\n")
+    assert headings_as_queries(body) == ["Recording a profile", "Reading the report"]
+
+
+def test_a_bare_hash_line_does_not_take_the_next_line_as_its_heading():
+    # "\s+" matched the newline, so "##" followed by "foo bar" read as the heading "foo bar".
+    assert headings_as_queries("##\nfoo bar\n") == []
+
+
+def test_a_fence_closes_only_on_its_own_character_and_length():
+    body = "````md\n```\n## Still inside\n````\n## Real one here\n"
+    assert headings_as_queries(body) == ["Real one here"]
+
+
+@pytest.mark.parametrize("fence", ["```", "~~~"])
+@pytest.mark.parametrize("open_indent", range(4))
+@pytest.mark.parametrize("close_indent", range(4))
+def test_a_fence_indented_up_to_three_spaces_opens_and_closes(fence, open_indent, close_indent):
+    # Fences in list items are indented; an indented closer must still end the block.
+    body = (f"{' ' * open_indent}{fence}\n## Hidden heading one\n"
+            f"{' ' * close_indent}{fence}\n## Real heading one\n")
+    assert headings_as_queries(body) == ["Real heading one"]
+
+
+def test_a_tab_after_the_hashes_still_makes_a_heading():
+    assert headings_as_queries("##\tTab heading words\n") == ["Tab heading words"]
+
+
 def _parse(*argv):
     return build_parser().parse_args(list(argv))
 
@@ -250,6 +283,7 @@ def test_self_derived_queries_are_stamped_on_the_result(tmp_path, capsys):
                   "--queries-from-headings", "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["status"] == "ok"
     assert payload["queries_self_derived"] is True
     assert "model" not in payload                      # no --model, no spend
     captured = capsys.readouterr()
@@ -449,7 +483,9 @@ def test_a_query_file_that_is_not_strings_is_refused_but_a_missing_one_is_not_ma
 def test_the_catalog_leaves_out_the_names_it_is_told_to(tmp_path):
     _skill(tmp_path, "perf", "profile a slow binary with perf")
     _skill(tmp_path, "xpu", "profile a slow GPU kernel")
-    assert [c.name for c in catalog_competitors(str(tmp_path), {"perf"})] == ["xpu"]
+    # a card is what the model chooses by: its description, not only its name
+    assert [(c.name, c.description) for c in catalog_competitors(str(tmp_path), {"perf"})] == [
+        ("xpu", "profile a slow GPU kernel")]
     with pytest.raises(ValueError, match="not a directory"):
         catalog_competitors(str(tmp_path / "nope"), set())
 
@@ -473,3 +509,430 @@ def test_catalog_competitors_with_name_in_competitors_excludes_it_from_catalog(t
     assert names.count("perf") == 0, "perf should be excluded from catalog"
     assert set(names) == {"xpu", "cache"}, f"Expected xpu and cache, got {names}"
 
+
+
+def _answer_as(name: str):
+    """A transport reply that picks the card called ``name``, wherever it is shown."""
+    def reply(prompt: str) -> str:
+        lines = prompt.split("TOOLS:", 1)[1].strip().splitlines()
+        return json.dumps({"pick": next(i + 1 for i, line in enumerate(lines)
+                                        if line.split(" ", 1)[1].startswith(name))})
+    return reply
+
+
+@pytest.mark.parametrize("reply", [
+    "I think the best one is the third.", '{"pick": 0}', '{"pick": 999}',
+])
+def test_a_declined_reply_is_recorded_verbatim(reply):
+    client = LLMClient(model="m", role="selector", transport=lambda p, s: (reply, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert row["abstained"] is True
+    assert row["raw_reply"] == reply
+
+
+def test_a_very_long_declined_reply_is_cut_at_the_recording_limit():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: ("x" * 5000, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert len(row["raw_reply"]) == 2000
+
+
+def test_a_long_declined_reply_keeps_its_head_not_its_tail():
+    reply = "a" * 2000 + "b" * 3000
+    client = LLMClient(model="m", role="selector", transport=lambda p, s: (reply, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert row["raw_reply"] == reply[:2000]
+
+
+def test_repeats_below_one_are_refused():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: (json.dumps({"pick": 1}), None))
+    with pytest.raises(ValueError, match="at least 1"):
+        model_routing([PERF, TBB], ["q1"], client=client, repeats=0)
+
+
+def test_one_repeat_has_no_noise_block():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: (json.dumps({"pick": 1}), None))
+    result = model_routing([PERF, TBB], ["q1", "q2"], client=client)
+    assert (result["repeats"], result["noise"]) == (1, None)
+    assert [row["repeat"] for row in result["per_query"]] == [0, 0]
+
+
+def test_noise_reports_each_query_s_agreement_and_the_spread_between_repeats():
+    # Query 1 is answered PERF, PERF, TBB; query 2 is PERF three times. Calls run query by
+    # query, repeat by repeat, so this script is the order the model is asked in.
+    script = iter([PERF.name, PERF.name, TBB.name, PERF.name, PERF.name, PERF.name])
+
+    def transport(prompt: str, system: str | None):
+        return _answer_as(next(script))(prompt), None
+
+    client = LLMClient(model="m", role="selector", transport=transport)
+    result = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=3)
+    noise = result["noise"]
+    assert result["repeats"] == 3
+    assert [q["modal_pick"] for q in noise["per_query"]] == [PERF.name, PERF.name]
+    assert noise["per_query"][0]["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+    assert noise["per_query"][1]["agreement"] == 1.0
+    assert noise["per_query"][0]["n_correct"] == 2
+    assert noise["unstable_queries"] == 1
+    # Repeat 2 gets query 1 wrong: the rate goes 1.0, 1.0, 0.5, so the half range is 0.25.
+    assert noise["selection_rate_by_repeat"] == [1.0, 1.0, 0.5]
+    assert noise["half_range"] == 0.25
+    assert [row["repeat"] for row in result["per_query"]] == [0, 1, 2, 0, 1, 2]
+
+
+def test_a_query_that_failed_on_every_repeat_has_no_agreement_to_report():
+    def transport(prompt: str, system: str | None):
+        raise RuntimeError("provider down")
+
+    client = LLMClient(model="m", role="selector", transport=transport)
+    noise = model_routing([PERF, TBB], ["q1"], client=client, repeats=2)["noise"]
+    assert noise == {
+        "mean_agreement": None, "unstable_queries": 0,
+        "selection_rate_by_repeat": [None, None], "half_range": None,
+        "n_queries_compared": 0,
+        "per_query": [{"query": "q1", "modal_pick": None, "agreement": None, "picks": [],
+                       "n_correct": 0}],
+    }
+
+
+def _completions(monkeypatch, tmp_path, replies: list[str]) -> list[list[dict]]:
+    """Route the real default transport into scripted completions, with the cache on."""
+    import litellm
+
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "responses"))
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    asked: list[list[dict]] = []
+
+    def completion(model, messages, api_key=None, **kw):
+        reply = replies[min(len(asked), len(replies) - 1)]
+        asked.append(messages)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=reply),
+                                     finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+
+    monkeypatch.setattr(litellm, "completion", completion)
+    return asked
+
+
+def test_with_the_response_cache_on_each_repeat_is_asked_again(monkeypatch, tmp_path):
+    # Identical prompts: without a draw index the cache would replay the first reply and
+    # every repeat would agree by construction, reporting a noise floor of zero.
+    asked = _completions(monkeypatch, tmp_path,
+                         [json.dumps({"pick": 1}), json.dumps({"pick": 2}),
+                          json.dumps({"pick": 3})])
+    client = LLMClient(model="m", provider="openai", role="selector")
+    result = model_routing([PERF, TBB, MKL], ["q1"], client=client, repeats=3)
+    assert result["n_failed"] == 0          # a refused draw would read as zero calls
+    assert len(asked) == 3
+    assert [row["picked_at"] for row in result["per_query"]] == [1, 2, 3]
+
+
+def test_a_repeat_run_through_the_cli_writes_the_noise_block(tmp_path, monkeypatch, capsys):
+    import dokimi.commands.novelty as novelty
+
+    def answer(prompt: str) -> str:
+        return _answer_as("perf")(prompt)
+
+    monkeypatch.setattr(
+        novelty, "_client",
+        lambda model, provider, role, args: LLMClient(
+            model=model, role=role, transport=lambda p, s: (answer(p), None)),
+    )
+    artifact = _skill(tmp_path, "perf", "record and annotate a perf profile")
+    competitor = _skill(tmp_path, "tbb", "parallelize C++ loops with task groups")
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["record a perf profile", "profile my binary"]),
+                       encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing", "--artifact", artifact, "--competitors", competitor,
+                  "--queries", str(queries), "--model", "m", "--repeats", "2",
+                  "--out", str(out))
+    args.func(args)
+    model = json.loads(out.read_text(encoding="utf-8"))["model"]
+    assert model["repeats"] == 2
+    assert model["noise"]["selection_rate_by_repeat"] == [1.0, 1.0]
+    assert model["noise"]["half_range"] == 0.0
+    assert "noise    2 repeats per query" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("repeats", ["2", "3"])
+def test_repeats_without_a_model_are_refused_on_the_cli(tmp_path, repeats):
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--repeats", repeats, "--out", str(out))
+    with pytest.raises(SystemExit, match="needs --model"):
+        args.func(args)
+    assert not out.exists()
+
+
+def test_a_declining_model_is_named_on_the_cli_with_where_its_replies_are(
+        tmp_path, monkeypatch, capsys):
+    import dokimi.commands.novelty as novelty
+
+    monkeypatch.setattr(
+        novelty, "_client",
+        lambda model, provider, role, args: LLMClient(
+            model=model, role=role,
+            transport=lambda p, s: ("I would rather not choose.", None)),
+    )
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["record a perf profile"]), encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "perf", "record and annotate a perf profile"),
+                  "--competitors", _skill(tmp_path, "tbb", "parallelize C++ loops"),
+                  "--queries", str(queries), "--model", "m", "--out", str(out))
+    args.func(args)
+    model = json.loads(out.read_text(encoding="utf-8"))["model"]
+    assert model["per_query"][0]["raw_reply"] == "I would rather not choose."
+    assert "1 abstained or unparseable" in capsys.readouterr().out
+
+
+class _Boom(Exception):
+    pass
+
+
+def _scripted(script):
+    """A selector whose n-th call answers a card name, abstains ("-"), or fails ("!")."""
+    calls = iter(script)
+
+    def transport(prompt: str, system: str | None):
+        step = next(calls)
+        if step == "!":
+            raise _Boom("provider down")
+        if step == "-":
+            return json.dumps({"pick": 0}), None
+        return _answer_as(step)(prompt), None
+
+    return LLMClient(model="m", role="selector", transport=transport)
+
+
+def test_a_failed_repeat_is_not_reported_as_sampling_noise():
+    # q1 is wrong in both repeats. q2 fails in repeat 0 and is right in repeat 1. Per-repeat
+    # rates over each repeat's own answered rows would be [0.0, 0.5]: a half range of 0.25
+    # from an error, not from the model.
+    client = _scripted([TBB.name, TBB.name, "!", PERF.name])
+    noise = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=2)["noise"]
+    assert noise["selection_rate_by_repeat"] == [0.0, 0.0]
+    assert noise["half_range"] == 0.0
+    assert noise["n_queries_compared"] == 1
+
+
+def test_noise_counts_an_abstention_as_a_pick_and_an_error_as_no_answer():
+    # One query, three repeats: PERF, abstained, failed. Agreement is over the two answered
+    # repeats (1/2), not the three calls (1/3), and the abstention has its own label.
+    client = _scripted([PERF.name, "-", "!"])
+    noise = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"]
+    (query,) = noise["per_query"]
+    assert query["picks"] == [PERF.name, "(abstained)"]
+    assert query["agreement"] == 0.5
+    assert noise["mean_agreement"] == 0.5 and noise["unstable_queries"] == 1
+    assert noise["n_queries_compared"] == 0
+    assert noise["selection_rate_by_repeat"] == [None, None, None]
+    assert noise["half_range"] is None
+
+
+def test_the_output_counts_calls_and_the_noise_means_each_agreement():
+    # q1: PERF, PERF, TBB (agreement 2/3). q2: PERF three times (agreement 1.0).
+    client = _scripted([PERF.name, PERF.name, TBB.name, PERF.name, PERF.name, PERF.name])
+    result = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=3)
+    assert result["n_calls"] == 6  # queries x repeats, not queries
+    assert result["noise"]["mean_agreement"] == pytest.approx(5 / 6, abs=1e-3)  # the mean of 2/3 and 1.0, not the max
+
+
+def test_a_failed_call_elsewhere_does_not_change_the_rate_of_the_complete_queries():
+    # q1 is right in both repeats; q2 fails once. The rate is over the complete queries only
+    # (q1), so 1.0 in each repeat; dividing by all queries would give 0.5.
+    client = _scripted([PERF.name, PERF.name, "!", TBB.name])
+    noise = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=2)["noise"]
+    assert noise["selection_rate_by_repeat"] == [1.0, 1.0]
+    assert noise["n_queries_compared"] == 1
+
+
+def test_an_abstention_can_be_the_modal_pick():
+    client = _scripted(["-", "-", PERF.name])
+    (query,) = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"][
+        "per_query"]
+    assert query["modal_pick"] == "(abstained)"
+    assert query["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+
+
+def test_the_modal_pick_is_the_most_frequent_not_the_first():
+    client = _scripted([TBB.name, PERF.name, PERF.name])
+    (query,) = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"][
+        "per_query"]
+    assert query["modal_pick"] == PERF.name
+    assert query["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+
+
+def test_a_single_usable_repeat_has_no_half_range():
+    from dokimi.novelty.routing import _noise
+
+    noise = _noise([[{"query": "q", "repeat": 0, "picked": PERF.name, "correct": True}]])
+    assert noise["selection_rate_by_repeat"] == [1.0]
+    assert noise["half_range"] is None
+
+
+def test_headings_inside_code_only_refuse_the_run_and_say_why(tmp_path):
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary",
+                                       body="```\n## only in code\n```\n"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries-from-headings", "--out", str(out))
+    with pytest.raises(SystemExit, match="code fences.*--queries"):
+        args.func(args)
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["status"] == "no_queries"
+    assert "code fences" in payload["reason"]
+
+
+def test_a_query_file_with_nothing_in_it_refuses_the_run(tmp_path):
+    queries = tmp_path / "q.txt"
+    queries.write_text("\n   \n", encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--out", str(out))
+    with pytest.raises(SystemExit, match="no non-blank query"):
+        args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["status"] == "no_queries"
+
+
+def test_queries_without_a_content_word_refuse_the_run(tmp_path):
+    queries = tmp_path / "q.txt"
+    queries.write_text("the of a\nhow do I\n", encoding="utf-8")
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--out", str(tmp_path / "routing.json"))
+    with pytest.raises(SystemExit, match="has a content word"):
+        args.func(args)
+
+
+def test_every_rate_line_carries_its_query_count_and_triage_tag(tmp_path, capsys):
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary",
+                                       body="# B\n\n## Recording a profile\n\n"
+                                            "## Reading the report\n"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries-from-headings", "--out", str(out))
+    args.func(args)
+    lines = capsys.readouterr().out.splitlines()
+    lexical = next(line for line in lines if line.startswith("lexical"))
+    assert "n_queries 2 of 2" in lexical
+    assert "triage: self-derived" in lexical
+
+
+def test_fewer_than_five_scored_queries_are_warned_about_on_stdout(tmp_path, capsys):
+    def run(count):
+        queries = tmp_path / f"q{count}.txt"
+        queries.write_text("\n".join(f"profile a binary run {i}" for i in range(count)),
+                           encoding="utf-8")
+        args = _parse("novelty", "routing",
+                      "--artifact", _skill(tmp_path, f"a{count}", "profile a binary"),
+                      "--competitors", _skill(tmp_path, f"b{count}", "tune a database"),
+                      "--queries", str(queries), "--out", str(tmp_path / f"r{count}.json"))
+        args.func(args)
+        return capsys.readouterr().out
+
+    assert "WARNING: only 2 queries scored" in run(2)
+    assert "WARNING: only 4 queries scored" in run(4)
+    assert "WARNING" not in run(5)
+
+
+@pytest.mark.parametrize("opener", ["```js `x`", "\t```"])
+def test_a_line_that_is_not_a_fence_does_not_hide_the_headings_after_it(opener):
+    # An info string with a backtick, or a tab indent, is not a fence by CommonMark's rules.
+    assert headings_as_queries(f"{opener}\n## Real heading one\n") == ["Real heading one"]
+
+
+@pytest.mark.parametrize("opener", ["~~strike~~ text", "``x`` text", "``x text"])
+def test_a_run_of_two_markers_is_not_a_fence(opener):
+    assert headings_as_queries(f"{opener}\n## Real heading one\n") == ["Real heading one"]
+
+
+def test_a_hash_run_without_a_space_is_not_a_heading():
+    assert headings_as_queries("##hashtag word\n") == []
+
+
+def test_a_four_space_indented_fence_is_indented_code_not_a_fence():
+    assert headings_as_queries("    ```\n## Real heading one\n") == ["Real heading one"]
+
+
+def test_a_tilde_line_does_not_close_a_backtick_block():
+    body = "```\n~~~\n## Hidden heading one\n```\n## Real heading one\n"
+    assert headings_as_queries(body) == ["Real heading one"]
+
+
+def test_a_fence_with_an_info_string_does_not_close_a_block():
+    body = "```\n```js\n## Hidden heading one\n```\n## Real heading one\n"
+    assert headings_as_queries(body) == ["Real heading one"]
+
+
+def _routing_with_model(tmp_path, monkeypatch, queries_text):
+    from dokimi.commands import novelty as novelty_cmd
+
+    calls = []
+
+    def transport(prompt, system):
+        calls.append(prompt)
+        return json.dumps({"pick": 1}), None
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model="fake", role=role, transport=transport))
+    queries = tmp_path / "q.txt"
+    queries.write_text(queries_text, encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary run"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--model", "m", "--out", str(out))
+    return args, calls
+
+
+def test_the_model_row_says_its_query_count_is_of_all_given(tmp_path, monkeypatch, capsys):
+    args, calls = _routing_with_model(tmp_path, monkeypatch,
+                                      "profile a binary run\nthe of a\nhow do I\n")
+    args.func(args)
+    lines = capsys.readouterr().out.splitlines()
+    lexical = next(line for line in lines if line.startswith("lexical"))
+    model = next(line for line in lines if line.startswith("model"))
+    assert "n_queries 1 of 3 given" in lexical
+    assert "n_queries 3 given" in model
+    assert len(calls) == 3
+
+
+def test_a_run_with_no_scorable_query_makes_no_model_call(tmp_path, monkeypatch):
+    args, calls = _routing_with_model(tmp_path, monkeypatch, "the of a\nhow do I\n")
+    with pytest.raises(SystemExit, match="no usable queries"):
+        args.func(args)
+    assert calls == []
+    assert json.loads((tmp_path / "routing.json").read_text())["status"] == "no_queries"
+
+
+def test_the_model_row_carries_the_triage_tag_on_self_derived_queries(tmp_path, monkeypatch,
+                                                                       capsys):
+    from dokimi.commands import novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model="fake", role=role, transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries-from-headings", "--model", "m",
+                  "--out", str(tmp_path / "routing.json"))
+    args.func(args)
+    model = next(line for line in capsys.readouterr().out.splitlines()
+                 if line.startswith("model"))
+    assert "triage: self-derived" in model

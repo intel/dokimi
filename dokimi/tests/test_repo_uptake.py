@@ -45,6 +45,10 @@ new file mode 100644
 +# src guidance
 """
 
+# Each half of KIT_PATCH alone: a server and no file an agent can use, and the reverse.
+SERVER_ONLY_PATCH = KIT_PATCH[KIT_PATCH.index("diff --git a/.mcp.json"):KIT_PATCH.index("diff --git a/sub/AGENTS.md")]
+FILE_ONLY_PATCH = KIT_PATCH[:KIT_PATCH.index("diff --git a/.mcp.json")]
+
 WS = "/eval/run/workspace"
 
 
@@ -75,6 +79,7 @@ def test_reads_and_calls_of_the_arms_mcp_servers_count_others_do_not():
     assert unmeasured["measured"] is False and unmeasured["used"] is False
 
 
+@pytest.mark.outcome("cjm-arm-uptake")
 def test_a_call_the_harness_denied_is_not_a_use():
     def use(i, name, args):
         return {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": i, "name": name, "input": args}]}}
@@ -172,6 +177,7 @@ def _run(s, batch, *arms, model="m-1"):
     args.func(args)
 
 
+@pytest.mark.outcome("cjm-arm-uptake")
 def test_repo_run_records_uptake_and_compare_warns_when_nothing_was_used(setup, monkeypatch):  # noqa: F811
     patch = setup["tmp"] / "kit.diff"
     patch.write_text(KIT_PATCH)
@@ -200,10 +206,25 @@ def test_repo_run_records_uptake_and_compare_warns_when_nothing_was_used(setup, 
     assert f"uptake: {arm} used what its arm added in 0/2 cell(s)" in format_compare(loud)
 
 
+@pytest.mark.parametrize("patch_text, files, servers, tool_use", [
+    (SERVER_ONLY_PATCH, [], ["code.graph"], ["mcp__code_graph__callers", {"symbol": "add"}]),
+    (FILE_ONLY_PATCH, ["tools/fmt"], [], ["Bash", {"command": "./tools/fmt src/calc.py"}]),
+])
+def test_a_patch_that_adds_only_a_server_or_only_a_file_records_its_uptake(
+        setup, monkeypatch, patch_text, files, servers, tool_use):  # noqa: F811
+    patch = setup["tmp"] / "half.diff"
+    patch.write_text(patch_text)
+    monkeypatch.setenv("FAKE_TOOL_USES", json.dumps([tool_use]))
+    _run(setup, "half", f"patch:{patch}")
+    uptake = json.loads(next((setup["out"] / "half").glob("*patch*__r1/result.json")).read_text())["uptake"]
+    assert (uptake["files"], uptake["mcp_servers"], uptake["used"]) == (files, servers, True)
+
+
 def _used_none(summary):
     return [w for w in summary["warnings"] if "used none" in w]
 
 
+@pytest.mark.outcome("cjm-arm-uptake")
 def test_an_agent_that_left_no_trace_is_unmeasured_one_that_called_no_tool_is_measured(setup, monkeypatch):  # noqa: F811
     patch = setup["tmp"] / "kit.diff"
     patch.write_text(KIT_PATCH)

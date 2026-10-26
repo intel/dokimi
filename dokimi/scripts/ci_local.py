@@ -20,9 +20,9 @@ Differences from CI, all printed as notices:
   windows-smoke, conda-forge-deps) run in a throwaway venv on a copy of the
   tracked tree instead, so the dev venv stays as CI's.
 - Every step runs even when an earlier one fails, so one failure does not hide
-  the next (CI stops a job's checks at its first failing step, except
-  `static`, whose steps after the install all run under
-  `if: ${{ !cancelled() }}`).
+  the next (CI stops a job's checks at its first failing step, except for
+  steps under `if: ${{ !cancelled() }}`: every step of `static` after the
+  install, and the deptry step of `typecheck`).
 - A matrix runs one leg: the dev venv's Python, standing in for the coverage
   leg too (`matrix.coverage` is true), so the changed-lines gate runs here. A
   notice says so when that is not the Python CI's single-version jobs use.

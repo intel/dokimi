@@ -9,7 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
@@ -21,11 +21,41 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 
 
+def _read_json(path: str):
+    """The parsed JSON at ``path``, or exit 2 (bad input, not a failed gate) naming the file."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError as exc:
+        print(f"Error: cannot read {path}: {exc}", file=sys.stderr)
+    except (ValueError, RecursionError) as exc:  # JSONDecodeError, bad UTF-8, deep nesting
+        print(f"Error: {path} is not valid JSON: {exc}", file=sys.stderr)
+    sys.exit(2)
+
+
+def _load_json_object(path: str, key: str, kind: type = dict) -> dict:
+    """The JSON object at ``path``, or exit 2 naming the file.
+
+    The object must also hold a ``kind`` (object or list) under ``key``.
+    """
+    data = _read_json(path)
+    if not isinstance(data, dict) or not isinstance(data.get(key), kind):
+        what = f"a JSON object with a `{key}` {'list' if kind is list else 'object'}"
+        print(f"Error: {path} is not {what}", file=sys.stderr)
+        sys.exit(2)
+    return data
+
+
+def _judge_name(doc: dict, path: str) -> str:
+    summary = doc.get("summary")
+    judge = summary.get("judge") if isinstance(summary, dict) else None
+    return judge if isinstance(judge, str) and judge else Path(path).stem
+
+
 def _load_answers(path: str):
     """The parsed file and its answers records (dokimi/records.py), or a clean exit."""
     from dokimi.records import RecordError, read
 
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    data = _read_json(path)
     try:
         answers = list(read(data, source=path, section="answers").records)
     except RecordError as exc:
@@ -218,7 +248,12 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     print(report.format_summary())
     if args.output:
         print(f"\n✅ Wording report saved to {out}")
-    if args.strict and report.summary()["fragile_variants"]:
+    summary = report.summary()
+    if args.strict and not summary["measured"]:
+        print(f"✗ incomplete: no pair scored under {', '.join(summary['unmeasured_conditions']) or 'any condition'} "
+              f"({len(pairs)} pairs, errors per condition: {summary['n_errors']})", file=sys.stderr)
+        sys.exit(1)
+    if args.strict and summary["fragile_variants"]:
         sys.exit(1)
 
 
@@ -331,6 +366,10 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             sys.exit(2)
         report.measures.append(m)
 
+    # Read every result file before the first judge call, so a bad path costs no paid calls.
+    pairwise = [(path, _load_json_object(path, "verdicts")) for path in args.pairwise or []]
+    checklists = [(path, _load_json_object(path, "questions", list)) for path in args.checklist or []]
+    validity = [_load_json_object(v, "summary")["summary"] for v in args.validity or []]
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     if specs:
         _require_arms(args.answers, records, "cross-judge --judges")
@@ -351,15 +390,10 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
                 concurrency=args.concurrency, progress=_progress(), ground_truth=grounding,
                 store=materials,
             ))
-    for path in args.pairwise or []:
-        pw = json.loads(Path(path).read_text(encoding="utf-8"))
-        name = (pw.get("summary") or {}).get("judge", Path(path).stem)
-        report.measures.append(pairwise_measure(pw, name, baseline))
-    for path in args.checklist or []:
-        ck = json.loads(Path(path).read_text(encoding="utf-8"))
-        name = (ck.get("summary") or {}).get("judge", Path(path).stem)
-        report.measures.append(coverage_measure(ck, name))
-    validity = [json.loads(Path(v).read_text(encoding="utf-8"))["summary"] for v in args.validity or []]
+    for path, pw in pairwise:
+        report.measures.append(pairwise_measure(pw, _judge_name(pw, path), baseline))
+    for path, ck in checklists:
+        report.measures.append(coverage_measure(ck, _judge_name(ck, path)))
     answers_model = data.get("model") if isinstance(data, dict) else None
     for v in validity:
         if v.get("answers_model") and answers_model and v["answers_model"] != answers_model:
@@ -380,7 +414,19 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     print()
     print(md)
     print(f"✅ Cross-judge report saved to {out} (+ .md)")
-    if args.strict and any(a["label"] == "JUDGE-DEPENDENT" for a in report.summary()["arms"].values()):
+    if args.strict:
+        _strict_cross_judge_exit(report.summary()["arms"], report.baseline_arm)
+
+
+def _strict_cross_judge_exit(arms: dict[str, dict[str, Any]], baseline_arm: str) -> None:
+    """Exit 1 when no arm was compared, an arm is NOT MEASURED, or an arm is JUDGE-DEPENDENT."""
+    unmeasured = sorted(a for a, r in arms.items() if r["label"] == "NOT MEASURED")
+    if not arms or unmeasured:
+        why = f"{len(unmeasured)} of {len(arms)} arm(s) NOT MEASURED: {', '.join(unmeasured)}" if arms else \
+            "no arm has a scored question to compare"
+        print(f"✗ incomplete against `{baseline_arm}`: {why}", file=sys.stderr)
+        sys.exit(1)
+    if any(a["label"] == "JUDGE-DEPENDENT" for a in arms.values()):
         sys.exit(1)
 
 
@@ -418,7 +464,8 @@ def register(eval_sub, positive_int) -> None:
                          "flag is a paired test against the original and does not use them (default: 1)")
     jw.add_argument("--seed", type=int, default=0)
     jw.add_argument("--min-accuracy", type=float, default=DEFAULT_MIN_ACCURACY, dest="min_accuracy")
-    jw.add_argument("--strict", action="store_true", help="Exit 1 when any variant is FRAGILE")
+    jw.add_argument("--strict", action="store_true",
+                    help="Exit 1 when any variant is FRAGILE or a condition has no scored pair")
     jw.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     jw.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     jw.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
@@ -456,7 +503,8 @@ def register(eval_sub, positive_int) -> None:
     cj.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
     cj.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY)
-    cj.add_argument("--strict", action="store_true", help="Exit 1 when any arm is JUDGE-DEPENDENT")
+    cj.add_argument("--strict", action="store_true",
+                    help="Exit 1 when any arm is JUDGE-DEPENDENT or NOT MEASURED, or no arm was compared")
     cj.add_argument("--output", default=None,
                     help="Output JSON (default: <answers>_crossjudge.json); Markdown written next to it")
     cj.set_defaults(func=cmd_eval_cross_judge)

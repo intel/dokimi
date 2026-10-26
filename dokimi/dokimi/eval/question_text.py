@@ -33,6 +33,11 @@ class EmptyQuestionError(ValueError):
     """
 
 
+class SessionRecordError(EmptyQuestionError):
+    """A multi-turn session record handed to a judge: its answer is the last turn's,
+    its question text the first turn's, so there is no question it answers."""
+
+
 def _label(record: Mapping[str, Any], index: Optional[int]) -> str:
     qid = question_id(dict(record))
     if qid is not None:
@@ -63,6 +68,11 @@ def has_answer_to_judge(record: Mapping[str, Any]) -> bool:
 
 def require_question_text(record: Mapping[str, Any], index: Optional[int] = None) -> str:
     """The record's question text; :class:`EmptyQuestionError` when it is missing or blank."""
+    if record.get("session_turns"):
+        raise SessionRecordError(
+            f"{_label(record, index)} is from a session run, which is measurement-only: a judge "
+            "would score its last answer against its first question"
+        )
     text = question_text_of(record)
     if text:
         return text

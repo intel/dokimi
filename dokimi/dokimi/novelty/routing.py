@@ -229,11 +229,15 @@ def _as_pick_position(value: object) -> int:
     return 0
 
 
+# A reply that declines to route is kept verbatim, up to this many characters.
+_RAW_REPLY_CHARS = 2000
+
+
 def model_routing(
     candidates: list[Candidate], queries: list[str], *, client: LLMClient, gold: int = 0,
-    seed: int = 0,
+    seed: int = 0, repeats: int = 1,
 ) -> dict:
-    """Ask a model to pick from the same cards, one call per query.
+    """Ask a model to pick from the same cards, ``repeats`` times per query.
 
     The candidate order is a seeded random permutation per query, so a model that always
     picks the first (or last) option scores about ``1/N`` rather than a figure set by how
@@ -242,14 +246,24 @@ def model_routing(
     second-to-last -- exactly the positions where primacy and recency bias are strongest.
     The permutation is recorded per query, so a result can be re-read or replayed.
 
+    Each query keeps one card order across its repeats, so the spread between repeats is
+    the model's own sampling noise rather than a change of layout. Each repeat is its own
+    sample (``draw``), so with the response cache on a repeat is not a replay.
+
     Returns:
-        ``selection_rate``, ``n_queries``, ``n_abstained``, ``n_failed``, the per-query pick
-        with the position the gold card was shown at, and the caveat that this bounds
-        harness behaviour from above.
+        ``selection_rate``, ``n_queries``, ``n_calls`` (queries x repeats; ``n_abstained`` and
+        ``n_failed`` count calls), ``n_abstained``, ``n_failed``, the per-query pick
+        with the position the gold card was shown at, the raw reply of every abstention or
+        unparseable pick, and the caveat that this bounds harness behaviour from above.
+        With ``repeats > 1``, ``noise`` holds each query's agreement across its repeats and
+        the run-to-run spread of the selection rate; it is ``None`` for one repeat.
     """
     if not 0 <= gold < len(candidates):
         raise ValueError(f"gold index {gold} is outside 0..{len(candidates) - 1}")
+    if repeats < 1:
+        raise ValueError(f"repeats must be at least 1, not {repeats}")
     picks: list[dict] = []
+    groups: list[list[dict]] = []
     for index_of_query, query in enumerate(queries):
         shuffler = random.Random(f"{seed}:{index_of_query}:{len(candidates)}")
         order = list(range(len(candidates)))
@@ -258,28 +272,36 @@ def model_routing(
             f"{position + 1}. {candidates[index].card}"
             for position, index in enumerate(order)
         )
-        try:
-            reply = client.text(
-                _SELECT_PROMPT.format(query=query, cards=cards),
-                accept=partial(_is_pick_reply, n_cards=len(order)),
-            )
-        except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
-            picks.append({"query": query, "picked": None, "error": str(exc)[:200]})
-            continue
-        # A reply that is not a usable pick is the model declining to route, not a
-        # transport failure: it stays in the denominator like an explicit abstention.
-        try:
-            raw = _as_pick_position(parse_json_object(reply).get("pick", 0))
-        except ValueError:
-            raw = 0
-        if raw < 1 or raw > len(order):
-            picks.append({"query": query, "picked": None, "abstained": True})
-            continue
-        chosen = order[raw - 1]
-        picks.append({"query": query, "picked": candidates[chosen].name,
-                      "correct": chosen == gold, "picked_at": raw,
-                      "gold_shown_at": order.index(gold) + 1,
-                      "order": [candidates[i].name for i in order]})
+        prompt = _SELECT_PROMPT.format(query=query, cards=cards)
+        group: list[dict] = []
+        for repeat in range(repeats):
+            base = {"query": query, "repeat": repeat}
+            try:
+                reply = client.text(
+                    prompt, accept=partial(_is_pick_reply, n_cards=len(order)), draw=repeat,
+                )
+            except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
+                row = {**base, "picked": None, "error": str(exc)[:200]}
+            else:
+                # A reply that is not a usable pick is the model declining to route, not a
+                # transport failure: it stays in the denominator like an explicit abstention,
+                # and its raw text is kept so the decline can be read rather than inferred.
+                try:
+                    raw = _as_pick_position(parse_json_object(reply).get("pick", 0))
+                except ValueError:
+                    raw = 0
+                if raw < 1 or raw > len(order):
+                    row = {**base, "picked": None, "abstained": True,
+                           "raw_reply": reply[:_RAW_REPLY_CHARS]}
+                else:
+                    chosen = order[raw - 1]
+                    row = {**base, "picked": candidates[chosen].name,
+                           "correct": chosen == gold, "picked_at": raw,
+                           "gold_shown_at": order.index(gold) + 1,
+                           "order": [candidates[i].name for i in order]}
+            picks.append(row)
+            group.append(row)
+        groups.append(group)
 
     answered = [p for p in picks if "correct" in p]
     hits = sum(1 for p in answered if p["correct"])
@@ -289,6 +311,8 @@ def model_routing(
         "model": client.model,
         "n_candidates": len(candidates),
         "n_queries": len(queries),
+        "repeats": repeats,
+        "n_calls": len(picks),
         "n_abstained": sum(1 for p in picks if p.get("abstained")),
         "n_failed": sum(1 for p in picks if p.get("error")),
         "seed": seed,
@@ -300,6 +324,7 @@ def model_routing(
         "selection_rate_among_answered": (
             round(hits / len(answered), 4) if answered else None
         ),
+        "noise": _noise(groups) if repeats > 1 else None,
         "per_query": picks,
         "note": (
             "An upper bound on harness behaviour, not a harness measurement: a harness "
@@ -309,13 +334,91 @@ def model_routing(
     }
 
 
+def _noise(groups: list[list[dict]]) -> dict:
+    """Agreement across the repeats of each query, and the run-to-run spread of the rate.
+
+    A query's agreement is the share of its answered repeats that gave its most common
+    pick; an abstention counts as a pick. ``selection_rate_by_repeat`` reads each repeat as
+    its own run over the same queries, and ``half_range`` is half the gap between the
+    highest and the lowest of those rates. It is a crude sampling noise floor: a few repeats
+    estimate it coarsely, and it says nothing about a change of cards or queries. The
+    per-repeat rates cover only the queries with no failed call in any repeat
+    (``n_queries_compared``), so a transient error does not read as noise.
+
+    Args:
+        groups: One list per query, holding that query's rows in repeat order.
+    """
+    per_query: list[dict] = []
+    for group in groups:
+        labels = [
+            "(abstained)" if row.get("abstained") else row["picked"]
+            for row in group if not row.get("error")
+        ]
+        modal, agreement = None, None
+        if labels:
+            modal, count = Counter(labels).most_common(1)[0]
+            agreement = round(count / len(labels), 4)
+        per_query.append({
+            "query": group[0]["query"],
+            "modal_pick": modal,
+            "agreement": agreement,
+            "picks": labels,
+            "n_correct": sum(1 for row in group if row.get("correct")),
+        })
+    repeats = len(groups[0]) if groups else 0
+    rates: list[float | None] = []
+    # Every repeat's rate is taken over the same queries: those with no failed call in any
+    # repeat. Dividing each repeat by its own non-errored rows would compare different
+    # denominators and report a transient provider error as sampling noise.
+    complete = [group for group in groups if not any(row.get("error") for row in group)]
+    for repeat in range(repeats):
+        rates.append(round(sum(1 for g in complete if g[repeat].get("correct")) / len(complete), 4)
+                     if complete else None)
+    known = [rate for rate in rates if rate is not None]
+    agreements = [row["agreement"] for row in per_query if row["agreement"] is not None]
+    return {
+        "mean_agreement": round(sum(agreements) / len(agreements), 4) if agreements else None,
+        "unstable_queries": sum(1 for a in agreements if a < 1),
+        "selection_rate_by_repeat": rates,
+        "n_queries_compared": len(complete),
+        "half_range": round((max(known) - min(known)) / 2, 4) if len(known) > 1 else None,
+        "per_query": per_query,
+    }
+
+
+# Only spaces indent a fence (a tab is four columns, so it makes indented code), and a
+# backtick opener may not carry a backtick in its info string; both are CommonMark rules.
+_FENCE = re.compile(r" {0,3}(`{3,}(?!.*`)|~{3,})")
+
+
+def _outside_fences(body: str) -> str:
+    """``body`` with its fenced code blocks removed, so a ``## comment`` in a shell block is
+    not read as a heading. A fence closes on the same character, at least as long, alone on
+    its line; an unclosed fence runs to the end of the body, as CommonMark has it.
+    """
+    kept: list[str] = []
+    opening: str | None = None
+    for line in body.splitlines():
+        fence = _FENCE.match(line)
+        if opening is None:
+            if fence:
+                opening = fence.group(1)
+            else:
+                kept.append(line)
+        elif (fence and fence.group(1)[0] == opening[0] and len(fence.group(1)) >= len(opening)
+              and not line.strip()[len(fence.group(1)):]):
+            opening = None
+    return "\n".join(kept)
+
+
 def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     """Section headings of an artifact, for triage only.
 
     Queries taken from the artifact let it define both the problem scope and its own
     relevance. Callers must stamp ``queries_self_derived`` on any result built from these.
+    Headings inside fenced code blocks are not headings, so they are not offered.
     """
-    headings = [h.strip() for h in re.findall(r"^#{2,3}\s+(.+)$", body, re.M)]
+    headings = [h.strip() for h in re.findall(r"^#{2,3}[ \t]+(.+)$", _outside_fences(body), re.M)]
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 

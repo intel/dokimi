@@ -142,6 +142,12 @@ def _pair(text: str) -> tuple[str, str]:
     return name, path
 
 
+def _progress(line: str) -> None:
+    """One progress line, flushed: under a pipe (CI) stdout is block-buffered and the per-task
+    lines would otherwise all appear when the command exits."""
+    print(line, flush=True)
+
+
 def _errors():
     from dokimi.repos import ManifestError, SourceError
     from dokimi.repos.container import ContainerError
@@ -162,7 +168,7 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
               file=sys.stderr)
-        results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs)
+        results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs, log=_progress)
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -173,6 +179,9 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         print(f"{len(allowed)} unsupported on this host, allowed by --allow-unsupported: "
               + ", ".join(r["task"] for r in allowed))
     if len(bad) > len(allowed):
+        sys.exit(1)
+    if len(bad) == len(results):  # --allow-unsupported passed every task by: none was checked
+        print(f"✗ incomplete: no task passed the self-check (0 ok, {len(allowed)} unsupported)", file=sys.stderr)
         sys.exit(1)
 
 
@@ -223,16 +232,21 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         print(f"{profile.name} {version} in {ctx.image}; {len(tasks)} task(s) x {len(arms)} arm(s) x "
               f"{len(options)} model(s) x {args.reps} rep(s) -> {batch_dir}", file=sys.stderr)
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
-                            max_batch_usd=args.max_batch_usd)
+                            max_batch_usd=args.max_batch_usd, log=_progress)
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     print(f"{summary['ran']} ran, {summary['skipped']} already done, {len(summary['errors'])} crashed, "
-          f"{summary['budget_stopped']} not started (batch budget); ${summary['spent_usd']:.4f}")
+          f"{summary['budget_stopped']} not started (batch budget), {summary['unsupported']} unsupported; "
+          f"${summary['spent_usd']:.4f}")
     if summary["probe_failed"]:
         print(f"✗ the host probe failed, so these tasks have cells that were not run: {', '.join(summary['probe_failed'])}",
               file=sys.stderr)
     if summary["errors"] or summary["budget_stopped"] or summary["probe_failed"]:
+        sys.exit(1)
+    if not summary["ran"] and not summary["skipped"]:  # every cell unsupported: the batch holds no result
+        print(f"✗ incomplete: no cell has a result ({summary['cells']} cells, {summary['unsupported']} unsupported)",
+              file=sys.stderr)
         sys.exit(1)
 
 
@@ -346,8 +360,10 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                          help="Run null and oracle with network to fill the caches before offline runs")
     check_p.add_argument("--allow-unsupported", action="store_true", dest="allow_unsupported",
                          help="Exit 0 when the only tasks that are not ok are unsupported because this host "
-                         "misses their task.json `host` requirements (still printed with the reason). Broken "
-                         "tasks, tasks that need egress and tasks whose host probe failed still exit 1")
+                         "misses their task.json `host` requirements (still printed with the reason; "
+                         "with --warm the host is judged too). Broken tasks, tasks that need egress "
+                         "and tasks whose host probe failed still exit 1, and so does a check in "
+                         "which no task is ok")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
 

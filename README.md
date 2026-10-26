@@ -156,7 +156,7 @@ the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
 
 | Step | Command | Cost |
 |---|---|---|
-| 1. Does it load? | `dokimi catalog scan --root <catalog> --kind skills` | free |
+| 1. Does it load? | `dokimi catalog scan --root <catalog> --kind skills [--strict]` | free |
 | 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --catalog <catalog> --queries queries.json [--model …]` | free without `--model` |
 | 3. What will step 4 cost? | `dokimi novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
 | 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
@@ -165,7 +165,8 @@ the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
 
 - **Competitors** are the other skills an agent sees next to this one when it
   picks a skill to load. For a catalog skill they are its siblings in the
-  same catalog: `--catalog <dir>` takes every other skill under it, and
+  same catalog: `--catalog <dir>` takes every other skill under it (a `template/` copy and a
+  byte-identical mirror that loads under the same skill name are left out), and
   `--competitors skill:<path> …` names them one by one. Routing asks whether
   this skill wins the user requests meant for it. If you only have the one
   skill, skip step 2 and say so in the review: a number measured against

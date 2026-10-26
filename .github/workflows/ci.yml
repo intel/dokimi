@@ -146,8 +146,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: deptry .
 
+  # The pool jobs that cost the most (the test matrix, package-smoke) wait for
+  # `static`: a PR that fails lint stops there instead of taking six more
+  # runners. The cost is the wall time of `static` plus one more pool boot on a
+  # green run. typecheck, one job, still runs alongside `static`; windows-smoke,
+  # on windows-latest, does not wait, so no chain spans both queues.
   test:
     name: Tests (py${{ matrix.python-version }})
+    needs: static
     runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     permissions:
       contents: read
@@ -163,11 +169,21 @@ jobs:
         include:
           - python-version: '3.14'
             coverage: true
+        # A PR runs the two ends, 3.11 (the floor) and 3.14 (the coverage leg);
+        # the middle versions run on main, weekly and on dispatch. A break on
+        # 3.12 or 3.13 alone is rare and shows on main right after the merge.
+        # Excluded by expression, not by a computed list: ci_local.py reads
+        # python-version as a list. On other events the entries match no leg.
+        exclude:
+          - python-version: ${{ github.event_name == 'pull_request' && '3.12' || 'none' }}
+          - python-version: ${{ github.event_name == 'pull_request' && '3.13' || 'none' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
+          # Full history on the coverage leg only: the changed-lines gate diffs
+          # against the base branch. The other legs need the tree alone.
+          fetch-depth: ${{ matrix.coverage && '0' || '1' }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
@@ -268,11 +284,16 @@ jobs:
   # the lock: the floor version checks what `pip install dokimi` gives a 3.11 user.
   package-smoke:
     name: Package install smoke test (py${{ matrix.python-version }})
+    needs: static
     runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.13']
+        # A PR runs the floor only, which is what this job is for; 3.13 runs on
+        # main, weekly and on dispatch (see the test matrix above).
+        exclude:
+          - python-version: ${{ github.event_name == 'pull_request' && '3.13' || 'none' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -289,9 +310,10 @@ jobs:
         run: |
           # The tools go in their own venv: pinned into this interpreter, the lock's
           # PyYAML and jsonschema would be kept when the wheel is installed below.
+          # --no-isolation: the backend is the lock's setuptools, not a fresh unhashed resolve.
           python -m venv "$RUNNER_TEMP/build-venv"
           "$RUNNER_TEMP/build-venv/bin/python" -m pip install --require-hashes -r requirements-ci.lock.txt
-          "$RUNNER_TEMP/build-venv/bin/python" -m build --outdir "$RUNNER_TEMP/dist"
+          "$RUNNER_TEMP/build-venv/bin/python" -m build --no-isolation --outdir "$RUNNER_TEMP/dist"
           "$RUNNER_TEMP/build-venv/bin/twine" check --strict "$RUNNER_TEMP"/dist/*
       - name: Install the wheel
         run: pip install "$RUNNER_TEMP"/dist/*.whl

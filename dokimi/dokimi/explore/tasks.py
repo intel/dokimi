@@ -98,7 +98,7 @@ def _parse_lines(value) -> tuple[int, int] | None:
         raise ValueError(f"'lines' must be [start, end] or [n], got {value!r}")
     try:
         nums = [int(v) for v in value]
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:  # OverflowError: int(float('inf'))
         raise ValueError(f"'lines' must contain integers, got {value!r}") from exc
     if any(n < 1 for n in nums):
         raise ValueError(f"'lines' values must be >= 1 (1-based), got {value!r}")

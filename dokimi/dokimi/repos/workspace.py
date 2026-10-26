@@ -187,10 +187,14 @@ class Task:
 
 
 def load_tasks(content_dir: Path, manifest: RepoManifest, ids: list[str] | None = None) -> list[Task]:
-    """Tasks of the exported eval dir; ``ids`` selects (and must name existing tasks)."""
+    """Tasks of the exported eval dir; ``ids`` selects (and must name existing tasks).
+
+    No task at all is refused: a check or run over none would report 0/0 as a pass."""
     eval_dir, tasks = manifest.run_paths()
     tasks_dir = content_dir / PurePosixPath(tasks).relative_to(eval_dir)
     found = {p.parent.name: p for p in sorted(tasks_dir.glob("*/task.json"))}
+    if not found:
+        raise PrepError(f"no task under {manifest.tasks} (no */task.json): nothing to check or run")
     wanted = ids or sorted(found)
     missing = [t for t in wanted if t not in found]
     if missing:

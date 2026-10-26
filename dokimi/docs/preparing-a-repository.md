@@ -41,8 +41,9 @@ turns and leads to work-arounds.
   has 18, every formatted file can fail the CI check.
     - With Haiku 4.5, a named command for the pinned formatter raised the share of
       runs that passed the CI format check from 5/16 to 12/16 (p = 0.016).
-      Installing the right version without naming it reached 7/16, but at 16 cells
-      the 7 vs 5 gain is not separated from noise (2 up, 0 down, p = 0.5)
+      Installing the right version without naming it reached 7/16. At 16 cells
+      neither step alone is separated from noise: installing it, 5 to 7 (2 up,
+      0 down, p = 0.5), and then naming it, 7 to 12 (5 up, 0 down, p = 0.062)
       ([E1](preparing-a-repository-evidence.md#e1)).
     - With Haiku 5.5, 12/16 runs already passed without it. With Sonnet 5.5 the
       share went from 5/8 to 7/8, within noise at that sample size
@@ -221,6 +222,9 @@ What helps depends on the model:
   line, not isolated to compile checks) cut new build breaks in a cross-module rename
   from 5.9 to 0.4 per run; pass rate 4/9 to 6/9 ([E2](preparing-a-repository-evidence.md#e2)).
   The change includes the formatter, so the compile-check effect alone is not known.
+  Both figures are pooled over the 3 renames, and no per-task count is stored, so one
+  rename can carry the whole drop. The pass rate moved by 2 runs of 9: even as 2 up
+  and 0 down, that is p = 0.5.
 - With Haiku 5.5 and Sonnet 5.5, both arms passed all 9 runs.
 
 `dokimi repo run` requires the [contract's](repo-evaluation-contract.md) manifest
@@ -264,7 +268,7 @@ Treat each item above as a hypothesis for your repository.
 - `dokimi repo scan` reports no failing claims.
 - Traps (shared names, cross-module exceptions) are written down.
 - C/C++: `compile_commands.json` covers every build variant; indexes are prebuilt if you offer navigation tools.
-- Recurring review rules, curated, are in the review section of `AGENTS.md`.
+- Recurring review rules, curated, are in the review prompt (§6); `AGENTS.md` placement is not measured yet.
 - A `CLAUDE.md` containing `@AGENTS.md` sits next to each `AGENTS.md` (§7).
 - `dokimi repo reach` (only `claude-code` is built in; others need a `harness_profile.v1` file) confirms each harness you use loads the files you rely on.
 - Each change was compared against the baseline on current models.

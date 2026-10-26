@@ -152,7 +152,10 @@ minutes. `make ci-local` runs both; `make hooks` runs mypy before a push.
 Dependencies install from `requirements.lock.txt`; the docs build's from
 `requirements-docs.lock.txt` on top of it, and the tools CI, `make dev`, the
 release job and the eval image use (`requirements-ci.txt`) from
-`requirements-ci.lock.txt`. When you change a range in
+`requirements-ci.lock.txt`. That lock also pins the build backend, setuptools:
+package-smoke and the release job build with `python -m build --no-isolation`,
+so the published sdist and wheel are not built by a backend resolved fresh from
+PyPI. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
 from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
 keeps the current pins). The command's `--exclude-newer=P7D` skips releases
@@ -223,7 +226,7 @@ When your change touches user-facing behavior, confirm:
 A page in `docs/` names the code it documents in YAML front matter above its
 license header: `depends_on:`, a list of globs from the repository root
 (`dokimi/dokimi/novelty/**`; `**` crosses `/`, while `*` and `?` stay within one
-path segment). The `docs-review-triggers` check is advisory: it lists the page on
+path segment). The docs review triggers step of the `changelog` check is advisory: it lists the page on
 any PR that changes a matching file without touching the page, and those findings
 exit 0. Only a malformed `depends_on` (exit 1) or an undiffable base (exit 2) fails
 the job. `tests/test_docs_review_triggers.py` fails on a glob that matches no
