@@ -346,6 +346,12 @@ def test_promptfoo_file_refs_stay_inside_the_config_directory(tmp_path):
     assert _checks(imp)[0]["values"] == ["hello"]
 
 
+def test_promptfoo_contains_with_an_empty_value_is_not_a_pass_for_every_answer(tmp_path):
+    cfg = _write(tmp_path / "promptfooconfig.yaml",
+                 "prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    assert: [{type: contains-any, value: ''}]\n")
+    assert _checks(import_path(cfg, fmt="promptfoo")) == [{"type": "unsupported", "native": "contains-any"}]
+
+
 def test_promptfoo_csv_expected_cells_follow_assertion_from_string(tmp_path):
     # promptfoo's assertionFromString: code is not run, grade: is a rubric, not-X negates,
     # and a *-any / *-all value is a comma list.

@@ -41,6 +41,9 @@ _JUDGED = {"llm-rubric": "criterion", "g-eval": "criterion", "model-graded-close
 def _text_check(base: str, value: Any, negate: bool) -> Optional[dict[str, Any]]:
     """The deterministic check for a text assert, or None when ``base`` is not one."""
     if base in _CONTAINS:
+        if any(str(v) == "" for v in as_list(value)):
+            # Every answer contains "", so the check would pass whatever was said: refuse it instead.
+            return None
         mode, ignore_case = _CONTAINS[base]
         return match(as_list(value), "any", ignore_case=ignore_case, ignore_punctuation=False,
                      strip=False, mode=mode, negate=negate)
