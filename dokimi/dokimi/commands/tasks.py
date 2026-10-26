@@ -189,6 +189,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
         command_template=args.command_template,
         dry_run=args.dry_run,
         repeats=args.repeats,
+        network=tuple(args.network),
     )
     try:
         runner.validate_harnesses()
@@ -267,6 +268,14 @@ def register(sub, positive_int) -> None:
         help=(
             "Override command for every harness. Placeholders: {task_path}, {task}, "
             "{model}, {output_dir}, {prompt}, {prompt_quoted}."
+        ),
+    )
+    run_p.add_argument(
+        "--network", action="append", default=[], metavar="PHASE=MODE",
+        help=(
+            "Network for a docker-* phase (build, solve, verify, or all): none, public, or "
+            "allowlist:host[:port],... Repeatable; overrides the task's own network_mode. "
+            "Default build=public solve=none verify=none"
         ),
     )
     run_p.add_argument(

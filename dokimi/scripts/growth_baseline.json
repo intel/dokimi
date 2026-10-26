@@ -47,7 +47,7 @@
     "dokimi/harnesses/benchflow.py::BenchflowHarness.run": {"complexity": 19},
     "dokimi/harnesses/benchflow.py::skill_loads": {"complexity": 12},
     "dokimi/harnesses/command.py::CommandHarness.run": {"complexity": 15, "rationale": "pre-existing when the gate was introduced"},
-    "dokimi/harnesses/docker_solver.py::DockerSolverHarness.run": {"complexity": 20},
+    "dokimi/harnesses/docker_solver.py::DockerSolverHarness.run": {"complexity": 17},
     "dokimi/harnesses/exploration.py::summarize_exploration": {"complexity": 15},
     "dokimi/harnesses/registry.py::_create": {"complexity": 17, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/harnesses/runner.py::summarize_task_results": {"complexity": 14, "rationale": "pre-existing when the gate was introduced"},
