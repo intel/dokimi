@@ -13,13 +13,13 @@ from pathlib import Path
 from dokimi.report.json_report import write_json
 from dokimi.report.markdown_report import write_compare_report, write_run_report
 from dokimi.runner.compare import compare_snapshots
-from dokimi.runner.run import DocLoadError, _load_spec, run_benchmark, save_snapshot
+from dokimi.runner.run import DocLoadError, load_benchmark_spec, run_benchmark, save_snapshot
 
 
 def _run_or_exit(root: Path, spec_path: Path) -> dict:
     """Run the benchmark; a bad spec exits 2 (1 is the verdict code of --strict), a bad doc exits 1."""
     try:
-        _load_spec(spec_path)  # fail on a spec that cannot be read, parsed or validated, before the run
+        load_benchmark_spec(spec_path)  # fail on a spec that cannot be read, parsed or validated, before the run
     except (RuntimeError, ValueError) as exc:
         print(f"Error: {spec_path}: {exc}", file=sys.stderr)
         sys.exit(2)
