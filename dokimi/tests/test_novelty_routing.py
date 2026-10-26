@@ -544,8 +544,9 @@ def test_a_model_run_records_its_calls_tokens_and_cost(tmp_path, monkeypatch, ca
     assert payload["cost"]["cache_read_tokens"] == 120
     assert payload["cost"]["cache_write_tokens"] == 60
     assert payload["cost"]["usd"] == 0.004
+    out = capsys.readouterr().out
     assert ("cost     2 calls, 200 input / 10 output tokens, cache read 120 / write 60, "
-            "$0.0040") in (out := capsys.readouterr().out)
+            "$0.0040") in out.splitlines()
     assert "replayed" not in out
 
 
