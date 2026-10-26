@@ -19,7 +19,7 @@ import pytest
 from dokimi.artifacts import save_artifact
 from dokimi.eval.checklist import ASK_COVERED
 from dokimi.eval.reference_checks import chosen_letters, grade, match_text, parse_json, validate_grading
-from dokimi.eval.reference_run import artifact, grading_by_id, score
+from dokimi.eval.reference_run import ConditionTally, artifact, grading_by_id, score
 from dokimi.task_formats.imports.native_logs import read_log
 
 
@@ -136,6 +136,15 @@ def test_judge_without_ask_and_unsupported_are_not_counted():
     assert g.as_dict()["aggregate"] == 100.0
 
 
+def test_scored_grade_with_an_unjudged_check_is_counted_in_the_summary():
+    # With no judge a match still scores the record, so it is counted; the summary says how many
+    # counted records had a judged check left without a verdict, so a pass is not read as judged.
+    tally = ConditionTally()
+    tally.add(grade({"checks": [{"type": "match", "values": ["1996"], "location": "any"},
+                                {"type": "judge", "reference": "1996"}]}, "Q?", "In 1996."))
+    assert tally.as_dict() == {"n": 1, "unscored": 0, "judge_unscored": 1, "pass_rate": 1.0, "mean_score": 1.0}
+
+
 def test_weights_and_threshold_set_the_verdict():
     grading = {"threshold": 0.7, "checks": [
         {"type": "match", "values": ["a"], "location": "any", "weight": 3},
@@ -207,7 +216,8 @@ def test_score_binary_answers_gives_eval_v1(tmp_path):
     ]}
     result = score(data, _QUESTIONS)
     assert result.missing == ["3"]
-    assert result.tally["without_docs"].as_dict() == {"n": 2, "unscored": 0, "pass_rate": 0.5, "mean_score": 0.5}
+    assert result.tally["without_docs"].as_dict() == {"n": 2, "unscored": 0, "judge_unscored": 0,
+                                                      "pass_rate": 0.5, "mean_score": 0.5}
     kind, payload = artifact(result, data, judge_model=None, judge_provider=None, questions_path="q.json")
     assert kind == "eval"
     first = payload["evaluations"][0]

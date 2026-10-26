@@ -92,6 +92,11 @@ class Grade:
         return [c for c in self.checks if c.type != UNSUPPORTED and c.score is not None and c.weight > 0]
 
     @property
+    def unjudged(self) -> list[CheckResult]:
+        """Judged checks with no verdict (no judge model, or the judge call failed)."""
+        return [c for c in self.checks if c.type in JUDGED and c.score is None]
+
+    @property
     def score(self) -> Optional[float]:
         counted = self.counted
         total = sum(c.weight for c in counted)
