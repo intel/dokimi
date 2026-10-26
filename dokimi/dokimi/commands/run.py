@@ -61,6 +61,11 @@ def cmd_run(args: argparse.Namespace) -> None:
                     print(f"  - {v.condition}: {v.actual:.4f} < {v.threshold:.4f}", file=sys.stderr)
             sys.exit(1)
 
+        # A score over no document passes any gate set at 0 or switched off.
+        if not result["summary"].get("docs"):
+            print(f"\n❌ incomplete: no document was measured under {root} (0 docs)", file=sys.stderr)
+            sys.exit(1)
+
 
 def cmd_compare(args: argparse.Namespace) -> None:
     """Compare two snapshots and show regression analysis."""
