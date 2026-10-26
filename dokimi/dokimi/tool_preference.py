@@ -59,11 +59,13 @@ def load_groups(doc: dict) -> dict:
     if not isinstance(doc, dict):
         raise GroupsError(f"top level must be an object, got {type(doc).__name__}")
     problems = schema_errors(GROUPS_SCHEMA, doc)
-    ids = [g["id"] for g in doc.get("groups", []) if isinstance(g, dict) and isinstance(g.get("id"), str)]
+    raw = doc.get("groups")
+    groups = raw if isinstance(raw, list) else []
+    ids = [g["id"] for g in groups if isinstance(g, dict) and isinstance(g.get("id"), str)]
     dupes = sorted({i for i in ids if ids.count(i) > 1})
     if dupes:
         problems.append(f"groups: duplicate ids {dupes}")
-    for g in doc.get("groups", []) if not problems else []:
+    for g in groups if not problems else []:
         names = [g["twins"]["A"]["name"], g["twins"]["B"]["name"]] + [d["name"] for d in g["distractors"]]
         names += [t["vendor_name"] for t in g["twins"].values() if t.get("vendor_name")]
         if len(set(names)) != len(names):

@@ -102,11 +102,14 @@ def _write_items(path: str, items: list) -> None:
 
 def _save_result(data: dict, path: str) -> None:
     """Save the tool_preference artifact to ``path``, or exit 1 naming it when it cannot be written."""
-    from dokimi.artifacts import save_artifact
+    from dokimi.artifacts import ArtifactValidationError, save_artifact
 
     try:
         save_artifact("tool_preference", data, path)
-    except OSError as exc:
+    except ArtifactValidationError as exc:  # the path was writable; the payload failed the schema
+        print(f"Error: tool_preference artifact rejected: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+    except (OSError, ValueError) as exc:  # unwritable path, including an empty one (pathlib ValueError)
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
 
@@ -116,7 +119,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
 
     try:
         doc = tp.load_groups(json.loads(Path(args.groups).read_text(encoding="utf-8")))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError, tp.GroupsError) as exc:
+    except (OSError, RecursionError, ValueError, tp.GroupsError) as exc:
         raise SystemExit(f"--groups {args.groups}: {exc}") from exc
     factors = list(dict.fromkeys(f for f in args.factors.split(",") if f)) if args.factors else list(tp.FACTORS)
     unknown = sorted(set(factors) - set(tp.FACTORS))

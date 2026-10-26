@@ -839,7 +839,9 @@ def test_dry_run_names_twin_a_when_only_twin_a_lacks_the_field(tmp_path, capsys)
     assert "long_desc: skipped for 1 of 1 groups (G09 twin A)" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("content", [bytes([0xFF, 0xFE, 0x00]), b"{not json", b"[]", b"null", None])
+@pytest.mark.parametrize("content", [bytes([0xFF, 0xFE, 0x00]), b"{not json", b"[]", b"null", None,
+    b'{"schema_version": "tool_preference_groups.v1", "groups": null}',
+    pytest.param(b"[" * 200000, id="deep-nesting"), pytest.param(b"1" * 6000, id="huge-int")])
 def test_an_unreadable_or_invalid_groups_file_exits_with_a_message(tmp_path, content):
     from dokimi.cli import build_parser
 
@@ -867,3 +869,17 @@ def test_an_unwritable_out_json_exits_with_a_message(monkeypatch, tmp_path, caps
         args.func(args)
     assert exc.value.code == 1
     assert f"Error: cannot write {out}: " in capsys.readouterr().err
+
+
+def test_an_empty_out_json_exits_with_a_message(monkeypatch, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    monkeypatch.setattr(llm, "chat_completion",
+                        lambda messages, model, provider="openai", tools=None, **kw: _Resp([tools[-1]["function"]["name"]]))
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--out-json", ""])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert "Error: cannot write : " in capsys.readouterr().err
