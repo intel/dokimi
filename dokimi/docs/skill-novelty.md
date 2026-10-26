@@ -615,7 +615,8 @@ same totals on stdout. Cache tokens are reported separately from input tokens, a
 the provider they may or may not be counted inside `input_tokens`. A run without `--model` makes
 no calls and has no `cost` block. `usd` is also `null` when a call returned no usage, and a
 call that raised is not counted. A call replayed from the response cache is counted in
-`replayed_calls` and left out of the token and `usd` totals, since this run did not pay for it.
+`replayed_calls` and left out of the token and `usd` totals, since this run did not pay for it;
+`llm_calls` still counts it.
 
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
