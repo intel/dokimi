@@ -883,3 +883,24 @@ def test_an_empty_out_json_exits_with_a_message(monkeypatch, capsys):
         args.func(args)
     assert exc.value.code == 1
     assert "Error: cannot write : " in capsys.readouterr().err
+
+
+def test_a_schema_rejected_artifact_is_not_reported_as_a_write_failure(monkeypatch, capsys, tmp_path):
+    import dokimi.artifacts as artifacts
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    def reject(*a, **kw):
+        raise artifacts.ArtifactValidationError("reps must be >= 1")
+
+    monkeypatch.setattr(llm, "chat_completion",
+                        lambda messages, model, provider="openai", tools=None, **kw: _Resp([tools[-1]["function"]["name"]]))
+    monkeypatch.setattr(artifacts, "save_artifact", reject)
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--out-json", str(tmp_path / "o.json")])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 1
+    assert "tool_preference artifact rejected" in err
+    assert "cannot write" not in err

@@ -143,7 +143,7 @@ def _manifest_items(manifest_path: Path) -> tuple[list, bool]:
         data = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
     except OSError as exc:
         raise ValueError(f"cannot read skills.yaml at {manifest_path}: {exc}") from exc
-    except (yaml.YAMLError, UnicodeDecodeError) as exc:
+    except (yaml.YAMLError, UnicodeDecodeError, RecursionError) as exc:
         raise ValueError(f"invalid skills.yaml at {manifest_path}: {exc}") from exc
 
     if isinstance(data, dict):
@@ -277,7 +277,7 @@ def read_task_manifest(
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise ValueError(f"cannot read suites.json at {manifest_path}: {exc}") from exc
-    except ValueError as exc:  # JSONDecodeError, or bytes that are not UTF-8
+    except (ValueError, RecursionError) as exc:  # JSONDecodeError, non-UTF-8 bytes, or nesting too deep
         raise ValueError(f"invalid suites.json at {manifest_path}: {exc}") from exc
 
     entries: list[TaskCatalogEntry] = []
@@ -303,7 +303,22 @@ def read_task_manifest(
             )
             continue
 
-        if not is_task_dir(task_dir):
+        try:
+            task_dir_found = is_task_dir(task_dir)
+        except OSError as exc:  # e.g. a task name longer than the filesystem allows
+            entries.append(
+                TaskCatalogEntry(
+                    name=name,
+                    status=status,
+                    track=track,
+                    path=None,
+                    failed=True,
+                    reason=f"cannot inspect task directory {task_dir}: {exc}",
+                )
+            )
+            continue
+
+        if not task_dir_found:
             entries.append(
                 TaskCatalogEntry(
                     name=name,

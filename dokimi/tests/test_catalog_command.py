@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -240,7 +241,7 @@ def test_catalog_scan_reports_clean_error_on_non_utf8_suites_manifest(tmp_path):
 
 
 @pytest.mark.parametrize("text", ["[]", "null", '{"suites": 5}', '{"suites": [1]}', '{"suites": [{"tasks": [3]}]}',
-                                  '{"suites": [{"tasks": 3}]}'])
+                                  '{"suites": [{"tasks": 3}]}', pytest.param("[" * 200000, id="deeply-nested")])
 def test_catalog_scan_reports_clean_error_on_wrong_shaped_suites_manifest(tmp_path, text):
     manifest = tmp_path / "evaluation" / "harbor" / "suites.json"
     manifest.parent.mkdir(parents=True)
@@ -250,3 +251,28 @@ def test_catalog_scan_reports_clean_error_on_wrong_shaped_suites_manifest(tmp_pa
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert f"invalid suites.json at {manifest}" in str(exc_info.value)
+
+
+def test_catalog_scan_reports_clean_error_on_deeply_nested_skills_manifest(tmp_path):
+    (tmp_path / "skills.yaml").write_text("[" * 200000, encoding="utf-8")
+
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert f"invalid skills.yaml at {tmp_path / 'skills.yaml'}" in str(exc_info.value)
+
+
+def test_catalog_scan_reports_a_task_name_the_filesystem_rejects(tmp_path, monkeypatch):
+    from dokimi.external import catalog as cat
+
+    manifest = tmp_path / "evaluation" / "harbor" / "suites.json"
+    manifest.parent.mkdir(parents=True)
+    name = "a" * 300
+    manifest.write_text(json.dumps({"suites": [{"tasks": [{"name": name, "track": "executable"}]}]}), encoding="utf-8")
+
+    def too_long(path):
+        raise OSError(36, "File name too long", str(path))
+
+    monkeypatch.setattr(cat, "is_task_dir", too_long)
+    entries = cat.read_task_manifest(tmp_path)
+    assert entries[0].failed and "File name too long" in entries[0].reason
