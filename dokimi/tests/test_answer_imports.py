@@ -460,6 +460,45 @@ def test_answerer_sends_a_verbatim_question_unwrapped():
     assert pair["without_docs"]["answer"] == "ANSWER: B"
 
 
+def test_answerer_puts_docs_before_an_unwrapped_verbatim_question():
+    from dokimi.eval.answerer import Answerer
+
+    answerer = Answerer(mcp_client=object(), model="m", provider="openai")
+    docs = [{"content": "DOC TEXT", "source": "s"}]
+    with mock.patch.object(Answerer, "_retrieve_docs", return_value=(docs, {})), \
+            mock.patch("dokimi.eval.answerer.llm_call_with_usage", return_value=("ANSWER: B", {})) as call:
+        answerer._generate_answer_pair("lib", "lib", {"id": "1", "question": "Pick one.",
+                                                      "prompt_style": "verbatim"}, 1000)
+    with_docs, without = (c.kwargs["prompt"] for c in call.call_args_list)
+    assert with_docs == "Relevant documentation:\nDOC TEXT\n\n---\n\nPick one."
+    assert without == "Pick one."
+
+
+_M = {"ignore_punctuation": False, "strip": False}
+
+
+def test_each_native_grader_maps_to_its_exact_check(tmp_path):
+    # One row per mapping, asserted whole, so a changed default cannot pass unnoticed.
+    row = _jsonl(tmp_path / "o.jsonl", [{"input": "q", "ideal": "x"}])
+    includes = import_path(row, fmt="openai-evals", grader="includes")
+    assert _checks(includes) == [{"type": "match", "values": ["x"], "location": "any", "ignore_case": False, **_M}]
+    sky = _jsonl(tmp_path / "i.jsonl", [{"input": "Sky?", "target": "blue"},
+                                        {"input": "Pet?", "choices": ["Shark", "Whale"], "target": "Whale"}])
+    inspect = import_path(sky, fmt="inspect-samples")
+    assert _checks(inspect) == [{"type": "match", "values": ["blue"], "location": "end", "ignore_case": True,
+                                 "ignore_punctuation": True, "strip": True}]
+    assert _checks(inspect, 1) == [{"type": "choice", "values": ["B"], "choices": ["Shark", "Whale"]}]
+    cfg = ("prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    assert:\n"
+           "      - {type: contains-all, value: [a, b]}\n      - {type: icontains, value: c}\n"
+           "      - {type: starts-with, value: d}\n")
+    pf = import_path(_write(tmp_path / "promptfooconfig.yaml", cfg), fmt="promptfoo")
+    assert _checks(pf) == [
+        {"type": "match", "values": ["a", "b"], "location": "any", "ignore_case": False, **_M, "mode": "all"},
+        {"type": "match", "values": ["c"], "location": "any", "ignore_case": True, **_M},
+        {"type": "match", "values": ["d"], "location": "begin", "ignore_case": False, **_M},
+    ]
+
+
 def test_importable_formats_match_the_adapters_and_show_as_consumer(tmp_path):
     from dokimi.task_formats import detect
     from dokimi.task_formats.model import IMPORTABLE

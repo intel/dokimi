@@ -146,6 +146,21 @@ def test_weights_and_threshold_set_the_verdict():
     assert grade({**grading, "threshold": 0.8}, "Q?", "a").passed is False
 
 
+def test_grader_edges_that_a_mutation_run_left_unpinned():
+    half = {"threshold": 0.5, "checks": [{"type": "match", "values": ["a"], "location": "any"},
+                                         {"type": "match", "values": ["zzz"], "location": "any"}]}
+    assert grade(half, "Q?", "a").passed is True  # reaching the threshold exactly passes
+    sorry = {"type": "judge", "criterion": "Apologizes", "negate": True}
+    assert (_one(sorry, "Sorry", _ask(True)).passed, _one(sorry, "Fine", _ask(False)).passed) == (False, True)
+    assert _one({"type": "regex", "values": ["paris"], "ignore_case": True}, "PARIS").passed is True
+    assert _one({"type": "regex", "values": ["paris"]}, "PARIS").passed is False
+    assert _one({"type": "choice", "values": ["A", "C"]}, "ANSWER: A").passed is False
+    assert _one({"type": "choice", "values": ["A"]}, "ANSWER: A, C").passed is False
+    assert _one({"type": "fuzzy", "values": ["Da Vinci"]}, "Leonardo da Vinci").passed is True
+    assert match_text("42 then 7", "42", location="begin", numeric=True) is True
+    assert match_text("42 then 7", "42", location="end", numeric=True) is False
+
+
 def test_missing_answer_is_unscored_not_failed():
     g = grade({"checks": [{"type": "match", "values": ["x"], "location": "any"}]}, "Q?", None)
     assert g.score is None
