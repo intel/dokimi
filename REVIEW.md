@@ -31,12 +31,15 @@ repeat what it checks.
   instead of describing them.
 - Mark each finding must-fix or nit. At most three nits per review; skip the
   style of `dokimi/changelog.d/` fragments, not their accuracy.
+- A nit is one the author can take: no style point the configured ruff rules
+  leave out (line length, quotes, import order), and no suggestion that fails
+  CI, such as one that adds a line to a file at its growth baseline.
 - A bug in code the PR did not change: mention it once as pre-existing. It
   does not block the PR unless the change makes it worse.
 - Do not repeat a finding already raised on the PR, unless its fix did not
-  hold.
-- Start with the count of findings, and say "nothing to fix" when there is
-  nothing.
+  hold. List still-open earlier findings by link.
+- Start with the count of new findings, and say "nothing to fix" when there is
+  nothing new and nothing still open.
 
 ## Rounds
 
