@@ -152,3 +152,53 @@ def test_generate_writes_answers_to_output_path(tmp_path, monkeypatch, capsys,
     assert calls["generate"]["output_path"] == out
     assert calls["saved"] == (["a1"], out)
     assert f"Saved answers to {out}" in capsys.readouterr().out
+
+
+def _stub_generate(monkeypatch, tmp_path, answerer_cls):
+    _point_config(monkeypatch, tmp_path / "absent.yaml")
+    monkeypatch.setattr(dokimi.questions.artifact, "load_questions",
+                        lambda path: SimpleNamespace(questions=["q1"]))
+    monkeypatch.setattr(dokimi.mcp.factory, "create_doc_source_client", lambda source: "client")
+    monkeypatch.setattr(dokimi.mcp.factory, "resolve_library_id_for_product",
+                        lambda product, client, explicit_id=None: "/lib/id")
+    monkeypatch.setattr(dokimi.eval, "Answerer", answerer_cls)
+
+
+def test_generate_output_that_cannot_be_written_exits_2_naming_the_path(tmp_path, monkeypatch, capsys):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")  # a regular file: nothing can be created below it
+    target = blocker / "a.json"
+
+    class FakeAnswerer:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_answers(self, output_path, **kwargs):
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            return ["a1"]
+
+    _stub_generate(monkeypatch, tmp_path, FakeAnswerer)
+    with pytest.raises(SystemExit) as exc:
+        answers.cmd_answers_generate(_args(output=str(target)))
+    assert exc.value.code == 2
+    assert "Error: cannot write" in capsys.readouterr().err
+
+
+def test_generate_final_save_that_fails_exits_2_naming_the_path(tmp_path, monkeypatch, capsys):
+    target = tmp_path / "a.json"
+
+    class FakeAnswerer:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_answers(self, **kwargs):
+            return ["a1"]
+
+        def save_answers(self, answers_, path):
+            raise PermissionError(13, "Permission denied", str(path))
+
+    _stub_generate(monkeypatch, tmp_path, FakeAnswerer)
+    with pytest.raises(SystemExit) as exc:
+        answers.cmd_answers_generate(_args(output=str(target)))
+    assert exc.value.code == 2
+    assert f"Error: cannot write {target}: Permission denied" in capsys.readouterr().err

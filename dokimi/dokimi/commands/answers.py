@@ -108,19 +108,23 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     )
 
     output_path = _output_path(args)
-    answers = answerer.generate_answers(
-        library_name=args.product,
-        library_id=library_id,
-        questions=questions,
-        max_tokens_per_question=args.max_tokens,
-        output_path=output_path,
-        concurrency=args.concurrency,
-    )
+    try:
+        answers = answerer.generate_answers(
+            library_name=args.product,
+            library_id=library_id,
+            questions=questions,
+            max_tokens_per_question=args.max_tokens,
+            output_path=output_path,
+            concurrency=args.concurrency,
+        )
 
-    # generate_answers already saves incrementally to output_path after each
-    # question, so the final write here is a safety flush only (ensures the
-    # file reflects any last-second ordering fix).
-    answerer.save_answers(answers, output_path)
+        # generate_answers already saves incrementally to output_path after each
+        # question, so the final write here is a safety flush only (ensures the
+        # file reflects any last-second ordering fix).
+        answerer.save_answers(answers, output_path)
+    except OSError as exc:
+        print(f"Error: cannot write {exc.filename or output_path}: {exc.strerror or exc}", file=sys.stderr)
+        sys.exit(2)
     print(f"\n✅ Saved answers to {output_path}")
 
     # Optional RAGAS meta-evaluation (--ragas flag)
