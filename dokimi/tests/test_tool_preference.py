@@ -278,6 +278,45 @@ def test_cli_exits_nonzero_when_every_call_failed(monkeypatch, tmp_path, capsys)
     assert data["summary"]["n_errors"] == data["summary"]["n_calls"] == 16
 
 
+@pytest.mark.parametrize("blocked", ["file-as-parent", "directory"])
+def test_cli_refuses_an_unwritable_out_json_before_any_call(monkeypatch, tmp_path, capsys, blocked):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    calls = []
+
+    def fake(*a, **k):
+        calls.append(a)
+        raise RuntimeError("must not be reached")
+
+    monkeypatch.setattr(llm, "chat_completion", fake)
+    if blocked == "file-as-parent":
+        (tmp_path / "blocker").write_text("x", encoding="utf-8")
+        out = tmp_path / "blocker" / "pref.json"
+    else:
+        out = tmp_path / "pref.json"
+        out.mkdir()
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--out-json", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert calls == []
+    err = capsys.readouterr().err
+    assert f"cannot write {out}: " in err
+    if blocked == "directory":
+        assert "Is a directory" in err
+
+
+def test_out_json_check_creates_missing_parents_and_leaves_no_file(tmp_path):
+    from dokimi.commands.tools import _check_out_json_writable
+
+    out = tmp_path / "a" / "b" / "pref.json"
+    _check_out_json_writable(str(out))
+    assert out.parent.is_dir()
+    assert not out.exists()
+
+
 def test_repeated_factors_are_not_expanded_twice(doc, monkeypatch, tmp_path, capsys):
     from dokimi.cli import build_parser
 
@@ -867,7 +906,7 @@ def test_an_unwritable_out_json_exits_with_a_message(monkeypatch, tmp_path, caps
                                       "--reps", "1", "--factors", "assertive", "--out-json", str(out)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: cannot write {out}: " in capsys.readouterr().err
 
 
@@ -881,7 +920,7 @@ def test_an_empty_out_json_exits_with_a_message(monkeypatch, capsys):
                                       "--reps", "1", "--factors", "assertive", "--out-json", ""])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "Error: cannot write : " in capsys.readouterr().err
 
 

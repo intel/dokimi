@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import math
 import sys
@@ -114,6 +115,23 @@ def _save_result(data: dict, path: str) -> None:
         raise SystemExit(1) from None
 
 
+def _check_out_json_writable(path: str) -> None:
+    """Exit 2 before any probe call when ``path`` cannot take the artifact; leaves no file behind."""
+    target = Path(path)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_dir():
+            raise IsADirectoryError(errno.EISDIR, "Is a directory", path)
+        existed = target.exists() or target.is_symlink()
+        with target.open("ab"):
+            pass
+        if not existed:
+            target.unlink()
+    except (OSError, ValueError) as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        raise SystemExit(2) from None
+
+
 def cmd_tools_preference(args: argparse.Namespace) -> None:
     from dokimi import tool_preference as tp
 
@@ -138,6 +156,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
         return
     if not args.model:
         raise SystemExit("--model is required unless --dry-run")
+    _check_out_json_writable(args.out_json)
 
     def progress(done: int, total: int) -> None:
         if done % 100 == 0 or done == total:
