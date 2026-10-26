@@ -123,7 +123,7 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
         # file reflects any last-second ordering fix).
         answerer.save_answers(answers, output_path)
     except OSError as exc:
-        print(f"Error: cannot write {exc.filename or output_path}: {exc.strerror or exc}", file=sys.stderr)
+        print(f"Error: cannot write {output_path}: {exc.strerror or exc}", file=sys.stderr)
         sys.exit(2)
     print(f"\n✅ Saved answers to {output_path}")
 
