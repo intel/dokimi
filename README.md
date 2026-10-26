@@ -9,22 +9,54 @@ SPDX-License-Identifier: Apache-2.0
 [![codecov](https://codecov.io/gh/intel/dokimi/graph/badge.svg?branch=main)](https://codecov.io/gh/intel/dokimi)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/intel/dokimi/badge)](https://scorecard.dev/viewer/?uri=github.com/intel/dokimi)
 
+**Dokimi measures whether the context you give an AI agent actually helps it.**
+
+![The same eval set runs on agent A as it is and on agent B with one change; the same grader scores both, and the difference with its p-value decides](dokimi/docs/assets/readme/f01-ab-delta.png)
+
+<sub>Illustrative numbers. Change one thing, hold the model, eval set, grader
+and harness fixed, report the delta with its p-value.</sub>
+
 **Documentation: <https://intel.github.io/dokimi/>** — guides, plus a
 [CLI reference](https://intel.github.io/dokimi/reference/cli/) and an
 [API reference](https://intel.github.io/dokimi/reference/api/dokimi/) generated from the code.
+
+## What it is
+
+An AI agent is its model plus the context it is given: skills, instructions,
+product docs, MCP servers, a repository's own `AGENTS.md`. All of that is cheap
+to write and easy to over-claim, and marketplaces rank it by popularity, which
+buries niche expert tooling such as HPC and numerical libraries.
+
+Dokimi treats context like an experiment. It runs the same questions, coding
+tasks or repository tasks with and without one change, grades both the same
+way (an LLM judge for answers, tests in Docker for code, file/line F1 for
+localization), and reports the difference with paired statistics. Then it goes
+past the single number: which parts of a skill the model already knew, which
+it added and which it broke; and which guidance files a harness really loads.
+An artifact ships with the scorecard that earned it.
 
 > **dokimi** — Greek *δοκιμή*, "test, proof". The name is the method: an
 > artifact does not get trusted because it was written or because it is popular,
 > it gets trusted because it passed a test that could have failed.
 
-Skills, instructions, docs, MCP servers and repository guidance are cheap to
-write and easy to over-claim. Dokimi tests each one like an experiment: change
-one thing, keep everything else fixed, run the same question or task set, and
-report the delta together with its p-value. An artifact ships with the
-scorecard that earned it, a deliberate contrast to popularity-ranked
-marketplaces, which structurally bury niche HPC and numerical-accuracy tooling.
+It answers three questions, each ending in a decision:
 
-What measuring shows ([evidence](dokimi/docs/skill-novelty-evidence.md)):
+![1. Does it help? dokimi arms run: ship it or cut it. 2. Which parts help? dokimi novelty analyze: edit it. 3. Does guidance land? dokimi repo reach: fix the repo](dokimi/docs/assets/readme/f03-three-questions.png)
+
+Who it is for: **skill authors and repository maintainers**, and the coding
+agents that drive the CLI on their behalf. You start from an intent ("is my
+skill any good?", "improve my repo for agents", "is it still true for the new
+model?"), not a command name; the
+[user-journey map](dokimi/docs/user-journeys/README.md) maps each intent to
+commands. They connect into one loop:
+
+![Assess, diagnose, change, re-measure, then: better means keep it and guard it in CI; none or worse means reject it with numbers; unclear means explain and design the next experiment. A new model, harness or time means reassess](dokimi/docs/assets/readme/f11-loop.png)
+
+A measured null or negative effect is a result, not a failure.
+
+## What measuring shows
+
+From the studies so far ([evidence](dokimi/docs/skill-novelty-evidence.md)):
 
 - **Much of a skill repeats what the model already knows, and the rest is
   exact detail.** For `claude-opus-5` under lenient grading, 70% of what a
