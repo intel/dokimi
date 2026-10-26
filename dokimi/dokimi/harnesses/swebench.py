@@ -221,6 +221,9 @@ def stage(row: dict[str, Any], root: Path, *, patch: str | None = None,
     iid = str(row["instance_id"])
     if not _SAFE_ID.fullmatch(iid):
         raise SweBenchError(f"{iid!r}: instance_id must match {_SAFE_ID.pattern}")
+    not_text = [k for k in ("repo", "base_commit", "problem_statement", "patch", "test_patch") if not isinstance(row[k], str)]
+    if not_text:  # a null or a number here would escape the CLI's error handling as a traceback
+        raise SweBenchError(f"{iid}: {', '.join(not_text)} must be a string")
     tests = {k: _test_list(row[k], k, iid) for k in ("FAIL_TO_PASS", "PASS_TO_PASS")}
     parser, spec = repo_spec(row["repo"], row["version"])
     image = instance_image(row, namespace)

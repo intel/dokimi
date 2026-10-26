@@ -113,6 +113,24 @@ def test_all_skips_the_known_bad_rows_and_an_explicit_id_still_runs(tmp_path):
     assert resolve(task).verify.mode == "none"  # offline unless the operator opens it
 
 
+def test_the_all_banner_names_only_the_known_bad_rows_the_file_holds(tmp_path, capsys):
+    import argparse
+
+    from dokimi.commands.tasks import _select_swebench
+
+    rows = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    data = tmp_path / "rows.json"
+    args = argparse.Namespace(all=True, tasks=None, swe_bench=str(data), output_dir=str(tmp_path / "out"))
+    data.write_text(json.dumps([*rows, dict(rows[0], instance_id="psf__requests-863")]), encoding="utf-8")
+    _select_swebench(args)
+    err = capsys.readouterr().err
+    assert "skips 1 known-bad rows" in err and "psf__requests-863" in err
+    assert "astropy__astropy-7606" not in err  # a KNOWN_BAD id the file does not hold is not named
+    data.write_text(json.dumps(rows), encoding="utf-8")
+    _select_swebench(args)
+    assert "skips" not in capsys.readouterr().err
+
+
 def test_a_row_without_a_test_spec_or_a_field_is_refused(tmp_path):
     row = dict(_row(PYTEST_ID), repo="someone/else")
     with pytest.raises(SweBenchError, match="no SWE-bench test spec for repo 'someone/else'"):
@@ -123,6 +141,12 @@ def test_a_row_without_a_test_spec_or_a_field_is_refused(tmp_path):
     with pytest.raises(SweBenchError, match="version '0.0'"):
         repo_spec("pytest-dev/pytest", "0.0")
 
+
+
+@pytest.mark.parametrize("field", ["repo", "base_commit", "problem_statement", "patch", "test_patch"])
+def test_a_null_or_non_string_text_field_is_a_row_error_not_a_traceback(tmp_path, field):
+    with pytest.raises(SweBenchError, match=f"{field} must be a string"):
+        stage(dict(_row(PYTEST_ID), **{field: None}), tmp_path)
 
 
 def test_an_unsafe_or_duplicate_instance_id_is_refused(tmp_path):
@@ -244,6 +268,11 @@ def test_an_xfail_fail_to_pass_test_counts_as_a_success():
 def test_an_empty_marked_section_falls_back_to_the_whole_log():
     log = "PASSED t.py::f\nPASSED t.py::p\n" + _log("")
     assert grader.grade(log, _CONFIG)["resolved"] is True
+
+
+def test_a_bare_seaborn_status_word_is_skipped_not_an_index_error():
+    # A line that is only FAILED or PASSED has no test name; it must not raise.
+    assert grader.parse_seaborn("FAILED\nPASSED\nPASSED t.py::f\n") == {"t.py::f": "PASSED"}
 
 
 def test_pytest_v2_reads_coloured_and_old_style_lines():
