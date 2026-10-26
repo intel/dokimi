@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -32,8 +33,17 @@ def _check_summary(path: Path, payload: object, role: str) -> None:
         raise ValueError(f"Snapshot {path} missing summary keys: {sorted(missing)}")
     for key in sorted(_REQUIRED_SUMMARY_KEYS | {"example_pass_rate"}):
         value = summary.get(key)
-        if key in summary and (isinstance(value, bool) or not isinstance(value, (int, float))):
-            raise ValueError(f"Invalid {role} snapshot {path}: summary `{key}` must be a number, got {value!r}")
+        if key in summary and not _valid_number(key, value):
+            kind = "an integer" if key == "docs" else "a finite number"
+            raise ValueError(f"Invalid {role} snapshot {path}: summary `{key}` must be {kind}, got {value!r}")
+
+
+def _valid_number(key: str, value: object) -> bool:
+    if isinstance(value, bool):
+        return False
+    if key == "docs":
+        return isinstance(value, int)
+    return isinstance(value, (int, float)) and math.isfinite(value)
 
 
 def compare_snapshots(base_path: Path, cand_path: Path, spec: dict | None = None) -> dict:

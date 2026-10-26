@@ -59,7 +59,12 @@ def test_compare_exits_2_on_a_bad_snapshot(tmp_path, monkeypatch, capsys, which,
     assert not (tmp_path / "c.json").exists()
 
 
-@pytest.mark.parametrize("content", [None, "a: [", "- a\n"], ids=["missing", "malformed", "not-a-mapping"])
+@pytest.mark.parametrize(
+    "content",
+    [None, "a: [", "- a\n", "[" * 100000, "thresholds:\n", "thresholds: []\n", "thresholds: {regressions: 3}\n",
+     "thresholds: {regressions: }\n"],
+    ids=["missing", "malformed", "not-a-mapping", "too-deep", "thresholds-empty", "thresholds-list",
+         "regressions-scalar", "regressions-empty"])
 def test_compare_exits_2_on_a_bad_spec(tmp_path, monkeypatch, capsys, content):
     spec = tmp_path / "spec.yaml"
     _write(spec, content)
@@ -68,7 +73,7 @@ def test_compare_exits_2_on_a_bad_spec(tmp_path, monkeypatch, capsys, content):
                  "--out-json", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md"))
     assert code == 2
     err = capsys.readouterr().err
-    assert err.startswith("Error: ") and str(spec) in err
+    assert err.startswith("Error: ") and str(spec) in err and "Traceback" not in err
 
 
 _SPEC_MIN_DOCS = (
@@ -91,7 +96,10 @@ def test_run_exits_2_when_the_root_has_fewer_docs_than_min_docs(tmp_path, monkey
 
 
 @pytest.mark.parametrize("which", ["--base", "--candidate"])
-@pytest.mark.parametrize("field,value", [("docs", "1"), ("score", None), ("coverage", True)])
+@pytest.mark.parametrize("field,value", [
+    ("docs", "1"), ("score", None), ("coverage", True), ("score", float("nan")), ("score", float("inf")),
+    ("readability", 1e999), ("docs", 1.5), ("example_pass_rate", float("nan")), ("example_pass_rate", "x"),
+])
 def test_compare_exits_2_on_a_non_numeric_summary_value(tmp_path, monkeypatch, capsys, which, field, value):
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps({"summary": {**SNAPSHOT["summary"], field: value}}), encoding="utf-8")
@@ -101,7 +109,8 @@ def test_compare_exits_2_on_a_non_numeric_summary_value(tmp_path, monkeypatch, c
                  "--out-json", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md"))
     assert code == 2
     err = capsys.readouterr().err
-    assert err.startswith("Error: ") and str(bad) in err and f"`{field}`" in err
+    role = which[2:]
+    assert err.startswith("Error: ") and f"Invalid {role} snapshot {bad}" in err and f"`{field}`" in err
 
 
 def _blocked(tmp_path):

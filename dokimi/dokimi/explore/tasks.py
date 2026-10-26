@@ -113,7 +113,7 @@ def _read_task_yaml(path: Path) -> dict:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except OSError as exc:
         raise ValueError(f"Explore task {path} cannot be read: {exc}") from exc
-    except (UnicodeDecodeError, yaml.YAMLError) as exc:
+    except (UnicodeDecodeError, yaml.YAMLError, RecursionError) as exc:
         raise ValueError(f"Explore task {path} is not valid UTF-8 YAML: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(f"Explore task {path} must hold a YAML mapping")

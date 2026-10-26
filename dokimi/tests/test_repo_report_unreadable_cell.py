@@ -107,6 +107,10 @@ _BAD_FIELDS = [
     pytest.param("arm", None, id="missing-arm"),
     pytest.param("model", None, id="missing-model"),
     pytest.param("task", 3, id="task-not-a-string"),
+    pytest.param("grade", {"status": "ok", "success": True}, id="grade-without-score-only"),
+    pytest.param("grade", {"status": "ok", "score_only": False}, id="grade-without-success"),
+    pytest.param("agent", {**_GOOD["agent"], "cost_usd": "0.1"}, id="cost-a-string"),
+    pytest.param("agent", {**_GOOD["agent"], "cost_usd": True}, id="cost-a-bool"),
 ]
 
 
@@ -123,3 +127,48 @@ def test_a_result_file_without_usable_agent_task_arm_or_model_exits_1(tmp_path, 
     err = capsys.readouterr().err
     assert f"{batch / 't__a__m__r1' / 'result.json'} has no usable `{key}`" in err
     assert "Traceback" not in err
+
+
+def test_a_result_file_with_a_score_task_and_no_score_only_is_accepted(tmp_path, capsys):
+    rec = {**_GOOD, "score_task": False, "grade": {"status": "ok", "success": True},
+           "agent": {**_GOOD["agent"], "cost_usd": None}}
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
+    _run("report", str(batch), "--json")
+    assert json.loads(capsys.readouterr().out)["rows"][0]["cost_unknown"] == 1
+
+
+def test_a_deeply_nested_result_file_exits_1_naming_the_file(tmp_path, capsys):
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": b"[" * 100000})
+    with pytest.raises(SystemExit) as exc:
+        _run("report", str(batch))
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert str(batch / "t__a__m__r1" / "result.json") in err and "Traceback" not in err
+
+
+def test_an_unreadable_result_file_exits_1_naming_the_file(tmp_path, capsys):
+    batch = _batch(tmp_path, "b1", {})
+    (batch / "t__a__m__r1" / "result.json").mkdir(parents=True)  # a directory where the file belongs
+    with pytest.raises(SystemExit) as exc:
+        _run("report", str(batch))
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert f"cannot read {batch / 't__a__m__r1' / 'result.json'}" in err and "Traceback" not in err
+
+
+def test_a_result_file_without_num_turns_exits_1(tmp_path, capsys):
+    agent = {k: v for k, v in _GOOD["agent"].items() if k != "num_turns"}
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps({**_GOOD, "agent": agent}).encode()})
+    with pytest.raises(SystemExit) as exc:
+        _run("report", str(batch))
+    assert exc.value.code == 1
+    assert "has no usable `agent`" in capsys.readouterr().err
+
+
+def test_a_score_task_result_file_without_grade_success_exits_1(tmp_path, capsys):
+    rec = {**_GOOD, "score_task": True, "grade": {"status": "ok"}}
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
+    with pytest.raises(SystemExit) as exc:
+        _run("report", str(batch))
+    assert exc.value.code == 1
+    assert "has no usable `grade`" in capsys.readouterr().err

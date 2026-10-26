@@ -92,3 +92,67 @@ def test_matrix_run_exits_1_naming_an_uncreatable_out_dir(tmp_path, capsys):
     assert exc.value.code == 1
     err = capsys.readouterr().err
     assert f"Error: cannot write {out_dir / 'cells'}" in err and "Traceback" not in err
+
+
+def test_plugin_delta_exits_1_on_a_deeply_nested_artifact(tmp_path, capsys):
+    deep = tmp_path / "deep.json"
+    deep.write_text("[" * 100000, encoding="utf-8")
+    plugin = tmp_path / "plugin.json"
+    plugin.write_text(json.dumps(_arms_artifact("caveman:full")), encoding="utf-8")
+    args = _args("plugin-delta", "--baseline-json", str(deep), "--plugin-json", str(plugin))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "Error computing plugin delta" in err and "Traceback" not in err
+
+
+def _matrix_run(tmp_path: Path, out_dir: Path, *extra: str):
+    cells = tmp_path / "cells.json"
+    cells.write_text(json.dumps({"cells": [{"name": "c1", "model": "m", "provider": "anthropic", "harness": "arms-runner"}]}), encoding="utf-8")
+    questions = tmp_path / "questions.json"
+    questions.write_text(json.dumps({"questions": [{"id": "q1", "question": "What is x?"}]}), encoding="utf-8")
+    return _args("matrix-run", "--product", "p", "--questions", str(questions), "--arms", "baseline",
+                 "--matrix-cells", str(cells), "--out-dir", str(out_dir), *extra)
+
+
+def _stub_matrix(monkeypatch, tmp_path):
+    from dokimi.commands import arms
+
+    monkeypatch.setattr(arms, "_build_arms_output", lambda *a, **k: {})
+    monkeypatch.setattr(arms, "_save_arms_output", lambda *a, **k: None)
+    delta = tmp_path / "out" / "delta.json"
+    rollup = {"plugin_deltas": [{"artifact": str(delta), "_artifact_payload": {"d": 1}}]}
+    monkeypatch.setattr("dokimi.eval.matrix_rollup.build_matrix_rollup", lambda **k: rollup)
+    monkeypatch.setattr("dokimi.eval.matrix_rollup.strip_internal_payloads", lambda r: {"r": 1})
+    monkeypatch.setattr("dokimi.report.plugin_delta_report.render_plugin_delta_report", lambda p: "delta")
+    monkeypatch.setattr("dokimi.report.matrix_rollup_report.render_matrix_rollup_report", lambda p: "rollup")
+    return delta
+
+
+def _fake_save_artifact(monkeypatch, bad: Path):
+    def save(kind, payload, path, *a, **k):
+        if Path(path) == bad:
+            raise OSError("denied")
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("dokimi.artifacts.save_artifact", save)
+
+
+@pytest.mark.parametrize("which", ["delta_json", "delta_md", "rollup_json", "rollup_md"])
+def test_matrix_run_exits_1_naming_an_unwritable_delta_or_rollup(tmp_path, monkeypatch, capsys, which):
+    delta = _stub_matrix(monkeypatch, tmp_path)
+    out_dir = tmp_path / "out"
+    rollup_json = out_dir / "matrix-rollup.json"
+    bad = {"delta_json": delta, "delta_md": delta.with_suffix(".md"),
+           "rollup_json": rollup_json, "rollup_md": rollup_json.with_suffix(".md")}[which]
+    _fake_save_artifact(monkeypatch, bad)
+    if which.endswith("_md"):
+        bad.mkdir(parents=True)  # a directory where the report file belongs
+    args = _matrix_run(tmp_path, out_dir)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert f"Error: cannot write {bad}" in err and "Traceback" not in err

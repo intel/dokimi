@@ -25,6 +25,7 @@ def _exit_message(argv) -> str:
     [
         (b"id: [unclosed\n", "is not valid UTF-8 YAML"),
         (bytes([0xFF, 0xFE, 0x00]), "is not valid UTF-8 YAML"),
+        pytest.param(b"[" * 100000, "is not valid UTF-8 YAML", id="too-deep"),
         (b"- just\n- a list\n", "must hold a YAML mapping"),
         (b"id: only-an-id\n", "missing required field(s)"),
         (b"id: x\nquery: q\nreferences: 5\n", "references must be a list"),

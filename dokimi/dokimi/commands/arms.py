@@ -189,7 +189,7 @@ def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
             for section in ("answers", "evaluations"):
                 records(artifact.get(section) or [], source=f"{path} {section}", kind=section)
         output = compare_plugin_runs(baseline, plugin)
-    except (PluginDeltaError, ValueError, OSError) as exc:
+    except (PluginDeltaError, ValueError, OSError, RecursionError) as exc:
         print(f"Error computing plugin delta: {exc}", file=sys.stderr)
         sys.exit(1)
 

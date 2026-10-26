@@ -66,10 +66,14 @@ _AGENT_KEYS = ("timed_out", "is_error", "over_budget", "cost_usd", "num_turns")
 def _check_cell(path: Path, rec: dict[str, Any]) -> None:
     """Raise a :class:`CellFileError` unless ``rec`` has the fields the report and compare read."""
     grade = rec.get("grade")
-    if not isinstance(grade, dict) or "status" not in grade:
+    needed = ("status", "success") if "score_task" in rec else ("status", "score_only", "success")
+    if not isinstance(grade, dict) or any(k not in grade for k in needed):
         raise CellFileError(f"{path} has no usable `grade`")
     agent = rec.get("agent")
     if not isinstance(agent, dict) or any(k not in agent for k in _AGENT_KEYS):
+        raise CellFileError(f"{path} has no usable `agent`")
+    cost = agent["cost_usd"]
+    if isinstance(cost, bool) or not (cost is None or isinstance(cost, (int, float))):
         raise CellFileError(f"{path} has no usable `agent`")
     for key in ("task", "arm", "model"):
         if not isinstance(rec.get(key), str):
@@ -88,7 +92,7 @@ def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
         rec["cell"] = path.parent.name
         # The row's kind is the task's, not what its cells' grades say. The runner records it from the
         # eval dir's task.json; the cell's copy is in the run dir, which the grader could rewrite.
-        rec["score_task"] = bool(rec.get("score_task", rec["grade"]["score_only"]))
+        rec["score_task"] = bool(rec["score_task"] if "score_task" in rec else rec["grade"]["score_only"])
         finished.append(rec)
     done = {r["cell"] for r in finished}
     unsupported = {p.parent.name for p in batch_dir.glob(f"*/{UNSUPPORTED_FILE}")}
