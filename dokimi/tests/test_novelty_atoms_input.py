@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from dokimi.cli import build_parser
@@ -57,4 +59,4 @@ def test_a_bundle_block_of_the_right_shape_is_not_refused(tmp_path, bundle):
     path = tmp_path / "atoms.json"
     path.write_text('{"atoms": [], "spans": [], "bundle": %s}' % bundle, encoding="utf-8")
     atoms, spans, record = load_atoms_or_exit(path)
-    assert (atoms, spans, record["bundle"]) == ([], [], __import__("json").loads(bundle))
+    assert (atoms, spans, record["bundle"]) == ([], [], json.loads(bundle))
