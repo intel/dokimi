@@ -88,6 +88,9 @@ def test_a_chained_line_reports_the_separator_after_each_command():
     ("echo $# > out.txt", "out.txt"), ("echo ${#x} > out.txt", "out.txt"),
     ("echo hi &> out.txt", "out.txt"), ("echo hi &>> out.txt", "out.txt"), ("echo hi >& out.txt", "out.txt"),
     ("make >&2", ""), ("make 2>&1", ""), ("echo hi >&-", ""),
+    ("sudo --chdir /tmp tee out.txt", "out.txt"), ("sudo --group adm tee out.txt", "out.txt"),
+    ("env --chdir /tmp tee out.txt", "out.txt"), ("time --output t.txt tee out.txt", "out.txt"),
+    ("timeout -s KILL 5 tee out.txt", "out.txt"),
 ])
 def test_written_file_after_prefixes_and_flags(command, file):
     assert written(command) == file
@@ -103,6 +106,8 @@ def test_a_multi_file_in_place_edit_records_every_file():
     ("sed -i --expression=s/a/b/ a.py", ["a.py"]), ("sed -i -es/a/b/ a.py", ["a.py"]),
     ("sed -i -f a.sed -f b.sed f", ["f"]), ("sed -i '' s/a/b/ a.py", ["a.py"]),
     ("sed -i s/a/b/ f > log.txt", ["f"]), ("sed -i s/a/b/ f 2>err.log", ["f"]),
+    ("sed -i --file=x.sed out.txt", ["out.txt"]),
+    ("sed -i --expression s/a/b/ -e s/c/d/ out.txt", ["out.txt"]),
 ])
 def test_written_files_of_an_in_place_edit(command, files):
     assert written_files(command) == files
