@@ -81,6 +81,7 @@ def test_the_digest_ignores_generated_at_only(tmp_path):
     plan = _plan(tmp_path)
     assert plan_digest({**plan, "generated_at": "later"}) == plan_digest(plan)
     assert plan_digest({**plan, "varied_variable": ["code", "guidance"]}) != plan_digest(plan)
+    assert plan_digest({**plan, "cells": plan["cells"][:-1]}) != plan_digest(plan)
 
 
 def test_unplanned_or_doubled_cells_are_invalid(tmp_path):
