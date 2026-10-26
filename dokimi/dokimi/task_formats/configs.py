@@ -79,7 +79,8 @@ class PromptfooProbe:
         if source.data is not None and not data:
             report.problems.append("not a mapping")
         asserts = isinstance(data.get("defaultTest"), dict) and "assert" in data["defaultTest"]
-        asserts = asserts or any(isinstance(t, dict) and t.get("assert") for t in tests or [] if isinstance(tests, list))
+        asserts = asserts or any(isinstance(t, dict) and t.get("assert")
+                                 for t in (tests if isinstance(tests, list) else []))
         report.set_parts({
             "instruction": bool(data.get("prompts")),
             "environment": bool(data.get("providers") or data.get("targets")),
@@ -95,6 +96,8 @@ class PromptfooProbe:
                 report.details["references"] = [reference(local, FORMAT_PROMPTFOO_TESTS)]
         elif data and tests is None and not any(k in data for k in ("scenarios", "redteam")):
             report.problems.append("no tests")
+        elif tests is not None and not isinstance(tests, list):
+            report.problems.append(f"tests is {type(tests).__name__}, expected a list or a path")
         if data and not data.get("prompts") and "redteam" not in data:
             report.problems.append("no prompts")
         return report
@@ -124,7 +127,7 @@ class PromptfooTestsProbe:
         rows = source.rows or []
         report = Report(source.path, self.name, KIND_ANSWER_ONLY, items=len(rows))
         report.problems.extend(source.problems)
-        expected = any(k.startswith("__expected") for r in rows[:1] for k in r)
+        expected = any(str(k).startswith("__expected") for r in rows[:1] for k in r)
         report.set_parts({
             "instruction": bool(rows),
             "verifier": expected or any(r.get("assert") for r in rows),
