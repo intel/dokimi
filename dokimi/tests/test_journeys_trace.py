@@ -12,6 +12,7 @@ evidence, and a cli_scenario only when its test parsed the declared command.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 import yaml
@@ -93,6 +94,15 @@ def test_every_enforced_criterion_names_evidence_some_test_claims():
     # Match both single and double quotes: f'"{i}"' or f"'{i}'" or other syntaxes
     missing = [i for i in ids if f'"{i}"' not in source and f"'{i}'" not in source]
     assert sorted(missing) == []
+
+
+def test_a_criterion_the_catalog_marks_proposed_is_proposed_in_the_registry():
+    """The catalog page and the generated report must not disagree on what is delivered."""
+    catalog, _ = journeys.parse_catalog(plugin.REPO_ROOT / journeys.CATALOG)
+    registry = yaml.safe_load((plugin.CONTRACT_DIR / "journeys.yaml").read_text(encoding="utf-8"))
+    marked = {ac for ac, c in catalog["criteria"].items() if re.search(r"\*Proposed[^*]*\*$", c["text"])}
+    wrong = {ac: e.get("delivery") for ac, e in registry["criteria"].items() if ac in marked and e.get("delivery") != "proposed"}
+    assert wrong == {}
 
 
 # ------------------------------------------------------------------ catalog problems

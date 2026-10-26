@@ -76,11 +76,11 @@ never confused with a use-case or job id.
 | [J1](journeys.md#j1--start-an-assessment) | Check this and explain the problems and the next step | Initial evidence, unknowns, scope, and a fitting next evaluation plan |
 | [J2](journeys.md#j2--improve-my-skill) | Improve my skill | Actionable hypotheses and changes, and a measured effect or a justified rejection of the change |
 | [J3](journeys.md#j3--enable-my-repository-for-agents) | Enable my repository for agents | Obstacles found, guidance and evals prepared, representative real tasks verified |
-| [J4](journeys.md#j4--check-agentsmd-or-other-instructions) | Check AGENTS.md or other instructions | Correctness, loading and reach, adherence, and effect, each established on its own |
+| [J4](journeys.md#j4--check-agentsmd-other-instructions-or-installed-skills) | Check AGENTS.md, other instructions or installed skills | Correctness, loading and reach, adherence, and effect, each established on its own |
 | [J5](journeys.md#j5--assess-a-third-party-skill) | Assess a third-party skill | Evidence for the claimed capabilities, problems, applicability, and the limits of the assessment |
 | [J6](journeys.md#j6--does-this-skill-work-in-my-use-case) | Does this skill work in my use case? | Evals adapted or added for the user's own tasks, compared numerically |
 | [J7](journeys.md#j7--create-or-improve-evals) | Create or improve evals | Relevant tasks, defensible graders, negative controls, explicit coverage gaps |
-| [J8](journeys.md#j8--which-models-can-handle-this) | Which models can handle this task or repository? | Feasibility and reliability under stated requirements and conditions |
+| [J8](journeys.md#j8--which-models-or-harnesses-can-handle-this) | Which models or harnesses can handle this task or repository? | Feasibility and reliability under stated requirements and conditions |
 | [J9](journeys.md#j9--cheapest-suitable-model-or-setup) | What is the cheapest suitable model or setup? | The cost of reaching acceptable outcomes, retries and failures included, under quality constraints |
 | [J10](journeys.md#j10--what-effect-does-this-change-have) | What effect does this change have? | Comparable effects, regressions, costs, uncertainty and confounds for any declared change |
 | [J11](journeys.md#j11--explain-results-or-recover-a-run) | Explain results, or recover from a failed or inconclusive run | Task failure, evaluation failure, missing evidence and incomparable data told apart; a recovery or the next discriminating experiment |
