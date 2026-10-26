@@ -75,7 +75,7 @@ from .command import _parse_reward_text
 from .container_agent import AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, ContainerSandbox, Docker
 from .models import HarnessResult, OperationRecord
 from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, enter_phase, needs_sandbox,
-                             proxy_env_flags, resolve, skill_needs, start_args, redact as _redact)
+                             proxy_env_flags, resolve, resolve_recorded, skill_needs, start_args, redact as _redact)
 from .skill_treatment import Treatment, build_plugin, check_skill, skill_listing, treatment_notice
 from .solver_stream import record_solver, run_solver
 from .tasks import (  # noqa: F401  (timeouts re-exported)
@@ -138,8 +138,8 @@ class DockerSolverHarness:
         dry_run: bool = False,
     ) -> HarnessResult:
         _refuse_unrunnable(task, self.mode, self.agent_location)
-        plan = self._plan(task)
         output_dir = Path(output_dir) if output_dir else None
+        plan = self._plan(task, record=None if dry_run else output_dir)
         if output_dir:
             output_dir.mkdir(parents=True, exist_ok=True)
         model = model or self.model_default
@@ -657,8 +657,8 @@ class DockerSolverHarness:
         # No reward file written: fall back to verifier exit code.
         return 1.0 if proc.returncode == 0 else 0.0
 
-    def _plan(self, task: TaskSpec) -> NetworkPlan:
-        return resolve(task, self.network, agent=self.mode != "oracle")
+    def _plan(self, task: TaskSpec, record: Optional[Path] = None) -> NetworkPlan:
+        return resolve_recorded(task, self.network, agent=self.mode != "oracle", record=record)
 
     def _solve_in_container(self) -> bool:
         return self.mode == "oracle" or self.agent_location == "container"

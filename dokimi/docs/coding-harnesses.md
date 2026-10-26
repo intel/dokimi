@@ -544,7 +544,7 @@ decisions land in `metrics.network.verify_egress`). Later sources win:
 2. The task: `[environment]` `network_mode` and `allowed_hosts` (or Harbor's
    deprecated `allow_internet`), then `[agent]` and `[verifier]` overrides,
    and `environment.egress` for an agent's solve. An unknown mode refuses
-   the cell.
+   the cell, and its `network.json` holds the reason.
 3. The operator: `dokimi tasks run --network PHASE=MODE[:host,...]`,
    repeatable, with `all` for every phase. For example
    `--network verify=none` grades a public task offline, and

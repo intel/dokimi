@@ -119,6 +119,9 @@ def test_an_unknown_task_network_mode_refuses_the_cell(tmp_path):
     task = load_task(_task(tmp_path, '[environment]\nnetwork_mode = "host"\n'))
     with pytest.raises(ValueError, match="network mode 'host'"):
         create_harness("docker-oracle").run(task, output_dir=tmp_path / "out", dry_run=True)
+    with pytest.raises(ValueError, match="network mode 'host'"):
+        create_harness("docker-oracle", runner=DockerCLI()).run(task, output_dir=tmp_path / "run")
+    assert "network mode 'host'" in json.loads((tmp_path / "run" / "network.json").read_text())["error"]
 
 
 # ── what each phase gets ────────────────────────────────────────────────────
