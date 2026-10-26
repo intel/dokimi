@@ -91,3 +91,22 @@ def test_an_out_dir_under_a_file_exits_1_naming_it(tmp_path, monkeypatch, capsys
          extra_args=("--out-dir", str(target)))
 
     assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")
+
+
+def test_an_unwritable_scorecard_exits_1_naming_it(tmp_path, monkeypatch, capsys):
+    import dokimi.artifacts
+    import dokimi.commands.arms
+    import dokimi.subjects
+
+    monkeypatch.setattr(dokimi.commands.arms, "cmd_arms_matrix_run", lambda args: None)
+    monkeypatch.setattr(dokimi.artifacts, "load_artifact", lambda kind, path: {})
+    monkeypatch.setattr(dokimi.subjects, "build_subject_scorecard", lambda *a, **k: {})
+    monkeypatch.setattr("dokimi.commands.subjects._run_subject_work", lambda *a, **k: {})
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")
+    target = blocker / "scorecard.json"
+
+    _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]',
+         extra_args=("--out-json", str(target)))
+
+    assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")

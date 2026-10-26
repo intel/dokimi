@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from pathlib import Path
@@ -167,9 +168,11 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
     )
     out_json = Path(args.out_json) if args.out_json else out_dir / "subject-scorecard.json"
     out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
-    save_artifact("subject_scorecard", scorecard, out_json)
-    out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_md.write_text(render_subject_scorecard(scorecard), encoding="utf-8")
+    with _exit_on_unwritable(out_json):
+        save_artifact("subject_scorecard", scorecard, out_json)
+    with _exit_on_unwritable(out_md):
+        out_md.parent.mkdir(parents=True, exist_ok=True)
+        out_md.write_text(render_subject_scorecard(scorecard), encoding="utf-8")
     print(f"OK Saved subject scorecard: {out_json}")
     print(f"OK Saved subject report:    {out_md}")
 
@@ -271,6 +274,16 @@ def register(sub, positive_int) -> None:
         help="Skip suite.tasks even when the subject descriptor declares them.",
     )
     run_p.set_defaults(func=cmd_subjects_run)
+
+
+@contextlib.contextmanager
+def _exit_on_unwritable(path: Path):
+    """Exit 1 naming ``path`` when an output write inside the block fails."""
+    try:
+        yield
+    except OSError as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _run_plan(descriptor, args: argparse.Namespace) -> tuple[Path, str, list[str]]:
@@ -419,10 +432,12 @@ def _run_subject_work(descriptor, args: argparse.Namespace, *, out_dir: Path, ta
         artifact = runner.run()
     except PreflightError as exc:
         raise SystemExit(f"error: {exc}") from None
-    save_artifact("task_runs", artifact, task_runs_path)
     task_runs_md = task_runs_path.with_suffix(".md")
-    task_runs_md.parent.mkdir(parents=True, exist_ok=True)
-    task_runs_md.write_text(render_task_runs_report(artifact), encoding="utf-8")
+    with _exit_on_unwritable(task_runs_path):
+        save_artifact("task_runs", artifact, task_runs_path)
+    with _exit_on_unwritable(task_runs_md):
+        task_runs_md.parent.mkdir(parents=True, exist_ok=True)
+        task_runs_md.write_text(render_task_runs_report(artifact), encoding="utf-8")
     return {
         "status": "run",
         "tasks": list(descriptor.suite.tasks),
