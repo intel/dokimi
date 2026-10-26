@@ -213,8 +213,34 @@ def test_pytest_v2_reads_coloured_and_old_style_lines():
 def test_a_log_without_a_test_run_does_not_resolve():
     assert grader.grade("error: patch failed\n", _CONFIG) == {"instance_id": "x", "tests_ran": False,
                                                              "resolved": False}
-    log = _log("PASSED t.py::f\nPASSED t.py::p") + ">>>>> Patch Apply Failed\n"
-    assert grader.grade(log, _CONFIG)["resolved"] is False
+
+
+@pytest.mark.parametrize("code", ["Patch Apply Failed", "Reset Failed", "Tests Errored", "Tests Timed Out"])
+def test_a_bad_code_in_the_log_does_not_resolve_even_with_passing_lines(code):
+    log = _log("PASSED t.py::f\nPASSED t.py::p") + f">>>>> {code}\n"
+    assert grader.grade(log, _CONFIG) == {"instance_id": "x", "tests_ran": False, "resolved": False}
+
+
+@pytest.mark.parametrize("body", ["ERROR t.py::f\nPASSED t.py::p", "PASSED t.py::f\nERROR t.py::p"])
+def test_an_error_status_counts_as_a_failure(body):
+    assert grader.grade(_log(body), _CONFIG)["resolved"] is False
+
+
+def test_django_fail_and_error_headers_are_read():
+    # Upstream keys a "FAIL:"/"ERROR:" header by the word after it, as here.
+    found = grader.parse_django("FAIL: test_y (m.T)\nERROR: test_z (m.T)\n")
+    assert found == {"test_y": "FAILED", "test_z": "ERROR"}
+
+
+def test_the_scripts_trust_the_image_checkout_and_fall_back_through_the_apply_commands(tmp_path):
+    task = stage(_row(PYTEST_ID), tmp_path)
+    trust = "git config --global --add safe.directory '*'"
+    eval_sh = (task.tests_dir / "eval.sh").read_text()
+    assert eval_sh.index(trust) < eval_sh.index("git status")
+    solve = (task.solution_dir / "solve.sh").read_text()
+    assert solve.index(trust) < solve.index("git apply")
+    assert ("git apply --verbose /solution/patch.diff || git apply --verbose --reject /solution/patch.diff"
+            " || patch --batch --fuzz=5 -p1 -i /solution/patch.diff || ") in solve
 
 
 def test_django_and_sympy_logs_parse_to_statuses():
