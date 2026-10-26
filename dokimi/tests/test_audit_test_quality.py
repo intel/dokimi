@@ -524,6 +524,15 @@ def test_a_called_check_on_a_patched_mock_is_still_a_mock_echo(source):
     "        run(llm)\n    assert llm.called",
     "@pytest.fixture\ndef llm():\n    return MagicMock()\ndef test_x(llm, /):\n    with patch('m.y'):\n"
     "        run(llm)\n    assert llm.called",
+    # setUp puts a local mock on self
+    "class TestX:\n    def setUp(self):\n        m = MagicMock()\n        self.m = m\n    def test_x(self):\n"
+    "        with patch('m.y'):\n            run(self.m)\n        assert self.m.called",
+    # a fixture of the test's own class
+    "class TestX:\n    @pytest.fixture\n    def llm(self):\n        return MagicMock()\n    def test_x(self, llm):\n"
+    "        with patch('m.y'):\n            run(llm)\n        assert llm.called",
+    # a fixture that yields the mock of a patch
+    "@pytest.fixture\ndef llm():\n    with patch('m.llm') as m:\n        yield m\ndef test_x(llm):\n"
+    "    with patch('m.y'):\n        run()\n    assert llm.called",
 ])
 def test_a_mock_bound_outside_the_test_body_is_still_a_mock_echo(source):
     audits = {a.test.rsplit(".", 1)[-1]: a.flags for a in atq.audit_source(textwrap.dedent(source))}
@@ -556,6 +565,41 @@ def test_a_fixture_that_returns_data_is_not_a_mock():
             assert stats.call_count == 2
         """)
     assert "mock_echo" not in flags["test_x"]
+
+
+@pytest.mark.parametrize("source", [
+    # a local of setUp is gone when the test runs: the test's own `m` is what run() returned
+    "class TestX:\n    def setUp(self):\n        m = MagicMock()\n        self.x = m\n    def test_x(self):\n"
+    "        with patch('m.y'):\n            m = run()\n        assert m.call_count == 2",
+    # setUp holds self.result, not the test's local result
+    "class TestX:\n    def setUp(self):\n        self.result = MagicMock()\n    def test_x(self):\n"
+    "        with patch('m.y'):\n            result = run()\n        assert result.call_count == 2",
+    # the fixture builds a mock to make its data, and returns the data
+    "@pytest.fixture\ndef stats():\n    m = MagicMock()\n    return run(m)\ndef test_x(stats):\n"
+    "    with patch('m.y'):\n        run()\n    assert stats.call_count == 2",
+    # a fixture of another class is not in the test's scope
+    "class TestA:\n    @pytest.fixture\n    def stats(self):\n        return MagicMock()\nclass TestX:\n"
+    "    def test_x(self, stats):\n        with patch('m.y'):\n            run()\n        assert stats.call_count == 2",
+    # the class's own fixture of the name wins over the module's
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\nclass TestX:\n    @pytest.fixture\n    def stats(self):\n"
+    "        return run()\n    def test_x(self, stats):\n        with patch('m.y'):\n            run()\n"
+    "        assert stats.call_count == 2",
+    # parametrize fills the parameter, not the fixture of that name: by position, by keyword, on the class
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\n@pytest.mark.parametrize('stats', [run()])\n"
+    "def test_x(stats):\n    with patch('m.y'):\n        run()\n    assert stats.call_count == 2",
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\n"
+    "@pytest.mark.parametrize(argnames=['n', 'stats'], argvalues=[(1, run())])\n"
+    "def test_x(n, stats):\n    with patch('m.y'):\n        run()\n    assert stats.call_count == 2",
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\n@pytest.mark.parametrize('n, stats', [(1, run())])\n"
+    "class TestX:\n    def test_x(self, n, stats):\n        with patch('m.y'):\n            run()\n"
+    "        assert stats.call_count == 2",
+    # the test rebinds the parameter before the check
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\ndef test_x(stats):\n    with patch('m.y'):\n"
+    "        stats = run()\n    assert stats.call_count == 2",
+])
+def test_a_name_that_only_shares_a_mock_s_name_is_data(source):
+    audits = {a.test.rsplit(".", 1)[-1]: a.flags for a in atq.audit_source(textwrap.dedent(source))}
+    assert "mock_echo" not in audits["test_x"]
 
 
 def test_tuple_of_mock_attrs_and_literals_is_mock_echo():
