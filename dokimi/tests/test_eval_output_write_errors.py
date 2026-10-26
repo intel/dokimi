@@ -26,7 +26,7 @@ def test_write_text_or_exit_names_the_path_and_exits_with_the_code(tmp_path, cap
     with pytest.raises(SystemExit) as exc:
         write_text_or_exit(target, "{}", code=2)
     assert exc.value.code == 2
-    assert f"Error: cannot write {target}" in capsys.readouterr().err
+    assert f"Error: cannot write {target}: " in capsys.readouterr().err
 
 
 class _Report:
@@ -157,7 +157,7 @@ def test_panel_score_output_that_cannot_be_written_exits_2_naming_the_path(
             pass
 
         def evaluate_answers(self, *a, **k):
-            raise PermissionError(13, "denied", str(target))
+            raise PermissionError(13, "denied", f"{target}.123.0.tmp")
 
     monkeypatch.setattr(panel_mod, "JudgePanel", Panel)
     monkeypatch.setattr(
@@ -169,7 +169,7 @@ def test_panel_score_output_that_cannot_be_written_exits_2_naming_the_path(
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 2
-    assert f"Error: cannot write {target}" in capsys.readouterr().err
+    assert f"Error: cannot write {target}: " in capsys.readouterr().err
 
 
 def test_score_output_that_cannot_be_written_exits_2_naming_the_path(tmp_path, monkeypatch, capsys):
@@ -178,7 +178,7 @@ def test_score_output_that_cannot_be_written_exits_2_naming_the_path(tmp_path, m
             return []
 
         def save_evaluations(self, evals, path):
-            raise PermissionError(13, "Permission denied", str(path))
+            raise PermissionError(13, "Permission denied", f"{path}.123.0.tmp")
 
     answers = tmp_path / "answers.json"
     answers.write_text(json.dumps({"answers": []}), encoding="utf-8")
@@ -192,7 +192,7 @@ def test_score_output_that_cannot_be_written_exits_2_naming_the_path(tmp_path, m
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 2
-    assert f"Error: cannot write {target}" in capsys.readouterr().err
+    assert f"Error: cannot write {target}: " in capsys.readouterr().err
 
 
 def test_report_eval_names_the_sidecar_when_it_cannot_be_written(tmp_path, monkeypatch, capsys):

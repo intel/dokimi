@@ -181,7 +181,7 @@ def test_generate_output_that_cannot_be_written_exits_2_naming_the_path(tmp_path
     with pytest.raises(SystemExit) as exc:
         answers.cmd_answers_generate(_args(output=str(target)))
     assert exc.value.code == 2
-    assert "Error: cannot write" in capsys.readouterr().err
+    assert f"Error: cannot write {target}: " in capsys.readouterr().err
 
 
 def test_generate_final_save_that_fails_exits_2_naming_the_path(tmp_path, monkeypatch, capsys):
@@ -195,10 +195,52 @@ def test_generate_final_save_that_fails_exits_2_naming_the_path(tmp_path, monkey
             return ["a1"]
 
         def save_answers(self, answers_, path):
-            raise PermissionError(13, "Permission denied", str(path))
+            raise PermissionError(13, "Permission denied", f"{path}.123.0.tmp")
 
     _stub_generate(monkeypatch, tmp_path, FakeAnswerer)
     with pytest.raises(SystemExit) as exc:
         answers.cmd_answers_generate(_args(output=str(target)))
     assert exc.value.code == 2
     assert f"Error: cannot write {target}: Permission denied" in capsys.readouterr().err
+
+
+def test_generate_output_that_is_a_directory_exits_2_naming_the_path(tmp_path, monkeypatch, capsys):
+    from dokimi.eval import Answerer as RealAnswerer
+
+    target = tmp_path / "outdir"
+    target.mkdir()
+
+    class FakeAnswerer:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_answers(self, **kwargs):
+            return [{"question_id": "q1"}]
+
+        model = "m"
+        provider = "p"
+
+        def _get_timestamp(self):
+            return "t"
+
+        _build_output = RealAnswerer._build_output
+
+        save_answers = RealAnswerer.save_answers
+
+    _stub_generate(monkeypatch, tmp_path, FakeAnswerer)
+    with pytest.raises(SystemExit) as exc:
+        answers.cmd_answers_generate(_args(output=str(target)))
+    assert exc.value.code == 2
+    assert f"Error: cannot write {target}: " in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("kind", ["missing", "directory"])
+def test_generate_unreadable_questions_exits_1_naming_the_path(tmp_path, monkeypatch, capsys, kind):
+    _point_config(monkeypatch, tmp_path / "absent.yaml")
+    path = tmp_path / "q.json"
+    if kind == "directory":
+        path.mkdir()
+    with pytest.raises(SystemExit) as exc:
+        answers.cmd_answers_generate(_args(questions=str(path)))
+    assert exc.value.code == 1
+    assert f"Error: cannot read {path}" in capsys.readouterr().err

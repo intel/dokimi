@@ -51,6 +51,9 @@ def _load_questions(path: str) -> list:
     except ValueError as exc:  # ArtifactValidationError: names the record and the fix
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
+    except OSError as exc:
+        print(f"Error: cannot read {path}: {exc.strerror or exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
 
 def _output_path(args: argparse.Namespace) -> Path:

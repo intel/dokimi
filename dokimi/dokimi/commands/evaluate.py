@@ -156,7 +156,7 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
                                          run_metadata={"answer_model": answer_model,
                                                        "answer_provider": answer_provider})
     except OSError as exc:
-        print(f"Error: cannot write {exc.filename or output_path}: {exc.strerror or exc}", file=sys.stderr)
+        print(f"Error: cannot write {output_path}: {exc.strerror or exc}", file=sys.stderr)
         sys.exit(2)
 
     # Summary: the context arm's own quality, not a comparison.
@@ -231,7 +231,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
         print(f"Error: {args.answers}: {exc}", file=sys.stderr)
         sys.exit(2)
     except OSError as exc:
-        print(f"Error: cannot write {exc.filename or output_path}: {exc.strerror or exc}", file=sys.stderr)
+        print(f"Error: cannot write {output_path}: {exc.strerror or exc}", file=sys.stderr)
         sys.exit(2)
     print(f"\n✅ Saved evaluations to {output_path}")
 
