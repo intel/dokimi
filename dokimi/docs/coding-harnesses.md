@@ -69,8 +69,8 @@ Jekyll or Hugo, an unclosed block) is an author's note, and the task loads
 from `task.toml` with a warning (none for a note without frontmatter, or with
 Hugo's TOML `+++` frontmatter, which is not frontmatter here).
 
-Discovery skips a lone `task.md` without frontmatter with a warning;
-`load_task` on it raises. A lone `task.md` with frontmatter is a task, whatever
+Discovery skips a lone `task.md` without frontmatter, and a `task.yaml`
+mapping with no `instruction`, with a warning; `load_task` on either raises. A lone `task.md` with frontmatter is a task, whatever
 its keys. One that opens with `---` but does not parse (a horizontal rule, an
 unclosed block, invalid YAML, a non-mapping) fails discovery of the whole
 root, as a malformed `task.toml` does; `coverage` skips it. YAML aliases are
@@ -107,7 +107,7 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 |---|---|---|---|
 | `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` (with `environment/Dockerfile`) |
 | `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` (with `environment/Dockerfile`) |
-| `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | none yet |
+| `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | `docker-*` run it as it is; `harbor`, `benchflow` through a cached Harbor export (not a `solution.yaml` task) |
 | `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | none yet |
 | `inspect-samples` | JSON/JSONL/CSV rows with `input` and `target` (or the keys a `FieldSpec` names) | answer-only | none yet |
 | `inspect-task` | `.py` importing `inspect_ai` with a `@task` function | answer-only (executable with a `sandbox=`) | none yet |
@@ -122,7 +122,30 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 | `dokimi-explore-task` | YAML with `id`, `query` and `references[].path` | localization | explore track |
 | `git-lfs-pointer` | a git-LFS spec v1 pointer stub | unknown | none (fetch it first) |
 
-`tasks list` and `tasks run` still read only the first two.
+A terminal-bench v1 task (`task.yaml`, laude-institute/terminal-bench
+`original-tasks/`) runs as it is under `docker-*`: `solution.sh` is copied to
+`/oracle/solution.sh`, `run-tests.sh` and `tests/` to `/tests`, both run as the
+image's user with `TEST_DIR=/tests` and the compose `environment`, and the
+verdict is the pytest `short test summary info` (every listed test passed, skipped or
+xfailed), not the exit code, as terminal-bench reads it. `docker-*` refuses,
+with the reason, a task whose `docker-compose.yaml` needs more than one
+`docker run` of its default build stage (a second service, volumes, tmpfs,
+ports, a service `command` other than `sleep infinity`, `build.args` or
+`build.target`, an `environment` value read from the host), a `parser_name` other
+than `pytest`, `run_tests_in_same_shell`, or (oracle only) a `solution.yaml`.
+The Harbor-backed harnesses and `benchflow*` run a Harbor copy written on first
+use to `~/.cache/dokimi/harbor-export/<content hash>/` (mode 0700) by
+[`harbor_export.py`](../dokimi/harnesses/harbor_export.py); its `test.sh` scores
+the same pytest summary, so a task gets one verdict on every backend.
+
+Memory: terminal-bench sets no limit, so a v1 task gets
+`environment.memory_mb = 8192` (not the 2048 of other formats; tasks such as
+`predicate-pushdown-bench` are OOM-killed at 2 GB), unless its compose file
+sets `deploy.resources.limits.memory`, which `docker compose` honours and
+dokimi reads as the task's own value. `DOKIMI_TBENCH_V1_MEMORY_MB` changes the
+8192 default. The Harbor export writes the same value to `task.toml`.
+
+`tasks list` and `tasks run` still read only the first three.
 
 The `docker-*` harnesses mount the oracle at `/solution` and `/oracle` and the
 verifier at `/tests` and `/verifier`, because a script written for one layout
