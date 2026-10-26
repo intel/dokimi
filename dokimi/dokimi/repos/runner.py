@@ -60,6 +60,8 @@ from .container import (
     Mount,
     docker_network,
 )
+from .arms import skill_unmeasured, skill_usage, slug
+from .bases import MCP_CONFIG, NOT_UTF8, mcp_config_error
 from .events import convert
 from .uptake import arm_uptake
 from .grading import EvalContext, failed_outcome, outcome, run_entry
@@ -87,10 +89,6 @@ class AgentOptions:
     timeout_s: float = 2700
     max_turns: int = 200
     budget_usd: float = 2.0
-
-
-def slug(text: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("_") or "x"
 
 
 def cell_name(task: str, arm: str, model: str, rep: int) -> str:
@@ -198,6 +196,31 @@ def task_caps(task: Task, opts: AgentOptions) -> dict[str, float]:
     return caps
 
 
+def _add_arm_use(record: dict[str, Any], meta: dict[str, Any], task: Task, skills: dict[str, Any] | None,
+                 uptake_of: tuple[list[str], list[str]], events: list[Any] | None) -> None:
+    """Did the agent use what the arm installed (skills) or added (files, MCP servers)?"""
+    if meta.get("skills"):  # without a trace the usage is unmeasured, not zero
+        record["skills"] = skills if skills is not None else skill_unmeasured(
+            [s["name"] for s in meta["skills"]], task.expected_skill)
+    if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
+        record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
+
+
+def _workspace_args(task: Task, opts: AgentOptions, rd: Path, meta: dict[str, Any]) -> frozenset[str]:
+    """Record the ``args_if_present`` the cell runs with, and check the MCP config it gets; returns the files present."""
+    present = frozenset(n for n in opts.profile.args_if_present if (rd / "workspace" / n).exists())
+    meta["args_if_present"] = opts.profile.applied_args(opts.tools, present)  # the ones the cell runs with
+    if MCP_CONFIG in meta["args_if_present"]:  # the arm may have written it: check what the agent is given
+        try:
+            problem = mcp_config_error((rd / "workspace" / MCP_CONFIG).read_text(encoding="utf-8"))
+        except UnicodeDecodeError:
+            problem = NOT_UTF8
+        if problem:
+            raise PrepError(f"task {task.id}: {MCP_CONFIG} in the workspace is {problem}; the agent's CLI would exit "
+                            "on it before its first turn")
+    return present
+
+
 def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, opts: AgentOptions,
              force: bool = False, host: dict[str, Any] | None = None) -> dict[str, Any]:
     """Prepare, run the agent, grade. Returns the cell's ``result.json`` (``skipped`` when it existed).
@@ -221,10 +244,12 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     if rd.exists():
         _rmtree(rd)
     rd.mkdir(parents=True)
-    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile)
+    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir)
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
                 batch=batch_dir.name, agent_network=network, egress_proxy=False, execution=execution, host=host)
+    present = _workspace_args(task, opts, rd, meta)
     _write_json(rd / "meta.json", meta)
+    skills: dict[str, Any] | None = None
 
     mounts, env = agent_layout(ctx, rd, task)
     bin_in = f"{HARNESS_DIR}/{opts.harness_bin.name}"
@@ -238,8 +263,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     env["DOKIMI_HOOK_LOG"] = f"{CONFIG_DIR}/hook.log"
     opts.profile.write_config(rd / "config", {"config_dir": CONFIG_DIR, "support_dir": SUPPORT_DIR})
     argv = opts.profile.argv(prompt=opts.profile.prompt(str(task.raw["prompt"])), model=opts.model,
-                             tools=opts.tools, delegation=opts.delegation, max_turns=int(caps["max_turns"]), budget_usd=caps["budget_usd"],
-                             bin_path=bin_in)
+                             tools=opts.tools, delegation=opts.delegation, max_turns=int(caps["max_turns"]),
+                             budget_usd=caps["budget_usd"], bin_path=bin_in, present=present)
     spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts, env=env, pass_env=passed,
                          network=network, name=container_name(rd.name, "agent"))
     result = ctx.runner.run(spec, stdout=rd / "agent.stdout", stderr=rd / "agent.stderr",
@@ -276,6 +301,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             cache_write_tokens=transcript.cache_write_tokens, usage_scope=transcript.usage_scope,
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
+        if meta.get("skills") and (transcript.events or transcript.num_turns is not None):  # else it never started
+            skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
         grade = outcome(task, rd, graded)
     except Exception as exc:  # noqa: BLE001  # the grade run failed to start, or the host failed around it
@@ -288,8 +315,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "harness": opts.profile.name, "harness_version": meta["harness_version"],
                               "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
                               "score_max": task.score["max"] if task.score else None, "agent": agent, "grade": grade}
-    if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
-        record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
+    _add_arm_use(record, meta, task, skills, uptake_of, events)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
         _write_json(rd / "result.json", record)

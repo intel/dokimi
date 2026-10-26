@@ -7,7 +7,9 @@ A profile is data, not code. ``invoke`` is an argv template, and every element
 becomes exactly one argument after placeholder substitution, so a prompt with
 quotes or spaces never passes through a shell. The element ``"{tools}"`` is
 replaced by the argument list of the selected tool mode, or by its
-``delegation`` override when subagents are turned off. The child process
+``delegation`` override when subagents are turned off, followed, in the ``all``
+tool mode only, by the ``args_if_present`` arguments of each named workspace
+file that exists. The child process
 gets a scrubbed environment: only ``env_allow`` names are inherited, then
 ``env_set`` is applied, then ``config_dir_env`` points at a per-run directory
 so the user's own settings and memory cannot leak into a run.
@@ -57,6 +59,7 @@ class HarnessProfile:
     prompt_suffix: str = ""
     config_files: dict[str, str] = field(default_factory=dict)
     delegation: dict[str, dict[str, tuple[str, ...]]] = field(default_factory=dict)
+    args_if_present: dict[str, tuple[str, ...]] = field(default_factory=dict)
     path: str = "<profile>"
 
     @property
@@ -70,6 +73,12 @@ class HarnessProfile:
         depth = self.guidance.get("import_max_depth")
         return int(depth) if depth is not None else None
 
+    def applied_args(self, tools: str, present: frozenset[str]) -> list[str]:
+        """The ``args_if_present`` names :meth:`argv` adds: those in ``present``, in the ``all`` tool mode only."""
+        if tools != "all":  # --tools does not limit MCP tools: only here is the repo's MCP config part of the arm
+            return []
+        return sorted(present & self.args_if_present.keys())
+
     def argv(
         self,
         *,
@@ -80,8 +89,9 @@ class HarnessProfile:
         budget_usd: float = 0.25,
         bin_path: str | None = None,
         delegation: str = "native",
+        present: frozenset[str] = frozenset(),
     ) -> list[str]:
-        """The command line for one run, without a shell."""
+        """The command line for one run, without a shell; ``present`` names the workspace files that exist."""
         tool_args = self.tool_args(tools, delegation)
         values = {
             "bin": bin_path or self.bin,
@@ -94,6 +104,8 @@ class HarnessProfile:
         for element in self.invoke:
             if element == TOOLS_ELEMENT:
                 out.extend(tool_args)
+                for name in self.applied_args(tools, present):
+                    out.extend(self.args_if_present[name])
             else:
                 out.append(_substitute(element, values))
         return out
@@ -134,6 +146,7 @@ class HarnessProfile:
         executable's digest and version to detect changes to the effective harness, wherever it lives.
         """
         key = {"profile": self.name, "invoke": list(self.invoke), "tools": list(self.tool_args(tools, delegation)),
+               "args_if_present": {n: list(a) for n, a in sorted(self.args_if_present.items())},
                "env_set": dict(sorted(self.env_set.items())), "env_allow": list(self.env_allow),
                "config_dir_env": self.config_dir_env, "config_files": dict(sorted(self.config_files.items())),
                "egress": list(self.egress), "bridge": self.bridge,
@@ -239,6 +252,7 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
         config_files=dict(raw.get("config_files") or {}),
         delegation={mode: {t: tuple(args) for t, args in by_tools.items()}
                     for mode, by_tools in (raw.get("delegation") or {}).items()},
+        args_if_present={name: tuple(args) for name, args in (raw.get("args_if_present") or {}).items()},
         path=path,
     )
 

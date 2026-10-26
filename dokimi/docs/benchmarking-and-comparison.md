@@ -274,6 +274,33 @@ python cli.py arms run \
 The `baseline` arm is the control. Every other arm is compared against it. Keep
 the answer model and judge fixed when comparing arms.
 
+### Skill arms in repository mode
+
+`repo run` arms take the same `+` composition. Besides `guidance:none`,
+`guidance:raw` and `guidance:bridge`, an arm can install Claude Code skills into
+the task workspace at `.claude/skills/<dir name>/` before the agent starts:
+
+- `skill:<path>`: one skill directory (holding `SKILL.md`);
+- `skill-catalog:<dir>`: every subdirectory of `<dir>` with a `SKILL.md`, so the
+  agent has to pick the right one.
+
+A relative path is relative to the manifest's `eval_dir`. An arm without a
+guidance part keeps the repository's guidance (`guidance:raw`).
+
+```bash
+dokimi repo run <repo>@<rev> --model <m1> --model <m2> --batch skills \
+  --arm guidance:raw,guidance:raw+skill:skills/lint,guidance:none+skill-catalog:skills
+dokimi repo tasks check <repo>@<rev> --arm skill-catalog:skills   # paths exist, catalog has expected_skill
+```
+
+When a cell installs skills, its `result.json` gets a `skills` object:
+`skills_used` (the skills the agent called with the `Skill` tool, or whose
+`SKILL.md` it read), `skill_invoked`, and `skill_selected_correct` (the task's
+optional `expected_skill` was the first skill it used). `repo report` counts
+both per row. Every cell also records `cache_read_tokens` and
+`cache_write_tokens` with the input and output tokens, and
+`repo report --json` gives their means.
+
 ### Reading the significance tables
 
 Arms are compared **paired per question** against the one shared `baseline`
@@ -478,7 +505,9 @@ to the baseline's; `--escalate-model` is the same cheap-then-expensive cascade.
 under several judges (absolute, and with `--grounded` against each question's
 `expected_topics`), takes `eval pairwise` and `eval checklist` reports as more
 measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` or
-`NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote. With
+`NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote, or
+`NOT MEASURED` when no voting measure compared a single question (every call
+errored, or every judge was gated out); `--strict` exits 1 on that too. With
 `--validity` reports, a judge that failed its gate is shown but does not vote
 (its grounded and checklist measures included, in any context);
 `--require-validated` leaves only judges that passed. The stored measure is
@@ -515,7 +544,9 @@ python cli.py eval cross-judge --answers run.json --questions golden.json --grou
 under meaning-preserving rewrites of it and flags a degradation FRAGILE when a
 rewrite moves it on the same pairs: a paired sign test against the original
 prompt, Holm-adjusted over every rewrite and variant. Re-draws of the original
-are shown as a noise floor but do not decide the flag. Use at least 30 bases; at
+are shown as a noise floor but do not decide the flag. A condition with no
+scored pair (every call errored) is reported NOT MEASURED, not as "no rewrite
+moves anything", and `--strict` exits 1 on it. Use at least 30 bases; at
 20 bases only a large wording effect is detectable.
 
 `eval checklist` asks, per expected topic and in both polarities, whether the
