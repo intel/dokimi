@@ -489,6 +489,21 @@ def test_trigger_set_cli_exits_with_a_message_when_out_cannot_be_written(tmp_pat
     assert list(out.iterdir()) == []
 
 
+def test_trigger_set_cli_reports_a_schema_rejection_not_a_write_failure(tmp_path, catalog, monkeypatch):
+    from dokimi.artifacts import ArtifactValidationError
+    from dokimi.questions import artifact
+
+    def reject(*_a, **_k):
+        raise ArtifactValidationError("record 1: bad shape")
+
+    monkeypatch.setattr(artifact, "save_questions_artifact", reject)
+    q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])
+    with pytest.raises(SystemExit, match=r"Error: questions set rejected: record 1: bad shape") as exc:
+        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(tmp_path / "o.json"),
+                  "--questions", f"{q}=@skills", "--format", "questions"])
+    assert "cannot write" not in exc.value.code
+
+
 @pytest.mark.parametrize("fmt", ["reach", "skill-creator", "questions"])
 def test_trigger_set_cli_exits_with_a_message_when_out_is_empty(tmp_path, catalog, fmt):
     q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])

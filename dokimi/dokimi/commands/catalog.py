@@ -140,6 +140,7 @@ def _write_trigger_set(args: argparse.Namespace, queries, catalog_root: Path) ->
     """Write the query set to ``--out`` in ``--format``, or exit 1 naming ``--out`` when it cannot be written."""
     import json
 
+    from dokimi.artifacts import ArtifactValidationError
     from dokimi.external import trigger_set as ts
 
     try:
@@ -152,7 +153,9 @@ def _write_trigger_set(args: argparse.Namespace, queries, catalog_root: Path) ->
             payload = (ts.to_reach(queries, catalog_id=str(catalog_root)) if args.format == "reach"
                        else ts.to_skill_creator(queries, args.target))
             Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    except (OSError, ValueError) as exc:  # unwritable --out: a directory, a file as parent, no permission, empty path
+    except ArtifactValidationError as exc:  # the path was writable; the payload failed the schema
+        raise SystemExit(f"Error: questions set rejected: {exc}") from exc
+    except (OSError, ValueError) as exc:  # unwritable --out: a directory, a file as parent, no permission, empty path (pathlib ValueError)
         raise SystemExit(f"Error: cannot write --out {args.out}: {exc}") from exc
 
 
