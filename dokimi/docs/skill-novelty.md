@@ -831,9 +831,10 @@ tokens: above that the dollar figure extrapolates, and the payload says so
 (`usd_extrapolated: true`, with a note on stderr). The answerer's artifact term is priced per
 arm that carries the artifact (every arm but `no_artifact`), so a three-arm run costs more
 per answerer call than a two-arm one; a `--placebo-text` of another length is not read. Only
-three of the 12 are standard runs, so the standard profile rests on little data. An explicit flag always beats the tier,
-and the override is recorded — a `--tier triage --max-atoms 90` run is not a stock triage
-run and does not get to be read as one.
+three of the 12 are standard runs, so the standard profile rests on little data.
+An explicit flag always beats the tier, and the override is recorded — a
+`--tier triage --max-atoms 90` run is not a stock triage run and does not get to be
+read as one.
 
 Each tier carries the **claims it forfeits**, and those strings are written into
 `run_config.tier` *and* appended to the artifact's warnings. They follow the settings the
