@@ -417,6 +417,15 @@ def test_benchflow_harness_runs_the_export_not_the_source(tmp_path, monkeypatch)
     assert tasks_dir != task.path and (tasks_dir / "task.toml").is_file()
 
 
+def test_host_side_agent_is_refused_for_a_tb1_task(tmp_path):
+    from dokimi.harnesses.docker_solver import _refuse_unrunnable
+
+    task = load_task(_tb1(tmp_path))
+    with pytest.raises(ValueError, match="host-side agent"):
+        _refuse_unrunnable(task, "claude", "host")
+    _refuse_unrunnable(task, "claude", "container")
+
+
 # ── real docker ──────────────────────────────────────────────────────────────
 
 @pytest.mark.timeout(900)
