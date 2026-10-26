@@ -12,10 +12,57 @@ task, so it is an error here.
 
 from __future__ import annotations
 
-from typing import Callable
+import json
+from typing import Any, Callable
 
 from .manifest import RepoCheckReport, match_glob
-from .source import RepoTree, SourceError
+from .source import GitTree, RepoTree, SourceError
+
+MCP_CONFIG = ".mcp.json"
+
+
+NOT_UTF8 = "not valid UTF-8 text"
+
+
+def mcp_config_error(text: str) -> str | None:
+    """Why ``text`` is not a ``.mcp.json`` the agent's CLI starts with (a JSON object whose ``mcpServers``, when
+    there is one, is an object), or ``None``. The CLI exits before its first turn on anything else, which a
+    run would grade as a task failure."""
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        return f"not valid JSON ({exc})"
+    except RecursionError:
+        return "not valid JSON (nested too deeply)"
+    if not isinstance(data, dict):
+        return f"not a JSON object (got {type(data).__name__})"
+    if "mcpServers" in data and not isinstance(data["mcpServers"], dict):
+        return f"`mcpServers` is not an object (got {type(data['mcpServers']).__name__})"
+    return None
+
+
+def tree_mcp_error(tree: RepoTree) -> str | None:
+    """``mcp_config_error`` of the ``.mcp.json`` at the root of ``tree``; ``None`` without one."""
+    try:
+        if not tree.is_file(MCP_CONFIG):
+            return None
+        return mcp_config_error(tree.read_text(MCP_CONFIG))
+    except UnicodeDecodeError:  # the runner refuses the same bytes in the workspace
+        return NOT_UTF8
+    except (SourceError, OSError):
+        return None
+
+
+def check_mcp_configs(git_dir: Any, tasks: list[Any], profile: Any, tools: str) -> None:
+    """Before a run: refuse a task base whose ``.mcp.json`` the profile would pass to the agent (the ``all`` tool
+    mode) and the agent's CLI would not accept, instead of every cell of the task failing as a task failure."""
+    if not profile.applied_args(tools, frozenset({MCP_CONFIG})):
+        return
+    for base in dict.fromkeys(t.base for t in tasks):
+        problem = tree_mcp_error(GitTree(git_dir, base))
+        if problem:
+            raise ValueError(f"{MCP_CONFIG} at task base {base} is {problem}; `--tools all` passes it to the agent, "
+                             "which exits on it before its first turn. Fix or remove the file, or use --tools read/none")
 
 
 def check_bases(report: RepoCheckReport, open_base: Callable[[str], RepoTree],
@@ -29,7 +76,8 @@ def check_bases(report: RepoCheckReport, open_base: Callable[[str], RepoTree],
         if task.base in by_base or task.base in failed:
             continue
         try:
-            files = open_base(task.base).files()
+            base_tree = open_base(task.base)
+            files = base_tree.files()
         except SourceError as exc:
             report.errors.append(f"task {task.id}: base {task.base!r} does not resolve in {report.tree}: {exc}")
             failed.add(task.base)
@@ -41,6 +89,10 @@ def check_bases(report: RepoCheckReport, open_base: Callable[[str], RepoTree],
                 matched_somewhere.add(pattern)
             found.extend(m for m in matched if m not in found)
         by_base[task.base] = found
+        problem = tree_mcp_error(base_tree)
+        if problem:
+            report.warnings.append(f"task {task.id}: {MCP_CONFIG} at base {task.base!r} is {problem}; `repo run --tools all` "
+                                 "would fail every cell of it as a task failure")
 
     report.guidance_by_base = {base: len(found) for base, found in by_base.items()}
     where = f"any of the {len(by_base)} task base(s) that resolved" if failed else "any task base"
