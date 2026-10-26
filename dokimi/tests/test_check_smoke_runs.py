@@ -107,6 +107,7 @@ def test_a_row_for_a_task_nobody_planned_fails():
     out = io.StringIO()
     assert not csr.smoke_ok(data, out=out)
     assert "(invalid)" in out.getvalue()
+    assert "result has cells the plan does not" in out.getvalue()
 
 
 def test_an_errored_row_is_an_unmeasured_cell():
