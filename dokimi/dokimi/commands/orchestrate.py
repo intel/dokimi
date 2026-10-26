@@ -46,28 +46,32 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
         context="evaluate",
     )
 
-    # Create pipeline
-    pipeline = EvaluationPipeline(
-        product=args.product,
-        repo=getattr(args, "repo", None),
-        description=getattr(args, "description", None),
-        output_dir=Path(args.output_dir),
-        custom_questions_path=Path(args.custom_questions) if args.custom_questions else None,
-        questions_root=Path(args.questions_root) if getattr(args, "questions_root", None) else None,
-        model=args.model,
-        provider=args.provider,
-        judge_model=args.judge_model,
-        judge_provider=args.judge_provider,
-        judge_temperature=args.judge_temperature,
-        personas_count=args.personas_count,
-        questions_per_topic=args.questions_per_topic,
-        # Only pass top_k when explicitly set; otherwise let pipeline use config default
-        **({"top_k": args.top_k} if args.top_k is not None else {}),
-        rerank_threshold=args.rerank_threshold,
-        debug_retrieval=args.debug_retrieval,
-        doc_source=getattr(args, "doc_source", "context7"),
-        context7_id=getattr(args, "context7_id", None),
-    )
+    # Create pipeline; it checks --custom-questions and creates the output directories
+    try:
+        pipeline = EvaluationPipeline(
+            product=args.product,
+            repo=getattr(args, "repo", None),
+            description=getattr(args, "description", None),
+            output_dir=Path(args.output_dir),
+            custom_questions_path=Path(args.custom_questions) if args.custom_questions else None,
+            questions_root=Path(args.questions_root) if getattr(args, "questions_root", None) else None,
+            model=args.model,
+            provider=args.provider,
+            judge_model=args.judge_model,
+            judge_provider=args.judge_provider,
+            judge_temperature=args.judge_temperature,
+            personas_count=args.personas_count,
+            questions_per_topic=args.questions_per_topic,
+            # Only pass top_k when explicitly set; otherwise let pipeline use config default
+            **({"top_k": args.top_k} if args.top_k is not None else {}),
+            rerank_threshold=args.rerank_threshold,
+            debug_retrieval=args.debug_retrieval,
+            doc_source=getattr(args, "doc_source", "context7"),
+            context7_id=getattr(args, "context7_id", None),
+        )
+    except OSError as exc:  # a missing --custom-questions file, an unusable --output-dir
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     # Run pipeline
     try:
