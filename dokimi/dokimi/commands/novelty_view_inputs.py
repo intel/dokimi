@@ -31,5 +31,5 @@ def load_view_inputs(novelty_path: str, atoms_path: str):
     except OSError as exc:
         _fail(f"cannot read {atoms_path}: {exc}")
     except (ValueError, KeyError, TypeError, AttributeError) as exc:  # not JSON, or not an atoms record
-        _fail(f"{atoms_path} is not a valid atoms file: {exc!r}")
+        _fail(f"{atoms_path} is not a valid atoms file: {exc}")
     return artifact, atoms, spans

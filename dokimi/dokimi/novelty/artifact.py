@@ -28,7 +28,9 @@ def load_artifact_text(ref: str) -> tuple[str, str, str, str, str]:
         skill = load_skill(ref.removeprefix("skill:"))
         # Verbatim, as shorten.render promises: a rebuilt `description: a: b` is not YAML.
         lines = skill.path.read_text(encoding="utf-8").lstrip("﻿").splitlines()
-        end = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
+        end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+        if end is None:
+            raise ValueError(f"{skill.path} has no closing '---' after its frontmatter")
         frontmatter = "\n".join(lines[: end + 1])
         return "skill", skill.name, skill.description, frontmatter, skill.body
     path = Path(ref.removeprefix("text:"))

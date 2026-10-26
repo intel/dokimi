@@ -158,9 +158,8 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     from dokimi.novelty.probes import build_probe_set
     from dokimi.novelty.report import build_probe_record
 
-    atoms, saved_spans = load_atoms_or_exit(args.atoms)
+    atoms, saved_spans, saved = load_atoms_or_exit(args.atoms)
     _warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
-    saved = json.loads(Path(args.atoms).read_text(encoding="utf-8"))
     verdict = check_answer_key(args.artifact, saved.get("bundle"), source=args.atoms)
     if not verdict.ok:
         raise SystemExit(verdict.message)
@@ -420,9 +419,8 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     from dokimi.novelty.retention import RetentionOracle, error_warning
     from dokimi.novelty.shorten import build_candidates, pick_best
 
-    atoms, spans = load_atoms_or_exit(args.atoms)
+    atoms, spans, saved = load_atoms_or_exit(args.atoms)
     _kind, _name, _description, frontmatter, _body = load_artifact_or_exit(args.artifact)
-    saved = json.loads(Path(args.atoms).read_text(encoding="utf-8"))
     try:
         spans, atoms, note = entry_point_only(saved.get("bundle"), spans, atoms)
     except ValueError as exc:

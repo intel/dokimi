@@ -34,3 +34,16 @@ def test_a_non_utf8_text_artifact_exits_naming_it(tmp_path):
     with pytest.raises(SystemExit) as exc:
         _shorten(tmp_path, f"text:{binary}")
     assert str(exc.value).startswith(f"cannot load --artifact text:{binary}: ")
+
+
+def test_a_skill_file_without_a_closing_frontmatter_fence_exits_naming_it(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    entry = tmp_path / "SKILL.md"
+    entry.write_text("---\nname: s\ndescription: d\n\n# H\n", encoding="utf-8")
+    monkeypatch.setattr("dokimi.skills.loader.load_skill", lambda _p: SimpleNamespace(
+        path=entry, name="s", description="d", body="# H\n"))
+    with pytest.raises(SystemExit) as exc:
+        _shorten(tmp_path, f"skill:{tmp_path}")
+    assert str(exc.value) == (f"cannot load --artifact skill:{tmp_path}: "
+                              f"{entry} has no closing '---' after its frontmatter")

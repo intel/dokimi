@@ -520,7 +520,11 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
     """
     from pathlib import Path
 
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return _atoms_from_record(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
+def _atoms_from_record(data: dict) -> tuple[list[Atom], list[Span]]:
+    """The atoms and spans of a parsed atoms record."""
     atoms = [Atom.from_dict(row) for row in data.get("atoms", [])]
     unread = set((data.get("extraction") or {}).get("unread_span_ids") or ())
     spans = [
@@ -536,9 +540,25 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
     return atoms, spans
 
 
-def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span]]:
-    """:func:`load_atoms` for a command: exit with the file named when it is not an atom set."""
+def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span], dict]:
+    """:func:`load_atoms` plus the parsed record, for a command.
+
+    Exits with the file named when it is not an atom set, including a ``bundle`` that is
+    not an object or whose ``files`` are not a list of objects.
+    """
+    from pathlib import Path
+
     try:
-        return load_atoms(path)
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        atoms, spans = _atoms_from_record(data)
+        bundle = data.get("bundle")
+        if bundle is not None:
+            if not isinstance(bundle, dict):
+                raise ValueError("'bundle' is not an object")
+            files = bundle.get("files")
+            if files is not None and not (
+                    isinstance(files, list) and all(isinstance(row, dict) for row in files)):
+                raise ValueError("'bundle.files' is not a list of objects")
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         raise SystemExit(f"Error: cannot read atoms from {path}: {exc}") from None
+    return atoms, spans, data

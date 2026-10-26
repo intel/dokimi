@@ -53,7 +53,10 @@ def test_a_missing_atoms_file_is_reported_as_unreadable(tmp_path, capsys):
     assert f"Error: cannot read {missing}" in _err(tmp_path, novelty, missing, capsys)
 
 
-@pytest.mark.parametrize("payload", [b"", b"{not json", bytes([0xFF, 0xFE]), b"[1, 2]"])
+@pytest.mark.parametrize("payload", [
+    b"", b"{not json", bytes([0xFF, 0xFE]), b"[1, 2]",
+    b'{"atoms": [{"unexpected": 1}]}', b'{"atoms": "x"}', b'{"spans": [1]}',
+])
 def test_an_atoms_file_that_is_not_an_atoms_record_is_reported_as_invalid(tmp_path, capsys, payload):
     from dokimi.artifacts import save_artifact
     from tests.test_novelty_cli import _minimal_artifact
@@ -63,3 +66,14 @@ def test_an_atoms_file_that_is_not_an_atoms_record_is_reported_as_invalid(tmp_pa
     bad = tmp_path / "atoms.json"
     bad.write_bytes(payload)
     assert f"Error: {bad} is not a valid atoms file" in _err(tmp_path, novelty, bad, capsys)
+
+
+def test_an_atoms_error_names_the_exception_without_its_repr_quotes(tmp_path, capsys):
+    from dokimi.artifacts import save_artifact
+    from tests.test_novelty_cli import _minimal_artifact
+
+    novelty = tmp_path / "novelty.json"
+    save_artifact("novelty", _minimal_artifact(), novelty)
+    bad = tmp_path / "atoms.json"
+    bad.write_text('{"atoms": [{"unexpected": 1}]}', encoding="utf-8")
+    assert f"Error: {bad} is not a valid atoms file: " in _err(tmp_path, novelty, bad, capsys)

@@ -233,7 +233,7 @@ def _read_probe_file(raw: str):
     try:
         return json.loads(Path(raw).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:  # ValueError: bad JSON or bytes that are not UTF-8
-        raise ProbeFileError(f"{raw}: {exc}") from exc
+        raise ProbeFileError(f"{raw}: {exc}") from None
 
 
 def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
