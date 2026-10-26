@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 from pathlib import Path
 
@@ -142,6 +143,18 @@ def test_the_eval_script_resets_applies_and_runs_the_touched_test_files():
         script.index("End Test Output")
     assert start < run < end
     assert "testing/data.json" not in script[start:end]  # a .json file is not a directive
+
+
+def test_the_eval_script_passes_row_values_as_words_not_shell():
+    test_patch = ("diff --git a/t$(touch pwned2).py b/t$(touch pwned2).py\n"
+                  "diff --git a/a b.py b/a b.py\n"
+                  "diff --git a/t.py b/t.py\n--- a/t.py\n+++ b/t.py\n")
+    row = dict(_row(PYTEST_ID), base_commit="abc; touch pwned #", test_patch=test_patch)
+    lines = eval_script(row, repo_spec("pytest-dev/pytest", "4.4")[1]).splitlines()
+    words = [shlex.split(line) for line in lines if line.startswith(("git checkout", "git -c", "pytest"))]
+    assert ["git", "-c", "core.fileMode=false", "diff", "abc; touch pwned #"] in words
+    assert words.count(["git", "checkout", "abc; touch pwned #", "t.py"]) == 2
+    assert ["pytest", "-rA", "t$(touch pwned2).py", "a b.py", "t.py"] in words
 
 
 def test_django_directives_are_dotted_test_modules():

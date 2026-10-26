@@ -148,13 +148,14 @@ def test_directives(repo: str, test_patch: str) -> list[str]:
 
 def eval_script(row: dict[str, Any], spec: dict[str, Any]) -> str:
     """Upstream ``make_eval_script_list_py``, rooted at ``/testbed`` like the image."""
-    base = row["base_commit"]
+    base = shlex.quote(row["base_commit"])
     tracked, touched = patch_files(row["test_patch"])
     reset = f"git checkout {base} {' '.join(shlex.quote(f) for f in tracked)}" if tracked else ":"
     # A file the test patch adds is left over by a first run; remove it so the apply holds.
     added = [f for f in touched if f not in tracked]
     clean = f"rm -f -- {' '.join(shlex.quote(f) for f in added)}" if added else ":"
-    test_cmd = " ".join([spec["test_cmd"], *test_directives(row["repo"], row["test_patch"])])
+    directives = [shlex.quote(d) for d in test_directives(row["repo"], row["test_patch"])]
+    test_cmd = " ".join([spec["test_cmd"], *directives])
     activate = ["source /opt/miniconda3/bin/activate", "conda activate testbed"]
     lines = ["#!/bin/bash", "set -uxo pipefail", *activate, f"cd {UPSTREAM_DIR}",
              *spec.get("eval_commands", []),
