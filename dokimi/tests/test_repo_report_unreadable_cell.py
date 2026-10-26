@@ -10,7 +10,6 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.repos.report import _AGENT_KEYS
 
 
 def _batch(tmp_path, name: str, files: dict[str, bytes]):
@@ -82,6 +81,7 @@ _NO_GRADE = [
     pytest.param(b'{"grade": null}', id="null"),
     pytest.param(b'{"grade": []}', id="list"),
     pytest.param(b'{"grade": {"score_only": false}, "task": "t", "arm": "a", "model": "m"}', id="no-status"),
+    pytest.param(b'{"grade": {"status": "ok"}}', id="status-only"),
 ]
 
 
@@ -164,7 +164,7 @@ def test_an_unreadable_result_file_exits_1_naming_the_file(tmp_path, capsys):
     assert f"cannot read {batch / 't__a__m__r1' / 'result.json'}" in err and "Traceback" not in err
 
 
-@pytest.mark.parametrize("key", _AGENT_KEYS)
+@pytest.mark.parametrize("key", ["timed_out", "is_error", "over_budget", "cost_usd", "num_turns"])
 def test_a_result_file_missing_an_agent_key_exits_1(tmp_path, capsys, key):
     agent = {k: v for k, v in _GOOD["agent"].items() if k != key}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps({**_GOOD, "agent": agent}).encode()})
