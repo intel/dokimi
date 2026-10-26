@@ -72,9 +72,14 @@ def test_a_chained_line_reports_the_separator_after_each_command():
     ("echo x >| out.txt", "out.txt"), ("echo x > f", "f"), ("echo 3 > count.txt", "count.txt"),
     ("seq 1 10 > out.txt", "out.txt"), ("pytest 2>/dev/null", ""), ("pytest 2> err.log", ""),
     ("echo a2>/dev/null 2 > f", "f"),
+    ("echo $# > out.txt", "out.txt"), ("echo ${#x} > out.txt", "out.txt"),
 ])
 def test_written_file_after_prefixes_and_flags(command, file):
     assert written(command) == file
+
+
+def test_a_hash_inside_a_word_does_not_cut_the_line_before_a_pipe():
+    assert [e.masked for e in _events("Bash", {"command": "echo ${#x} | grep 1"})] == [True]
 
 
 def test_a_shell_write_is_an_edit_for_edit_matchers_only():

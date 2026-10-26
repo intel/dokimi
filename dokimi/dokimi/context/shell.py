@@ -119,6 +119,7 @@ def tokens(segment: str) -> list[str]:
     ``>`` or ``|`` inside quotes stays part of a word."""
     lex = shlex.shlex(_mask(segment), posix=True, punctuation_chars=True)
     lex.whitespace_split = True
+    lex.commenters = ""  # `$#` and `${#x}` are words; comments were already cut by split_commands
     try:
         return list(lex)
     except ValueError:
