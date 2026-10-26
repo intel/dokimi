@@ -346,6 +346,33 @@ def test_promptfoo_file_refs_stay_inside_the_config_directory(tmp_path):
     assert _checks(imp)[0]["values"] == ["hello"]
 
 
+_EVAL = '{{"evals": [{{"id": 1, "prompt": "p", "expected_output": "o", {}}}]}}'
+
+
+@pytest.mark.parametrize("name, text, fmt, message", [
+    ("t.py", "@task\ndef t(:\n", "inspect-task", "does not parse as Python"),
+    ("t.py", "x = 1\0\n", "inspect-task", "does not parse as Python"),
+    ("evals.json", _EVAL.format('"expectations": "abc"'), "skill-creator-evals", "`expectations` is not a list"),
+    ("evals.json", _EVAL.format('"files": "a.pdf"'), "skill-creator-evals", "`files` is not a list"),
+    ("promptfooconfig.yaml", "prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    assert:\n"
+     "      - {type: contains, value: x, weight: null}\n", "promptfoo", "weight None is not a number"),
+    ("promptfooconfig.yaml", "prompts: ['{{q}}']\ntests:\n  - vars: file://v.yaml\n    assert: [{type: contains, value: x}]\n",
+     "promptfoo", "`vars` is not a mapping"),
+    ("promptfooconfig.yaml", "prompts: [file://p.json]\ntests:\n  - assert: [{type: contains, value: x}]\n",
+     "promptfoo", "prompt file does not parse"),
+])
+def test_malformed_input_is_an_import_error(tmp_path, name, text, fmt, message):
+    _write(tmp_path / "p.json", '{"truncated": ')
+    path = _write(tmp_path / name, text)
+    with pytest.raises(ValueError, match=message):
+        import_path(path, fmt=fmt)
+
+
+def test_skill_creator_null_expectations_read_as_none(tmp_path):
+    path = _write(tmp_path / "evals.json", _EVAL.format('"expectations": null'))
+    assert _checks(import_path(path, fmt="skill-creator-evals"))[0]["criterion"] == "o"
+
+
 # --- detection, CLI, answerer --------------------------------------------------------------------
 
 

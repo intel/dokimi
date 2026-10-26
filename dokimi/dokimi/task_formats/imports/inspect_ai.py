@@ -235,7 +235,10 @@ def _dataset(node: Optional[ast.AST], base: Path, imp: Imported) -> tuple[Option
 def import_task(path: Path, *, task: Optional[str] = None) -> Imported:
     """The ``@task`` function ``task`` (the only one, when not named) of ``path``, statically."""
     text = FileSource(path).text or ""
-    tree = ast.parse(text, filename=str(path))
+    try:
+        tree = ast.parse(text, filename=str(path))
+    except (SyntaxError, RecursionError) as exc:
+        raise ValueError(f"{path}: does not parse as Python ({exc})") from exc
     tasks = [n for n in ast.walk(tree) if _is_task(n)]
     chosen = [t for t in tasks if task is None or t.name == task]  # type: ignore[attr-defined]
     if len(chosen) != 1:

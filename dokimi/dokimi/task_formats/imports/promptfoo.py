@@ -84,7 +84,10 @@ def _check(assertion: Mapping[str, Any], variables: Mapping[str, Any], imp: Impo
     if negate and check["type"] in ("regex", "json"):
         check["negate"] = True
     if "weight" in assertion:
-        check["weight"] = float(assertion["weight"])
+        try:
+            check["weight"] = float(assertion["weight"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"assert `{kind}`: weight {assertion['weight']!r} is not a number") from exc
     if "transform" in assertion:
         imp.note("assert transform not applied")
     return check
@@ -133,6 +136,8 @@ def _prompts(raw: Any, base: Path, imp: Imported) -> list[tuple[str, Any]]:
                 out.extend((label if len(parts) == 1 else f"{label}.{j}", part) for j, part in enumerate(parts))
                 continue
             p = source.data if path.suffix in (".json", ".yaml", ".yml") else (source.text or "")
+            if p is None:
+                raise ValueError(f"{path}: prompt file does not parse")
         out.append((label, p))
     return out
 
@@ -192,6 +197,8 @@ def import_file(path: Path) -> Imported:
     default: Mapping[str, Any] = raw_default if isinstance(raw_default, Mapping) else {}
     prompts = _prompts(data.get("prompts"), base, imp)
     for ti, test in enumerate(_tests(data.get("tests"), base, imp)):
+        if not all(isinstance(v or {}, Mapping) for v in (default.get("vars"), test.get("vars"))):
+            raise ValueError(f"{path}: test {ti}: `vars` is not a mapping (a file:// vars file is not read)")
         variables = {**(default.get("vars") or {}), **(test.get("vars") or {})}
         if any(isinstance(v, str) and v.startswith("file://") for v in variables.values()):
             imp.note("file:// var left as its path")

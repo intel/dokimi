@@ -33,6 +33,16 @@ def _statement(item: Any) -> str:
     return str(item).strip()
 
 
+def _list(row: Mapping[str, Any], key: str, path: Path) -> list[Any]:
+    """``row[key]`` as a list (absent or null: empty); a string or object is refused, not split."""
+    value = row.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{path}: eval {row.get('id')!r}: `{key}` is not a list")
+    return value
+
+
 def _skill_from_path(path: Path) -> str:
     """``<skill>/evals/evals.json`` -> ``<skill>``, the layout skill-creator writes."""
     parent = path.resolve().parent
@@ -52,7 +62,7 @@ def import_file(path: Path) -> Imported:
         if not isinstance(row, Mapping) or not str(row.get("prompt") or "").strip():
             imp.note("eval without prompt skipped")
             continue
-        statements = [s for s in map(_statement, [*row.get("expectations", []), *row.get("assertions", [])]) if s]
+        statements = [s for s in map(_statement, [*_list(row, "expectations", path), *_list(row, "assertions", path)]) if s]
         expected = str(row.get("expected_output") or "").strip()
         if statements:
             checks = [judge(criterion=s, native="expectation") for s in statements]
@@ -62,7 +72,7 @@ def import_file(path: Path) -> Imported:
         else:
             imp.note("eval with neither expectations nor expected_output skipped")
             continue
-        files = [str(f) for f in row.get("files") or []]
+        files = [str(f) for f in _list(row, "files", path)]
         if files:
             imp.note("input files not attached (answer-only)")
         meta: dict[str, Any] = {"skill_name": skill, "expected_output": expected or None, "files": files}
