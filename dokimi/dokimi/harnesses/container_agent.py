@@ -194,7 +194,11 @@ class ContainerSandbox:
         side = ContainerSandbox(network=self.network, proxy_name=f"{self.proxy_name}-verify",
                                 allow=sorted(allow), binary=None, label=self.label, runner=self.runner)
         docker(["rm", "-f", side.proxy_name], log, check=False)
-        side._start_proxy(docker, log)
+        try:
+            side._start_proxy(docker, log)
+        except BaseException:  # started, it holds the upstream proxy env and the network: close() can't see it
+            docker(["rm", "-f", side.proxy_name], log, check=False)
+            raise
         return side
 
     @property

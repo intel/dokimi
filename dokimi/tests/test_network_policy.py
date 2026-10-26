@@ -20,6 +20,7 @@ import pytest
 from dokimi.harnesses import TaskSuiteRunner, load_task
 from dokimi.harnesses.network_policy import parse_override, resolve
 from dokimi.harnesses.registry import create_harness
+from dokimi.process import reply
 from docker_cli_fake import DockerCLI
 
 
@@ -179,6 +180,20 @@ def test_an_allowlisted_verifier_goes_through_its_own_sidecar(tmp_path):
     assert metrics["network"]["verify_egress"]["status"] == "ok"
     saved = json.loads((tmp_path / "out" / "network.json").read_text(encoding="utf-8"))
     assert saved["verify_egress"] == metrics["network"]["verify_egress"]  # the cell record has it too
+
+
+def test_a_verify_sidecar_that_never_gets_ready_is_removed(tmp_path, monkeypatch):
+    monkeypatch.setattr("dokimi.harnesses.container_agent.time.sleep", lambda _s: None)
+
+    def never_ready(call):
+        return reply("") if call.argv[1] == "logs" and call.argv[-1].endswith("-verify") else None
+
+    cli = DockerCLI(answer=never_ready)
+    harness = replace(create_harness("docker-oracle", runner=cli), network=("verify=allowlist:pypi.org",))
+    result = harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    assert "-verify did not start" in result.metrics["error"]
+    started = _index(cli.args, lambda a: a[0] == "start" and a[-1].endswith("-verify"))
+    assert any(a[:2] == ["rm", "-f"] and a[-1].endswith("-verify") for a in cli.args[started:])
 
 
 def test_build_none_builds_offline(tmp_path):
