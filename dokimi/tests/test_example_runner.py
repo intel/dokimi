@@ -25,6 +25,53 @@ def test_extract_examples_with_metadata():
     assert examples == [("python", "print(1)"), ("bash", "ls")]
 
 
+def test_extract_examples_tab_indented_fence_is_dedented():
+    doc = "-\tstep\n\n\t```python\n\tx = 1\n\ty = 2\n\t```\n"
+    [(lang, code)] = extract_examples(doc)
+    assert (lang, code) == ("python", "x = 1\ny = 2")
+    compile(code, "<example>", "exec")
+
+
+def test_extract_examples_body_line_indented_less_than_fence_keeps_its_indent():
+    doc = "    ```python\n  x = 1\n    y = 2\n    ```\n"
+    assert extract_examples(doc) == [("python", "x = 1\ny = 2")]
+
+
+def test_extract_examples_tilde_fence():
+    md = "~~~python\nprint(1)\n~~~\n"
+    assert extract_examples(md) == [("python", "print(1)")]
+
+
+def test_extract_examples_longer_fence_keeps_inner_fence_as_content():
+    md = "````markdown\n```python\nprint(1)\n```\n````\n"
+    assert extract_examples(md) == [("markdown", "```python\nprint(1)\n```")]
+
+
+def test_extract_examples_untagged_block_is_not_paired_across_blocks():
+    md = "```\nplain\n```\ntext\n```python\nprint(1)\n```\n"
+    assert extract_examples(md) == [("python", "print(1)")]
+
+
+@pytest.mark.parametrize("sep", ["\u2028", "\u2029", "\x0c", "\x0b", "\x85"])
+def test_extract_examples_only_splits_on_real_line_ends(sep):
+    doc = f"```python\ns = 'a{sep}b'\nprint(1)\n```\n"
+    assert extract_examples(doc) == [("python", f"s = 'a{sep}b'\nprint(1)")]
+
+
+def test_extract_examples_crlf_and_cr_documents_still_parse():
+    assert extract_examples("```python\r\nx = 1\r\n```\r\n") == [("python", "x = 1")]
+    assert extract_examples("```python\rx = 1\r```\r") == [("python", "x = 1")]
+
+
+def test_extract_examples_unclosed_tagged_fence_runs_to_the_end():
+    assert extract_examples("```python\nprint(1)\n") == [("python", "print(1)")]
+    assert extract_examples("```python\nprint(1)```") == [("python", "print(1)```")]
+
+
+def test_extract_examples_unclosed_untagged_fence_is_not_an_example():
+    assert extract_examples("```\nprint(1)\n") == []
+
+
 def test_default_backend_does_not_execute(tmp_path, monkeypatch):
     """Default policy is 'none': nothing runs, examples are skipped."""
     monkeypatch.delenv("DOC_BENCH_EXAMPLE_BACKEND", raising=False)
@@ -188,3 +235,48 @@ def test_error_status_counts_as_failure(tmp_path):
     rate, results = score_examples(doc, ExecutionPolicy(backend="bogus"))
     assert results[0].status == "error"
     assert rate == 0.0
+
+
+def test_extract_examples_indented_fence_in_a_list_item_is_found():
+    md = "1. step\n\n    ```bash\n    ls\n    ```\n"
+    assert extract_examples(md) == [("bash", "ls")]
+
+
+def test_extract_examples_closing_fence_must_use_the_same_character():
+    md = "```python\nprint(1)\n~~~\nprint(2)\n```\n"
+    assert extract_examples(md) == [("python", "print(1)\n~~~\nprint(2)")]
+
+
+def test_extract_examples_text_after_a_closing_fence_keeps_the_block_open():
+    md = "```python\nprint(1)\n``` trailing\nprint(2)\n```\n"
+    assert extract_examples(md) == [("python", "print(1)\n``` trailing\nprint(2)")]
+
+
+def test_extract_examples_backtick_in_the_info_string_is_not_a_fence():
+    md = "```python`x\nprint(1)\n```\n"
+    assert extract_examples(md) == []
+
+
+def test_extract_examples_language_tag_is_lowercased():
+    assert extract_examples("```Python\nprint(1)\n```\n") == [("python", "print(1)")]
+
+
+def test_extract_examples_indented_fence_body_is_dedented_by_the_fence_indent():
+    md = "1. Step\n\n   ```python\n   def f():\n       return 1\n   ```\n"
+    assert extract_examples(md) == [("python", "def f():\n    return 1")]
+
+
+def test_extract_examples_list_item_block_keeps_relative_indent():
+    md = "1. step\n\n    ```python\n    for i in x:\n        print(i)\n    ```\n"
+    assert extract_examples(md) == [("python", "for i in x:\n    print(i)")]
+
+
+def test_extract_examples_space_before_language_tag_is_accepted():
+    assert extract_examples("``` python\nprint(1)\n```\n") == [("python", "print(1)")]
+
+
+def test_extract_examples_tab_fence_with_nested_indent_compiles():
+    doc = "1. item\n\n\t```python\n\tif x:\n\t    y()\n\t```"
+    [(lang, code)] = extract_examples(doc)
+    assert code == "if x:\n    y()"
+    compile(code, "<example>", "exec")
