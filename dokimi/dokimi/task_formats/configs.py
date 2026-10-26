@@ -79,7 +79,8 @@ class PromptfooProbe:
         if source.data is not None and not data:
             report.problems.append("not a mapping")
         asserts = isinstance(data.get("defaultTest"), dict) and "assert" in data["defaultTest"]
-        asserts = asserts or any(isinstance(t, dict) and t.get("assert") for t in tests or [] if isinstance(tests, list))
+        asserts = asserts or any(isinstance(t, dict) and t.get("assert")
+                                 for t in (tests if isinstance(tests, list) else []))
         report.set_parts({
             "instruction": bool(data.get("prompts")),
             "environment": bool(data.get("providers") or data.get("targets")),

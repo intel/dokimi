@@ -568,6 +568,18 @@ def test_skill_reach_keys_yaml_reads_as_bool_or_int_are_linted_not_a_crash(tmp_p
     assert reports["s.jsonl"].format == "inspect-samples"
 
 
+@pytest.mark.parametrize("name, data", [
+    ("promptfooconfig.json", {"prompts": ["p"], "providers": ["x"], "tests": 5}),
+    ("q.json", {"schema_version": "questions.v1", "questions": None}),
+])
+def test_a_non_list_tests_or_questions_value_is_not_iterated(tmp_path, name, data):
+    _write(tmp_path / name, json.dumps(data))
+    _jsonl(tmp_path / "ok" / "s.jsonl", [{"input": "q", "target": "a"}])
+    reports = {r.path.name: r for r in inspect_path(tmp_path)}
+    assert reports[name].items in (None, 0)
+    assert reports["s.jsonl"].format == "inspect-samples"
+
+
 def test_cli_inspect_out_writes_yaml_dates_sets_and_nan_as_plain_json(tmp_path, capsys):
     task = _tb1(tmp_path)
     _write(task / "task.yaml", "instruction: do it\ndifficulty: 2024-01-01\n"
