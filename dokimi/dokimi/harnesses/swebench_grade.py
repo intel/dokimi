@@ -94,12 +94,12 @@ def parse_seaborn(log: str) -> StatusMap:
     found: StatusMap = {}
     for line in log.split("\n"):
         parts = line.split()
-        if line.startswith("FAILED"):
+        if line.startswith("FAILED") and len(parts) > 1:
             found[parts[1]] = "FAILED"
         elif " PASSED " in line:
-            if parts[1] == "PASSED":
+            if len(parts) > 1 and parts[1] == "PASSED":
                 found[parts[0]] = "PASSED"
-        elif line.startswith("PASSED"):
+        elif line.startswith("PASSED") and len(parts) > 1:
             found[parts[1]] = "PASSED"
     return found
 
