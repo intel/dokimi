@@ -122,12 +122,16 @@ not a pass.
 `docker-oracle` does not run the per-step checkpoint verifiers of a task with
 `steps` in `task.toml`. A checkpoint verifier of a single step that always fails still gives
 `pass_rate: 1.0` when the task also has a top-level `tests/test.sh` and `solution/solve.sh`.
-Without those two, `docker-oracle` refuses the task (`no tests/ directory to copy to /tests`),
-even when `steps/<name>/tests` exists; the Harbor file check does not catch this.
+Without those two, `docker-oracle` refuses the task (`no tests/ directory to copy to /tests`
+or `no solution/ directory to copy to /solution`), even when `steps/<name>/tests` exists;
+the Harbor file check does not catch this.
 So the per-step self-test is manual: for each step, run its verifier on that step's
 reference state and on the state before it, and expect pass then fail. To run a step's
-`tests/test.sh` by hand, put that step's `tests/` at `/tests` in the task image and run
+`tests/test.sh` by hand, put that step's `tests/` at `/tests` and at `/verifier` in the
+task image and run
 `mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh`, as the harness does.
+Read `/logs/verifier/reward.txt`, as the harness does; the exit code counts only if the
+file is missing.
 The task needs a top-level `instruction.md`; without it the task does not load.
 
 ## What a passing self-test does not show
