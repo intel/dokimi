@@ -7,6 +7,7 @@ and through a cached Harbor export by the Harbor-backed ones."""
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -183,6 +184,22 @@ def test_exported_awk_verdict_matches_the_python_parser(tmp_path, output):
     log = _write(tmp_path / "out.txt", output)
     got = subprocess.run(["sh", "-c", f"{awk} {log}"], capture_output=True, text=True, check=True).stdout
     assert float(got.strip()) == tbench_v1.reward(output)[0]
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs bash and POSIX paths")
+@pytest.mark.parametrize("summary, code, reward", [(_PASS, 0, "1"), (_FAIL, 3, "0")])
+def test_exported_test_sh_scores_run_tests_and_keeps_its_exit_code(tmp_path, summary, code, reward):
+    tests, logs = tmp_path / "tests", tmp_path / "logs"
+    _write(tests / "run-tests.sh", f'echo "TEST_DIR=$TEST_DIR"\necho "on stderr" >&2\n'
+                                   f"printf %s {shlex.quote(summary)}\nexit {code}\n")
+    script = harbor_export._TEST_SH.replace("/tests", str(tests)).replace("/logs", str(logs))
+    env = {k: v for k, v in os.environ.items() if k != "TEST_DIR"}
+    proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=False)
+    written = (logs / "verifier" / "terminal-bench-output.txt").read_text(encoding="utf-8")
+    assert proc.returncode == code
+    assert (logs / "verifier" / "reward.txt").read_text(encoding="utf-8").strip() == reward
+    assert f"TEST_DIR={tests}" in written and "on stderr" in written and summary in written
+    assert proc.stdout == written  # tee: Harbor's own log of test.sh keeps the output
 
 
 # ── docker-oracle ────────────────────────────────────────────────────────────
