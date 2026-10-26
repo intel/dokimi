@@ -91,7 +91,10 @@ def test_unreadable_config_path_exits(tmp_path, monkeypatch, capsys):
     assert f"cannot read {tmp_path}" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize(("text", "key"), [("retrieval: 5", "retrieval"), ("products: [1]", "products")])
+@pytest.mark.parametrize(("text", "key"), [
+    ("retrieval: 5", "retrieval"), ("products: [1]", "products"),
+    ('retrieval: ""', "retrieval"), ("products: []", "products"),
+])
 def test_config_section_of_the_wrong_shape_exits(tmp_path, monkeypatch, capsys, text, key):
     path = tmp_path / "products.yaml"
     path.write_text(text, encoding="utf-8")

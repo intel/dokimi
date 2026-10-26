@@ -118,3 +118,31 @@ def test_generate_completes_when_a_config_section_is_empty(tmp_path, monkeypatch
     cli.main()
     assert out.exists()
     assert "Saved 1 questions" in capsys.readouterr().out
+
+
+class _BogusGenerator(_FakeGenerator):
+    model = "m"
+    provider = "p"
+    _get_timestamp = staticmethod(lambda: "2026-01-01T00:00:00Z")
+
+    def generate_questions(self, **_):
+        return [{"bogus": 1}]
+
+    def save_questions(self, questions, output_path):
+        from dokimi.questions.llm_gen import QuestionGenerator
+        QuestionGenerator.save_questions(self, questions, output_path)
+
+
+def test_generate_exits_1_when_the_generated_set_fails_validation(tmp_path, monkeypatch, capsys):
+    personas = tmp_path / "personas.json"
+    personas.write_text(json.dumps(GOOD_PERSONAS), encoding="utf-8")
+    topics = tmp_path / "topics.json"
+    topics.write_text("[]", encoding="utf-8")
+    out = tmp_path / "o.json"
+    monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
+    monkeypatch.setattr("dokimi.questions.QuestionGenerator", _BogusGenerator)
+    assert _generate(monkeypatch, "--personas", str(personas), "--topics", str(topics),
+                     "--output", str(out)) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and "Traceback" not in err
+    assert not out.exists()

@@ -360,8 +360,12 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
 
     # Save output
     output_path = Path(args.output) if args.output else Path(f"questions/{args.product}.json")
-    with exit_on_unwritable(output_path):
-        generator.save_questions(questions, output_path)
+    try:
+        with exit_on_unwritable(output_path):
+            generator.save_questions(questions, output_path)
+    except ValueError as exc:  # ArtifactValidationError: the generated set is not valid v2
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     print(f"\n✅ Saved {len(questions)} questions to {output_path}")
 
