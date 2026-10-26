@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from dokimi.gate.regression import detect_regressions
 
@@ -14,7 +15,7 @@ from dokimi.gate.regression import detect_regressions
 _REQUIRED_SUMMARY_KEYS = {"docs", "score", "coverage", "freshness_lite", "readability"}
 
 
-def _load_snapshot(path: Path, role: str) -> object:
+def _load_snapshot(path: Path, role: str) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
