@@ -61,3 +61,38 @@ def test_generate_exits_1_on_an_unreadable_topics_file(tmp_path, monkeypatch, ca
     assert _generate(monkeypatch, "--personas", str(personas), "--topics", str(bad)) == 1
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(bad) in err
+
+
+class _FakeGenerator:
+    def __init__(self, **_):
+        pass
+
+    def generate_questions(self, **_):
+        return [{"question": "q?"}]
+
+    def save_questions(self, questions, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("[]", encoding="utf-8")
+
+
+def _unwritable_outputs(tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("x", encoding="utf-8")
+    directory = tmp_path / "dir"
+    directory.mkdir()
+    return [blocker / "out.json", directory]
+
+
+@pytest.mark.parametrize("which", [0, 1], ids=["under-a-file", "is-a-directory"])
+def test_generate_exits_1_when_the_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
+    personas = tmp_path / "personas.json"
+    personas.write_text(json.dumps(GOOD_PERSONAS), encoding="utf-8")
+    topics = tmp_path / "topics.json"
+    topics.write_text("[]", encoding="utf-8")
+    out = _unwritable_outputs(tmp_path)[which]
+    monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
+    monkeypatch.setattr("dokimi.questions.QuestionGenerator", _FakeGenerator)
+    assert _generate(monkeypatch, "--personas", str(personas), "--topics", str(topics),
+                     "--output", str(out)) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("Error: cannot write ") and str(out) in err

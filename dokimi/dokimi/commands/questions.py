@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
+from dokimi.commands._output import exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 
@@ -245,7 +246,8 @@ def cmd_questions_analyze(args: argparse.Namespace) -> None:
             print(f"  … and {len(report.trivial_questions) - 5} more (see report file)")
 
     output_path = Path(args.output) if args.output else Path(f"reports/{args.product}_question_quality.json")
-    analyzer.save_report(report, output_path)
+    with exit_on_unwritable(output_path):
+        analyzer.save_report(report, output_path)
     print(f"\n✅ Full report saved to {output_path}")
 
 
@@ -356,7 +358,8 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
 
     # Save output
     output_path = Path(args.output) if args.output else Path(f"questions/{args.product}.json")
-    generator.save_questions(questions, output_path)
+    with exit_on_unwritable(output_path):
+        generator.save_questions(questions, output_path)
 
     print(f"\n✅ Saved {len(questions)} questions to {output_path}")
 
