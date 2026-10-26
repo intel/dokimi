@@ -74,11 +74,12 @@ _AGENT_KEYS = ("timed_out", "is_error", "over_budget", "cost_usd", "num_turns")
 _AGENT_NUMBERS = ("cost_usd", "num_turns", *_TOKENS)
 
 
-_SAFE_MAGNITUDE = 1e150  # sums stay finite and squared per-task deltas (variance) do too
+# keeps per-task deltas squared (variance in eval/stats.py mean_ci) and sums finite
+_SAFE_MAGNITUDE = 1e150
 
 
 def _optional_number(value: object) -> bool:
-    """True for None or a finite, non-bool number whose magnitude keeps sums of a batch finite."""
+    """True for None or a finite, non-bool number small enough that its squared deltas and sums stay finite."""
     if value is None:
         return True
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -101,13 +102,21 @@ def _skills_usable(skills: object) -> bool:
     return all(k in skills for k in needed)
 
 
+def _grade_usable(rec: dict[str, Any]) -> bool:
+    """True when ``grade`` holds the keys :func:`summarize` reads for the cell's kind."""
+    grade = rec.get("grade")
+    if not isinstance(grade, dict) or any(k not in grade for k in ("status", "success")):
+        return False
+    if "score_task" in rec:
+        return "score" in grade
+    if "score_only" not in grade:
+        return False
+    return "score" in grade or not grade["score_only"]
+
+
 def _check_cell(path: Path, rec: dict[str, Any]) -> None:
     """Raise a :class:`CellFileError` unless ``rec`` has the fields the report and compare read."""
-    grade = rec.get("grade")
-    needed = ("status", "score", "success") if "score_task" in rec else ("status", "score_only", "success")
-    if not isinstance(grade, dict) or any(k not in grade for k in needed):
-        raise CellFileError(f"{path} has no usable `grade`")
-    if not _optional_number(grade.get("score")):
+    if not _grade_usable(rec) or not _optional_number(rec["grade"].get("score")):
         raise CellFileError(f"{path} has no usable `grade`")
     agent = rec.get("agent")
     if not isinstance(agent, dict) or any(k not in agent for k in _AGENT_KEYS):

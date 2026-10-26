@@ -6,10 +6,12 @@
 from __future__ import annotations
 
 import json
+import math
 
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.repos.report import _SAFE_MAGNITUDE
 
 
 def _batch(tmp_path, name: str, files: dict[str, bytes]):
@@ -123,6 +125,17 @@ _BAD_FIELDS = [
     pytest.param("skills", {"measured": True, "expected_skill": "s", "skill_invoked": True},
                  id="skills-expected-no-selected-correct"),
     pytest.param("agent", {**_GOOD["agent"], "cost_usd": 10**308}, id="cost-at-10-to-the-308"),
+    pytest.param("agent", {**_GOOD["agent"], "cost_usd": -1e308}, id="cost-at-minus-1e308"),
+    pytest.param("agent", {**_GOOD["agent"], "cost_usd": math.nextafter(_SAFE_MAGNITUDE, math.inf)},
+                 id="cost-just-above-the-bound"),
+    pytest.param("agent", {**_GOOD["agent"], "cost_usd": -math.nextafter(_SAFE_MAGNITUDE, math.inf)},
+                 id="cost-just-below-the-negative-bound"),
+    pytest.param("agent", {**_GOOD["agent"], "output_tokens": "1"}, id="output-tokens-a-string"),
+    pytest.param("agent", {**_GOOD["agent"], "cache_read_tokens": True}, id="cache-read-tokens-a-bool"),
+    pytest.param("agent", {**_GOOD["agent"], "cache_write_tokens": "1"}, id="cache-write-tokens-a-string"),
+    pytest.param("grade", {"status": "ok", "score_only": True, "success": True}, id="score-only-without-score"),
+    pytest.param("skills", {"expected_skill": "s", "skill_invoked": True},
+                 id="skills-without-measured-no-selected-correct"),
     pytest.param("agent", {**_GOOD["agent"], "num_turns": 10**308}, id="num-turns-at-10-to-the-308"),
 ]
 
@@ -144,6 +157,8 @@ def test_a_result_file_without_usable_agent_task_arm_or_model_exits_1(tmp_path, 
 
 _SKILLS_ACCEPTED = [
     pytest.param({"measured": False}, {}, id="unmeasured"),
+    pytest.param({}, {}, id="empty"),
+    pytest.param({"skill_invoked": True}, {"skill_invoked": 1}, id="no-measured-key"),
     pytest.param({"measured": True, "skill_invoked": True}, {"skill_invoked": 1}, id="measured-no-expected-skill"),
     pytest.param({"measured": True, "expected_skill": "s", "skill_invoked": True, "skill_selected_correct": True},
                  {"skill_expected": 1, "skill_selected_correct": 1}, id="measured-expected-skill"),
@@ -156,10 +171,46 @@ def test_a_valid_skills_block_is_accepted_by_repo_report(tmp_path, capsys, skill
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
     _run("report", str(batch), "--json")
     row = json.loads(capsys.readouterr().out)["rows"][0]
-    if skills["measured"]:
+    if skills.get("measured", True):
         assert {k: row[k] for k in shown} == shown
     else:
         assert "skill_measured" not in row
+
+
+_NUMBERS_ACCEPTED = [pytest.param(_SAFE_MAGNITUDE, id="at-the-bound"), pytest.param(-_SAFE_MAGNITUDE, id="at-minus-the-bound")]
+
+
+@pytest.mark.parametrize("cost", _NUMBERS_ACCEPTED)
+def test_a_cost_at_the_bound_is_accepted(tmp_path, capsys, cost):
+    rec = {**_GOOD, "agent": {**_GOOD["agent"], "cost_usd": cost}}
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
+    _run("report", str(batch), "--json")
+    assert json.loads(capsys.readouterr().out)["rows"]
+
+
+def _three_task_batch(tmp_path, cost_a, cost_b):
+    files = {}
+    for task in ("t1", "t2", "t3"):
+        for arm, cost in (("a", cost_a), ("b", cost_b)):
+            rec = {**_GOOD, "task": task, "arm": arm, "agent": {**_GOOD["agent"], "cost_usd": cost}}
+            files[f"{task}__{arm}__m__r1/result.json"] = json.dumps(rec).encode()
+    return _batch(tmp_path, "b1", files)
+
+
+@pytest.mark.parametrize("cmd", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
+def test_deltas_that_would_overflow_when_squared_are_rejected_with_a_message(tmp_path, capsys, cmd):
+    batch = _three_task_batch(tmp_path, 1e300, -1e300)
+    with pytest.raises(SystemExit) as exc:
+        _run(cmd[0], str(batch), *cmd[1:])
+    assert exc.value.code == 1
+    assert "has no usable `agent`" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("cmd", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
+def test_deltas_at_the_bound_compare_without_overflow(tmp_path, capsys, cmd):
+    batch = _three_task_batch(tmp_path, 1e150, -1e150)
+    _run(cmd[0], str(batch), *cmd[1:], "--json")
+    assert json.loads(capsys.readouterr().out)
 
 
 def test_a_result_file_with_a_score_task_and_no_score_only_is_accepted(tmp_path, capsys):
