@@ -496,8 +496,8 @@ def catalog_competitors(root: str, exclude: set[str],
     left out too: the copy nearest the catalog root stands for the card.
 
     Raises:
-        ValueError: ``root`` is not a directory, or a skill under it cannot be loaded (with
-            no manifest every ``SKILL.md`` is read, and one that is broken still raises).
+        ValueError: ``root`` is not a directory, or its ``skills.yaml`` is invalid (with no
+            manifest every ``SKILL.md`` is read, and a broken one is skipped with a note).
         RoutingInputError: Two skills in the field share a name with different content; the
             message names both paths.
     """
