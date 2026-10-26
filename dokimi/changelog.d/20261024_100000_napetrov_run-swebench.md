@@ -7,7 +7,7 @@
   SWE-bench parser (reward 1 only when every `FAIL_TO_PASS` and `PASS_TO_PASS`
   test passes). `tasks inspect` now names `docker-*` as the consumer of a
   SWE-bench file whose repos all have a test spec.
-  The rows run offline by default; `--all` skips the 8 rows in
+  The rows run offline by default; `--all` skips the 9 rows in
   `swebench.KNOWN_BAD` whose gold patch fails in the prebuilt image. A file
   with a duplicate or path-like `instance_id` is refused before anything is
   staged.
