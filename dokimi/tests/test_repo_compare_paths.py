@@ -119,6 +119,24 @@ def test_a_deeply_nested_line_skips_that_line_not_the_comparison(tmp_path):
     assert row["treatment_mean"] == 0.0 and row["tasks"][0]["n_treatment"] == 2
 
 
+def _lines(*events: dict) -> str:
+    return "".join(json.dumps(e) + "\n" for e in events)
+
+
+def test_a_read_and_an_edit_are_different_steps_for_path_stability(tmp_path):
+    b = tmp_path / "b"
+    read, edit = {"kind": "read", "path": "a.py"}, {"kind": "edit", "path": "a.py"}
+    for rep in range(2):
+        _cell(b, "t1", "none", rep)
+        _cell(b, "t1", "guidance:raw", rep)
+    _raw_events(b, "t1", "none", 0, _lines(read, edit))
+    _raw_events(b, "t1", "none", 1, _lines(edit, read))  # the same two steps, in the other order
+    _raw_events(b, "t1", "guidance:raw", 0, _lines(read, edit))
+    _raw_events(b, "t1", "guidance:raw", 1, _lines(read, edit))
+    row = _row(compare([b], "none", path_stability=True), "path_distance")
+    assert row["baseline_mean"] == 1.0 and row["treatment_mean"] == 0.0
+
+
 def test_path_distance_is_the_mean_over_every_pair_of_three_cells(tmp_path):
     b = tmp_path / "b"
     for rep in range(3):
