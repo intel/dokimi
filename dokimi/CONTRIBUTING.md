@@ -133,7 +133,7 @@ CI additionally holds a PR to:
 - **Changelog fragment** — a PR that changes the package (`dokimi/`) adds one to
   `changelog.d/` (`scriv create`) instead of editing `CHANGELOG.md`; see
   [changelog.d/README.md](changelog.d/README.md). A change with no user-visible
-  effect gets the `skip-changelog` label instead.
+  effect gets the `skip-changelog` label instead; adding or removing the label re-runs the check.
 
 **pre-commit.** `.pre-commit-config.yaml` at the repo root runs the fast
 offline checks on the files a commit stages: `ruff check` (the version and

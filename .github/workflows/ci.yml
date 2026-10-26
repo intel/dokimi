@@ -6,7 +6,10 @@ name: ci
 on:
   push:
     branches: [ main ]
+  # labeled/unlabeled: skip-changelog and schema-break-ok are read from the labels of the
+  # event that started the run, so a label change re-runs the matrix to pick it up.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
   schedule:
     # Weekly: the unpinned-dependency canary (test-latest) runs only here.
@@ -184,12 +187,6 @@ jobs:
             range=(--log-opts="--diff-merges=remerge --full-history --all")
           fi
           "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --verbose --no-banner "${range[@]}" .
-      # Lists the docs pages whose `depends_on` front matter matches a file this PR
-      # changes while the PR leaves the page alone, in the job summary and as a
-      # warning on each page (scripts/check_docs_review_triggers.py). A prompt to
-      # reread the page, not a gate: findings never fail the step (only a malformed
-      # depends_on or an undiffable base does). It posts no PR comment. That every
-      # glob still matches a file is checked by tests/test_docs_review_triggers.py.
       # The base branch's current tip (fetched by the checkout), as in the other
       # diff-against-base steps.
       - name: Fragment for package changes
@@ -201,6 +198,12 @@ jobs:
           skip=()
           if [ "$SKIP" = true ]; then skip=(--skip-label); fi
           python scripts/check_changelog_fragment.py --base "origin/$BASE_REF" --head HEAD "${skip[@]}"
+      # Lists the docs pages whose `depends_on` front matter matches a file this PR
+      # changes while the PR leaves the page alone, in the job summary and as a
+      # warning on each page (scripts/check_docs_review_triggers.py). A prompt to
+      # reread the page, not a gate: findings never fail the step (only a malformed
+      # depends_on or an undiffable base does). It posts no PR comment. That every
+      # glob still matches a file is checked by tests/test_docs_review_triggers.py.
       - name: Docs pages to review
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
@@ -262,8 +265,9 @@ jobs:
         run: deptry .
 
   # The test matrix waits for `static` (ubuntu-latest): a PR that fails lint
-  # stops there instead of booting the matrix on the pool. A green run waits in
-  # both queues in turn. typecheck, one job, still runs alongside `static`;
+  # stops there instead of booting the matrix on the pool. That includes the PR-only
+  # checks in `static` (the secret scan, the changelog fragment, schema compatibility).
+  # A green run waits in both queues in turn. typecheck, one job, still runs alongside `static`;
   # windows-smoke, on windows-latest, does not wait.
   test:
     name: Tests (py${{ matrix.python-version }})
