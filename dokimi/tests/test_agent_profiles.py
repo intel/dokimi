@@ -442,7 +442,7 @@ def test_the_api_name_check_would_actually_fire():
 
     contaminated = (
         "Call asnumpy() once at the edge, pass usm_type='device' and sycl_queue=q to "
-        "dpctl.tensor.empty(), and set dtype=float32."
+        "dpnp.tensor.empty(), and set dtype=float32."
     )
     leaked = {m for shape in API_SHAPES for m in re.findall(shape, contaminated)}
     assert leaked, "the API-name guard is vacuous"
