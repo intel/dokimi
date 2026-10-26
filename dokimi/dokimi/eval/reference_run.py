@@ -33,6 +33,7 @@ class ConditionTally:
     passed: int = 0
     unscored: int = 0
     judge_unscored: int = 0
+    check_unscored: int = 0
     score_sum: float = 0.0
 
     def add(self, g: Grade) -> None:
@@ -43,14 +44,16 @@ class ConditionTally:
         self.n += 1
         self.score_sum += score
         self.passed += bool(g.passed)
-        # Counted on the checks that ran: a pass here may not include the judged checks.
+        # Counted on the checks that ran: a pass here may not include the judged or the timed-out checks.
         self.judge_unscored += bool(g.unjudged)
+        self.check_unscored += bool(g.unrun)
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "n": self.n,
             "unscored": self.unscored,
             "judge_unscored": self.judge_unscored,
+            "check_unscored": self.check_unscored,
             "pass_rate": round(self.passed / self.n, 4) if self.n else None,
             "mean_score": round(self.score_sum / self.n, 4) if self.n else None,
         }

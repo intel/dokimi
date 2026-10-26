@@ -72,7 +72,11 @@ def resolve_grader(grader: Optional[str]) -> tuple[str, dict[str, Any], bool]:
 
 
 def _checks(template: str, args: Mapping[str, Any], ideals: list[Any], imp: Imported) -> list[dict[str, Any]]:
-    texts = [str(i) for i in ideals]
+    # A blank ideal is contained in every answer, so it is dropped; with none left nothing is graded.
+    texts = [t for t in (json.dumps(i) if isinstance(i, (dict, list)) else str(i) for i in ideals) if t.strip()]
+    if not texts and not template.startswith("modelgraded"):
+        imp.note("row without a usable ideal: not graded")
+        return [unsupported(template)]
     if template == "match":
         return [match(texts, "begin", ignore_case=False, ignore_punctuation=False, strip=False)]
     if template == "includes":

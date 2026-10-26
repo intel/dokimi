@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 import re
 from pathlib import Path
 from typing import Any, Mapping, Optional
@@ -41,12 +42,12 @@ _JUDGED = {"llm-rubric": "criterion", "g-eval": "criterion", "model-graded-close
 
 def _text_check(base: str, value: Any, negate: bool) -> Optional[dict[str, Any]]:
     """The deterministic check for a text assert, or None when ``base`` is not one."""
-    if value is None and (base in _CONTAINS or base in ("equals", "starts-with", "regex")):
-        return None  # no value to compare: `regex` would search for "None", `contains` fail every answer
-    if base in _CONTAINS:
-        if any(str(v) == "" for v in as_list(value)):
-            # Every answer contains "", so the check would pass whatever was said: refuse it instead.
+    if base in _CONTAINS or base in ("equals", "starts-with", "regex"):
+        # No value to compare (`regex` would search for "None"), or a blank one, which
+        # eval reference refuses: left unsupported instead.
+        if value is None or any(not str(v).strip() for v in as_list(value)):
             return None
+    if base in _CONTAINS:
         mode, ignore_case = _CONTAINS[base]
         return match(as_list(value), "any", ignore_case=ignore_case, ignore_punctuation=False,
                      strip=False, mode=mode, negate=negate)
@@ -179,6 +180,16 @@ def _tests(raw: Any, base: Path, imp: Imported) -> list[Mapping[str, Any]]:
     return out
 
 
+def _threshold(value: Any, where: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{where}: threshold {value!r} is not a number") from exc
+    if isinstance(value, bool) or not math.isfinite(number):
+        raise ValueError(f"{where}: threshold {value!r} is not a number")
+    return number
+
+
 def _render(template: Any, variables: Mapping[str, Any], imp: Imported) -> str:
     if isinstance(template, list):
         msgs = [{**m, "content": render_template(str(m.get("content", "")), variables, imp)}
@@ -215,7 +226,7 @@ def import_file(path: Path) -> Imported:
             checks = [_check(a, variables, imp) for a in asserts if isinstance(a, Mapping)]
             grading: dict[str, Any] = {"checks": checks, "native_scorer": "assert"}
             if threshold is not None:
-                grading["threshold"] = float(threshold)
+                grading["threshold"] = _threshold(threshold, f"{path}: test {ti}")
             # promptfoo's own testIdx/promptIdx, so a native log joins on the same ids.
             qid = str(ti) if len(prompts) == 1 else f"{ti}.p{pi}"
             refs = [str(a.get("value")) for a in asserts if isinstance(a, Mapping) and isinstance(a.get("value"), str)]

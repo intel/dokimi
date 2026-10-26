@@ -49,6 +49,11 @@ def _choices(value: Any) -> list[str]:
 
 
 def _checks(scorer: str, kwargs: Mapping[str, Any], targets: list[str], imp: Imported) -> list[dict[str, Any]]:
+    # A blank target is contained in every answer, so it is dropped; with none left nothing is graded.
+    targets = [t for t in targets if t.strip()]
+    if not targets and scorer in ("match", "includes", "exact", "model_graded_qa", "model_graded_fact"):
+        imp.note("sample without a usable target: not graded")
+        return [unsupported(scorer)]
     if scorer == "match":
         return [match(targets, str(kwargs.get("location", "end")),
                       ignore_case=bool(kwargs.get("ignore_case", True)),

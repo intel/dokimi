@@ -59,7 +59,13 @@ question is `<testIdx>` when the config has one prompt and
 | `choice` | The letters of the last `ANSWER: ...` line, parsed the way Inspect parses them | Inspect `choice` with `multiple_choice()` |
 | `json` | Parses as JSON. With `values`, it must equal one of them. With `contains`, the answer may be any JSON value, or else it is the first JSON object or array anywhere in the answer. | OpenAI `JsonMatch`; promptfoo `is-json`, `contains-json`, `equals` with an object value |
 | `judge` | One required point (`criterion`, `reference` or both), asked of the [checklist](benchmarking-and-comparison.md) judge in both polarities. 1 when the two agree that it is covered, 0 when they agree that it is not, 0.5 when they split. | Inspect `model_graded_qa`/`model_graded_fact`; OpenAI `ModelBasedClassify` specs; promptfoo `llm-rubric`, `g-eval`, `factuality`, `model-graded-closedqa`; every skill-creator expectation |
-| `unsupported` | Listed with the native name and never counted | promptfoo `javascript`, `python`, `similar`, `cost`, `latency` and other asserts; Inspect `pattern` (it compares an extracted group with the target) and unknown Inspect scorers |
+| `unsupported` | Listed with the native name and never counted | promptfoo `javascript`, `python`, `similar`, `cost`, `latency`, negated judge asserts (`not-llm-rubric`) and other asserts; Inspect `pattern` (it compares an extracted group with the target) and unknown Inspect scorers; a row whose `ideal` or `target` is blank or missing |
+
+A blank value is not a check. A `match` value that is blank once stripped, or
+an empty `regex` pattern, is found in every answer, so a row whose
+`ideal`/`target` is blank imports as `unsupported`, and a hand-written `values`
+list with such an entry is refused by `eval reference`. A promptfoo assert
+whose value is blank (whitespace included) imports as `unsupported` too.
 
 Every check accepts `mode` (`any`/`all` over its `values`), `negate` and
 `weight`. A question's score is the weighted mean of the checks that were
@@ -68,7 +74,10 @@ when every counted check passes. A failed answer call leaves its checks
 unscored rather than failed. `--no-judge` leaves the `judge` checks unscored
 and makes no model calls; an arms artifact written that way has `judge_model`
 and `judge_provider` set to `reference`. The summary's `judge_unscored` counts the
-counted answers whose pass leaves out a judge check that had no verdict.
+counted answers whose pass leaves out a judge check that had no verdict. The
+summary's `check_unscored` does the same for a deterministic check that did not
+run to a result (a `regex` past its limit): the pass is decided on the checks
+that ran, and the count shows how many passes left one out.
 
 `eval reference` writes eval.v1 for an `answers generate` file and an arms
 artifact for an `arms run` file. Each block carries `scorer: reference`, and

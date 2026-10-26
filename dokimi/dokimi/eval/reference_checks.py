@@ -104,6 +104,11 @@ class Grade:
         return [c for c in self.checks if c.type in JUDGED and c.score is None]
 
     @property
+    def unrun(self) -> list[CheckResult]:
+        """Deterministic checks left without a result (a regex past its timeout)."""
+        return [c for c in self.checks if c.type not in JUDGED | {UNSUPPORTED} and c.score is None]
+
+    @property
     def score(self) -> Optional[float]:
         counted = self.counted
         total = sum(c.weight for c in counted)
@@ -259,9 +264,13 @@ def _regex(check: Mapping[str, Any], values: list[Any], answer: str, mode: str) 
     """The ``regex`` check, ``None`` when its patterns run past :data:`REGEX_TIMEOUT` together."""
     flags = regex.I if check.get("ignore_case") else 0
     deadline = time.monotonic() + REGEX_TIMEOUT
+    hits: list[bool] = []
     try:
-        hits = [regex.search(str(v), answer, flags, timeout=max(deadline - time.monotonic(), 0.001)) is not None
-                for v in values]
+        for v in values:
+            hits.append(regex.search(str(v), answer, flags, timeout=max(deadline - time.monotonic(), 0.001)) is not None)
+            # Stop once the mode is settled, so a later pattern past the limit cannot unscore the check.
+            if (True in hits) if mode == "any" else (False in hits):
+                break
         return _combine(hits, mode), ""
     except TimeoutError:
         return None, f"not scored: regex ran past {REGEX_TIMEOUT:g}s"
@@ -347,7 +356,8 @@ def validate_grading(grading: Any) -> list[str]:
     problems = [] if _number_or_none(grading.get("threshold")) else ["threshold is not a number"]
     for i, c in enumerate(checks):
         kind = c.get("type") if isinstance(c, Mapping) else None
-        if kind not in KNOWN:
+        # A non-string type (a list, say) is unhashable: test the type before the membership check.
+        if not isinstance(kind, str) or kind not in KNOWN:
             problems.append(f"check {i}: unknown type {kind!r}")
             continue
         # Everything grade_check would raise on, so a bad block stops the run before any judge call.
@@ -355,14 +365,36 @@ def validate_grading(grading: Any) -> list[str]:
     return problems
 
 
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
 def _number_or_none(value: Any) -> bool:
-    return value is None or (isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value))
+    return value is None or _is_number(value)
+
+
+def _blank(kind: str, c: Mapping[str, Any], value: Any) -> bool:
+    """Whether a value is found in every answer, or never met, once the check has normalised it."""
+    text = str(value)
+    if kind == "regex":
+        return text == ""  # the empty pattern matches anywhere; " " is a real "contains a space" check
+    if kind == "match" and not c.get("strip", True):
+        return text == ""  # unstripped, " " is a real "contains a space" check
+    return not text.strip()
 
 
 def _check_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
-    out = [] if _number_or_none(c.get("weight")) else ["weight is not a number"]
-    if kind in DETERMINISTIC and kind != "json" and not _values(c):
-        out.append(f"{kind} has no values")
+    # An absent weight is 1.0; an explicit null is not a number, and grade_check would raise on it.
+    weight = c.get("weight", 1.0)
+    out = ["weight is not a number"] if not _is_number(weight) else (
+        ["weight must not be negative"] if weight < 0 else [])
+    if kind in DETERMINISTIC and kind != "json":
+        values = _values(c)
+        if not values:
+            out.append(f"{kind} has no values")
+        elif any(_blank(kind, c, v) for v in values):
+            # A blank value is found in every answer (match, regex), so it would pass everything.
+            out.append(f"{kind} has a blank value")
     if kind in DETERMINISTIC and str(c.get("mode", "any")) not in ("any", "all"):
         out.append(f"mode must be 'any' or 'all', not {c.get('mode')!r}")
     if kind == "match" and str(c.get("location", "end")) not in _LOCATIONS:

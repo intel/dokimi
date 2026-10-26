@@ -6,12 +6,17 @@
   questions.v2 sets. Each question has a `grading` block of format-neutral
   checks (`match`, `exact`, `fuzzy`, `regex`, `choice`, `json`, `judge`,
   `unsupported`) and `prompt_style: verbatim`. The import report lists what
-  did not carry over.
+  did not carry over. A row whose `ideal` or `target` is blank or missing is
+  `unsupported`, not graded; a promptfoo `threshold` that is not a finite number
+  (a boolean included) stops the import with an error.
 - **`eval reference`**: scores `answers generate` or `arms run` output against
   those checks. Deterministic checks need no model. `judge` checks go to the
   checklist judge in both polarities. It writes eval.v1 or an arms artifact.
   A `regex` check runs through the `regex` package (now a dependency) with a
-  1 s limit; one that runs past it is unscored, not failed.
+  1 s limit; one that runs past it is unscored, not failed. The summary's
+  `check_unscored` counts the passes that left such a check out.
+  `eval reference` refuses a blank `values` entry or a negative `weight` before
+  the run starts.
 - **`eval native-import <log>`**: reads an `inspect eval --log-format json`
   log or a `promptfoo eval -o` output as answers.v1 plus eval.v1, so native
   verdicts can be compared with dokimi's on the same completions.

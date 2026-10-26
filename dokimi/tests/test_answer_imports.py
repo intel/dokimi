@@ -25,7 +25,7 @@ from unittest import mock
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.eval.reference_checks import grade
+from dokimi.eval.reference_checks import grade, validate_grading
 from dokimi.questions.artifact import load_questions
 from dokimi.task_formats.imports import import_path
 
@@ -123,6 +123,31 @@ def test_inspect_pattern_scorer_is_not_a_bare_regex_search(tmp_path):
         import_path(samples, fmt="inspect-samples", scorer="pattern")
 
 
+def test_inspect_multiple_correct_reaches_json_datasets_too(tmp_path):
+    _jsonl(tmp_path / "s.jsonl", [{"id": "q1", "q": "Even?", "choices": ["2", "4", "5"], "a": ["A", "B"]}])
+    task = _write(tmp_path / "t.py", (
+        "@task\n"
+        "def t():\n"
+        "    return Task(dataset=json_dataset('s.jsonl', FieldSpec(input='q', target='a', choices='choices')),\n"
+        "                solver=multiple_choice(multiple_correct=True), scorer=choice())\n"))
+    imp = import_path(task, fmt="inspect-task")
+    assert "'ANSWER: $LETTERS'" in imp.questions[0]["question"]
+    assert _checks(imp) == [{"type": "choice", "values": ["A", "B"], "choices": ["2", "4", "5"]}]
+
+
+def test_inspect_includes_keeps_punctuation_and_match_defaults(tmp_path):
+    path = _jsonl(tmp_path / "s.jsonl", [{"input": "q", "target": "x"}])
+    imp = import_path(path, fmt="inspect-samples", scorer="includes")
+    assert _checks(imp) == [{"type": "match", "values": ["x"], "location": "any", "ignore_case": True,
+                             "ignore_punctuation": False, "strip": True}]
+
+
+def test_inspect_blank_or_missing_target_is_unsupported_not_a_pass(tmp_path):
+    path = _jsonl(tmp_path / "s.jsonl", [{"input": "2+2?", "target": ""}, {"input": "3+3?"}])
+    imp = import_path(path, fmt="inspect-samples")
+    assert _checks(imp) == _checks(imp, 1) == [{"type": "unsupported", "native": "match"}]
+
+
 def test_inspect_partial_field_spec_keeps_the_default_id_and_choices_columns(tmp_path):
     _jsonl(tmp_path / "geo.jsonl", [{"id": "geo-7", "question": "Capital?", "choices": ["Lyon", "Paris"],
                                      "answer": "B"}])
@@ -154,6 +179,7 @@ def test_inspect_sample_whose_target_matches_no_choice_is_skipped(tmp_path):
     ("hf_dataset('x')", "run it natively"),
     ("json_dataset(PATH)", "computed"),
     ("json_dataset('../outside.jsonl')", "outside the task's directory"),
+    ("csv_dataset('x.csv')", "convert the CSV to JSONL"),
 ])
 def test_inspect_task_refuses_what_it_cannot_read_statically(tmp_path, dataset, message):
     task = _write(tmp_path / "d" / "t.py", f"@task\ndef t():\n    return Task(dataset={dataset}, scorer=match())\n")
@@ -208,6 +234,13 @@ def test_openai_json_match_with_no_json_ideal_is_not_any_json(tmp_path):
     assert _checks(imp, 1) == [{"type": "json", "values": [{"a": 1}]}]
 
 
+def test_openai_json_match_keeps_a_structured_ideal_as_json(tmp_path):
+    data = _jsonl(tmp_path / "s.jsonl", [{"input": "q", "ideal": {"a": 1}}])
+    imp = import_path(data, fmt="openai-evals", grader="json_match")
+    assert _checks(imp) == [{"type": "json", "values": [{"a": 1}]}]
+    assert grade(imp.questions[0]["grading"], "q", '{"a": 1}').passed is True
+
+
 _EVALS = Path(__file__).parent / "fixtures" / "task_formats" / "openai-evals" / "registry"
 
 
@@ -219,6 +252,17 @@ def test_openai_modelgraded_rows_without_ideal_import():
     assert _checks(humor) == [{"type": "unsupported", "native": "modelgraded:humor"}]
     with pytest.raises(ValueError, match="no questions"):  # a Match row still needs its ideal
         import_path(data, fmt="openai-evals", grader="match")
+
+
+def test_blank_or_empty_ideals_are_unsupported_not_a_pass_for_every_answer(tmp_path):
+    data = _jsonl(tmp_path / "s.jsonl", [{"input": "q", "ideal": ""}, {"input": "r", "ideal": []},
+                                         {"input": "s", "ideal": ["x", " "]}])
+    imp = import_path(data, fmt="openai-evals", grader="includes")
+    assert _checks(imp) == _checks(imp, 1) == [{"type": "unsupported", "native": "includes"}]
+    assert _checks(imp, 2) == [{"type": "match", "values": ["x"], "location": "any", "ignore_case": False,
+                                "ignore_punctuation": False, "strip": False}]
+    assert grade(imp.questions[0]["grading"], "q", "anything").passed is None
+    assert validate_grading(imp.questions[2]["grading"]) == []
 
 
 def test_an_ambiguous_file_is_refused_unless_the_format_is_named():
@@ -319,6 +363,24 @@ def test_promptfoo_tests_become_questions_with_mapped_asserts(tmp_path):
     assert {"assert `cost` not translated", "several providers: the answer track's model replaces them"} <= set(imp.lossy)
 
 
+def test_promptfoo_default_threshold_and_negated_judge_is_unsupported(tmp_path):
+    cfg = ("prompts: ['{{q}}']\ndefaultTest:\n  threshold: 0.5\n"
+           "tests:\n  - vars: {q: x}\n    assert:\n      - {type: not-llm-rubric, value: Apologizes}\n")
+    imp = import_path(_write(tmp_path / "promptfooconfig.yaml", cfg), fmt="promptfoo")
+    assert imp.questions[0]["grading"]["threshold"] == 0.5
+    assert _checks(imp) == [{"type": "unsupported", "native": "not-llm-rubric"}]
+    assert "assert `not-llm-rubric` not translated" in imp.lossy
+
+
+def test_promptfoo_blank_values_are_unsupported_not_refused_later(tmp_path):
+    cfg = ("prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    assert:\n"
+           "      - {type: equals, value: ' '}\n      - {type: starts-with, value: ''}\n"
+           "      - {type: contains, value: ' '}\n      - {type: contains, value: 'x'}\n")
+    imp = import_path(_write(tmp_path / "promptfooconfig.yaml", cfg), fmt="promptfoo")
+    assert [c["type"] for c in _checks(imp)] == ["unsupported", "unsupported", "unsupported", "match"]
+    assert validate_grading(imp.questions[0]["grading"]) == []
+
+
 def test_promptfoo_two_prompts_key_by_test_and_prompt(tmp_path):
     cfg = "prompts: ['A {{x}}', 'B {{x}}']\ntests:\n  - vars: {x: 1}\n    assert: [{type: contains, value: '1'}]\n"
     imp = import_path(_write(tmp_path / "promptfooconfig.yaml", cfg), fmt="promptfoo")
@@ -382,6 +444,12 @@ _EVAL = '{{"evals": [{{"id": 1, "prompt": "p", "expected_output": "o", {}}}]}}'
      "promptfoo", "`vars` is not a mapping"),
     ("promptfooconfig.yaml", "prompts: [file://p.json]\ntests:\n  - assert: [{type: contains, value: x}]\n",
      "promptfoo", "prompt file does not parse"),
+    ("promptfooconfig.yaml", "prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    threshold: [1]\n"
+     "    assert: [{type: contains, value: x}]\n", "promptfoo", "threshold \\[1\\] is not a number"),
+    ("promptfooconfig.yaml", "prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    threshold: true\n"
+     "    assert: [{type: contains, value: x}]\n", "promptfoo", "threshold True is not a number"),
+    ("promptfooconfig.yaml", "prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    threshold: .nan\n"
+     "    assert: [{type: contains, value: x}]\n", "promptfoo", "threshold nan is not a number"),
 ])
 def test_malformed_input_is_an_import_error(tmp_path, name, text, fmt, message):
     _write(tmp_path / "p.json", '{"truncated": ')

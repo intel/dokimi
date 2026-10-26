@@ -156,7 +156,52 @@ def test_scored_grade_with_an_unjudged_check_is_counted_in_the_summary():
     tally = ConditionTally()
     tally.add(grade({"checks": [{"type": "match", "values": ["1996"], "location": "any"},
                                 {"type": "judge", "reference": "1996"}]}, "Q?", "In 1996."))
-    assert tally.as_dict() == {"n": 1, "unscored": 0, "judge_unscored": 1, "pass_rate": 1.0, "mean_score": 1.0}
+    assert tally.as_dict() == {"n": 1, "unscored": 0, "judge_unscored": 1, "check_unscored": 0,
+                               "pass_rate": 1.0, "mean_score": 1.0}
+
+
+def test_a_timed_out_check_next_to_a_pass_is_counted_in_the_summary():
+    # The pass is decided on the match alone, so the summary must say the regex had no result.
+    tally = ConditionTally()
+    tally.add(grade({"checks": [{"type": "regex", "values": ["(a|aa)+$"]},
+                                {"type": "match", "values": ["!"], "location": "any"}]}, "Q?", "a" * 40 + "!"))
+    assert tally.as_dict() == {"n": 1, "unscored": 0, "judge_unscored": 0, "check_unscored": 1,
+                               "pass_rate": 1.0, "mean_score": 1.0}
+
+
+def test_a_space_is_a_real_pattern_and_an_unstripped_match_value():
+    # Not blank: " " is found only in answers that contain a space, unlike "" or a stripped " ".
+    assert validate_grading({"checks": [{"type": "regex", "values": [" "]}]}) == []
+    assert validate_grading({"checks": [{"type": "match", "values": [" "], "strip": False}]}) == []
+    assert _one({"type": "regex", "values": [" "]}, "nogap").passed is False
+
+
+def test_a_settled_any_mode_regex_does_not_wait_for_a_later_pattern():
+    # The first pattern decides the check, so the timing-out second one is never run.
+    started = time.monotonic()
+    g = _one({"type": "regex", "values": ["!", "(a|aa)+$"]}, "a" * 40 + "!")
+    assert (g.checks[0].passed, g.checks[0].score) == (True, 1.0)
+    assert time.monotonic() - started < REGEX_TIMEOUT
+
+
+def test_the_regex_limit_is_shared_by_every_pattern_of_one_check():
+    started = time.monotonic()
+    g = _one({"type": "regex", "values": ["(a|aa)+$", "(a|aa)+$"]}, "a" * 40 + "!")
+    assert g.checks[0].passed is None
+    assert time.monotonic() - started < 1.5 * REGEX_TIMEOUT
+
+
+def test_a_question_with_one_failing_check_fails_without_a_threshold():
+    two = {"checks": [{"type": "match", "values": ["a"], "location": "any"},
+                      {"type": "match", "values": ["zzz"], "location": "any"}]}
+    assert (grade(two, "Q?", "a").score, grade(two, "Q?", "a").passed) == (0.5, False)
+
+
+def test_a_zero_weight_check_neither_counts_nor_fails_the_question():
+    grading = {"checks": [{"type": "match", "values": ["a"], "location": "any"},
+                          {"type": "match", "values": ["zzz"], "location": "any", "weight": 0}]}
+    g = grade(grading, "Q?", "a")
+    assert (g.score, g.passed, len(g.counted)) == (1.0, True, 1)
 
 
 def test_weights_and_threshold_set_the_verdict():
@@ -204,6 +249,13 @@ def test_validate_grading_names_the_problem():
     ({"checks": [{"type": "match", "values": ["x"], "weight": "high"}]}, "weight is not a number"),
     ({"checks": [{"type": "judge"}]}, "a judge check needs a criterion or a reference"),
     ({"checks": [{"type": "exact", "values": ["4"]}], "threshold": "most"}, "threshold is not a number"),
+    ({"checks": [{"type": "match", "values": ["x"], "weight": None}]}, "weight is not a number"),
+    ({"checks": [{"type": ["match"], "values": ["x"]}]}, "unknown type"),
+    ({"checks": [{"type": "match", "values": [""]}]}, "match has a blank value"),
+    ({"checks": [{"type": "match", "values": ["x", "  "]}]}, "match has a blank value"),
+    ({"checks": [{"type": "match", "values": [" "]}]}, "match has a blank value"),
+    ({"checks": [{"type": "regex", "values": [""]}]}, "regex has a blank value"),
+    ({"checks": [{"type": "match", "values": ["x"], "weight": -1}]}, "weight must not be negative"),
 ])
 def test_validate_grading_catches_what_grading_would_raise_on(block, problem):
     # Each of these used to pass validation and then abort `eval reference` mid-run.
@@ -231,7 +283,7 @@ def test_score_binary_answers_gives_eval_v1(tmp_path):
     result = score(data, _QUESTIONS)
     assert result.missing == ["3"]
     assert result.tally["without_docs"].as_dict() == {"n": 2, "unscored": 0, "judge_unscored": 0,
-                                                      "pass_rate": 0.5, "mean_score": 0.5}
+                                                      "check_unscored": 0, "pass_rate": 0.5, "mean_score": 0.5}
     kind, payload = artifact(result, data, judge_model=None, judge_provider=None, questions_path="q.json")
     assert kind == "eval"
     first = payload["evaluations"][0]
