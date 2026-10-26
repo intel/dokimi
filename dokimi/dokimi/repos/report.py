@@ -74,7 +74,7 @@ _AGENT_KEYS = ("timed_out", "is_error", "over_budget", "cost_usd", "num_turns")
 _AGENT_NUMBERS = ("cost_usd", "num_turns", *_TOKENS)
 
 
-_SAFE_MAGNITUDE = 1e300  # a sum of a batch's values stays a finite float
+_SAFE_MAGNITUDE = 1e150  # sums stay finite and squared per-task deltas (variance) do too
 
 
 def _optional_number(value: object) -> bool:
