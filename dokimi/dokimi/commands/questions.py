@@ -112,8 +112,9 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
         reviewers=reviewers, model=args.model,
         provider=args.provider, concurrency=args.concurrency,
     )
-    report = reviewer.review_questions(questions, library_name=args.product,
-                                        output_path=output_path, limit=args.limit)
+    with exit_on_unwritable(output_path):
+        report = reviewer.review_questions(questions, library_name=args.product,
+                                            output_path=output_path, limit=args.limit)
 
     s = report.summary
     print(f"\n{'─'*55}")
@@ -189,12 +190,13 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
 
         out = Path(args.output) if args.output else Path(f"questions/{args.product}_refined.json")
         try:
-            save_questions_artifact({
-                "library": args.product,
-                "total": len(report.questions),
-                "difficulty_distribution": report.difficulty_after,
-                "questions": report.questions,
-            }, out)
+            with exit_on_unwritable(out):
+                save_questions_artifact({
+                    "library": args.product,
+                    "total": len(report.questions),
+                    "difficulty_distribution": report.difficulty_after,
+                    "questions": report.questions,
+                }, out)
         except ValueError as exc:  # ArtifactValidationError: the refined set is not valid v2
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)

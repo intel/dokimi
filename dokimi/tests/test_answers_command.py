@@ -123,6 +123,8 @@ def test_output_path_precedence():
     (5, "retrieval:\n  top_k: 7\n", 5),             # the flag wins over the config and the default
     (None, "retrieval:\n  top_k: 7\n", 7),          # else the config's retrieval.top_k
     (None, None, DEFAULT_RETRIEVAL_TOP_K),          # else the built-in default
+    (None, "retrieval:\n", DEFAULT_RETRIEVAL_TOP_K),  # an empty section is the default
+    (None, "products:\n", DEFAULT_RETRIEVAL_TOP_K),   # an empty products section does not matter
 ])
 def test_generate_writes_answers_to_output_path(tmp_path, monkeypatch, capsys,
                                                 top_k, config_text, expected_top_k):

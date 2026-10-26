@@ -30,8 +30,11 @@ def test_generate_exits_1_on_an_unusable_personas_file(tmp_path, monkeypatch, ca
     assert err.startswith("Error: ") and str(bad) in err
 
 
-@pytest.mark.parametrize("personas", [[1, "x"], [{"id": "p1", "name": "dev"}]],
-                         ids=["items-not-objects", "missing-skill-level"])
+@pytest.mark.parametrize(
+    "personas",
+    [[1, "x"], [{"id": "p1", "name": "dev"}], [{"name": "dev", "skill_level": "beginner"}],
+     [{"id": "p1", "skill_level": "beginner"}]],
+    ids=["items-not-objects", "missing-skill-level", "missing-id", "missing-name"])
 def test_generate_exits_1_on_personas_missing_required_fields(tmp_path, monkeypatch, capsys, personas):
     bad = tmp_path / "personas.json"
     bad.write_text(json.dumps({"personas": personas}), encoding="utf-8")
@@ -96,3 +99,22 @@ def test_generate_exits_1_when_the_output_cannot_be_written(tmp_path, monkeypatc
                      "--output", str(out)) == 1
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and str(out) in err
+
+
+@pytest.mark.parametrize("config_text", ["retrieval:\n", "products:\n"], ids=["empty-retrieval", "empty-products"])
+def test_generate_completes_when_a_config_section_is_empty(tmp_path, monkeypatch, capsys, config_text):
+    config = tmp_path / "products.yaml"
+    config.write_text(config_text, encoding="utf-8")
+    monkeypatch.setattr("dokimi.config.runtime_config_path", lambda: config)
+    personas = tmp_path / "personas.json"
+    personas.write_text(json.dumps(GOOD_PERSONAS), encoding="utf-8")
+    topics = tmp_path / "topics.json"
+    topics.write_text("[]", encoding="utf-8")
+    out = tmp_path / "q.json"
+    monkeypatch.setattr("dokimi.questions.QuestionGenerator", _FakeGenerator)
+    monkeypatch.setattr("sys.argv", ["dokimi", "questions", "generate", "--product", "p",
+                                     "--personas", str(personas), "--topics", str(topics),
+                                     "--output", str(out)])
+    cli.main()
+    assert out.exists()
+    assert "Saved 1 questions" in capsys.readouterr().out

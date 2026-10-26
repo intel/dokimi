@@ -110,3 +110,108 @@ def test_an_unwritable_scorecard_exits_1_naming_it(tmp_path, monkeypatch, capsys
          extra_args=("--out-json", str(target)))
 
     assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")
+
+
+def _stub_run(monkeypatch, saved):
+    import dokimi.artifacts
+    import dokimi.commands.arms
+    import dokimi.report.subject_report
+    import dokimi.subjects
+
+    monkeypatch.setattr(dokimi.commands.arms, "cmd_arms_matrix_run", lambda args: None)
+    monkeypatch.setattr(dokimi.artifacts, "load_artifact", lambda kind, path: {})
+    monkeypatch.setattr(dokimi.artifacts, "save_artifact", lambda kind, data, path: saved.append(path))
+    monkeypatch.setattr(dokimi.subjects, "build_subject_scorecard", lambda *a, **k: {})
+    monkeypatch.setattr(dokimi.report.subject_report, "render_subject_scorecard", lambda scorecard: "md")
+    monkeypatch.setattr("dokimi.commands.subjects._run_subject_work", lambda *a, **k: {})
+
+
+def test_an_unwritable_report_dir_exits_1_after_the_scorecard_is_saved(tmp_path, monkeypatch, capsys):
+    saved: list = []
+    _stub_run(monkeypatch, saved)
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")
+    target = blocker / "sub" / "x.md"
+
+    _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]',
+         extra_args=("--out-json", str(tmp_path / "card.json"), "--out-md", str(target)))
+
+    assert saved == [tmp_path / "card.json"]
+    assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")
+
+
+def test_a_report_path_that_is_a_directory_exits_1_naming_it(tmp_path, monkeypatch, capsys):
+    saved: list = []
+    _stub_run(monkeypatch, saved)
+    target = tmp_path / "report.md"
+    target.mkdir()
+
+    _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]',
+         extra_args=("--out-json", str(tmp_path / "card.json"), "--out-md", str(target)))
+
+    assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")
+
+
+def _work(tmp_path, monkeypatch, work_dir: Path, save):
+    from types import SimpleNamespace
+
+    import dokimi.artifacts
+    import dokimi.harnesses
+    import dokimi.report.task_runs_report
+    from dokimi.commands.subjects import _run_subject_work
+
+    class FakeRunner:
+        def __init__(self, **_):
+            pass
+
+        def validate_harnesses(self):
+            pass
+
+        def run(self):
+            return {}
+
+    monkeypatch.setattr(dokimi.harnesses, "TaskSuiteRunner", FakeRunner)
+    monkeypatch.setattr(dokimi.artifacts, "save_artifact", save)
+    monkeypatch.setattr(dokimi.report.task_runs_report, "render_task_runs_report", lambda artifact: "md")
+    descriptor = SimpleNamespace(suite=SimpleNamespace(tasks=["t"]))
+    args = SimpleNamespace(skip_work=False, work_harnesses="h", work_baseline_harness=None,
+                           work_output_dir=str(work_dir), work_model=None, model="m",
+                           work_command_template=None, work_dry_run=False, work_repeats=1)
+    with pytest.raises(SystemExit) as exc:
+        _run_subject_work(descriptor, args, out_dir=tmp_path / "out", tasks=[object()])
+    assert exc.value.code == 1
+
+
+def test_work_exits_1_when_the_task_runs_report_dir_cannot_be_created(tmp_path, monkeypatch, capsys):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")
+    saved: list = []
+
+    _work(tmp_path, monkeypatch, blocker / "work", lambda kind, data, path: saved.append(path))
+
+    assert saved == [blocker / "work" / "task-runs.json"]
+    expected = blocker / "work" / "task-runs.md"
+    assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {expected}: ")
+
+
+def test_work_exits_1_when_the_task_runs_json_cannot_be_written(tmp_path, monkeypatch, capsys):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")
+    target = blocker / "work" / "task-runs.json"
+
+    def save(kind, data, path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+    _work(tmp_path, monkeypatch, blocker / "work", save)
+
+    assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")
+
+
+def test_work_exits_1_when_the_task_runs_report_path_is_a_directory(tmp_path, monkeypatch, capsys):
+    work_dir = tmp_path / "work"
+    (work_dir / "task-runs.md").mkdir(parents=True)
+
+    _work(tmp_path, monkeypatch, work_dir, lambda kind, data, path: None)
+
+    expected = work_dir / "task-runs.md"
+    assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {expected}: ")
