@@ -1,0 +1,263 @@
+# What `dokimi tasks inspect` must report for each file of this corpus, and where
+# each file came from. tests/test_task_format_corpus.py inspects the whole tree
+# (a mixed tree) once and checks every entry; `format: null` means the path must
+# not appear in the report.
+#
+# Third-party files are copied unchanged unless `note` says how they were cut;
+# their licenses are in LICENSES/. `source: generated` files were written for this
+# corpus from the upstream schema or writer code named in `note`, because the
+# format has no small public file to copy.
+sources:
+  intel-skills: {url: https://github.com/intel/skills, commit: c49fcc2a431bbdc2b7954abd4e23f594068c518b, license: Apache-2.0}
+  skillsbench: {url: https://github.com/benchflow-ai/skillsbench, commit: 9a1f4dd5f7659f75707435da3ce854b6e48321d1, license: Apache-2.0}
+  terminal-bench: {url: https://github.com/laude-institute/terminal-bench, commit: d28711d0da2675d0bb1d56de45ae5df6082438a3, license: Apache-2.0}
+  inspect_ai: {url: https://github.com/UKGovernmentBEIS/inspect_ai, commit: 72e7dce8026725ce5cc5b76cbef051568e0f1a9f, license: MIT}
+  openai-evals: {url: https://github.com/openai/evals, commit: 8eac7a7de5215c907fbddc30efdaf316913eccdd, license: MIT}
+  promptfoo: {url: https://github.com/promptfoo/promptfoo, commit: c0b88a324175c60019cc80de1b2e32b4c849d4c3, license: MIT}
+  dokimi: {url: https://github.com/intel/dokimi, commit: null, license: Apache-2.0}
+  generated: {url: null, commit: null, license: Apache-2.0}
+
+items:
+  # --- executable task directories -------------------------------------------
+  - path: catalog/evaluation/harbor/tasks/onetbb-nstream
+    format: harbor
+    kind: executable
+    consumers: [harbor, docker-*]
+    items: null
+    source: intel-skills
+    upstream: evaluation/harbor/tasks/onetbb-nstream
+    note: nested catalog, next to skills/<name>/evals/evals.json
+  - path: catalog/skills/dpnp-io/evals/evals.json
+    format: skill-creator-evals
+    kind: answer-only
+    consumers: [none-yet]
+    items: 3
+    source: intel-skills
+    upstream: skills/dpnp-io/evals/evals.json
+  - path: catalog/skills/dpnp-io/SKILL.md
+    format: null
+    source: intel-skills
+    upstream: skills/dpnp-io/SKILL.md
+    note: first 12 lines; a skill, not a task
+  - path: skillsbench/tasks/lake-warming-attribution
+    format: task-md
+    kind: executable
+    consumers: [benchflow, docker-*]
+    items: null
+    source: skillsbench
+    upstream: tasks/lake-warming-attribution
+    note: environment/skills/ left out; its data CSVs must stay unclaimed; `pip3 install --no-cache-dir` in environment/Dockerfile and `if pytest ...` in verifier/test.sh, for CodeFactor
+  - path: skillsbench/tasks/lake-warming-attribution/environment/data/climate.csv
+    format: null
+    source: skillsbench
+    upstream: tasks/lake-warming-attribution/environment/data/climate.csv
+  - path: terminal-bench/original-tasks/hello-world
+    format: terminal-bench-v1
+    kind: executable
+    consumers: [none-yet]
+    items: null
+    source: terminal-bench
+    upstream: original-tasks/hello-world
+    note: shebang moved above the canary line in solution.sh, for CodeFactor
+  - path: swe-bench/instances.jsonl
+    format: swe-bench
+    kind: executable
+    consumers: [none-yet]
+    items: 1
+    source: generated
+    note: fields of SWEbenchInstance (swebench/harness/constants); FAIL_TO_PASS and PASS_TO_PASS are JSON strings, as in the HF datasets
+
+  # --- Inspect AI -------------------------------------------------------------
+  - path: inspect/examples/hello_world.py
+    format: inspect-task
+    kind: answer-only
+    consumers: [none-yet]
+    items: 1
+    source: inspect_ai
+    upstream: examples/hello_world.py
+  - path: inspect/examples/biology_qa.py
+    format: inspect-task
+    kind: answer-only
+    consumers: [none-yet]
+    items: 1
+    source: inspect_ai
+    upstream: examples/biology_qa.py
+    note: example_dataset("biology_qa", FieldSpec(input="question", target="answer"))
+  - path: inspect/_examples/biology_qa.jsonl
+    format: inspect-samples
+    kind: answer-only
+    consumers: [none-yet]
+    items: 20
+    source: inspect_ai
+    upstream: src/inspect_ai/dataset/_examples/biology_qa.jsonl
+    note: question/answer keys; only biology_qa.py's FieldSpec says it is Inspect samples
+    evidence: "FieldSpec(input=question, target=answer)"
+  - path: inspect/_examples/security_guide.jsonl
+    format: inspect-samples
+    kind: answer-only
+    consumers: [none-yet]
+    items: 5
+    source: inspect_ai
+    upstream: src/inspect_ai/dataset/_examples/security_guide.jsonl
+    note: first 5 rows
+  - path: inspect/test_dataset/samples.csv
+    format: inspect-samples
+    kind: answer-only
+    consumers: [none-yet]
+    items: 1
+    source: inspect_ai
+    upstream: tests/dataset/test_dataset/samples.csv
+  - path: inspect/test_dataset/samples-mcq.csv
+    format: inspect-samples
+    kind: answer-only
+    consumers: [none-yet]
+    items: 1
+    source: inspect_ai
+    upstream: tests/dataset/test_dataset/samples-mcq.csv
+  - path: inspect/test_dataset/large.parquet
+    format: git-lfs-pointer
+    kind: unknown
+    consumers: [none-yet]
+    items: null
+    source: generated
+    note: a git-LFS spec v1 pointer stub under a binary suffix
+
+  # --- OpenAI evals registry ------------------------------------------------
+  - path: openai-evals/registry/evals/gol.yaml
+    format: openai-evals-spec
+    kind: answer-only
+    consumers: [none-yet]
+    items: 1
+    source: openai-evals
+    upstream: evals/registry/evals/gol.yaml
+  - path: openai-evals/registry/data/GOL/samples.jsonl
+    format: git-lfs-pointer
+    kind: unknown
+    consumers: [none-yet]
+    items: null
+    source: openai-evals
+    upstream: evals/registry/data/GOL/samples.jsonl
+    note: the pointer stub a clone without `git lfs pull` holds; gol.yaml names it
+    expected_format: openai-evals
+  - path: openai-evals/registry/data/coqa/match.jsonl
+    format: git-lfs-pointer
+    kind: unknown
+    consumers: [none-yet]
+    items: null
+    source: openai-evals
+    upstream: evals/registry/data/coqa/match.jsonl
+    note: pointer stub no spec in the corpus names
+  - path: openai-evals/registry/evals/allergen-information.yaml
+    format: openai-evals-spec
+    kind: answer-only
+    consumers: [none-yet]
+    items: 1
+    source: openai-evals
+    upstream: evals/registry/evals/allergen-information.yaml
+  - path: openai-evals/registry/data/allergen-information/samples.jsonl
+    format: openai-evals
+    kind: answer-only
+    consumers: [none-yet]
+    items: 4
+    source: openai-evals
+    upstream: evals/registry/data/allergen-information/samples.jsonl
+    note: git-LFS content, first 4 rows; chat input with ideal, graded by a model
+  - path: openai-evals/registry/evals/test-modelgraded.yaml
+    format: openai-evals-spec
+    kind: answer-only
+    consumers: [none-yet]
+    items: 1
+    source: openai-evals
+    upstream: evals/registry/evals/test-modelgraded.yaml
+    note: first 10 lines (the joke-fruits spec)
+  - path: openai-evals/registry/data/test_modelgraded/joke_fruits.jsonl
+    format: openai-evals
+    kind: answer-only
+    consumers: [none-yet]
+    items: 10
+    source: openai-evals
+    upstream: evals/registry/data/test_modelgraded/joke_fruits.jsonl
+    note: git-LFS content; input only, no ideal; only the model-graded spec says it is openai evals
+    evidence: named by test-modelgraded.yaml
+
+  # --- promptfoo ------------------------------------------------------------
+  - path: promptfoo/eval-custom-grader-csv/promptfooconfig.yaml
+    format: promptfoo
+    kind: answer-only
+    consumers: [none-yet]
+    items: null
+    source: promptfoo
+    upstream: examples/eval-custom-grader-csv/promptfooconfig.yaml
+  - path: promptfoo/eval-custom-grader-csv/tests.csv
+    format: promptfoo-tests
+    kind: answer-only
+    consumers: [none-yet]
+    items: 4
+    source: promptfoo
+    upstream: examples/eval-custom-grader-csv/tests.csv
+  - path: promptfoo/eval-custom-grader-csv/prompts.txt
+    format: null
+    source: promptfoo
+    upstream: examples/eval-custom-grader-csv/prompts.txt
+  - path: promptfoo/redteam-auth/promptfooconfig.file.yaml
+    format: promptfoo
+    kind: answer-only
+    consumers: [none-yet]
+    items: null
+    source: promptfoo
+    upstream: examples/redteam-auth/promptfooconfig.file.yaml
+    note: a redteam config (tests generated by `promptfoo redteam`) under a promptfooconfig.<variant> name
+
+  # --- skill selection --------------------------------------------------------
+  - path: skill-creator/pdf-forms/evals/evals.json
+    format: skill-creator-evals
+    kind: answer-only
+    consumers: [none-yet]
+    items: 2
+    source: generated
+    note: evals.json as anthropics/skills skills/skill-creator/references/schemas.md defines it
+  - path: skill-reach/queries.json
+    format: skill-reach
+    kind: trigger
+    consumers: [catalog trigger-set]
+    items: 3
+    source: generated
+    note: QuerySet fields of google/skill-reach src/reach/queries.py and models.py (query_id, kind, acceptable_skills)
+  - path: writers/pdf-forms.trigger.json
+    format: skill-creator-trigger
+    kind: trigger
+    consumers: [catalog trigger-set]
+    items: 3
+    source: generated
+    note: dokimi.external.trigger_set.to_skill_creator (tests/test_task_format_corpus.py rewrites it)
+  - path: writers/reach-queries.json
+    format: skill-reach
+    kind: trigger
+    consumers: [catalog trigger-set]
+    items: 3
+    source: generated
+    note: dokimi.external.trigger_set.to_reach (legacy `id` spelling)
+  - path: writers/questions.json
+    format: dokimi-questions
+    kind: trigger
+    consumers: [questions track]
+    items: 3
+    source: generated
+    note: dokimi.external.trigger_set.to_questions, saved by save_questions_artifact
+  - path: explore/fastcontext-skill.yaml
+    format: dokimi-explore-task
+    kind: localization
+    consumers: [explore track]
+    items: 1
+    source: dokimi
+    upstream: data/explore_tasks/fastcontext-skill.yaml
+
+  # --- negatives --------------------------------------------------------------
+  - path: negative/pull_requests.jsonl
+    format: null
+    source: generated
+    note: a raw pull-request record (the shape of SWE-bench tests/test_data/pvlib.jsonl), not an instance
+  - path: negative/notes/task.md
+    format: null
+    source: generated
+    note: a plain task.md note with no front matter and no task part directories

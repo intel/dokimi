@@ -18,7 +18,11 @@ Each fixture is hand-written from the upstream shape it imitates:
 
 from __future__ import annotations
 
+import importlib
 import json
+import os
+import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -43,7 +47,7 @@ def _harbor(root: Path, name: str = "hb") -> Path:
     task = root / name
     _write(task / "task.toml", '[metadata]\ndifficulty = "easy"\ntags = ["x"]\n')
     _write(task / "instruction.md", "Fix it.")
-    (task / "environment").mkdir()
+    _write(task / "environment" / "Dockerfile", "FROM ubuntu:24.04\n")
     _write(task / "solution" / "solve.sh", "#!/bin/bash\n")
     _write(task / "tests" / "test.sh", "#!/bin/bash\n")
     return task
@@ -53,6 +57,7 @@ def _task_md(root: Path, name: str = "tm") -> Path:
     task = root / name
     _write(task / "task.md", "---\nschema_version: '1.3'\nmetadata:\n  difficulty: medium\n"
                              "verifier:\n  timeout_sec: 60\n---\n\nDo the thing.\n")
+    _write(task / "environment" / "Dockerfile", "FROM ubuntu:24.04\n")
     _write(task / "oracle" / "solve.sh", "#!/bin/bash\n")
     _write(task / "verifier" / "test.sh", "#!/bin/bash\n")
     return task
@@ -99,10 +104,11 @@ def test_harbor_task_is_executable_and_consumable_by_harbor_and_docker(tmp_path)
 
 def test_harbor_task_without_environment_reports_why_harbor_refuses_it(tmp_path):
     task = _harbor(tmp_path)
+    (task / "environment" / "Dockerfile").unlink()
     (task / "environment").rmdir()
     r = _one(task)
     assert "environment" in r.missing
-    assert r.consumers == ["docker-*"]
+    assert r.consumers == []  # docker-* builds environment/Dockerfile
     assert any("Harbor would refuse it: no environment/" in p for p in r.problems)
 
 
@@ -111,6 +117,20 @@ def test_task_md_task_is_consumable_by_benchflow(tmp_path):
     assert (r.format, r.kind) == ("task-md", "executable")
     assert r.consumers == ["benchflow", "docker-*"]
     assert r.details["schema_version"] == "1.3"
+
+
+def test_task_without_environment_dockerfile_is_not_claimed_for_docker(tmp_path):
+    for task in (_harbor(tmp_path), _task_md(tmp_path)):
+        (task / "environment" / "Dockerfile").unlink()
+        assert "docker-*" not in _one(task).consumers
+
+
+def test_task_without_tests_or_verifier_is_not_claimed_for_docker(tmp_path):
+    for task in (_harbor(tmp_path), _task_md(tmp_path)):
+        for verifier in ("tests", "verifier"):
+            shutil.rmtree(task / verifier, ignore_errors=True)
+        r = _one(task)
+        assert "verifier" in r.missing and "docker-*" not in r.consumers
 
 
 def test_terminal_bench_v1_task_has_every_part_and_no_consumer_yet(tmp_path):
@@ -291,12 +311,24 @@ def test_unknown_jsonl_reports_row_keys(tmp_path):
 @pytest.mark.parametrize("name, text, problem", [
     ("bad.json", "{not json", "not valid JSON"),
     ("bad.yaml", "a: [1, 2\n", "not valid YAML"),
-    ("alias.yaml", "a: &x [1]\nb: *x\n", "not valid YAML"),
+    ("alias.yaml", "a: &x [1]\nb: *x\n", "uses YAML aliases"),
     ("bad.jsonl", '{"input": "a", "target": "b"}\n{oops\n', "line 2: not valid JSON"),
 ])
 def test_malformed_data_file_is_a_lint_problem_not_a_crash(tmp_path, name, text, problem):
     r = _one(_write(tmp_path / name, text))
     assert any(problem in p for p in r.problems), r.problems
+
+
+@pytest.mark.parametrize("header, fmt", [("input,target", "inspect-samples"),
+                                         ("__expected,question", "promptfoo-tests")])
+def test_a_csv_with_a_utf8_bom_keeps_its_first_column(tmp_path, header, fmt):
+    r = _one(_write(tmp_path / "samples.csv", f"\ufeff{header}\nq,a\nq2,a2\n"))
+    assert (r.format, r.items, r.problems) == (fmt, 2, [])
+
+
+def test_a_json_file_with_a_utf8_bom_is_a_problem_as_dokimis_json_readers_refuse_it(tmp_path):
+    r = _one(_write(tmp_path / "e.json", "\ufeff" + json.dumps({"skill_name": "x", "evals": []})))
+    assert r.format == "unknown" and r.problems[0].startswith("not valid JSON: Unexpected UTF-8 BOM")
 
 
 def test_malformed_jsonl_keeps_its_good_rows(tmp_path):
@@ -385,3 +417,254 @@ def test_cli_inspect_missing_path_exits_with_a_message(tmp_path):
     with pytest.raises(SystemExit) as excinfo:
         _run(["tasks", "inspect", str(tmp_path / "nope")])
     assert "no such file or directory" in str(excinfo.value)
+
+
+def test_cli_inspect_json_is_a_stamped_artifact_and_out_writes_the_same(tmp_path, capsys):
+    from dokimi.artifacts import validate_artifact
+
+    _tb1(tmp_path)
+    out = tmp_path / "report.json"
+    _run(["tasks", "inspect", str(tmp_path), "--json", "--out", str(out)])
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["schema_version"] == "task_inspect.v1"
+    validate_artifact("task_inspect", printed)
+    assert json.loads(out.read_text()) == printed
+
+
+def test_cli_inspect_out_to_an_unwritable_path_exits_with_a_message(tmp_path):
+    _tb1(tmp_path)
+    (tmp_path / "f").write_text("")
+    with pytest.raises(SystemExit) as excinfo:
+        _run(["tasks", "inspect", str(tmp_path), "--out", str(tmp_path / "f" / "r.json")])
+    assert "cannot write" in str(excinfo.value)
+
+
+# ── configs that name their datasets ───────────────────────────────────────────
+
+
+def test_promptfoo_config_without_tests_or_prompts_is_linted(tmp_path):
+    _write(tmp_path / "promptfooconfig.yaml", "providers: [openai:gpt-4.1-mini]\n")
+    [report] = inspect_path(tmp_path / "promptfooconfig.yaml")
+    assert (report.format, report.problems) == ("promptfoo", ["no tests", "no prompts"])
+
+
+def test_promptfoo_url_tests_are_not_followed_and_yaml_tests_are_promptfoo_tests(tmp_path):
+    _write(tmp_path / "promptfooconfig.yaml",
+           "prompts: [p]\nproviders: [echo]\ntests: https://example.com/t.csv\n")
+    _write(tmp_path / "cases.yaml", "- vars: {q: a}\n  assert: [{type: equals, value: a}]\n")
+    by_name = {Path(r.path).name: r for r in inspect_path(tmp_path)}
+    assert "references" not in by_name["promptfooconfig.yaml"].details
+    assert by_name["cases.yaml"].format == "promptfoo-tests"
+
+
+def test_openai_spec_lints_samples_it_cannot_find(tmp_path):
+    _write(tmp_path / "registry/evals/x.yaml",
+           "x.dev.v0:\n  class: evals.elsuite.basic.match:Match\n  args: {samples_jsonl: x/s.jsonl}\n")
+    [report] = inspect_path(tmp_path)
+    assert report.format == "openai-evals-spec"
+    assert report.problems == ["1 samples files not found: s.jsonl"]
+
+
+def test_samples_of_a_model_graded_spec_need_no_ideal(tmp_path):
+    _write(tmp_path / "registry/evals/x.yaml",
+           "x.dev.v0:\n  class: evals.elsuite.modelgraded.classify:ModelBasedClassify\n"
+           "  args: {samples_jsonl: x/s.jsonl}\n")
+    _jsonl(tmp_path / "registry/data/x/s.jsonl", [{"input": "q"}, {"input": "q2"}])
+    found = {r.path.name: r for r in inspect_path(tmp_path)}
+    samples = found["s.jsonl"]
+    assert (samples.format, samples.problems, samples.details["model_graded"]) == ("openai-evals", [], True)
+
+
+def test_promptfoo_tests_file_reference_labels_a_csv_without_expected_columns(tmp_path):
+    _write(tmp_path / "promptfooconfig.yaml", "prompts: [p]\nproviders: [echo]\ntests: file://tests.csv\n")
+    _write(tmp_path / "tests.csv", "topic\nbananas\n")
+    found = {r.path.name: r for r in inspect_path(tmp_path)}
+    assert (found["tests.csv"].format, found["tests.csv"].evidence) == (
+        "promptfoo-tests", ["named by promptfooconfig.yaml"])
+
+
+def test_inspect_task_follows_local_files_not_hub_datasets(tmp_path):
+    _write(tmp_path / "t.py", "from inspect_ai import Task, task\n"
+           "from inspect_ai.dataset import FieldSpec, csv_dataset, hf_dataset\n"
+           "@task\ndef t():\n"
+           "    a = hf_dataset(path='org/data', sample_fields=to_sample)\n"
+           "    return Task(dataset=csv_dataset('d.csv', FieldSpec(input='q', target='a')))\n")
+    _write(tmp_path / "d.csv", "q,a\n1+1?,2\n")
+    by_name = {Path(r.path).name: r for r in inspect_path(tmp_path)}
+    task = by_name["t.py"].details
+    assert task["record_to_sample"] is True
+    assert [r["path"] for r in task["references"]] == [str(tmp_path / "d.csv")]
+    assert (by_name["d.csv"].format, by_name["d.csv"].items) == ("inspect-samples", 1)
+
+
+def test_a_flood_of_unclosed_field_specs_is_scanned_in_linear_time(tmp_path):
+    flood = "    a = json_dataset('a.jsonl')\n" + "FieldSpec(" * 20000 + "\n"
+    spec = ("    return Task(dataset=json_dataset('d.jsonl',\n        FieldSpec(\n"
+            "            input='question',\n            target='answer',\n            id='qid',\n"
+            "            metadata=['topic', 'source', 'difficulty'],\n"
+            "            sandbox='docker',\n        ),\n    ))\n")
+    path = _write(tmp_path / "t.py", "from inspect_ai import Task, task\n@task\ndef t():\n" + flood + spec)
+    start = time.perf_counter()
+    [report] = inspect_path(path)
+    assert time.perf_counter() - start < 1  # 10 s with an unbounded [^)]*
+    fields = {Path(r["path"]).name: r.get("fields") for r in report.details["references"]}
+    assert fields == {"a.jsonl": None, "d.jsonl": {"input": "question", "target": "answer", "id": "qid"}}
+
+
+def test_a_config_does_not_relabel_a_file_another_format_owns_outright(tmp_path):
+    _harbor(tmp_path)
+    _write(tmp_path / "promptfooconfig.yaml", "prompts: [p]\nproviders: [echo]\ntests: file://hb\n")
+    assert {r.format for r in inspect_path(tmp_path)} == {"harbor", "promptfoo"}
+
+
+def test_explore_task_that_explore_would_refuse_has_a_problem_and_no_consumer(tmp_path):
+    _write(tmp_path / "e.yaml", "id: e\nquery: where?\nreferences: [{path: a.py}, {lines: [1]}]\n")
+    [report] = inspect_path(tmp_path / "e.yaml")
+    assert report.format == "dokimi-explore-task"
+    assert report.problems and "explore track" not in report.consumers
+
+
+def test_task_md_with_foreign_frontmatter_is_a_task_to_lint(tmp_path):
+    _write(tmp_path / "t/task.md", "---\ntitle: x\n---\nDo it.\n")
+    [report] = inspect_path(tmp_path)
+    assert report.format == "task-md" and report.confidence == 0.7
+
+
+def test_unreadable_csv_and_binary_files_are_not_claimed(tmp_path):
+    _write(tmp_path / "bad.csv", 'a,b\n"x,1\n')
+    (tmp_path / "data.parquet").write_bytes(b"PAR1\x00")
+    assert [r.format for r in inspect_path(tmp_path)] == ["unknown"]
+
+
+@pytest.mark.skipif(not Path("/dev/null").exists(), reason="needs /dev/null")
+def test_a_path_that_is_neither_file_nor_directory_is_read_as_a_file():
+    [report] = inspect_path(Path("/dev/null"))
+    assert report.format == "unknown"
+
+
+# ── one bad value does not stop a tree scan ───────────────────────────────────
+
+
+@pytest.mark.parametrize("name, text", [
+    ("promptfooconfig.json",
+     json.dumps({"prompts": ["p"], "providers": ["x"], "tests": "file://a\0b.csv"})),
+    ("task.py", 'from inspect_ai import Task, task\n@task\ndef t():\n'
+                '    return Task(dataset=json_dataset("a\0b.jsonl"))\n'),
+])
+def test_a_config_naming_a_path_with_a_nul_byte_names_nothing(tmp_path, name, text):
+    _write(tmp_path / name, text)
+    _jsonl(tmp_path / "ok" / "s.jsonl", [{"input": "q", "target": "a"}])
+    formats = sorted(r.format for r in inspect_path(tmp_path))
+    assert "inspect-samples" in formats and len(formats) == 2, formats
+
+
+def test_skill_reach_keys_yaml_reads_as_bool_or_int_are_linted_not_a_crash(tmp_path):
+    _write(tmp_path / "q.yaml", "yes: 1\nqueries:\n- query_id: q1\n  text: hi\n  expected_skill: s\n"
+                                "  on: x\n  2: y\n")
+    _jsonl(tmp_path / "ok" / "s.jsonl", [{"input": "q", "target": "a"}])
+    reports = {r.path.name: r for r in inspect_path(tmp_path)}
+    assert "QuerySet keys skill-reach refuses: True" in reports["q.yaml"].problems
+    assert "q1: keys skill-reach refuses: 2, True" in reports["q.yaml"].problems
+    assert reports["s.jsonl"].format == "inspect-samples"
+
+
+def test_cli_inspect_out_writes_yaml_dates_sets_and_nan_as_plain_json(tmp_path, capsys):
+    task = _tb1(tmp_path)
+    _write(task / "task.yaml", "instruction: do it\ndifficulty: 2024-01-01\n"
+                               "tags: !!set {b: null, a: null}\ncategory: .nan\n")
+    out = tmp_path / "report.json"
+    _run(["tasks", "inspect", str(tmp_path), "--json", "--out", str(out)])
+    printed = json.loads(capsys.readouterr().out)
+
+    def refuse(name):
+        raise ValueError(name)
+
+    written = json.loads(out.read_text(), parse_constant=refuse)
+    assert written == printed
+    meta = written["items"][0]["details"]["metadata"]
+    assert (meta["difficulty"], meta["tags"], meta["category"]) == ("2024-01-01", ["a", "b"], None)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs os.mkfifo")
+def test_a_fifo_in_a_tree_is_not_read(tmp_path):
+    _jsonl(tmp_path / "ok.jsonl", [{"input": "q", "target": "a"}])
+    os.mkfifo(tmp_path / "x.jsonl")  # opening it for reading blocks until a writer comes
+    assert [r.path.name for r in inspect_path(tmp_path)] == ["ok.jsonl"]
+
+
+@pytest.mark.skipif(not Path("/dev/zero").exists(), reason="needs /dev/zero")
+def test_a_device_with_no_size_is_read_only_up_to_the_cap(monkeypatch):
+    monkeypatch.setattr(importlib.import_module("dokimi.task_formats.source"), "MAX_BYTES", 1024)
+    [report] = inspect_path(Path("/dev/zero"))
+    assert any("not read" in p for p in report.problems), report.problems
+
+
+# ── the guards that keep a tree scan finite ───────────────────────────────────
+
+_detect_module = importlib.import_module("dokimi.task_formats.detect")
+
+
+def test_a_scan_does_not_follow_symlinks_in_or_out_of_the_tree(tmp_path):
+    outside = tmp_path / "outside"
+    _write(outside / "t" / "task.toml", "not [toml")
+    root = tmp_path / "root"
+    _jsonl(root / "a" / "s.jsonl", [{"input": "q", "target": "a"}])
+    (root / "a" / "loop").symlink_to(root, target_is_directory=True)
+    (root / "a" / "out").symlink_to(outside, target_is_directory=True)
+    assert [r.path for r in inspect_path(root)] == [root / "a" / "s.jsonl"]
+
+
+def test_a_scan_does_not_enter_hidden_directories(tmp_path):
+    _jsonl(tmp_path / ".cache" / "s.jsonl", [{"input": "q", "target": "a"}])
+    _jsonl(tmp_path / "s.jsonl", [{"input": "q", "target": "a"}])
+    assert [r.path for r in inspect_path(tmp_path)] == [tmp_path / "s.jsonl"]
+
+
+def test_a_scan_does_not_enter_dependency_directories(tmp_path):
+    for skipped in ("node_modules", "venv"):
+        _jsonl(tmp_path / skipped / "s.jsonl", [{"input": "q", "target": "a"}])
+    _jsonl(tmp_path / "s.jsonl", [{"input": "q", "target": "a"}])
+    assert [r.path for r in inspect_path(tmp_path)] == [tmp_path / "s.jsonl"]
+
+
+def test_a_deeply_nested_json_file_is_not_a_crash(tmp_path):
+    path = _write(tmp_path / "deep.json", "[" * 100000 + "]" * 100000)
+    assert _one(path).format == "unknown"
+
+
+def test_a_scan_stops_at_the_file_cap_and_says_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(_detect_module, "MAX_SCAN_FILES", 2)
+    for name in "abcd":
+        _jsonl(tmp_path / f"{name}.jsonl", [{"input": "q", "target": "a"}])
+    reports = inspect_path(tmp_path)
+    assert len(reports) == 2
+    assert "scan stopped after 2 files" in reports[-1].problems
+
+
+def test_a_file_a_scan_could_not_read_is_reported_with_its_problem(tmp_path, monkeypatch):
+    monkeypatch.setattr(importlib.import_module("dokimi.task_formats.source"), "MAX_BYTES", 64)
+    _jsonl(tmp_path / "ok.jsonl", [{"input": "q", "target": "a"}])
+    _write(tmp_path / "evals.json", '{"skill_name": "x", "evals": [')
+    _jsonl(tmp_path / "big.jsonl", [{"input": "q" * 80, "target": "a"}])
+    _write(tmp_path / "package.json", '{"name": "x"}')  # read cleanly, claimed by nothing
+    found = {r.path.name: r for r in inspect_path(tmp_path)}
+    assert sorted(found) == ["big.jsonl", "evals.json", "ok.jsonl"]
+    for name in ("big.jsonl", "evals.json"):  # what inspecting the file alone says
+        alone = _one(tmp_path / name)
+        assert (found[name].format, found[name].problems) == ("unknown", alone.problems)
+    assert found["big.jsonl"].problems[0].endswith("MiB: not read")
+    assert found["evals.json"].problems[0].startswith("not valid JSON:")
+
+
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                    reason="needs POSIX permissions that bind the user (root reads a mode-000 file)")
+def test_a_task_md_a_scan_cannot_read_is_reported_and_the_scan_goes_on(tmp_path):
+    _harbor(tmp_path)
+    task_md = _write(tmp_path / "t" / "task.md", "---\nname: x\n---\nhi\n")
+    task_md.chmod(0)
+    try:
+        found = {r.path.name: r for r in inspect_path(tmp_path)}
+    finally:
+        task_md.chmod(0o644)
+    assert (found["hb"].format, found["t"].format) == ("harbor", "unknown")
+    assert found["t"].problems == [f"cannot read: [Errno 13] Permission denied: '{task_md}'"]

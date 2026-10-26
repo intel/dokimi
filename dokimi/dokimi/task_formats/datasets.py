@@ -21,11 +21,12 @@ from collections import Counter
 from typing import Any
 
 from dokimi.task_formats.model import (
-    BY_QUESTIONS, BY_TRIGGER_SET, KIND_ANSWER_ONLY, KIND_EXECUTABLE, KIND_TRIGGER, Fingerprint, Report,
+    BY_EXPLORE, BY_QUESTIONS, BY_TRIGGER_SET, KIND_ANSWER_ONLY, KIND_EXECUTABLE, KIND_LOCALIZATION,
+    KIND_TRIGGER, Fingerprint, Report,
 )
 from dokimi.task_formats.source import FileSource, first_rows, key_share
 
-_ROW_SUFFIXES = (".json", ".jsonl", ".yaml", ".yml")
+_ROW_SUFFIXES = (".json", ".jsonl", ".csv", ".yaml", ".yml")
 
 
 def _records(source: FileSource, marker: str) -> list[dict[str, Any]] | None:
@@ -149,6 +150,8 @@ class InspectSamplesProbe:
             report.problems.append(f"{bad} items have an input that is neither text nor chat messages")
         _lint_duplicate_ids(report, rows, "id")
         report.details["with_choices"] = sum(1 for r in rows if "choices" in r)
+        if source.fields:
+            report.details["field_spec"] = dict(source.fields)
         return report
 
 
@@ -162,20 +165,30 @@ class OpenAIEvalsProbe:
         rows = first_rows(_records(source, "ideal"))
         share = key_share(rows, "input", "ideal")
         if share < 0.5:
+            # Model-graded samples carry only `input`: as likely Inspect samples without a
+            # target, so this claim is weak and only shows as an alternative, unless an
+            # evals spec in the scan names the file (dokimi.task_formats.links).
+            if rows and key_share(rows, "input") == 1 and not key_share(rows, "target"):
+                return Fingerprint(0.5, ("input (no ideal: model-graded?)",))
             return None
         chat = sum(_is_chat(r.get("input")) for r in rows) / len(rows)
         return Fingerprint(0.7 * share + 0.25 * chat, ("input", "ideal", "chat messages" if chat else ""))
 
     def describe(self, source: FileSource) -> Report:
         rows = _records(source, "ideal") or []
+        graded = bool(source.hint.get("model_graded"))
         report = _base(source, self.name, KIND_ANSWER_ONLY, rows)
         report.set_parts({
             "instruction": key_share(rows, "input") == 1,
             "oracle": key_share(rows, "ideal") == 1,
+            "verifier": graded,
         })
-        _lint_missing(report, rows, ("input", "ideal"))
+        # A model-graded eval needs no `ideal`: the grader model judges the completion.
+        _lint_missing(report, rows, ("input",) if graded else ("input", "ideal"))
         chat = sum(1 for r in rows if _is_chat(r.get("input")))
         report.details["chat_inputs"] = chat
+        if graded:
+            report.details["model_graded"] = True
         return report
 
 
@@ -254,7 +267,7 @@ def _reach_rows(source: FileSource) -> list[dict[str, Any]] | None:
 
 def _lint_reach_query(q: dict[str, Any]) -> str | None:
     qid = q.get("query_id", q.get("id", "?"))
-    unknown = sorted(set(q) - _REACH_QUERY_KEYS)
+    unknown = sorted(map(str, set(q) - _REACH_QUERY_KEYS))  # YAML 1.1 keys can be bool/int
     if unknown:
         return f"{qid}: keys skill-reach refuses: {', '.join(unknown)}"
     if (q.get("kind") == "out_of_scope") != (q.get("expected_skill") is None):
@@ -286,7 +299,7 @@ class SkillReachProbe:
                           "oracle": key_share(rows, "expected_skill") == 1,
                           "metadata": bool(data.get("catalog_id") or data.get("provenance"))})
         _lint_missing(report, rows, ("text",))
-        extra = sorted(set(data) - _REACH_SET_KEYS)
+        extra = sorted(map(str, set(data) - _REACH_SET_KEYS))
         if extra:
             report.problems.append(f"QuerySet keys skill-reach refuses: {', '.join(extra)}")
         report.problems.extend(p for p in map(_lint_reach_query, rows) if p)
@@ -337,4 +350,38 @@ class QuestionsProbe:
         else:
             report.consumers.append(BY_QUESTIONS)
         report.details["schema_version"] = data.get("schema_version")
+        return report
+
+
+# --- dokimi ExploreBench tasks (dokimi/explore/tasks.py, data/explore_tasks/) --
+
+
+class ExploreTaskProbe:
+    name = "dokimi-explore-task"
+    target = "file"
+
+    def fingerprint(self, source: FileSource) -> Fingerprint | None:
+        data = source.data if source.suffix in (".yaml", ".yml") else None
+        if not isinstance(data, dict) or not isinstance(data.get("references"), list):
+            return None
+        if not all(k in data for k in ("id", "query")):
+            return None
+        paths = key_share([r for r in data["references"] if isinstance(r, dict)], "path")
+        return Fingerprint(0.6 + 0.3 * paths, ("id", "query", "references[].path"))
+
+    def describe(self, source: FileSource) -> Report:
+        from dokimi.explore.tasks import _task_from_data
+
+        data = source.data if isinstance(source.data, dict) else {}
+        refs = [r for r in data.get("references", []) if isinstance(r, dict)]
+        report = _base(source, self.name, KIND_LOCALIZATION, refs)
+        report.set_parts({"instruction": bool(data.get("query")), "oracle": bool(refs),
+                          "metadata": bool(data.get("product"))})
+        try:
+            _task_from_data(data, source.path)
+        except (ValueError, KeyError, TypeError) as exc:
+            report.problems.append(" ".join(str(exc).split())[:300])
+        else:
+            report.consumers.append(BY_EXPLORE)
+        report.details["product"] = data.get("product")
         return report

@@ -73,7 +73,7 @@ class HarborProbe:
             report.problems.append(f"Harbor would refuse it: {problem}")
         else:
             report.consumers.append(BY_HARBOR)
-        if _any_dir(path, "tests", "verifier"):
+        if _docker_runnable(path):
             report.consumers.append(BY_DOCKER)
         return report
 
@@ -83,12 +83,22 @@ class TaskMdProbe:
     target = "dir"
 
     def fingerprint(self, path: Path) -> Fingerprint | None:
-        with warnings.catch_warnings():
+        task_md = path / "task.md"
+        with warnings.catch_warnings():  # describe() reports what the loader warns about
             warnings.simplefilter("ignore")
             fmt = task_layouts.task_format(path)
+            benchflow = fmt == task_layouts.FORMAT_TASK_MD and task_layouts._is_benchflow_task_md(task_md)
         if fmt != task_layouts.FORMAT_TASK_MD:
             return None
-        return Fingerprint(1.0, ("task.md with BenchFlow frontmatter",))
+        if benchflow:
+            return Fingerprint(1.0, ("task.md with BenchFlow frontmatter",))
+        # task_format calls a lone task.md a task whatever it holds; a scan does not: a
+        # task.md with no frontmatter and no task parts beside it is a note (a ticket in a
+        # promptfoo example workspace), and one with them is a task to lint.
+        parts = tuple(n for n in ("environment", "oracle", "solution", "verifier", "tests") if (path / n).is_dir())
+        if task_layouts._has_frontmatter(task_md):
+            return Fingerprint(0.7, ("task.md with frontmatter (not BenchFlow keys)", *parts))
+        return Fingerprint(0.6, ("task.md without frontmatter", *parts)) if parts else None
 
     def describe(self, path: Path) -> Report:
         report = Report(path, self.name, KIND_EXECUTABLE)
@@ -105,7 +115,7 @@ class TaskMdProbe:
         report.details["metadata"] = _summary(spec.metadata)
         report.details["schema_version"] = spec.schema_version
         report.consumers.append(BY_BENCHFLOW)
-        if _any_dir(path, "verifier", "tests"):
+        if _docker_runnable(path):
             report.consumers.append(BY_DOCKER)
         return report
 
@@ -149,6 +159,11 @@ class TerminalBenchV1Probe:
             report.problems.append("task.yaml: no instruction")
         report.details["metadata"] = _summary(config, ("difficulty", "category", "tags", "parser_name"))
         return report
+
+
+def _docker_runnable(path: Path) -> bool:
+    """docker-* builds ``environment/Dockerfile`` and runs a verifier: without either it errors."""
+    return (path / "environment" / "Dockerfile").is_file() and _any_dir(path, "tests", "verifier")
 
 
 def _summary(table: dict[str, Any], keys: tuple[str, ...] = ("difficulty", "category", "tags")) -> dict[str, Any]:
