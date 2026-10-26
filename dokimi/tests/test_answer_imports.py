@@ -424,6 +424,29 @@ def test_eval_reference_cli_without_judge_on_an_arms_run(tmp_path):
     assert data["evaluations"][0]["scores"]["baseline"]["passed"] is True
 
 
+def test_arms_run_sends_a_verbatim_question_unwrapped(monkeypatch, demo_skill):
+    import dokimi.eval.arm_runner as arm_runner_mod
+    from dokimi.eval.arm_runner import ArmRunner
+    from dokimi.skills import load_skill
+    from dokimi.treatments import BaselineTreatment, SkillTreatment
+
+    captured = []
+
+    def fake_call(prompt, model, provider="openai", api_key=None, system=None, **kw):
+        captured.append({"prompt": prompt, "cache_prefix": kw.get("cache_prefix")})
+        return "ANSWER: A", {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+
+    monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", fake_call)
+    runner = ArmRunner([BaselineTreatment(), SkillTreatment(load_skill(demo_skill))])
+    runner.run("oneTBB", [{"id": "v", "question": "Reply with A or B.", "prompt_style": "verbatim"}],
+               concurrency=1)
+    baseline, skill = captured
+    assert baseline["prompt"] == "Reply with A or B."
+    assert skill["prompt"].endswith("\n\nReply with A or B.") or skill["prompt"] == "Reply with A or B."
+    assert "**Question:**" not in skill["prompt"]
+    assert "Relevant context" in (skill["cache_prefix"] or skill["prompt"])
+
+
 def test_answerer_sends_a_verbatim_question_unwrapped():
     from dokimi.eval.answerer import Answerer
 

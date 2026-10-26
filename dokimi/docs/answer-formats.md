@@ -36,7 +36,7 @@ detection. Use `--format` to override it. A file that fits several formats
 | Key | From |
 |---|---|
 | `question` | The prompt as the native tool sends it. Chat inputs are flattened to one prompt, with `[role]` headings when there is more than one turn. MCQ rows are rendered with Inspect's single-answer template, or its multiple-answer one under `multiple_choice(multiple_correct=True)`. |
-| `prompt_style: verbatim` | The answerer sends `question` as it is, without its expert-answer wrapper, so that `ANSWER: X` and exact-match graders see a reply to the original prompt. A context arm puts the docs first and the prompt after them. |
+| `prompt_style: verbatim` | The answerer sends `question` as it is, without its expert-answer wrapper, so that `ANSWER: X` and exact-match graders see a reply to the original prompt. A context arm, in `answers generate` or `arms run`, puts the docs first and the prompt after them. A multi-turn session arm still wraps its opening turn. |
 | `expected_topics` | The reference answers, assertion values or expectations. `eval checklist` and the judge read them. |
 | `grading.checks` | One check per native grader or assertion (below). Optional fields: `threshold`, `native_scorer`, `source_format`. |
 | `expected_skill` | skill-creator only: the skill the `evals.json` belongs to (`skill_name`, else the `<skill>/evals/` directory), so the set also scores [skill selection](evaluating-treatments.md#skill-selection-does-the-agent-load-the-right-skill) on a `skill-catalog:` arm. |
