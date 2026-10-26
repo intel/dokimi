@@ -106,7 +106,8 @@ class LLMClient:
     cap: SpendCap | None = None
 
     def text(
-        self, prompt: str, *, system: str | None = None, accept: Accept | None = None
+        self, prompt: str, *, system: str | None = None, accept: Accept | None = None,
+        draw: int = 0,
     ) -> str:
         """Return the model's reply as plain text.
 
@@ -115,13 +116,18 @@ class LLMClient:
         ``DOKIMI_RESPONSE_CACHE`` set, a cut-off or unparseable reply is stored and every
         later run replays the failure without calling the model. An injected transport
         is the caller's own and is not given it.
+
+        ``draw`` is the sample index of this prompt. With the response cache on, a repeat
+        of a byte-identical prompt replays draw 0 unless it has its own index, so a
+        repeated ask is only a new sample when it passes a new one. Draw 0 is the default
+        and keeps every existing cache entry. An injected transport is not given it.
         """
         if self.cap is not None:
             self.cap.before_call(self.model)
         if self.transport is not None:
             reply, usage = self.transport(prompt, system)
         else:
-            reply, usage = self._default_transport(prompt, system, accept=accept)
+            reply, usage = self._default_transport(prompt, system, accept=accept, draw=draw)
         self.calls += 1
         if usage is not None:
             # UsageRecord is frozen; re-stamp the role so cost rolls up per role.
@@ -180,7 +186,8 @@ class LLMClient:
         }
 
     def _default_transport(
-        self, prompt: str, system: str | None, *, accept: Accept | None = None
+        self, prompt: str, system: str | None, *, accept: Accept | None = None,
+        draw: int = 0,
     ) -> tuple[str, UsageRecord | None]:
         from dokimi.llm import llm_call_with_usage
 
@@ -191,6 +198,7 @@ class LLMClient:
             system=system,
             max_tokens=self.max_tokens,
             cache_if=accept,
+            draw=draw,
         )
 
 

@@ -265,6 +265,7 @@ def test_registry_builds_docker_harnesses(tmp_path):
     assert "docker-claude" in known_harnesses()
 
 
+@pytest.mark.outcome("cjm-skill-discover")
 @pytest.mark.parametrize("prefix", ["docker-claude", "docker-claude-host"])
 def test_registry_builds_the_discover_arm_beside_the_skill_arm(tmp_path, prefix):
     skill_md = tmp_path / "SKILL.md"
@@ -293,6 +294,7 @@ def _arm_row(task, harness, passed, *, invoked=None, error=None, repeat=1):
             "reward": 1.0 if passed else 0.0, "repeat": repeat, "metrics": metrics}
 
 
+@pytest.mark.outcome("cjm-skill-discover")
 def test_summary_reports_the_discovery_gap_per_pair():
     base, skill, disc = "docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"
     rows = []
@@ -317,6 +319,7 @@ def test_summary_reports_the_discovery_gap_per_pair():
 
 @pytest.mark.parametrize("skill, disc", [("s/SKILL.md", "s"), ("s", "./s/"),
                                          ("s", "{cwd}/s"), ("s/", "s/SKILL.md")])
+@pytest.mark.outcome("cjm-skill-discover")
 def test_discovery_gap_pairs_spellings_of_one_skill(tmp_path, monkeypatch, skill, disc):
     monkeypatch.chdir(tmp_path)
     skill = f"docker-claude-skill:{skill}"

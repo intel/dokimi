@@ -62,7 +62,13 @@ class FileSource:
             if self.path.stat().st_size > MAX_BYTES:
                 self.problems.append(f"larger than {MAX_BYTES // (1024 * 1024)} MiB: not read")
                 return None
-            return self.path.read_text(encoding="utf-8", errors="replace")
+            # st_size is 0 for a device: the bound is on the read, not only the stat
+            with self.path.open(encoding="utf-8", errors="replace") as fh:
+                text = fh.read(MAX_BYTES + 1)
+            if len(text) > MAX_BYTES:
+                self.problems.append(f"larger than {MAX_BYTES // (1024 * 1024)} MiB: not read")
+                return None
+            return text
         except OSError as exc:
             self.problems.append(f"cannot read: {exc}")
             return None
@@ -150,7 +156,8 @@ def _parse_jsonl(text: str, problems: list[str]) -> list[Any]:
 def _parse_csv(text: str) -> list[dict[str, Any]]:
     """Rows of a CSV file with a header line; a cell is a string, as Inspect's csv_dataset reads it."""
     try:
-        reader = csv.DictReader(io.StringIO(text))
+        # A BOM (an Excel export) is not part of the first column: Inspect and promptfoo drop it.
+        reader = csv.DictReader(io.StringIO(text.removeprefix("\ufeff")))
         rows = [dict(r) for r in reader]
     except csv.Error as exc:
         raise ValueError(str(exc)) from exc

@@ -239,6 +239,7 @@ POLICY_ROWS_BY_BASIS = {
 }
 
 
+@pytest.mark.outcome("cjm-novelty-unmeasured-share")
 @pytest.mark.parametrize("basis", list(POLICY_ROWS_BY_BASIS))
 def test_absent_policy_words_are_summed_from_policy_rows_only(basis):
     record = {"include_resources": False, "entry_point_words": 100,
@@ -294,6 +295,7 @@ def test_a_stored_bool_is_not_a_count_and_the_rows_are_recounted(stored):
     assert _coverage_check(record).value == 0.4945
 
 
+@pytest.mark.outcome("cjm-novelty-unmeasured-share")
 @pytest.mark.parametrize("junk", ["", "Readable", 5, True, ["readable"]])
 def test_a_stamp_that_is_not_a_known_basis_is_not_read_as_the_legacy_one(junk):
     """Only an absent stamp means "written before it existed"; anything else is unknown."""

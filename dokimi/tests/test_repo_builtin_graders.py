@@ -175,6 +175,7 @@ def test_an_infinite_line_is_unreadable_not_a_grader_crash(tmp_path, line):
     assert review.grade_replay({}, replay, text)["threads_hit"] == []
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_seeds_parse_error_and_clean_control(tmp_path):
     seeds, clean = _task_dir(tmp_path, "seeds_mul"), _task_dir(tmp_path, "clean_mul")
     unparsed = {"pass": False, "parse_error": True, "recall": 0.0}
@@ -202,6 +203,7 @@ def test_replay_is_one_to_one_nearest_first_within_the_window(tmp_path):
                                                   "recall_addressed": 0.0}
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_matching_rules_as_the_contract_states_them(tmp_path):
     """§4.5: same file only, kw case-insensitive, replay within ``window`` (default 5) inclusive."""
     seeds, replay = _task_dir(tmp_path, "seeds_mul"), _task_dir(tmp_path, "replay_mul")
@@ -221,6 +223,7 @@ def test_matching_rules_as_the_contract_states_them(tmp_path):
     assert review.last_json(review.oracle_replay({}, tmp_path / "c"))[0]["message"] == "x" * 200
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_oracles_reach_full_recall(tmp_path):
     for task_id, grade, oracle in (("seeds_mul", review.grade_seeds, review.oracle_seeds),
                                    ("replay_mul", review.grade_replay, review.oracle_replay)):
@@ -322,6 +325,7 @@ def _check(root, out, runner, monkeypatch, *tasks):
     return {t["task"]: t for t in json.loads((out / "check/check.json").read_text())["tasks"]}
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_tasks_check_runs_builtin_graders_not_the_repository_grade(tmp_path, monkeypatch):
     runner = FakeRunner()
     res = _check(_repo(tmp_path), tmp_path / "chk", runner, monkeypatch, *TASKS, "fix_add")
@@ -347,6 +351,7 @@ def test_tasks_check_runs_builtin_graders_not_the_repository_grade(tmp_path, mon
     assert all(GRADERS_DIR not in {m.container for m in s.mounts} for s in repo)
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_repo_validate_finds_a_builtin_task_without_its_data_file_or_a_wrong_name(tmp_path, capsys):
     root = _repo(tmp_path, {"nodata": {**REVIEW, "grader": "dokimi:review_seeds"},  # no manifest.json
                             "typo": {**REVIEW, "grader": "dokimi:review_seed"}})
@@ -359,6 +364,7 @@ def test_repo_validate_finds_a_builtin_task_without_its_data_file_or_a_wrong_nam
     assert any("unknown built-in grader 'dokimi:review_seed'" in e for e in errors), errors
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_an_unknown_builtin_grader_is_refused_not_given_to_the_repository(tmp_path, monkeypatch):
     root = _repo(tmp_path, {"typo": {**REVIEW, "grader": "dokimi:review_seed"}})
     res = _check(root, tmp_path / "chk", FakeRunner(), monkeypatch, "typo")
