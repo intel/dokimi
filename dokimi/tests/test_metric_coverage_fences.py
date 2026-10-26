@@ -49,6 +49,11 @@ def test_form_feed_in_a_code_line_does_not_start_a_new_line():
     assert coverage._count_headings_and_blocks(doc) == (0, 1)
 
 
+def test_bare_carriage_return_ends_a_line():
+    doc = "# a\r# b\r\n```bash\r# c\r```\r## d"
+    assert coverage._count_headings_and_blocks(doc) == (3, 1)
+
+
 def test_closing_fence_must_use_the_same_character():
     doc = "```bash\n~~~\n# inside\n```\n"
     assert coverage._count_headings_and_blocks(doc) == (0, 1)
