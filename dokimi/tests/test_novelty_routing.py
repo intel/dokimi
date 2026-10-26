@@ -481,8 +481,11 @@ def test_a_query_file_is_a_list_a_queries_key_or_one_per_line(tmp_path, content,
     assert load_queries(str(path)) == queries
 
 
-def test_a_query_file_nested_too_deeply_to_parse_is_read_one_query_per_line(tmp_path):
-    deep = "[" * 100000 + "]" * 100000
+@pytest.mark.parametrize("deep", [
+    pytest.param("[" * 100000 + "]" * 100000, id="recursion"),
+    pytest.param("[" + "1" * 6000 + "]", id="integer_digits"),
+])
+def test_a_query_file_nested_too_deeply_to_parse_is_read_one_query_per_line(tmp_path, deep):
     path = tmp_path / "q.json"
     path.write_text(deep + "\nprofile a binary\n", encoding="utf-8")
     assert load_queries(str(path)) == [deep, "profile a binary"]

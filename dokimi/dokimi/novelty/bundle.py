@@ -517,7 +517,7 @@ def check_answer_key(ref: str, record: dict | None, *,
     if not record:
         try:
             body = load_artifact_text(ref)[4]
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, RecursionError) as exc:
             return AnswerKeyVerdict(problem="unloadable", message=f"cannot load {ref}: {exc}")
         return AnswerKeyVerdict(text=body, notes=(
             f"WARNING: {source} predates bundle provenance; assuming the entry point only. "

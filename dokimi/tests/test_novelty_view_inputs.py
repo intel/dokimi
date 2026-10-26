@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi.cli import build_parser
+from tests.test_novelty_atoms_input import _WRONG_SHAPES
 
 
 def _view(novelty, atoms, out):
@@ -77,3 +78,15 @@ def test_an_atoms_error_names_the_exception_without_its_repr_quotes(tmp_path, ca
     bad = tmp_path / "atoms.json"
     bad.write_text('{"atoms": [{"unexpected": 1}]}', encoding="utf-8")
     assert f"Error: {bad} is not a valid atoms file: " in _err(tmp_path, novelty, bad, capsys)
+
+
+@pytest.mark.parametrize("kind", [k for k in _WRONG_SHAPES if not k.startswith("bundle")])
+def test_an_atoms_file_of_a_wrong_shape_is_reported_as_invalid_by_view(tmp_path, capsys, kind):
+    from dokimi.artifacts import save_artifact
+    from tests.test_novelty_cli import _minimal_artifact
+
+    novelty = tmp_path / "novelty.json"
+    save_artifact("novelty", _minimal_artifact(), novelty)
+    bad = tmp_path / "atoms.json"
+    bad.write_text(_WRONG_SHAPES[kind], encoding="utf-8")
+    assert f"Error: {bad} is not a valid atoms file" in _err(tmp_path, novelty, bad, capsys)

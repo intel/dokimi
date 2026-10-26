@@ -523,8 +523,30 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
     return _atoms_from_record(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
+def _check_record_fields(data: dict) -> None:
+    """Raise ValueError unless the span and atom fields the readers use have their types."""
+    for key in ("spans", "atoms"):
+        rows = data.get(key, [])
+        if not (isinstance(rows, list) and all(isinstance(row, dict) for row in rows)):
+            raise ValueError(f"'{key}' is not a list of objects")
+    for row in data.get("spans", []):
+        if not isinstance(row.get("text"), str):
+            raise ValueError("'spans' has a row whose 'text' is not a string")
+        if not (_is_int(row.get("start")) and _is_int(row.get("end"))):
+            raise ValueError("'spans' has a row whose 'start' or 'end' is not an integer")
+    for row in data.get("atoms", []):
+        if not isinstance(row.get("statement"), str) or any(
+                key in row and not isinstance(row[key], str) for key in ("id", "question")):
+            raise ValueError(
+                "'atoms' has a row whose 'id', 'question' or 'statement' is not a string")
+        span_ids = row.get("span_ids", [])
+        if not (isinstance(span_ids, list) and all(isinstance(s, str) for s in span_ids)):
+            raise ValueError("'atoms' has a row whose 'span_ids' is not a list of strings")
+
+
 def _atoms_from_record(data: dict) -> tuple[list[Atom], list[Span]]:
     """The atoms and spans of a parsed atoms record."""
+    _check_record_fields(data)
     atoms = [Atom.from_dict(row) for row in data.get("atoms", [])]
     unread = set((data.get("extraction") or {}).get("unread_span_ids") or ())
     spans = [

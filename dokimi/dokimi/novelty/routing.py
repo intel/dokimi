@@ -502,7 +502,7 @@ def load_queries(path: str) -> list[str]:
         raise RoutingInputError(f"cannot read --queries {path}: {exc}") from None
     try:
         data = json.loads(raw)
-    except (json.JSONDecodeError, RecursionError):
+    except (ValueError, RecursionError):  # JSONDecodeError is a ValueError
         data = None
     if not isinstance(data, (list, dict)):      # one-per-line, e.g. "[urgent] build fails"
         data = raw.splitlines()

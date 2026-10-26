@@ -297,7 +297,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
                       file=sys.stderr)
             print(f"--catalog {args.catalog}: {len(catalog)} competitors", file=sys.stderr)
             competitors += catalog
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         raise SystemExit(f"cannot load an artifact: {exc}") from None
     # Checked before the query file is read, so the message is about the real problem.
     try:
@@ -524,7 +524,7 @@ def _bundle_from_args(args: argparse.Namespace):
             max_file_words=args.max_file_words,
             max_total_words=args.max_resource_words,
         )
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         raise SystemExit(f"cannot load --artifact {args.artifact}: {exc}") from None
     note = artifact_bundle.coverage_note()
     if note:

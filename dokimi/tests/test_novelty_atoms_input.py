@@ -18,6 +18,16 @@ def _bundle(extra, end="5"):
     return '{"atoms": [], "spans": [], "bundle": {%s%s}}' % (inner, ", " + extra if extra else "")
 
 
+_SPAN = {"id": "s0001", "kind": "sentence", "text": "Text.", "start": 0, "end": 5}
+_ATOM = {"id": "a1", "statement": "Text.", "question": "Q?", "span_ids": ["s0001"]}
+
+
+def _record(span=None, atom=None):
+    """An atoms record of one span and one atom, with the given fields replaced."""
+    return json.dumps({"atoms": [{**_ATOM, **(atom or {})}],
+                       "spans": [{**_SPAN, **(span or {})}]})
+
+
 _WRONG_SHAPES = {
     "top_level_list": "[]",
     "top_level_null": "null",
@@ -31,6 +41,14 @@ _WRONG_SHAPES = {
     "bundle_files_not_a_list": '{"atoms": [], "spans": [], "bundle": {"files": "x"}}',
     "bundle_max_file_words_is_a_list": _bundle('"max_file_words": [1]'),
     "bundle_max_total_words_is_a_list": _bundle('"max_total_words": [1]'),
+    "span_text_is_a_number": _record(span={"text": 5}),
+    "span_start_is_a_string": _record(span={"start": "a"}),
+    "span_start_is_a_bool": _record(span={"start": True}),
+    "span_end_is_null": _record(span={"end": None}),
+    "atom_id_is_a_list": _record(atom={"id": [1]}),
+    "atom_question_is_a_number": _record(atom={"question": 5}),
+    "atom_statement_is_null": _record(atom={"statement": None}),
+    "atom_span_ids_has_a_list": _record(atom={"span_ids": [[1]]}),
     "bundle_max_file_words_is_a_bool": _bundle('"max_file_words": true'),
     "bundle_max_total_words_is_a_bool": _bundle('"max_total_words": true'),
     "bundle_roles_is_a_number": _bundle('"resource_roles": 5'),

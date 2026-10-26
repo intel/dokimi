@@ -798,3 +798,34 @@ def test_a_bundle_run_capped_by_the_budget_warns_without_advising_the_flag_it_pa
     assert "coverage: 25% of the artifact's readable words were measured\n" in out
     assert "WARNING: only 25%" in out
     assert "--include-resources" not in out
+
+
+def _deep_skill(tmp_path, name="deep"):
+    root = tmp_path / name
+    root.mkdir()
+    (root / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: " + "[" * 5000 + "\n---\n\nBody.\n", encoding="utf-8")
+    return f"skill:{root}"
+
+
+def test_load_artifact_or_exit_names_a_frontmatter_nested_too_deeply(tmp_path):
+    from dokimi.novelty.artifact import load_artifact_or_exit
+
+    with pytest.raises(SystemExit, match="^cannot load --artifact skill:.*maximum recursion"):
+        load_artifact_or_exit(_deep_skill(tmp_path))
+
+
+@pytest.mark.parametrize("sub", ["analyze", "atoms", "probe", "shorten", "routing"])
+def test_a_command_given_a_frontmatter_nested_too_deeply_exits_with_a_message(tmp_path, sub):
+    atoms = tmp_path / "atoms.json"
+    atoms.write_text('{"atoms": [], "spans": []}', encoding="utf-8")
+    extra = {
+        "probe": ["--atoms", str(atoms)],
+        "shorten": ["--atoms", str(atoms)],
+        "routing": ["--competitors", _deep_skill(tmp_path, "other")],
+    }.get(sub, [])
+    args = _parse("novelty", sub, "--artifact", _deep_skill(tmp_path), *extra)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert "maximum recursion" in str(exc.value)
+    assert "RecursionError" not in str(exc.value)
