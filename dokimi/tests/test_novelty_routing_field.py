@@ -245,6 +245,7 @@ def test_two_catalog_skills_with_one_name_and_different_content_are_refused_by_n
     assert str(fork / "SKILL.md") in message
     assert "more than once" not in message and not out.exists()
 
+
 def test_two_differently_named_skills_with_identical_text_both_stay_in_the_field(tmp_path):
     # Without a frontmatter name the name is the directory's, so identical text under skills/a
     # and skills/b is two skills, not a mirror: both are siblings the field must show.
