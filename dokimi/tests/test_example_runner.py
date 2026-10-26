@@ -52,6 +52,17 @@ def test_extract_examples_untagged_block_is_not_paired_across_blocks():
     assert extract_examples(md) == [("python", "print(1)")]
 
 
+@pytest.mark.parametrize("sep", ["\u2028", "\u2029", "\x0c", "\x0b", "\x85"])
+def test_extract_examples_only_splits_on_real_line_ends(sep):
+    doc = f"```python\ns = 'a{sep}b'\nprint(1)\n```\n"
+    assert extract_examples(doc) == [("python", f"s = 'a{sep}b'\nprint(1)")]
+
+
+def test_extract_examples_crlf_and_cr_documents_still_parse():
+    assert extract_examples("```python\r\nx = 1\r\n```\r\n") == [("python", "x = 1")]
+    assert extract_examples("```python\rx = 1\r```\r") == [("python", "x = 1")]
+
+
 def test_extract_examples_unclosed_fence_is_not_an_example():
     assert extract_examples("```python\nprint(1)\n") == []
 

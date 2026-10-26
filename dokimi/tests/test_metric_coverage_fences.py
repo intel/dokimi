@@ -44,6 +44,11 @@ def test_score_ignores_hash_comments_in_code():
     assert coverage.score(padded) < coverage.score(real)
 
 
+def test_form_feed_in_a_code_line_does_not_start_a_new_line():
+    doc = "```bash\ns = 'a\x0c```\n# inside\n```\n"
+    assert coverage._count_headings_and_blocks(doc) == (0, 1)
+
+
 def test_closing_fence_must_use_the_same_character():
     doc = "```bash\n~~~\n# inside\n```\n"
     assert coverage._count_headings_and_blocks(doc) == (0, 1)

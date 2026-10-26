@@ -21,7 +21,7 @@ def _count_headings_and_blocks(text: str) -> tuple[int, int]:
     """
     headings = blocks = 0
     fence = ""
-    for line in text.splitlines():
+    for line in re.split(r"\r\n|\r|\n", text):
         m = FENCE_RE.match(line)
         if not fence:
             if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):

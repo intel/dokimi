@@ -112,7 +112,7 @@ def extract_examples(markdown: str) -> list[tuple[str, str]]:
     examples: list[tuple[str, str]] = []
     opener: re.Match[str] | None = None
     body: list[str] = []
-    for line in markdown.splitlines():
+    for line in re.split(r"\r\n|\r|\n", markdown):
         if opener is None:
             m = _FENCE_OPEN_RE.match(line)
             if m and not (m.group(2)[0] == "`" and "`" in m.group(3)):
