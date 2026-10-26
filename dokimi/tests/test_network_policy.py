@@ -183,6 +183,23 @@ def test_an_allowlisted_verifier_goes_through_its_own_sidecar(tmp_path):
     assert metrics["network"]["verify_egress"]["status"] == "ok"
     saved = json.loads((tmp_path / "out" / "network.json").read_text(encoding="utf-8"))
     assert saved["verify_egress"] == metrics["network"]["verify_egress"]  # the cell record has it too
+    after = args[_index(args, _exec_of("test.sh")):]
+    assert ["rm", "-f", side[side.index("--name") + 1]] in after  # stopped once the verifier is done
+
+
+def test_an_allowlisted_oracle_solves_through_the_sidecar(tmp_path):
+    cli, metrics = _oracle(tmp_path, "solve=allowlist:pypi.org")
+    args = cli.args
+    side = next(a for a in args if a[0] == "create" and "--allow" in a)
+    assert side[side.index("--allow") + 1] == "pypi.org:443"
+    assert "HTTPS_PROXY=http://egress:3128" in args[_index(args, _exec_of("solve.sh"))]
+    assert metrics["network"]["solve_enforced"] is True
+
+
+def test_a_public_oracle_solve_gets_the_host_proxy(tmp_path, monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://user:pw@proxy.corp:912")
+    cli, _ = _oracle(tmp_path, "solve=public")
+    assert "HTTPS_PROXY=http://user:pw@proxy.corp:912" in cli.args[_index(cli.args, _exec_of("solve.sh"))]
 
 
 def test_a_verify_sidecar_that_never_gets_ready_is_removed(tmp_path, monkeypatch):
@@ -221,6 +238,7 @@ def test_a_verify_allowlist_leaves_a_host_arm_on_the_host(tmp_path, arm):
     cli = DockerCLI(reward="1.0", solver='{"type": "result", "result": "ok"}')
     result = create_harness(arm, runner=cli).run(load_task(_task(tmp_path, toml)), output_dir=tmp_path / "out")
     assert result.metrics["isolation"]["agent_location"] == "host"
+    assert result.metrics["network"]["solve_enforced"] is False  # the host agent's solve is not ours
     assert not any(a[0] == "exec" and "-c" in a and "--env-file" in a for a in cli.args)  # no probe inside
     assert all(c.argv[0] != "docker" for c in cli.solver_calls())
 
