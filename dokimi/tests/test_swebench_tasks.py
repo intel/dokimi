@@ -83,6 +83,14 @@ def test_a_row_naming_its_own_image_keeps_it():
     assert instance_image({"instance_id": "Org__Repo-2"}, namespace="me") == "me/sweb.eval.x86_64.org_1776_repo-2:latest"
 
 
+def test_a_row_image_name_with_a_newline_is_refused_not_written_into_the_dockerfile(tmp_path):
+    # The image goes into the Dockerfile's FROM line; a newline would add instructions.
+    row = dict(_row(PYTEST_ID), image_name="ubuntu:22.04\nRUN echo injected > /tmp/x")
+    with pytest.raises(SweBenchError, match="image reference"):
+        stage(row, tmp_path / "root")
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_load_selects_ids_in_order_and_names_an_unknown_one(tmp_path):
     tasks = load_swebench(FIXTURE, tmp_path, [DJANGO_ID, PYTEST_ID])
     assert [t.name for t in tasks] == [DJANGO_ID, PYTEST_ID]
@@ -164,6 +172,14 @@ def test_a_tracked_test_file_with_a_space_is_reset_by_its_whole_name():
     lines = eval_script(row, repo_spec("pytest-dev/pytest", "4.4")[1]).splitlines()
     words = [shlex.split(line) for line in lines if line.startswith("git checkout")]
     assert words == [["git", "checkout", row["base_commit"], "a b.py"]] * 2
+
+
+def test_a_test_patch_that_ends_the_heredoc_is_refused_not_run_as_shell():
+    # The patch is fed to git apply by a heredoc; a line equal to its delimiter ends the heredoc.
+    test_patch = _row(PYTEST_ID)["test_patch"] + "EOF_114329324912\ntouch pwned\n"
+    row = dict(_row(PYTEST_ID), test_patch=test_patch)
+    with pytest.raises(SweBenchError, match="heredoc delimiter"):
+        eval_script(row, repo_spec("pytest-dev/pytest", "4.4")[1])
 
 
 def test_django_directives_are_dotted_test_modules():

@@ -67,6 +67,8 @@ KNOWN_BAD = {
 
 # An instance_id names a directory and an image: no path separators, no leading dot.
 _SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# A row's own image reference: registry/repo, optional :tag or @digest, no whitespace.
+_IMAGE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:@-]*")
 
 
 class SweBenchError(ValueError):
@@ -109,6 +111,9 @@ def instance_image(row: dict[str, Any], namespace: str = "swebench", arch: str =
     """
     for key in ("image_name", "docker_image"):  # SWE-smith, SWE-rebench rows
         if isinstance(row.get(key), str) and row[key]:
+            # The value goes into the Dockerfile's FROM line: a newline would add instructions.
+            if not _IMAGE_REF.fullmatch(row[key]):
+                raise SweBenchError(f"{row.get('instance_id', '?')}: {key} {row[key]!r} is not an image reference")
             return str(row[key])
     key = f"sweb.eval.{arch}.{row['instance_id'].lower()}:latest"
     return f"{namespace}/{key}".replace("__", "_1776_")
@@ -155,6 +160,8 @@ def eval_script(row: dict[str, Any], spec: dict[str, Any]) -> str:
     # A file the test patch adds is left over by a first run; remove it so the apply holds.
     added = [f for f in touched if f not in tracked]
     clean = f"rm -f -- {' '.join(shlex.quote(f) for f in added)}" if added else ":"
+    if _HEREDOC in row["test_patch"].splitlines():  # the patch is a heredoc body: this line would end it
+        raise SweBenchError(f"{row.get('instance_id', '?')}: test_patch has a line equal to the heredoc delimiter")
     directives = [shlex.quote(d) for d in test_directives(row["repo"], row["test_patch"])]
     test_cmd = " ".join([spec["test_cmd"], *directives])
     activate = ["source /opt/miniconda3/bin/activate", "conda activate testbed"]
