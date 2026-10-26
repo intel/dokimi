@@ -74,3 +74,23 @@ def test_report_still_reads_an_empty_batch(tmp_path, capsys):
     batch = _batch(tmp_path, "b1", {"_eval/plan.json": json.dumps({"cells": []}).encode()})
     _run("report", str(batch), "--json")
     assert json.loads(capsys.readouterr().out)["rows"] == []
+
+
+_NO_GRADE = [
+    pytest.param(b"{}", id="empty"),
+    pytest.param(b'{"grade": null}', id="null"),
+    pytest.param(b'{"grade": []}', id="list"),
+    pytest.param(b'{"grade": {"score_only": false}, "task": "t", "arm": "a", "model": "m"}', id="no-status"),
+]
+
+
+@pytest.mark.parametrize("content", _NO_GRADE)
+@pytest.mark.parametrize("argv", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
+def test_a_result_file_without_a_usable_grade_exits_1(tmp_path, capsys, argv, content):
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": content})
+    with pytest.raises(SystemExit) as exc:
+        _run(argv[0], str(batch), *argv[1:])
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert f"{batch / 't__a__m__r1' / 'result.json'} has no usable `grade`" in err
+    assert "Traceback" not in err

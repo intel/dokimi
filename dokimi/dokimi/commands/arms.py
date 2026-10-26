@@ -108,7 +108,6 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
 
 def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
     """Run every cell in a matrix.cells descriptor and write a rollup."""
-    from dokimi.artifacts import save_artifact
     from dokimi.eval.cells import load_matrix_cells
     from dokimi.eval.matrix_rollup import build_matrix_rollup, strip_internal_payloads
     from dokimi.report.matrix_rollup_report import render_matrix_rollup_report
@@ -129,9 +128,12 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     out_dir = Path(args.out_dir) if args.out_dir else Path(f"results/arms/{args.product}-matrix")
-    out_dir.mkdir(parents=True, exist_ok=True)
     cells_dir = out_dir / "cells"
-    cells_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        cells_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"Error: cannot write {cells_dir}: {exc}", file=sys.stderr)
+        sys.exit(1)
     cell_artifacts = []
     for cell in cells:
         cell_args = argparse.Namespace(**vars(args))
@@ -160,17 +162,15 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
         if not payload:
             continue
         delta_json = Path(row["artifact"])
-        save_artifact("plugin_delta", payload, delta_json)
-        delta_md = delta_json.with_suffix(".md")
-        delta_md.write_text(render_plugin_delta_report(payload), encoding="utf-8")
+        _save_artifact_or_exit("plugin_delta", payload, delta_json)
+        _write_report(delta_json.with_suffix(".md"), render_plugin_delta_report(payload))
         print(f"OK Saved plugin delta:    {delta_json}")
 
     persisted = strip_internal_payloads(rollup)
     out_json = Path(args.out_json) if args.out_json else out_dir / "matrix-rollup.json"
     out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
-    save_artifact("matrix_rollup", persisted, out_json)
-    out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_md.write_text(render_matrix_rollup_report(persisted), encoding="utf-8")
+    _save_artifact_or_exit("matrix_rollup", persisted, out_json)
+    _write_report(out_md, render_matrix_rollup_report(persisted))
     print(f"OK Saved matrix rollup:   {out_json}")
     print(f"OK Saved matrix report:   {out_md}")
 
@@ -750,10 +750,13 @@ def _save_arms_output(output: dict, out_json: Path, out_md: Path) -> None:
     from dokimi.eval.arm_runner import ArmRunner
     from dokimi.report.arms_report import render_arms_report
 
-    ArmRunner.save(output, out_json)
+    try:
+        ArmRunner.save(output, out_json)
+    except OSError as exc:
+        print(f"Error: cannot write {out_json}: {exc}", file=sys.stderr)
+        sys.exit(1)
     print(f"OK Saved arms comparison: {out_json}")
-    out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_md.write_text(render_arms_report(output), encoding="utf-8")
+    _write_report(out_md, render_arms_report(output))
     print(f"OK Saved arms report:     {out_md}")
 
 

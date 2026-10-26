@@ -78,13 +78,13 @@ def cmd_tasks_inspect(args: argparse.Namespace) -> None:
     try:
         reports = [r.as_dict() for r in inspect_path(Path(args.path))]
     except FileNotFoundError as exc:
-        raise SystemExit(f"error: {exc}") from None
+        raise SystemExit(f"Error: {exc}") from None
     payload = {"root": str(args.path), "items": reports}
     if args.out:
         try:
             save_artifact("task_inspect", payload, Path(args.out))
         except OSError as exc:
-            raise SystemExit(f"error: cannot write {args.out}: {exc}") from None
+            raise SystemExit(f"Error: cannot write {args.out}: {exc}") from None
     if args.json:
         print(json.dumps(stamp("task_inspect", dict(payload)), indent=2, default=str))
     else:
@@ -199,7 +199,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
         output = runner.run()
     except PreflightError as exc:
         # A missing tool (bench, Compose v2): one line, not a traceback.
-        raise SystemExit(f"error: {exc}") from None
+        raise SystemExit(f"Error: {exc}") from None
 
     out_json = Path(args.out_json) if args.out_json else Path(args.output_dir) / "task_runs.json"
     from dokimi.artifacts import save_artifact
@@ -207,7 +207,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     try:
         save_artifact("task_runs", output, out_json)
     except OSError as exc:
-        raise SystemExit(f"error: cannot write {out_json}: {exc}") from None
+        raise SystemExit(f"Error: cannot write {out_json}: {exc}") from None
     print(f"Saved task run artifact: {out_json}")
 
     out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
@@ -217,7 +217,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
         out_md.parent.mkdir(parents=True, exist_ok=True)
         out_md.write_text(render_task_runs_report(output), encoding="utf-8")
     except OSError as exc:
-        raise SystemExit(f"error: cannot write {out_md}: {exc} (the artifact is saved at {out_json})") from None
+        raise SystemExit(f"Error: cannot write {out_md}: {exc} (the artifact is saved at {out_json})") from None
     print(f"Saved task run report:   {out_md}")
 
     _print_summary(output)

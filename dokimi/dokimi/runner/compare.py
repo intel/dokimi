@@ -32,6 +32,11 @@ def compare_snapshots(base_path: Path, cand_path: Path, spec: dict | None = None
         # example_pass_rate is optional (may not be present in old snapshots)
         if missing:
             raise ValueError(f"Snapshot {path} missing summary keys: {sorted(missing)}")
+        role = "base" if path == base_path else "candidate"
+        for key in sorted(required | {"example_pass_rate"}):
+            value = summary.get(key)
+            if key in summary and (isinstance(value, bool) or not isinstance(value, (int, float))):
+                raise ValueError(f"Invalid {role} snapshot {path}: summary `{key}` must be a number, got {value!r}")
 
     diff = {
         "docs": cand["summary"]["docs"] - base["summary"]["docs"],

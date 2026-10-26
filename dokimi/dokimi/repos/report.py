@@ -68,6 +68,9 @@ def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
     finished = []
     for path in sorted(batch_dir.glob("*/result.json")):
         rec = _read_object(path)
+        grade = rec.get("grade")
+        if not isinstance(grade, dict) or "status" not in grade:
+            raise CellFileError(f"{path} has no usable `grade`")
         rec["cell"] = path.parent.name
         # The row's kind is the task's, not what its cells' grades say. The runner records it from the
         # eval dir's task.json; the cell's copy is in the run dir, which the grader could rewrite.

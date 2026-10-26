@@ -28,6 +28,19 @@ def _run_or_exit(root: Path, spec_path: Path) -> dict:
     except DocLoadError as exc:
         print(f"❌ {exc}", file=sys.stderr)
         sys.exit(1)
+    except ValueError as exc:  # e.g. fewer documents than the manifest's min_docs
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _write_outputs(writes) -> None:
+    """Run each (writer, data, path); an unwritable path exits 1 naming it."""
+    for writer, data, path in writes:
+        try:
+            writer(data, path)
+        except OSError as exc:
+            print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+            sys.exit(1)
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -38,8 +51,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     out_md = Path(args.out_md).resolve()
 
     result = _run_or_exit(root, spec_path)
-    save_snapshot(result, out_json)
-    write_run_report(result, out_md)
+    _write_outputs(((save_snapshot, result, out_json), (write_run_report, result, out_md)))
     print(json.dumps(result["summary"], indent=2))
 
     # Strict mode: check hard gate and critical bands
@@ -99,8 +111,7 @@ def cmd_compare(args: argparse.Namespace) -> None:
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(2)
-    write_json(result, out_json)
-    write_compare_report(result, out_md)
+    _write_outputs(((write_json, result, out_json), (write_compare_report, result, out_md)))
     print(json.dumps(result["diff"], indent=2))
 
 
