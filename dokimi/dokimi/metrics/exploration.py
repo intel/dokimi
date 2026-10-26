@@ -26,7 +26,7 @@ nothing.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable, Mapping, Optional, Sequence
 
 # A citation line: a path token, optionally followed by ``:start`` or
@@ -39,12 +39,16 @@ _RANGE_RE = re.compile(
 _FINAL_ANSWER_RE = re.compile(
     r"<final_answer>(.*?)</final_answer>", re.IGNORECASE | re.DOTALL
 )
-# Fallback when no <final_answer> block exists: scan for path:line(-line) tokens. A path
-# does not start with an opening bracket, so ``(src/a.py:10)`` cites ``src/a.py``.
+# Fallback when no <final_answer> block exists: scan for path:line(-line) tokens. A
+# wrapping pair around the whole citation, ``(src/a.py:10)``, is not part of the path;
+# a leading bracket with no closer after the range, ``(app)/page.tsx:10``, is.
 _LOOSE_CITATION_RE = re.compile(
-    r"(?P<path>[^\s:`()\[\]{}<>][^\s:`]*\.[A-Za-z0-9_+]+)`?"
+    r"(?P<open>[(\[{<\"'])?"
+    r"(?P<path>[^\s:`]+\.[A-Za-z0-9_+]+)`?"
     r":(?P<start>\d+)(?:\s*[-–:]\s*(?P<end>\d+))?"
+    r"(?P<close>[)\]}>\"'])?"
 )
+_WRAPPERS = {"(": ")", "[": "]", "{": "}", "<": ">", '"': '"', "'": "'"}
 
 
 @dataclass(frozen=True)
@@ -204,7 +208,12 @@ def _parse_block(block: str) -> CitationSet:
 def _parse_loose(text: str) -> CitationSet:
     citations: list[Citation] = []
     for m in _LOOSE_CITATION_RE.finditer(text):
-        citations.append(_citation_from_match(m))
+        opener = m.group("open")
+        wrapped = opener is not None and _WRAPPERS[opener] == m.group("close")
+        cite = _citation_from_match(m)
+        if opener is not None and not wrapped:
+            cite = replace(cite, path=normalize_path(opener + m.group("path")))
+        citations.append(cite)
     return _finish(citations, [])
 
 

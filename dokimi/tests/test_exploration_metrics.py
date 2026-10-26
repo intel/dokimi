@@ -14,6 +14,8 @@ Covers the two slices that land independently of any LLM/Docker integration:
 
 from __future__ import annotations
 
+import pytest
+
 from dokimi.harnesses.exploration import summarize_exploration
 from dokimi.harnesses.models import HarnessResult, OperationRecord
 from dokimi.metrics.exploration import (
@@ -620,3 +622,14 @@ def test_fastcontext_skill_fixture_loads():
     assert skill.name == "fastcontext"
     assert skill.description
     assert "<final_answer>" in skill.body
+
+
+@pytest.mark.parametrize("path", ["(app)/page.tsx", "[id].tsx", "[...slug]/page.tsx"])
+def test_fallback_scan_keeps_leading_brackets_of_a_path(path):
+    cs = parse_final_answer(f"See {path}:10-20 for it.")
+    assert cs.citations == (Citation(path, 10, 20),)
+
+
+def test_fallback_scan_strips_a_wrapping_pair_but_keeps_a_bracketed_path():
+    cs = parse_final_answer("Seen in ([id].tsx:5) and (app)/x.tsx:3.")
+    assert [c.path for c in cs.citations] == ["[id].tsx", "(app)/x.tsx"]

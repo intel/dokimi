@@ -94,6 +94,7 @@ def test_a_non_finite_aggregate_is_unscored_not_a_number():
     text = '{"question_id": "q1", "with_docs": {"aggregate": NaN}, "without_docs": {"aggregate": -Infinity}}'
     r = records.record(json.loads(text), kind="evaluations")
     assert (r.score(CONTEXT), r.score(BASELINE)) == (None, None)
+    assert records._number(10**400) is None
 
 
 def test_the_panels_question_key_is_read_as_question_text():

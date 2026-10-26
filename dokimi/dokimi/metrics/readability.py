@@ -10,7 +10,7 @@ import re
 
 # Latin + Cyrillic are intentional here for multilingual readability scoring (RUF001-safe).
 # A stop ends a sentence only before whitespace or the end, so "docs.example.com" and "2.5.1" do not.
-SENTENCE_RE = re.compile(r"[.!?]+(?=[\"')\]]*(?:\s|$))")
+SENTENCE_RE = re.compile(r"[.!?]+(?=[\"'\u201d\u2019)\]*_]*(?:\s|$))")
 WORD_RE = re.compile(r"[A-Za-zА-Яа-я0-9'-]+")
 VOWELS = "aeiouyаеёиоуыэюяAEIOUYАЕЁИОУЫЭЮЯ"
 VOWEL_GROUP_RE = re.compile(rf"[{VOWELS}]+")

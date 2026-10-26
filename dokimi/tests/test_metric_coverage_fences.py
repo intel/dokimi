@@ -42,3 +42,22 @@ def test_score_ignores_hash_comments_in_code():
     padded = "```bash\n" + "# step\n" * 6 + "```\n"
     real = "# a\n# b\n# c\n# d\n# e\n# f\n"
     assert coverage.score(padded) < coverage.score(real)
+
+
+def test_closing_fence_must_use_the_same_character():
+    doc = "```bash\n~~~\n# inside\n```\n# After\n"
+    assert coverage._count_headings_and_blocks(doc) == (1, 1)
+
+
+def test_text_after_a_closing_fence_keeps_the_block_open():
+    doc = "```bash\n``` trailing\n# inside\n```\n# After\n"
+    assert coverage._count_headings_and_blocks(doc) == (1, 1)
+
+
+def test_backtick_in_the_info_string_is_not_a_fence():
+    doc = "```bash`x\n# heading\n"
+    assert coverage._count_headings_and_blocks(doc) == (1, 0)
+
+
+def test_a_hash_run_is_a_heading_only_before_whitespace_or_the_end():
+    assert coverage._count_headings_and_blocks("#hashtag\n#\n# Title\n") == (2, 0)

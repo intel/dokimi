@@ -207,3 +207,27 @@ def test_error_status_counts_as_failure(tmp_path):
     rate, results = score_examples(doc, ExecutionPolicy(backend="bogus"))
     assert results[0].status == "error"
     assert rate == 0.0
+
+
+def test_extract_examples_indented_fence_in_a_list_item_is_found():
+    md = "1. step\n\n    ```bash\n    ls\n    ```\n"
+    assert extract_examples(md) == [("bash", "ls")]
+
+
+def test_extract_examples_closing_fence_must_use_the_same_character():
+    md = "```python\nprint(1)\n~~~\nprint(2)\n```\n"
+    assert extract_examples(md) == [("python", "print(1)\n~~~\nprint(2)")]
+
+
+def test_extract_examples_text_after_a_closing_fence_keeps_the_block_open():
+    md = "```python\nprint(1)\n``` trailing\nprint(2)\n```\n"
+    assert extract_examples(md) == [("python", "print(1)\n``` trailing\nprint(2)")]
+
+
+def test_extract_examples_backtick_in_the_info_string_is_not_a_fence():
+    md = "```python`x\nprint(1)\n```\n"
+    assert extract_examples(md) == []
+
+
+def test_extract_examples_language_tag_is_lowercased():
+    assert extract_examples("```Python\nprint(1)\n```\n") == [("python", "print(1)")]

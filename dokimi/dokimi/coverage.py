@@ -139,7 +139,7 @@ def _tag_aliases(cfg: dict) -> set[str]:
 def _tasks_for_product(
     key: str, task_tags: dict[str, set[str]], aliases: set[str] | None = None
 ) -> list[str]:
-    wanted = {key.lower()} | (aliases or set())
+    wanted = {key.lower()} | {a.lower() for a in aliases or ()}
     return sorted(name for name, tags in task_tags.items() if wanted & tags)
 
 

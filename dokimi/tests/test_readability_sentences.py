@@ -34,3 +34,14 @@ def test_closing_quote_or_paren_after_a_stop_still_ends_the_sentence() -> None:
     quoted = readability.score('He said "stop." Then we left (quickly.) Nobody spoke.')
     plain = readability.score("He said stop. Then we left quickly. Nobody spoke.")
     assert quoted == plain
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "He said \u201cstop.\u201d Then we left. Nobody spoke.",
+        "**Done.** Next we go. Then rest.",
+    ],
+)
+def test_closing_curly_quote_or_emphasis_after_a_stop_ends_the_sentence(text: str) -> None:
+    assert len(readability.SENTENCE_RE.findall(text)) == 3

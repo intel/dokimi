@@ -531,9 +531,13 @@ def _number(value: Any) -> Optional[float]:
 
     ``json.loads`` reads ``NaN`` and ``Infinity``; neither is a score a mean can use.
     """
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return value
+    try:
+        finite = math.isfinite(value)
+    except OverflowError:  # an int too large for a float
+        return None
+    return value if finite else None
 
 
 def _answer(payload: Mapping[str, Any]) -> Answer:
