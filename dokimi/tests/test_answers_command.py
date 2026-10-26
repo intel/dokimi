@@ -63,6 +63,26 @@ def test_invalid_yaml_config_exits(tmp_path, monkeypatch, capsys):
     assert "invalid YAML" in capsys.readouterr().err
 
 
+def test_non_utf8_config_exits_with_message(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "products.yaml"
+    path.write_bytes(b"retrieval:\n  top_k: \xff\xfe\n")
+    _point_config(monkeypatch, path)
+    with pytest.raises(SystemExit) as exc:
+        answers._load_runtime_config()
+    assert exc.value.code == 1
+    assert f"cannot read {path}" in capsys.readouterr().err
+
+
+def test_unreadable_config_exits_with_message(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "products.yaml"
+    path.mkdir()  # a directory where the file should be: read_text raises OSError
+    _point_config(monkeypatch, path)
+    with pytest.raises(SystemExit) as exc:
+        answers._load_runtime_config()
+    assert exc.value.code == 1
+    assert f"cannot read {path}" in capsys.readouterr().err
+
+
 def test_non_mapping_config_exits(tmp_path, monkeypatch, capsys):
     path = tmp_path / "products.yaml"
     path.write_text("- a\n- b\n", encoding="utf-8")
@@ -166,3 +186,95 @@ def test_generate_writes_answers_to_output_path(tmp_path, monkeypatch, capsys,
     assert calls["generate"]["output_path"] == out
     assert calls["saved"] == (["a1"], out)
     assert f"Saved answers to {out}" in capsys.readouterr().out
+
+
+def _stub_generate(monkeypatch, tmp_path, answerer_cls):
+    _point_config(monkeypatch, tmp_path / "absent.yaml")
+    monkeypatch.setattr(dokimi.questions.artifact, "load_questions",
+                        lambda path: SimpleNamespace(questions=["q1"]))
+    monkeypatch.setattr(dokimi.mcp.factory, "create_doc_source_client", lambda source: "client")
+    monkeypatch.setattr(dokimi.mcp.factory, "resolve_library_id_for_product",
+                        lambda product, client, explicit_id=None: "/lib/id")
+    monkeypatch.setattr(dokimi.eval, "Answerer", answerer_cls)
+
+
+def test_generate_output_that_cannot_be_written_exits_2_naming_the_path(tmp_path, monkeypatch, capsys):
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")  # a regular file: nothing can be created below it
+    target = blocker / "a.json"
+
+    class FakeAnswerer:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_answers(self, output_path, **kwargs):
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            return ["a1"]
+
+    _stub_generate(monkeypatch, tmp_path, FakeAnswerer)
+    with pytest.raises(SystemExit) as exc:
+        answers.cmd_answers_generate(_args(output=str(target)))
+    assert exc.value.code == 2
+    assert f"Error: cannot write {target}: " in capsys.readouterr().err
+
+
+def test_generate_final_save_that_fails_exits_2_naming_the_path(tmp_path, monkeypatch, capsys):
+    target = tmp_path / "a.json"
+
+    class FakeAnswerer:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_answers(self, **kwargs):
+            return ["a1"]
+
+        def save_answers(self, answers_, path):
+            raise PermissionError(13, "Permission denied", f"{path}.123.0.tmp")
+
+    _stub_generate(monkeypatch, tmp_path, FakeAnswerer)
+    with pytest.raises(SystemExit) as exc:
+        answers.cmd_answers_generate(_args(output=str(target)))
+    assert exc.value.code == 2
+    assert f"Error: cannot write {target}: Permission denied" in capsys.readouterr().err
+
+
+def test_generate_output_that_is_a_directory_exits_2_naming_the_path(tmp_path, monkeypatch, capsys):
+    from dokimi.eval import Answerer as RealAnswerer
+
+    target = tmp_path / "outdir"
+    target.mkdir()
+
+    class FakeAnswerer:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_answers(self, **kwargs):
+            return [{"question_id": "q1"}]
+
+        model = "m"
+        provider = "p"
+
+        def _get_timestamp(self):
+            return "t"
+
+        _build_output = RealAnswerer._build_output
+
+        save_answers = RealAnswerer.save_answers
+
+    _stub_generate(monkeypatch, tmp_path, FakeAnswerer)
+    with pytest.raises(SystemExit) as exc:
+        answers.cmd_answers_generate(_args(output=str(target)))
+    assert exc.value.code == 2
+    assert f"Error: cannot write {target}: " in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("kind", ["missing", "directory"])
+def test_generate_unreadable_questions_exits_1_naming_the_path(tmp_path, monkeypatch, capsys, kind):
+    _point_config(monkeypatch, tmp_path / "absent.yaml")
+    path = tmp_path / "q.json"
+    if kind == "directory":
+        path.mkdir()
+    with pytest.raises(SystemExit) as exc:
+        answers.cmd_answers_generate(_args(questions=str(path)))
+    assert exc.value.code == 1
+    assert f"Error: cannot read {path}" in capsys.readouterr().err
