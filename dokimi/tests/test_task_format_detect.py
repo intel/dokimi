@@ -465,6 +465,24 @@ def test_openai_spec_lints_samples_it_cannot_find(tmp_path):
     assert report.problems == ["1 samples files not found: s.jsonl"]
 
 
+def test_samples_of_a_model_graded_spec_need_no_ideal(tmp_path):
+    _write(tmp_path / "registry/evals/x.yaml",
+           "x.dev.v0:\n  class: evals.elsuite.modelgraded.classify:ModelBasedClassify\n"
+           "  args: {samples_jsonl: x/s.jsonl}\n")
+    _jsonl(tmp_path / "registry/data/x/s.jsonl", [{"input": "q"}, {"input": "q2"}])
+    found = {r.path.name: r for r in inspect_path(tmp_path)}
+    samples = found["s.jsonl"]
+    assert (samples.format, samples.problems, samples.details["model_graded"]) == ("openai-evals", [], True)
+
+
+def test_promptfoo_tests_file_reference_labels_a_csv_without_expected_columns(tmp_path):
+    _write(tmp_path / "promptfooconfig.yaml", "prompts: [p]\nproviders: [echo]\ntests: file://tests.csv\n")
+    _write(tmp_path / "tests.csv", "topic\nbananas\n")
+    found = {r.path.name: r for r in inspect_path(tmp_path)}
+    assert (found["tests.csv"].format, found["tests.csv"].evidence) == (
+        "promptfoo-tests", ["named by promptfooconfig.yaml"])
+
+
 def test_inspect_task_follows_local_files_not_hub_datasets(tmp_path):
     _write(tmp_path / "t.py", "from inspect_ai import Task, task\n"
            "from inspect_ai.dataset import FieldSpec, csv_dataset, hf_dataset\n"
@@ -598,6 +616,13 @@ def test_a_scan_does_not_follow_symlinks_in_or_out_of_the_tree(tmp_path):
 
 def test_a_scan_does_not_enter_hidden_directories(tmp_path):
     _jsonl(tmp_path / ".cache" / "s.jsonl", [{"input": "q", "target": "a"}])
+    _jsonl(tmp_path / "s.jsonl", [{"input": "q", "target": "a"}])
+    assert [r.path for r in inspect_path(tmp_path)] == [tmp_path / "s.jsonl"]
+
+
+def test_a_scan_does_not_enter_dependency_directories(tmp_path):
+    for skipped in ("node_modules", "venv"):
+        _jsonl(tmp_path / skipped / "s.jsonl", [{"input": "q", "target": "a"}])
     _jsonl(tmp_path / "s.jsonl", [{"input": "q", "target": "a"}])
     assert [r.path for r in inspect_path(tmp_path)] == [tmp_path / "s.jsonl"]
 
