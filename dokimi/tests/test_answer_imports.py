@@ -364,7 +364,7 @@ def test_promptfoo_csv_expected_cells_follow_assertion_from_string(tmp_path):
     assert [c["type"] for c in checks] == ["unsupported", "match", "judge", "match"]
     assert checks[0]["native"] == "javascript"
     assert checks[1]["values"] == ["bye"] and checks[1]["negate"] is True
-    assert checks[2]["criterion"] == "is funny"
+    assert checks[2]["criterion"] == " is funny"  # promptfoo keeps the space after `grade:`
     assert checks[3]["values"] == ["apple", "banana"] and checks[3].get("mode", "any") == "any"
 
 

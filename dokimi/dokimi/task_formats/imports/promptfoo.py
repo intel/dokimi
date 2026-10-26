@@ -25,6 +25,7 @@ from typing import Any, Mapping, Optional
 from dokimi.task_formats.imports.common import (
     Imported, as_list, judge, match, question, render_chat, render_template, unsupported,
 )
+from dokimi.task_formats.imports.promptfoo_csv import assertion_from_cell
 from dokimi.task_formats.source import FileSource
 
 FORMAT = "promptfoo"
@@ -145,33 +146,15 @@ def _prompts(raw: Any, base: Path, imp: Imported) -> list[tuple[str, Any]]:
     return out
 
 
-_CSV_TYPES = frozenset({*_CONTAINS, "equals", "regex", "starts-with", "llm-rubric", "javascript", "python"})
-
-
-def _csv_assertion(cell: str) -> dict[str, Any]:
-    """promptfoo's ``assertionFromString`` for a ``__expected`` cell: ``[not-]type:value``, else equals."""
-    kind, sep, rest = cell.partition(":")
-    kind, rest = kind.strip(), rest.strip()
-    if not sep:
-        return {"type": "equals", "value": cell}
-    if kind == "grade":
-        return {"type": "llm-rubric", "value": rest}
-    base = kind.removeprefix("not-")
-    if base not in _CSV_TYPES:
-        return {"type": "equals", "value": cell}
-    if base in _CONTAINS and base.endswith(("-any", "-all")):
-        # promptfoo's parseCommaSeparatedValues: a comma splits, a backslash-escaped comma does not.
-        return {"type": kind, "value": [v.replace("\\,", ",") for v in re.split(r"(?<!\\),", rest)]}
-    return {"type": kind, "value": rest}
-
-
 def _csv_tests(text: str, imp: Imported) -> list[dict[str, Any]]:
+    """Rows as tests; an ``__expected`` cell becomes the assert promptfoo builds, checked by :func:`_check`."""
     tests = []
     for row in csv.DictReader(io.StringIO(text)):
         test: dict[str, Any] = {"vars": {k: v for k, v in row.items() if k and not k.startswith("__")}, "assert": []}
         for key, value in row.items():
-            if key and key.startswith("__expected") and value:
-                test["assert"].append(_csv_assertion(value))
+            assertion = assertion_from_cell(value) if key and key.startswith("__expected") else None
+            if assertion is not None:
+                test["assert"].append(assertion)
         tests.append(test)
     imp.note("tests read from CSV")
     return tests
