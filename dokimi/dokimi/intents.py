@@ -49,9 +49,10 @@ def _domain_from_config(raw_key: str, cfg: dict) -> Optional[IntentDomain]:
     examples = cfg.get("example_intents", [])
     if not isinstance(examples, list):
         examples = []
+    name = cfg.get("name")
     return IntentDomain(
         key=raw_key.lower(),
-        name=cfg.get("name") or raw_key,
+        name=raw_key if name is None else str(name),
         description=str(cfg.get("description") or "").strip(),
         products=[str(p).lower() for p in products],
         example_intents=[str(e) for e in examples],
