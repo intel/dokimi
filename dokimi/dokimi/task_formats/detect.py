@@ -72,7 +72,10 @@ def detect(path: Path, probes: Sequence[Probe] | None = None) -> Report | None:
     path = Path(path)
     if probes is None:
         probes = DIR_PROBES if path.is_dir() else FILE_PROBES
-    subject: Any = path if path.is_dir() else FileSource(path)
+    return _best(path if path.is_dir() else FileSource(path), probes)
+
+
+def _best(subject: Any, probes: Sequence[Probe]) -> Report | None:
     claims = _claims(probes, subject)
     if not claims:
         return None
@@ -96,7 +99,7 @@ def inspect_path(path: Path) -> list[Report]:
         return [detect(path) or unknown(path)]
     scan = _Scan()
     scan.walk(path)
-    reports = links.resolve(scan.entries, _BY_NAME)
+    reports = links.resolve(scan.entries, _BY_NAME, scan.unread)
     if not reports:
         reports = [unknown(path)]
     if scan.truncated:
@@ -105,15 +108,20 @@ def inspect_path(path: Path) -> list[Report]:
 
 
 class _Scan:
-    """Every task directory and data file under a root, each with its report or ``None``."""
+    """Every task directory and data file under a root, each with its report or ``None``,
+    and the ``unknown`` report of each unclaimed file that could not be read or parsed."""
 
     def __init__(self) -> None:
         self.files = 0
         self.truncated = False
         self.entries: list[links.Entry] = []
+        self.unread: dict[Path, Report] = {}
 
     def walk(self, directory: Path) -> None:
-        task = detect(directory, DIR_PROBES)
+        try:
+            task = detect(directory, DIR_PROBES)
+        except OSError as exc:  # a task.md (or the directory) the probes could not read
+            task = Report(directory, FORMAT_UNKNOWN, KIND_UNKNOWN, problems=[f"cannot read: {exc}"])
         if task is not None:
             self.entries.append((directory, task))
             return
@@ -133,13 +141,17 @@ class _Scan:
             if child.name not in SKIP_DIRS and not child.name.startswith("."):
                 self.walk(child)
             return
-        if child.suffix.lower() not in SCAN_SUFFIXES:
-            return
+        if not child.is_file() or child.suffix.lower() not in SCAN_SUFFIXES:
+            return  # a FIFO or device would block or never end
         self.files += 1
         if self.files > MAX_SCAN_FILES:
             self.truncated = True
             return
-        self.entries.append((child, detect(child, FILE_PROBES)))
+        source = FileSource(child)
+        report = _best(source, FILE_PROBES)
+        self.entries.append((child, report))
+        if report is None and (fallback := unknown(child, source)).problems:
+            self.unread[child] = fallback  # source is cached: the file is not read again
 
 
 # --- unknown -----------------------------------------------------------------
@@ -149,8 +161,8 @@ _VERIFIER_NAMES = re.compile(r"^(test|tests|verify|verifier|run-tests|check|grad
 _LISTED = 30
 
 
-def unknown(path: Path) -> Report:
-    """Best-effort structure of a path no probe claims."""
+def unknown(path: Path, source: FileSource | None = None) -> Report:
+    """Best-effort structure of a path no probe claims (*source*: the file, already read)."""
     report = Report(path, FORMAT_UNKNOWN, KIND_UNKNOWN)
     if path.is_dir():
         names = sorted(p.name + ("/" if p.is_dir() else "") for p in path.iterdir())
@@ -158,7 +170,7 @@ def unknown(path: Path) -> Report:
         report.details["prompt_candidates"] = [n for n in names if _PROMPT_NAMES.match(n)]
         report.details["verifier_candidates"] = [n for n in names if _VERIFIER_NAMES.match(n.rstrip("/"))]
         return report
-    source = FileSource(path)
+    source = source or FileSource(path)
     data = source.data
     report.problems.extend(source.problems)
     if isinstance(data, dict):

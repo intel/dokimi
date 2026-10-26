@@ -427,6 +427,7 @@ def test_a_grader_failure_is_not_ceiling_when_score_max_is_not_above_zero(tmp_pa
     assert _row(s, "score")["headroom"] is None and "ceiling" not in format_compare(s)
 
 
+@pytest.mark.outcome("cjm-repo-compare-arms")
 def test_unpaired_tasks_are_listed_not_compared(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1)
@@ -642,6 +643,7 @@ def test_unreadable_grade_json_leaves_the_metric_out(tmp_path):
     assert (pair["baseline"], pair["treatment"]) == (1.0, 0.0)  # the unreadable cells count for neither
 
 
+@pytest.mark.outcome("cjm-repo-compare-arms")
 def test_missing_cells_are_counted_and_left_out(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1)
@@ -665,6 +667,7 @@ def test_parse_selector_keeps_the_arm_whole():
     assert parse_selector("r1/guidance:raw") == ("r1", "guidance:raw")
 
 
+@pytest.mark.outcome("cjm-repo-compare-arms")
 def test_cli_prints_the_table_and_json(tmp_path, capsys):
     b = tmp_path / "b1"
     for arm in ("guidance:none", "guidance:raw", "guidance:bridge"):
@@ -785,6 +788,7 @@ def test_each_selector_names_its_batches_and_a_bare_arm_over_several_warns(tmp_p
     assert compare([b1, b2], "b1/guidance:none", ["b1/guidance:raw"])["warnings"] == []
 
 
+@pytest.mark.outcome("cjm-arm-stamp-warn")
 @pytest.mark.parametrize("key", ["eval_dir", "image"])
 def test_arms_from_differently_stamped_batches_warn(tmp_path, key):
     old, new = tmp_path / "old", tmp_path / "new"
@@ -831,6 +835,7 @@ def test_images_built_from_each_tree_follow_the_tree(tmp_path):
         "t4c2/A vs t4c1/A: the batches ran from different image (dokimi/x:111111111111, my/own:image)"]
 
 
+@pytest.mark.outcome("cjm-arm-stamp-warn")
 def test_cells_on_different_harness_versions_warn(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1, harness_version="2.1.286")
@@ -842,6 +847,8 @@ def test_cells_on_different_harness_versions_warn(tmp_path):
                                   "model_resolved": []}}
 
 
+@pytest.mark.outcome("cjm-model-answered")
+@pytest.mark.outcome("cjm-arm-stamp-warn")
 def test_arms_answered_by_different_models_warn(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1, model_resolved="m-1")
@@ -866,6 +873,7 @@ def test_model_warnings_follow_the_selected_model(tmp_path):
     assert len(compare([b], "guidance:none", models=["m-1"])["warnings"]) == 2
 
 
+@pytest.mark.outcome("cjm-model-answered")
 def test_model_matches_equivalence_does_not_warn(tmp_path):
     """Equivalent model IDs (Bedrock provider-prefix variants) do not trigger a warning."""
     b = tmp_path / "b1"

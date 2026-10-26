@@ -21,8 +21,8 @@ from collections import Counter
 from typing import Any
 
 from dokimi.task_formats.model import (
-    BY_EXPLORE, BY_QUESTIONS, KIND_ANSWER_ONLY, KIND_EXECUTABLE, KIND_LOCALIZATION, KIND_TRIGGER,
-    Fingerprint, Report,
+    BY_EXPLORE, BY_QUESTIONS, BY_TRIGGER_SET, KIND_ANSWER_ONLY, KIND_EXECUTABLE, KIND_LOCALIZATION,
+    KIND_TRIGGER, Fingerprint, Report,
 )
 from dokimi.task_formats.source import FileSource, first_rows, key_share
 
@@ -247,6 +247,8 @@ class SkillCreatorTriggerProbe:
             report.problems.append(f"{bad} items have a should_trigger that is not true/false")
         report.details["should_trigger"] = sum(1 for r in rows if r.get("should_trigger") is True)
         report.details["should_not_trigger"] = sum(1 for r in rows if r.get("should_trigger") is False)
+        if not report.problems:
+            report.consumers.append(BY_TRIGGER_SET)
         return report
 
 
@@ -265,7 +267,7 @@ def _reach_rows(source: FileSource) -> list[dict[str, Any]] | None:
 
 def _lint_reach_query(q: dict[str, Any]) -> str | None:
     qid = q.get("query_id", q.get("id", "?"))
-    unknown = sorted(set(q) - _REACH_QUERY_KEYS)
+    unknown = sorted(map(str, set(q) - _REACH_QUERY_KEYS))  # YAML 1.1 keys can be bool/int
     if unknown:
         return f"{qid}: keys skill-reach refuses: {', '.join(unknown)}"
     if (q.get("kind") == "out_of_scope") != (q.get("expected_skill") is None):
@@ -297,12 +299,14 @@ class SkillReachProbe:
                           "oracle": key_share(rows, "expected_skill") == 1,
                           "metadata": bool(data.get("catalog_id") or data.get("provenance"))})
         _lint_missing(report, rows, ("text",))
-        extra = sorted(set(data) - _REACH_SET_KEYS)
+        extra = sorted(map(str, set(data) - _REACH_SET_KEYS))
         if extra:
             report.problems.append(f"QuerySet keys skill-reach refuses: {', '.join(extra)}")
         report.problems.extend(p for p in map(_lint_reach_query, rows) if p)
         _lint_duplicate_ids(report, rows, "query_id", "id")
         report.details["out_of_scope"] = sum(1 for r in rows if r.get("expected_skill") is None)
+        if not report.problems:
+            report.consumers.append(BY_TRIGGER_SET)
         return report
 
 
