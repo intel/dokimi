@@ -52,6 +52,19 @@ def _judge_name(doc: dict, path: str) -> str:
     return judge if isinstance(judge, str) and judge else Path(path).stem
 
 
+def _result_measure(path: str, key: str, kind: type, build):
+    """The measure an `eval pairwise` or `eval checklist` file gives, or exit 2 naming the file.
+
+    *build* is ``(doc, name) -> Measure``; it raises ValueError on an entry of the wrong shape.
+    """
+    doc = _load_json_object(path, key, kind)
+    try:
+        return build(doc, _judge_name(doc, path))
+    except ValueError as exc:
+        print(f"Error: {path}: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
 def _load_answers(path: str):
     """The parsed file and its answers records (dokimi/records.py), or a clean exit."""
     from dokimi.records import RecordError, read
@@ -373,9 +386,10 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             sys.exit(2)
         report.measures.append(m)
 
-    # Read every result file before the first judge call, so a bad path costs no paid calls.
-    pairwise = [(path, _load_json_object(path, "verdicts")) for path in args.pairwise or []]
-    checklists = [(path, _load_json_object(path, "questions", list)) for path in args.checklist or []]
+    # Read every result file, and its entries, before the first judge call, so a bad file costs no paid calls.
+    from_files = [_result_measure(p, "verdicts", dict, lambda doc, name: pairwise_measure(doc, name, baseline))
+                  for p in args.pairwise or []]
+    from_files += [_result_measure(p, "questions", list, coverage_measure) for p in args.checklist or []]
     validity = [_load_json_object(v, "summary")["summary"] for v in args.validity or []]
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     if specs:
@@ -397,10 +411,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
                 concurrency=args.concurrency, progress=_progress(), ground_truth=grounding,
                 store=materials,
             ))
-    for path, pw in pairwise:
-        report.measures.append(pairwise_measure(pw, _judge_name(pw, path), baseline))
-    for path, ck in checklists:
-        report.measures.append(coverage_measure(ck, _judge_name(ck, path)))
+    report.measures += from_files
     answers_model = data.get("model") if isinstance(data, dict) else None
     for v in validity:
         if v.get("answers_model") and answers_model and v["answers_model"] != answers_model:
