@@ -182,6 +182,14 @@ def test_a_test_patch_that_ends_the_heredoc_is_refused_not_run_as_shell():
         eval_script(row, repo_spec("pytest-dev/pytest", "4.4")[1])
 
 
+@pytest.mark.parametrize("line", ["EOF_1143293\x0024912", "EOF_114329324912\x00"])
+def test_a_nul_byte_that_bash_would_drop_cannot_end_the_heredoc(line):
+    # bash drops NUL bytes while reading a script, so either line ends the heredoc there.
+    row = dict(_row(PYTEST_ID), test_patch=_row(PYTEST_ID)["test_patch"] + line + "\ntouch pwned\n")
+    with pytest.raises(SweBenchError, match="NUL byte"):
+        eval_script(row, repo_spec("pytest-dev/pytest", "4.4")[1])
+
+
 def test_django_directives_are_dotted_test_modules():
     assert directives("django/django", _row(DJANGO_ID)["test_patch"]) == ["auth_tests.test_validators"]
     script = eval_script(_row(DJANGO_ID), repo_spec("django/django", "3.0")[1])

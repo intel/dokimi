@@ -109,7 +109,7 @@ dependencies, and `--network verify=public` gives the verifier upstream's
 network.
 
 `--all` skips the rows in `swebench.KNOWN_BAD`, whose gold patch fails in the
-prebuilt image: `psf__requests-863` and `-2317` (their tests fetch
+prebuilt image: `psf__requests-863`, `-1724` and `-2317` (their tests fetch
 httpbin.org), and the six Harbor's SWE-bench adapter lists as failing under its
 oracle (harbor 6099b8c, `adapters/swebench/README.md`, Known Issues). Naming
 one in `--tasks` still runs it.

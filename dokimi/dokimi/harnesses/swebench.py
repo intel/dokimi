@@ -56,6 +56,7 @@ _HARBOR = "harbor 6099b8c adapters/swebench/README.md, Known Issues: fails under
 KNOWN_BAD = {
     "psf__requests-863": "tests fetch httpbin.org live; fail offline and when httpbin is down",
     "psf__requests-2317": "tests fetch httpbin.org live; fail offline and when httpbin is down",
+    "psf__requests-1724": "tests fetch httpbin.org live; fail offline and when httpbin is down",
     "astropy__astropy-7606": f"missing test in the dataset ({_HARBOR})",
     "astropy__astropy-8707": f"test infrastructure failure ({_HARBOR})",
     "astropy__astropy-8872": f"distutils/pytest deprecation ({_HARBOR})",
@@ -160,6 +161,8 @@ def eval_script(row: dict[str, Any], spec: dict[str, Any]) -> str:
     # A file the test patch adds is left over by a first run; remove it so the apply holds.
     added = [f for f in touched if f not in tracked]
     clean = f"rm -f -- {' '.join(shlex.quote(f) for f in added)}" if added else ":"
+    if "\0" in row["test_patch"]:  # bash drops NUL bytes as it reads, so "EOF\0..." would end the heredoc
+        raise SweBenchError(f"{row.get('instance_id', '?')}: test_patch has a NUL byte")
     if _HEREDOC in row["test_patch"].splitlines():  # the patch is a heredoc body: this line would end it
         raise SweBenchError(f"{row.get('instance_id', '?')}: test_patch has a line equal to the heredoc delimiter")
     directives = [shlex.quote(d) for d in test_directives(row["repo"], row["test_patch"])]
