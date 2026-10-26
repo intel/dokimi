@@ -12,6 +12,8 @@ import pytest
 
 from dokimi.cli import build_parser
 
+_DEEP_FRONTMATTER = b"---\nname: " + b"[" * 100000 + b"\n---\nbody\n"
+
 
 def _write_skill(root: Path, name: str) -> None:
     skill_dir = root / "skills" / name
@@ -262,6 +264,26 @@ def test_catalog_scan_reports_clean_error_on_deeply_nested_skills_manifest(tmp_p
     assert f"invalid skills.yaml at {tmp_path / 'skills.yaml'}" in str(exc_info.value)
 
 
+@pytest.mark.parametrize(
+    "content",
+    [None, b"\xff\xfe", _DEEP_FRONTMATTER],
+    ids=["directory", "non-utf8", "deep-frontmatter"],
+)
+def test_catalog_scan_reports_a_malformed_skill_as_an_error_row(tmp_path, capsys, content):
+    skill_md = tmp_path / "broken" / "SKILL.md"
+    skill_md.parent.mkdir()
+    if content is None:
+        skill_md.mkdir()
+    else:
+        skill_md.write_bytes(content)
+
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert exc_info.value.code == 1
+    assert f"broken\t-\t{skill_md.parent}\tERROR:" in capsys.readouterr().out
+
+
 def test_catalog_scan_reports_a_task_name_the_filesystem_rejects(tmp_path, monkeypatch):
     from dokimi.external import catalog as cat
 
@@ -278,11 +300,18 @@ def test_catalog_scan_reports_a_task_name_the_filesystem_rejects(tmp_path, monke
     assert entries[0].failed and "File name too long" in entries[0].reason
 
 
-@pytest.mark.parametrize("content", [b"\xff\xfe", b"---\nname: a\n---\nbody\n"], ids=["non-utf8", "missing-description"])
+@pytest.mark.parametrize(
+    "content",
+    [b"\xff\xfe", b"---\nname: a\n---\nbody\n", _DEEP_FRONTMATTER, None],
+    ids=["non-utf8", "missing-description", "deep-frontmatter", "directory"],
+)
 def test_catalog_trigger_set_reports_clean_error_on_malformed_skill_md(tmp_path, content):
     catalog = tmp_path / "skills"
     (catalog / "a").mkdir(parents=True)
-    (catalog / "a" / "SKILL.md").write_bytes(content)
+    if content is None:
+        (catalog / "a" / "SKILL.md").mkdir()
+    else:
+        (catalog / "a" / "SKILL.md").write_bytes(content)
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": "q1", "question": "hi"}]), encoding="utf-8")
 
@@ -293,10 +322,17 @@ def test_catalog_trigger_set_reports_clean_error_on_malformed_skill_md(tmp_path,
     assert f"--catalog {catalog}:" in str(exc_info.value)
 
 
-def test_catalog_scan_reports_clean_error_on_task_dir_without_instruction(tmp_path):
+@pytest.mark.parametrize(
+    ("instruction", "task_toml"),
+    [(None, ""), ("Do the thing.", "[metadata\n")],
+    ids=["missing-instruction", "unparsable-task-toml"],
+)
+def test_catalog_scan_reports_clean_error_on_unloadable_task_dir(tmp_path, instruction, task_toml):
     task = tmp_path / "evaluation" / "harbor" / "tasks" / "t"
     task.mkdir(parents=True)
-    (task / "task.toml").write_text("", encoding="utf-8")
+    (task / "task.toml").write_text(task_toml, encoding="utf-8")
+    if instruction is not None:
+        (task / "instruction.md").write_text(instruction, encoding="utf-8")
 
     args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"])
     with pytest.raises(SystemExit) as exc_info:

@@ -107,7 +107,7 @@ def _scan_skill_files(root: Path) -> list[SkillCatalogEntry]:
             continue
         try:
             skill = load_skill(skill_file)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, RecursionError) as exc:
             found.append(
                 SkillCatalogEntry(
                     name=skill_file.parent.name,
