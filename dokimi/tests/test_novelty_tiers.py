@@ -670,3 +670,25 @@ def test_the_cli_passes_each_arm_share_to_the_dollar_figure(tmp_path, capsys):
         assert payload["expected_usd"] == estimate_usd(by_role, tokens, models, "triage", share)
         # The 0.5 share a two-arm run uses would price the answerer at the two-arm rate.
         assert payload["expected_usd"] != estimate_usd(by_role, tokens, models, "triage", 0.5)
+
+
+@pytest.mark.parametrize("tokens, flagged", [(FITTED_TOKENS_MAX, False),
+                                             (FITTED_TOKENS_MAX + 1, True)])
+def test_the_extrapolation_flag_starts_just_above_the_fitted_range(
+        tmp_path, capsys, monkeypatch, tokens, flagged):
+    from types import SimpleNamespace
+
+    import dokimi.novelty.spans as spans
+
+    # The CLI reads the token count from the segmenter; a stub with exactly `tokens` tokens
+    # puts the artifact on either side of the fitted range.
+    monkeypatch.setattr(spans, "segment", lambda text: [SimpleNamespace(tokens=tokens)])
+    assert FITTED_TOKENS_MAX == 6723  # the largest measured artifact, as the docs state
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{_one_line_skill(tmp_path / 's')}",
+                  "--tier", "triage", "--estimate-only")
+    args.func(args)
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["tokens"] == tokens
+    assert ("usd_extrapolated" in payload) is flagged
+    assert ("extrapolates" in captured.err) is flagged
