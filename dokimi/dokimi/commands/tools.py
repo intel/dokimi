@@ -100,13 +100,23 @@ def _write_items(path: str, items: list) -> None:
         raise SystemExit(1) from None
 
 
-def cmd_tools_preference(args: argparse.Namespace) -> None:
+def _save_result(data: dict, path: str) -> None:
+    """Save the tool_preference artifact to ``path``, or exit 1 naming it when it cannot be written."""
     from dokimi.artifacts import save_artifact
+
+    try:
+        save_artifact("tool_preference", data, path)
+    except OSError as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+
+def cmd_tools_preference(args: argparse.Namespace) -> None:
     from dokimi import tool_preference as tp
 
     try:
         doc = tp.load_groups(json.loads(Path(args.groups).read_text(encoding="utf-8")))
-    except (OSError, ValueError, tp.GroupsError) as exc:  # ValueError: not UTF-8 or not JSON
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError, tp.GroupsError) as exc:
         raise SystemExit(f"--groups {args.groups}: {exc}") from exc
     factors = list(dict.fromkeys(f for f in args.factors.split(",") if f)) if args.factors else list(tp.FACTORS)
     unknown = sorted(set(factors) - set(tp.FACTORS))
@@ -136,7 +146,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     data = tp.payload(doc, items, results, model=args.model, provider=args.provider,
                       reps=args.reps, factors=factors, max_tokens=args.max_tokens,
                       max_cost_usd=args.max_cost_usd)
-    save_artifact("tool_preference", data, args.out_json)
+    _save_result(data, args.out_json)
     _print_summary(data["summary"])
     u = data["usage"]
     print(f"cost: {u['cost_usd']} USD over {u['n_calls']} calls ({u['cost_known_calls']} priced)")

@@ -489,6 +489,15 @@ def test_trigger_set_cli_exits_with_a_message_when_out_cannot_be_written(tmp_pat
     assert list(out.iterdir()) == []
 
 
+@pytest.mark.parametrize("fmt", ["reach", "skill-creator", "questions"])
+def test_trigger_set_cli_exits_with_a_message_when_out_is_empty(tmp_path, catalog, fmt):
+    q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])
+    with pytest.raises(SystemExit, match=r"Error: cannot write --out : ") as exc:
+        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", "",
+                  "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
+    assert isinstance(exc.value.code, str)
+
+
 # ── review round 3 ───────────────────────────────────────────────────────
 def _loop_result(answer="a", skill=None):
     return {"answer": answer, "transcript": [], "iterations": 1, "tool_call_count": 0,

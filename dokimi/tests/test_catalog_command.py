@@ -237,3 +237,16 @@ def test_catalog_scan_reports_clean_error_on_non_utf8_suites_manifest(tmp_path):
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert "invalid suites.json" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("text", ["[]", "null", '{"suites": 5}', '{"suites": [1]}', '{"suites": [{"tasks": [3]}]}',
+                                  '{"suites": [{"tasks": 3}]}'])
+def test_catalog_scan_reports_clean_error_on_wrong_shaped_suites_manifest(tmp_path, text):
+    manifest = tmp_path / "evaluation" / "harbor" / "suites.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(text, encoding="utf-8")
+
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert f"invalid suites.json at {manifest}" in str(exc_info.value)

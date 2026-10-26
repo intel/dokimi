@@ -839,12 +839,31 @@ def test_dry_run_names_twin_a_when_only_twin_a_lacks_the_field(tmp_path, capsys)
     assert "long_desc: skipped for 1 of 1 groups (G09 twin A)" in capsys.readouterr().out
 
 
-def test_a_non_utf8_groups_file_exits_with_a_message(tmp_path):
+@pytest.mark.parametrize("content", [bytes([0xFF, 0xFE, 0x00]), b"{not json", b"[]", b"null", None])
+def test_an_unreadable_or_invalid_groups_file_exits_with_a_message(tmp_path, content):
     from dokimi.cli import build_parser
 
-    path = tmp_path / "groups.json"
-    path.write_bytes(bytes([0xFF, 0xFE, 0x00]))
+    path = tmp_path / "groups.json"  # content None: the path does not exist
+    if content is not None:
+        path.write_bytes(content)
     args = build_parser().parse_args(["tools", "preference", "--groups", str(path), "--dry-run"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert str(exc.value).startswith(f"--groups {path}: ")
+
+
+def test_an_unwritable_out_json_exits_with_a_message(monkeypatch, tmp_path, capsys):
+    import dokimi.llm as llm
+    from dokimi.cli import build_parser
+
+    monkeypatch.setattr(llm, "chat_completion",
+                        lambda messages, model, provider="openai", tools=None, **kw: _Resp([tools[-1]["function"]["name"]]))
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")  # a regular file where a directory is needed
+    out = blocker / "o.json"
+    args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
+                                      "--reps", "1", "--factors", "assertive", "--out-json", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert f"Error: cannot write {out}: " in capsys.readouterr().err

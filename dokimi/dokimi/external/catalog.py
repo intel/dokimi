@@ -230,6 +230,26 @@ def _skill_entry(root: Path, item: dict, name: str, list_shape: bool) -> SkillCa
                              source_root=root, skill=skill)
 
 
+def _manifest_tasks(data: object, manifest_path: Path) -> list[dict]:
+    """Return the task objects of every suite in a parsed suites.json, or raise ValueError naming the file."""
+
+    def invalid(why: str) -> ValueError:
+        return ValueError(f"invalid suites.json at {manifest_path}: {why}")
+
+    if not isinstance(data, dict):
+        raise invalid(f"top level must be an object, got {type(data).__name__}")
+    suites = data.get("suites") or []
+    if not isinstance(suites, list) or not all(isinstance(s, dict) for s in suites):
+        raise invalid("suites must be a list of objects")
+    tasks: list[dict] = []
+    for suite in suites:
+        suite_tasks = suite.get("tasks") or []
+        if not isinstance(suite_tasks, list) or not all(isinstance(t, dict) for t in suite_tasks):
+            raise invalid("each suite's tasks must be a list of objects")
+        tasks.extend(suite_tasks)
+    return tasks
+
+
 def read_task_manifest(
     root: Path,
     tasks_subdir: str = DEFAULT_TASKS_SUBDIR,
@@ -261,79 +281,78 @@ def read_task_manifest(
         raise ValueError(f"invalid suites.json at {manifest_path}: {exc}") from exc
 
     entries: list[TaskCatalogEntry] = []
-    for suite in data.get("suites") or []:
-        for item in suite.get("tasks") or []:
-            name = str(item.get("name") or "").strip()
-            status = item.get("status")
-            track = item.get("track")
-            task_dir = tasks_root / name
+    for item in _manifest_tasks(data, manifest_path):
+        name = str(item.get("name") or "").strip()
+        status = item.get("status")
+        track = item.get("track")
+        task_dir = tasks_root / name
 
-            if not _within(task_dir, tasks_root):
-                # A failure, not a skip: the manifest asked us to leave the
-                # checkout, which is the same thing ``read_skill_manifest``
-                # reports as an error for ``catalog_path``.
-                entries.append(
-                    TaskCatalogEntry(
-                        name=name,
-                        status=status,
-                        track=track,
-                        path=None,
-                        failed=True,
-                        reason=f"task name escapes tasks root: {name!r}",
-                    )
+        if not _within(task_dir, tasks_root):
+            # A failure, not a skip: the manifest asked us to leave the
+            # checkout, which is the same thing ``read_skill_manifest``
+            # reports as an error for ``catalog_path``.
+            entries.append(
+                TaskCatalogEntry(
+                    name=name,
+                    status=status,
+                    track=track,
+                    path=None,
+                    failed=True,
+                    reason=f"task name escapes tasks root: {name!r}",
                 )
-                continue
+            )
+            continue
 
-            if not is_task_dir(task_dir):
-                entries.append(
-                    TaskCatalogEntry(
-                        name=name,
-                        status=status,
-                        track=track,
-                        path=None,
-                        skipped=True,
-                        reason=f"no task.toml or task.md under {task_dir} (manifest status={status!r})",
-                    )
+        if not is_task_dir(task_dir):
+            entries.append(
+                TaskCatalogEntry(
+                    name=name,
+                    status=status,
+                    track=track,
+                    path=None,
+                    skipped=True,
+                    reason=f"no task.toml or task.md under {task_dir} (manifest status={status!r})",
                 )
-                continue
+            )
+            continue
 
-            if track != "executable":
-                entries.append(
-                    TaskCatalogEntry(
-                        name=name,
-                        status=status,
-                        track=track,
-                        path=task_dir,
-                        skipped=True,
-                        reason=f"track={track!r} is not an executable Harbor task",
-                    )
-                )
-                continue
-
-            try:
-                task = load_task(task_dir)
-            except (FileNotFoundError, ValueError) as exc:
-                # The entry is declared executable and its directory is on
-                # disk, so this is the case the scan exists to catch.
-                entries.append(
-                    TaskCatalogEntry(
-                        name=name,
-                        status=status,
-                        track=track,
-                        path=task_dir,
-                        failed=True,
-                        reason=f"failed to load: {exc}",
-                    )
-                )
-                continue
-
+        if track != "executable":
             entries.append(
                 TaskCatalogEntry(
                     name=name,
                     status=status,
                     track=track,
                     path=task_dir,
-                    task=task,
+                    skipped=True,
+                    reason=f"track={track!r} is not an executable Harbor task",
                 )
             )
+            continue
+
+        try:
+            task = load_task(task_dir)
+        except (FileNotFoundError, ValueError) as exc:
+            # The entry is declared executable and its directory is on
+            # disk, so this is the case the scan exists to catch.
+            entries.append(
+                TaskCatalogEntry(
+                    name=name,
+                    status=status,
+                    track=track,
+                    path=task_dir,
+                    failed=True,
+                    reason=f"failed to load: {exc}",
+                )
+            )
+            continue
+
+        entries.append(
+            TaskCatalogEntry(
+                name=name,
+                status=status,
+                track=track,
+                path=task_dir,
+                task=task,
+            )
+        )
     return entries

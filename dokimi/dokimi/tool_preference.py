@@ -56,6 +56,8 @@ class GroupsError(ValueError):
 
 def load_groups(doc: dict) -> dict:
     """Validate a tool_preference_groups.v1 document and return it."""
+    if not isinstance(doc, dict):
+        raise GroupsError(f"top level must be an object, got {type(doc).__name__}")
     problems = schema_errors(GROUPS_SCHEMA, doc)
     ids = [g["id"] for g in doc.get("groups", []) if isinstance(g, dict) and isinstance(g.get("id"), str)]
     dupes = sorted({i for i in ids if ids.count(i) > 1})
