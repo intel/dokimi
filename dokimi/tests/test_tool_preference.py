@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -315,6 +316,52 @@ def test_out_json_check_creates_missing_parents_and_leaves_no_file(tmp_path):
     _check_out_json_writable(str(out))
     assert out.parent.is_dir()
     assert not out.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="os.replace refuses a read-only destination on Windows, "
+                                             "which the POSIX rule pinned here does not model")
+def test_out_json_check_accepts_a_read_only_file_in_a_writable_dir(tmp_path):
+    from dokimi.commands.tools import _check_out_json_writable
+
+    out = tmp_path / "pref.json"
+    out.write_text("{}", encoding="utf-8")
+    out.chmod(0o444)
+    try:
+        if os.access(out, os.W_OK):
+            pytest.skip("chmod 0444 does not block writes here (for example, running as root)")
+        _check_out_json_writable(str(out))  # the save replaces the file through its directory
+    finally:
+        out.chmod(0o644)
+
+
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except OSError as exc:  # Windows needs Developer Mode or admin rights to create a symlink
+        pytest.skip(f"cannot create a symlink here: {exc}")
+
+
+def test_out_json_check_leaves_no_file_at_a_dangling_symlink_target(tmp_path):
+    from dokimi.commands.tools import _check_out_json_writable
+
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link.json"
+    _symlink_or_skip(link, real / "t.json")
+    _check_out_json_writable(str(link))
+    assert not (real / "t.json").exists()
+    assert link.is_symlink()
+
+
+def test_out_json_check_refuses_a_dangling_symlink_into_a_missing_dir(tmp_path, capsys):
+    from dokimi.commands.tools import _check_out_json_writable
+
+    link = tmp_path / "link.json"
+    _symlink_or_skip(link, tmp_path / "missing" / "t.json")
+    with pytest.raises(SystemExit) as exc:
+        _check_out_json_writable(str(link))
+    assert exc.value.code == 2
+    assert "cannot write" in capsys.readouterr().err
 
 
 def test_repeated_factors_are_not_expanded_twice(doc, monkeypatch, tmp_path, capsys):

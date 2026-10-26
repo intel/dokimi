@@ -10,6 +10,7 @@ import errno
 import json
 import math
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -116,17 +117,17 @@ def _save_result(data: dict, path: str) -> None:
 
 
 def _check_out_json_writable(path: str) -> None:
-    """Exit 2 before any probe call when ``path`` cannot take the artifact; leaves no file behind."""
+    """Exit 2 before any probe call when a save to ``path`` would fail, probed with a temp file that is removed."""
+    from dokimi.artifacts import _write_target
+
     target = Path(path)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.is_dir():
+        resolved = _write_target(target)
+        if resolved.is_dir():
             raise IsADirectoryError(errno.EISDIR, "Is a directory", path)
-        existed = target.exists() or target.is_symlink()
-        with target.open("ab"):
+        with tempfile.NamedTemporaryFile(dir=resolved.parent, prefix=resolved.name + ".", suffix=".tmp"):
             pass
-        if not existed:
-            target.unlink()
     except (OSError, ValueError) as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
         raise SystemExit(2) from None
