@@ -29,6 +29,12 @@ tools:
   none: ["--tools", ""]
   read: ["--tools", "Read"]
   all: ["--disallowedTools", "WebFetch", "WebSearch"]
+# --delegation none: the same tools without the ones that start subagents (Agent/Task, Workflow).
+delegation:
+  none:
+    none: ["--tools", ""]
+    read: ["--tools", "Read"]
+    all: ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task", "Workflow"]
 # --strict-mcp-config alone starts no MCP server; a repo that ships .mcp.json gets its servers.
 args_if_present:
   .mcp.json: ["--mcp-config", ".mcp.json"]

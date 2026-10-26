@@ -663,6 +663,11 @@ tools:                               # what the "{tools}" element expands to
   none: ["--tools", ""]
   read: ["--tools", "Read"]
   all:  ["--disallowedTools", "WebFetch", "WebSearch"]
+delegation:                          # --delegation none: these replace the tool mode's arguments
+  none:
+    none: ["--tools", ""]            # list every tool mode a run may use, even if unchanged
+    read: ["--tools", "Read"]
+    all: ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task", "Workflow"]
 config_dir_env: CLAUDE_CONFIG_DIR    # a fresh directory per run
 env_allow: [PATH, HOME, AWS_REGION, AWS_BEARER_TOKEN_BEDROCK, ANTHROPIC_API_KEY,
             CLAUDE_CODE_USE_BEDROCK, https_proxy, no_proxy, ...]
@@ -693,6 +698,18 @@ args_if_present:                     # argv added after the "{tools}" element wh
   directory, with `{config_dir}` and `{support_dir}` (the framework's helper
   scripts) as the agent's container sees them. The built-in `claude-code`
   profile uses them for a hook that refuses backgrounded shell commands.
+- Optional `delegation.none` maps a tool mode to the arguments `repo run
+  --delegation none` uses instead, so the agent cannot start a subagent. It
+  is an allow-list: list every tool mode the run may use (for `none` and
+  `read` the arguments are the native ones); a tool mode it leaves out is
+  refused. A profile without `delegation.none` refuses `--delegation none`
+  before anything runs. The default, `--delegation native`, runs the tool mode
+  as written: under `all`, Claude Code may start subagents.
+  `--delegation none` limits the tools the agent is given, not the skills it
+  loads: a skill whose frontmatter says `context: fork` can still start a
+  subagent under `none`. Do not read a `none` cell as subagent-free when the
+  run's skills include one (tracked in intel/dokimi, "repo run: block
+  fork-context skills under --delegation none").
 - `args_if_present` checks that the file exists, not that the harness accepts
   it. The built-in `claude-code` profile passes `.mcp.json` as `--mcp-config`
   in the `all` tool mode, and the CLI exits 1 before its first turn on a file
@@ -1033,9 +1050,26 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
 - Each cell holds the §4 inputs plus `agent.stdout` (the raw trace) and
   `result.json`, the framework's verdict. A cell with `result.json` is skipped
   on a rerun unless `--force`; a cell without one is reported as missing, not
-  failed, and the next run of the batch fills it. A batch stays on the eval
-  tree it started with: its revision, or for a working tree the digests of
-  its `eval_dir` and of the image build context. A batch with a task that
+  failed, and the next run of the batch fills it. `meta.json` and
+  `result.json` record `execution`: the tool mode, the delegation mode (the one
+  whose arguments ran; a skill with `context: fork` can still start a subagent
+  under `none`) and an
+  `id` hashing the profile's name, `invoke`, tool arguments, `env_set`,
+  `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`,
+  `bridge`, the SHA-256 of the harness executable (`--bin`) and harness version.
+  A rerun whose `id` differs (another `--tools`, a `--delegation` that changes the tool arguments, profile,
+  harness binary or harness version, or an edited `invoke`, `env_set`, `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress` or `bridge`) is refused before any agent starts, and
+  `--force` or another `--batch` runs it. `--force` replaces the cells of the
+  run's plan only: if the batch dir holds finished cells outside that plan
+  whose `id` differs from this run's (e.g. `--reps 2`, then `--reps 1
+  --delegation none --force`), the run is refused before any agent starts, because
+  the report would pool both executions in one row; use another `--batch`. The
+  same goes for the finished cells of a task this host cannot run, which
+  `--force` keeps; that refusal comes after the host probe, before any agent starts. A result from before `execution` was
+  recorded is refused as `unrecorded`, not counted as native; `--force` or
+  another `--batch` runs it. A batch stays on the eval tree it
+  started with: its revision, or for a working tree the digests of its `eval_dir`
+  and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
 - The agent's container mounts the workspace, the per-run `home`, `config` and
   scratch directories (each `image.env` value under `{run_dir}/`), the caches,

@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
     from dokimi.repos.workspace import Arm
 
+from dokimi.repos.harness_profile import DELEGATION_MODES
+
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     """Source, manifest, exported eval dir, image and caches shared by `tasks check` and `run`.
@@ -215,6 +217,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     try:
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
+        profile.tool_args(args.tools, args.delegation)  # a profile that cannot turn subagents off: refuse now
         harness_bin = _harness_bin(args.bin or profile.bin)
         source = RepoSource.parse(args.source)  # a misspelled revision fails before the build and the pin too
         arms = _pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
@@ -227,8 +230,8 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         skill_pin = _skill_pin(batch_dir, arms, ctx.content_dir)  # a resume may not swap an arm's skills
         validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
-                                tools=args.tools, timeout_s=args.timeout, max_turns=args.max_turns,
-                                budget_usd=args.budget) for m in args.model]
+                                tools=args.tools, delegation=args.delegation, timeout_s=args.timeout,
+                                max_turns=args.max_turns, budget_usd=args.budget) for m in args.model]
         for task in tasks:  # refuse before anything runs, not cell by cell
             task_caps(task, options[0])
             agent_network(options[0], ctx, task)
@@ -437,6 +440,9 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                        help="REQUIRED while the egress proxy is not implemented: the agent's container gets "
                        "this network, so its commands can reach any host. Recorded in meta.json")
     run_p.add_argument("--tools", default="all", help="Profile tool mode (default: all)")
+    run_p.add_argument("--delegation", choices=DELEGATION_MODES, default="native",
+                       help="native: the agent may start subagents (default); none: the profile's tool "
+                            "arguments without the subagent tools, for a single-agent baseline")
     run_p.add_argument("--timeout", type=positive_int, default=2700,
                        help="Seconds per agent run unless task.json sets timeout_s (default 2700)")
     run_p.add_argument("--max-turns", type=positive_int, default=200, dest="max_turns",
