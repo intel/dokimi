@@ -156,7 +156,8 @@ def _parse_jsonl(text: str, problems: list[str]) -> list[Any]:
 def _parse_csv(text: str) -> list[dict[str, Any]]:
     """Rows of a CSV file with a header line; a cell is a string, as Inspect's csv_dataset reads it."""
     try:
-        reader = csv.DictReader(io.StringIO(text))
+        # A BOM (an Excel export) is not part of the first column: Inspect and promptfoo drop it.
+        reader = csv.DictReader(io.StringIO(text.removeprefix("\ufeff")))
         rows = [dict(r) for r in reader]
     except csv.Error as exc:
         raise ValueError(str(exc)) from exc

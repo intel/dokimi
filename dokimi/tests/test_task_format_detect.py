@@ -310,6 +310,18 @@ def test_malformed_data_file_is_a_lint_problem_not_a_crash(tmp_path, name, text,
     assert any(problem in p for p in r.problems), r.problems
 
 
+@pytest.mark.parametrize("header, fmt", [("input,target", "inspect-samples"),
+                                         ("__expected,question", "promptfoo-tests")])
+def test_a_csv_with_a_utf8_bom_keeps_its_first_column(tmp_path, header, fmt):
+    r = _one(_write(tmp_path / "samples.csv", f"\ufeff{header}\nq,a\nq2,a2\n"))
+    assert (r.format, r.items, r.problems) == (fmt, 2, [])
+
+
+def test_a_json_file_with_a_utf8_bom_is_a_problem_as_dokimis_json_readers_refuse_it(tmp_path):
+    r = _one(_write(tmp_path / "e.json", "\ufeff" + json.dumps({"skill_name": "x", "evals": []})))
+    assert r.format == "unknown" and r.problems[0].startswith("not valid JSON: Unexpected UTF-8 BOM")
+
+
 def test_malformed_jsonl_keeps_its_good_rows(tmp_path):
     r = _one(_write(tmp_path / "s.jsonl", '{"input": "a", "target": "b"}\n{oops\n'))
     assert (r.format, r.items) == ("inspect-samples", 1)
