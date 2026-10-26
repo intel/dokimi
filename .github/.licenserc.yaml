@@ -60,6 +60,9 @@ header:
     # CHANGELOG.md, which carries the header itself.
     - 'dokimi/changelog.d/[0-9]*.md'
     - 'dokimi/changelog.d/fragment_template.md.j2'
+    # Third-party eval files copied unchanged, under their own licenses
+    # (dokimi/tests/fixtures/task_formats/MANIFEST.yaml, LICENSES/).
+    - 'dokimi/tests/fixtures/task_formats/**'
 
   comment: never
 

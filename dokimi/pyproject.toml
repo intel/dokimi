@@ -143,7 +143,8 @@ DEP002 = ["langchain-community"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["benchmarks", "data"]
+# tests/fixtures/task_formats: third-party eval files copied unchanged (its MANIFEST.yaml).
+extend-exclude = ["benchmarks", "data", "tests/fixtures/task_formats"]
 
 # These two run on another interpreter, not dokimi's: the hook on the task
 # image's python3, the proxy in the sidecar (DOKIMI_PROXY_IMAGE can be any image

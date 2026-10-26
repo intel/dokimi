@@ -179,6 +179,7 @@ def _capture(name: str, tmp_path: Path, *, stamped: bool = False) -> dict:
     }
 
 
+@pytest.mark.outcome("cjm-novelty-unmeasured-share")
 @pytest.mark.parametrize("name", [*LIVE, *STORED])
 def test_an_unstamped_record_reads_exactly_as_on_main(name, tmp_path):
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
@@ -203,6 +204,7 @@ READABLE = {
 }
 
 
+@pytest.mark.outcome("cjm-novelty-unmeasured-share")
 @pytest.mark.parametrize("name", list(LIVE))
 def test_a_stamped_record_is_gated_on_readable_words(name, tmp_path):
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))[name]

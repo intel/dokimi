@@ -27,7 +27,10 @@ def _osv_ids() -> set[str]:
 
 def _pip_audit_ids() -> set[str]:
     return set(
-        re.findall(r"--ignore-vuln\s+(PYSEC-\d{4}-\d+)", CI_WORKFLOW.read_text(encoding="utf-8"))
+        re.findall(
+            r"--ignore-vuln\s+(PYSEC-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3})",
+            CI_WORKFLOW.read_text(encoding="utf-8"),
+        )
     )
 
 

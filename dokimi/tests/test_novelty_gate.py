@@ -10,6 +10,7 @@ import pytest
 from dokimi.gate.novelty_gate import (
     evaluate_novelty,
     format_novelty_block,
+    uncleared_conflicts,
 )
 from dokimi.subjects.novelty_track import (
     build_novelty_block,
@@ -487,3 +488,25 @@ def test_an_artifact_with_no_check_measured_is_not_a_pass():
     assert evaluate_novelty(_artifact(
         categories={}, shortening=[], attribution={}, controls={}, spans={"n": 60},
         bundle={}, probes={}, items={})).status == "PASS"
+
+
+@pytest.mark.parametrize("overrides", [
+    {"conflict_coverage": {"pairs_compared": 970, "pairs_total": 1770}},
+    {"spans": {"capped_atom_set": True, "n_atoms_indexed": 300}},
+    {"conflict_coverage": {"pairs_total": 1770}},
+], ids=["partial", "capped", "malformed"])
+def test_the_reason_a_zero_is_not_cleared_is_the_harmful_atoms_row(overrides):
+    artifact = _artifact(**overrides)
+    row = next(c for c in evaluate_novelty(artifact).checks if c.name == "harmful_atoms")
+    reason = uncleared_conflicts(artifact)
+    assert not row.measured and reason and row.message.startswith(f"not measured: {reason}")
+
+
+@pytest.mark.parametrize("overrides", [
+    {},  # every pair compared, nothing capped
+    {"categories": {"harmful_conflicting": 2},
+     "conflict_coverage": {"pairs_compared": 970, "pairs_total": 1770}},  # found conflicts lead
+    {"categories": {}},  # nothing classified: not a 0 to clear
+], ids=["cleared", "found", "unclassified"])
+def test_there_is_no_uncleared_reason_without_a_zero_left_unchecked(overrides):
+    assert uncleared_conflicts(_artifact(**overrides)) is None
