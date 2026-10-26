@@ -648,3 +648,25 @@ def test_an_estimate_for_an_artifact_beyond_the_fitted_range_says_it_extrapolate
     assert payload["tokens"] > FITTED_TOKENS_MAX
     assert payload["usd_extrapolated"] is True
     assert "extrapolates" in captured.err
+
+
+def test_the_cli_passes_each_arm_share_to_the_dollar_figure(tmp_path, capsys):
+    from dokimi.commands.novelty import _role_models
+
+    root = tmp_path / "s"
+    root.mkdir()
+    body = "\n\n".join(f"Section {i}. Do not enable legacy driver {i} on a production host."
+                        for i in range(60))
+    (root / "SKILL.md").write_text(f"---\nname: s\ndescription: d\n---\n\n# S\n\n{body}\n",
+                                   encoding="utf-8")
+    for arms, share in (("no_artifact,full,shuffled", 2 / 3),
+                        ("no_artifact,full,placebo,shuffled", 3 / 4)):
+        args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+                      "--arms", arms, "--estimate-only")
+        args.func(args)
+        payload = json.loads(capsys.readouterr().out)
+        by_role, tokens = payload["estimate"]["by_role"], payload["tokens"]
+        models = _role_models(args)
+        assert payload["expected_usd"] == estimate_usd(by_role, tokens, models, "triage", share)
+        # The 0.5 share a two-arm run uses would price the answerer at the two-arm rate.
+        assert payload["expected_usd"] != estimate_usd(by_role, tokens, models, "triage", 0.5)
