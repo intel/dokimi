@@ -207,6 +207,16 @@ def _is_mock_verify(test: ast.expr, mocks: frozenset[str]) -> bool:
         return tuple_verdict
     return any(_mock_read(n, mocks) for n in ast.walk(test))
 
+def _scope_members(scope: ast.AST) -> Iterator[ast.AST]:
+    """The functions and classes a module or class defines, also those under ``if``, ``try``,
+    ``with`` or a loop: they are in the same scope."""
+    for child in ast.iter_child_nodes(scope):
+        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            yield child
+        elif isinstance(child, ast.stmt | ast.excepthandler):
+            yield from _scope_members(child)
+
+
 def _add_held_by_class(tree: ast.Module, found: dict[int, frozenset[str]]) -> None:
     """Add to each test the mocks the non-test methods of its class (``setUp``) hold on self.
 
@@ -214,12 +224,13 @@ def _add_held_by_class(tree: ast.Module, found: dict[int, frozenset[str]]) -> No
     for cls in ast.walk(tree):
         if not isinstance(cls, ast.ClassDef):
             continue
+        methods = [m for m in _scope_members(cls) if isinstance(m, _FuncDef)]
         held: set[str] = set()
-        for m in cls.body:
-            if isinstance(m, _FuncDef) and not m.name.startswith("test_"):
+        for m in methods:
+            if not m.name.startswith("test_"):
                 held |= {n for n in _mock_names(m, list(_own_nodes(m.body))) if n.startswith("self.")}
-        for m in cls.body:
-            if isinstance(m, _FuncDef) and m.name.startswith("test_"):
+        for m in methods:
+            if m.name.startswith("test_"):
                 found[id(m)] = found.get(id(m), frozenset()) | held
 
 
@@ -227,14 +238,23 @@ def _is_fixture(fn: _FuncDef) -> bool:
     return any("fixture" in _dotted(d.func if isinstance(d, ast.Call) else d) for d in fn.decorator_list)
 
 
+def _holds_mock(value: ast.expr, mocks: set[str]) -> bool:
+    """A mock or a patch, or a tuple, list, set or dict with one among its own items."""
+    if isinstance(value, ast.Tuple | ast.List | ast.Set | ast.Dict):
+        items = value.values if isinstance(value, ast.Dict) else value.elts
+        return any(_is_mock_source(i, mocks) for i in items)
+    return _is_mock_source(value, mocks)
+
+
 def _returns_mock(fn: _FuncDef) -> bool:
-    """Whether a fixture hands its test a mock or a patch, by ``return`` or ``yield``.
+    """Whether a fixture hands its test a mock or a patch, by ``return`` or ``yield``, alone or in a
+    tuple, list, set or dict (``return {"llm": MagicMock()}``).
 
     A fixture that builds a mock to make its data (``return run(MagicMock())``) hands data."""
     nodes = list(_own_nodes(fn.body))
     mocks = set(_mock_names(fn, nodes))
     return any(isinstance(n, ast.Return | ast.Yield | ast.YieldFrom) and n.value is not None
-               and _is_mock_source(n.value, mocks) for n in nodes)
+               and _holds_mock(n.value, mocks) for n in nodes)
 
 
 def _parametrized(node: _FuncDef | ast.ClassDef) -> set[str]:
@@ -255,17 +275,18 @@ def _rebound(fn: _FuncDef) -> set[str]:
     return {n.id for n in _own_nodes(fn.body) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
 
 
-def _add_fixture_params(body: list[ast.stmt], visible: dict[str, bool], found: dict[int, frozenset[str]],
-                        given: frozenset[str] = frozenset()) -> None:
-    """Map each test under *body* to its parameters that a fixture in scope fills with a mock.
+def _add_fixture_params(scope: ast.Module | ast.ClassDef, visible: dict[str, bool],
+                        found: dict[int, frozenset[str]], given: frozenset[str] = frozenset()) -> None:
+    """Map each test in *scope* to its parameters that a fixture in scope fills with a mock.
 
     A fixture of a class is seen by the tests of that class and of the classes in it, one at
     module level by every test, and the nearest fixture of a name wins. *visible* maps a fixture
     name to whether it returns a mock; *given* holds the names a class's ``parametrize`` fills."""
-    visible = {**visible, **{f.name: _returns_mock(f) for f in body if isinstance(f, _FuncDef) and _is_fixture(f)}}
-    for node in body:
+    members = list(_scope_members(scope))
+    visible = {**visible, **{f.name: _returns_mock(f) for f in members if isinstance(f, _FuncDef) and _is_fixture(f)}}
+    for node in members:
         if isinstance(node, ast.ClassDef):
-            _add_fixture_params(node.body, visible, found, given | _parametrized(node))
+            _add_fixture_params(node, visible, found, given | _parametrized(node))
         elif isinstance(node, _FuncDef) and node.name.startswith("test_"):
             a = node.args
             params = {p.arg for p in (*a.posonlyargs, *a.args, *a.kwonlyargs)}
@@ -282,6 +303,6 @@ def _outer_mocks(tree: ast.Module) -> dict[int, frozenset[str]]:
     tracked only by a ``mock`` in its name.
     """
     found: dict[int, frozenset[str]] = {}
-    _add_fixture_params(tree.body, {}, found)
+    _add_fixture_params(tree, {}, found)
     _add_held_by_class(tree, found)
     return found
