@@ -119,7 +119,7 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 - A PR that changes `dokimi/dokimi/`, `dokimi/data/` or the `[project]` /
   `[tool.setuptools]` tables of `dokimi/pyproject.toml` adds a changelog fragment under
   `dokimi/changelog.d/` (`scriv create`), never an edit to `CHANGELOG.md`; the
-  `changelog` workflow enforces it. Versioning and releases:
+  `Fragment for package changes` step in `ci.yml`'s `static` job enforces it. Versioning and releases:
   `dokimi/docs/releasing.md`.
 - Every change to `main` is a PR opened from a fork, based on `main`. Add the
   fork as its own remote so `origin` keeps pointing at `intel/dokimi`:
