@@ -107,6 +107,28 @@ def test_discovery_skips_vendored_copies(tmp_path, vendored):
     assert notes == []
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        ".git",
+        ".hg",
+        ".svn",
+        "node_modules",
+        "site-packages",
+        ".venv",
+        "venv",
+        ".tox",
+        ".nox",
+        "__pycache__",
+    ],
+)
+def test_discovery_skips_each_vendored_name(tmp_path, name):
+    root = tmp_path / "repo"
+    _write_skill(root / "skills" / "a", "a", "Skill a.")
+    _write_skill(root / "skills" / "a" / name / "pkg", "b", "Vendored b.")
+    assert [s.name for s in discover_skills(root)] == ["a"]
+
+
 def test_discovery_walks_a_root_inside_a_vendored_directory(tmp_path):
     root = tmp_path / "node_modules" / "pkg" / "skills"
     _write_skill(root / "a", "a", "Skill a.")
