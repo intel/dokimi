@@ -142,17 +142,33 @@ def _prompts(raw: Any, base: Path, imp: Imported) -> list[tuple[str, Any]]:
     return out
 
 
+_CSV_TYPES = frozenset({*_CONTAINS, "equals", "regex", "starts-with", "llm-rubric", "javascript", "python"})
+
+
+def _csv_assertion(cell: str) -> dict[str, Any]:
+    """promptfoo's ``assertionFromString`` for a ``__expected`` cell: ``[not-]type:value``, else equals."""
+    kind, sep, rest = cell.partition(":")
+    kind, rest = kind.strip(), rest.strip()
+    if not sep:
+        return {"type": "equals", "value": cell}
+    if kind == "grade":
+        return {"type": "llm-rubric", "value": rest}
+    base = kind.removeprefix("not-")
+    if base not in _CSV_TYPES:
+        return {"type": "equals", "value": cell}
+    if base in _CONTAINS and base.endswith(("-any", "-all")):
+        # promptfoo's parseCommaSeparatedValues: a comma splits, a backslash-escaped comma does not.
+        return {"type": kind, "value": [v.replace("\\,", ",") for v in re.split(r"(?<!\\),", rest)]}
+    return {"type": kind, "value": rest}
+
+
 def _csv_tests(text: str, imp: Imported) -> list[dict[str, Any]]:
     tests = []
     for row in csv.DictReader(io.StringIO(text)):
         test: dict[str, Any] = {"vars": {k: v for k, v in row.items() if k and not k.startswith("__")}, "assert": []}
         for key, value in row.items():
             if key and key.startswith("__expected") and value:
-                kind, sep, rest = value.partition(":")
-                if sep and kind.strip() in (*_CONTAINS, "equals", "regex", "starts-with", "llm-rubric"):
-                    test["assert"].append({"type": kind.strip(), "value": rest.strip()})
-                else:
-                    test["assert"].append({"type": "equals", "value": value})
+                test["assert"].append(_csv_assertion(value))
         tests.append(test)
     imp.note("tests read from CSV")
     return tests

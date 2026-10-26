@@ -346,6 +346,22 @@ def test_promptfoo_file_refs_stay_inside_the_config_directory(tmp_path):
     assert _checks(imp)[0]["values"] == ["hello"]
 
 
+def test_promptfoo_csv_expected_cells_follow_assertion_from_string(tmp_path):
+    # promptfoo's assertionFromString: code is not run, grade: is a rubric, not-X negates,
+    # and a *-any / *-all value is a comma list.
+    _write(tmp_path / "tests.csv",
+           'q,__expected1,__expected2,__expected3,__expected4\n'
+           'hi,"javascript:output.length > 3","not-contains: bye","grade: is funny",'
+           '"contains-any: apple,banana"\n')
+    cfg = _write(tmp_path / "promptfooconfig.yaml", "prompts: ['{{q}}']\ntests: file://tests.csv\n")
+    checks = _checks(import_path(cfg, fmt="promptfoo"))
+    assert [c["type"] for c in checks] == ["unsupported", "match", "judge", "match"]
+    assert checks[0]["native"] == "javascript"
+    assert checks[1]["values"] == ["bye"] and checks[1]["negate"] is True
+    assert checks[2]["criterion"] == "is funny"
+    assert checks[3]["values"] == ["apple", "banana"] and checks[3].get("mode", "any") == "any"
+
+
 _EVAL = '{{"evals": [{{"id": 1, "prompt": "p", "expected_output": "o", {}}}]}}'
 
 
