@@ -229,20 +229,27 @@ def _provenance_warnings(cells: list[dict[str, Any]], baseline: str, treatments:
                     if selector_matches(parse_selector(sel), c)}
         if len(versions) > 1:
             out.append(f"{text} vs {baseline}: cells ran on different harness versions ({', '.join(sorted(versions))})")
-        arms = [[c for c in cells if selector_matches(parse_selector(sel), c) and (not models or c["model"] in models)]
-                for sel in (baseline, text)]
-        for model in sorted({c["model"] for c in arms[0]} & {c["model"] for c in arms[1]}):
-            base, treat = ({m for c in arm if c["model"] == model for m in resolved_models(c)} for arm in arms)
-            if base and treat and not _models_equivalent(base, treat):
-                out.append(f"{text} vs {baseline}: model {model} was answered by {', '.join(sorted(base))} in "
-                           f"baseline, {', '.join(sorted(treat))} in treatment")
-        uptake = uptake_counts(arms[1])
-        if uptake and uptake["cells"] and not uptake["used"]:
-            out.append(f"{text}: the agent used none of what the arm added in {uptake['cells']} cell(s); "
-                       "a delta measures the patch's text, not the tool")
+        out += _arm_warnings(cells, baseline, text, models)
     compared = [c for c in cells if (not models or c["model"] in models)
                 and any(selector_matches(parse_selector(sel), c) for sel in (baseline, *treatments))]
     return out + mismatch_warnings(model_mismatch(compared))
+
+
+def _arm_warnings(cells: list[dict[str, Any]], baseline: str, text: str, models: list[str] | None) -> list[str]:
+    """Resolved-model mismatches between ``baseline`` and ``text``, and a treatment whose agent used nothing it added."""
+    out = []
+    arms = [[c for c in cells if selector_matches(parse_selector(sel), c) and (not models or c["model"] in models)]
+            for sel in (baseline, text)]
+    for model in sorted({c["model"] for c in arms[0]} & {c["model"] for c in arms[1]}):
+        base, treat = ({m for c in arm if c["model"] == model for m in resolved_models(c)} for arm in arms)
+        if base and treat and not _models_equivalent(base, treat):
+            out.append(f"{text} vs {baseline}: model {model} was answered by {', '.join(sorted(base))} in "
+                       f"baseline, {', '.join(sorted(treat))} in treatment")
+    uptake = uptake_counts(arms[1])
+    if uptake and uptake["cells"] and not uptake["used"]:
+        out.append(f"{text}: the agent used none of what the arm added in {uptake['cells']} cell(s); "
+                   "a delta measures the patch's text, not the tool")
+    return out
 
 
 def _built_from_tree(stamp: dict[str, Any]) -> bool:

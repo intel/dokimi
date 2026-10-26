@@ -6,7 +6,10 @@
 A profile is data, not code. ``invoke`` is an argv template, and every element
 becomes exactly one argument after placeholder substitution, so a prompt with
 quotes or spaces never passes through a shell. The element ``"{tools}"`` is
-replaced by the argument list of the selected tool mode. The child process
+replaced by the argument list of the selected tool mode, or by its
+``delegation`` override when subagents are turned off, followed, in the ``all``
+tool mode only, by the ``args_if_present`` arguments of each named workspace
+file that exists. The child process
 gets a scrubbed environment: only ``env_allow`` names are inherited, then
 ``env_set`` is applied, then ``config_dir_env`` points at a per-run directory
 so the user's own settings and memory cannot leak into a run.
@@ -14,6 +17,8 @@ so the user's own settings and memory cannot leak into a run.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +33,7 @@ PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
 PLACEHOLDERS = frozenset({"bin", "prompt", "model", "max_turns", "budget"})
 CONFIG_PLACEHOLDERS = frozenset({"config_dir", "support_dir"})
 TOOLS_ELEMENT = "{tools}"
+DELEGATION_MODES = ("native", "none")  # native: the agent may start subagents; none: it cannot
 _PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
 _VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
 
@@ -52,6 +58,8 @@ class HarnessProfile:
     bridge: dict[str, str] | None = None
     prompt_suffix: str = ""
     config_files: dict[str, str] = field(default_factory=dict)
+    delegation: dict[str, dict[str, tuple[str, ...]]] = field(default_factory=dict)
+    args_if_present: dict[str, tuple[str, ...]] = field(default_factory=dict)
     path: str = "<profile>"
 
     @property
@@ -65,6 +73,12 @@ class HarnessProfile:
         depth = self.guidance.get("import_max_depth")
         return int(depth) if depth is not None else None
 
+    def applied_args(self, tools: str, present: frozenset[str]) -> list[str]:
+        """The ``args_if_present`` names :meth:`argv` adds: those in ``present``, in the ``all`` tool mode only."""
+        if tools != "all":  # --tools does not limit MCP tools: only here is the repo's MCP config part of the arm
+            return []
+        return sorted(present & self.args_if_present.keys())
+
     def argv(
         self,
         *,
@@ -74,11 +88,11 @@ class HarnessProfile:
         max_turns: int = 4,
         budget_usd: float = 0.25,
         bin_path: str | None = None,
+        delegation: str = "native",
+        present: frozenset[str] = frozenset(),
     ) -> list[str]:
-        """The command line for one run, without a shell."""
-        if tools not in self.tools:
-            raise ProfileError(f"{self.path}: tool mode {tools!r} is not defined "
-                               f"(have: {', '.join(sorted(self.tools))})")
+        """The command line for one run, without a shell; ``present`` names the workspace files that exist."""
+        tool_args = self.tool_args(tools, delegation)
         values = {
             "bin": bin_path or self.bin,
             "prompt": prompt,
@@ -89,10 +103,56 @@ class HarnessProfile:
         out: list[str] = []
         for element in self.invoke:
             if element == TOOLS_ELEMENT:
-                out.extend(self.tools[tools])
+                out.extend(tool_args)
+                for name in self.applied_args(tools, present):
+                    out.extend(self.args_if_present[name])
             else:
                 out.append(_substitute(element, values))
         return out
+
+    def tool_args(self, tools: str, delegation: str = "native") -> tuple[str, ...]:
+        """What ``{tools}`` becomes: the tool mode's arguments, or its ``delegation`` override."""
+        if tools not in self.tools:
+            raise ProfileError(f"{self.path}: tool mode {tools!r} is not defined "
+                               f"(have: {', '.join(sorted(self.tools))})")
+        if delegation == "native":
+            return self.tools[tools]
+        if delegation not in DELEGATION_MODES:
+            raise ProfileError(f"unknown delegation mode {delegation!r} (known: {', '.join(DELEGATION_MODES)})")
+        if delegation not in self.delegation:
+            raise ProfileError(f"{self.path}: declares no `delegation: {delegation}`, so a run cannot be "
+                               "kept from starting subagents")
+        listed = self.delegation[delegation]
+        if tools not in listed:  # an allow-list: no silent fallback to the native arguments
+            raise ProfileError(f"{self.path}: `delegation: {delegation}` lists no arguments for tool mode "
+                               f"{tools!r} (lists: {', '.join(sorted(listed)) or 'none'}); list every mode "
+                               "it may run with")
+        return listed[tools]
+
+    def effective_delegation(self, tools: str, delegation: str = "native") -> str:
+        """The delegation whose arguments the command line gets: ``native`` when the profile's arguments for
+        ``delegation`` are the native ones (the tool mode never starts subagents anyway)."""
+        if delegation != "native" and self.tool_args(tools, delegation) == self.tools[tools]:
+            return "native"
+        return delegation
+
+    def execution_id(self, tools: str, delegation: str = "native", harness_sha256: str | None = None,
+                     harness_version: str | None = None) -> str:
+        """Short hash of how the agent is started: the profile's ``invoke`` template with its tool arguments,
+        environment, config, prompt suffix, egress and bridge.
+
+        Two runs with the same id ran the same command line up to the per-cell values (prompt, model,
+        caps); ``repo run`` reuses a finished cell only when its id matches. Includes the harness
+        executable's digest and version to detect changes to the effective harness, wherever it lives.
+        """
+        key = {"profile": self.name, "invoke": list(self.invoke), "tools": list(self.tool_args(tools, delegation)),
+               "args_if_present": {n: list(a) for n, a in sorted(self.args_if_present.items())},
+               "env_set": dict(sorted(self.env_set.items())), "env_allow": list(self.env_allow),
+               "config_dir_env": self.config_dir_env, "config_files": dict(sorted(self.config_files.items())),
+               "egress": list(self.egress), "bridge": self.bridge,
+               "prompt_suffix": self.prompt_suffix, "harness_sha256": harness_sha256,
+               "harness_version": harness_version}
+        return hashlib.sha256(json.dumps(key, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
     def prompt(self, task_prompt: str) -> str:
         """The task prompt as the agent gets it: with ``prompt_suffix`` after a blank line."""
@@ -192,6 +252,9 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
         bridge=raw.get("bridge"),
         prompt_suffix=raw.get("prompt_suffix") or "",
         config_files=dict(raw.get("config_files") or {}),
+        delegation={mode: {t: tuple(args) for t, args in by_tools.items()}
+                    for mode, by_tools in (raw.get("delegation") or {}).items()},
+        args_if_present={name: tuple(args) for name, args in (raw.get("args_if_present") or {}).items()},
         path=path,
     )
 

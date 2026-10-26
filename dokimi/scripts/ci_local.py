@@ -66,8 +66,9 @@ WORKFLOWS = REPO / ".github" / "workflows"
 
 # Jobs or steps that cannot run offline. Keyed by job id, or (job id, step name).
 # pre-commit clones its hook repositories on first use; gitleaks downloads its binary.
-NEEDS_NETWORK = {"package-smoke", "windows-smoke", "conda-forge-deps", "gitleaks",
-                 ("static", "pre-commit"), "pip-audit"}
+NEEDS_NETWORK = {"package-smoke", "windows-smoke", "conda-forge-deps",
+                 ("static", "pre-commit"), ("static", "Install gitleaks"), ("static", "Scan commits"),
+                 "pip-audit"}
 NEEDS_DOCKER = {"external-catalog-smoke"}
 # Jobs that run a tool `make dev` does not install (a `uses:` step installs it in CI).
 NEEDS_TOOL = {"conda-forge-deps": "micromamba"}
@@ -191,7 +192,7 @@ class Context:
             "matrix.coverage": "true",
             "runner.temp": str(tmp),
             "github.workspace": str(REPO),
-            "needs.changes.outputs.code": "true",
+            "steps.changes.outputs.code": "true",
             "contains(github.event.pull_request.labels.*.name, 'schema-break-ok')": "false",
             "contains(github.event.pull_request.labels.*.name, 'skip-changelog')": "false",
         }

@@ -205,7 +205,7 @@ class DockerSolverHarness:
         log = log_path.open("w", encoding="utf-8")
         usage: Optional[UsageRecord] = None
         image = f"dokimi/{task.name}:latest"
-        container = f"dokimi-run-{task.name}-{os.getpid()}"
+        container = f"dokimi-run-{task.name}-{os.getpid()}-{os.urandom(3).hex()}"  # two cells in one process
         solve_timeout = timeout_sec or task.timeout_sec or _DEFAULT_SOLVE_TIMEOUT
         start = time.time()
         returncode = 0
