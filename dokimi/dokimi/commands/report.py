@@ -13,11 +13,30 @@ from pathlib import Path
 from dokimi.report.markdown_report import write_compare_report, write_run_report
 
 
+def _write_combined_report(args, regular_runs, golden_runs, run_ids, warnings) -> None:
+    """Write the combined model-compare report, exiting cleanly if the output is unwritable."""
+    from dokimi.report.model_compare import generate_combined_report
+
+    try:
+        generate_combined_report(
+            regular_runs,
+            golden_runs,
+            run_ids,
+            args.out,
+            treatment_arm=getattr(args, "treatment_arm", None),
+            correction=getattr(args, "stats_correction", "holm"),
+            pool_replicates=getattr(args, "pool_replicates", False),
+            warnings=warnings,
+        )
+    except OSError as exc:
+        print(f"Error: cannot write {args.out}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+
 def cmd_report_model_compare(args: argparse.Namespace) -> None:
     """Compare multiple model runs and write a Markdown report."""
     from dokimi.report.model_compare import (
         check_run_consistency,
-        generate_combined_report,
         load_run,
     )
 
@@ -67,20 +86,7 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
     for w in all_warnings:
         print(w, file=sys.stderr)
 
-    try:
-        generate_combined_report(
-            regular_runs,
-            golden_runs,
-            run_ids,
-            args.out,
-            treatment_arm=pinned_arm,
-            correction=getattr(args, "stats_correction", "holm"),
-            pool_replicates=pool_replicates,
-            warnings=all_warnings,
-        )
-    except OSError as exc:
-        print(f"Error: cannot write {args.out}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+    _write_combined_report(args, regular_runs, golden_runs, run_ids, all_warnings)
 
 
 def cmd_report(args: argparse.Namespace) -> None:
