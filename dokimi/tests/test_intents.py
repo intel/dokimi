@@ -45,6 +45,31 @@ def test_loads_domains(tmp_path):
     assert domain.example_intents == ["Find the data race"]
 
 
+def test_blank_products_and_name_are_unset_not_malformed(tmp_path, capsys):
+    from dokimi.cli import build_parser
+
+    path = tmp_path / "intents.yaml"
+    path.write_text(
+        "domains:\n"
+        "  planned-domain:\n"
+        "    name:\n"
+        "    description: not served yet\n"
+        "    products:\n"
+        "  bad-domain:\n"
+        "    products: onemkl\n",
+        encoding="utf-8",
+    )
+
+    args = build_parser().parse_args(["library", "intents", "--intents", str(path)])
+    args.func(args)
+
+    out = capsys.readouterr().out
+    assert "planned-domain — planned-domain" in out
+    assert "products: —" in out
+    assert "bad-domain" not in out
+    assert "1 intent domains registered." in out
+
+
 def test_missing_file_does_not_raise(tmp_path):
     reg = IntentRegistry(path=tmp_path / "nonexistent.yaml")
     assert reg.list() == []
