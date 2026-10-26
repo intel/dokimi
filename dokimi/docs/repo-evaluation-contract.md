@@ -432,7 +432,7 @@ parent's and subagents' together, so a grader need not:
 | `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match |
 | `counters` | each `process_metrics` name (§2) and its count |
 
-`process` is `null` when the trace could not be read, or the agent left none (no event and no result record).
+`process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).
 
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),
