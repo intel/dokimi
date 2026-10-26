@@ -27,6 +27,7 @@ from dokimi.harnesses.swebench import (
     eval_script,
     instance_image,
     load_swebench,
+    patch_files,
     read_instances,
     repo_spec,
     specs,
@@ -172,6 +173,16 @@ def test_a_tracked_test_file_with_a_space_is_reset_by_its_whole_name():
     lines = eval_script(row, repo_spec("pytest-dev/pytest", "4.4")[1]).splitlines()
     words = [shlex.split(line) for line in lines if line.startswith("git checkout")]
     assert words == [["git", "checkout", row["base_commit"], "a b.py"]] * 2
+
+
+def test_an_added_test_file_with_a_space_is_cleaned_by_its_whole_name():
+    # An added file has no "--- a/" name, so only the tab-stripped "+++ b/" side supplies it.
+    test_patch = "diff --git a/new file.py b/new file.py\n--- /dev/null\n+++ b/new file.py\t\n"
+    assert patch_files(test_patch) == ([], ["new file.py"])
+    row = dict(_row(PYTEST_ID), test_patch=test_patch)
+    lines = eval_script(row, repo_spec("pytest-dev/pytest", "4.4")[1]).splitlines()
+    words = [shlex.split(line) for line in lines if line.startswith("rm -f")]
+    assert words and all(w == ["rm", "-f", "--", "new file.py"] for w in words)
 
 
 def test_a_test_patch_that_ends_the_heredoc_is_refused_not_run_as_shell():
