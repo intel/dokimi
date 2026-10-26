@@ -10,8 +10,9 @@ localization results), ``novelty`` (what an artifact's content adds to one
 model), ``guidance_reach`` (L1 reach probes), ``repo_readiness`` (L0 claim
 checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
-repository offers an agent) and ``repo_budget`` (what a repository puts
-into an agent's context). This module stamps each with a
+repository offers an agent), ``repo_budget`` (what a repository puts
+into an agent's context) and ``task_inspect`` (which eval-task format each
+path under a tree is). This module stamps each with a
 ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
@@ -52,6 +53,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "tool_preference": "tool_preference.v1",
     "repo_environment": "repo_environment.v1",
     "repo_budget": "repo_budget.v1",
+    "task_inspect": "task_inspect.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an

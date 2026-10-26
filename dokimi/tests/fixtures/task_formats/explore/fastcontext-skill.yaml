@@ -1,0 +1,10 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+id: fastcontext-skill
+product: dokimi
+query: >
+  Where is the FastContext skill that tells an agent to explore and commit to a
+  compact citation block before acting?
+references:
+  - path: data/skills/fastcontext/SKILL.md

@@ -101,6 +101,8 @@ def test_selection_summary_scores_hits_misroutes_and_false_triggers():
     assert s["recall"] == 0.5
     assert s["misroute_rate"] == 0.25
     assert s["false_trigger_rate"] == 0.5
+    # Loaded on 4 of 6: two hits, one misroute, one false trigger.
+    assert s["precision"] == 0.5
     assert s["selection_accuracy"] == round(3 / 6, 3)
     assert s["confusion"]["linux-perf"] == {"linux-perf": 1, "onetbb-quickstart": 1, "(none)": 1}
     assert s["confusion"]["(none)"] == {"(none)": 1, "linux-perf": 1}
@@ -117,7 +119,7 @@ def test_report_renders_selection_table():
         "skill_selection_summary": summarize_skill_selection([_rec("a", "a"), _rec(None, "a")]),
     })
     assert "## Skill selection" in md
-    assert "| `cat` | 50% | 100% | 100% | 0% | 0% | 100% | 1/1 | 2 | 0 |" in md
+    assert "| `cat` | 50% | 100% | 50% | 100% | 0% | 0% | 100% | 1/1 | 2 | 0 |" in md
 
 
 # ── trigger set ──────────────────────────────────────────────────────────
@@ -428,7 +430,7 @@ def test_combined_arm_rejects_duplicate_tools(catalog):
 def test_report_renders_dash_for_missing_rates():
     md = render_arms_report({"arms": ["cat"], "answers": [],
                              "skill_selection_summary": summarize_skill_selection([_rec(None, None)])})
-    assert "| `cat` | 100% | — | — | — | — | 0% | 0/1 | 1 | 0 |" in md
+    assert "| `cat` | 100% | — | — | — | — | — | 0% | 0/1 | 1 | 0 |" in md
 
 
 def _qfile(tmp_path, name, rows):
@@ -726,3 +728,11 @@ def test_loading_the_whole_catalog_in_one_turn_is_not_a_hit(catalog):
     assert (s["recall"], s["misroute_rate"], s["recall_any"]) == (0.0, 1.0, 1.0)
     assert s["mean_first_turn_loads"] == 3.0
     assert s["confusion"] == {"linux-perf": {"dpnp-io+linux-perf+onetbb-quickstart": 1}}
+
+
+def test_selection_precision_is_none_when_nothing_loaded_and_strict_on_multi_load():
+    assert summarize_skill_selection([_rec("a", None), _rec(None, None)])["cat"]["precision"] is None
+    rec = _rec("a", "a")
+    rec["arms"]["cat"]["tool_usage"]["skill"]["first_turn_loaded"] = ["a", "b"]
+    s = summarize_skill_selection([rec, _rec("a", "a")])["cat"]
+    assert (s["precision"], s["recall_any"]) == (0.5, 1.0)

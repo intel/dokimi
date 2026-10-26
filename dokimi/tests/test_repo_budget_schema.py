@@ -40,6 +40,7 @@ def _budget_json(root, capsys, *extra):
     return json.loads(capsys.readouterr().out)
 
 
+@pytest.mark.outcome("cjm-repo-budget")
 def test_json_is_a_stamped_repo_budget_artifact(tmp_path, capsys):
     _populated_tree(tmp_path)
     data = _budget_json(tmp_path, capsys)
@@ -69,6 +70,7 @@ def test_nothing_to_budget_is_still_valid(tmp_path, capsys):
 
 @pytest.mark.parametrize("field", ["schema_version", "tree", "entries", "totals", "skills", "duplicate_skills",
                                    "mcp_servers", "warnings"])
+@pytest.mark.outcome("cjm-repo-budget")
 def test_a_payload_missing_a_field_is_rejected(tmp_path, capsys, field):
     _populated_tree(tmp_path)
     data = _budget_json(tmp_path, capsys)

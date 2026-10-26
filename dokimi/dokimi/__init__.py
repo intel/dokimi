@@ -22,7 +22,8 @@ Tracks and the tools beside them:
   [`dashboard`][dokimi.dashboard] aggregates results across libraries and
   [`orchestrator`][dokimi.orchestrator] runs the one-command pipeline.
 - Executable tasks: [`harnesses`][dokimi.harnesses] runs coding agents on task
-  directories.
+  directories; [`task_formats`][dokimi.task_formats] names the format of other
+  eval-task files and directories (detection only).
 - [`context`][dokimi.context] reads what a run's context window held.
 - Content novelty: [`novelty`][dokimi.novelty]. Repositories as subjects:
   [`repos`][dokimi.repos]. Subject scorecards, one per run:
