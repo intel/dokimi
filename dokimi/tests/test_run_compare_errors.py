@@ -62,9 +62,13 @@ def test_compare_exits_2_on_a_bad_snapshot(tmp_path, monkeypatch, capsys, which,
 @pytest.mark.parametrize(
     "content",
     [None, "a: [", "- a\n", "[" * 100000, "thresholds:\n", "thresholds: []\n", "thresholds: {regressions: 3}\n",
-     "thresholds: {regressions: }\n"],
+     "thresholds: {regressions: }\n", "thresholds: {regressions: {score: null}}\n",
+     "thresholds: {regressions: {score: [1]}}\n", "thresholds: {regressions: {score: .nan}}\n",
+     "thresholds: {regressions: {score: .inf}}\n", "thresholds: {regressions: {score: -1}}\n",
+     "thresholds: {regressions: {score: true}}\n", "thresholds: {regressions: {score: " + "9" * 400 + "}}\n"],
     ids=["missing", "malformed", "not-a-mapping", "too-deep", "thresholds-empty", "thresholds-list",
-         "regressions-scalar", "regressions-empty"])
+         "regressions-scalar", "regressions-empty", "value-null", "value-list", "value-nan",
+         "value-inf", "value-negative", "value-bool", "value-huge-int"])
 def test_compare_exits_2_on_a_bad_spec(tmp_path, monkeypatch, capsys, content):
     spec = tmp_path / "spec.yaml"
     _write(spec, content)
@@ -98,7 +102,7 @@ def test_run_exits_2_when_the_root_has_fewer_docs_than_min_docs(tmp_path, monkey
 @pytest.mark.parametrize("which", ["--base", "--candidate"])
 @pytest.mark.parametrize("field,value", [
     ("docs", "1"), ("score", None), ("coverage", True), ("score", float("nan")), ("score", float("inf")),
-    ("readability", 1e999), ("docs", 1.5), ("example_pass_rate", float("nan")), ("example_pass_rate", "x"),
+    ("readability", 1e999), ("docs", 1.5), ("score", 10**400), ("example_pass_rate", 10**400), ("example_pass_rate", float("nan")), ("example_pass_rate", "x"),
 ])
 def test_compare_exits_2_on_a_non_numeric_summary_value(tmp_path, monkeypatch, capsys, which, field, value):
     bad = tmp_path / "bad.json"

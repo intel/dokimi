@@ -43,7 +43,15 @@ def _valid_number(key: str, value: object) -> bool:
         return False
     if key == "docs":
         return isinstance(value, int)
-    return isinstance(value, (int, float)) and math.isfinite(value)
+    return isinstance(value, (int, float)) and _is_finite(value)
+
+
+def _is_finite(value: int | float) -> bool:
+    """True for a finite number; an int too large for a float is not finite."""
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def compare_snapshots(base_path: Path, cand_path: Path, spec: dict | None = None) -> dict:

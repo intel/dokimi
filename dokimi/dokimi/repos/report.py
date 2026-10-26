@@ -63,18 +63,31 @@ def _planned_cells(plan_path: Path) -> set[str]:
 _AGENT_KEYS = ("timed_out", "is_error", "over_budget", "cost_usd", "num_turns")
 
 
+def _valid_cost(cost: object) -> bool:
+    """True for a missing cost or a finite, non-bool number."""
+    if cost is None:
+        return True
+    if isinstance(cost, bool) or not isinstance(cost, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(cost))
+    except OverflowError:
+        return False
+
+
 def _check_cell(path: Path, rec: dict[str, Any]) -> None:
     """Raise a :class:`CellFileError` unless ``rec`` has the fields the report and compare read."""
     grade = rec.get("grade")
-    needed = ("status", "success") if "score_task" in rec else ("status", "score_only", "success")
+    needed = ("status", "score", "success") if "score_task" in rec else ("status", "score_only", "success")
     if not isinstance(grade, dict) or any(k not in grade for k in needed):
         raise CellFileError(f"{path} has no usable `grade`")
     agent = rec.get("agent")
     if not isinstance(agent, dict) or any(k not in agent for k in _AGENT_KEYS):
         raise CellFileError(f"{path} has no usable `agent`")
-    cost = agent["cost_usd"]
-    if isinstance(cost, bool) or not (cost is None or isinstance(cost, (int, float))):
+    if not _valid_cost(agent["cost_usd"]):
         raise CellFileError(f"{path} has no usable `agent`")
+    if "score_task" in rec and not isinstance(rec["score_task"], bool):
+        raise CellFileError(f"{path} has no usable `score_task`")
     for key in ("task", "arm", "model"):
         if not isinstance(rec.get(key), str):
             raise CellFileError(f"{path} has no usable `{key}`")

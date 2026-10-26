@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -102,9 +103,24 @@ def _load_compare_spec(spec_path: Path) -> dict | None:
     thresholds = (spec_data or {}).get("thresholds", {})
     if not isinstance(thresholds, dict):
         raise ValueError(f"Invalid spec {spec_path}: `thresholds` must be a mapping")
-    if not isinstance(thresholds.get("regressions", {}), dict):
+    regressions = thresholds.get("regressions", {})
+    if not isinstance(regressions, dict):
         raise ValueError(f"Invalid spec {spec_path}: `thresholds.regressions` must be a mapping")
+    for name, value in regressions.items():
+        if not _non_negative_number(value):
+            raise ValueError(
+                f"Invalid spec {spec_path}: `thresholds.regressions.{name}` must be a finite non-negative number, got {value!r}"
+            )
     return spec_data
+
+
+def _non_negative_number(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value) and value >= 0
+    except OverflowError:
+        return False
 
 
 def cmd_compare(args: argparse.Namespace) -> None:

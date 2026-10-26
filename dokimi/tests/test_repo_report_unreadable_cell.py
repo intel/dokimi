@@ -10,6 +10,7 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.repos.report import _AGENT_KEYS
 
 
 def _batch(tmp_path, name: str, files: dict[str, bytes]):
@@ -130,7 +131,7 @@ def test_a_result_file_without_usable_agent_task_arm_or_model_exits_1(tmp_path, 
 
 
 def test_a_result_file_with_a_score_task_and_no_score_only_is_accepted(tmp_path, capsys):
-    rec = {**_GOOD, "score_task": False, "grade": {"status": "ok", "success": True},
+    rec = {**_GOOD, "score_task": False, "grade": {"status": "ok", "score": 1.0, "success": True},
            "agent": {**_GOOD["agent"], "cost_usd": None}}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
     _run("report", str(batch), "--json")
@@ -156,8 +157,9 @@ def test_an_unreadable_result_file_exits_1_naming_the_file(tmp_path, capsys):
     assert f"cannot read {batch / 't__a__m__r1' / 'result.json'}" in err and "Traceback" not in err
 
 
-def test_a_result_file_without_num_turns_exits_1(tmp_path, capsys):
-    agent = {k: v for k, v in _GOOD["agent"].items() if k != "num_turns"}
+@pytest.mark.parametrize("key", _AGENT_KEYS)
+def test_a_result_file_missing_an_agent_key_exits_1(tmp_path, capsys, key):
+    agent = {k: v for k, v in _GOOD["agent"].items() if k != key}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps({**_GOOD, "agent": agent}).encode()})
     with pytest.raises(SystemExit) as exc:
         _run("report", str(batch))
@@ -165,8 +167,55 @@ def test_a_result_file_without_num_turns_exits_1(tmp_path, capsys):
     assert "has no usable `agent`" in capsys.readouterr().err
 
 
+def test_a_result_file_without_grade_status_exits_1(tmp_path, capsys):
+    grade = {k: v for k, v in _GOOD["grade"].items() if k != "status"}
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps({**_GOOD, "grade": grade}).encode()})
+    with pytest.raises(SystemExit) as exc:
+        _run("report", str(batch))
+    assert exc.value.code == 1
+    assert "has no usable `grade`" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("cost", ["NaN", "Infinity", "-Infinity", "1e999", "9" * 400])
+@pytest.mark.parametrize("cmd", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
+def test_a_result_file_with_a_non_finite_cost_exits_1(tmp_path, capsys, cmd, cost):
+    text = json.dumps(_GOOD).replace("0.1", cost)
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": text.encode()})
+    with pytest.raises(SystemExit) as exc:
+        _run(cmd[0], str(batch), *cmd[1:])
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "has no usable `agent`" in err and "Traceback" not in err
+
+
+def test_a_score_task_result_file_without_grade_score_exits_1(tmp_path, capsys):
+    rec = {**_GOOD, "score_task": True, "grade": {"status": "ok", "success": True}}
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
+    with pytest.raises(SystemExit) as exc:
+        _run("report", str(batch))
+    assert exc.value.code == 1
+    assert "has no usable `grade`" in capsys.readouterr().err
+
+
+def test_a_score_task_result_file_with_a_null_grade_score_is_accepted(tmp_path, capsys):
+    rec = {**_GOOD, "score_task": True, "grade": {"status": "grader_failure", "score": None, "success": False}}
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
+    _run("report", str(batch), "--json")
+    assert json.loads(capsys.readouterr().out)["rows"]
+
+
+@pytest.mark.parametrize("value", ["false", 0, None, []])
+def test_a_result_file_with_a_non_bool_score_task_exits_1(tmp_path, capsys, value):
+    rec = {**_GOOD, "score_task": value, "grade": {"status": "ok", "score": 1.0, "success": True}}
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
+    with pytest.raises(SystemExit) as exc:
+        _run("report", str(batch))
+    assert exc.value.code == 1
+    assert "has no usable `score_task`" in capsys.readouterr().err
+
+
 def test_a_score_task_result_file_without_grade_success_exits_1(tmp_path, capsys):
-    rec = {**_GOOD, "score_task": True, "grade": {"status": "ok"}}
+    rec = {**_GOOD, "score_task": True, "grade": {"status": "ok", "score": 1.0}}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
     with pytest.raises(SystemExit) as exc:
         _run("report", str(batch))
