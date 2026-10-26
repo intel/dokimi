@@ -121,15 +121,16 @@ def _propagate_mocks(nodes: list[ast.AST], mocks: set[str]) -> None:
                     changed = True
 
 
-def _mock_names(fn: _FuncDef, nodes: list[ast.AST]) -> frozenset[str]:
+def _mock_names(fn: _FuncDef, nodes: list[ast.AST], seed: frozenset[str] = frozenset()) -> frozenset[str]:
     """Names bound to a patch or a mock: ``@patch`` arguments, ``with patch(...) as m``,
     ``m = MagicMock()`` / ``mocker.patch(...)`` / ``p.start()``, the replacement handed to
     a patch (``monkeypatch.setattr(mod, "f", fake)``), and names read off those
-    (``m = llm.return_value``). ``stats = run()`` binds data, not a mock."""
+    (``m = llm.return_value``). ``stats = run()`` binds data, not a mock. *seed* holds the
+    mocks the test gets from outside its body, so ``m = self.m`` is read off one too."""
     params = [a.arg for a in [*fn.args.posonlyargs, *fn.args.args]]
     if params and params[0] in ("self", "cls"):
         params = params[1:]
-    mocks = set(params[:_injected_patches(fn)])
+    mocks = set(params[:_injected_patches(fn)]) | seed
     for node in nodes:
         if isinstance(node, ast.With | ast.AsyncWith):
             for item in node.items:
@@ -209,11 +210,11 @@ def _is_mock_verify(test: ast.expr, mocks: frozenset[str]) -> bool:
 
 def _scope_members(scope: ast.AST) -> Iterator[ast.AST]:
     """The functions and classes a module or class defines, also those under ``if``, ``try``,
-    ``with`` or a loop: they are in the same scope."""
+    ``with``, a loop or ``match``: they are in the same scope."""
     for child in ast.iter_child_nodes(scope):
         if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             yield child
-        elif isinstance(child, ast.stmt | ast.excepthandler):
+        elif isinstance(child, ast.stmt | ast.excepthandler | ast.match_case):
             yield from _scope_members(child)
 
 
@@ -238,12 +239,22 @@ def _is_fixture(fn: _FuncDef) -> bool:
     return any("fixture" in _dotted(d.func if isinstance(d, ast.Call) else d) for d in fn.decorator_list)
 
 
+_WRAPPERS = frozenset({"SimpleNamespace", "dict"})
+
+
 def _holds_mock(value: ast.expr, mocks: set[str]) -> bool:
-    """A mock or a patch, or a tuple, list, set or dict with one among its own items."""
-    if isinstance(value, ast.Tuple | ast.List | ast.Set | ast.Dict):
-        items = value.values if isinstance(value, ast.Dict) else value.elts
-        return any(_is_mock_source(i, mocks) for i in items)
-    return _is_mock_source(value, mocks)
+    """A mock or a patch, or a container with one among its own items: a tuple, list, set or
+    dict display, or ``SimpleNamespace(...)`` / ``dict(...)``. Another call is data, even when a
+    mock is among its arguments (``run(m)``): it may return anything."""
+    if isinstance(value, ast.Tuple | ast.List | ast.Set):
+        items: list[ast.expr] = value.elts
+    elif isinstance(value, ast.Dict):
+        items = value.values
+    elif isinstance(value, ast.Call) and _call_name(value) in _WRAPPERS:
+        items = [*value.args, *(k.value for k in value.keywords)]
+    else:
+        return _is_mock_source(value, mocks)
+    return any(_is_mock_source(i, mocks) for i in items)
 
 
 def _returns_mock(fn: _FuncDef) -> bool:
@@ -291,11 +302,16 @@ _COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 def _rebound(fn: _FuncDef) -> set[str]:
     """Names the test assigns and then reads: after ``stats = run()`` the parameter's value is gone.
 
-    A comprehension's variable is its own, and a store after the last read leaves the checked value."""
+    A comprehension's variable is its own, a store after the last read leaves the checked value,
+    and a store of a mock read off the same name (``llm = llm.return_value``) keeps it a mock."""
+    nodes = list(_own_nodes(fn.body, _SCOPES + _COMPREHENSIONS))
+    kept = {id(t) for a in nodes if isinstance(a, ast.Assign | ast.AnnAssign) and a.value is not None
+            for t in (a.targets if isinstance(a, ast.Assign) else [a.target])
+            if isinstance(t, ast.Name) and _is_mock_source(a.value, {t.id})}
     first_store: dict[str, tuple[int, int]] = {}
     last_load: dict[str, tuple[int, int]] = {}
-    for n in _own_nodes(fn.body, _SCOPES + _COMPREHENSIONS):
-        if isinstance(n, ast.Name):
+    for n in nodes:
+        if isinstance(n, ast.Name) and id(n) not in kept:
             at = (n.lineno, n.col_offset)
             if isinstance(n.ctx, ast.Store):
                 first_store[n.id] = min(first_store.get(n.id, at), at)

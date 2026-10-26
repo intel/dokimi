@@ -559,6 +559,19 @@ def test_a_called_check_on_a_patched_mock_is_still_a_mock_echo(source):
     "@pytest.fixture\ndef llm():\n    return MagicMock()\n"
     "@pytest.mark.parametrize('n,llm', [(1, 2)], indirect=['llm'])\n"
     "def test_x(n, llm):\n    with patch('m.y'):\n        run(llm)\n    assert llm.called",
+    # a test under `match`; a fixture that returns its mock in a SimpleNamespace or dict(...)
+    "import sys\n@pytest.fixture\ndef llm():\n    return MagicMock()\nmatch sys.platform:\n    case _:\n"
+    "        def test_x(llm):\n            with patch('m.y'):\n                run(llm)\n"
+    "            assert llm.called",
+    "@pytest.fixture\ndef env():\n    m = MagicMock()\n    return SimpleNamespace(llm=m)\ndef test_x(env):\n"
+    "    with patch('m.y'):\n        run(env)\n    assert env.llm.called",
+    "@pytest.fixture\ndef env():\n    return dict(llm=MagicMock())\ndef test_x(env):\n"
+    "    with patch('m.y'):\n        run(env)\n    assert env['llm'].called",
+    # a mock read off the fixture's mock, or off a mock setUp holds, is a mock too
+    "@pytest.fixture\ndef llm():\n    return MagicMock()\ndef test_x(llm):\n    with patch('m.y'):\n"
+    "        run(llm)\n    llm = llm.return_value\n    assert llm.called",
+    "class TestX:\n    def setUp(self):\n        self.m = MagicMock()\n    def test_x(self):\n"
+    "        with patch('m.y'):\n            run(self.m)\n        m = self.m\n        assert m.called",
 ])
 def test_a_mock_bound_outside_the_test_body_is_still_a_mock_echo(source):
     audits = {a.test.rsplit(".", 1)[-1]: a.flags for a in atq.audit_source(textwrap.dedent(source))}
@@ -606,6 +619,9 @@ def test_a_fixture_that_returns_data_is_not_a_mock():
     # ... also in a dict: only a mock among the items makes it a mock
     "@pytest.fixture\ndef stats():\n    m = MagicMock()\n    return {'n': run(m)}\ndef test_x(stats):\n"
     "    with patch('m.y'):\n        run()\n    assert stats['n'].call_count == 2",
+    # ... and a SimpleNamespace holding only data made with one
+    "@pytest.fixture\ndef env():\n    m = MagicMock()\n    return SimpleNamespace(n=run(m))\ndef test_x(env):\n"
+    "    with patch('m.y'):\n        run()\n    assert env.n.call_count == 2",
     # a fixture of another class is not in the test's scope
     "class TestA:\n    @pytest.fixture\n    def stats(self):\n        return MagicMock()\nclass TestX:\n"
     "    def test_x(self, stats):\n        with patch('m.y'):\n            run()\n        assert stats.call_count == 2",
