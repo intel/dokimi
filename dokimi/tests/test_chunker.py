@@ -35,3 +35,15 @@ def test_whitespace_is_normalised_and_empty_text_has_no_chunks():
 def test_bad_sizes_are_rejected(size, overlap):
     with pytest.raises(ValueError):
         chunk_text("text", chunk_size=size, overlap=overlap)
+
+
+def test_one_character_past_chunk_size_starts_a_second_chunk():
+    chunks = chunk_text("a" * 801)
+    assert [len(c) for c in chunks] == [800, 81]
+
+
+@pytest.mark.parametrize("length", [99, 100, 101, 179, 180, 181, 259, 260, 261])
+def test_chunks_reassemble_to_the_text_around_the_boundaries(length):
+    text = "".join(chr(ord("a") + i % 26) for i in range(length))
+    chunks = chunk_text(text, chunk_size=100, overlap=20)
+    assert "".join(c[:80] for c in chunks[:-1]) + chunks[-1] == text

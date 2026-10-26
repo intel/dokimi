@@ -33,3 +33,8 @@ def test_discover_markdown_skips_vendored_and_vcs_dirs(tmp_path):
 def test_discover_markdown_keeps_docs_that_merely_resemble_skipped_names(tmp_path):
     kept = _touch(tmp_path, "node_modules_guide", "setup.md")
     assert discover_markdown(tmp_path) == [kept]
+
+
+def test_discover_markdown_root_inside_a_skipped_dir_name_is_still_searched(tmp_path):
+    a = _touch(tmp_path, "venv", "proj", "docs", "a.md")
+    assert discover_markdown(tmp_path / "venv" / "proj" / "docs") == [a]
