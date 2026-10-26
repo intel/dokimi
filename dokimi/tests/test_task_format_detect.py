@@ -568,15 +568,17 @@ def test_skill_reach_keys_yaml_reads_as_bool_or_int_are_linted_not_a_crash(tmp_p
     assert reports["s.jsonl"].format == "inspect-samples"
 
 
-@pytest.mark.parametrize("name, data", [
-    ("promptfooconfig.json", {"prompts": ["p"], "providers": ["x"], "tests": 5}),
-    ("q.json", {"schema_version": "questions.v1", "questions": None}),
+@pytest.mark.parametrize("name, data, items, problem", [
+    ("promptfooconfig.json", {"prompts": ["p"], "providers": ["x"], "tests": 5}, None, "tests is int"),
+    ("promptfooconfig.json", {"prompts": ["p"], "providers": ["x"], "tests": True}, None, "tests is bool"),
+    ("q.json", {"schema_version": "questions.v1", "questions": None}, 0, "NoneType"),
 ])
-def test_a_non_list_tests_or_questions_value_is_not_iterated(tmp_path, name, data):
+def test_a_non_list_tests_or_questions_value_is_not_iterated(tmp_path, name, data, items, problem):
     _write(tmp_path / name, json.dumps(data))
     _jsonl(tmp_path / "ok" / "s.jsonl", [{"input": "q", "target": "a"}])
     reports = {r.path.name: r for r in inspect_path(tmp_path)}
-    assert reports[name].items in (None, 0)
+    assert reports[name].items == items
+    assert any(problem in p for p in reports[name].problems), reports[name].problems
     assert reports["s.jsonl"].format == "inspect-samples"
 
 

@@ -96,6 +96,8 @@ class PromptfooProbe:
                 report.details["references"] = [reference(local, FORMAT_PROMPTFOO_TESTS)]
         elif data and tests is None and not any(k in data for k in ("scenarios", "redteam")):
             report.problems.append("no tests")
+        elif tests is not None and not isinstance(tests, list):
+            report.problems.append(f"tests is {type(tests).__name__}, expected a list or a path")
         if data and not data.get("prompts") and "redteam" not in data:
             report.problems.append("no prompts")
         return report
