@@ -54,6 +54,7 @@ _BASE_RE = re.compile(r"^([0-9a-f]{7,40})(\^?)$")
 TASK_REQUIRED = ("id", "family", "base", "prompt", "grader")
 _PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
 
+
 # Run-dir entries the framework creates itself and the agent's container does not mount. An `image.env`
 # scratch directory with one of these names would hand the agent the framework's own entry. The
 # mounted ones (workspace, home, config) are not scratch and stay allowed: nothing new is mounted.
