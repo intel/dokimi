@@ -210,7 +210,8 @@ _SOLVER = re.compile(r"\b(?:solver|plan)\s*=")
 _DATASET_CALL = re.compile(
     r"\b(?P<loader>json_dataset|csv_dataset|file_dataset|example_dataset|hf_dataset)\(\s*"
     r"(?:(?:name|json_file|csv_file|path)\s*=\s*)?[rbuf]?[\"'](?P<arg>[^\"']+)[\"']")
-_FIELD_SPEC = re.compile(r"\bFieldSpec\((?P<args>[^)]*)\)")
+# Bounded, and an unclosed FieldSpec( stops at the next one: a flood of them costs linear time.
+_FIELD_SPEC = re.compile(r"\bFieldSpec\((?P<args>(?:(?!FieldSpec\()[^)]){0,1000})\)")
 _FIELD_ARG = re.compile(r"\b(input|target|id|choices)\s*=\s*[\"']([^\"']+)[\"']")
 _RECORD_TO_SAMPLE = re.compile(r"\bsample_fields\s*=\s*(?!FieldSpec\b)[A-Za-z_]\w*")
 

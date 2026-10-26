@@ -21,6 +21,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -455,6 +456,20 @@ def test_inspect_task_follows_local_files_not_hub_datasets(tmp_path):
     assert task["record_to_sample"] is True
     assert [r["path"] for r in task["references"]] == [str(tmp_path / "d.csv")]
     assert (by_name["d.csv"].format, by_name["d.csv"].items) == ("inspect-samples", 1)
+
+
+def test_a_flood_of_unclosed_field_specs_is_scanned_in_linear_time(tmp_path):
+    flood = "    a = json_dataset('a.jsonl')\n" + "FieldSpec(" * 20000 + "\n"
+    spec = ("    return Task(dataset=json_dataset('d.jsonl',\n        FieldSpec(\n"
+            "            input='question',\n            target='answer',\n            id='qid',\n"
+            "            metadata=['topic', 'source', 'difficulty'],\n"
+            "            sandbox='docker',\n        ),\n    ))\n")
+    path = _write(tmp_path / "t.py", "from inspect_ai import Task, task\n@task\ndef t():\n" + flood + spec)
+    start = time.perf_counter()
+    [report] = inspect_path(path)
+    assert time.perf_counter() - start < 1  # 10 s with an unbounded [^)]*
+    fields = {Path(r["path"]).name: r.get("fields") for r in report.details["references"]}
+    assert fields == {"a.jsonl": None, "d.jsonl": {"input": "question", "target": "answer", "id": "qid"}}
 
 
 def test_a_config_does_not_relabel_a_file_another_format_owns_outright(tmp_path):
