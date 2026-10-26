@@ -40,7 +40,7 @@ EXECUTORS: dict[str, tuple[str, list[str]]] = {
 }
 
 
-_FENCE_OPEN_RE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
+_FENCE_OPEN_RE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
 _FENCE_CLOSE_RE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
 
 
@@ -104,7 +104,8 @@ def extract_examples(markdown: str) -> list[tuple[str, str]]:
     ```python title="x.py"```). Normalizes language tags to lowercase.
     A fence is ``` or ~~~, closed by a fence of the same character at least as
     long, so a shorter fence inside is content. Any indentation is accepted so
-    that blocks nested in list items are found. A fence that is never closed,
+    that blocks nested in list items are found; each body line loses up to
+    the opening fence's indentation. A fence that is never closed,
     or has no language tag, yields no example.
     Returns a list of (language, code) tuples.
     """
@@ -114,17 +115,22 @@ def extract_examples(markdown: str) -> list[tuple[str, str]]:
     for line in markdown.splitlines():
         if opener is None:
             m = _FENCE_OPEN_RE.match(line)
-            if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+            if m and not (m.group(2)[0] == "`" and "`" in m.group(3)):
                 opener, body = m, []
             continue
         close = _FENCE_CLOSE_RE.match(line)
-        if close and close.group(1)[0] == opener.group(1)[0] and len(close.group(1)) >= len(opener.group(1)):
-            lang = re.match(r"\w+", opener.group(2).strip())
+        fence = opener.group(2)
+        if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
+            lang = re.match(r"\w+", opener.group(3).strip())
             if lang:
                 examples.append((lang.group().lower(), "\n".join(body).strip()))
             opener = None
         else:
-            body.append(line)
+            # Drop up to the opener's indentation, as CommonMark does, so a
+            # block nested in a list item keeps its relative indentation.
+            indent = len(opener.group(1))
+            stripped = len(line) - len(line.lstrip(" "))
+            body.append(line[min(indent, stripped):])
     return examples
 
 

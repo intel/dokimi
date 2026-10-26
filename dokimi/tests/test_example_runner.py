@@ -231,3 +231,8 @@ def test_extract_examples_backtick_in_the_info_string_is_not_a_fence():
 
 def test_extract_examples_language_tag_is_lowercased():
     assert extract_examples("```Python\nprint(1)\n```\n") == [("python", "print(1)")]
+
+
+def test_extract_examples_indented_fence_body_is_dedented_by_the_fence_indent():
+    md = "1. Step\n\n   ```python\n   def f():\n       return 1\n   ```\n"
+    assert extract_examples(md) == [("python", "def f():\n    return 1")]
