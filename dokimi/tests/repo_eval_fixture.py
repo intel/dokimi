@@ -71,7 +71,9 @@ if args == ["--version"]:
 assert os.environ.get("FAKE_CONFIG_DIR"), "config dir not set"
 assert "SECRET_NOT_ALLOWED" not in os.environ, "environment not scrubbed"
 action = os.environ.get("FAKE_ACTION", "fix")
-if action == "silent":  # the agent dies before it writes a line
+if action in ("silent", "startfail"):  # silent: dies before a line; startfail: refuses its configuration
+    if action == "startfail":
+        sys.stderr.write("Error: Invalid MCP configuration\n")
     sys.exit(1)
 cwd = Path.cwd()
 # Guard against --model missing or being the last arg
@@ -112,12 +114,19 @@ if os.environ.get("FAKE_PROCESS"):  # a guidance read and one build command, for
         {"type": "tool_use", "id": "t4", "name": "Bash", "input": {"command": "bazel build //x"}}]}})
     lines.append({"type": "user", "message": {"content": [
         {"type": "tool_result", "tool_use_id": "t4", "is_error": True, "content": "ERROR: icpx is not found"}]}})
+
+for name in filter(None, os.environ.get("FAKE_SKILLS", "").split(",")):  # use installed skills, in order
+    if (cwd / ".claude/skills" / name / "SKILL.md").is_file():
+        lines.append({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "s-" + name, "name": "Skill", "input": {"skill": name}}]}})
 if os.environ.get("FAKE_TOOL_USES"):  # more tool calls, as a JSON list of [name, input]
     lines.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": f"u{i}", "name": n, "input": a}
         for i, (n, a) in enumerate(json.loads(os.environ["FAKE_TOOL_USES"]))]}})
 result = {"type": "result", "subtype": "success", "result": "done: src/calc.py", "total_cost_usd": 0.01,
-          "num_turns": 3, "is_error": False}
+          "num_turns": 3, "is_error": False,
+          "usage": {"input_tokens": 5, "output_tokens": 2, "cache_read_input_tokens": 100,
+                    "cache_creation_input_tokens": 40}}
 if os.environ.get("FAKE_USAGE"):  # a subagent (Agent tool) and the token counts of the whole tree
     lines.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "t2", "name": "Agent", "input": {"prompt": "look around"}}]}})
@@ -135,7 +144,7 @@ PROFILE = {
                "--max-budget-usd", "{budget}", "{tools}"],
     "tools": {"none": ["--tools", ""], "read": ["--tools", "Read"], "all": []},
     "config_dir_env": "FAKE_CONFIG_DIR",
-    "env_allow": ["FAKE_ACTION", "FAKE_ANSWER_MODEL", "FAKE_MARKER", "FAKE_USAGE", "FAKE_PROCESS", "FAKE_TOOL_USES", "PATH"],
+    "env_allow": ["FAKE_ACTION", "FAKE_ANSWER_MODEL", "FAKE_MARKER", "FAKE_SKILLS", "FAKE_USAGE", "FAKE_PROCESS", "FAKE_TOOL_USES", "PATH"],
     "egress": ["api.example.com"], "trace": "claude-stream-json",
     "prompt_suffix": "Stay in the foreground.",
     "config_files": {"settings.json": '{"hook": "python3 {support_dir}/no_background.py"}'},

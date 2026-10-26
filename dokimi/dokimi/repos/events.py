@@ -9,6 +9,7 @@ Graders and probes read only these events, never a harness-specific trace:
     {"t": 3.1,  "kind": "read",    "path": "AGENTS.md"}
     {"t": 5.0,  "kind": "edit",    "path": "src/foo.cpp"}
     {"t": 20.2, "kind": "tool",    "name": "WebFetch", "denied": true}
+    {"t": 2.0,  "kind": "tool",    "name": "Skill", "skill": "lint-fix"}
 
 ``t`` is seconds since the first timestamped trace line, or ``null`` when the
 format has no timestamps. Paths inside the workspace are made relative to it.
@@ -195,6 +196,8 @@ def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> 
         event.update(kind="read" if name in _READ_TOOLS else "edit", path=_relative(str(path), workdir))
     else:
         event.update(kind="tool", name=name)
+        if name == "Skill":  # Claude Code names the skill in `skill`; older versions in `command`
+            event["skill"] = str(args.get("skill") or args.get("command") or "")
     return event
 
 

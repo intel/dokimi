@@ -28,6 +28,8 @@ PROJECT = Path(__file__).resolve().parents[1]
 DOCS = [
     *sorted((PROJECT / "docs").glob("*.md")),
     *sorted((PROJECT / "docs" / "user-journeys").glob("*.md")),
+    # Bundled skills tell an agent which commands to run: a renamed one breaks the skill.
+    *sorted((PROJECT / "data" / "skills").rglob("*.md")),
     PROJECT / "README.md",
     PROJECT / "CONTRIBUTING.md",
     PROJECT.parent / "README.md",

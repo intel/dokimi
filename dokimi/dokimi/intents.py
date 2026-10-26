@@ -34,6 +34,31 @@ class IntentDomain:
     example_intents: List[str] = field(default_factory=list)
 
 
+def _domain_from_config(raw_key: str, cfg: dict) -> Optional[IntentDomain]:
+    """One ``domains:`` entry as an :class:`IntentDomain`, or ``None`` when its products are malformed.
+
+    A blank ``products:`` or ``name:`` (YAML null) is an unset field, as an absent
+    one is: a domain with no products yet is listed, and a null name reads as the key.
+    """
+    products = cfg.get("products")
+    if products is None:
+        products = []
+    if not isinstance(products, list):
+        logger.warning(f"Intent domain '{raw_key}' products must be a list — skipping.")
+        return None
+    examples = cfg.get("example_intents", [])
+    if not isinstance(examples, list):
+        examples = []
+    name = cfg.get("name")
+    return IntentDomain(
+        key=raw_key.lower(),
+        name=raw_key if name is None else str(name),
+        description=str(cfg.get("description") or "").strip(),
+        products=[str(p).lower() for p in products],
+        example_intents=[str(e) for e in examples],
+    )
+
+
 class IntentRegistry:
     """Load and query the intents.yaml domain/intent registry."""
 
@@ -58,21 +83,9 @@ class IntentRegistry:
             if not isinstance(raw_key, str) or not isinstance(cfg, dict):
                 logger.warning(f"Intent domain '{raw_key}' is malformed — skipping.")
                 continue
-            key = raw_key.lower()
-            products = cfg.get("products", [])
-            if not isinstance(products, list):
-                logger.warning(f"Intent domain '{raw_key}' products must be a list — skipping.")
-                continue
-            examples = cfg.get("example_intents", [])
-            if not isinstance(examples, list):
-                examples = []
-            self._domains[key] = IntentDomain(
-                key=key,
-                name=cfg.get("name", raw_key),
-                description=str(cfg.get("description") or "").strip(),
-                products=[str(p).lower() for p in products],
-                example_intents=[str(e) for e in examples],
-            )
+            domain = _domain_from_config(raw_key, cfg)
+            if domain is not None:
+                self._domains[domain.key] = domain
         logger.info(f"Loaded {len(self._domains)} intent domains from {self._path}")
 
     def get(self, key: str) -> IntentDomain:
