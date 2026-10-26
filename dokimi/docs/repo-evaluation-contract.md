@@ -77,7 +77,7 @@ SPDX-License-Identifier: Apache-2.0
 > and agent runs with their report:
 >
 > ```bash
-> python cli.py repo tasks check <source> --manifest <path> [--task <id>] [--warm]
+> python cli.py repo tasks check <source> --manifest <path> [--task <id>] [--warm] [--allow-unsupported]
 > python cli.py repo run <source> --manifest <path> --arm guidance:raw --model <id> --reps N --batch NAME
 >     --agent-network host
 > python cli.py repo report <out>/<batch>
@@ -315,12 +315,15 @@ with `git apply` on top of `guidance:raw` (after `setup_patches`). It is for
 tooling or layout treatments, such as a new script or a Makefile target, that
 no task carries. The file is read once per batch, so every cell applies the
 same bytes, and the arm is named `patch:<name>@<first 12 hex of its
-sha256>`, where `<name>` is the file name without its directory, with every
-character outside `[A-Za-z0-9.-]` replaced by `_` and cut to 40 characters, so
-the name holds no `/` for `BATCH/ARM` selectors. The exact name is printed on
-the `repo run` stderr line `arm <name> = <path>, sha256 ...`. A patch that does not apply to a task's base, or that writes into
-`eval_dir`, fails that cell's preparation. A cell has one arm: `guidance:rev:`
-and `patch:` do not combine.
+sha256>`, where `<name>` is the file name without its directory: each run of
+characters outside `[A-Za-z0-9.-]` becomes one `_`, a leading or trailing `_` is
+dropped, the result is cut to 40 characters and a `_` the cut leaves at the end
+is dropped too (`patch` if nothing is left), so `my fix (v2).diff` gives
+`my_fix_v2_.diff`. The name holds no `/` for `BATCH/ARM` selectors; the exact
+name is printed on the `repo run` stderr line `arm <name> = <path>, sha256 ...`.
+A patch that does not apply to a task's base, or that writes into `eval_dir`,
+fails that cell's preparation. A cell has one arm: `guidance:rev:` and `patch:`
+do not combine.
 
 Both write files, as step 1 does: no object of the source's git dir is copied
 into the workspace, so its object store gains only the blobs of the files the
@@ -492,8 +495,9 @@ A task whose `host` requirements (§3) the probe container does not meet is
 `unsupported` with the reason, like a task whose `egress` needs the missing
 proxy, and `tasks check` exits 1 for it. With `--allow-unsupported` it is
 still printed with its reason but does not make the exit code 1 unless no task
-is ok (below); broken tasks,
-tasks that need egress and tasks whose host probe failed still do. `repo run` does not run its cells:
+is ok (below); broken tasks, tasks that need egress and tasks whose host probe
+failed still do. The probed facts are recorded in `check.json` `host`, and for
+`repo run` in the batch's `_eval/host.json`. `repo run` does not run its cells:
 each holds an `unsupported.json` with the reason, and `repo report` lists them
 apart, neither failed nor missing. If the probe itself fails, a task with
 `host` requirements is not run either, and `repo run` exits 1 when one of its
@@ -1013,6 +1017,7 @@ line, else its last `error:` line, else its last line.
 
 ```bash
 # self-check: no LLM; exits 1 if any task is broken or unsupported, or none is ok
+# (with --allow-unsupported, a task this host cannot run does not fail it on its own)
 python cli.py repo tasks check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
     --task fix_finiteness_mut --build-network host --cache bazel-repo-cache=/cache/bazel-repo -j 3
 
