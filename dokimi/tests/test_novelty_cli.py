@@ -517,13 +517,14 @@ def test_item_analysis_exits_with_a_message_on_an_unreadable_probes_file(tmp_pat
 
 @pytest.mark.parametrize("top, run", [
     ({"model": ["m"]}, {}),
+    ({"model": None}, {}),
     ({"artifact": {"a": 1}}, {}),
     ({"ref_digest": [1]}, {}),
     ({}, {"atom_id": ["a"]}),
     ({}, {"probe_kind": ["x"]}),
     ({}, {"arm": {}}),
     ({}, {"verdict": ["x"]}),
-], ids=["model", "artifact", "ref_digest", "atom_id", "probe_kind", "arm", "verdict"])
+], ids=["model", "model_null", "artifact", "ref_digest", "atom_id", "probe_kind", "arm", "verdict"])
 def test_item_analysis_refuses_a_probe_field_that_is_not_a_string(tmp_path, top, run):
     path = tmp_path / "novelty.json"
     body = {"model": "m", "runs": [{"atom_id": "a1", "probe_kind": "direct", "arm": "full",
