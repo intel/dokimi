@@ -99,6 +99,17 @@ def test_inspect_task_inline_samples_and_scorer_kwargs(tmp_path):
     assert {"solver `chain_of_thought` not reproduced", "sandbox not provided (answer-only)"} <= set(imp.lossy)
 
 
+def test_inspect_multiple_correct_is_asked_for_several_letters(tmp_path):
+    task = _write(tmp_path / "t.py", (
+        "@task\n"
+        "def t():\n"
+        "    return Task(dataset=[Sample(input='Even?', choices=['2', '4', '5'], target=['A', 'B'])],\n"
+        "                solver=multiple_choice(multiple_correct=True), scorer=choice())\n"))
+    q = import_path(task, fmt="inspect-task").questions[0]
+    assert "'ANSWER: $LETTERS'" in q["question"] and "one or more of A,B,C" in q["question"]
+    assert grade(q["grading"], q["question"], "ANSWER: A, B").passed is True
+
+
 def test_inspect_pattern_scorer_is_not_a_bare_regex_search(tmp_path):
     task = _write(tmp_path / "t.py", (
         "@task\n"

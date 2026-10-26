@@ -71,13 +71,14 @@ def _checks(scorer: str, kwargs: Mapping[str, Any], targets: list[str], imp: Imp
 
 
 def _sample_question(row: Mapping[str, Any], idx: int, *, scorer: Optional[str], kwargs: Mapping[str, Any],
-                     mcq: bool, system: Optional[str], fmt: str, path: Path, imp: Imported) -> Optional[dict[str, Any]]:
+                     mcq: bool, system: Optional[str], fmt: str, path: Path, imp: Imported,
+                     multiple: bool = False) -> Optional[dict[str, Any]]:
     text = render_input(row.get("input", ""), imp)
     targets = [str(t) for t in as_list(row.get("target"))]
     choices = _choices(row.get("choices"))
     chosen = scorer or ("choice" if choices else "match")
     if choices and (mcq or chosen == "choice"):
-        text = render_mcq(text, choices)
+        text = render_mcq(text, choices, multiple)
         letters = choice_targets(targets, choices)
         if not letters:
             imp.note("sample whose target matches no choice skipped")
@@ -104,7 +105,7 @@ def _sample_question(row: Mapping[str, Any], idx: int, *, scorer: Optional[str],
 
 def import_samples(path: Path, *, scorer: Optional[str] = None, fields: Optional[Mapping[str, str]] = None,
                    kwargs: Optional[Mapping[str, Any]] = None, mcq: bool = False, system: Optional[str] = None,
-                   fmt: str = FORMAT_SAMPLES, imp: Optional[Imported] = None) -> Imported:
+                   fmt: str = FORMAT_SAMPLES, imp: Optional[Imported] = None, multiple: bool = False) -> Imported:
     """Rows of ``path`` as questions; ``fields`` maps Sample field -> column (Inspect ``FieldSpec``)."""
     if fmt == FORMAT_SAMPLES and scorer is not None and scorer not in SCORERS:
         raise ValueError(f"unknown Inspect scorer {scorer!r}: one of {', '.join(SCORERS)}")
@@ -122,7 +123,7 @@ def import_samples(path: Path, *, scorer: Optional[str] = None, fields: Optional
             imp.note("sample without input skipped")
             continue
         q = _sample_question(row, i, scorer=scorer, kwargs=kwargs or {}, mcq=mcq, system=system, fmt=fmt,
-                             path=path, imp=imp)
+                             path=path, imp=imp, multiple=multiple)
         if q is not None:
             imp.questions.append(q)
     return imp
@@ -169,22 +170,23 @@ def _solvers(node: Optional[ast.AST]) -> list[ast.AST]:
     return list(node.elts) if isinstance(node, (ast.List, ast.Tuple)) else [node]
 
 
-def _read_solver(nodes: list[ast.AST], imp: Imported) -> tuple[bool, Optional[str]]:
-    """``(multiple_choice, system_message)``; other solvers are counted as not reproduced."""
-    mcq, system = False, None
+def _read_solver(nodes: list[ast.AST], imp: Imported) -> tuple[bool, bool, Optional[str]]:
+    """``(multiple_choice, multiple_correct, system_message)``; other solvers are counted as not reproduced."""
+    mcq, multiple, system = False, False, None
     for s in nodes:
         name = _name(s)
         if name == "multiple_choice":
             mcq = True
             if isinstance(s, ast.Call) and _kwargs(s).get("cot"):
                 imp.note("multiple_choice(cot=True) asked without the CoT template")
+            multiple = isinstance(s, ast.Call) and bool(_kwargs(s).get("multiple_correct"))
         elif name == "system_message" and isinstance(s, ast.Call) and s.args:
             system = _literal(s.args[0]) if isinstance(_literal(s.args[0]), str) else None
             if system is None:
                 imp.note("system_message with a computed text dropped")
         elif name != "generate":
             imp.note(f"solver `{name or '?'}` not reproduced")
-    return mcq, system
+    return mcq, multiple, system
 
 
 def _field_spec(call: ast.Call) -> dict[str, str]:
@@ -246,7 +248,7 @@ def import_task(path: Path, *, task: Optional[str] = None) -> Imported:
     imp = Imported(FORMAT_TASK, path)
     if "sandbox" in kw:
         imp.note("sandbox not provided (answer-only)")
-    mcq, system = _read_solver(_solvers(kw.get("solver") or kw.get("plan")), imp)
+    mcq, multiple, system = _read_solver(_solvers(kw.get("solver") or kw.get("plan")), imp)
     scorer, kwargs = _scorer(kw.get("scorer"), imp)
     imp.native_scorer = scorer
     file, spec, rows = _dataset(kw.get("dataset"), path.parent, imp)
@@ -254,10 +256,10 @@ def import_task(path: Path, *, task: Optional[str] = None) -> Imported:
         if not file.resolve().is_relative_to(path.parent.resolve()):
             raise ValueError(f"{path}: dataset {file} is outside the task's directory")
         return import_samples(file, scorer=scorer, fields=spec, kwargs=kwargs,
-                              mcq=mcq, system=system, fmt=FORMAT_TASK, imp=imp)
+                              mcq=mcq, system=system, fmt=FORMAT_TASK, imp=imp, multiple=multiple)
     for i, row in enumerate(rows):
         q = _sample_question(row, i, scorer=scorer, kwargs=kwargs, mcq=mcq, system=system, fmt=FORMAT_TASK,
-                             path=path, imp=imp)
+                             path=path, imp=imp, multiple=multiple)
         if q is not None:
             imp.questions.append(q)
     return imp

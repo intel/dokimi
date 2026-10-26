@@ -146,16 +146,23 @@ MCQ_TEMPLATE = (
     "be of the following format: 'ANSWER: $LETTER' (without quotes) where LETTER is one of "
     "{letters}.\n\n{question}\n\n{choices}"
 )
+#: Its ``multiple_choice(multiple_correct=True)`` prompt.
+MCQ_MULTIPLE_TEMPLATE = (
+    "Answer the following multiple choice question where multiple answers may be correct. The "
+    "entire content of your response should be of the following format: 'ANSWER: $LETTERS' "
+    "(without quotes) where LETTERS is one or more of {letters}.\n\n{question}\n\n{choices}"
+)
 
 
 def letters(n: int) -> list[str]:
     return [chr(ord("A") + i) for i in range(n)]
 
 
-def render_mcq(text: str, choices: list[str]) -> str:
+def render_mcq(text: str, choices: list[str], multiple: bool = False) -> str:
     keys = letters(len(choices))
     body = "\n".join(f"{k}) {c}" for k, c in zip(keys, choices, strict=True))
-    return MCQ_TEMPLATE.format(letters=",".join(keys), question=text, choices=body)
+    template = MCQ_MULTIPLE_TEMPLATE if multiple else MCQ_TEMPLATE
+    return template.format(letters=",".join(keys), question=text, choices=body)
 
 
 def choice_targets(targets: list[str], choices: list[str]) -> list[str]:

@@ -35,7 +35,7 @@ detection. Use `--format` to override it. A file that fits several formats
 
 | Key | From |
 |---|---|
-| `question` | The prompt as the native tool sends it. Chat inputs are flattened to one prompt, with `[role]` headings when there is more than one turn. MCQ rows are rendered with Inspect's single-answer template. |
+| `question` | The prompt as the native tool sends it. Chat inputs are flattened to one prompt, with `[role]` headings when there is more than one turn. MCQ rows are rendered with Inspect's single-answer template, or its multiple-answer one under `multiple_choice(multiple_correct=True)`. |
 | `prompt_style: verbatim` | The answerer sends `question` as it is, without its expert-answer wrapper, so that `ANSWER: X` and exact-match graders see a reply to the original prompt. A context arm puts the docs first and the prompt after them. |
 | `expected_topics` | The reference answers, assertion values or expectations. `eval checklist` and the judge read them. |
 | `grading.checks` | One check per native grader or assertion (below). Optional fields: `threshold`, `native_scorer`, `source_format`. |
@@ -79,7 +79,7 @@ the run's pass rates and mean scores are under `run_metadata.summary` (or
 | Format | Lossy |
 |---|---|
 | All | Only one message is sent: system prompts and few-shot turns are folded into the prompt. Tools, files and sandboxes are not provided. |
-| Inspect `@task` | The file is parsed with `ast` and is never imported or run. It reads `Sample(...)` literals, `json_dataset("<file inside the task dir>", FieldSpec(...))`, the `multiple_choice()` and `system_message("...")` solvers and the literal arguments of the first scorer. A computed dataset, `hf_dataset` or `csv_dataset` is refused. Other solvers (`chain_of_thought`, ...) are noted and not reproduced. |
+| Inspect `@task` | The file is parsed with `ast` and is never imported or run. It reads `Sample(...)` literals, `json_dataset("<file inside the task dir>", FieldSpec(...))`, the `multiple_choice()` (with `multiple_correct`) and `system_message("...")` solvers and the literal arguments of the first scorer. A computed dataset, `hf_dataset` or `csv_dataset` is refused. Other solvers (`chain_of_thought`, ...) are noted and not reproduced. |
 | Inspect model-graded | The C/P/I grade becomes the checklist's covered/split/absent verdict. Inspect's grader template is not used. |
 | OpenAI evals | The registry YAML (`--grader`) names the class. With no YAML, `match` is the default. Custom `evals.elsuite` classes are refused. `ModelBasedClassify` specs (`fact`, `closedqa`, ...) and their choice scores become one judge check against `ideal`. |
 | skill-creator | The grader marks expectations against the run's transcript and output files. Here they are judged on the answer text. `files` are recorded but not attached. |
