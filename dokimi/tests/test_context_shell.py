@@ -43,6 +43,11 @@ def _steps(command: str) -> list[tuple[str, str]]:
     ("nice -n 10 pytest", [("Bash:pytest", "Bash:pytest(nice -n 10 pytest)")]),    ("{ ruff check .; pytest; }", [("Bash:ruff", "Bash:ruff(ruff check .)"), ("Bash:pytest", "Bash:pytest(pytest)")]),
     ("{ make; }", [("Bash:make", "Bash:make(make)")]),
     ("{ a; b; } > f.txt", [("Bash:a", "Bash:a(a)"), ("Bash:b", "Bash:b(b)")]),
+    ("sudo -u bob make test", [("Bash:make", "Bash:make(sudo -u bob make test)")]),
+    ("env -u FOO make", [("Bash:make", "Bash:make(env -u FOO make)")]),
+    ("uv run --with rich pytest", [("Bash:pytest", "Bash:pytest(uv run --with rich pytest)")]),
+    ("time -p pytest", [("Bash:pytest", "Bash:pytest(time -p pytest)")]),
+    ("command -v make", [("Bash:make", "Bash:make(command -v make)")]),
 ])
 def test_control_syntax_and_wrappers_are_not_steps(command, steps):
     assert _steps(command) == steps

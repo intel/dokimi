@@ -181,24 +181,39 @@ def _words(segment: str) -> list[str]:
 
 
 _DURATION = re.compile(r"^\d+(\.\d+)?[smhd]?$")
+#: Options of a wrapper that take the next word as their value (`sudo -u bob`, `env -u FOO`).
+_VALUE_OPTIONS = {"sudo": {"-u", "-g", "-h", "-p", "-C", "-D", "-R", "-T", "-U"}, "env": {"-u", "-C", "-S"},
+                  "time": {"-f", "-o"}, "uv": {"--with", "--python", "--project", "--directory", "--env-file"}}
+
+
+def _flags_end(words: list[str], start: int, value_options: set[str]) -> int:
+    """The index of the first word after the options from ``start`` and their values."""
+    n = start
+    while n < len(words) and words[n].startswith("-"):
+        n += 2 if words[n] in value_options else 1
+    return n
 
 
 def _wrapper_length(words: list[str]) -> int:
     """How many leading words only wrap the program (0: ``words[0]`` is the program)."""
     head = Path(words[0]).name
-    if re.match(r"^\w+=", words[0]) or head in ("exec", "time", "nohup", "command", "builtin"):
+    if re.match(r"^\w+=", words[0]) or head in ("exec", "nohup", "builtin"):
         return 1
     if head in ("sudo", "env", "nice"):
         n = 1
         while n < len(words) and (words[n].startswith("-") or (head == "env" and re.match(r"^\w+=", words[n]))):
-            n += 2 if head == "nice" and words[n] == "-n" else 1
+            n += 2 if (head == "nice" and words[n] == "-n") or words[n] in _VALUE_OPTIONS.get(head, ()) else 1
         return n
+    if head in ("time", "command"):
+        return _flags_end(words, 1, _VALUE_OPTIONS.get(head, set()))
     if head == "timeout":
         n = 1
         while n < len(words) and words[n].startswith("-"):
             n += 2 if words[n] in ("-k", "-s") else 1
         return n + (n < len(words) and bool(_DURATION.match(words[n])))
-    if words[:2] == ["uv", "run"] or (len(words) >= 3 and re.match(r"^python[\d.]*$", head) and words[1] == "-m"):
+    if words[:2] == ["uv", "run"]:
+        return _flags_end(words, 2, _VALUE_OPTIONS["uv"])
+    if len(words) >= 3 and re.match(r"^python[\d.]*$", head) and words[1] == "-m":
         return 2
     return 0
 
