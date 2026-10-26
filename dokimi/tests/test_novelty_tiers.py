@@ -550,6 +550,24 @@ def test_estimate_only_stdout_stays_json_for_a_model_litellm_cannot_route(tmp_pa
     assert payload["expected_usd"] is None
 
 
+def test_estimate_only_names_only_the_unpriced_role_on_stderr(tmp_path, capsys):
+    root = tmp_path / "s"
+    root.mkdir()
+    (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                   encoding="utf-8")
+    base = ["novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+            "--estimate-only"]
+    priced = _parse(*base).model
+    args = _parse(*base, "--judge-model", "zzz", "--judge-provider", "openai",
+                  "--extract-model", priced)
+    args.func(args)
+    out = capsys.readouterr()
+    assert json.loads(out.out)["expected_usd"] is None
+    assert "no list price in the litellm price map for judge (zzz)" in out.err
+    assert "answerer (" not in out.err
+    assert "extractor (" not in out.err
+
+
 def test_call_tokens_never_goes_negative_for_a_tiny_artifact():
     # The answerer's base is negative (-38 + 0.789 per artifact token), so a 10-token
     # artifact would price a negative prompt without the floor.
