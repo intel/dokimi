@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -70,11 +71,13 @@ _DEFAULT_VOLUMES = {
     "${T_BENCH_TASK_AGENT_LOGS_PATH}:${T_BENCH_CONTAINER_AGENT_LOGS_PATH}",
 }
 # Service keys a single `docker run` reproduces or that do not change the
-# verdict (resource limits, a TTY, the restart policy).
+# verdict (resource limits, a TTY, the restart policy); command, build and
+# environment within what _not_reproduced allows.
 _RUN_KEYS = {
     "build", "image", "container_name", "command", "environment", "volumes", "working_dir",
     "deploy", "tty", "stdin_open", "restart", "platform", "expose",
 }
+_IDLE_COMMANDS = (["sleep", "infinity"], ["sh", "-c", "sleep infinity"], ["bash", "-c", "sleep infinity"])
 _SIGNALS = ("run-tests.sh", COMPOSE, "Dockerfile", "solution.sh", "solution.yaml")
 
 
@@ -144,7 +147,8 @@ def _compose_layout(compose: dict[str, Any]) -> dict[str, Any]:
     """The client service of a terminal-bench compose file, as one ``docker run`` sees it.
 
     ``unsupported`` lists what the docker-* harnesses' single ``docker run`` does
-    not reproduce (a second service, a volume, a network, ports, tmpfs): they
+    not reproduce (a second service, a volume, a network, ports, tmpfs, a
+    service command, a build arg, a host environment value): they
     refuse such a task, the Harbor export keeps the compose file.
     """
     raw = compose.get("services")
@@ -160,6 +164,7 @@ def _compose_layout(compose: dict[str, Any]) -> dict[str, Any]:
     unsupported += [f"{name}.{k}" for k in service if k not in _RUN_KEYS]
     volumes = [v for v in service.get("volumes") or [] if v not in _DEFAULT_VOLUMES]
     unsupported += [f"{name}.volumes {v}" for v in volumes]
+    unsupported += _not_reproduced(str(name), service)
     workdir = service.get("working_dir")
     return {
         "service": name,
@@ -170,6 +175,35 @@ def _compose_layout(compose: dict[str, Any]) -> dict[str, Any]:
         "unsupported": unsupported,
         "memory_mb": _size_mb(_dig(service, "deploy", "resources", "limits", "memory")),
     }
+
+
+def _not_reproduced(name: str, service: dict[str, Any]) -> list[str]:
+    """What of an accepted key one ``docker run`` of the default build stage, idling, does not do.
+
+    A command other than terminal-bench's idle one, a build arg or target, and an
+    environment value compose reads from the host (a bare name, a ``$`` reference).
+    """
+    out: list[str] = []
+    command = service.get("command")
+    if command is not None and _words(command) not in _IDLE_COMMANDS:
+        out.append(f"{name}.command")
+    build = service.get("build")
+    if isinstance(build, dict):
+        out += [f"{name}.build.{k}" for k in build if k not in ("context", "dockerfile")]
+    raw = service.get("environment")
+    items = ([(str(k), None if v is None else str(v)) for k, v in raw.items()] if isinstance(raw, dict)
+             else [(e.partition("=")[0], e.partition("=")[2] if "=" in e else None) for e in map(str, raw or [])])
+    out += [f"{name}.environment {k}" for k, v in items if k != "TEST_DIR" and (v is None or "$" in v)]
+    return out
+
+
+def _words(command: Any) -> list[str]:
+    if not isinstance(command, str):
+        return [str(w) for w in command] if isinstance(command, list) else [str(command)]
+    try:
+        return shlex.split(command)
+    except ValueError:  # an unclosed quote: not the idle command either
+        return [command]
 
 
 def default_memory_mb() -> int:

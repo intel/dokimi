@@ -129,7 +129,9 @@ image's user with `TEST_DIR=/tests` and the compose `environment`, and the
 verdict is the pytest `short test summary info` (every listed test passed, skipped or
 xfailed), not the exit code, as terminal-bench reads it. `docker-*` refuses,
 with the reason, a task whose `docker-compose.yaml` needs more than one
-`docker run` (a second service, volumes, tmpfs, ports), a `parser_name` other
+`docker run` of its default build stage (a second service, volumes, tmpfs,
+ports, a service `command` other than `sleep infinity`, `build.args` or
+`build.target`, an `environment` value read from the host), a `parser_name` other
 than `pytest`, `run_tests_in_same_shell`, or (oracle only) a `solution.yaml`.
 The Harbor-backed harnesses and `benchflow*` run a Harbor copy written on first
 use to `~/.cache/dokimi/harbor-export/<content hash>/` (mode 0700) by

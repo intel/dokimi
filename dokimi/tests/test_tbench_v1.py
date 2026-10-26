@@ -140,9 +140,20 @@ def test_discovery_skips_a_task_yaml_without_an_instruction(tmp_path):
         load_task(tmp_path / "not-a-task")
 
 
+def _compose_with(old: str, new: str):
+    return lambda p: _write(p / "docker-compose.yaml", _COMPOSE.replace(old, new))
+
+
 @pytest.mark.parametrize("edit, oracle, match", [
     (lambda p: _write(p / "docker-compose.yaml", _COMPOSE + "  db:\n    image: postgres\n"), False, "service db"),
     (lambda p: _write(p / "docker-compose.yaml", _COMPOSE + "    tmpfs: [/run]\n"), False, "client.tmpfs"),
+    (_compose_with("services:", "networks:\n  x: {}\nservices:"), False, "top-level networks"),
+    (_compose_with("    volumes:\n", "    volumes:\n      - ./d:/d\n"), False, "client.volumes ./d:/d"),
+    (_compose_with('"sleep infinity"', '"service nginx start"'), False, "client.command"),
+    (_compose_with("      dockerfile:", "      args: {A: b}\n      dockerfile:"), False, "client.build.args"),
+    (_compose_with("      dockerfile:", "      target: dev\n      dockerfile:"), False, "client.build.target"),
+    (_compose_with("      - GREETING", "      - PASSTHRU\n      - GREETING"), False, "client.environment PASSTHRU"),
+    (_compose_with("      - GREETING", "      - D=${HOME}/x\n      - GREETING"), False, "client.environment D"),
     (lambda p: _write(p / "task.yaml", (p / "task.yaml").read_text() + "run_tests_in_same_shell: true\n"),
      False, "run_tests_in_same_shell"),
     (lambda p: _write(p / "task.yaml", (p / "task.yaml").read_text() + "parser_name: swebench\n"),
@@ -154,6 +165,14 @@ def test_local_docker_problem_names_what_one_docker_run_cannot_do(tmp_path, edit
     path = _tb1(tmp_path)
     edit(path)
     assert match in load_task(path).local_docker_problem(oracle=oracle)
+
+
+@pytest.mark.parametrize("command", ['"sleep infinity"', '["sleep", "infinity"]', '["bash", "-c", "sleep infinity"]'])
+def test_terminal_bench_idle_command_and_a_literal_environment_run(tmp_path, command):
+    compose = _COMPOSE.replace('[ "sh", "-c", "sleep infinity" ]', command) + "    working_dir: ${WD}\n"
+    task = load_task(_tb1(tmp_path, compose=compose))
+    assert task.local_docker_problem(oracle=True) is None
+    assert "workdir" not in task.environment, "a working_dir compose fills in is not the image's"
 
 
 def test_solution_is_needed_by_the_oracle_only(tmp_path):
