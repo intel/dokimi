@@ -200,6 +200,18 @@ def test_score_arms_run_gives_arms_artifact(tmp_path):
     save_artifact(kind, payload, tmp_path / "arms.json")  # validates arms.v1
 
 
+def test_no_retrieval_placeholder_is_unscored_not_graded():
+    polite = [{"id": "1", "question": "q", "grading": {"checks": [
+        {"type": "match", "values": ["sorry"], "location": "any", "negate": True}]}}]
+    data = {"answers": [{"question_id": "1", "question_text": "q",
+                         "with_docs": {"answer": "[FALLBACK: No relevant documentation found]",
+                                       "doc_source": "fallback_none"},
+                         "without_docs": {"answer": "Sorry, no idea"}}]}
+    result = score(data, polite)
+    assert result.tally["with_docs"].as_dict()["unscored"] == 1  # the negated check would have passed it
+    assert result.evaluations[0]["delta"] is None
+
+
 def test_grading_by_id_refuses_an_ungradable_block():
     with pytest.raises(ValueError, match="2: check 0: unknown type"):
         grading_by_id([{"id": "2", "question": "q", "grading": {"checks": [{"type": "bogus"}]}}])

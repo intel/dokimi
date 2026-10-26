@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
 from dokimi.eval.reference_checks import Ask, Grade, grade, validate_grading
-from dokimi.records import Record, Run, read
+from dokimi.records import NO_RETRIEVAL_SOURCES, Record, Run, read
 
 SCORER = "reference"
 
@@ -79,7 +79,8 @@ def grading_by_id(questions: list[Mapping[str, Any]]) -> dict[str, Mapping[str, 
 def _grade_record(rec: Record, grading: Mapping[str, Any], ask: Optional[Ask]) -> dict[str, Grade]:
     out: dict[str, Grade] = {}
     for name, answer in rec.answers.items():
-        text = None if answer.error else answer.text
+        # A no-retrieval placeholder ("[FALLBACK: ...]") is not the model's answer: unscored.
+        text = None if answer.error or answer.doc_source in NO_RETRIEVAL_SOURCES else answer.text
         out[name] = grade(grading, rec.question_text, text, ask)
     return out
 
