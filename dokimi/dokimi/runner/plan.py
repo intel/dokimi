@@ -89,32 +89,35 @@ def _statuses(result_cells: Any, problems: list[str]) -> dict[str, str]:
     return status
 
 
+def _ids(side: str, cells: Any, problems: list[str]) -> list[str]:
+    """The string ``cell_id`` of each cell; a cell without one is a problem, not a crash."""
+    if not isinstance(cells, list):
+        problems.append(f"{side} cells is not a list: {cells!r}")
+        return []
+    ids: list[str] = []
+    for cell in cells:
+        cid = cell.get("cell_id") if isinstance(cell, Mapping) else None
+        if isinstance(cid, str):
+            ids.append(cid)
+        else:
+            problems.append(f"{side} has a cell without a string cell_id: {cell!r}")
+    return ids
+
+
 def completeness(plan: Mapping[str, Any], result: Mapping[str, Any]) -> Completeness:
     """Planned minus completed cells of ``result`` against ``plan``.
 
     - ``invalid``: the result's ``plan_digest`` is not this plan's, the plan repeats a cell
-      id, a cell has no string ``cell_id`` or a result cell has a status outside
-      :data:`STATUSES`, or the result names a cell the plan lacks or gives one cell two
-      statuses. An ``invalid`` result reports ``measured=0``.
+      id, ``cells`` is not a list, a cell has no string ``cell_id``, or a result cell has a
+      status outside :data:`STATUSES`; or the result names a cell the plan lacks or gives one
+      cell two statuses. An ``invalid`` result reports ``measured=0``.
     - ``incomplete``: some planned cell has no measured status (absent, ``not_run``,
       ``infra_error`` or ``invalid``); those ids are in ``missing``, in plan order.
     - ``complete``: every planned cell is ``pass``, ``fail`` or ``inconclusive``. Complete
       says nothing about whether the run passed; that is a gate's call.
     """
     problems: list[str] = []
-
-    def _ids(side: str, cells: Any) -> list[str]:
-        """The string ``cell_id`` of each cell; a cell without one is a problem, not a crash."""
-        ids: list[str] = []
-        for cell in cells if isinstance(cells, list) else []:
-            cid = cell.get("cell_id") if isinstance(cell, Mapping) else None
-            if isinstance(cid, str):
-                ids.append(cid)
-            else:
-                problems.append(f"{side} has a cell without a string cell_id: {cell!r}")
-        return ids
-
-    planned = _ids("plan", plan.get("cells", []))
+    planned = _ids("plan", plan.get("cells", []), problems)
     expected, actual = plan_digest(plan), result.get("plan_digest")
     if actual != expected:
         problems.append(f"result is for plan {actual}, not {expected}")
@@ -122,7 +125,7 @@ def completeness(plan: Mapping[str, Any], result: Mapping[str, Any]) -> Complete
     if dup_planned:
         problems.append(f"plan repeats cell ids: {dup_planned}")
     result_cells = result.get("cells", [])
-    seen = Counter(_ids("result", result_cells))
+    seen = Counter(_ids("result", result_cells, problems))
     dup_result = sorted(k for k, n in seen.items() if n > 1)
     if dup_result:
         problems.append(f"result gives more than one status to cells: {dup_result}")

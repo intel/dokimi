@@ -197,3 +197,16 @@ def test_a_result_cell_without_a_string_id_is_reported(tmp_path, bad):
 def test_result_cells_that_are_not_a_list_do_not_raise(tmp_path):
     plan = _plan(tmp_path)
     assert not completeness(plan, {"plan_digest": plan_digest(plan), "cells": None}).complete
+
+
+@pytest.mark.parametrize("cells", [{"c-1": "pass"}, None, "pass"])
+def test_cells_that_are_not_a_list_are_invalid_not_empty(tmp_path, cells):
+    # A mapping or null used to read as zero cells: no problem, and every planned cell "not_run".
+    plan = _plan(tmp_path)
+    got = completeness(plan, {"plan_digest": plan_digest(plan), "cells": cells})
+    assert got.state == "invalid"
+    assert got.problems
+    bad_plan = {**plan, "cells": cells}
+    got = completeness(bad_plan, {"plan_digest": plan_digest(bad_plan), "cells": []})
+    assert got.state == "invalid"
+    assert got.problems
