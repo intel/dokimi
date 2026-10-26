@@ -469,6 +469,12 @@ _EVAL = '{{"evals": [{{"id": 1, "prompt": "p", "expected_output": "o", {}}}]}}'
     ("evals.json", _EVAL.format('"files": "a.pdf"'), "skill-creator-evals", "`files` is not a list"),
     ("promptfooconfig.yaml", "prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    assert:\n"
      "      - {type: contains, value: x, weight: null}\n", "promptfoo", "weight None is not a number"),
+    ("promptfooconfig.yaml", "prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    assert:\n"
+     "      - {type: contains, value: x, weight: -1}\n", "promptfoo", "weight -1 must not be negative"),
+    ("promptfooconfig.yaml", "prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    assert:\n"
+     "      - {type: contains, value: x, weight: .nan}\n", "promptfoo", "weight nan is not a number"),
+    ("promptfooconfig.yaml", "prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    assert:\n"
+     "      - {type: contains, value: x, weight: .inf}\n", "promptfoo", "weight inf is not a number"),
     ("promptfooconfig.yaml", "prompts: ['{{q}}']\ntests:\n  - vars: file://v.yaml\n    assert: [{type: contains, value: x}]\n",
      "promptfoo", "`vars` is not a mapping"),
     ("promptfooconfig.yaml", "prompts: [file://p.json]\ntests:\n  - assert: [{type: contains, value: x}]\n",

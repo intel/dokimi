@@ -91,10 +91,9 @@ def _check(assertion: Mapping[str, Any], variables: Mapping[str, Any], imp: Impo
     if negate and check["type"] in ("regex", "json"):
         check["negate"] = True
     if "weight" in assertion:
-        try:
-            check["weight"] = float(assertion["weight"])
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"assert `{kind}`: weight {assertion['weight']!r} is not a number") from exc
+        check["weight"] = _finite(assertion["weight"], f"assert `{kind}`", "weight")
+        if check["weight"] < 0:
+            raise ValueError(f"assert `{kind}`: weight {assertion['weight']!r} must not be negative")
     if "transform" in assertion:
         imp.note("assert transform not applied")
     return check
@@ -180,13 +179,13 @@ def _tests(raw: Any, base: Path, imp: Imported) -> list[Mapping[str, Any]]:
     return out
 
 
-def _threshold(value: Any, where: str) -> float:
+def _finite(value: Any, where: str, name: str) -> float:
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"{where}: threshold {value!r} is not a number") from exc
+        raise ValueError(f"{where}: {name} {value!r} is not a number") from exc
     if isinstance(value, bool) or not math.isfinite(number):
-        raise ValueError(f"{where}: threshold {value!r} is not a number")
+        raise ValueError(f"{where}: {name} {value!r} is not a number")
     return number
 
 
@@ -226,7 +225,7 @@ def import_file(path: Path) -> Imported:
             checks = [_check(a, variables, imp) for a in asserts if isinstance(a, Mapping)]
             grading: dict[str, Any] = {"checks": checks, "native_scorer": "assert"}
             if threshold is not None:
-                grading["threshold"] = _threshold(threshold, f"{path}: test {ti}")
+                grading["threshold"] = _finite(threshold, f"{path}: test {ti}", "threshold")
             # promptfoo's own testIdx/promptIdx, so a native log joins on the same ids.
             qid = str(ti) if len(prompts) == 1 else f"{ti}.p{pi}"
             refs = [str(a.get("value")) for a in asserts if isinstance(a, Mapping) and isinstance(a.get("value"), str)]
