@@ -364,6 +364,59 @@ def test_out_json_check_refuses_a_dangling_symlink_into_a_missing_dir(tmp_path, 
     assert "cannot write" in capsys.readouterr().err
 
 
+@pytest.mark.skipif(os.name == "nt", reason="chmod 0555 does not make a directory read-only on Windows")
+def test_out_json_check_refuses_a_writable_file_in_a_read_only_dir(tmp_path):
+    from dokimi.commands.tools import _check_out_json_writable
+
+    ro = tmp_path / "ro"
+    ro.mkdir()
+    out = ro / "pref.json"
+    out.write_text("{}", encoding="utf-8")
+    ro.chmod(0o555)
+    try:
+        if os.access(ro, os.W_OK):
+            pytest.skip("chmod 0555 does not block writes here (for example, running as root)")
+        with pytest.raises(SystemExit) as exc:
+            _check_out_json_writable(str(out))
+        assert exc.value.code == 2
+    finally:
+        ro.chmod(0o755)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="chmod 0555 does not make a directory read-only on Windows")
+def test_out_json_check_probes_the_symlink_target_directory(tmp_path):
+    from dokimi.commands.tools import _check_out_json_writable
+
+    ro = tmp_path / "ro"
+    ro.mkdir()
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    link = out_dir / "link.json"
+    _symlink_or_skip(link, ro / "t.json")
+    ro.chmod(0o555)
+    try:
+        if os.access(ro, os.W_OK):
+            pytest.skip("chmod 0555 does not block writes here (for example, running as root)")
+        with pytest.raises(SystemExit) as exc:
+            _check_out_json_writable(str(link))
+        assert exc.value.code == 2
+    finally:
+        ro.chmod(0o755)
+
+
+def test_out_json_check_refuses_a_symlink_to_a_directory(tmp_path, capsys):
+    from dokimi.commands.tools import _check_out_json_writable
+
+    real = tmp_path / "dir"
+    real.mkdir()
+    link = tmp_path / "link.json"
+    _symlink_or_skip(link, real)
+    with pytest.raises(SystemExit) as exc:
+        _check_out_json_writable(str(link))
+    assert exc.value.code == 2
+    assert "Is a directory" in capsys.readouterr().err
+
+
 def test_repeated_factors_are_not_expanded_twice(doc, monkeypatch, tmp_path, capsys):
     from dokimi.cli import build_parser
 
