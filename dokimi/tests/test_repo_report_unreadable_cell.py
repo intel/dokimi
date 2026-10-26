@@ -119,6 +119,11 @@ _BAD_FIELDS = [
     pytest.param("agent", {**_GOOD["agent"], "input_tokens": True}, id="input-tokens-a-bool"),
     pytest.param("skills", [], id="skills-not-a-mapping"),
     pytest.param("skills", {"measured": True, "expected_skill": "s"}, id="skills-no-skill-invoked"),
+    pytest.param("skills", {"measured": True}, id="skills-measured-no-skill-invoked"),
+    pytest.param("skills", {"measured": True, "expected_skill": "s", "skill_invoked": True},
+                 id="skills-expected-no-selected-correct"),
+    pytest.param("agent", {**_GOOD["agent"], "cost_usd": 10**308}, id="cost-at-10-to-the-308"),
+    pytest.param("agent", {**_GOOD["agent"], "num_turns": 10**308}, id="num-turns-at-10-to-the-308"),
 ]
 
 
@@ -135,6 +140,26 @@ def test_a_result_file_without_usable_agent_task_arm_or_model_exits_1(tmp_path, 
     err = capsys.readouterr().err
     assert f"{batch / 't__a__m__r1' / 'result.json'} has no usable `{key}`" in err
     assert "Traceback" not in err
+
+
+_SKILLS_ACCEPTED = [
+    pytest.param({"measured": False}, {}, id="unmeasured"),
+    pytest.param({"measured": True, "skill_invoked": True}, {"skill_invoked": 1}, id="measured-no-expected-skill"),
+    pytest.param({"measured": True, "expected_skill": "s", "skill_invoked": True, "skill_selected_correct": True},
+                 {"skill_expected": 1, "skill_selected_correct": 1}, id="measured-expected-skill"),
+]
+
+
+@pytest.mark.parametrize("skills, shown", _SKILLS_ACCEPTED)
+def test_a_valid_skills_block_is_accepted_by_repo_report(tmp_path, capsys, skills, shown):
+    rec = {**_GOOD, "skills": skills}
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
+    _run("report", str(batch), "--json")
+    row = json.loads(capsys.readouterr().out)["rows"][0]
+    if skills["measured"]:
+        assert {k: row[k] for k in shown} == shown
+    else:
+        assert "skill_measured" not in row
 
 
 def test_a_result_file_with_a_score_task_and_no_score_only_is_accepted(tmp_path, capsys):

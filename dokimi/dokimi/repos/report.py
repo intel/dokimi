@@ -74,14 +74,17 @@ _AGENT_KEYS = ("timed_out", "is_error", "over_budget", "cost_usd", "num_turns")
 _AGENT_NUMBERS = ("cost_usd", "num_turns", *_TOKENS)
 
 
+_SAFE_MAGNITUDE = 1e300  # a sum of a batch's values stays a finite float
+
+
 def _optional_number(value: object) -> bool:
-    """True for None or a finite, non-bool number; an int too big for a float is not."""
+    """True for None or a finite, non-bool number whose magnitude keeps sums of a batch finite."""
     if value is None:
         return True
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return False
     try:
-        return math.isfinite(float(value))
+        return math.isfinite(float(value)) and abs(float(value)) <= _SAFE_MAGNITUDE
     except OverflowError:
         return False
 
