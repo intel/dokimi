@@ -89,6 +89,7 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert raw["model_resolved"] == ["m-1"] and summary["model_mismatch"] == {}
 
 
+@pytest.mark.outcome("cjm-model-answered")
 def test_a_run_answered_by_another_model_is_recorded_and_reported(setup, monkeypatch, capsys):
     # The record must carry what the harness reported, not the request, or the mismatch warning never fires.
     monkeypatch.setenv("FAKE_ANSWER_MODEL", "m-0")

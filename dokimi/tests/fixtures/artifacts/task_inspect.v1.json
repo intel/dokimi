@@ -1,0 +1,138 @@
+{
+  "root": "tests/fixtures/task_formats",
+  "items": [
+    {
+      "path": "catalog/evaluation/harbor/tasks/onetbb-nstream",
+      "format": "harbor",
+      "kind": "executable",
+      "confidence": 1.0,
+      "evidence": [
+        "task.toml"
+      ],
+      "items": null,
+      "present": [
+        "instruction",
+        "environment",
+        "oracle",
+        "verifier",
+        "metadata"
+      ],
+      "missing": [],
+      "problems": [],
+      "consumers": [
+        "harbor",
+        "docker-*"
+      ],
+      "alternatives": [],
+      "details": {
+        "metadata": {
+          "difficulty": "medium",
+          "category": "programming",
+          "tags": [
+            "c++",
+            "parallel",
+            "onetbb",
+            "hpc",
+            "parres",
+            "performance"
+          ]
+        }
+      }
+    },
+    {
+      "path": "inspect/_examples/biology_qa.jsonl",
+      "format": "inspect-samples",
+      "kind": "answer-only",
+      "confidence": 0.9,
+      "evidence": [
+        "named by biology_qa.py",
+        "FieldSpec(input=question, target=answer)"
+      ],
+      "items": 20,
+      "present": [
+        "instruction",
+        "oracle"
+      ],
+      "missing": [
+        "environment",
+        "verifier",
+        "metadata"
+      ],
+      "problems": [],
+      "consumers": [
+        "none-yet"
+      ],
+      "alternatives": [],
+      "details": {
+        "with_choices": 0,
+        "field_spec": {
+          "input": "question",
+          "target": "answer"
+        }
+      }
+    },
+    {
+      "path": "openai-evals/registry/data/GOL/samples.jsonl",
+      "format": "git-lfs-pointer",
+      "kind": "unknown",
+      "confidence": 1.0,
+      "evidence": [
+        "git-lfs spec v1 pointer",
+        "named by gol.yaml as openai-evals"
+      ],
+      "items": null,
+      "present": [],
+      "missing": [],
+      "problems": [
+        "git-LFS pointer: the 42582-byte content was not fetched (run `git lfs pull`, then inspect again)"
+      ],
+      "consumers": [
+        "none-yet"
+      ],
+      "alternatives": [],
+      "details": {
+        "oid": "sha256:e7707cd51b29f32cfeb994fc5494fea14f39a49d68aed5b2beccdc001bf6fde9",
+        "size": 42582,
+        "expected_format": "openai-evals"
+      }
+    },
+    {
+      "path": "promptfoo/eval-custom-grader-csv/promptfooconfig.yaml",
+      "format": "promptfoo",
+      "kind": "answer-only",
+      "confidence": 1.0,
+      "evidence": [
+        "file name",
+        "config $schema",
+        "prompts",
+        "providers",
+        "tests"
+      ],
+      "items": null,
+      "present": [
+        "instruction",
+        "environment",
+        "metadata"
+      ],
+      "missing": [
+        "oracle",
+        "verifier"
+      ],
+      "problems": [],
+      "consumers": [
+        "none-yet"
+      ],
+      "alternatives": [],
+      "details": {
+        "tests_from": "file://tests.csv",
+        "references": [
+          {
+            "path": "promptfoo/eval-custom-grader-csv/tests.csv",
+            "format": "promptfoo-tests"
+          }
+        ]
+      }
+    }
+  ],
+  "schema_version": "task_inspect.v1"
+}
