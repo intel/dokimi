@@ -23,5 +23,8 @@ def test_two_runs_of_one_task_in_one_process_get_their_own_container(tmp_path):
     for arm in ("a", "b"):
         cli = DockerCLI()
         create_harness("docker-oracle", runner=cli).run(task, output_dir=tmp_path / arm)
-        names |= {a[a.index("--name") + 1] for a in cli.args if a[0] == "run"}
+        (name,) = {a[a.index("--name") + 1] for a in cli.args if a[0] == "run"}
+        # every `docker rm -f` of this arm must name this arm's container
+        assert {a[-1] for a in cli.args if a[0] == "rm"} == {name}
+        names.add(name)
     assert len(names) == 2 and all(n.startswith(f"dokimi-run-{task.name}-") for n in names)
