@@ -251,14 +251,15 @@ def _bash_events(tool: str, args: dict[str, Any], grain: str) -> list[Event]:
             if not prog:
                 continue
             sep = sep if any(shell.clean(later) for later, _ in parts[i + 1:]) else ""  # `done`, `fi` close it
-            written = shell.written(seg)
             text = shell.step_text(seg)
-            ev_input = {**args, "command": text, **({"file_path": written} if written else {})}
-            target = Path(written).name if written else text
             # `set -e` stops a chain at its first failure, so after `;` or a newline the status is still theirs
             hidden = _hides_status(sep, errexit)
-            out.append(Event(tool, f"Bash:{prog}", f"Bash:{prog}({target})", ev_input,
-                             masked=not pipefail and "|" in shell.tokens(seg) or hidden))
+            masked = not pipefail and "|" in shell.tokens(seg) or hidden
+            # one step per file a command writes (`sed -i s/a/b/ a.py b.py` edits two files)
+            for written in shell.written_files(seg) or [""]:
+                ev_input = {**args, "command": text, **({"file_path": written} if written else {})}
+                target = Path(written).name if written else text
+                out.append(Event(tool, f"Bash:{prog}", f"Bash:{prog}({target})", ev_input, masked=masked))
         if out:
             return out
     prog = shell.program(command)

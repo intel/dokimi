@@ -244,36 +244,60 @@ def step_text(segment: str) -> str:
 
 
 def written(segment: str) -> str:
-    """The file a shell command writes, if it is one of the plain ways to write one."""
+    """The first file a shell command writes ("" for none); see `written_files`."""
+    return next(iter(written_files(segment)), "")
+
+
+def written_files(segment: str) -> list[str]:
+    """The files a shell command writes, if it is one of the plain ways to write one."""
     words = tokens(clean(segment))
     stages: list[list[str]] = [[]]
     for w in words:
         stages.append([]) if w == "|" else stages[-1].append(w)
     for stage in stages:
-        if target := _stage_writes(strip_wrappers(stage)):
-            return target
+        if files := _stage_writes(strip_wrappers(stage)):
+            return files
     for i, w in enumerate(words[:-1]):
-        if w in (">", ">>", ">|") and not (i and _fd_redirect(segment, words[i - 1])):
+        if w in (">", ">>", ">|", "&>", "&>>", ">&") and not (i and _fd_redirect(segment, words[i - 1])):
             target = words[i + 1]
-            if target not in _OPERATORS and target != "/dev/null":
-                return target
-    return ""
+            if target in _OPERATORS or target == "/dev/null" or (w == ">&" and (target == "-" or target.isdigit())):
+                continue
+            return [target]
+    return []
 
 
-def _stage_writes(stage: list[str]) -> str:
-    """The file an in-place edit (``sed -i f``) or ``tee f`` writes, in one stage of a pipeline."""
+def _stage_writes(stage: list[str]) -> list[str]:
+    """The files an in-place edit (``sed -i f g``) or ``tee f`` writes, in one stage of a pipeline."""
     if not stage:
-        return ""
+        return []
     in_place = _IN_PLACE.get(Path(stage[0]).name)
     if in_place and any(in_place.match(w) for w in stage[1:]):
-        files = [w for w in stage[1:] if not w.startswith("-") and w not in _OPERATORS]
-        if len(files) >= 2:
-            return files[-1]
+        return _edited_files(stage[1:])
     if stage[0] == "tee":
         rest = [x for x in stage[1:] if not x.startswith("-")]
         if rest and rest[0] not in _OPERATORS:
-            return rest[0]
-    return ""
+            return [rest[0]]
+    return []
+
+
+_SCRIPT_OPTIONS = {"-e", "-f", "--expression", "--file"}
+
+
+def _edited_files(args: list[str]) -> list[str]:
+    """The files named after an in-place edit's options. Its script is the first word unless `-e` / `-f`
+    gives one, and is not a file; a digit before a redirect is a stream number, not a file."""
+    files, script_given, i = [], False, 0
+    while i < len(args) and args[i] not in _OPERATORS:
+        w = args[i]
+        if w in _SCRIPT_OPTIONS:
+            script_given, i = True, i + 2
+            continue
+        if w.startswith("-") or (w.isdigit() and i + 1 < len(args) and args[i + 1] in _OPERATORS):
+            i += 1
+            continue
+        files.append(w)
+        i += 1
+    return files if script_given else files[1:]
 
 
 def _fd_redirect(segment: str, prev: str) -> bool:

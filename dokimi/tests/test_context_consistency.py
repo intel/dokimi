@@ -255,7 +255,7 @@ def test_control_syntax_is_not_a_step(cmd, want):
 
 @pytest.mark.parametrize("seg, want", [
     ("echo 3 > count.txt", "count.txt"), ("seq 1 10 > out.txt", "out.txt"),
-    ("make 2> err.log", ""), ("make 2>> err.log", ""), ("make &> all.log", ""),
+    ("make 2> err.log", ""), ("make 2>> err.log", ""), ("make &> all.log", "all.log"),
     ("perl -Mstrict -e 'print 1' foo.pl", ""), ("perl -pi -e 's/a/b/' foo.pl", "foo.pl"),
     ("sed --in-place 's/a/b/' f.py", "f.py"), ("sed -i.bak 's/a/b/' f.py", "f.py"),
 ])

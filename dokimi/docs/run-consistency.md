@@ -27,7 +27,8 @@ The path is the main thread's steps. By default (`--shell split`) one `Bash`
 call is one step per command it chains (`&&`, `||`, `;`, newline outside
 quotes; heredoc bodies and comments dropped), each named by program
 (`Bash:pytest`, `Bash:sed`), and a command that writes a file (`sed -i`, `>`,
-`>>`, `tee`) carries it as `file_path`. Without this a model that does
+`>>`, `&>`, `tee`) carries it as `file_path`, one step per file (`sed -i … a.py b.py`
+is two). Without this a model that does
 `sed -i … pricing.py; sed -i … CHANGELOG.md; sh finish.sh` in one call shows as
 one step, its path looks perfectly stable and a contract sees no edit and no
 check. `--shell call` keeps one step per tool call. Subagent calls are left

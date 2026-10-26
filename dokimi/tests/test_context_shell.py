@@ -11,7 +11,7 @@ import pytest
 
 from dokimi.context.consistency import (Matcher, apply_outcomes, check_contract, load_outcomes, parse_contract,
                                         parse_run, profile, run_from_events, _events)
-from dokimi.context.shell import program, split_commands, written
+from dokimi.context.shell import program, split_commands, written, written_files
 
 
 def _steps(command: str) -> list[tuple[str, str]]:
@@ -40,7 +40,8 @@ def _steps(command: str) -> list[tuple[str, str]]:
     ("timeout 300 pytest", [("Bash:pytest", "Bash:pytest(timeout 300 pytest)")]),
     ("timeout -k 5 300 pytest", [("Bash:pytest", "Bash:pytest(timeout -k 5 300 pytest)")]),
     ("nohup pytest", [("Bash:pytest", "Bash:pytest(nohup pytest)")]),
-    ("nice -n 10 pytest", [("Bash:pytest", "Bash:pytest(nice -n 10 pytest)")]),    ("{ ruff check .; pytest; }", [("Bash:ruff", "Bash:ruff(ruff check .)"), ("Bash:pytest", "Bash:pytest(pytest)")]),
+    ("nice -n 10 pytest", [("Bash:pytest", "Bash:pytest(nice -n 10 pytest)")]),
+    ("{ ruff check .; pytest; }", [("Bash:ruff", "Bash:ruff(ruff check .)"), ("Bash:pytest", "Bash:pytest(pytest)")]),
     ("{ make; }", [("Bash:make", "Bash:make(make)")]),
     ("{ a; b; } > f.txt", [("Bash:a", "Bash:a(a)"), ("Bash:b", "Bash:b(b)")]),
     ("sudo -u bob make test", [("Bash:make", "Bash:make(sudo -u bob make test)")]),
@@ -73,9 +74,17 @@ def test_a_chained_line_reports_the_separator_after_each_command():
     ("seq 1 10 > out.txt", "out.txt"), ("pytest 2>/dev/null", ""), ("pytest 2> err.log", ""),
     ("echo a2>/dev/null 2 > f", "f"),
     ("echo $# > out.txt", "out.txt"), ("echo ${#x} > out.txt", "out.txt"),
+    ("echo hi &> out.txt", "out.txt"), ("echo hi &>> out.txt", "out.txt"), ("echo hi >& out.txt", "out.txt"),
+    ("make >&2", ""), ("make 2>&1", ""), ("echo hi >&-", ""),
 ])
 def test_written_file_after_prefixes_and_flags(command, file):
     assert written(command) == file
+
+
+def test_a_multi_file_in_place_edit_records_every_file():
+    assert written_files("sed -i s/a/b/ a.py b.py") == ["a.py", "b.py"]
+    assert [e.input.get("file_path") for e in _events("Bash", {"command": "sed -i s/a/b/ a.py b.py"})] == [
+        "a.py", "b.py"]
 
 
 def test_a_hash_inside_a_word_does_not_cut_the_line_before_a_pipe():
