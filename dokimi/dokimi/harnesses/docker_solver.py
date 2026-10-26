@@ -75,7 +75,7 @@ from .command import _parse_reward_text
 from .container_agent import AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, ContainerSandbox, Docker
 from .models import HarnessResult, OperationRecord
 from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, enter_phase, needs_sandbox,
-                             proxy_env_flags, resolve, skill_needs, start_args, redact as _redact)
+                             proxy_env_flags, resolve, resolve_recorded, skill_needs, start_args, redact as _redact)
 from .skill_treatment import Treatment, build_plugin, check_skill, skill_listing, treatment_notice
 from .solver_stream import record_solver, run_solver
 from .tasks import (  # noqa: F401  (timeouts re-exported)
@@ -138,8 +138,8 @@ class DockerSolverHarness:
         dry_run: bool = False,
     ) -> HarnessResult:
         _refuse_unrunnable(task, self.mode, self.agent_location)
-        plan = self._plan(task)
         output_dir = Path(output_dir) if output_dir else None
+        plan = self._plan(task, record=None if dry_run else output_dir)
         if output_dir:
             output_dir.mkdir(parents=True, exist_ok=True)
         model = model or self.model_default
@@ -207,7 +207,6 @@ class DockerSolverHarness:
         returncode = 0
         extra_metrics: dict[str, Any] = {}
         network = self._network_metrics(plan)
-        (output_dir / "network.json").write_text(json.dumps(network, indent=1), encoding="utf-8")  # errored cells too
         reward: Optional[float] = None
         sandbox: Optional[ContainerSandbox] = None
         try:
@@ -260,6 +259,7 @@ class DockerSolverHarness:
             reward = None
         finally:
             log.close()
+            (output_dir / "network.json").write_text(json.dumps(network, indent=1), encoding="utf-8")
 
         elapsed = time.time() - start
         metrics: dict[str, Any] = {"dry_run": False, "mode": self.mode, "network": network}
@@ -387,7 +387,7 @@ class DockerSolverHarness:
         # A rerun must not find its own previous tree or verdict during the solve.
         _rmtree(output_dir / "work")
         (output_dir / "reward.txt").unlink(missing_ok=True)
-        if sandbox is not None:
+        if sandbox is not None and self.agent_location == "container":  # a host arm stays on the host
             return self._solve_claude_in_container(task, container, output_dir, model, timeout,
                                                    operations, log, extra_metrics, sandbox)
         workdir = _require_agent_workdir(task, container, log, self._docker)
@@ -569,7 +569,7 @@ class DockerSolverHarness:
         untested = {k: "untested" for k in LEAK_CLASSES}
         # Where docker-claude is refused, its probe would vouch for an arm that never runs.
         workdir = _require_agent_workdir(task, container, log, self._docker)
-        if sandbox is not None:
+        if sandbox is not None and self.agent_location == "container":  # not for a verify allowlist
             sandbox.workdir = workdir
             sandbox.prepare(container, self._docker, log)
             skill_dir = self._resolve_skill_dir()  # docker-probe:<skill>: forbidden, never offered
@@ -657,8 +657,8 @@ class DockerSolverHarness:
         # No reward file written: fall back to verifier exit code.
         return 1.0 if proc.returncode == 0 else 0.0
 
-    def _plan(self, task: TaskSpec) -> NetworkPlan:
-        return resolve(task, self.network, agent=self.mode != "oracle")
+    def _plan(self, task: TaskSpec, record: Optional[Path] = None) -> NetworkPlan:
+        return resolve_recorded(task, self.network, agent=self.mode != "oracle", record=record)
 
     def _solve_in_container(self) -> bool:
         return self.mode == "oracle" or self.agent_location == "container"
@@ -673,7 +673,7 @@ class DockerSolverHarness:
         if not (agent or needs_sandbox(plan, solve_in_container=self._solve_in_container())):
             return None
         return ContainerSandbox.open(container, self._docker, log, source_env=operator_source_env(),
-                                     task_egress=list(plan.solve.hosts), with_agent=self.mode == "claude",
+                                     task_egress=list(plan.solve.hosts), with_agent=agent and self.mode == "claude",
                                      include_llm=agent, runner=self.runner)
 
     def _verify_phase(self, task: TaskSpec, net: PhasePolicy, container: str, output_dir: Path, log,

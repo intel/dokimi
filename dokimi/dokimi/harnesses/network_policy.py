@@ -38,6 +38,7 @@ their verdicts are compared.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass, replace
@@ -164,6 +165,17 @@ def resolve(task: Any, overrides: Sequence[str] = (), *, agent: bool = False) ->
     return NetworkPlan(**plan)
 
 
+def resolve_recorded(task: Any, overrides: Sequence[str], *, agent: bool, record: Optional[Path]) -> NetworkPlan:
+    """:func:`resolve`; a refused plan also leaves its reason in *record* ``/network.json``, the cell's record."""
+    try:
+        return resolve(task, overrides, agent=agent)
+    except ValueError as exc:
+        if record is not None:
+            record.mkdir(parents=True, exist_ok=True)
+            (record / "network.json").write_text(json.dumps({"error": str(exc)}, indent=1), encoding="utf-8")
+        raise
+
+
 def skill_needs(skill_dir: Optional[Path], plan: NetworkPlan) -> Optional[dict[str, Any]]:
     """What a skill declares it needs at solve time, and what this run's plan leaves out.
 
@@ -183,7 +195,10 @@ def skill_needs(skill_dir: Optional[Path], plan: NetworkPlan) -> Optional[dict[s
     if not declared:
         return None
     mode, _, hosts = str(declared).partition(":")
-    want = policy(mode, [h for h in hosts.split(",") if h.strip()], "skill metadata.network")
+    try:
+        want = policy(mode, [h for h in hosts.split(",") if h.strip()], "skill metadata.network")
+    except ValueError as exc:  # only recorded: a value we cannot read must not error the arm
+        return {"declared": str(declared), "missing": None, "error": str(exc)}
     if plan.solve.mode == "public":
         missing: list[str] = []
     elif want.mode == "public":
