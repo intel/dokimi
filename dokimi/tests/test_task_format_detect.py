@@ -620,3 +620,17 @@ def test_a_file_a_scan_could_not_read_is_reported_with_its_problem(tmp_path, mon
         assert (found[name].format, found[name].problems) == ("unknown", alone.problems)
     assert found["big.jsonl"].problems[0].endswith("MiB: not read")
     assert found["evals.json"].problems[0].startswith("not valid JSON:")
+
+
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                    reason="needs POSIX permissions that bind the user (root reads a mode-000 file)")
+def test_a_task_md_a_scan_cannot_read_is_reported_and_the_scan_goes_on(tmp_path):
+    _harbor(tmp_path)
+    task_md = _write(tmp_path / "t" / "task.md", "---\nname: x\n---\nhi\n")
+    task_md.chmod(0)
+    try:
+        found = {r.path.name: r for r in inspect_path(tmp_path)}
+    finally:
+        task_md.chmod(0o644)
+    assert (found["hb"].format, found["t"].format) == ("harbor", "unknown")
+    assert found["t"].problems == [f"cannot read: [Errno 13] Permission denied: '{task_md}'"]

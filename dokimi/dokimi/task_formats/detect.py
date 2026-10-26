@@ -118,7 +118,10 @@ class _Scan:
         self.unread: dict[Path, Report] = {}
 
     def walk(self, directory: Path) -> None:
-        task = detect(directory, DIR_PROBES)
+        try:
+            task = detect(directory, DIR_PROBES)
+        except OSError as exc:  # a task.md (or the directory) the probes could not read
+            task = Report(directory, FORMAT_UNKNOWN, KIND_UNKNOWN, problems=[f"cannot read: {exc}"])
         if task is not None:
             self.entries.append((directory, task))
             return
