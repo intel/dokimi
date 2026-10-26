@@ -27,7 +27,9 @@ python cli.py eval reference --answers answers.json --questions q.json -o eval.j
 ```
 
 `tasks inspect <path>` names the format, and `questions import` uses the same
-detection. Use `--format` to override it.
+detection. Use `--format` to override it. A file that fits several formats
+(`tasks inspect` lists the others under `alternatives`) is refused until
+`--format` names one.
 
 ## The canonical record
 

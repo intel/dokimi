@@ -189,6 +189,18 @@ def test_openai_modelgraded_rows_without_ideal_import():
         import_path(data, fmt="openai-evals", grader="match")
 
 
+def test_an_ambiguous_file_is_refused_unless_the_format_is_named():
+    # Alone, joke_fruits.jsonl reads as Inspect samples or OpenAI evals rows (`tasks inspect`
+    # lists the second as an alternative); only test-modelgraded.yaml says which it is.
+    data = _EVALS / "data" / "test_modelgraded" / "joke_fruits.jsonl"
+    with pytest.raises(ValueError, match=r"ambiguous format \(inspect-samples, openai-evals\).*--format"):
+        import_path(data)
+    named = import_path(data, fmt="openai-evals", grader=str(_EVALS / "evals" / "test-modelgraded.yaml"))
+    assert named.source_format == "openai-evals"
+    plain = import_path(_EVALS / "data" / "allergen-information" / "samples.jsonl")
+    assert plain.source_format == "openai-evals" and plain.questions
+
+
 def test_openai_custom_eval_class_is_refused(tmp_path):
     data = _jsonl(tmp_path / "s.jsonl", _BORN)
     yaml = _write(tmp_path / "c.yaml", "c.dev.v0:\n  class: evals.elsuite.custom:Thing\n  args: {}\n")

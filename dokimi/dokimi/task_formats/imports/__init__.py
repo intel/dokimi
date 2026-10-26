@@ -41,6 +41,11 @@ def import_path(path: Path, *, fmt: Optional[str] = None, **options: Optional[st
         report = detect(Path(path))
         if report is None:
             raise ValueError(f"{path}: no known eval format detected (see `tasks inspect {path}`)")
+        if report.alternatives:
+            # A file alone often fits two formats (Inspect samples vs OpenAI evals rows); only
+            # the config that names it can tell, so a guess would import the wrong graders.
+            candidates = ", ".join([report.format, *(str(a["format"]) for a in report.alternatives)])
+            raise ValueError(f"{path}: ambiguous format ({candidates}); pick one with --format")
         fmt = report.format
     if fmt not in ADAPTERS:
         raise ValueError(f"{path}: format {fmt!r} has no import adapter; answer-only formats with one: "
