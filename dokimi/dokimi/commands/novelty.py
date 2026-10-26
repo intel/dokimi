@@ -284,6 +284,11 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
 
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
     """Can this artifact be selected against its competitors? Lexical floor, model on top."""
+    if args.repeats > 1 and not args.model:
+        raise SystemExit(
+            "--repeats needs --model: the lexical floor is deterministic, so repeating it "
+            "measures nothing"
+        )
     from dokimi.novelty.routing import (
         Candidate,
         RoutingInputError,
@@ -358,7 +363,8 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     if args.model:
         selector = _client(args.model, args.provider, "selector", args)
         payload["model"] = dict(
-            model_routing(candidates, queries, client=selector, gold=0, seed=args.seed),
+            model_routing(candidates, queries, client=selector, gold=0, seed=args.seed,
+                          repeats=args.repeats),
             queries_self_derived=self_derived,
         )
 
@@ -389,6 +395,17 @@ def _print_routing_summary(payload: dict, n_competitors: int, self_derived: bool
               f"({row['selection_rate_among_answered']} among answered; "
               f"{row['n_abstained']} abstained, {row['n_failed']} failed)  "
               f"[{row['model']}]  n_queries {row['n_queries']} given{tag}")
+        if row["n_abstained"]:
+            of_calls = f" of {row['n_calls']} calls" if row["repeats"] > 1 else ""
+            print(f"{row['n_abstained']}{of_calls} abstained or unparseable: the raw reply "
+                  "is under per_query[].raw_reply in the output")
+        if row["noise"]:
+            noise = row["noise"]
+            print(f"noise    {row['repeats']} repeats per query: mean agreement "
+                  f"{noise['mean_agreement']}, {noise['unstable_queries']} queries picked "
+                  f"differently across repeats; selection by repeat "
+                  f"{noise['selection_rate_by_repeat']}, half range "
+                  f"{noise['half_range']} (a crude sampling floor)")
         print("The model figure is an upper bound on harness behaviour: a harness that "
               "truncates descriptions in its own listing selects on less text.")
     if self_derived:
@@ -660,6 +677,10 @@ def register(sub, positive_int) -> None:
     routing_p.add_argument("--seed", type=int, default=0,
                            help="Seeds the per-query card permutation, so a position-biased "
                                 "model scores ~1/N and the run is reproducible")
+    routing_p.add_argument("--repeats", type=positive_int, default=1,
+                           help="Ask the model this many times per query, with the same card "
+                                "order each time, and report per-query agreement and the "
+                                "run-to-run noise floor. Needs --model; costs N times the calls")
     routing_p.add_argument("--out", default=None)
     _add_spend_cap(routing_p)
     routing_p.set_defaults(func=_stops_at_cap(cmd_novelty_routing))
@@ -922,5 +943,42 @@ def _print_headline(artifact: dict) -> None:
         f"degraded: {paired['lenient']['degraded']}, "
         f"dead tokens: {artifact['spans'].get('frac_carrying_nothing')}"
     )
+    _print_coverage(artifact.get("bundle") or {})
     for warning in artifact.get("warnings", []):
         print(f"WARNING {warning}", file=sys.stderr)
+
+
+def _print_coverage(bundle: dict) -> None:
+    """How much of the artifact's readable words this run read, on stdout.
+
+    The share is stated on stdout because the headline is what a user copies. A run under
+    the floor also says so on stdout: a stderr-only warning is one a user piping the
+    headline never sees, and a rate quoted off half-read skill is not a property of it.
+    """
+    from dokimi.novelty.bundle import MEASURED_SHARE_WARN_AT, Coverage
+
+    coverage = Coverage.from_record(bundle)
+    if coverage is None or not coverage.denominator("readable"):
+        return
+    share = coverage.measured_share
+    scope = "" if coverage.include_resources else " (entry point only)"
+    # The warnings below need readable words outside the entry point, so the flag always adds some.
+    rerun = "" if coverage.include_resources else "; pass --include-resources to measure the bundled files"
+    if share is None:
+        print("coverage: unknown (a bundled file did not decode, so its words are not "
+              f"counted){scope}")
+        # The share is unknowable, but a floor on what was left unread is not: for an
+        # entry-point run it is the stderr warning's figure, and a capped bundle run has one too.
+        if coverage.counted_unmeasured_share >= 1 - MEASURED_SHARE_WARN_AT:
+            part = "what this run read is" if coverage.include_resources else "the entry point is"
+            print(f"WARNING: {part} half or less of the artifact's readable words, so every "
+                  f"rate here describes that part, not the artifact{rerun}")
+        return
+    # Floored on the 4-place share, in integers: a float product floors 0.29 to 28, and
+    # 49.99% must not print as "50%" beside a "below 50%" warning. A true 49.996% is already
+    # 0.5 by the time it is stored.
+    pct = "<1%" if 0 < share < 0.01 else f"{round(share * 10000) // 100}%"
+    print(f"coverage: {pct} of the artifact's readable words were measured{scope}")
+    if share <= MEASURED_SHARE_WARN_AT:
+        print(f"WARNING: only {pct} of the artifact's readable words were measured, so every "
+              f"rate here describes that part, not the artifact{rerun}")

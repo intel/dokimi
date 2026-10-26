@@ -154,7 +154,7 @@ the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
 
 | Step | Command | Cost |
 |---|---|---|
-| 1. Does it load? | `dokimi catalog scan --root <catalog> --kind skills` | free |
+| 1. Does it load? | `dokimi catalog scan --root <catalog> --kind skills [--strict]` | free |
 | 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --catalog <catalog> --queries queries.json [--model …]` | free without `--model` |
 | 3. What will step 4 cost? | `dokimi novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
 | 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |

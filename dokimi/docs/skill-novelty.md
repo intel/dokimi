@@ -138,7 +138,11 @@ marked. Read it as a review queue:
   `spans.capped_atom_set` is true. The `harmful_atoms` gate check reads a count of 0 as cleared only
   when the share reaches `min_conflict_coverage` (1.0 by default) and the atom set was not capped;
   otherwise it is `measured: false`, as it is when `conflict_coverage` is present but malformed. A
-  conflict that was found is always reported.
+  conflict that was found is always reported. The Markdown report `analyze` writes next to the
+  artifact says the same: in place of the `Conflicts first` line it gives the gate's reason, and its
+  `harmful_conflicting` row reads `not measured (0 found)`. An artifact written before
+  `conflict_coverage` existed has no such field and keeps the old reading, a 0 that counts as
+  cleared, unless its atom set was capped; re-run `analyze` to check it.
 - **Unchecked atoms.** A call whose reply does not parse is split and re-asked only while both
   halves keep two atoms, since one statement has no pair to look at; a chunk of two or three whose
   reply does not parse fails with its error. Atoms in a call that failed, and an atom left alone in
@@ -490,9 +494,14 @@ Things to know before reading a bundle result:
   deliver if the agent read all of it. Whether the agent chooses to load `references/x.md`
   at runtime is the agentic track's question (`skill-agent:`), not this one.
 - **The two modes are different cells.** `include_resources` is recorded in `run_config`;
-  an entry-point run and a bundle run of the same skill are not comparable numbers, and an
-  entry-point run whose *measurable* outside share is ≥ 0.5 says so in `warnings`
-  (`measurable_outside_share` nets out the role decisions below; `outside_share` is the
+  an entry-point run and a bundle run of the same skill are not comparable numbers. A run
+  that read half or less of the readable words says so on stdout (the `coverage:` line
+  and a `WARNING`), a bundle run held back by the word budgets included; an entry-point run
+  also says so in `warnings`. When a bundled file did not decode the share is unknowable:
+  stdout prints `coverage: unknown` (still warning if the words it counted show the run read
+  half or less: the entry point, or a bundle run held back by the budgets) and `bundle.measured_share` is `null`. The share is
+  `bundle.measured_share` (for an entry-point run, `1 - measurable_outside_share` to 4
+  places, which nets out the role decisions below; `outside_share` is the
   on-disk figure, and the two differ for a skill whose only resources are its evals).
 - **A skill's own `evals/` are not content.** They are the question/answer keys for
   testing the skill, so extracting atoms from them would credit the skill with delivering
@@ -588,7 +597,7 @@ the absence of detectable corruption — not proof that the wordings are faithfu
 ```bash
 python cli.py novelty routing --artifact skill:path/to/skill \
     --competitors skill:sibling-a skill:sibling-b ... \
-    --queries queries.json [--model M]
+    --queries queries.json [--model M [--repeats N]]
 ```
 
 `--catalog <dir>` takes the competitors from a skill directory instead: every `SKILL.md`
@@ -608,6 +617,18 @@ Two numbers, reported side by side and never merged:
   `selection_rate`** — not picking anything is the routing failure — with
   `selection_rate_among_answered` beside it; a failed call is excluded from both and
   counted, and one failed query does not lose the rest.
+  Each abstention or unparseable pick keeps the model's raw reply under
+  `per_query[].raw_reply` (the first 2000 characters), so a decline can be read.
+  `--repeats N` asks each query N times with the same card order, so the spread between
+  repeats is the model's own sampling noise. The result's `noise` block gives each query's
+  agreement across its repeats (`per_query`), the selection rate of each repeat, and
+  `half_range`, half the gap between the highest and lowest of those rates: a crude noise
+  floor. The rates cover only the queries with no failed call in any repeat
+  (`n_queries_compared`), so a transient error is not read as noise. Each repeat is a
+  fresh sample, so under `DOKIMI_RESPONSE_CACHE` a repeat is not a
+  replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
+  queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
+  carries its `repeat` index.
 
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
@@ -758,9 +779,10 @@ Each cell carries a soft-gate verdict (`dokimi/gate/novelty_gate.py`): `added_fl
 `value_is_measured`, `order_independence`. **Every one of them is soft and none blocks a build** —
 a threshold on `added` flipped its verdict on up to 24% of artifacts at a 0.25 probe budget, so a
 blocking novelty check would be a blocking opinion about probe count. Checks whose input a run did
-not produce are marked `measured: false` at `info` severity and listed in the verdict's `not_measured`
-(rendered as `PASS (k not measured)`) rather than passed silently, so a skipped stage never reads as a
-cleared one.
+not produce are marked `measured: false` and listed in the verdict's `not_measured` (rendered as
+`PASS (k not measured)`) rather than passed silently, so a skipped stage never reads as a cleared one.
+Such a check is at `info` severity, except `harmful_atoms` and `protection_invariant`, which stay at
+`warn`.
 A cell with no check measured at all is `NOT MEASURED`, not `PASS`.
 Failing `warn`-severity checks and the artifact's own `warnings` also surface in the
 scorecard's top-level `warnings`.

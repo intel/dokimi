@@ -265,13 +265,13 @@ def render_arms_report(data: Dict[str, Any]) -> str:
             "harness does."
         )
         lines.append("")
-        lines.append("| Arm | Accuracy | Recall | Recall (any) | Multi-load | Misroute | False trigger "
+        lines.append("| Arm | Accuracy | Recall | Precision | Recall (any) | Multi-load | Misroute | False trigger "
                      "| +/− | n | Failed |")
-        lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+        lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
         for arm_name, s in selection.items():
             lines.append(
                 f"| `{arm_name}` | {pct(s.get('selection_accuracy'))} | {pct(s.get('recall'))} | "
-                f"{pct(s.get('recall_any'))} | {pct(s.get('multi_load_rate'))} | "
+                f"{pct(s.get('precision'))} | {pct(s.get('recall_any'))} | {pct(s.get('multi_load_rate'))} | "
                 f"{pct(s.get('misroute_rate'))} | {pct(s.get('false_trigger_rate'))} | "
                 f"{s.get('n_positive', 0)}/{s.get('n_negative', 0)} | {s.get('n', 0)} | "
                 f"{s.get('n_failed', 0)} |"

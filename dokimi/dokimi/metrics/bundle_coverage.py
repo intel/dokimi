@@ -119,6 +119,11 @@ CURRENT_COVERAGE_BASIS = "readable"
 #: How a record without ``coverage_basis`` is read: it was written when the gate judged
 #: all bundled words, and re-reading it on another basis would move its stored value.
 LEGACY_COVERAGE_BASIS = "all_bundled_words"
+#: A run that read this share of the readable words or less is warned, on stdout and in the
+#: artifact: its rates describe the measured part, not the artifact. This is the line the
+#: analyzer has always warned at (an entry-point run whose outside share is 0.5 or more), and
+#: the gate's ``max_unmeasured_outside_share`` is 0.50 on the same readable basis.
+MEASURED_SHARE_WARN_AT = 0.5
 
 
 def _share(part: int, whole: int) -> float:
@@ -248,6 +253,15 @@ class Coverage:
         """
         return self.outside_share_on("readable")
 
+    @property
+    def counted_unmeasured_share(self) -> float:
+        """Share of the counted readable words this run did not read, to 4 places.
+
+        Known even when a file did not decode, and then a floor: that file's words are
+        unread too. For an entry-point run it equals ``outside_share_on("readable")``.
+        """
+        return _share(self.unmeasured_words, self.denominator("readable"))
+
     def unmeasured_share(self, basis: str) -> float | None:
         """Share of the ``basis`` words this run did not read; ``None`` when unknowable.
 
@@ -260,3 +274,16 @@ class Coverage:
             return None
         whole = self.denominator(basis)
         return self.unmeasured_words / whole if whole else 0.0
+
+    @property
+    def measured_share(self) -> float | None:
+        """Share of the readable words this run read, to 4 places; ``None`` when unknowable.
+
+        The complement of :meth:`unmeasured_share` on the readable basis, stated as what was
+        read rather than what was missed. ``None`` for the same reasons: a file did not
+        decode, or there are no readable words to be a share of.
+        """
+        unmeasured = self.unmeasured_share("readable")
+        if unmeasured is None or not self.denominator("readable"):
+            return None
+        return round(1 - unmeasured, 4)
