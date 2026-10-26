@@ -1,0 +1,14 @@
+[
+  {
+    "query": "Fill in this PDF form for me",
+    "should_trigger": true
+  },
+  {
+    "query": "Plot this CSV as a bar chart",
+    "should_trigger": true
+  },
+  {
+    "query": "What is the capital of France?",
+    "should_trigger": false
+  }
+]

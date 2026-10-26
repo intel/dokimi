@@ -195,20 +195,25 @@ def discover_skills(root, *, notes: Optional[List[str]] = None) -> List[Skill]:
     Returns:
         The skills, in path order.
     """
+    return [load_skill(f) for f in skill_files(root, notes=notes)]
+
+
+def skill_files(root, *, notes: Optional[List[str]] = None) -> List[Path]:
+    """The ``SKILL.md`` files :func:`discover_skills` loads, in path order, unloaded."""
     root = Path(root)
-    skill_files: List[Path] = []
+    found: List[Path] = []
     for skill_file in _skill_files(root):
         if TEMPLATE_DIR_NAMES.intersection(skill_file.relative_to(root).parts[:-1]):
             if notes is not None:
                 notes.append(f"left out {skill_file}: a template, not a skill")
             continue
-        skill_files.append(skill_file)
+        found.append(skill_file)
 
     key_of: Dict[Path, Tuple[str, str]] = {}
     copies_of: Dict[Tuple[str, str], List[Path]] = {}
-    for skill_file in skill_files:
+    for skill_file in found:
         data = skill_file.read_bytes()
-        meta, _ = parse_frontmatter(data.decode("utf-8"))
+        meta, _ = parse_frontmatter(data.decode("utf-8", errors="replace"))  # the name only groups mirrors
         key = (_skill_name(meta, skill_file), hashlib.sha256(data).hexdigest())
         key_of[skill_file] = key
         copies_of.setdefault(key, []).append(skill_file)
@@ -217,12 +222,12 @@ def discover_skills(root, *, notes: Optional[List[str]] = None) -> List[Skill]:
         for group, copies in copies_of.items()
     }
 
-    skills: List[Skill] = []
-    for skill_file in skill_files:
+    kept_files: List[Path] = []
+    for skill_file in found:
         kept = keeper[key_of[skill_file]]
         if kept != skill_file:
             if notes is not None:
                 notes.append(f"left out {skill_file}: identical to {kept}")
             continue
-        skills.append(load_skill(skill_file))
-    return skills
+        kept_files.append(skill_file)
+    return kept_files

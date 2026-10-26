@@ -773,7 +773,8 @@ def test_probe_ignores_unresolved_env_it_never_uses(tmp_path, monkeypatch):
     calls = cli.args
     res = DockerSolverHarness(harness_id="docker-probe", mode="probe", runner=cli).run(
         task, output_dir=tmp_path / "out", dry_run=True)
-    assert res.metrics == {"dry_run": True, "mode": "probe"} and calls == []
+    assert {k: v for k, v in res.metrics.items() if k != "network"} == {"dry_run": True, "mode": "probe"}
+    assert res.metrics["network"]["solve"]["mode"] == "none" and calls == []  # public is not the agent's
     claude = DockerSolverHarness(harness_id="docker-claude", mode="claude", runner=cli).run(
         task, output_dir=tmp_path / "out", dry_run=True)
     assert claude.metrics["unresolved_env"] == {"verifier": ["SECRET"]}

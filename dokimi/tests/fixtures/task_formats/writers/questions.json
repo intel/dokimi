@@ -1,0 +1,26 @@
+{
+  "schema_version": "questions.v2",
+  "questions": [
+    {
+      "id": "q1",
+      "question": "Fill in this PDF form for me",
+      "trigger_lint": {},
+      "expected_skill": "pdf-forms"
+    },
+    {
+      "id": "q2",
+      "question": "Plot this CSV as a bar chart",
+      "trigger_lint": {},
+      "expected_skill": [
+        "charts",
+        "pdf-forms"
+      ]
+    },
+    {
+      "id": "q3",
+      "question": "What is the capital of France?",
+      "trigger_lint": {},
+      "expected_skill": null
+    }
+  ]
+}
