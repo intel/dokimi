@@ -124,15 +124,17 @@ def _launch_mismatches(harnesses: list[str], baseline: str | None) -> list[str]:
 
 def _select_swebench(args: argparse.Namespace) -> list:
     """Stage the selected rows of a SWE-bench dataset file under the output dir."""
-    from dokimi.harnesses.swebench import KNOWN_BAD, load_swebench
+    from dokimi.harnesses.swebench import KNOWN_BAD, load_swebench, read_instances
 
     ids = None if args.all else [t.strip() for t in (args.tasks or "").split(",") if t.strip()]
     if ids == []:
         raise SystemExit("No tasks selected. Pass --tasks <instance_id[,...]> or --all.")
-    if ids is None:
-        print(f"--swe-bench --all skips {len(KNOWN_BAD)} known-bad rows (name them in --tasks to run them): "
-              + ", ".join(sorted(KNOWN_BAD)), file=sys.stderr)
     try:
+        if ids is None:
+            skipped = sorted(KNOWN_BAD.keys() & {str(r.get("instance_id")) for r in read_instances(Path(args.swe_bench))})
+            if skipped:
+                print(f"--swe-bench --all skips {len(skipped)} known-bad rows (name them in --tasks to run them): "
+                      + ", ".join(skipped), file=sys.stderr)
         tasks = load_swebench(Path(args.swe_bench), Path(args.output_dir) / "swe-bench-tasks", ids)
     except (OSError, ValueError) as exc:  # SweBenchError and bad JSON are ValueErrors
         raise SystemExit(f"--swe-bench: {exc}") from None
