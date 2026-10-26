@@ -16,6 +16,9 @@ import pytest
 
 pytest_plugins = ["tests.outcomes.plugin"]
 
+# Eval-task files under test, not tests: their test_*.py are the verifiers of copied tasks.
+collect_ignore_glob = ["fixtures/task_formats/*"]
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

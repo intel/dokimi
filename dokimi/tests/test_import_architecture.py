@@ -52,7 +52,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.datasets_export", "dokimi.explore", "dokimi.external", "dokimi.harnesses",
         "dokimi.novelty", "dokimi.orchestrator", "dokimi.report", "dokimi.repos",
         "dokimi.runner", "dokimi.schema_check", "dokimi.schema_compat", "dokimi.subjects",
-        "dokimi.tool_preference",
+        "dokimi.task_formats", "dokimi.tool_preference",
     )),
     # The LLM evaluation engine: answering, judging, panels, arms, questions, personas.
     ("evaluation", (

@@ -410,6 +410,39 @@ that needed a re-draw.
 token, but some endpoints compute slightly different scores from one call to
 the next, so reproducibility has to be measured per endpoint.
 
+### Multi-turn sessions
+
+A single answer does not show what an arm costs once the conversation grows.
+`--session-turns N` asks each question as its own text followed by the first
+N-1 entries of its `follow_ups` list (a list of strings in the question record),
+keeps the history, and records each turn's usage:
+
+```bash
+python cli.py arms run ... --arms baseline,skill:/path/to/skill --session-turns 4
+python cli.py arms run ... --arms baseline,skill:/path/to/skill --session-turns 4 \
+  --turn-reminder "Answer tersely."   # also runs each arm as <arm>+reminder
+```
+
+Every turn is recorded under the arm's `session.turns`, with `metrics` for that
+call (prompt, completion, cache read and write tokens, cost). The arm's
+`token_usage` and `metrics` are the sums over turns, so `cost_summary` reads
+them like any other run. A question with fewer than N-1 follow-ups fails the
+run before any answer is generated. Agentic arms (`mcp:`, `skill-agent:`,
+`skill-catalog:`) are refused per arm, and a session cannot be judged:
+`--judge` is refused with `--session-turns`, and every `eval` judge command
+refuses a session artifact, because the judge would score the last answer
+against the first question. The reminder is appended to every user
+turn in a `<system-reminder>` block; the assistant turns are not changed.
+
+A session that fails part-way (a turn raises, or a turn comes back empty and the
+session stops) is an errored arm: `error` is `generation_failed: turn N: ...` or
+`empty_reply: turn N` (turns count from 0), and `answer` is `None`. The turns already paid for stay in
+`session.turns`, and the arm's `token_usage` and `metrics` cover them, so the cost
+rollup counts what was spent. The artifact's `run_config` records `session_turns`
+and `turn_reminder`. `plugin-delta` refuses to pair a session run with a
+single-turn run or one with different session settings, and the matrix rollup
+does not pair them.
+
 ### Trusting the judge
 
 A significance table says the delta is unlikely under *this judge's* noise. It
