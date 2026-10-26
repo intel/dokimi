@@ -250,6 +250,13 @@ def _manifest_tasks(data: object, manifest_path: Path) -> list[dict]:
     return tasks
 
 
+def _discover_tasks_checked(tasks_root: Path) -> list:
+    try:
+        return discover_tasks(tasks_root)
+    except (OSError, ValueError) as exc:  # e.g. a task directory without instruction.md
+        raise ValueError(f"cannot read tasks at {tasks_root}: {exc}") from exc
+
+
 def read_task_manifest(
     root: Path,
     tasks_subdir: str = DEFAULT_TASKS_SUBDIR,
@@ -262,6 +269,7 @@ def read_task_manifest(
     manifest_path = root / DEFAULT_SUITES_MANIFEST
     tasks_root = root / tasks_subdir
     if not manifest_path.is_file():
+        found = _discover_tasks_checked(tasks_root)
         return [
             TaskCatalogEntry(
                 name=task.name,
@@ -270,7 +278,7 @@ def read_task_manifest(
                 path=task.path,
                 task=task,
             )
-            for task in discover_tasks(tasks_root)
+            for task in found
         ]
 
     try:

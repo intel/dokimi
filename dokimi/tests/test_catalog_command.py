@@ -276,3 +276,29 @@ def test_catalog_scan_reports_a_task_name_the_filesystem_rejects(tmp_path, monke
     monkeypatch.setattr(cat, "is_task_dir", too_long)
     entries = cat.read_task_manifest(tmp_path)
     assert entries[0].failed and "File name too long" in entries[0].reason
+
+
+@pytest.mark.parametrize("content", [b"\xff\xfe", b"---\nname: a\n---\nbody\n"], ids=["non-utf8", "missing-description"])
+def test_catalog_trigger_set_reports_clean_error_on_malformed_skill_md(tmp_path, content):
+    catalog = tmp_path / "skills"
+    (catalog / "a").mkdir(parents=True)
+    (catalog / "a" / "SKILL.md").write_bytes(content)
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps([{"id": "q1", "question": "hi"}]), encoding="utf-8")
+
+    args = build_parser().parse_args(["catalog", "trigger-set", "--catalog", str(catalog),
+                                      "--questions", f"{questions}=none", "--out", str(tmp_path / "o.json")])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert f"--catalog {catalog}:" in str(exc_info.value)
+
+
+def test_catalog_scan_reports_clean_error_on_task_dir_without_instruction(tmp_path):
+    task = tmp_path / "evaluation" / "harbor" / "tasks" / "t"
+    task.mkdir(parents=True)
+    (task / "task.toml").write_text("", encoding="utf-8")
+
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert "cannot read tasks at" in str(exc_info.value)

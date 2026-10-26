@@ -159,16 +159,24 @@ def _write_trigger_set(args: argparse.Namespace, queries, catalog_root: Path) ->
         raise SystemExit(f"Error: cannot write --out {args.out}: {exc}") from exc
 
 
+def _discover_catalog_skills(catalog_root: Path) -> list:
+    from dokimi.skills import discover_skills
+
+    try:
+        return discover_skills(catalog_root)
+    except (OSError, ValueError, RecursionError) as exc:  # unreadable, non-UTF-8, bad frontmatter or nesting too deep
+        raise SystemExit(f"--catalog {catalog_root}: {exc}") from exc
+
+
 def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     import json
 
     from dokimi.external import trigger_set as ts
-    from dokimi.skills import discover_skills
 
     catalog_root = Path(args.catalog)
     if not catalog_root.is_dir():
         raise SystemExit(f"--catalog is not a directory: {catalog_root}")
-    catalog = discover_skills(catalog_root)
+    catalog = _discover_catalog_skills(catalog_root)
     # Checked before any --rewrite call, so a bad invocation costs no LLM calls.
     if args.format == "skill-creator":
         if not args.target:
