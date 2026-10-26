@@ -63,8 +63,13 @@ def test_extract_examples_crlf_and_cr_documents_still_parse():
     assert extract_examples("```python\rx = 1\r```\r") == [("python", "x = 1")]
 
 
-def test_extract_examples_unclosed_fence_is_not_an_example():
-    assert extract_examples("```python\nprint(1)\n") == []
+def test_extract_examples_unclosed_tagged_fence_runs_to_the_end():
+    assert extract_examples("```python\nprint(1)\n") == [("python", "print(1)")]
+    assert extract_examples("```python\nprint(1)```") == [("python", "print(1)```")]
+
+
+def test_extract_examples_unclosed_untagged_fence_is_not_an_example():
+    assert extract_examples("```\nprint(1)\n") == []
 
 
 def test_default_backend_does_not_execute(tmp_path, monkeypatch):
@@ -259,6 +264,15 @@ def test_extract_examples_language_tag_is_lowercased():
 def test_extract_examples_indented_fence_body_is_dedented_by_the_fence_indent():
     md = "1. Step\n\n   ```python\n   def f():\n       return 1\n   ```\n"
     assert extract_examples(md) == [("python", "def f():\n    return 1")]
+
+
+def test_extract_examples_list_item_block_keeps_relative_indent():
+    md = "1. step\n\n    ```python\n    for i in x:\n        print(i)\n    ```\n"
+    assert extract_examples(md) == [("python", "for i in x:\n    print(i)")]
+
+
+def test_extract_examples_space_before_language_tag_is_accepted():
+    assert extract_examples("``` python\nprint(1)\n```\n") == [("python", "print(1)")]
 
 
 def test_extract_examples_tab_fence_with_nested_indent_compiles():

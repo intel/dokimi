@@ -24,6 +24,19 @@ def test_dots_inside_a_token_do_not_end_a_sentence(dotted: str, spaced: str) -> 
     assert readability.score(PLAIN.format(target=dotted)) == readability.score(PLAIN.format(target=spaced))
 
 
+@pytest.mark.parametrize(
+    "block",
+    [
+        "~~~python\nprint(1)\n~~~",
+        "```python\nprint(1)\n```",
+        "````md\n```\nprint(1)\n```\n````",
+    ],
+)
+def test_fenced_code_does_not_count_as_prose(block: str) -> None:
+    prose = "Open the guide and run the first check on the main file."
+    assert readability.score(f"{prose}\n\n{block}\n") == readability.score(f"{prose}\n")
+
+
 def test_real_sentence_ends_still_split() -> None:
     one = readability.score("Read the guide and then run the first check on the main file for your team today.")
     three = readability.score("Read the guide. Then run the first check! Is the main file ready?")

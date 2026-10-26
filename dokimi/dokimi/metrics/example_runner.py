@@ -97,6 +97,13 @@ class ExecutionPolicy:
         return policy
 
 
+def _keep_example(examples: list[tuple[str, str]], opener: re.Match[str], body: list[str]) -> None:
+    """Append the block as an example when its opening fence has a language tag."""
+    lang = re.match(r"\w+", opener.group(3).strip())
+    if lang:
+        examples.append((lang.group().lower(), "\n".join(body).strip()))
+
+
 def extract_examples(markdown: str) -> list[tuple[str, str]]:
     """Extract fenced code blocks with language tags from markdown.
 
@@ -105,8 +112,9 @@ def extract_examples(markdown: str) -> list[tuple[str, str]]:
     A fence is ``` or ~~~, closed by a fence of the same character at least as
     long, so a shorter fence inside is content. Any indentation is accepted so
     that blocks nested in list items are found; each body line loses up to
-    the opening fence's indentation. A fence that is never closed,
-    or has no language tag, yields no example.
+    the opening fence's indentation. A fence that is never closed runs to the
+    end of the document, as in CommonMark. A fence without a language tag yields
+    no example.
     Returns a list of (language, code) tuples.
     """
     examples: list[tuple[str, str]] = []
@@ -121,9 +129,7 @@ def extract_examples(markdown: str) -> list[tuple[str, str]]:
         close = _FENCE_CLOSE_RE.match(line)
         fence = opener.group(2)
         if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
-            lang = re.match(r"\w+", opener.group(3).strip())
-            if lang:
-                examples.append((lang.group().lower(), "\n".join(body).strip()))
+            _keep_example(examples, opener, body)
             opener = None
         else:
             # Drop up to the opener's indentation, as CommonMark does, so a
@@ -131,6 +137,8 @@ def extract_examples(markdown: str) -> list[tuple[str, str]]:
             indent = len(opener.group(1))
             stripped = len(line) - len(line.lstrip())
             body.append(line[min(indent, stripped):])
+    if opener is not None:
+        _keep_example(examples, opener, body)
     return examples
 
 
