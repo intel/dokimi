@@ -73,6 +73,38 @@ def test_non_mapping_config_exits(tmp_path, monkeypatch, capsys):
     assert "expected a mapping" in capsys.readouterr().err
 
 
+def test_non_utf8_config_exits(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "products.yaml"
+    path.write_bytes(b"\xff\xfe\x00bad: [")
+    _point_config(monkeypatch, path)
+    with pytest.raises(SystemExit) as exc:
+        answers._load_runtime_config()
+    assert exc.value.code == 1
+    assert f"cannot read {path}" in capsys.readouterr().err
+
+
+def test_unreadable_config_path_exits(tmp_path, monkeypatch, capsys):
+    _point_config(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        answers._load_runtime_config()
+    assert exc.value.code == 1
+    assert f"cannot read {tmp_path}" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("text", "key"), [
+    ("retrieval: 5", "retrieval"), ("products: [1]", "products"),
+    ('retrieval: ""', "retrieval"), ("products: []", "products"),
+])
+def test_config_section_of_the_wrong_shape_exits(tmp_path, monkeypatch, capsys, text, key):
+    path = tmp_path / "products.yaml"
+    path.write_text(text, encoding="utf-8")
+    _point_config(monkeypatch, path)
+    with pytest.raises(SystemExit) as exc:
+        answers._load_runtime_config()
+    assert exc.value.code == 1
+    assert f"'{key}' in {path} must be a mapping" in capsys.readouterr().err
+
+
 def test_questions_load_error_exits(monkeypatch, capsys):
     def fail(path):
         raise ValueError("record 3 has no question text")
@@ -94,6 +126,8 @@ def test_output_path_precedence():
     (5, "retrieval:\n  top_k: 7\n", 5),             # the flag wins over the config and the default
     (None, "retrieval:\n  top_k: 7\n", 7),          # else the config's retrieval.top_k
     (None, None, DEFAULT_RETRIEVAL_TOP_K),          # else the built-in default
+    (None, "retrieval:\n", DEFAULT_RETRIEVAL_TOP_K),  # an empty section is the default
+    (None, "products:\n", DEFAULT_RETRIEVAL_TOP_K),   # an empty products section does not matter
 ])
 def test_generate_writes_answers_to_output_path(tmp_path, monkeypatch, capsys,
                                                 top_k, config_text, expected_top_k):
