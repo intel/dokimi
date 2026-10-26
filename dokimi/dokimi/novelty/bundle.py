@@ -517,7 +517,7 @@ def check_answer_key(ref: str, record: dict | None, *,
     if not record:
         try:
             body = load_artifact_text(ref)[4]
-        except (FileNotFoundError, ValueError) as exc:
+        except (OSError, ValueError) as exc:
             return AnswerKeyVerdict(problem="unloadable", message=f"cannot load {ref}: {exc}")
         return AnswerKeyVerdict(text=body, notes=(
             f"WARNING: {source} predates bundle provenance; assuming the entry point only. "
@@ -530,7 +530,7 @@ def check_answer_key(ref: str, record: dict | None, *,
             "rather than probing against an answer key whose provenance cannot be checked"))
     try:
         now = load_bundle(ref, **_replay_selection(record))
-    except (FileNotFoundError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         return AnswerKeyVerdict(problem="unloadable", message=f"cannot load {ref}: {exc}")
 
     # An answer key is for one artifact. Without this, skill A's atoms were accepted
