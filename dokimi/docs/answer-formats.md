@@ -67,7 +67,8 @@ counted. It passes when it reaches `threshold`; without a threshold, it passes
 when every counted check passes. A failed answer call leaves its checks
 unscored rather than failed. `--no-judge` leaves the `judge` checks unscored
 and makes no model calls; an arms artifact written that way has `judge_model`
-and `judge_provider` set to `reference`.
+and `judge_provider` set to `reference`. The summary's `judge_unscored` counts the
+counted answers whose pass leaves out a judge check that had no verdict.
 
 `eval reference` writes eval.v1 for an `answers generate` file and an arms
 artifact for an `arms run` file. Each block carries `scorer: reference`, and
