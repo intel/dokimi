@@ -56,12 +56,17 @@ def test_ragas_imports_and_evaluator_builds_from_installed_deps():
 
 def test_the_real_import_check_fails_instead_of_skipping_when_ragas_is_required(monkeypatch):
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    outcomes = (pytest.fail.Exception, pytest.skip.Exception)
+    # Catch both: a skip that escapes here would skip this test too, and CI stays green.
     monkeypatch.setenv("DOKIMI_REQUIRE_RAGAS", "1")
-    with pytest.raises(pytest.fail.Exception, match="DOKIMI_REQUIRE_RAGAS=1"):
+    with pytest.raises(outcomes) as required:
         test_ragas_imports_and_evaluator_builds_from_installed_deps()
+    assert required.type is pytest.fail.Exception
+    assert "DOKIMI_REQUIRE_RAGAS=1" in str(required.value)
     monkeypatch.delenv("DOKIMI_REQUIRE_RAGAS")
-    with pytest.raises(pytest.skip.Exception):
+    with pytest.raises(outcomes) as optional:
         test_ragas_imports_and_evaluator_builds_from_installed_deps()
+    assert optional.type is pytest.skip.Exception
 
 
 def test_ragas_without_the_extra_exits_with_the_install_command(monkeypatch, tmp_path):
