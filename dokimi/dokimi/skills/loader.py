@@ -101,7 +101,7 @@ def _resolve_skill_file(path: Path) -> Path:
     """Resolve a skill reference (file or directory) to its ``SKILL.md`` file."""
     if path.is_dir():
         candidate = path / "SKILL.md"
-        if not candidate.exists():
+        if not candidate.is_file():
             raise FileNotFoundError(f"No SKILL.md found in skill directory: {path}")
         return candidate
     if path.is_file():
@@ -164,8 +164,10 @@ def walk_skill_files(root: Path) -> List[Path]:
     found: List[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in VENDORED_DIR_NAMES]
-        if "SKILL.md" in filenames:
-            found.append(Path(dirpath) / "SKILL.md")
+        skill_file = Path(dirpath) / "SKILL.md"
+        # A dangling symlink named SKILL.md lands in filenames; only real files count.
+        if "SKILL.md" in filenames and skill_file.is_file():
+            found.append(skill_file)
     return sorted(found)
 
 

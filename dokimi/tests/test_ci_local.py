@@ -368,8 +368,9 @@ def test_needs_network_entries_match_real_jobs_and_steps() -> None:
 
 
 def test_gitleaks_job_in_needs_network() -> None:
-    """Regression: gitleaks job is in NEEDS_NETWORK so ci-local skips it offline."""
-    assert "gitleaks" in cl.NEEDS_NETWORK
+    """Regression: the gitleaks download and scan are in NEEDS_NETWORK so ci-local skips them offline."""
+    assert ("static", "Install gitleaks") in cl.NEEDS_NETWORK
+    assert ("static", "Scan commits") in cl.NEEDS_NETWORK
 
 
 def test_gitleaks_scan_reports_each_line_once_under_its_own_commit(tmp_path: Path) -> None:
@@ -380,8 +381,8 @@ def test_gitleaks_scan_reports_each_line_once_under_its_own_commit(tmp_path: Pat
     version = subprocess.run(["git", "--version"], capture_output=True, text=True, check=True).stdout
     if tuple(int(n) for n in re.findall(r"\d+", version)[:2]) < (2, 36):
         pytest.skip("--diff-merges=remerge needs git 2.36")
-    wf = dict(cl.load_workflows())["gitleaks.yml"]
-    step = next(s for s in wf["jobs"]["gitleaks"]["steps"] if s.get("name") == "Scan commits")
+    wf = dict(cl.load_workflows())["ci.yml"]
+    step = next(s for s in wf["jobs"]["static"]["steps"] if s.get("name") == "Scan commits")
     repo = tmp_path / "repo"
     repo.mkdir()
     env = {"PATH": os.environ["PATH"], "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
@@ -459,7 +460,7 @@ def test_gitleaks_scan_reports_each_line_once_under_its_own_commit(tmp_path: Pat
     (tmp_path / "out").unlink()
     assert run_step("pull_request", base="nomain") != 0
     assert not (tmp_path / "out").exists()
-    checkout = next(s for s in wf["jobs"]["gitleaks"]["steps"] if "checkout" in str(s.get("uses")))
+    checkout = next(s for s in wf["jobs"]["static"]["steps"] if "checkout" in str(s.get("uses")))
     assert checkout["with"]["fetch-depth"] == 0  # the PR range needs the base branch's history
 
 

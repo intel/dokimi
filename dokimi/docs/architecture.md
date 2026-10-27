@@ -425,9 +425,8 @@ prints one or more traces as a comparison table; it calls no model. Guide:
 ## CI
 
 These GitHub Actions workflows run on PRs (see `.github/workflows/`):
-`ci.yml`, `agent-quality.yml` and `docs.yml`, described below, and
-`contracts.yml`, which runs only when a PR touches `dokimi/schemas/`:
-`python -m dokimi.schema_compat` fails an in-place edit that narrows
+`ci.yml`, `agent-quality.yml` and `docs.yml`, described below. `ci.yml`'s
+`static` job runs `python -m dokimi.schema_compat`, which fails an in-place edit that narrows
 an existing schema version, unless a reviewer applies the `schema-break-ok`
 label. `conda-forge.yml` runs only when a PR or a push to `main` changes
 `pyproject.toml`, one of the two scripts it runs or the workflow file (also weekly, and by

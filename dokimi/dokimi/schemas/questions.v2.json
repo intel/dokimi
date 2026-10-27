@@ -188,6 +188,19 @@
           "description": "Free-form provenance: generator model/persona for generated questions; citations (`must_cite`, `github_issue`, `verified_by`), `why_it_matters`, `negative_case: true` and similar for curated ones.",
           "type": "object"
         },
+        "prompt_style": {
+          "description": "`verbatim`: the answerer sends `question` as written, without its expert-answer wrapper (set by `questions import`, whose graders score the reply to the original prompt).",
+          "type": "string"
+        },
+        "grading": {
+          "description": "Format-neutral reference checks from an imported eval (`questions import`): `checks` (match, exact, fuzzy, regex, choice, json, judge, unsupported), optional `threshold`, `source_format`, `native_scorer`. Scored by `eval reference`; see dokimi.eval.reference_checks.",
+          "type": "object",
+          "required": ["checks"],
+          "properties": {
+            "checks": {"type": "array", "items": {"type": "object", "required": ["type"]}},
+            "threshold": {"type": "number"}
+          }
+        },
         "source_type": {
           "description": "Where the pipeline got the question: `generated` or `manual` (a curated or --custom-questions file).",
           "type": "string"

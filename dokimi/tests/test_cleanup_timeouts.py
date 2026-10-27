@@ -70,8 +70,10 @@ def test_stop_proxy_timeout_retried_in_close(tmp_path):
     test_calls = [c for c in cli.calls if c.argv[1] == "exec" and "test.sh" in " ".join(c.argv)]
     assert len(test_calls) == 0, "Verification should not run after stop_proxy timeout"
 
-    # Verify that rm was called for egress cleanup (stop_proxy + retry in close)
-    rm_calls = [c for c in cli.calls if c.argv[1] == "rm" and "egress" in " ".join(c.argv)]
+    # Verify that rm was called for egress cleanup (stop_proxy + retry in close); the solve
+    # sidecar's, not the leftover verifier sidecar open() also clears
+    rm_calls = [c for c in cli.calls if c.argv[1] == "rm" and "egress" in c.argv[-1]
+                and not c.argv[-1].endswith("-verify")]
     assert len(rm_calls) == 3, f"Should attempt sidecar removal 3 times (open + stop_proxy + close), got {len(rm_calls)}"
 
     # close() goes on past the timed-out sidecar removal: the egress record is saved

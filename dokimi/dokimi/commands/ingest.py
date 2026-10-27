@@ -31,7 +31,11 @@ def cmd_ingest_docling(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     print(f"Converting {len(docs)} document(s) → {args.out_dir}")
-    written = materialize_markdown(docs, Path(args.out_dir))
+    try:
+        written = materialize_markdown(docs, Path(args.out_dir))
+    except OSError as exc:  # --out-dir is a file or unwritable, or a source cannot be read
+        print(f"Error: ingest into {args.out_dir} failed: {exc}", file=sys.stderr)
+        sys.exit(2)  # 2 as cli.main's other input errors; 1 is "nothing to convert"
     for path in written:
         print(f"  ✓ {path}")
     print(f"✅ Materialized {len(written)} Markdown file(s)")
