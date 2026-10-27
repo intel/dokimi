@@ -63,17 +63,20 @@ python cli.py novelty analyze --artifact skill:skills/my-skill --tier study --es
 
 Pass the same `--include-resources` (and `--tier`) you will run with: the bill covers only
 the files the flags select, and a thin `SKILL.md` over `references/` is priced many times
-lower without it. It prints the projected model-call bill and exits before building a client. The bill is
-`probes × arms × (answer + grade)` plus the retention oracle, which escalates only its
-ambiguous band — so the output carries both ends, `total_calls` and
-`total_calls_if_every_pair_escalates`. The probe term was validated to within 1–3% of
+lower without it. It prints the projected model-call bill and exits before building a client. The
+bill is `probes × arms × (answer + grade)` plus the retention oracle, which escalates only its
+ambiguous band. The output carries `expected_calls`, the point figure, with `by_role` splitting
+it into extractor, answerer and judge calls; `total_calls` and
+`total_calls_if_every_pair_escalates` are the two ends. `expected_usd` prices `by_role` at list
+prices, and is `null` when a model has no price. The probe term was validated to within 1–3% of
 counted calls at nine (skill, tier) points, on content that did not escalate.
 
-The bill is in calls, not dollars: a call's price follows the artifact's length and the
-models. Pass `--max-usd <n>` to every step that calls a model: the run stops once its calls
-across all roles have cost that much (calls already in flight can overshoot it), and a call
-with no known price stops it too, since the cap cannot see that spend. One measured pair, a
-19k-token skill: triage 103 calls, about $1.80; `study` 1,901 calls, about $14.50.
+`expected_usd` is a projection, not a ceiling (held-out runs ran up to 33% low): a call's price
+follows the artifact's length and the models. Pass `--max-usd <n>` to every step that calls a
+model: the run stops once its calls across all roles have cost that much (calls already in
+flight can overshoot it), and a call with no known price stops it too,
+since the cap cannot see that spend. One measured pair, a 19k-token skill: triage 103 calls,
+about $1.80; `study` 1,901 calls, about $14.50.
 
 ## 3. Triage: is there anything in here? (~100 calls)
 

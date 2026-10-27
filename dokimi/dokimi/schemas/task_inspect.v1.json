@@ -41,7 +41,7 @@
         "consumers": {
           "type": "array",
           "minItems": 1,
-          "items": {"enum": ["harbor", "docker-*", "benchflow", "questions track", "explore track", "catalog trigger-set", "none-yet"]},
+          "items": {"enum": ["harbor", "docker-*", "benchflow", "questions track", "explore track", "catalog trigger-set", "questions import", "none-yet"]},
           "description": "What in dokimi reads the item today; `none-yet` when nothing does."
         },
         "alternatives": {

@@ -17,3 +17,5 @@ httpx>=0.27.0
 PyGithub>=2.1.0
 numpy>=1.24.0
 scipy>=1.11.0
+# The reference `regex` check runs with a timeout, which `re` lacks.
+regex>=2024.11.6

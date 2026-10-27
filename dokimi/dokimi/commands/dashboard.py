@@ -29,14 +29,18 @@ def cmd_dashboard_generate(args: argparse.Namespace) -> None:
     print(f"Found {len(data.products)} product(s): {', '.join(p.product for p in data.products)}")
 
     md_path = output_dir / "DASHBOARD.md"
-    md_path.parent.mkdir(parents=True, exist_ok=True)
-    md_path.write_text(render_dashboard(data, top_n_bad_questions=args.top_n), encoding="utf-8")
-    print(f"✅ Markdown dashboard: {md_path}")
+    json_path = output_dir / "dashboard.json"
+    try:
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(render_dashboard(data, top_n_bad_questions=args.top_n), encoding="utf-8")
+        print(f"✅ Markdown dashboard: {md_path}")
 
-    if not args.no_json:
-        json_path = output_dir / "dashboard.json"
-        save_dashboard_json(data, json_path)
-        print(f"✅ JSON data:          {json_path}")
+        if not args.no_json:
+            save_dashboard_json(data, json_path)
+            print(f"✅ JSON data:          {json_path}")
+    except OSError as exc:
+        print(f"Error: cannot write the dashboard to {output_dir}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     # Print quick summary to stdout
     print(f"\n{'─'*50}")
