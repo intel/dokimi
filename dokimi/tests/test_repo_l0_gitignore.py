@@ -31,6 +31,13 @@ IGNORES = {
         "[abc].tmp",
         "[!x]y.bin",
         "include/*",
+        "[z-a].h",  # a reversed range keeps only its start
+        "[[:digit:]].d",
+        r"[\]]x.e",
+        "[a/b]x",  # a bracket's / does not split the pattern
+        "d[!a]e/f",  # nor does a bracket match one
+        "[]a]q",
+        "a[",  # unclosed: matches nothing
         "",
     ]),
     "sub/.gitignore": "!*.o\nlocal\n",
@@ -49,6 +56,8 @@ PATHS = [
     "a.tmp", "d.tmp",
     "ay.bin", "xy.bin",
     "include/x.h", "sub/include/x.h",
+    "z.h", "y.h", "1.d", "a.d", "]x.e", "ax", "bx", "sub/ax", "a[",
+    "d/e/f", "dbe/f", "]q", "aq",
     "sub/local", "local", "sub/deeper/local",
 ]
 
@@ -90,3 +99,8 @@ def test_a_directory_only_rule_needs_a_directory():
     rules = GitIgnore({".gitignore": "out/\n"}, lambda _: "out/\n")
     assert rules.ignored_by("out") is None
     assert rules.ignored_by("out", is_dir=True) is not None
+
+
+@pytest.mark.parametrize("line, path", [("x\\", "x\\"), ("[[:foo:]]x", "f]x"), ("[a-\\", "[a-\\")])
+def test_a_line_git_cannot_read_matches_nothing(line, path):
+    assert GitIgnore({".gitignore": line}, lambda _: line).ignored_by(path) is None

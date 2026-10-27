@@ -10,8 +10,8 @@ not a rename: L0 reports it ``unresolved``. Only tracked ``.gitignore`` files co
 The rules follow gitignore(5): ``#`` comments and blank lines skipped, ``!``
 re-includes, a trailing ``/`` matches directories only, a pattern with a ``/``
 before its end is anchored to its file's directory and one without matches a
-name at any depth, ``*`` and ``?`` stay within one segment, ``**`` spans
-segments, the last matching line wins with deeper files read after shallower
+name at any depth, ``*``, ``?`` and ``[...]`` stay within one segment, ``**`` spans
+segments, a line git's wildmatch aborts on matches nothing, the last matching line wins with deeper files read after shallower
 ones, and nothing under an ignored directory can be re-included.
 """
 
@@ -49,28 +49,90 @@ def _segment(pat: str) -> str:
     out, i = [], 0
     while i < len(pat):
         c = pat[i]
-        if c == "\\" and i + 1 < len(pat):
-            out.append(re.escape(pat[i + 1]))
-            i += 2
+        if c == "[":
+            atom, i = _bracket(pat, i)
+            out.append(atom)
             continue
-        if c == "*":
+        if c == "\\":
+            i += 1
+            if i == len(pat):
+                raise _Invalid
+            out.append(re.escape(pat[i]))
+        elif c == "*":
             out.append("[^/]*")
         elif c == "?":
             out.append("[^/]")
-        elif c == "[" and (end := pat.find("]", i + 2)) != -1:
-            body = pat[i + 1:end]
-            neg = body[:1] in ("!", "^")
-            out.append("[" + ("^" if neg else "") + body[neg:].replace("\\", "\\\\") + "]")
-            i = end
         else:
             out.append(re.escape(c))
         i += 1
     return "".join(out)
 
 
+class _Invalid(Exception):
+    """A line git's wildmatch aborts on (an unclosed ``[``, a trailing ``\\``): it matches nothing."""
+
+
+_CLASSES = {
+    "alnum": "a-zA-Z0-9", "alpha": "a-zA-Z", "blank": r" \t", "cntrl": r"\x00-\x1f\x7f",
+    "digit": "0-9", "graph": "!-~", "lower": "a-z", "print": " -~", "punct": r"!-/:-@\[-`{-~",
+    "space": r" \t\n\r", "upper": "A-Z", "xdigit": "0-9A-Fa-f",
+}
+
+
+def _bracket(pat: str, i: int) -> tuple[str, int]:
+    """The regex for the ``[...]`` at ``pat[i]`` and the index after it, read as git's wildmatch reads it.
+
+    A ``]`` first is a member, ``\\`` escapes, ``[:name:]`` is an ASCII class, a reversed
+    range keeps only its start, and the set never matches ``/``.
+    """
+    i += 1
+    neg = pat[i:i + 1] in ("!", "^")
+    i += neg
+    items: list[str] = []
+    prev = ""
+    while i < len(pat) and (pat[i] != "]" or not items):
+        c = pat[i]
+        if c == "\\" or (c == "-" and prev and pat[i + 1:i + 2] not in ("", "]")):
+            i += 1 + (c == "-" and pat[i + 1] == "\\")
+            if i == len(pat):
+                raise _Invalid
+            if c == "-":
+                items.append(f"{re.escape(prev)}-{re.escape(pat[i])}" if prev <= pat[i] else "")
+                prev = ""
+            else:
+                prev = pat[i]
+                items.append(re.escape(prev))
+        elif c == "[" and pat[i + 1:i + 2] == ":" and (end := pat.find("]", i + 2)) > i + 2 and pat[end - 1] == ":":
+            if pat[i + 2:end - 1] not in _CLASSES:
+                raise _Invalid
+            items.append(_CLASSES[pat[i + 2:end - 1]])
+            prev, i = "", end
+        else:
+            prev = c
+            items.append(re.escape(c))
+        i += 1
+    if i == len(pat):
+        raise _Invalid
+    return "(?!/)[" + ("^" if neg else "") + "".join(items) + "]", i + 1
+
+
+def _split(pat: str) -> list[str]:
+    """``pat`` cut at each ``/`` outside a bracket expression."""
+    parts, start, i = [], 0, 0
+    while i < len(pat):
+        if pat[i] == "[":
+            i = _bracket(pat, i)[1]
+            continue
+        if pat[i] == "/":
+            parts.append(pat[start:i])
+            start = i + 1
+        i += 1 + (pat[i] == "\\")
+    return parts + [pat[start:]]
+
+
 def _regex(pat: str) -> str:
     """``**/`` leading, ``/**/`` inside and ``/**`` trailing span segments; any other ``**`` is ``*``."""
-    parts = pat.split("/")
+    parts = _split(pat)
     out: list[str] = []
     for i, part in enumerate(parts):
         last = i == len(parts) - 1
@@ -79,6 +141,9 @@ def _regex(pat: str) -> str:
             continue
         out.append(_segment(part) + ("" if last else "/"))
     return "".join(out)
+
+
+_NEVER = re.compile(r"(?!)")
 
 
 def parse(source: str, text: str) -> list[Rule]:
@@ -97,8 +162,11 @@ def parse(source: str, text: str) -> list[Rule]:
         if not pat:
             continue
         anchored = "/" in pat
-        rules.append(Rule(source, n, line, base, re.compile(_regex(pat.lstrip("/")) + r"\Z"),
-                          anchored, dir_only, negated))
+        try:
+            regex = re.compile(_regex(pat.lstrip("/")) + r"\Z")
+        except _Invalid:
+            regex = _NEVER
+        rules.append(Rule(source, n, line, base, regex, anchored, dir_only, negated))
     return rules
 
 

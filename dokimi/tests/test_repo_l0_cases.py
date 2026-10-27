@@ -82,6 +82,9 @@ CASES = [
      {"pkg/.gitignore": "*.h\n!keep.h\n", "pkg/a.c": ""}, {("path", "pkg/keep.h"): "fail"}),
     ("ignored elsewhere only", "`pkg/gen.h`", {"other/.gitignore": "*.h\n", "pkg/a.c": ""},
      {("path", "pkg/gen.h"): "fail"}),
+    ("a .gitignore line Python's re cannot compile", "`pkg/z.h` `pkg/old.c`",
+     {"pkg/.gitignore": "[z-a].h\n", "pkg/a.c": ""},
+     {("path", "pkg/z.h"): "unresolved", ("path", "pkg/old.c"): "fail"}),
     # links
     ("link outside the repository", "[x](../../x.md)", {}, {("link", "../../x.md"): "fail"}),
     ("percent-encoded link", "[x](docs/my%20file.md)", {"docs/my file.md": ""},
