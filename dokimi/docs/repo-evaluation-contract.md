@@ -893,6 +893,7 @@ path that a tracked `.gitignore` ignores is `unresolved` rather than `fail`,
 with the `.gitignore` line in the reason: guidance that warns about generated
 files names paths no snapshot holds.
 A directory counts as ignored when a file directly inside it would be,
+a path without a trailing slash when it would be as a file or as a directory,
 and a glob when one file it names would be;
 `.git/info/exclude` and `core.excludesFile` belong to a clone, not the tree,
 and are not read. `ok_suffix`
