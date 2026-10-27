@@ -583,3 +583,32 @@ class TestBackendSelectionEdges:
                                     embedding_model="all-mpnet-base-v2")
         assert "calibrated for" in caplog.text
         assert val.similarity_threshold == EMBEDDING_BACKENDS["local"][1]
+
+
+class TestLlmKeyRouting:
+    """The LLM key follows the provider: OPENROUTER_API_KEY is only for openrouter."""
+
+    @pytest.mark.parametrize(
+        "provider", ["google", "google-vertex", "openai-codex", "amazon-bedrock"]
+    )
+    def test_openrouter_key_is_not_sent_to_another_provider(self, provider):
+        with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
+             patch('dokimi.utils.get_llm') as get_llm, \
+             patch.dict('os.environ', {"OPENROUTER_API_KEY": "sk-or-secret"}, clear=True):
+            QuestionValidator(llm_provider=provider, llm_model="some-model")
+        get_llm.assert_called_once()
+        assert get_llm.call_args.args[2] is None
+
+    def test_openrouter_falls_back_to_its_own_key(self):
+        with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
+             patch('dokimi.utils.get_llm') as get_llm, \
+             patch.dict('os.environ', {"OPENROUTER_API_KEY": "sk-or-secret"}, clear=True):
+            QuestionValidator(llm_provider="openrouter", llm_model="some-model")
+        assert get_llm.call_args.args[2] == "sk-or-secret"
+
+    def test_an_explicit_key_is_passed_to_its_provider(self):
+        with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
+             patch('dokimi.utils.get_llm') as get_llm, \
+             patch.dict('os.environ', {"OPENROUTER_API_KEY": "sk-or-secret"}, clear=True):
+            QuestionValidator(llm_provider="google-vertex", llm_model="some-model", api_key="g-key")
+        assert get_llm.call_args.args[2] == "g-key"
