@@ -337,6 +337,7 @@ def test_gate_refuses_partial_question_coverage(compare, capsys, side):
     assert "complete unique coverage required" in capsys.readouterr().err
 
 
+@pytest.mark.outcome("cjm-baseline-regression")
 def test_gate_matches_questions_by_id_not_list_position(compare, capsys):
     base, cur = _eval(), _eval()
     base["evaluations"].append({**_eval(delta=3)["evaluations"][0], "question_id": "q2"})
