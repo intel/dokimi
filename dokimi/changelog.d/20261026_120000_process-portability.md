@@ -14,3 +14,5 @@ SPDX-License-Identifier: Apache-2.0
 - Allow trusted host examples to explicitly omit the memory cap with `mem_mb: null`, retaining CPU and timeout limits; reject absent or nonpositive Docker memory caps.
 
 - Close reader-owned process streams at EOF on Windows instead of leaving handles for garbage collection.
+
+- Retain caller ownership of streams until Windows readers start, so interrupted launches also close their handles.

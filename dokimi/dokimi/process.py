@@ -490,8 +490,13 @@ def _thread_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float,
     """Windows has no select() on pipes: one reader thread per pipe. No SIGTERM there either:
     ``term_grace`` is ignored and the job is terminated at once."""
     readers = [threading.Thread(target=_pump, args=(pipe, cap), daemon=True) for pipe, cap in pipes]
-    for reader in readers:
+    for reader, (pipe, _) in zip(readers, pipes, strict=True):
         reader.start()
+        # A started reader closes its own stream; unstarted streams remain caller-owned.
+        if proc.stdout is pipe:
+            proc.stdout = None
+        if proc.stderr is pipe:
+            proc.stderr = None
     timed_out = _wait(proc, deadline)
     _kill_tree(proc, job)
     grace_end = time.monotonic() + DRAIN_GRACE_SEC
@@ -595,13 +600,14 @@ def _close_pipes(proc: subprocess.Popen[bytes]) -> None:
         proc.wait(timeout=DRAIN_GRACE_SEC)
     except subprocess.TimeoutExpired:
         pass
-    if _POSIX:  # Windows reader threads own the handles
-        for pipe in (proc.stdout, proc.stderr):
-            try:
-                if pipe:
-                    pipe.close()
-            except OSError:
-                pass
+    # Streams transferred to Windows readers are detached. Close every unowned handle,
+    # including when an interrupt arrives before the reader threads start.
+    for pipe in (proc.stdout, proc.stderr):
+        try:
+            if pipe:
+                pipe.close()
+        except OSError:
+            pass
 
 
 def _assign_job(proc: subprocess.Popen[bytes]) -> int | None:

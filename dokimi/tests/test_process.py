@@ -405,8 +405,9 @@ def test_an_error_right_after_popen_kills_the_child(monkeypatch, where):
         monkeypatch.setattr(process.threading.Thread, "start", boom)
     with pytest.raises(RuntimeError):
         _py("import time; time.sleep(60)", input=b"x")
-    (child,) = _Recorded.started
+    (child,) = [p for p in _Recorded.started if p.args[0] == PY]
     assert child.poll() is not None and process._live == {}
+    assert all(p.poll() is not None for p in _Recorded.started)  # includes Windows taskkill
 
 
 @_POSIX_ONLY
