@@ -17,7 +17,6 @@ from pathlib import Path
 
 def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     from dokimi.eval.arm_summary import summarize_skill_selection
-    from dokimi.external import trigger_set as ts
     from dokimi.harnesses import trigger_probe as tp
     from dokimi.skills import discover_skills
     from dokimi.utils import InputError
@@ -43,12 +42,7 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     claude = shutil.which(args.claude)
     if claude is None:
         raise SystemExit(f"{args.claude!r} is not on PATH")
-    try:
-        data = json.loads(Path(args.trigger_set).read_text(encoding="utf-8"))
-        _fmt, queries = ts.read_trigger_set(data, target=args.target)
-    except (OSError, ValueError) as exc:
-        raise SystemExit(f"--trigger-set: {exc}") from exc
-    queries = [q for q in queries if q.labelled][: args.limit or None]
+    queries = _labelled_queries(args, names)
     cfg = tp.ProbeConfig(model=args.model, max_turns=args.max_turns, timeout_sec=args.timeout,
                          stock=not args.sealed, listing_budget_fraction=args.listing_budget_fraction,
                          claude=os.path.abspath(claude))
@@ -101,6 +95,25 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     print(f"wrote {args.out}")
     if not_listed:
         raise SystemExit(f"catalog skills Claude Code did not list: {', '.join(not_listed)}")
+
+
+def _labelled_queries(args: argparse.Namespace, names: set) -> list:
+    """The labelled queries to run; a label naming no *names* skill is an input error."""
+    from dokimi.external import trigger_set as ts
+    from dokimi.utils import InputError
+
+    try:
+        data = json.loads(Path(args.trigger_set).read_text(encoding="utf-8"))
+        _fmt, queries = ts.read_trigger_set(data, target=args.target)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"--trigger-set: {exc}") from exc
+    queries = [q for q in queries if q.labelled][: args.limit or None]
+    # As the skill-catalog: arm refuses it: a label no run can load scores as a miss.
+    unknown = sorted({s for q in queries for s in q.acceptable} - names)
+    if unknown:
+        raise InputError(f"--trigger-set: expected_skill names no skill in --catalog: "
+                         f"{', '.join(unknown)}")
+    return queries
 
 
 def _write(path: Path, data: dict) -> None:

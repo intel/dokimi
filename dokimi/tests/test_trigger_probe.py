@@ -311,7 +311,7 @@ def test_run_query_kills_what_the_run_left_in_its_workspace_only(tmp_path):
             shutil.rmtree(procs["sibling_dir"], ignore_errors=True)
 
 
-def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read")):
+def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read"), expected="sum-fast"):
     from dokimi.commands import catalog_probe
 
     seen = {}
@@ -334,7 +334,7 @@ def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read")):
     monkeypatch.setattr(tp, "probe_trigger_set", fake_probe)
     monkeypatch.setattr(catalog_probe, "ThreadPoolExecutor", Pool)
     (tmp_path / "ts.json").write_text(json.dumps({"questions": [
-        {"id": q, "question": f"q {q}", "expected_skill": "sum-fast"} for q in ("a", "b", "c")]}),
+        {"id": q, "question": f"q {q}", "expected_skill": expected} for q in ("a", "b", "c")]}),
         encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     if not (tmp_path / "cat").exists():
@@ -366,6 +366,15 @@ def test_cli_refuses_a_bad_out_or_target_before_any_run(tmp_path, monkeypatch):
         _cli(tmp_path, monkeypatch, "--out", "nodir/probe.json")
     with pytest.raises(InputError, match="not a skill in --catalog"):
         _cli(tmp_path, monkeypatch, "--target", "sum-fsat", "--out", "probe.json")
+
+
+def test_cli_refuses_a_label_that_names_no_catalog_skill(tmp_path, monkeypatch):
+    from dokimi.utils import InputError
+
+    with pytest.raises(InputError, match="names no skill in --catalog: sum-fsat"):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", expected="sum-fsat")
+    assert not (tmp_path / "probe.json.partial").exists()
+    _cli(tmp_path, monkeypatch, "--out", "probe.json", expected=["sum-fast", "io-read"])
 
 
 def test_cli_fails_when_claude_code_did_not_list_a_catalog_skill(tmp_path, monkeypatch):
