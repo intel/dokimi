@@ -107,7 +107,9 @@ def test_a_failed_call_says_whether_another_attempt_can_help(runner, answer, ret
     assert llm.is_retryable(info.value) is retryable
 
 
-def test_a_missing_binary_is_a_permanent_error(monkeypatch):
+def test_a_missing_binary_is_a_permanent_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(llm_cli.tempfile, "gettempdir", lambda: str(tmp_path))
+
     def missing(call):
         raise FileNotFoundError("claude")
     monkeypatch.setattr(llm_cli.process, "run", FakeRunner(missing))
