@@ -139,6 +139,8 @@ def test_a_plan_that_repeats_a_cell_is_invalid(tmp_path):
     plan["cells"] = [*plan["cells"], plan["cells"][0]]
     got = completeness(plan, _result(plan, ["pass"] * 7))
     assert got.state == "invalid"
+    assert (got.planned, got.measured) == (6, 0)
+    assert got.missing == tuple(dict.fromkeys(c["cell_id"] for c in plan["cells"]))
     assert "plan repeats" in got.problems[0]
 
 
