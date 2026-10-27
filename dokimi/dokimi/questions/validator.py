@@ -130,12 +130,9 @@ class QuestionValidator:
                 self.llm = ChatAnthropic(model=llm_model, api_key=api_key)
             else:
                 from dokimi.utils import get_llm
-                # OPENROUTER_API_KEY is the fallback for openrouter only, as in
-                # eval/judge.py and questions/llm_gen.py; other providers read their own.
-                fallback_key = (
-                    os.environ.get("OPENROUTER_API_KEY") if llm_provider == "openrouter" else None
-                )
-                self.llm = get_llm(llm_provider, llm_model, api_key or fallback_key)
+                # get_llm applies each provider's own env key (OPENROUTER_API_KEY
+                # only for openrouter), so the validator passes its key through.
+                self.llm = get_llm(llm_provider, llm_model, api_key)
         else:
             self.llm = None
         self.threshold = threshold

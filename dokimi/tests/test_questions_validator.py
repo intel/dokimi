@@ -586,29 +586,40 @@ class TestBackendSelectionEdges:
 
 
 class TestLlmKeyRouting:
-    """The LLM key follows the provider: OPENROUTER_API_KEY is only for openrouter."""
+    """The validator's LLM key is resolved by get_llm, through the real get_llm.
+
+    The litellm wrapper is patched so the test sees the key each provider gets.
+    OPENROUTER_API_KEY is only for openrouter.
+    """
+
+    @staticmethod
+    def _key_for(provider, env, api_key=None):
+        with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
+             patch('dokimi.llm._GetLLMCompat') as compat, \
+             patch.dict('os.environ', env, clear=True):
+            QuestionValidator(llm_provider=provider, llm_model="some-model", api_key=api_key)
+        compat.assert_called_once()
+        return compat.call_args.kwargs["key"]
 
     @pytest.mark.parametrize(
         "provider", ["google", "google-vertex", "openai-codex", "amazon-bedrock"]
     )
     def test_openrouter_key_is_not_sent_to_another_provider(self, provider):
-        with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
-             patch('dokimi.utils.get_llm') as get_llm, \
-             patch.dict('os.environ', {"OPENROUTER_API_KEY": "sk-or-secret"}, clear=True):
-            QuestionValidator(llm_provider=provider, llm_model="some-model")
-        get_llm.assert_called_once()
-        assert get_llm.call_args.args[2] is None
+        key = self._key_for(provider, {"OPENROUTER_API_KEY": "sk-or-secret"})
+        assert not key
+
+    def test_google_vertex_uses_gemini_key(self):
+        key = self._key_for("google-vertex", {"OPENROUTER_API_KEY": "sk-or-secret",
+                                              "GEMINI_API_KEY": "gem-key"})
+        assert key == "gem-key"
 
     def test_openrouter_falls_back_to_its_own_key(self):
-        with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
-             patch('dokimi.utils.get_llm') as get_llm, \
-             patch.dict('os.environ', {"OPENROUTER_API_KEY": "sk-or-secret"}, clear=True):
-            QuestionValidator(llm_provider="openrouter", llm_model="some-model")
-        assert get_llm.call_args.args[2] == "sk-or-secret"
+        key = self._key_for("openrouter", {"OPENROUTER_API_KEY": "sk-or-secret"})
+        assert key == "sk-or-secret"
 
-    def test_an_explicit_key_is_passed_to_its_provider(self):
-        with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
-             patch('dokimi.utils.get_llm') as get_llm, \
-             patch.dict('os.environ', {"OPENROUTER_API_KEY": "sk-or-secret"}, clear=True):
-            QuestionValidator(llm_provider="google-vertex", llm_model="some-model", api_key="g-key")
-        assert get_llm.call_args.args[2] == "g-key"
+    @pytest.mark.parametrize("provider", ["openrouter", "google-vertex"])
+    def test_an_explicit_key_beats_the_environment(self, provider):
+        # Pins `api_key or env` (not `env or api_key`) for openrouter, where
+        # both keys are read from the environment, and for the other providers.
+        env = {"OPENROUTER_API_KEY": "sk-or-secret", "GEMINI_API_KEY": "gem-key"}
+        assert self._key_for(provider, env, api_key="explicit-key") == "explicit-key"
