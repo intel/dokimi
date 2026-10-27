@@ -83,6 +83,21 @@ def test_process_on_one_arm_only_does_not_flood_unpaired(tmp_path, arm_with_proc
     assert skipped[0].startswith("guidance:raw ")
 
 
+def test_a_counter_only_one_arm_reports_is_named_not_unpaired(tmp_path):
+    # Both arms carry process; only the treatment's manifest has the icpx_missing counter.
+    for task in ("a", "b"):
+        _cell(tmp_path, task, "guidance:none", 1)
+        _cell(tmp_path, task, "guidance:raw", 1)
+    _with_process(tmp_path, lambda name: {"tool_calls": 3, "counters": {"bazel": 1, "icpx_missing": 2}
+                                          if "__guidance-raw__" in name else {"bazel": 1}})
+    summary = compare([tmp_path], "guidance:none")
+    assert [r["measure"] for r in summary["comparisons"]][3:] == ["process:tool_calls", "counter:bazel"]
+    assert summary["unpaired"] == []
+    skipped = [w for w in summary["warnings"] if "only one arm reports" in w]
+    assert skipped == ["guidance:raw m-1: only one arm reports counter:icpx_missing for any shared task; "
+                       "not compared"]
+
+
 @pytest.mark.parametrize("null_rep", [1, 2, 3])
 def test_a_missing_process_value_in_a_task_is_not_zero(tmp_path, null_rep):
     # Whichever rep has no process (the first one included), the task keeps the measure from the other reps.
