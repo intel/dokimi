@@ -4,10 +4,12 @@
 """Reading one ``Bash`` call as the commands it runs.
 
 Not a shell parser: a walk over the line that knows quotes, backslashes, ``$(...)`` / backticks,
-``&&``, ``||``, ``;``, ``&`` and newlines, and peels the compound-command syntax (``for``, ``if``,
+``[[ ... ]]``, ``(( ... ))``, ``&&``, ``||``, ``;``, ``&`` and newlines, and peels the compound-command syntax (``for``, ``if``,
 ``case``, ``( ... )``) and the wrappers (``sudo``, ``timeout 300``, ``nice -n 10``, ``VAR=1``,
 ``uv run``) off a command to find the program and the file it writes. Good for the lines agents
-write; a line it cannot read gives a step of its own, never an exception.
+write; a line it cannot read gives a step of its own, never an exception. It does not follow a
+command another one runs: ``find -exec sed -i ... {} +`` and ``xargs sed -i`` are ``find`` and
+``xargs``, with no file written.
 """
 
 from __future__ import annotations
@@ -31,12 +33,13 @@ _IN_PLACE = {"sed": re.compile(r"^(-[nEsrzu]*i[^-\s]*|--in-place(=.*)?)$"),
 
 
 class _Scan:
-    """The state of the walk over a shell line: the quote open, the ``$(...)`` depth, a backtick."""
+    """The state of the walk over a shell line: the quote open, the ``$(...)`` / ``((...))`` depth, a
+    backtick, the ``[[`` depth."""
 
     def __init__(self, command: str):
         self.text, self.i = command, 0
         self.cur: list[str] = []
-        self.quote, self.depth, self.tick = "", 0, False
+        self.quote, self.depth, self.tick, self.test = "", 0, False, 0
 
     def eat(self, n: int = 1, keep: bool = True) -> None:
         if keep:
@@ -56,16 +59,32 @@ class _Scan:
             self.eat(2, keep=nxt != "\n")
         elif ch in "'\"`" or (ch == "$" and nxt == "(") or (self.depth and ch in "()"):
             self.open_close(ch, nxt)
+        elif self.bracket(ch + nxt):
+            pass
         elif ch == "#" and not (self.depth or self.tick) and (not self.cur or self.cur[-1].isspace()):
             while self.i < len(self.text) and self.text[self.i] != "\n":  # a comment runs to the end of the line
                 self.i += 1
         else:
-            sep = "" if self.depth or self.tick else _separator(self.text, self.i)
+            sep = "" if self.depth or self.tick or self.test else _separator(self.text, self.i)
             if sep:
                 self.i += len(sep)
                 return sep
             self.eat()
         return ""
+
+    def bracket(self, pair: str) -> bool:
+        """``((``, ``[[`` or ``]]``: track and keep it, so ``;`` and ``&&`` inside do not split."""
+        start = not self.cur or self.cur[-1][-1:].isspace() or self.cur[-1][-1:] in "(!"
+        if pair == "((" and start:  # `(( i++ ))`, `for ((i=0; i<3; i++))`; `))` closes it as depth
+            self.depth += 2
+        elif pair == "[[" and start:
+            self.test += 1
+        elif pair == "]]" and self.test:
+            self.test -= 1
+        else:
+            return False
+        self.eat(2)
+        return True
 
     def open_close(self, ch: str, nxt: str) -> None:
         """A quote, a backtick, ``$(`` or a parenthesis inside ``$(...)``: track it, keep it."""
@@ -96,7 +115,30 @@ def split_commands(command: str) -> list[tuple[str, str]]:
             out.append(("".join(scan.cur), sep))
             scan.cur = []
     out.append(("".join(scan.cur), ""))
-    return [(seg.strip(), sep) for seg, sep in out if seg.strip() and not seg.strip().startswith("#")]
+    return [(seg, sep) for seg, sep in _drop_case_labels(out) if seg and not seg.startswith("#")]
+
+
+def _drop_case_labels(parts: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Segments without a ``case ... in`` header and the ``label)`` after it or after ``;;``;
+    elsewhere ``word)`` closes a subshell (``(cd build && make) 2>&1``, ``b) (cd x && pytest) ;;``)."""
+    out: list[tuple[str, str]] = []
+    depth, label_next = 0, False
+    for seg, sep in parts:
+        text = seg.strip()
+        if header := re.match(rf"^(?:(?:\(+|{_KEYWORDS}(?=\s))\s*)*case\b.*?\bin\b\s*", text):
+            depth, label_next, text = depth + 1, True, text[header.end():]
+        if depth and re.match(r"^esac\b", text):
+            depth, label_next = depth - 1, False
+        elif label_next and (label := re.match(r"^\(?[^\s()]+\)\s*", text)):
+            label_next, text = False, text[label.end():]
+            if inner := re.match(r"^case\b.*?\bin\b\s*", text):  # `x) case $y in y) ...`
+                depth, label_next, text = depth + 1, True, text[inner.end():]
+                if label := re.match(r"^\(?[^\s()]+\)\s*", text):
+                    label_next, text = False, text[label.end():]
+        if depth and not text and sep == ";" and out and out[-1][1] == ";":  # `;;` ends an arm
+            label_next = True
+        out.append((text, sep))
+    return out
 
 
 def _separator(command: str, i: int) -> str:
@@ -157,21 +199,39 @@ def _mask(text: str) -> str:
 
 def clean(segment: str) -> str:
     """The command of a segment without the compound-command syntax around it:
-    ``do black $f`` -> ``black $f``, ``(cd sub`` -> ``cd sub``, ``pytest)`` -> ``pytest``, a case label
-    and its ``case ... in`` header dropped; a ``for`` header, ``fi``, ``done`` leave nothing."""
+    ``do black $f`` -> ``black $f``, ``(cd sub`` -> ``cd sub``, ``make) 2>&1`` -> ``make 2>&1``; a
+    ``for`` header, ``(( ... ))``, ``fi``, ``done`` leave nothing. Case labels were dropped by
+    `split_commands`, which knows the ``case ... in`` block."""
     text = segment.strip()
+    if text.startswith("(("):
+        return ""
     while True:
         before = text
         text = re.sub(rf"^(?:\(+|{_KEYWORDS}(?=\s|$))\s*", "", text)
-        text = re.sub(r"^case\b.*?\bin\b\s*", "", text) if text.startswith("case ") else text
-        text = re.sub(r"^\(?[^\s()]+\)(?=\s+\S)\s*", "", text)  # a `case` label followed by its command
         if text == before:
             break
     if _NO_COMMAND.match(text) or text.startswith("case "):
         return ""
-    while text.endswith(")") and text.count(")") > text.count("("):
-        text = text[:-1].rstrip()
-    return text
+    return _drop_unopened(text) if text.count(")") > text.count("(") else text
+
+
+def _drop_unopened(text: str) -> str:
+    """``text`` without each unquoted ``)`` no ``(`` opened: the close of a subshell (``pytest)``,
+    ``make) 2>&1 | tail -5``)."""
+    out, depth, quote = [], 0, ""
+    for ch in text:
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            if not depth:
+                continue
+            depth -= 1
+        out.append(ch)
+    return re.sub(r"\s+$", "", "".join(out))
 
 
 def _words(segment: str) -> list[str]:
@@ -213,6 +273,8 @@ def _wrapper_length(words: list[str]) -> int:
         while n < len(words) and (words[n].startswith("-") or (head == "env" and re.match(r"^\w+=", words[n]))):
             n += 2 if words[n] in _VALUE_OPTIONS.get(head, ()) else 1
         return n
+    if head == "command" and any(re.match(r"^-[pvV]*[vV]", w) for w in words[1:_flags_end(words, 1, set())]):
+        return 0  # `command -v pytest` looks pytest up, it does not run it
     if head in ("time", "command"):
         return _flags_end(words, 1, _VALUE_OPTIONS.get(head, set()))
     if head == "timeout":

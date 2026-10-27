@@ -61,7 +61,7 @@ class Event:
     action: str
     input: dict[str, Any]
     failed: bool = False
-    masked: bool = False  # the call's status is another command's: a pipe without pipefail, or a later `;` / `||`
+    masked: bool = False  # the call's status is another's: a pipe without pipefail, a later `;` / `||`, `&`, a loop
     call: int = -1  # the tool call this step came from; a chained command is one call and several steps
 
 
@@ -71,7 +71,7 @@ class Run:
     events: list[Event] = field(default_factory=list)
     passed: bool | None = None
     num_turns: int | None = None
-    output_tokens: int = 0
+    output_tokens: int | None = None  # None: no message had a usage count
     calls_made: int = 0  # the next call's number, while a trace is read
 
     def calls(self) -> int:
@@ -147,7 +147,7 @@ def parse_run(raw: str, name: str = "", grain: str = "split") -> Run:
         elif kind == "result":
             run.num_turns = rec.get("num_turns") if isinstance(rec.get("num_turns"), int) else None
             run.passed = rec.get("subtype") == "success" and not rec.get("is_error")
-    run.output_tokens = sum(seen_messages.values())
+    run.output_tokens = sum(seen_messages.values()) if seen_messages else None
     if run.passed is None and run.events:
         run.passed = False
     return run
@@ -157,8 +157,10 @@ def _assistant(run: Run, rec: dict[str, Any], message: dict[str, Any], content: 
                by_id: dict[str, list[Event]], seen_messages: dict[str, int], grain: str) -> None:
     raw_usage = message.get("usage")
     usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
-    mid = str(message.get("id") or id(rec))
-    seen_messages[mid] = max(seen_messages.get(mid, 0), int(usage.get("output_tokens") or 0))  # one call, many blocks
+    count = usage.get("output_tokens")
+    if (isinstance(count, int) and not isinstance(count, bool)) or (isinstance(count, float) and math.isfinite(count)):
+        mid = str(message.get("id") or id(rec))  # one call, many blocks
+        seen_messages[mid] = max(seen_messages.get(mid, 0), int(count))
     if not main:
         return
     for block in content:
@@ -239,22 +241,43 @@ def _hides_status(sep: str, errexit: bool) -> bool:
     return sep in shell.HIDING and not (errexit and sep in (";", "\n"))
 
 
-def _bash_events(tool: str, args: dict[str, Any], grain: str) -> list[Event]:
-    command = str(args.get("command") or "")
+def _opens_loop(seg: str) -> bool:
+    """A loop header as a shell word (not in quotes or ``$(...)``): first, or after a pipe, ``(``,
+    ``{``, ``!``, ``then``, ``do``, ``else``, ``elif``."""
+    words = shell.tokens(seg)
+    return any(w in ("for", "while", "until", "select")
+               and (i == 0 or words[i - 1] in ("|", "(", "{", "!", "then", "do", "else", "elif"))
+               for i, w in enumerate(words))
+
+
+def _masks(parts: list[tuple[str, str]], command: str) -> list[bool]:
+    """Per command of a line, whether the status the call reports may be another's: a pipe without
+    `pipefail`; a later command after `||`, or after `;` or a newline (not under `set -e`); a
+    trailing `&`, whose status is always 0; a loop body, whose status is the last iteration's."""
     pipefail = bool(re.search(r"\bpipefail\b", command))
     errexit = bool(re.search(r"\bset\s+(-[a-z]*e|-o\s+errexit)", command))
+    out, loops = [], 0
+    for i, (seg, sep) in enumerate(parts):
+        loops += _opens_loop(seg)
+        loops -= bool(loops and re.match(r"^done\b", seg))
+        # `done`, `fi` after the last command close it: its status is the call's
+        sep = sep if sep == "&" or any(shell.clean(later) for later, _ in parts[i + 1:]) else ""
+        out.append((not pipefail and "|" in shell.tokens(seg)) or _hides_status(sep, errexit)
+                   or (loops > 0 and not errexit))
+    return out
+
+
+def _bash_events(tool: str, args: dict[str, Any], grain: str) -> list[Event]:
+    command = str(args.get("command") or "")
     parts = shell.split_commands(command)
+    masks = _masks(parts, command)
     if grain == "split":
         out = []
-        for i, (seg, sep) in enumerate(parts):
+        for (seg, _), masked in zip(parts, masks, strict=True):
             prog = shell.program(seg)
             if not prog:
                 continue
-            sep = sep if any(shell.clean(later) for later, _ in parts[i + 1:]) else ""  # `done`, `fi` close it
             text = shell.step_text(seg)
-            # `set -e` stops a chain at its first failure, so after `;` or a newline the status is still theirs
-            hidden = _hides_status(sep, errexit)
-            masked = not pipefail and "|" in shell.tokens(seg) or hidden
             # one step per file a command writes (`sed -i s/a/b/ a.py b.py` edits two files)
             for written in shell.written_files(seg) or [""]:
                 ev_input = {**args, "command": text, **({"file_path": written} if written else {})}
@@ -264,9 +287,7 @@ def _bash_events(tool: str, args: dict[str, Any], grain: str) -> list[Event]:
             return out
     prog = shell.program(command)
     kind = f"Bash:{prog}" if prog else "Bash"
-    masked = any((not pipefail and "|" in shell.tokens(seg))
-                 or (any(shell.clean(later) for later, _ in parts[i + 1:]) and _hides_status(sep, errexit))
-                 for i, (seg, sep) in enumerate(parts) if shell.program(seg))
+    masked = any(m for (seg, _), m in zip(parts, masks, strict=True) if shell.program(seg))
     return [Event(tool, kind, f"{kind}({command.strip()})" if command.strip() else kind, args, masked=masked)]
 
 
@@ -347,6 +368,16 @@ def _names(value: Any, where: str) -> tuple[str, ...]:
     raise ValueError(f"{where} wants a name or a list of names, got {value!r}")
 
 
+def _pattern(value: Any, where: str) -> str:
+    """A regex, or a list of them as one alternation; anything else (a number, a mapping) is refused,
+    so that `[pytest, tox]` is not read as the character class `['pytest', 'tox']`."""
+    if isinstance(value, list) and value:
+        return "|".join(f"(?:{p})" for p in _names(value, where))
+    if isinstance(value, str):
+        return value
+    raise ValueError(f"{where} wants a regex or a list of regexes, got {value!r}")
+
+
 def parse_contract(data: Any, where: str = "contract") -> dict[str, Any]:
     if not isinstance(data, dict) or not isinstance(data.get("actions"), dict):
         raise ValueError(f"{where}: want `actions:` (name -> matcher) and `rules:`")
@@ -356,7 +387,8 @@ def parse_contract(data: Any, where: str = "contract") -> dict[str, Any]:
             raise ValueError(f"{where}: action {name!r} is not a mapping")
         tools = _names(spec.get("tool"), f"{where}: action {name!r}: `tool`")
         try:
-            patterns = {str(k): re.compile(str(v)) for k, v in spec.items() if k != "tool"}
+            patterns = {str(k): re.compile(_pattern(v, f"{where}: action {name!r}: `{k}`"))
+                        for k, v in spec.items() if k != "tool"}
         except re.error as exc:
             raise ValueError(f"{where}: action {name!r}: bad regex ({exc})") from exc
         actions[str(name)] = Matcher(tools, patterns)
@@ -392,12 +424,12 @@ def check_contract(run: Run, contract: dict[str, Any]) -> list[str]:
             ok = not b or (bool(a) and a[0] < b[0])
         elif kind == "after_last":  # some b after the last a; vacuous with no a
             ok = not a or any(j > a[-1] for j in b)
-        else:  # last_ok: the last a did not fail, and its status was not hidden by a pipe
+        else:  # last_ok: the last a did not fail, and its status was not hidden (a pipe, `;`, `&`, a loop)
             last = run.events[a[-1]] if a else None
             ok = last is None or not (last.failed or last.masked)
         if not ok:
             masked = kind == "last_ok" and last is not None and not last.failed
-            broken.append(f"{kind}: {' -> '.join(names)}" + (" (status hidden by a pipe)" if masked else ""))
+            broken.append(f"{kind}: {' -> '.join(names)}" + (" (status hidden)" if masked else ""))
     return broken
 
 
@@ -510,7 +542,7 @@ def profile(runs: list[Run], contract: dict[str, Any] | None = None, threshold: 
         "tool_calls_mean": _mean([r.calls() for r in runs]),
         "tool_calls_cv": _cv([r.calls() for r in runs]),
         "turns_cv": _cv([r.num_turns for r in runs if r.num_turns is not None]),
-        "output_tokens_cv": _cv([r.output_tokens for r in runs]),
+        "output_tokens_cv": _cv([r.output_tokens for r in runs if r.output_tokens is not None]),
         "failed_calls_mean": _mean([r.failed_calls() for r in runs]),
     }
 
@@ -523,7 +555,8 @@ def profile(runs: list[Run], contract: dict[str, Any] | None = None, threshold: 
         groups.append({
             "runs": [r.name for r in rs], "passed": ps, "judged": len(js),
             "verdict": _verdict(ps, len(js)),
-            "inner_distance": _mean([seq_distance(a.shape(), b.shape()) for a, b in combinations(rs, 2)]) or 0.0,
+            # None for a one-run strategy: no pair, nothing measured
+            "inner_distance": _mean([seq_distance(a.shape(), b.shape()) for a, b in combinations(rs, 2)]),
             "path": medoid.shape(),
         })
 
@@ -553,7 +586,7 @@ def _summary_verdict(groups: list[dict[str, Any]]) -> str:
     verdicts = {g["verdict"] for g in groups}
     if len(groups) == 1:
         return f"one strategy, {groups[0]['verdict']}"
-    if verdicts <= {"stable success", "single run, passed"}:
+    if verdicts == {"stable success"}:  # a single passing run says nothing about stability
         return f"{len(groups)} strategies, all stable success (valid diversity)"
     return f"{len(groups)} strategies: " + ", ".join(
         f"{g['verdict']} ×{len(g['runs'])}" for g in groups)

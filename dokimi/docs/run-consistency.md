@@ -78,6 +78,10 @@ collapsed (`--threshold`, default 0.34), and each group gets a verdict:
 | one strategy, unstable | the route is right, execution breaks |
 | one strategy, stable failure | a reproducible mistake |
 
+A strategy of one run has no inner distance (`null`) and its verdict is `single
+run, passed` or `single run, failed`: one run says nothing about stability, so
+several one-run strategies are never read as valid diversity.
+
 A group is a shape, not a proof the shape is right; the result and the
 contract judge that.
 
@@ -104,7 +108,19 @@ rules:
 An `edit` action with a write tool (`Edit`, `Write`, `MultiEdit`) also matches a shell
 step that writes a file (`sed -i`, `echo`/`printf`/`cat` into `>`, `tee`), so an edit
 through the shell counts. Another program's output saved to a file (`pytest > test.log`,
-`ls > /tmp/files.txt`) is not an edit.
+`ls > /tmp/files.txt`) is not an edit. A write made by a command another one runs
+(`find . -exec sed -i ... {} +`, `xargs sed -i`) is a `find` or `xargs` step with no
+file: a contract that wants an edit reports it missing, so name `Bash:find` /
+`Bash:xargs` in the edit action if agents edit that way.
+
+A regex value may be a list (`command: [pytest, tox]`), read as one alternation;
+a number or a mapping is refused.
+
+`last_ok` also fails when the status the call reported may be another
+command's: a pipe without `pipefail`, a later command after `||`, or after `;`
+or a newline (not under `set -e`), a trailing `&`, or a loop body (not under
+`set -e`), whose status is the last iteration's. `command -v pytest` looks `pytest` up and is a `Bash:command`
+step, not a test run.
 
 Name every equivalent way to do a step: `make check`, `sh tools/check.sh` and
 the skill's `finish.sh` are one check. A contract that knows only `make check`

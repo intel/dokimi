@@ -88,6 +88,43 @@ def test_same_steps_different_order_is_order_not_mix():
     assert p["mix_jsd"] == 0 and p["order_distance"] == pytest.approx(2 / 3)
 
 
+def test_one_run_strategies_are_not_stable_diversity():
+    runs = [_run("g", GREP, EDIT, TEST), _run("r", READ, READ, EDIT, EDIT, TEST, READ, EDIT, TEST)]
+    p = profile(runs)
+    assert len(p["strategies"]) == 2
+    assert [g["inner_distance"] for g in p["strategies"]] == [None, None]
+    assert "valid diversity" not in p["verdict"]
+
+
+def test_traces_without_usage_have_no_token_spread():
+    runs = [parse_run(_trace(TEST).replace(', "usage": {"output_tokens": 10}', "")) for _ in range(3)]
+    assert runs[0].output_tokens is None
+    assert profile(runs)["path"]["output_tokens_cv"] is None
+
+
+def test_a_huge_token_count_is_counted_not_fatal():
+    assert parse_run(_trace(TEST).replace('"output_tokens": 10', f'"output_tokens": {10 ** 400}')).output_tokens
+
+
+@pytest.mark.parametrize("count", ['"n/a"', "Infinity", "NaN", "true", "[1]"])
+def test_a_token_count_that_is_not_a_number_is_skipped(count):
+    run = parse_run(_trace(TEST).replace('"output_tokens": 10', f'"output_tokens": {count}'))
+    assert run.output_tokens is None and run.events
+
+
+def test_a_list_pattern_is_an_alternation_not_a_character_class():
+    c = parse_contract({"actions": {"test": {"tool": "Bash", "command": [r"\bpytest\b", r"\btox\b"]}},
+                        "rules": [{"requires": "test"}]})
+    assert check_contract(_run("r", ("Bash", {"command": "git status"})), c) == ["requires: test"]
+    assert check_contract(_run("r", ("Bash", {"command": "tox -e py"})), c) == []
+
+
+@pytest.mark.parametrize("value", [3, {"a": 1}, [1, 2], []])
+def test_a_pattern_that_is_not_a_regex_is_refused(value):
+    with pytest.raises(ValueError, match="wants a"):
+        parse_contract({"actions": {"test": {"tool": "Bash", "command": value}}, "rules": []})
+
+
 def test_two_valid_strategies_are_diversity_not_instability():
     runs = [_run(f"g{i}", GREP, GREP, EDIT, TEST) for i in range(3)] + \
            [_run(f"r{i}", READ, EDIT, TEST, READ, EDIT, TEST) for i in range(3)]
@@ -223,7 +260,7 @@ def test_failed_chain_fails_the_check_not_only_the_last_command():
 
 
 @pytest.mark.parametrize("cmd, broken", [
-    ("pytest -q | tail -5", ["last_ok: test (status hidden by a pipe)"]),
+    ("pytest -q | tail -5", ["last_ok: test (status hidden)"]),
     ("set -o pipefail; pytest -q | tail -5", []),
     ("pytest -q 'a|b'", []),
 ])
