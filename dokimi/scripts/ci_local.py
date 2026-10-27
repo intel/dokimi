@@ -30,6 +30,9 @@ Differences from CI, all printed as notices:
 - Steps that need the network are skipped when PyPI is unreachable or with
   --offline; the docker job runs only with --with-docker; conda-forge-deps
   runs only when micromamba is on PATH.
+- The checksum-pinned gitleaks workflow binary is Linux x64 only; other hosts
+  use an installed native binary only at the workflow's exact pinned version,
+  reporting its provenance. Otherwise the job is explicitly unsupported.
 - Semgrep Secrets is an org-level check with no workflow file here; it runs as
   `semgrep scan --config p/secrets` when semgrep is on PATH, else is skipped.
 - Steps that diff against `origin/$BASE_REF` (in CI, origin is intel/dokimi)
@@ -49,6 +52,7 @@ from __future__ import annotations
 import argparse
 import collections
 import os
+import platform
 import re
 import shlex
 import shutil
@@ -251,6 +255,39 @@ def make_isolated_env(tmp: Path, py: str) -> tuple[Path, dict]:
     return src, env
 
 
+def native_gitleaks(job: dict) -> str | None:
+    """Adapt only installation; keep the workflow's scan and report provenance."""
+    install = next((step for step in job.get("steps", [])
+                    if step.get("name") == "Install gitleaks"), None)
+    version = (install or {}).get("env", {}).get("GITLEAKS_VERSION")
+    binary = shutil.which("gitleaks")
+    if not binary or not version or install is None:
+        return "unsupported host: needs installed native gitleaks at the workflow's pinned version"
+    try:
+        result = subprocess.run([binary, "version"], capture_output=True, text=True,
+                                timeout=10, check=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"unsupported host: cannot verify native gitleaks: {exc}"
+    actual = result.stdout.strip()
+    if actual != str(version):
+        return f"unsupported host: native gitleaks version {actual!r}; workflow requires {version}"
+    print(f"NOTICE: native gitleaks {version} from {binary}; installed locally, "
+          "not the workflow's checksum-verified Linux download")
+    install["run"] = (
+        'mkdir -p "$RUNNER_TEMP/gitleaks"\n'
+        f'cp {shlex.quote(binary)} "$RUNNER_TEMP/gitleaks/gitleaks"\n'
+        'test "$("$RUNNER_TEMP/gitleaks/gitleaks" version)" = "$GITLEAKS_VERSION"'
+    )
+    return None
+
+
+def unavailable_job(job_id: str, online: bool, job: dict) -> str | None:
+    """Native scans need an exact installed version; Linux x64 keeps the download."""
+    if job_id == "gitleaks" and (platform.system(), platform.machine()) != ("Linux", "x86_64"):
+        return native_gitleaks(job)
+    return "needs network" if job_id in NEEDS_NETWORK and not online else None
+
+
 def run(args: argparse.Namespace) -> int:
     py = f"{sys.version_info.major}.{sys.version_info.minor}"
     want = set(args.jobs.split(",")) if args.jobs else None
@@ -302,8 +339,8 @@ def run(args: argparse.Namespace) -> int:
                 if job_id in NEEDS_DOCKER and not args.with_docker:
                     record(label, "skip (needs docker + network; pass --with-docker)")
                     continue
-                if job_id in NEEDS_NETWORK and not online:
-                    record(label, "skip (needs network)")
+                if reason := unavailable_job(job_id, online, job):
+                    record(label, f"skip ({reason})")
                     continue
                 if (tool := NEEDS_TOOL.get(job_id)) and not shutil.which(tool):
                     record(label, f"skip ({tool} not on PATH)")

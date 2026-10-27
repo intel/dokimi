@@ -111,3 +111,20 @@ def test_run_benchmark_uses_manifest(tmp_path):
     out = run_benchmark(tmp_path, spec)
     # a.md + b.md selected, archive/old.md excluded.
     assert out["summary"]["docs"] == 2
+
+
+def test_null_example_memory_cap_validates_and_preserves_host_opt_in():
+    from dokimi.metrics.example_runner import ExecutionPolicy, run_example
+    from dokimi.process import FakeRunner
+
+    spec = load_spec(REAL_SPEC)
+    metric = spec["metrics"]["example_pass_rate"]
+    metric["execution"] = {"backend": "subprocess", "mem_mb": None}
+    validate_spec(spec)
+    runner = FakeRunner()
+    result = run_example("python", "print(1)", ExecutionPolicy.from_config(metric), runner)
+    assert result.status == "failed" and "allow_host" in (result.error or "")
+    assert runner.calls == []
+    metric["execution"]["mem_mb"] = "unlimited"
+    with pytest.raises(SpecValidationError, match="mem_mb"):
+        validate_spec(spec)

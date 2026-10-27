@@ -542,3 +542,59 @@ def test_needs_tool_job_ids_match_real_jobs() -> None:
     """Every NEEDS_TOOL key names a real job, catching renames."""
     job_ids = {job_id for _, wf in cl.load_workflows() for job_id in wf["jobs"]}
     assert set(cl.NEEDS_TOOL) <= job_ids
+
+
+@pytest.mark.parametrize("system, machine", [("Darwin", "arm64"), ("Linux", "aarch64"), ("Windows", "AMD64")])
+def test_linux_gitleaks_binary_is_not_executed_on_other_hosts(env, monkeypatch, capsys, system, machine):
+    (cl.WORKFLOWS / "x.yml").write_text(
+        "on: pull_request\njobs:\n  gitleaks:\n    steps:\n      - run: download-and-run-linux-x64\n")
+    import platform
+    monkeypatch.setattr(platform, "system", lambda: system)
+    monkeypatch.setattr(platform, "machine", lambda: machine)
+    assert cl.run(ns(jobs="gitleaks")) == 0
+    assert env["calls"] == []
+    assert "unsupported host" in capsys.readouterr().out
+
+
+def test_gitleaks_linux_x64_keeps_the_workflow_scan(env, monkeypatch, capsys):
+    import platform
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    (cl.WORKFLOWS / "x.yml").write_text(
+        "on: pull_request\njobs:\n  gitleaks:\n    steps:\n      - run: exit 1\n")
+    assert cl.run(ns(jobs="gitleaks")) == 1
+    assert "FAIL (exit 1)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("version,scan", [("8.30.1", True), ("8.29.0", False)])
+@pytest.mark.parametrize("scan_exit", [0, 1])
+def test_native_gitleaks_uses_exact_workflow_version(env, monkeypatch, capsys, version, scan, scan_exit):
+    workflow = Path(__file__).resolve().parents[2] / ".github/workflows/gitleaks.yml"
+    (cl.WORKFLOWS / "x.yml").write_text(workflow.read_text())
+    monkeypatch.setattr(cl.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(cl.platform, "machine", lambda: "arm64")
+    native = env["root"] / "native gitleaks"
+    native.write_text("native placeholder")
+    monkeypatch.setattr(cl.shutil, "which", lambda name: str(native) if name == "gitleaks" else None)
+    previous_run = cl.subprocess.run
+
+    def run(cmd, **kwargs):
+        if cmd == [str(native), "version"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=version + "\n")
+        result = previous_run(cmd, **kwargs)
+        if "git --redact --verbose --no-banner" in cmd[-1]:
+            result.returncode = scan_exit
+        return result
+
+    monkeypatch.setattr(cl.subprocess, "run", run)
+    assert cl.run(ns(jobs="gitleaks", offline=True)) == (scan_exit if scan else 0)
+    scripts = [call["cmd"][-1] for call in env["calls"]]
+    output = capsys.readouterr().out
+    if scan:
+        original = cl.yaml.safe_load(workflow.read_text())["jobs"]["gitleaks"]["steps"][-1]["run"]
+        assert original.strip() in scripts
+        assert not any('curl -fsSL' in script for script in scripts)
+        assert "native gitleaks" in output and "8.30.1" in output
+    else:
+        assert scripts == []
+        assert "unsupported host" in output and "8.29.0" in output

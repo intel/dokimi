@@ -76,6 +76,7 @@ TRUNCATION_MARKER = "\n[... {dropped} bytes not kept: output over the capture li
 _POLL_SEC = 0.1
 _CHUNK = 1 << 16
 _POSIX = sys.platform != "win32"
+_LINUX = sys.platform == "linux"
 
 if sys.platform == "win32":
     import ctypes
@@ -114,7 +115,7 @@ class Env:
 
 @dataclass(frozen=True)
 class Limits:
-    """POSIX resource limits applied in the child (ignored on Windows)."""
+    """Resource limits applied before exec; unsupported requests raise ValueError."""
 
     cpu_sec: int | None = None
     memory_bytes: int | None = None
@@ -180,6 +181,7 @@ def run(
 ) -> Completed:
     """Run ``argv`` (no shell) to completion or ``timeout`` seconds; see the module doc."""
     args = _check(argv, timeout, capture_limit, term_grace)
+    preexec = _limits_preexec(limits) if limits else None
     data = input.encode("utf-8") if isinstance(input, str) else input
     with _Spool(stdout_to) as out_file, _Spool(stderr_to) as err_file:
         start = time.monotonic()
@@ -192,7 +194,7 @@ def run(
                 stdout=out_file or (subprocess.PIPE if capture_stdout else subprocess.DEVNULL),
                 stderr=err_file or subprocess.PIPE,
                 start_new_session=_POSIX,
-                preexec_fn=_limits_preexec(limits) if _POSIX and limits else None,
+                preexec_fn=preexec,
             )
         except BaseException:
             _replay_deferred_signals()  # no child started: a signal that came meanwhile acts now
@@ -549,13 +551,17 @@ def _group_alive(proc: subprocess.Popen[bytes]) -> bool:
     """
     if not _signal_group(proc, 0):
         return False
-    if sys.platform != "linux":
+    if not _LINUX:
         return True
+    return _linux_group_alive(proc.pid)
+
+
+def _linux_group_alive(pid: int) -> bool:
     try:
         entries = os.listdir("/proc")
     except OSError:
         return True
-    pgid = str(proc.pid)
+    pgid = str(pid)
     for entry in entries:
         if not entry.isdigit():
             continue
@@ -622,17 +628,20 @@ def _kill_tree(proc: subprocess.Popen[bytes], job: int | None) -> None:
         proc.kill()
 
 
-def _limits_preexec(limits: Limits) -> Callable[[], None]:
+def _limits_preexec(limits: Limits) -> Callable[[], None] | None:
+    if limits.cpu_sec is None and limits.memory_bytes is None:
+        return None
+    if sys.platform == "win32":
+        raise ValueError("requested process limits are unsupported on Windows")
+    if sys.platform == "darwin" and limits.memory_bytes is not None:
+        raise ValueError("requested memory limit (RLIMIT_AS) is unsupported on macOS")
     import resource
 
     def apply() -> None:
         if limits.cpu_sec is not None:
             resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_sec, limits.cpu_sec + 1))
         if limits.memory_bytes is not None:
-            try:
-                resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, limits.memory_bytes))
-            except (ValueError, OSError):  # pragma: no cover - platform dependent
-                pass
+            resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, limits.memory_bytes))
 
     return apply
 

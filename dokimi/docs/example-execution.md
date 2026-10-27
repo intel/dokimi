@@ -35,7 +35,7 @@ metrics:
 | Backend | Isolation | Use when |
 | --- | --- | --- |
 | `none` (default) | Nothing runs; examples reported as `skipped` | Untrusted corpora, or you only want extraction |
-| `subprocess` | Host subprocess with per-process CPU/memory caps, minimal env, temp cwd; its process group is killed when it exits or times out. **No network isolation and no process-count cap.** Requires `allow_host: true`. | Trusted, self-owned documentation |
+| `subprocess` | Host subprocess with per-process CPU cap and default memory cap, minimal env, temp cwd; its process group is killed when it exits or times out. **No network isolation and no process-count cap.** Requires `allow_host: true`. | Trusted, self-owned documentation |
 | `docker` | Container with `--network none`, read-only mounts, CPU/memory/pid limits, per-example timeout | Untrusted documentation |
 
 ### Why `none` is the default
@@ -60,9 +60,25 @@ DOC_BENCH_EXAMPLE_BACKEND=none dokimi run --spec benchmarks/spec.v1.yaml
 ## Security notes
 
 - The `subprocess` backend strips the parent environment (no API keys leak into
-  examples) and applies POSIX CPU/memory limits, but it **cannot** isolate the
+  examples) and applies the requested POSIX limits, but it **cannot** isolate the
   network or cap the number of processes a snippet spawns (POSIX `RLIMIT_NPROC`
   counts all of the user's processes, not the snippet's). Only use it on
   documentation you trust.
 - For anything else, use `docker`, which adds `--network none` and a read-only
   filesystem. See also [SECURITY.md](../SECURITY.md).
+
+Host resource limits are platform-specific: Linux supports the CPU and address-space
+limits; macOS supports CPU limits but rejects a requested address-space memory
+limit before the snippet starts. Windows rejects requested CPU or memory limits.
+The default `mem_mb: 512` therefore fails on macOS before launching the snippet.
+For trusted, self-owned documentation on macOS, explicitly set `allow_host: true`
+and `mem_mb: null` with `backend: subprocess`. This omits only the memory cap;
+the CPU cap, wall-clock timeout, environment scrubbing and process-group cleanup
+remain active. Python callers can use `ExecutionPolicy(mem_mb=None)` with the
+same backend and host opt-in. Linux keeps the default 512 MiB cap unless explicitly
+omitted. Windows refuses this subprocess mode even with memory omitted, because
+the CPU cap is still required.
+
+A failure to apply a requested limit prevents execution. The `docker` backend
+requires a positive memory cap and rejects `null`, zero or negative values before
+launch. Use that Linux-container backend when both limits are required.

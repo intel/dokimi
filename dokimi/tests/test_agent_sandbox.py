@@ -196,6 +196,10 @@ def test_default_forbidden_without_a_checkout_has_no_treatment(tmp_path):
 # ── probe ───────────────────────────────────────────────────────────────────
 
 
+_RAW_TOOLS = all(shutil.which(tool, path="/usr/bin:/bin") for tool in ("bash", "timeout"))
+_PROC_ENV = Path("/proc/self/environ").is_file()
+
+
 def test_probe_on_host_reports_absolute_paths_open_and_the_rest_closed(tmp_path):
     task = _content_checkout(tmp_path)
     forbidden = default_forbidden(task)
@@ -210,9 +214,9 @@ def test_probe_on_host_reports_absolute_paths_open_and_the_rest_closed(tmp_path)
         "treatment": "open",
         "operator_config": "closed",
         "checkout_walk": "closed",   # the work tree is no longer inside a checkout
-        "network": "closed",         # loopback port 9: nothing listens
-        "env": "closed",             # dropped by the allowlist, and in no parent
-        "docker_api": "closed",      # no socket, no daemon on the gateway
+        "network": "closed" if _RAW_TOOLS else "untested",
+        "env": "closed" if _PROC_ENV else "untested",
+        "docker_api": "closed" if _RAW_TOOLS else "untested",
         "dns": "closed",             # the pinned name never resolves
     }
     assert probe_reward(result) == 0.0
@@ -223,8 +227,8 @@ def test_probe_sees_a_variable_that_slips_through(tmp_path):
     result = run_probe(ws, {"PATH": "/usr/bin:/bin", "GITHUB_TOKEN": "x"},
                        extra_env={"GITHUB_TOKEN": "x"})
     ws.cleanup()
-    assert result["env"] == "open"
-    assert result["env_leaked"] == "GITHUB_TOKEN"
+    assert result["env"] == ("open" if _PROC_ENV else "untested")
+    assert result.get("env_leaked", "") == ("GITHUB_TOKEN" if _PROC_ENV else "")
 
 
 @pytest.mark.parametrize("marker", [".git", "task.toml", "CLAUDE.md"])
@@ -280,7 +284,7 @@ _needs_bash_and_timeout = pytest.mark.skipif(
 def test_probe_gateway_unknown_is_untested(tmp_path):
     """A failed gateway lookup never tried the daemon ports: not a pass."""
     result = _probe_script_run(tmp_path, PROBE_GATEWAY="", PROBE_DNS_NAME="no-such-host.invalid")
-    assert result["network"] == "closed"  # the script ran to the end
+    assert result["network"] == ("closed" if _RAW_TOOLS else "untested")  # the script ran to the end
     assert result["docker_api"] == "untested"
     assert probe_reward(result) == 0.0
 
@@ -302,7 +306,7 @@ def test_probe_dns_open_when_a_name_resolves(tmp_path):
 def test_probe_dns_closed_when_nothing_resolves(tmp_path):
     result = _probe_script_run(tmp_path, PROBE_DNS_NAME="no-such-host.invalid")
     assert result["dns"] == "closed"
-    assert result["network"] == "closed"
+    assert result["network"] == ("closed" if _RAW_TOOLS else "untested")
 
 
 def test_probe_env_carries_the_dns_name(monkeypatch):
@@ -859,3 +863,16 @@ def test_run_probe_timeout_raises_and_runs_with_exactly_the_agent_env(tmp_path, 
     assert call.argv[:2] == ("sh", "-c") and call.timeout == 5 and call.cwd == ws.work
     assert "DOKIMI_TEST_ONLY_TOKEN" not in call.env and call.env["PATH"] == "/usr/bin:/bin"
     assert "PARENT_ONLY_SECRET" not in call.env
+
+
+def test_missing_raw_socket_tools_cannot_certify_network_closed(tmp_path):
+    # Keep real host tools except timeout: deterministic on Linux and macOS.
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    for name in ("sh", "bash", "dirname", "curl", "id", "sed", "tr", "head", "cksum", "ls"):
+        if path := shutil.which(name, path="/usr/bin:/bin"):
+            (bindir / name).symlink_to(path)
+    result = _probe_script_run(tmp_path, PATH=str(bindir), PROBE_DNS_NAME="127.0.0.1")
+    assert result["network"] == "untested"
+    assert result["docker_api"] == "untested"
+    assert probe_reward(result) == 0.0

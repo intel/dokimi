@@ -35,9 +35,7 @@ def _alive(pid: int) -> bool:
         return False
     try:
         return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
-    except (FileNotFoundError, ProcessLookupError):
-        return False
-    except OSError:  # no /proc (macOS): kill(0) succeeded
+    except OSError:  # no /proc, or it exited after kill(0): conservatively live
         return True
 
 
@@ -568,6 +566,10 @@ def test_a_shutdown_is_not_an_oserror():
 
 @_POSIX_ONLY
 def test_limits_cap_memory():
+    if sys.platform == "darwin":
+        with pytest.raises(ValueError, match="RLIMIT_AS.*unsupported"):
+            _py("raise AssertionError('must not execute')", limits=Limits(memory_bytes=256 * 1024 * 1024))
+        return
     grab = "b = bytearray(512 * 1024 * 1024); print('allocated')"
     capped = _py(grab, limits=Limits(memory_bytes=256 * 1024 * 1024))
     assert capped.returncode != 0 and "MemoryError" in capped.stderr and "allocated" not in capped.stdout
@@ -850,3 +852,41 @@ def test_nothing_else_in_the_package_spawns_a_process():
              for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
              if spawn.search(line) and not line.lstrip().startswith("#")]
     assert found == []
+
+
+@pytest.mark.parametrize("platform, limits", [
+    ("darwin", Limits(memory_bytes=256 * 1024 * 1024)),
+    ("win32", Limits(memory_bytes=256 * 1024 * 1024)),
+    ("win32", Limits(cpu_sec=1)),
+])
+def test_unsupported_limits_refuse_before_launch(tmp_path, monkeypatch, platform, limits):
+    marker = tmp_path / "started"
+    monkeypatch.setattr(process.sys, "platform", platform)
+    with pytest.raises(ValueError, match="unsupported"):
+        _py("import pathlib, sys; pathlib.Path(sys.argv[1]).touch()", str(marker), limits=limits)
+    assert not marker.exists()
+
+
+@_POSIX_ONLY
+def test_rejected_setrlimit_never_launches_user_work(tmp_path, monkeypatch):
+    import resource
+
+    def reject(*args):
+        raise ValueError("limit rejected")
+
+    monkeypatch.setattr(process.sys, "platform", "linux")
+    monkeypatch.setattr(resource, "setrlimit", reject)
+    marker = tmp_path / "started"
+    with pytest.raises(process.subprocess.SubprocessError, match="preexec_fn"):
+        _py("import pathlib, sys; pathlib.Path(sys.argv[1]).touch()", str(marker),
+            limits=Limits(memory_bytes=256 * 1024 * 1024))
+    assert not marker.exists()
+
+
+@_POSIX_ONLY
+def test_liveness_observer_without_proc_still_sees_live_process(monkeypatch):
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("no proc filesystem")
+
+    monkeypatch.setattr(Path, "read_text", missing)
+    assert _alive(os.getpid())

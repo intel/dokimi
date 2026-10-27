@@ -69,7 +69,7 @@ class ExecutionPolicy:
     timeout: int = 5
     allow_host: bool = False  # subprocess requires this explicit opt-in
     docker_image: str = "python:3.11-slim"
-    mem_mb: int = 512
+    mem_mb: int | None = 512
     cpus: float = 1.0
     allowed_langs: tuple[str, ...] = field(default_factory=lambda: tuple(EXECUTORS))
 
@@ -84,12 +84,13 @@ class ExecutionPolicy:
         cfg = cfg or {}
         execution = cfg.get("execution") or {}
         timeout = int(execution.get("timeout", cfg.get("timeout", 5)))
+        mem_mb = execution.get("mem_mb", 512)
         policy = cls(
             backend=str(execution.get("backend", "none")),
             timeout=timeout,
             allow_host=bool(execution.get("allow_host", False)),
             docker_image=str(execution.get("docker_image", "python:3.11-slim")),
-            mem_mb=int(execution.get("mem_mb", 512)),
+            mem_mb=None if mem_mb is None else int(mem_mb),
             cpus=float(execution.get("cpus", 1.0)),
         )
         override = os.environ.get("DOC_BENCH_EXAMPLE_BACKEND")
@@ -147,8 +148,8 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
                     runner: process.Runner) -> tuple[bool, str | None]:
     """Run code on the host in a resource-limited subprocess (trusted docs only).
 
-    CPU time and address space are capped (POSIX). There is no RLIMIT_NPROC: it
-    counts every process and thread of the real UID system-wide (and is not
+    CPU time is capped; address space is capped unless explicitly omitted.
+    There is no RLIMIT_NPROC: it counts every process and thread of the real UID system-wide (and is not
     enforced for root), not the snippet's own children, so a small cap makes every
     fork fail on a busy host. Capping the process count is the docker backend's job
     (``--pids-limit``). The runner kills the snippet's whole process group when it
@@ -165,7 +166,8 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
     # Minimal environment — do not leak the parent's secrets/API keys. LD_LIBRARY_PATH
     # is preserved (not secret) because relocatable Python builds — e.g. actions/setup-python's
     # hostedtoolcache installs — need it so the dynamic loader can find libpython*.so.
-    limits = process.Limits(cpu_sec=max(1, policy.timeout), memory_bytes=policy.mem_mb * 1024 * 1024)
+    memory_bytes = None if policy.mem_mb is None else policy.mem_mb * 1024 * 1024
+    limits = process.Limits(cpu_sec=max(1, policy.timeout), memory_bytes=memory_bytes)
     with tempfile.TemporaryDirectory() as tmp:
         # HOME points at the per-run temp dir rather than a shared /tmp.
         env = process.Env.only(("LD_LIBRARY_PATH",),
@@ -188,6 +190,8 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
 def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
                 runner: process.Runner) -> tuple[bool, str | None]:
     """Run code inside a locked-down container (no network, read-only, limited)."""
+    if policy.mem_mb is None or policy.mem_mb <= 0:
+        return False, "docker backend requires a positive memory cap (mem_mb)"
     suffix, argv_prefix = EXECUTORS[lang]
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / f"snippet{suffix}"
