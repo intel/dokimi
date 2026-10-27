@@ -66,7 +66,8 @@ def test_a_reply_reads_text_tokens_and_model_and_leaves_cost_unknown(runner):
 
 def test_the_call_is_isolated_and_the_prompt_goes_on_stdin(runner, monkeypatch):
     monkeypatch.setenv("CLAUDECODE", "1")
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "parent")
+    for name in llm_cli.CLAUDE_ENV_DROP:
+        monkeypatch.setenv(name, "parent")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-would-bill")
     monkeypatch.setenv("DOKIMI_TEST_KEEP", "kept")
     runner.answers.extend([reply(_ok()), reply(_ok())])
@@ -77,11 +78,12 @@ def test_the_call_is_isolated_and_the_prompt_goes_on_stdin(runner, monkeypatch):
     assert argv[:2] == ["claude", "-p"] and "--bare" not in argv
     for flag in ("--strict-mcp-config", "--no-session-persistence"):
         assert flag in argv
+    assert argv[argv.index("--output-format") + 1] == "json"
     assert argv[argv.index("--tools") + 1] == "" and argv[argv.index("--setting-sources") + 1] == ""
     assert argv[argv.index("--system-prompt") + 1] == "Grade it."
     assert first.input == b"x" * 300_000 and "x" * 100 not in " ".join(argv)
-    for name in ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "ANTHROPIC_API_KEY"):
-        assert name not in first.env
+    assert not llm_cli.CLAUDE_ENV_DROP & set(first.env)
+    assert {"CLAUDE_CODE_ENTRYPOINT", "ANTHROPIC_API_KEY"} <= llm_cli.CLAUDE_ENV_DROP
     assert first.env["DOKIMI_TEST_KEEP"] == "kept"
     # One fixed, empty directory: the cwd the CLI states is the same in every call.
     assert first.cwd == second.cwd and list(first.cwd.iterdir()) == []
@@ -132,8 +134,11 @@ def test_tools_or_a_conversation_are_refused_before_any_call(runner):
         model.chat([{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"},
                     {"role": "user", "content": "c"}])
     from dokimi.eval.judge import Judge
-    with pytest.raises(llm_cli.CliCallError, match="temperature"):  # --judge-temperature
-        Judge(model="sonnet", provider="claude-cli", temperature=0.0).llm.invoke("grade")
+    for sampling in ({"temperature": 0.0}, {"seed": 7}):  # --judge-temperature / --seed: before the run
+        with pytest.raises(ValueError, match="temperature or seed"):
+            Judge(model="sonnet", provider="claude-cli", **sampling)
+    with pytest.raises(llm_cli.CliCallError, match="temperature"):
+        llm.LLM("sonnet", provider="claude-cli", seed=1).complete("x")
     assert runner.calls == []
 
 

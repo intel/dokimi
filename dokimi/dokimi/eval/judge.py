@@ -244,6 +244,8 @@ class Judge:
             "redrawn_judgements": 0,
         }
 
+        if provider in CLI_BACKENDS and (temperature is not None or seed is not None):
+            raise ValueError(f"{provider} takes no temperature or seed: drop --judge-temperature/--seed")
         self.llm: ChatModel
         if provider == "openai":
             self.llm = ChatOpenAI(model=model, api_key=api_key,
@@ -261,7 +263,7 @@ class Judge:
         else:
             raise ValueError(
                 f"Unsupported provider: '{provider}'. "
-                "Use 'openai', 'anthropic', 'google', 'openrouter', or 'amazon-bedrock'."
+                "Use 'openai', 'anthropic', 'google', 'openrouter', 'amazon-bedrock' or 'claude-cli'."
             )
         
         logger.info(f"Judge initialized: {provider}/{model}")
