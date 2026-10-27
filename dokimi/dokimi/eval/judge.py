@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 from dokimi import caching
 from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatModel, ask_parsed
-from dokimi.llm_cli import BACKENDS as CLI_BACKENDS
+from dokimi.llm_cli import BACKENDS as CLI_BACKENDS, check_sampling
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
@@ -244,8 +244,7 @@ class Judge:
             "redrawn_judgements": 0,
         }
 
-        if provider in CLI_BACKENDS and (temperature is not None or seed is not None):
-            raise ValueError(f"{provider} takes no temperature or seed: drop --judge-temperature/--seed")
+        check_sampling(provider, temperature, seed)
         self.llm: ChatModel
         if provider == "openai":
             self.llm = ChatOpenAI(model=model, api_key=api_key,

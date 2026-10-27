@@ -208,6 +208,12 @@ def backend(provider: str) -> Optional[CliBackend]:
     return BACKENDS.get(provider)
 
 
+def check_sampling(provider: str, temperature: Optional[float], seed: Optional[int]) -> None:
+    """Raise ``ValueError`` before a run when a CLI *provider* is given a temperature or seed."""
+    if provider in BACKENDS and (temperature is not None or seed is not None):
+        raise ValueError(f"{provider} takes no temperature or seed: drop --judge-temperature/--seed")
+
+
 def work_dir(name: str) -> Path:
     """The fixed empty working directory a backend's calls run in.
 

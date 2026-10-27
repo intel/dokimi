@@ -134,9 +134,13 @@ def test_tools_or_a_conversation_are_refused_before_any_call(runner):
         model.chat([{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"},
                     {"role": "user", "content": "c"}])
     from dokimi.eval.judge import Judge
+    from dokimi.eval.panel import JudgePanel
     for sampling in ({"temperature": 0.0}, {"seed": 7}):  # --judge-temperature / --seed: before the run
         with pytest.raises(ValueError, match="temperature or seed"):
             Judge(model="sonnet", provider="claude-cli", **sampling)
+        with pytest.raises(ValueError, match="temperature or seed"):  # eval panel-score
+            JudgePanel(default_provider="claude-cli", **sampling)
+    JudgePanel(default_provider="claude-cli")
     with pytest.raises(llm_cli.CliCallError, match="temperature"):
         llm.LLM("sonnet", provider="claude-cli", seed=1).complete("x")
     assert runner.calls == []
