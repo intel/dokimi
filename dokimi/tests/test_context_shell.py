@@ -174,6 +174,13 @@ LAST_OK = parse_contract({"actions": {"test": {"tool": "Bash", "command": "pytes
     ("pytest -q && echo ok &", True), ("set -e; pytest -q && echo ok; echo end", True),
     ("cd x && pytest -q && git status", False), ("set -e; cd x && pytest -q; echo end", False),
     ("{ pytest -q && echo ok; }", False),
+    # `set -e` / `pipefail` count from where they are set, and only as a `set` command
+    ("cat > ci.sh <<'EOF'\nset -euo pipefail\nEOF\npytest -q | tail -5", True),
+    ("cat > ci.sh <<'EOF'\nset -e\nEOF\npytest -q; echo done", True),
+    ("pytest -q; set -e; echo done", True), ("# set -o pipefail\npytest -q | tail -5", True),
+    ("echo 'set -e'; pytest -q; echo done", True), ("grep -r pipefail .; pytest -q | tail -5", True),
+    ("set -euo pipefail; pytest -q | tail -5; echo done", False), ("set -o errexit; pytest -q; echo done", False),
+    ("set -e; set +e; pytest -q; echo done", True), ("set -o pipefail; set +o pipefail; pytest -q | tail -5", True),
 ])
 def test_a_later_command_hides_the_status_of_an_earlier_one(command, hidden):
     for grain in ("split", "call"):

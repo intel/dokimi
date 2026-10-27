@@ -263,14 +263,30 @@ def _opens_loop(seg: str) -> bool:
                for i, w in enumerate(words))
 
 
-def _masks(parts: list[tuple[str, str]], command: str) -> list[bool]:
+def _set_options(seg: str, errexit: bool, pipefail: bool) -> tuple[bool, bool]:
+    """``errexit`` and ``pipefail`` after one command: `set -e`, `set -o pipefail`, `set -euo pipefail`
+    and their `+` forms; the words in a heredoc body, a comment or an `echo` set nothing."""
+    words = shell.tokens(shell.clean(seg))
+    on, name_next = True, False
+    for w in words[1:] if words[:1] == ["set"] else []:
+        if name_next:
+            errexit, pipefail = (on if w == "errexit" else errexit), (on if w == "pipefail" else pipefail)
+            name_next = False
+        elif re.match(r"^[-+][a-zA-Z]+$", w):
+            on, name_next = w[0] == "-", "o" in w
+            errexit = on if "e" in w else errexit
+    return errexit, pipefail
+
+
+def _masks(parts: list[tuple[str, str]]) -> list[bool]:
     """Per command of a line, whether the status the call reports may be another's: a pipe without
     `pipefail`; a later command after `||`, or after `;` or a newline (not under `set -e`); a
-    trailing `&`, whose status is always 0; a loop body, whose status is the last iteration's."""
-    pipefail = bool(re.search(r"\bpipefail\b", command))
-    errexit = bool(re.search(r"\bset\s+(-[a-z]*e|-o\s+errexit)", command))
+    trailing `&`, whose status is always 0; a loop body, whose status is the last iteration's.
+    `set -e` / `set -o pipefail` count from the command that sets them on."""
+    errexit = pipefail = False
     out, loops = [], 0
     for i, (seg, sep) in enumerate(parts):
+        errexit, pipefail = _set_options(seg, errexit, pipefail)
         loops += _opens_loop(seg)
         loops -= bool(loops and re.match(r"^done\b", seg))
         # `done`, `fi` after the last command close it: its status is the call's
@@ -283,7 +299,7 @@ def _masks(parts: list[tuple[str, str]], command: str) -> list[bool]:
 def _bash_events(tool: str, args: dict[str, Any], grain: str) -> list[Event]:
     command = str(args.get("command") or "")
     parts = shell.split_commands(command)
-    masks = _masks(parts, command)
+    masks = _masks(parts)
     if grain == "split":
         out = []
         for (seg, _), masked in zip(parts, masks, strict=True):
