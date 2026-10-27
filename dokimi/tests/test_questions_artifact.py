@@ -640,6 +640,20 @@ def test_questions_refine_refuses_malformed_questions_with_error_exit(tmp_path, 
     assert "Error:" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("kind", ["missing", "directory"])
+def test_questions_refine_names_an_unreadable_questions_file(tmp_path, capsys, kind):
+    """A missing or directory --questions exits 1 naming the path, not a traceback."""
+    src = tmp_path / "q.json"
+    if kind == "directory":
+        src.mkdir()
+    args = build_parser().parse_args(["questions", "refine", "--product", "oneTBB",
+                                      "--questions", str(src), "--output", str(tmp_path / "out.json")])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert exc_info.value.code == 1
+    assert f"Error: cannot read {src}" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("top, record", [
     pytest.param({"total_questions": None}, {}, id="total_questions"),
     pytest.param({"model": None}, {}, id="model"),

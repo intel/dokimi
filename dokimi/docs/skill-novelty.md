@@ -494,9 +494,14 @@ Things to know before reading a bundle result:
   deliver if the agent read all of it. Whether the agent chooses to load `references/x.md`
   at runtime is the agentic track's question (`skill-agent:`), not this one.
 - **The two modes are different cells.** `include_resources` is recorded in `run_config`;
-  an entry-point run and a bundle run of the same skill are not comparable numbers, and an
-  entry-point run whose *measurable* outside share is ≥ 0.5 says so in `warnings`
-  (`measurable_outside_share` nets out the role decisions below; `outside_share` is the
+  an entry-point run and a bundle run of the same skill are not comparable numbers. A run
+  that read half or less of the readable words says so on stdout (the `coverage:` line
+  and a `WARNING`), a bundle run held back by the word budgets included; an entry-point run
+  also says so in `warnings`. When a bundled file did not decode the share is unknowable:
+  stdout prints `coverage: unknown` (still warning if the words it counted show the run read
+  half or less: the entry point, or a bundle run held back by the budgets) and `bundle.measured_share` is `null`. The share is
+  `bundle.measured_share` (for an entry-point run, `1 - measurable_outside_share` to 4
+  places, which nets out the role decisions below; `outside_share` is the
   on-disk figure, and the two differ for a skill whose only resources are its evals).
 - **A skill's own `evals/` are not content.** They are the question/answer keys for
   testing the skill, so extracting atoms from them would credit the skill with delivering
@@ -592,7 +597,7 @@ the absence of detectable corruption — not proof that the wordings are faithfu
 ```bash
 python cli.py novelty routing --artifact skill:path/to/skill \
     --competitors skill:sibling-a skill:sibling-b ... \
-    --queries queries.json [--model M]
+    --queries queries.json [--model M [--repeats N]]
 ```
 
 `--catalog <dir>` takes the competitors from a skill directory instead: every `SKILL.md`
@@ -612,6 +617,18 @@ Two numbers, reported side by side and never merged:
   `selection_rate`** — not picking anything is the routing failure — with
   `selection_rate_among_answered` beside it; a failed call is excluded from both and
   counted, and one failed query does not lose the rest.
+  Each abstention or unparseable pick keeps the model's raw reply under
+  `per_query[].raw_reply` (the first 2000 characters), so a decline can be read.
+  `--repeats N` asks each query N times with the same card order, so the spread between
+  repeats is the model's own sampling noise. The result's `noise` block gives each query's
+  agreement across its repeats (`per_query`), the selection rate of each repeat, and
+  `half_range`, half the gap between the highest and lowest of those rates: a crude noise
+  floor. The rates cover only the queries with no failed call in any repeat
+  (`n_queries_compared`), so a transient error is not read as noise. Each repeat is a
+  fresh sample, so under `DOKIMI_RESPONSE_CACHE` a repeat is not a
+  replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
+  queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
+  carries its `repeat` index.
 
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
@@ -797,9 +814,27 @@ python cli.py novelty analyze --artifact skill:s --tier study --estimate-only
 ```
 
 `--estimate-only` prints the projected bill and exits without constructing a client, so
-the decision costs nothing. An explicit flag always beats the tier, and the override is
-recorded — a `--tier triage --max-atoms 90` run is not a stock triage run and does not get
-to be read as one.
+the decision costs nothing. Pricing imports litellm, which tries to fetch its price map
+from the network before it falls back to the copy bundled with the package; on a host
+with no network that is a pause of a few seconds and a warning. Setting
+`LITELLM_LOCAL_MODEL_COST_MAP=True` skips the fetch and uses the bundled prices.
+
+The estimate payload has `expected_calls`, the point figure between
+the two totals (stages, every probe, and half the oracle pairs, split by `by_role`), and
+`expected_usd`: those calls priced at list prices by role, `null` when a model has no
+price. The constants were fitted on 13 of the 25 measured runs; the other 12 are held out.
+On those 12 every projection landed within 35%: calls within 13%, atoms within 11%, dollars
+within 33%. The dollar projections ran high on 5 runs (up to +29%) and low on 7 (down to
+-33%), so `expected_usd` is not a ceiling; the triage projection ran lower the larger the
+artifact was (-4% at 1,153 tokens, -33% at 6,723). The largest artifact measured has 6,723
+tokens: above that the dollar figure extrapolates, and the payload says so
+(`usd_extrapolated: true`, with a note on stderr). The answerer's artifact term is priced per
+arm that carries the artifact (every arm but `no_artifact`), so a three-arm run costs more
+per answerer call than a two-arm one; a `--placebo-text` of another length is not read. Only
+three of the 12 are standard runs, so the standard profile rests on little data.
+An explicit flag always beats the tier, and the override is recorded — a
+`--tier triage --max-atoms 90` run is not a stock triage run and does not get to be
+read as one.
 
 Each tier carries the **claims it forfeits**, and those strings are written into
 `run_config.tier` *and* appended to the artifact's warnings. They follow the settings the

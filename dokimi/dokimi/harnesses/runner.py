@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,7 +15,9 @@ from dokimi import process
 from dokimi.eval import binary_stats
 from dokimi.eval.stats import adjust_pvalues
 
+from .docker_solver import DockerSolverHarness
 from .models import HarnessResult, OperationRecord, TaskRunResult
+from .network_policy import parse_override
 from .registry import create_harness, find_with_skill_arm
 from .tasks import TaskSpec
 
@@ -37,14 +39,25 @@ class TaskSuiteRunner:
     command_template: str | None = None
     dry_run: bool = False
     repeats: int = 1
+    network: tuple[str, ...] = ()  # --network PHASE=MODE overrides, docker-* harnesses only
     # Starts the processes of every harness except the `docker-*` ones (docker_solver spawns its own).
     runner: process.Runner = field(default=process.run, repr=False)
 
     def validate_harnesses(self) -> None:
         """Build every harness id once; a bad id (e.g. a missing skill path)
         raises ``ValueError`` before any cell has run and been paid for."""
+        for spec in self.network:
+            parse_override(spec)
         for harness_id in self.harnesses:
-            create_harness(harness_id, command_template=self.command_template, runner=self.runner)
+            harness = self._create(harness_id)
+            if self.network and not isinstance(harness, DockerSolverHarness):
+                raise ValueError(f"--network applies to docker-* harnesses only, not {harness_id}")
+
+    def _create(self, harness_id: str) -> Any:
+        harness = create_harness(harness_id, command_template=self.command_template, runner=self.runner)
+        if self.network and isinstance(harness, DockerSolverHarness):
+            harness = replace(harness, network=tuple(self.network))
+        return harness
 
     def run(self) -> dict[str, Any]:
         self.validate_harnesses()
@@ -56,7 +69,7 @@ class TaskSuiteRunner:
             # say so once instead of recording N identical errored cells.
             checked: set[type] = set()
             for harness_id in self.harnesses:
-                harness = create_harness(harness_id, command_template=self.command_template, runner=self.runner)
+                harness = self._create(harness_id)
                 preflight = getattr(harness, "preflight", None)
                 if callable(preflight) and type(harness) not in checked:
                     checked.add(type(harness))
@@ -64,7 +77,7 @@ class TaskSuiteRunner:
         for task in self.tasks:
             for harness_id in self.harnesses:
                 for rep in range(1, repeats + 1):
-                    harness = create_harness(harness_id, command_template=self.command_template, runner=self.runner)
+                    harness = self._create(harness_id)
                     output_dir = self.output_root / task.name / _safe_id(harness_id)
                     if repeats > 1:
                         output_dir = output_dir / f"run{rep}"

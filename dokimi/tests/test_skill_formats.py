@@ -87,6 +87,16 @@ def test_every_loadable_package_is_one_the_skill_loader_loads(tmp_path):
     assert loadable == {s.name for s in discover_skills(root)} - {"x"}
 
 
+def test_a_malformed_manifest_is_a_problem_not_a_crash(tmp_path):
+    for value in (5, True, "abc"):
+        root = tmp_path / str(value)
+        _w(root / "ext/gemini-extension.json", json.dumps({"name": "e", "mcpServers": value}))
+        _skill(root / "s/ok", "ok")
+        by_format = {p.format: p for p in sf.detect_skill_packages(root)}
+        ext = by_format["gemini-extension"]
+        assert ext.problems == ["mcpServers is not an object"] and "mcp_servers" not in ext.details
+        assert by_format["agent-skill"].name == "ok"
+
 def test_spec_lint_rules():
     f = Path("a-b/SKILL.md")
     assert sf.lint_agent_skill({"name": "a-b", "description": "d"}, f) == []
@@ -105,3 +115,21 @@ def test_catalog_formats_cli(tmp_path, capsys):
     args = build_parser().parse_args(["catalog", "formats", "--root", str(root)])
     args.func(args)
     assert "# gemini-extension: 1" in capsys.readouterr().out
+
+
+def test_catalog_formats_counts_loadable_skills_as_discover_skills(tmp_path, capsys):
+    _skill(tmp_path / "template", "template-skill")
+    for host in (".agents", ".claude"):
+        _skill(tmp_path / host / "skills/bar", "bar")
+    args = build_parser().parse_args(["catalog", "formats", "--root", str(tmp_path), "--json"])
+    args.func(args)
+    row = json.loads(capsys.readouterr().out)["summary"]["agent-skill"]
+    assert (row["n"], row["loadable"]) == (3, len(discover_skills(tmp_path))) == (3, 1)
+
+
+def test_catalog_formats_survives_a_skill_md_that_is_not_utf8(tmp_path, capsys):
+    (tmp_path / "bad").mkdir()
+    (tmp_path / "bad" / "SKILL.md").write_bytes(b"---\nname: bad\ndescription: caf\xe9\n---\nbody\n")
+    args = build_parser().parse_args(["catalog", "formats", "--root", str(tmp_path), "--json"])
+    args.func(args)
+    assert json.loads(capsys.readouterr().out)["summary"]["agent-skill"]["n"] == 1

@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dokimi.skills.loader import skill_files
 from dokimi.utils import parse_frontmatter
 
 FORMAT_AGENT_SKILL = "agent-skill"
@@ -179,7 +180,11 @@ def _manifest(path: Path, fmt: str) -> SkillPackage:
     if fmt == FORMAT_GEMINI_EXTENSION:
         pkg.details["context_file"] = data.get("contextFileName") or (
             "GEMINI.md" if (bundle / "GEMINI.md").is_file() else None)
-        pkg.details["mcp_servers"] = len(data.get("mcpServers") or {})
+        servers = data.get("mcpServers") or {}
+        if isinstance(servers, dict):
+            pkg.details["mcp_servers"] = len(servers)
+        else:
+            pkg.problems.append("mcpServers is not an object")
     return pkg
 
 
@@ -203,12 +208,14 @@ def classify(path: Path) -> Optional[SkillPackage]:
 def detect_skill_packages(root) -> List[SkillPackage]:
     """Every package under *root*, in path order (VCS and dependency dirs skipped)."""
     root = Path(root)
+    kept = set(skill_files(root))  # a template or a mirror is not loadable, as discover_skills
     found = []
     for path in sorted(root.rglob("*")):
         if not path.is_file() or _SKIP_DIRS.intersection(path.relative_to(root).parts):
             continue
         pkg = classify(path)
         if pkg is not None:
+            pkg.loadable = pkg.loadable and path in kept
             found.append(pkg)
     return found
 

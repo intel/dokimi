@@ -79,7 +79,7 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
   to widen it. A change that would reject an artifact already written under it
   is a new version: add `<kind>.v<N+1>.json`, point
   `artifacts.SCHEMA_VERSIONS` at it, list the old one in `SUPERSEDED_VERSIONS`.
-  CI's `schema_compat` job checks this against the PR base.
+  CI's `schema_compat` step (ci.yml, `static`) checks this against the PR base.
 - Answer and eval JSON name the two answer conditions `with_docs` and
   `without_docs`, and every stored run uses them: writers, readers, schemas
   and data files keep those keys. Text people read (report headings, console
@@ -97,8 +97,10 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
   `baselines/`. Logs, coverage files and tarballs stay local too.
 - `dokimi/data/` holds only the fixtures this repo's own tests and
   examples read: `data/skills/fastcontext/`, `data/agent_profiles/`,
-  `data/explore_tasks/`. Question sets, product skills and tasks belong in
-  their content repository.
+  `data/explore_tasks/`. The one other skill there, `data/skills/dokimi-design-evals/`,
+  is guidance for using dokimi itself, not a product skill; its links and
+  commands are checked by `tests/test_bundled_skills.py`. Question sets,
+  product skills and tasks belong in their content repository.
 - A file the package reads at run time goes inside `dokimi/dokimi/` and into
   `[tool.setuptools.package-data]`, or the installed wheel goes without it.
 - Design rationale, status and plans go in the PR description or an issue;
@@ -117,7 +119,7 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 - A PR that changes `dokimi/dokimi/`, `dokimi/data/` or the `[project]` /
   `[tool.setuptools]` tables of `dokimi/pyproject.toml` adds a changelog fragment under
   `dokimi/changelog.d/` (`scriv create`), never an edit to `CHANGELOG.md`; the
-  `changelog` workflow enforces it. Versioning and releases:
+  `Fragment for package changes` step in `ci.yml`'s `static` job enforces it. Versioning and releases:
   `dokimi/docs/releasing.md`.
 - Every change to `main` is a PR opened from a fork, based on `main`. Add the
   fork as its own remote so `origin` keeps pointing at `intel/dokimi`:
@@ -127,3 +129,19 @@ Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
   branches, `dependabot/*` and `renovate/*`, are the exception).
 - When a change depends on an open PR, wait for it to merge or put both in one
   PR; PRs are not stacked on each other's branches.
+
+## Before opening a PR
+
+Review it yourself the way `REVIEW.md` asks a reviewer to, so the first round
+finds little:
+
+- For each test of changed behaviour, break the code it covers (flip a
+  condition, drop a branch), confirm the test fails, then revert the break.
+- For a bug fix, find every other site with the same bug class. Fix the ones
+  within this PR's scope; list the rest in the description or an issue.
+- Where it applies, run the changed command on a bad input: missing file,
+  empty file, wrong shape, `None` where a value is expected, a Windows path.
+  Say in the description what you could not run.
+- Check that the PR title, description, docstrings and changelog fragment say
+  what the code does (exit codes especially).
+- Re-review your own fix commits during review with the same care.

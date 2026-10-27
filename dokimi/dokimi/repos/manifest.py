@@ -33,6 +33,7 @@ from dokimi.artifacts import schema_errors
 
 from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFIX
 from .host_spec import HostSpecError, parse_host
+from .process_metrics import Counter, parse_counter
 from .source import RepoTree
 
 SCHEMA_VERSION = "repo_manifest.v1"
@@ -131,6 +132,7 @@ class RepoManifest:
     image: ImageSpec | None = None
     explore_tasks: str | None = None
     build_systems: tuple[str, ...] = ()
+    process_metrics: dict[str, Counter] = field(default_factory=dict)
 
     @property
     def runnable(self) -> bool:
@@ -167,6 +169,8 @@ class RepoManifest:
             "tasks": self.tasks,
             "explore_tasks": self.explore_tasks,
             "build_systems": list(self.build_systems),
+            "process_metrics": {name: {"regex": c.pattern.pattern, "match": c.field}
+                                for name, c in self.process_metrics.items()},
         }
 
 
@@ -236,7 +240,7 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
         missing = [k for k in _RUN_KEYS if k not in raw]
         raise ManifestError(path, [f"{', '.join(run_keys)} without {', '.join(missing)}: a manifest "
                                    "that runs tasks needs all of eval_dir, tasks and entry_points"])
-    needs_eval = [k for k in ("image", "explore_tasks")
+    needs_eval = [k for k in ("image", "explore_tasks", "process_metrics")
                   if isinstance(raw, dict) and k in raw and not run_keys]
     if needs_eval:
         raise ManifestError(path, [f"{', '.join(needs_eval)} without eval_dir, tasks and entry_points: "
@@ -272,6 +276,7 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
     duplicates = sorted({n for n in cache_names if cache_names.count(n) > 1})
     if duplicates:
         errors.append(f"image/caches: duplicate cache name(s) {duplicates}")
+    counters = _parse_counters(raw.get("process_metrics") or {}, errors)
     if errors:
         raise ManifestError(path, errors)
 
@@ -292,7 +297,22 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
         ),
         explore_tasks=_norm(raw["explore_tasks"]) if raw.get("explore_tasks") else None,
         build_systems=tuple(raw.get("build_systems") or ()),
+        process_metrics=counters,
     )
+
+
+def _parse_counters(raw: dict[Any, Any], errors: list[str]) -> dict[str, Counter]:
+    """``process_metrics`` compiled; each one that does not compile adds to ``errors``."""
+    counters: dict[str, Counter] = {}
+    for name, value in raw.items():
+        if not isinstance(name, str):  # the schema's name pattern skips a non-string key
+            errors.append(f"process_metrics/{name!r}: a name is a string; YAML reads a bare 404, on or yes as another type")
+            continue
+        try:
+            counters[name] = parse_counter(name, value)
+        except ValueError as exc:
+            errors.append(str(exc))
+    return counters
 
 
 def check_repo(tree: RepoTree, manifest: RepoManifest,
@@ -309,22 +329,7 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
         report.notes.append("guidance-only manifest: no eval_dir, tasks or entry_points, "
                             "so `repo scan` and `repo reach` apply and `repo run` does not")
         return report
-    if not tree.is_dir(manifest.eval_dir):
-        report.errors.append(f"eval_dir does not exist: {manifest.eval_dir}")
-    elif not _is_within(manifest.path, manifest.eval_dir):
-        report.warnings.append(
-            f"manifest {manifest.path} is outside eval_dir {manifest.eval_dir}, "
-            "so it stays visible to the agent"
-        )
-    if manifest.image is not None and not tree.is_file(manifest.image.dockerfile):
-        report.errors.append(f"image/dockerfile does not exist: {manifest.image.dockerfile}")
-    if manifest.explore_tasks and not tree.is_dir(manifest.explore_tasks):
-        report.errors.append(f"explore_tasks does not exist: {manifest.explore_tasks}")
-    elif manifest.explore_tasks and not _is_within(manifest.explore_tasks, manifest.eval_dir):
-        report.errors.append(
-            f"explore_tasks {manifest.explore_tasks} is outside eval_dir {manifest.eval_dir}; "
-            "its reference answers would be visible to the agent"
-        )
+    _check_eval_paths(tree, manifest, report)
 
     files = tree.files()
     unmatched = _check_guidance(tree, manifest, report)
@@ -336,15 +341,61 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
 
     if tree.is_dir(manifest.tasks):
         _check_tasks(tree, manifest, files, report)
+        report.errors.extend(grade_problems(manifest, report.tasks))
     else:
         report.errors.append(f"tasks directory does not exist: {manifest.tasks}")
     if open_base is None:
         report.warnings.extend(f"guidance glob matches no file: {p}" for p in unmatched)
+        _check_mcp_at_tree(tree, report)
     else:
         from .bases import check_bases
 
         check_bases(report, open_base, unmatched)
     return report
+
+
+def grade_problems(manifest: RepoManifest, tasks: list[TaskSummary]) -> list[str]:
+    """``entry_points.grade`` is required only when some task's grader is not a built-in ``dokimi:`` one."""
+    if manifest.entry_points.get("grade"):
+        return []
+    own = sorted(t.id for t in tasks if not t.grader.startswith(BUILTIN_PREFIX))
+    if not own:
+        return []
+    return [f"entry_points/grade: required, since these tasks use the repository's own grader "
+            f"(not {BUILTIN_PREFIX}*): {', '.join(own)}"]
+
+
+def _check_mcp_at_tree(tree: RepoTree, report: RepoCheckReport) -> None:
+    """Warn about a malformed ``.mcp.json`` at the snapshot (no task base to read); ``repo run`` is what refuses it."""
+    from .bases import MCP_CONFIG, tree_mcp_error
+
+    problem = tree_mcp_error(tree)
+    if problem:
+        report.warnings.append(f"{MCP_CONFIG} at the eval tree is {problem}; `repo run --tools all` would fail "
+                               "every cell as a task failure")
+
+
+def _check_eval_paths(tree: RepoTree, manifest: RepoManifest, report: RepoCheckReport) -> None:
+    """The eval_dir, image Dockerfile and explore_tasks the manifest names exist, and stay inside eval_dir."""
+    eval_dir = manifest.eval_dir
+    if eval_dir is None:
+        return
+    if not tree.is_dir(eval_dir):
+        report.errors.append(f"eval_dir does not exist: {eval_dir}")
+    elif not _is_within(manifest.path, eval_dir):
+        report.warnings.append(
+            f"manifest {manifest.path} is outside eval_dir {eval_dir}, "
+            "so it stays visible to the agent"
+        )
+    if manifest.image is not None and not tree.is_file(manifest.image.dockerfile):
+        report.errors.append(f"image/dockerfile does not exist: {manifest.image.dockerfile}")
+    if manifest.explore_tasks and not tree.is_dir(manifest.explore_tasks):
+        report.errors.append(f"explore_tasks does not exist: {manifest.explore_tasks}")
+    elif manifest.explore_tasks and not _is_within(manifest.explore_tasks, eval_dir):
+        report.errors.append(
+            f"explore_tasks {manifest.explore_tasks} is outside eval_dir {eval_dir}; "
+            "its reference answers would be visible to the agent"
+        )
 
 
 def require_runnable(manifest: RepoManifest) -> None:
@@ -415,6 +466,13 @@ def _glob_regex(pattern: str) -> re.Pattern[str]:
     return re.compile("".join(out))
 
 
+def _expected_skill_problems(raw: dict) -> list[str]:
+    expected = raw.get("expected_skill")
+    if expected is not None and not (isinstance(expected, str) and expected and "/" not in expected):
+        return ["expected_skill must be a skill name (its directory name)"]
+    return []
+
+
 def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     name = PurePosixPath(task_dir).name
     where = f"{task_dir}/task.json"
@@ -483,6 +541,7 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     if not (isinstance(egress, list) and all(isinstance(h, str) and _HOST_RE.match(h) for h in egress)):
         problems.append("egress must be a list of hosts (DNS labels, `*` for one whole label, the last two literal, optional :port)")
         egress = []
+    problems += _expected_skill_problems(raw)
     for key in ("timeout_s", "max_turns", "budget_usd"):
         value = raw.get(key)
         if value is not None and not _positive(value):

@@ -9,7 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
@@ -19,6 +19,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
+from dokimi.utils import write_text_or_exit
 
 
 def _read_json(path: str):
@@ -51,6 +52,19 @@ def _judge_name(doc: dict, path: str) -> str:
     return judge if isinstance(judge, str) and judge else Path(path).stem
 
 
+def _result_measure(path: str, key: str, kind: type, build):
+    """The measure an `eval pairwise` or `eval checklist` file gives, or exit 2 naming the file.
+
+    *build* is ``(doc, name) -> Measure``; it raises ValueError on an entry of the wrong shape.
+    """
+    doc = _load_json_object(path, key, kind)
+    try:
+        return build(doc, _judge_name(doc, path))
+    except ValueError as exc:
+        print(f"Error: {path}: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
 def _load_answers(path: str):
     """The parsed file and its answers records (dokimi/records.py), or a clean exit."""
     from dokimi.records import RecordError, read
@@ -62,6 +76,17 @@ def _load_answers(path: str):
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(2)  # 1 is the verdict code of judge-validity and the --strict gates
     return data, answers
+
+
+def _load_points(path: str):
+    """question_id -> required points from a questions file, or exit 2 naming the file."""
+    from dokimi.eval.checklist import load_points
+
+    try:
+        return load_points(path)
+    except (OSError, ValueError) as exc:  # ValueError covers bad JSON, bad UTF-8 and a refused set
+        print(f"Error: cannot read questions {path}: {exc}", file=sys.stderr)
+        sys.exit(2)
 
 
 def _require_arms(path: str, records, command: str) -> None:
@@ -154,10 +179,9 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
         sys.exit(2)
     md = report.format_markdown()
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_pairwise.json"))
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({**report.to_dict(), "judge_temperature": getattr(args, "judge_temperature", None)},
-                              indent=2), encoding="utf-8")
-    out.with_suffix(".md").write_text(md, encoding="utf-8")
+    write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": getattr(args, "judge_temperature", None)},
+                                       indent=2), code=2)
+    write_text_or_exit(out.with_suffix(".md"), md, code=2)
     if not report.verdicts:
         # Written first, so the reasons are not lost with the run.
         print(f"Error: all {len(report.errors)} comparison(s) failed; see `errors` in {out}", file=sys.stderr)
@@ -169,11 +193,11 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
 
 def cmd_eval_checklist(args: argparse.Namespace) -> None:
     """Required-point coverage of every arm, against the questions' expected_topics."""
-    from dokimi.eval.checklist import checklist_jobs, load_points, run_checklist
+    from dokimi.eval.checklist import checklist_jobs, run_checklist
     from dokimi.eval.judge import Judge
 
     data, records = _load_answers(args.answers)
-    points = load_points(args.questions)
+    points = _load_points(args.questions)
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
     _require_arms(args.answers, records, "checklist")
@@ -193,12 +217,10 @@ def cmd_eval_checklist(args: argparse.Namespace) -> None:
         print("Error: no question in the answers file has expected_topics in --questions", file=sys.stderr)
         sys.exit(2)
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_checklist.json"))
-    out.parent.mkdir(parents=True, exist_ok=True)
     # The JSON first: the paid calls are in it, and a rendering error must not lose them.
-    out.write_text(json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
-                   encoding="utf-8")
+    write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2), code=2)
     md = report.format_markdown()
-    out.with_suffix(".md").write_text(md, encoding="utf-8")
+    write_text_or_exit(out.with_suffix(".md"), md, code=2)
     print()
     print(md)
     print(f"✅ Coverage report saved to {out} (+ .md)")
@@ -241,14 +263,18 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     )
     if args.output:
         out = Path(args.output)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
-                       encoding="utf-8")
+        write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
+                           code=2)
     print()
     print(report.format_summary())
     if args.output:
         print(f"\n✅ Wording report saved to {out}")
-    if args.strict and report.summary()["fragile_variants"]:
+    summary = report.summary()
+    if args.strict and not summary["measured"]:
+        print(f"✗ incomplete: no pair scored under {', '.join(summary['unmeasured_conditions']) or 'any condition'} "
+              f"({len(pairs)} pairs, errors per condition: {summary['n_errors']})", file=sys.stderr)
+        sys.exit(1)
+    if args.strict and summary["fragile_variants"]:
         sys.exit(1)
 
 
@@ -259,7 +285,6 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         stored_measure, unreproducible_arms,
     )
     from dokimi.eval.arm_runner import _ground_truth_from_topics
-    from dokimi.eval.checklist import load_points
     from dokimi.eval.judge import Judge
 
     data, records = _load_answers(args.answers)
@@ -269,7 +294,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             print("Error: --grounded needs --questions (their expected_topics are the ground truth)",
                   file=sys.stderr)
             sys.exit(2)
-        truth = {q: t for q, pts in load_points(args.questions).items()
+        truth = {q: t for q, pts in _load_points(args.questions).items()
                  if (t := _ground_truth_from_topics({"expected_topics": pts}))}
 
     def scorer_of(judge):
@@ -361,9 +386,10 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             sys.exit(2)
         report.measures.append(m)
 
-    # Read every result file before the first judge call, so a bad path costs no paid calls.
-    pairwise = [(path, _load_json_object(path, "verdicts")) for path in args.pairwise or []]
-    checklists = [(path, _load_json_object(path, "questions", list)) for path in args.checklist or []]
+    # Read every result file, and its entries, before the first judge call, so a bad file costs no paid calls.
+    from_files = [_result_measure(p, "verdicts", dict, lambda doc, name: pairwise_measure(doc, name, baseline))
+                  for p in args.pairwise or []]
+    from_files += [_result_measure(p, "questions", list, coverage_measure) for p in args.checklist or []]
     validity = [_load_json_object(v, "summary")["summary"] for v in args.validity or []]
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     if specs:
@@ -385,10 +411,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
                 concurrency=args.concurrency, progress=_progress(), ground_truth=grounding,
                 store=materials,
             ))
-    for path, pw in pairwise:
-        report.measures.append(pairwise_measure(pw, _judge_name(pw, path), baseline))
-    for path, ck in checklists:
-        report.measures.append(coverage_measure(ck, _judge_name(ck, path)))
+    report.measures += from_files
     answers_model = data.get("model") if isinstance(data, dict) else None
     for v in validity:
         if v.get("answers_model") and answers_model and v["answers_model"] != answers_model:
@@ -402,14 +425,25 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         sys.exit(2)
     md = report.format_markdown()
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_crossjudge.json"))
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
-                   encoding="utf-8")
-    out.with_suffix(".md").write_text(md, encoding="utf-8")
+    write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
+                       code=2)
+    write_text_or_exit(out.with_suffix(".md"), md, code=2)
     print()
     print(md)
     print(f"✅ Cross-judge report saved to {out} (+ .md)")
-    if args.strict and any(a["label"] == "JUDGE-DEPENDENT" for a in report.summary()["arms"].values()):
+    if args.strict:
+        _strict_cross_judge_exit(report.summary()["arms"], report.baseline_arm)
+
+
+def _strict_cross_judge_exit(arms: dict[str, dict[str, Any]], baseline_arm: str) -> None:
+    """Exit 1 when no arm was compared, an arm is NOT MEASURED, or an arm is JUDGE-DEPENDENT."""
+    unmeasured = sorted(a for a, r in arms.items() if r["label"] == "NOT MEASURED")
+    if not arms or unmeasured:
+        why = f"{len(unmeasured)} of {len(arms)} arm(s) NOT MEASURED: {', '.join(unmeasured)}" if arms else \
+            "no arm has a scored question to compare"
+        print(f"✗ incomplete against `{baseline_arm}`: {why}", file=sys.stderr)
+        sys.exit(1)
+    if any(a["label"] == "JUDGE-DEPENDENT" for a in arms.values()):
         sys.exit(1)
 
 
@@ -447,7 +481,8 @@ def register(eval_sub, positive_int) -> None:
                          "flag is a paired test against the original and does not use them (default: 1)")
     jw.add_argument("--seed", type=int, default=0)
     jw.add_argument("--min-accuracy", type=float, default=DEFAULT_MIN_ACCURACY, dest="min_accuracy")
-    jw.add_argument("--strict", action="store_true", help="Exit 1 when any variant is FRAGILE")
+    jw.add_argument("--strict", action="store_true",
+                    help="Exit 1 when any variant is FRAGILE or a condition has no scored pair")
     jw.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     jw.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     jw.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
@@ -485,7 +520,8 @@ def register(eval_sub, positive_int) -> None:
     cj.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
     cj.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY)
-    cj.add_argument("--strict", action="store_true", help="Exit 1 when any arm is JUDGE-DEPENDENT")
+    cj.add_argument("--strict", action="store_true",
+                    help="Exit 1 when any arm is JUDGE-DEPENDENT or NOT MEASURED, or no arm was compared")
     cj.add_argument("--output", default=None,
                     help="Output JSON (default: <answers>_crossjudge.json); Markdown written next to it")
     cj.set_defaults(func=cmd_eval_cross_judge)

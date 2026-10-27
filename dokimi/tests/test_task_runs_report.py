@@ -270,6 +270,7 @@ def test_pseudo_replication_is_disclosed_when_repeats_are_paired_as_cells():
     assert "anti-conservative" not in render_task_runs_report(_with_mcnemar())
 
 
+@pytest.mark.outcome("cjm-skill-discover")
 def test_report_puts_the_discovery_arm_beside_no_skill_and_with_skill():
     arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]
     rows = []
@@ -325,6 +326,7 @@ def test_truncated_discovery_row_is_noted_without_its_pair(notice, truncated, n_
     assert ("discovery row(s) ran with a description longer" in md) is bool(n_cut)
 
 
+@pytest.mark.outcome("cjm-skill-discover")
 def test_discovery_gap_withheld_when_arms_attempted_different_cells():
     """Gap is None when discovery arm ran fewer tasks than the with-skill arm."""
     arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]

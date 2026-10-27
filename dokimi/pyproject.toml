@@ -50,7 +50,7 @@ dev = [
   "pytest-randomly>=3.15",
   "pytest-xdist>=3.6",
   "diff-cover>=10.0",
-  "ruff==0.17.0",
+  "ruff==0.17.1",
   "mypy>=1.8",
   "types-PyYAML",
   "types-jsonschema",
@@ -141,9 +141,15 @@ DEP001 = ["audit_mocks"]
 DEP002 = ["langchain-community"]
 
 [tool.ruff]
+# The width `ruff format` wraps to, if someone runs it: neither CI nor
+# pre-commit does. No selected rule flags a long line (E501 is not selected;
+# [tool.ruff.lint] below is a correctness gate, not style), so a long line is
+# not a review finding, and wrapping one can push a file over its growth
+# baseline (scripts/growth_baseline.json).
 line-length = 100
 target-version = "py311"
-extend-exclude = ["benchmarks", "data"]
+# tests/fixtures/task_formats: third-party eval files copied unchanged (its MANIFEST.yaml).
+extend-exclude = ["benchmarks", "data", "tests/fixtures/task_formats"]
 
 # These two run on another interpreter, not dokimi's: the hook on the task
 # image's python3, the proxy in the sidecar (DOKIMI_PROXY_IMAGE can be any image

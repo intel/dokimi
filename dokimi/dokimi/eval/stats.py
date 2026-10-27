@@ -146,6 +146,8 @@ def mean_ci(values, confidence: float = 0.95, seed: int = 0) -> dict:
     Falls back to :func:`bootstrap_ci` without SciPy, and for degenerate
     samples where the interval collapses to the mean.
     """
+    if not 0.0 < confidence < 1.0:
+        raise ValueError("confidence must be between 0 and 1 (exclusive)")
     vals = [float(v) for v in values if v is not None]
     n = len(vals)
     if n == 0:

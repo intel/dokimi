@@ -44,6 +44,7 @@ def test_a_zero_the_gate_clears_reads_as_zero(artifact):
     ({"spans": {"capped_atom_set": True, "n_atoms_indexed": 300}}, "The atom set was capped (300 indexed)"),
     ({"conflict_coverage": {"pairs_total": 1770}}, "The conflict_coverage record is malformed"),
 ])
+@pytest.mark.outcome("cjm-novelty-uncleared-conflicts")
 def test_a_zero_the_gate_does_not_clear_is_not_shown_as_zero(overrides, reason):
     markdown = render_novelty_markdown(_artifact(**overrides))
     assert f"> **Conflicts not cleared.** {reason}" in markdown

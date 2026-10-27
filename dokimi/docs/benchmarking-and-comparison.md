@@ -274,6 +274,33 @@ python cli.py arms run \
 The `baseline` arm is the control. Every other arm is compared against it. Keep
 the answer model and judge fixed when comparing arms.
 
+### Skill arms in repository mode
+
+`repo run` arms take the same `+` composition. Besides `guidance:none`,
+`guidance:raw` and `guidance:bridge`, an arm can install Claude Code skills into
+the task workspace at `.claude/skills/<dir name>/` before the agent starts:
+
+- `skill:<path>`: one skill directory (holding `SKILL.md`);
+- `skill-catalog:<dir>`: every subdirectory of `<dir>` with a `SKILL.md`, so the
+  agent has to pick the right one.
+
+A relative path is relative to the manifest's `eval_dir`. An arm without a
+guidance part keeps the repository's guidance (`guidance:raw`).
+
+```bash
+dokimi repo run <repo>@<rev> --model <m1> --model <m2> --batch skills \
+  --arm guidance:raw,guidance:raw+skill:skills/lint,guidance:none+skill-catalog:skills
+dokimi repo tasks check <repo>@<rev> --arm skill-catalog:skills   # paths exist, catalog has expected_skill
+```
+
+When a cell installs skills, its `result.json` gets a `skills` object:
+`skills_used` (the skills the agent called with the `Skill` tool, or whose
+`SKILL.md` it read), `skill_invoked`, and `skill_selected_correct` (the task's
+optional `expected_skill` was the first skill it used). `repo report` counts
+both per row. Every cell also records `cache_read_tokens` and
+`cache_write_tokens` with the input and output tokens, and
+`repo report --json` gives their means.
+
 ### Reading the significance tables
 
 Arms are compared **paired per question** against the one shared `baseline`
@@ -383,6 +410,39 @@ that needed a re-draw.
 token, but some endpoints compute slightly different scores from one call to
 the next, so reproducibility has to be measured per endpoint.
 
+### Multi-turn sessions
+
+A single answer does not show what an arm costs once the conversation grows.
+`--session-turns N` asks each question as its own text followed by the first
+N-1 entries of its `follow_ups` list (a list of strings in the question record),
+keeps the history, and records each turn's usage:
+
+```bash
+python cli.py arms run ... --arms baseline,skill:/path/to/skill --session-turns 4
+python cli.py arms run ... --arms baseline,skill:/path/to/skill --session-turns 4 \
+  --turn-reminder "Answer tersely."   # also runs each arm as <arm>+reminder
+```
+
+Every turn is recorded under the arm's `session.turns`, with `metrics` for that
+call (prompt, completion, cache read and write tokens, cost). The arm's
+`token_usage` and `metrics` are the sums over turns, so `cost_summary` reads
+them like any other run. A question with fewer than N-1 follow-ups fails the
+run before any answer is generated. Agentic arms (`mcp:`, `skill-agent:`,
+`skill-catalog:`) are refused per arm, and a session cannot be judged:
+`--judge` is refused with `--session-turns`, and every `eval` judge command
+refuses a session artifact, because the judge would score the last answer
+against the first question. The reminder is appended to every user
+turn in a `<system-reminder>` block; the assistant turns are not changed.
+
+A session that fails part-way (a turn raises, or a turn comes back empty and the
+session stops) is an errored arm: `error` is `generation_failed: turn N: ...` or
+`empty_reply: turn N` (turns count from 0), and `answer` is `None`. The turns already paid for stay in
+`session.turns`, and the arm's `token_usage` and `metrics` cover them, so the cost
+rollup counts what was spent. The artifact's `run_config` records `session_turns`
+and `turn_reminder`. `plugin-delta` refuses to pair a session run with a
+single-turn run or one with different session settings, and the matrix rollup
+does not pair them.
+
 ### Trusting the judge
 
 A significance table says the delta is unlikely under *this judge's* noise. It
@@ -445,7 +505,9 @@ to the baseline's; `--escalate-model` is the same cheap-then-expensive cascade.
 under several judges (absolute, and with `--grounded` against each question's
 `expected_topics`), takes `eval pairwise` and `eval checklist` reports as more
 measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` or
-`NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote. With
+`NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote, or
+`NOT MEASURED` when no voting measure compared a single question (every call
+errored, or every judge was gated out); `--strict` exits 1 on that too. With
 `--validity` reports, a judge that failed its gate is shown but does not vote
 (its grounded and checklist measures included, in any context);
 `--require-validated` leaves only judges that passed. The stored measure is
@@ -482,7 +544,9 @@ python cli.py eval cross-judge --answers run.json --questions golden.json --grou
 under meaning-preserving rewrites of it and flags a degradation FRAGILE when a
 rewrite moves it on the same pairs: a paired sign test against the original
 prompt, Holm-adjusted over every rewrite and variant. Re-draws of the original
-are shown as a noise floor but do not decide the flag. Use at least 30 bases; at
+are shown as a noise floor but do not decide the flag. A condition with no
+scored pair (every call errored) is reported NOT MEASURED, not as "no rewrite
+moves anything", and `--strict` exits 1 on it. Use at least 30 bases; at
 20 bases only a large wording effect is detectable.
 
 `eval checklist` asks, per expected topic and in both polarities, whether the

@@ -115,7 +115,10 @@ def test_valid_repo_passes_and_reports_tasks_and_guidance(tmp_path):
         (lambda m: m.update(schema="repo_manifest.v2"), "schema"),
         (lambda m: m.update(surprise=1), "surprise"),
         (lambda m: m.pop("entry_points"), "entry_points"),
-        (lambda m: m["entry_points"].pop("grade"), "grade"),
+        (lambda m: m.update(process_metrics={"bazel": "bazel("}), "process_metrics/bazel: not a valid regex"),
+        (lambda m: m.update(process_metrics={"icpx": {"regex": "icpx", "match": "stderr"}}), "match"),
+        (lambda m: m.update(process_metrics={"bad name": "x"}), "process_metrics"),
+        (lambda m: m.update(process_metrics={"icpx": {"regex": "icpx", "mach": "output"}}), "mach"),
         (lambda m: m.update(id="Bad Id"), "id"),
         (lambda m: m.update(build_systems=["scons"]), "build_systems"),
         (lambda m: m["image"].update(network="host"), "network"),
@@ -176,6 +179,8 @@ def test_missing_and_non_yaml_manifest(tmp_path):
         ({"egress": ["*.org"]}, "egress must be a list"),
         ({"egress": ["pypi.*"]}, "egress must be a list"),
         ({"egress": ["py*.org"]}, "egress must be a list"),
+        ({"expected_skill": "skills/lint"}, "expected_skill must be a skill name"),  # a path never matches usage
+        ({"expected_skill": 3}, "expected_skill must be a skill name"),
     ],
 )
 def test_bad_task_is_reported(tmp_path, task_extra, needle):

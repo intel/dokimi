@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
     from dokimi.repos.workspace import Arm
 
+from dokimi.repos.harness_profile import DELEGATION_MODES
+
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     """Source, manifest, exported eval dir, image and caches shared by `tasks check` and `run`.
@@ -49,6 +51,7 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     content = out / "_eval" / "content"
     # a pinned batch keeps its content until the pin is checked
     staged = export_eval_dir(tree, manifest, content.with_name("content.next") if pin else content)
+    _require_grade(staged, manifest, args.task)  # before the pin and the image build
     runner = DockerRunner(args.docker)
     image, ctx_dir = args.image, None
     if not image:
@@ -109,6 +112,21 @@ def context_digest(root: Path) -> str:
     return h.hexdigest()
 
 
+def _require_grade(content: Path, manifest: RepoManifest, ids: list[str] | None) -> None:
+    """Refuse the selected tasks when one needs ``entry_points.grade`` and the manifest has none."""
+    from dokimi.repos.manifest import ManifestError, TaskSummary, grade_problems
+    from dokimi.repos.workspace import PrepError, load_tasks
+
+    try:
+        tasks = load_tasks(content, manifest, ids)
+    except (OSError, ValueError, PrepError):
+        return  # reported where the run loads its tasks
+    graders = [(t.id, str(t.raw.get("grader") or "") if isinstance(t.raw, dict) else "") for t in tasks]
+    problems = grade_problems(manifest, [TaskSummary(i, "", "", g, ()) for i, g in graders])
+    if problems:
+        raise ManifestError(manifest.path, problems)
+
+
 def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
     """Whether a task of the exported eval dir names a ``dokimi:`` grader; an unreadable task.json counts."""
     from dokimi.repos.graders import builtin_name
@@ -152,20 +170,26 @@ def _errors():
     from dokimi.repos import ManifestError, SourceError
     from dokimi.repos.container import ContainerError
     from dokimi.repos.harness_profile import ProfileError
+    from dokimi.repos.arms import ArmError
     from dokimi.repos.workspace import PrepError
 
-    return (SourceError, ManifestError, ContainerError, PrepError, ProfileError, ValueError, OSError)
+    return (ArmError, SourceError, ManifestError, ContainerError, PrepError, ProfileError, ValueError, OSError)
 
 
 def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
     """Self-check (no LLM): null fails the gate, oracle passes it, the agent cannot see the tasks."""
+    from dokimi.repos.arms import check_arms
     from dokimi.repos.selfcheck import run_check
-    from dokimi.repos.workspace import load_tasks
+    from dokimi.repos.workspace import load_tasks, parse_arm
 
     out = Path(args.out).resolve()
     try:
         ctx, _ = _context(args, out)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
+        arms = [a for spec in args.arm or () for a in spec.split(",") if a]
+        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs)  # skill paths exist, catalogs hold each expected_skill
+        if arms:
+            print(f"{len(arms)} arm(s) ok: {', '.join(arms)}", file=sys.stderr)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
               file=sys.stderr)
         results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs, log=_progress)
@@ -180,6 +204,9 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
               + ", ".join(r["task"] for r in allowed))
     if len(bad) > len(allowed):
         sys.exit(1)
+    if len(bad) == len(results):  # --allow-unsupported passed every task by: none was checked
+        print(f"✗ incomplete: no task passed the self-check (0 ok, {len(allowed)} unsupported)", file=sys.stderr)
+        sys.exit(1)
 
 
 def cmd_repo_run(args: argparse.Namespace) -> None:
@@ -192,6 +219,8 @@ def cmd_repo_run(args: argparse.Namespace) -> None:
 
 def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock: contextlib.ExitStack) -> None:
     from dokimi.repos import RepoSource, open_source
+    from dokimi.repos.arms import check_arms
+    from dokimi.repos.bases import check_mcp_configs
     from dokimi.repos.container import docker_network
     from dokimi.repos.harness_profile import load_profile
     from dokimi.repos.runner import (
@@ -204,6 +233,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     try:
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
+        profile.tool_args(args.tools, args.delegation)  # a profile that cannot turn subagents off: refuse now
         harness_bin = _harness_bin(args.bin or profile.bin)
         source = RepoSource.parse(args.source)  # a misspelled revision fails before the build and the pin too
         arms = _pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
@@ -211,10 +241,13 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
+        check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs)  # skill paths exist, catalogs hold each expected_skill
+        check_mcp_configs(ctx.git_dir, tasks, profile, args.tools)  # a malformed .mcp.json fails here, not in every cell
+        skill_pin = _skill_pin(batch_dir, arms, ctx.content_dir)  # a resume may not swap an arm's skills
         validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
-                                tools=args.tools, timeout_s=args.timeout, max_turns=args.max_turns,
-                                budget_usd=args.budget) for m in args.model]
+                                tools=args.tools, delegation=args.delegation, timeout_s=args.timeout,
+                                max_turns=args.max_turns, budget_usd=args.budget) for m in args.model]
         for task in tasks:  # refuse before anything runs, not cell by cell
             task_caps(task, options[0])
             agent_network(options[0], ctx, task)
@@ -228,18 +261,48 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
             raise ValueError("the agent's container is not isolated: " + "; ".join(problems))
         print(f"{profile.name} {version} in {ctx.image}; {len(tasks)} task(s) x {len(arms)} arm(s) x "
               f"{len(options)} model(s) x {args.reps} rep(s) -> {batch_dir}", file=sys.stderr)
+        if skill_pin is not None:
+            (batch_dir / "_eval" / SKILL_PIN).write_text(json.dumps(skill_pin, sort_keys=True) + "\n",
+                                                         encoding="utf-8")
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
                             max_batch_usd=args.max_batch_usd, log=_progress)
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     print(f"{summary['ran']} ran, {summary['skipped']} already done, {len(summary['errors'])} crashed, "
-          f"{summary['budget_stopped']} not started (batch budget); ${summary['spent_usd']:.4f}")
+          f"{summary['budget_stopped']} not started (batch budget), {summary['unsupported']} unsupported; "
+          f"${summary['spent_usd']:.4f}")
     if summary["probe_failed"]:
         print(f"✗ the host probe failed, so these tasks have cells that were not run: {', '.join(summary['probe_failed'])}",
               file=sys.stderr)
     if summary["errors"] or summary["budget_stopped"] or summary["probe_failed"]:
         sys.exit(1)
+    if not summary["ran"] and not summary["skipped"]:  # every cell unsupported: the batch holds no result
+        print(f"✗ incomplete: no cell has a result ({summary['cells']} cells, {summary['unsupported']} unsupported)",
+              file=sys.stderr)
+        sys.exit(1)
+
+
+SKILL_PIN = "skills.json"
+
+
+def _skill_pin(batch_dir: Path, arms: list[str], content_dir: Path) -> dict[str, list[list[str]]] | None:
+    """The batch's ``_eval/skills.json`` with this run's skill arms added (``None``: nothing to add): arm name ->
+    [skill name, tree sha256] of each skill. A skill arm is named by its directories, so a resume with another
+    path or edited content would add cells of other skills to the arm's row; that is refused."""
+    from dokimi.repos.arms import resolve_skills, tree_sha256
+    from dokimi.repos.workspace import parse_arm
+
+    now = {str(a): [[s.name, tree_sha256(s.dir)] for s in resolve_skills(a, content_dir)]
+           for a in map(parse_arm, arms) if a.skills}
+    path = batch_dir / "_eval" / SKILL_PIN
+    old = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    for arm, skills in now.items():
+        if old.get(arm, skills) != skills:
+            was, new = (", ".join(f"{name} {sha[:12]}" for name, sha in pin) for pin in (old[arm], skills))
+            raise ValueError(f"batch {batch_dir.name} ran arm {arm} with skills {was}, not {new}; "
+                             f"use another --batch")
+    return {**old, **now} if now.keys() - old.keys() else None
 
 
 def _pin_arms(arms: list[Arm], git_dir: Path, source: str) -> list[str]:
@@ -253,8 +316,13 @@ def _pin_arms(arms: list[Arm], git_dir: Path, source: str) -> list[str]:
     worktree = None if remote else Path(parsed.location)  # HEAD of a linked worktree is not the main one's
     pinned: list[str] = []  # Arm objects: run_batch hands each to prepare_workspace
     first_path: dict[str, str | None] = {}
+    first_skills: dict[str, tuple[tuple[str, str], ...]] = {}
     for arm in arms:
         named = pin_arm(arm, git_dir, fetch=remote, worktree_dir=worktree)
+        if first_skills.setdefault(named, named.skills) != named.skills:  # skill arms are named by directory
+            raise ValueError(f"arms {named.spec!r} and another spelling of {named!r} name different skill paths "
+                             f"({named.skills} vs {first_skills[named]}) but would share one cell; "
+                             f"rename a directory or spell the path alike")
         if named != named.spec:
             detail = f"{named.patch_path}, sha256 {named.patch_sha256}" if named.patch is not None else named.spec
             print(f"arm {named} = {detail}", file=sys.stderr)
@@ -350,11 +418,15 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     _common(check_p, source_help, cache_help, positive_int)
     check_p.add_argument("--warm", action="store_true",
                          help="Run null and oracle with network to fill the caches before offline runs")
+    check_p.add_argument("--arm", action="append", default=None,
+                         help="Also check this `repo run` arm: its skill paths exist and a skill-catalog "
+                         "holds each task's expected_skill; repeatable or comma-separated")
     check_p.add_argument("--allow-unsupported", action="store_true", dest="allow_unsupported",
                          help="Exit 0 when the only tasks that are not ok are unsupported because this host "
                          "misses their task.json `host` requirements (still printed with the reason; "
                          "with --warm the host is judged too). Broken tasks, tasks that need egress "
-                         "and tasks whose host probe failed still exit 1")
+                         "and tasks whose host probe failed still exit 1, and so does a check in "
+                         "which no task is ok")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
 
@@ -367,7 +439,10 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                        "the guidance files of revision REV of the source; the arm is named by REV's full SHA, "
                        "resolved once per batch) | patch:FILE (a unified diff on this host, applied with git "
                        "apply on top of guidance:raw; named patch:<file name>@<sha256 prefix>, path and "
-                       "sha256 in meta.json); repeatable or comma-separated")
+                       "sha256 in meta.json) | skill:<dir> | skill-catalog:<dir> (skills installed in the "
+                       "workspace; a relative dir is in eval_dir; named by the directory, not the path). A "
+                       "guidance part and skills join with + (guidance:none+skill:skills/x); "
+                       "repeatable or comma-separated")
     run_p.add_argument("--model", action="append", required=True,
                        help="Model string passed to the harness as it is; repeatable")
     run_p.add_argument("--reps", type=positive_int, default=1)
@@ -381,6 +456,9 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                        help="REQUIRED while the egress proxy is not implemented: the agent's container gets "
                        "this network, so its commands can reach any host. Recorded in meta.json")
     run_p.add_argument("--tools", default="all", help="Profile tool mode (default: all)")
+    run_p.add_argument("--delegation", choices=DELEGATION_MODES, default="native",
+                       help="native: the agent may start subagents (default); none: the profile's tool "
+                            "arguments without the subagent tools, for a single-agent baseline")
     run_p.add_argument("--timeout", type=positive_int, default=2700,
                        help="Seconds per agent run unless task.json sets timeout_s (default 2700)")
     run_p.add_argument("--max-turns", type=positive_int, default=200, dest="max_turns",

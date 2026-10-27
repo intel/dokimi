@@ -72,14 +72,21 @@ def cmd_tasks_inspect(args: argparse.Namespace) -> None:
     """Detect the eval-task format of a path (or of everything under it) and report its structure."""
     import json
 
+    from dokimi.artifacts import save_artifact, stamp
     from dokimi.task_formats import inspect_path
 
     try:
         reports = [r.as_dict() for r in inspect_path(Path(args.path))]
     except FileNotFoundError as exc:
         raise SystemExit(f"error: {exc}") from None
+    payload = {"root": str(args.path), "items": reports}
+    if args.out:
+        try:
+            save_artifact("task_inspect", payload, Path(args.out))
+        except OSError as exc:
+            raise SystemExit(f"error: cannot write {args.out}: {exc}") from None
     if args.json:
-        print(json.dumps({"root": str(args.path), "items": reports}, indent=2, default=str))
+        print(json.dumps(stamp("task_inspect", dict(payload)), indent=2, default=str))
     else:
         _print_inspect(reports)
 
@@ -182,6 +189,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
         command_template=args.command_template,
         dry_run=args.dry_run,
         repeats=args.repeats,
+        network=tuple(args.network),
     )
     try:
         runner.validate_harnesses()
@@ -227,7 +235,8 @@ def register(sub, positive_int) -> None:
         help="Detect the eval-task format of a file or directory tree and report its structure (no run)",
     )
     inspect_p.add_argument("path", help="A task directory, a dataset file, or a tree holding either")
-    inspect_p.add_argument("--json", action="store_true", help="Print the reports as JSON")
+    inspect_p.add_argument("--json", action="store_true", help="Print the task_inspect.v1 report as JSON")
+    inspect_p.add_argument("--out", default=None, help="Write the task_inspect.v1 report to this file")
     inspect_p.set_defaults(func=cmd_tasks_inspect)
 
     harnesses_p = tasks_sub.add_parser("harnesses", help="List known coding harness aliases")
@@ -259,6 +268,14 @@ def register(sub, positive_int) -> None:
         help=(
             "Override command for every harness. Placeholders: {task_path}, {task}, "
             "{model}, {output_dir}, {prompt}, {prompt_quoted}."
+        ),
+    )
+    run_p.add_argument(
+        "--network", action="append", default=[], metavar="PHASE=MODE",
+        help=(
+            "Network for a docker-* phase (build, solve, verify, or all): none, public, or "
+            "allowlist:host[:port],... Repeatable; overrides the task's own network_mode. "
+            "Default build=public solve=none verify=none"
         ),
     )
     run_p.add_argument(
