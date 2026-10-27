@@ -45,27 +45,37 @@ class Rule:
 
 
 def _segment(pat: str) -> str:
-    """Regex for a glob within path segments: ``*`` and ``?`` never cross ``/``."""
-    out, i = [], 0
+    """Regex for a glob within path segments: ``*`` and ``?`` never cross ``/``.
+
+    As in CPython's fnmatch, every ``*`` but the last takes the fixed-width run after it
+    in an atomic group, so a line with many stars cannot backtrack exponentially.
+    """
+    runs: list[list[str]] = [[]]  # the fixed-width atoms before, between and after the stars
+    i = 0
     while i < len(pat):
         c = pat[i]
         if c == "[":
             atom, i = _bracket(pat, i)
-            out.append(atom)
+            runs[-1].append(atom)
             continue
         if c == "\\":
             i += 1
             if i == len(pat):
                 raise _Invalid
-            out.append(re.escape(pat[i]))
+            runs[-1].append(re.escape(pat[i]))
         elif c == "*":
-            out.append("[^/]*")
+            if len(runs) == 1 or runs[-1]:
+                runs.append([])
         elif c == "?":
-            out.append("[^/]")
+            runs[-1].append("[^/]")
         else:
-            out.append(re.escape(c))
+            runs[-1].append(re.escape(c))
         i += 1
-    return "".join(out)
+    head, *rest = ("".join(r) for r in runs)
+    if not rest:
+        return head
+    *middle, tail = rest
+    return head + "".join(f"(?>[^/]*?{m})" for m in middle) + "[^/]*" + tail
 
 
 class _Invalid(Exception):

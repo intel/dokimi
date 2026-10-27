@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -104,3 +105,13 @@ def test_a_directory_only_rule_needs_a_directory():
 @pytest.mark.parametrize("line, path", [("x\\", "x\\"), ("[[:foo:]]x", "f]x"), ("[a-\\", "[a-\\")])
 def test_a_line_git_cannot_read_matches_nothing(line, path):
     assert GitIgnore({".gitignore": line}, lambda _: line).ignored_by(path) is None
+
+
+def test_many_stars_do_not_backtrack():
+    # A backtracking [^/]* per star takes ~15 s here; the line and the path are repository content.
+    line = "*a" * 9 + "*b"
+    rules = GitIgnore({".gitignore": line}, lambda _: line)
+    start = time.perf_counter()
+    assert rules.ignored_by("pkg/" + "a" * 45) is None
+    assert rules.ignored_by("pkg/" + "a" * 45 + "b") is not None
+    assert time.perf_counter() - start < 1
