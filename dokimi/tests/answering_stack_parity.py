@@ -433,7 +433,7 @@ def prompt_shape(text: str) -> Dict[str, Any]:
 def context_shape(text: str, question_text: str) -> Dict[str, Any]:
     """Shape of one judge context: opening words, chunk count, and whether the first passage arrives whole.
 
-    Stack P's judge sees the 200-character report snippet (see panel.py), so its passage is cut.
+    Stack P's judge sees the 200-character report snippet (see `answerer.py`), so its passage is cut.
     """
     chunks = len(re.findall(r"^Doc \d+: ", text, re.M)) or (text.count("\n\n---\n\n") + 1)
     return {
