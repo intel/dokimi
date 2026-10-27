@@ -183,6 +183,14 @@ correctness baseline for the *task*, not a tutorial. Every task needs one,
 because the `docker-oracle` harness is how a task is proven runnable without
 spending model tokens.
 
+The solve and the verifier run in a container without Linux capabilities
+beyond `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETUID` and `SETGID`, so a setuid
+binary cannot raise its privileges and the process count is capped at 32768.
+A step that signals another user's process, binds a port below 1024 (on a host
+whose `ip_unprivileged_port_start` is 1024) or opens a raw socket fails;
+`docker-oracle` will show it. See
+[What the agent can reach](coding-harnesses.md#what-the-agent-can-reach).
+
 ## 8 — Local verification
 
 ```bash

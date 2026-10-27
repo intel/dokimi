@@ -72,7 +72,8 @@ from .agent_sandbox import (
 )
 from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
 from .command import _parse_reward_text
-from .container_agent import AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, ContainerSandbox, Docker
+from .container_agent import (AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, TASK_CONTAINER_HARDENING,
+                              ContainerSandbox, Docker)
 from .models import HarnessResult, OperationRecord
 from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, enter_phase, needs_sandbox,
                              resolve_recorded, skill_needs, start_args, redact as _redact)
@@ -352,11 +353,9 @@ class DockerSolverHarness:
                            + _task_verify_timeout(task) + 600))
         self._docker(["rm", "-f", container], log, check=False)
         env_args = [a for k, v in task.container_env.items() for a in ("-e", f"{k}={v}")]
-        self._docker(
-            ["run", "-d", "--name", container, *net_args, *env_args,
-             "--cpus", cpus, "--memory", memory, image, "sleep", str(lifetime)],
-            log,
-        )
+        run_args = ["run", "-d", "--name", container, *TASK_CONTAINER_HARDENING, *net_args,
+                    *env_args, "--cpus", cpus, "--memory", memory, image, "sleep", str(lifetime)]
+        self._docker(run_args, log)
         return enter_phase(plan.solve if inside else DEFAULTS["solve"], container, self._docker, log,
                            bridged="bridge" in net_args)
 

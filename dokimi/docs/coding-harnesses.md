@@ -290,6 +290,13 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
 - **Memory.** The agent's CLI and its tmpfs HOME run inside the task's
   cgroup, so they count against `environment.memory_mb` (about 100 MB for a
   short session); the host launch ran outside it.
+- **Capabilities.** Every `docker-*` task container, `docker-oracle` included,
+  starts with `--cap-drop ALL`, `no-new-privileges` and `--pids-limit 32768`,
+  and gets back only `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETUID` and `SETGID`
+  (`TASK_CONTAINER_HARDENING` in `harnesses/container_agent.py`). A solve or
+  verifier that needs another capability (`KILL` on another user's process,
+  `NET_BIND_SERVICE` below port 1024 where the host sets
+  `ip_unprivileged_port_start` to 1024, `NET_RAW`) fails at that step.
 - **Network.** The container sits on a per-run `--internal` Docker network,
   which has no route out. The agent reaches the LLM through an allowlisting
   CONNECT proxy (`harnesses/egress_proxy.py`, stdlib only). It runs in a
