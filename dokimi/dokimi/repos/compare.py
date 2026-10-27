@@ -157,7 +157,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
         for model in [m for m in shared_models if not models or m in models]:
             skipped = _compare_model(text, model, base_vals, treat_vals, measures, seed, rows, unpaired)
             if skipped:
-                one_arm.append(f"{text} {model}: only one arm reports {', '.join(skipped)} for a shared task; "
+                one_arm.append(f"{text} {model}: only one arm reports {', '.join(skipped)} for any shared task; "
                                "not compared")
     _check_models(models, rows, unpaired)
     _holm(rows)
@@ -307,7 +307,7 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
                    rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> list[str]:
     """Append one row per measure of one (treatment, model), and the tasks only one arm has.
 
-    Returns the process measures only one arm reports for a shared task: they are skipped, not unpaired.
+    Returns the process measures only one arm reports for any shared task: they are skipped, not unpaired.
     """
     base_tasks = {t for m, t in base_vals if m == model}
     treat_tasks = {t for m, t in treat_vals if m == model}
