@@ -85,6 +85,12 @@ def test_an_unreadable_sidecar_log_fails_even_when_every_cell_passed():
     probe["metrics"]["egress"] = {
         "status": "unknown", "denied_entries": ["example.com:443", "example.com:80"]}
     assert not csr.smoke_ok(data, out=io.StringIO())
+    data = _runs()  # the check is for every row, not only the probe
+    oracle = next(r for r in data["results"] if r["harness"] == "docker-oracle")
+    oracle["metrics"]["egress"] = {"status": "unknown"}
+    out = io.StringIO()
+    assert not csr.smoke_ok(data, out=out)
+    assert "docker-oracle: egress unknown" in out.getvalue()
 
 
 def test_usage_without_a_path():
