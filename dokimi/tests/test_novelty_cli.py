@@ -173,7 +173,7 @@ def test_placebo_text_is_read_before_a_model_client_is_built(tmp_path, monkeypat
 ])
 def test_analyze_exits_with_the_message_when_the_arms_cannot_run(
         tmp_path, monkeypatch, arms, placebo, message):
-    from tests.test_novelty_analyze import SKILL, _clients
+    from tests.test_novelty_analyze import SKILL
 
     skill = tmp_path / "skill"
     skill.mkdir()
@@ -182,7 +182,11 @@ def test_analyze_exits_with_the_message_when_the_arms_cannot_run(
     if placebo is not None:
         (tmp_path / "placebo.txt").write_text(placebo, encoding="utf-8")
         argv += ["--placebo-text", str(tmp_path / "placebo.txt")]
-    monkeypatch.setattr("dokimi.commands.novelty._clients", lambda _args: _clients())
+
+    def built(*_args, **_kwargs):
+        raise AssertionError("a model client was built for arms that cannot run")
+
+    monkeypatch.setattr("dokimi.commands.novelty._clients", built)
     args = _parse(*argv)
     with pytest.raises(SystemExit, match=message):
         args.func(args)

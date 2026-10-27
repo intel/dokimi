@@ -210,6 +210,21 @@ def parse_arms(spec: str) -> tuple[str, ...]:
     return arms
 
 
+def check_arms(arms: tuple[str, ...], placebo_text: str | None) -> None:
+    """Refuse an arm set that cannot be run, before any model is called.
+
+    Raises:
+        ValueError: An unknown arm, a set without ``full``, or ``placebo`` with no text.
+    """
+    unknown = [arm for arm in arms if arm not in ARMS]
+    if unknown:
+        raise ValueError(f"unknown novelty arms: {unknown}; known: {list(ARMS)}")
+    if "full" not in arms:
+        raise ValueError("the arms must include full: the headline 2x2 pairs it with no_artifact")
+    if "placebo" in arms and not placebo_text:
+        raise ValueError("the placebo arm needs --placebo-text (domain-mismatched text)")
+
+
 def run_measurement(
     atoms: list[Atom],
     probes: list[Probe],
@@ -246,13 +261,7 @@ def run_measurement(
             "the model that produced it inflates the score. Pass a different --judge-model, "
             "or --allow-self-judge to do it deliberately."
         )
-    unknown = [arm for arm in arms if arm not in ARMS]
-    if unknown:
-        raise ValueError(f"unknown novelty arms: {unknown}; known: {list(ARMS)}")
-    if "full" not in arms:
-        raise ValueError("the arms must include full: the headline 2x2 pairs it with no_artifact")
-    if "placebo" in arms and not placebo_text:
-        raise ValueError("the placebo arm needs --placebo-text (domain-mismatched text)")
+    check_arms(arms, placebo_text)
 
     contexts = {
         BASELINE_ARM: None,

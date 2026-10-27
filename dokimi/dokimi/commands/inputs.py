@@ -20,3 +20,19 @@ def read_text_or_exit(path: str | None, flag: str) -> str | None:
         return Path(path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise SystemExit(f"cannot read {flag} {path}: {exc}") from None
+
+
+def placebo_text_for_arms_or_exit(path: str | None, arms: tuple[str, ...]) -> str | None:
+    """The ``--placebo-text`` of an analyze run, checked against its arms before any model call.
+
+    A typo in --arms or --placebo-text would otherwise cost the extraction calls that run
+    before the measurement checks the same thing.
+    """
+    from dokimi.novelty.measure import check_arms
+
+    placebo_text = read_text_or_exit(path, "--placebo-text")
+    try:
+        check_arms(arms, placebo_text)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
+    return placebo_text

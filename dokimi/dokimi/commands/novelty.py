@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
-from dokimi.commands.inputs import read_text_or_exit
+from dokimi.commands.inputs import placebo_text_for_arms_or_exit, read_text_or_exit
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -95,7 +95,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
             )
         return
 
-    placebo_text = read_text_or_exit(args.placebo_text, "--placebo-text")
+    placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
     config = AnalyzeConfig(
         artifact_ref=args.artifact,
