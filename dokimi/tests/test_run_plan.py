@@ -197,6 +197,16 @@ def test_the_plan_schema_constant_matches_artifacts():
     assert plan_module._PLAN_SCHEMA == SCHEMA_VERSIONS["plan"]
 
 
+def test_the_result_schema_status_enum_matches_statuses():
+    import json
+
+    from dokimi.artifacts import _schema_path
+    from dokimi.runner.plan import STATUSES
+
+    schema = json.loads(_schema_path("result").read_text(encoding="utf-8"))
+    assert tuple(schema["properties"]["cells"]["items"]["properties"]["status"]["enum"]) == STATUSES
+
+
 def test_a_plan_cell_whose_id_does_not_match_its_coordinates_is_invalid(tmp_path):
     plan = _plan(tmp_path)
     edited = copy.deepcopy(plan)
