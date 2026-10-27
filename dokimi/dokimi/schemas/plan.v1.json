@@ -68,8 +68,9 @@
         "additionalProperties": false,
         "properties": {
           "cell_id": {"type": "string", "minLength": 1,
-                      "description": "dokimi.runner.plan.cell_id(arm, model, task, rep): stable across re-plans"},
-          "arm": {"type": "string", "minLength": 1},
+                      "description": "dokimi.runner.plan.cell_id(arm, model, task, rep): stable across re-plans; completeness refuses an id that does not match the coordinates"},
+          "arm": {"type": "string", "minLength": 1,
+                  "description": "the full condition the cell runs under. When a plan crosses several harnesses, the harness is part of the arm (e.g. docker-claude/skill), so cell ids stay distinct; a cell has no separate harness key"},
           "model": {"type": ["string", "null"]},
           "task": {"type": "string", "minLength": 1},
           "rep": {"type": "integer", "minimum": 1}
@@ -81,7 +82,8 @@
       "required": ["cells"],
       "additionalProperties": false,
       "properties": {
-        "cells": {"type": "integer", "minimum": 0},
+        "cells": {"type": "integer", "minimum": 0,
+                  "description": "number of distinct planned cells; completeness refuses a plan where it differs"},
         "agent_calls": {"type": ["integer", "null"], "minimum": 0},
         "cost_usd": {"type": ["number", "null"], "minimum": 0},
         "wall_sec": {"type": ["number", "null"], "minimum": 0}

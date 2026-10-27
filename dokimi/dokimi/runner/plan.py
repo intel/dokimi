@@ -25,6 +25,8 @@ from typing import Any, Iterable, Mapping
 #: Statuses that are a measurement of the cell. ``invalid``, ``infra_error`` and
 #: ``not_run`` are recorded, but the cell still counts as missing.
 MEASURED = frozenset({"pass", "fail", "inconclusive"})
+#: ``SCHEMA_VERSIONS["plan"]`` in :mod:`dokimi.artifacts`, which ``save_artifact`` stamps.
+_PLAN_SCHEMA = "plan.v1"
 STATUSES = ("pass", "fail", "inconclusive", "invalid", "infra_error", "not_run")
 
 
@@ -47,8 +49,14 @@ def plan_cells(arms: Iterable[str], models: Iterable[str | None], tasks: Iterabl
 
 
 def plan_digest(plan: Mapping[str, Any]) -> str:
-    """``sha256:<hex>`` of the plan's canonical JSON, ``generated_at`` left out."""
+    """``sha256:<hex>`` of the plan's canonical JSON, ``generated_at`` left out.
+
+    The plan is hashed as :func:`dokimi.artifacts.save_artifact` writes it: a missing
+    ``schema_version`` is filled in, so the digest of a dict taken before saving matches
+    the digest of the same plan loaded back.
+    """
     body = {k: v for k, v in plan.items() if k != "generated_at"}
+    body.setdefault("schema_version", _PLAN_SCHEMA)
     text = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -104,13 +112,37 @@ def _ids(side: str, cells: Any, problems: list[str]) -> list[str]:
     return ids
 
 
+def _plan_problems(plan: Mapping[str, Any], planned: list[str], problems: list[str]) -> None:
+    """A repeated id, an id that does not match its coordinates, or a ``budget.cells`` that is
+    not the number of distinct planned cells."""
+    dup_planned = sorted(k for k, n in Counter(planned).items() if n > 1)
+    if dup_planned:
+        problems.append(f"plan repeats cell ids: {dup_planned}")
+    for cell in plan.get("cells") or []:
+        if not isinstance(cell, Mapping) or not isinstance(cell.get("cell_id"), str):
+            continue  # reported by _ids
+        try:
+            want = cell_id(cell["arm"], cell["model"], cell["task"], cell["rep"])
+        except (KeyError, TypeError, ValueError):
+            want = None
+        if cell["cell_id"] != want:
+            problems.append(f"plan cell {cell['cell_id']} does not match its coordinates "
+                            f"(arm, model, task, rep); expected {want}")
+    budget = plan.get("budget")
+    if isinstance(budget, Mapping) and "cells" in budget and budget["cells"] != len(set(planned)):
+        problems.append(f"plan budget.cells is {budget['cells']!r}, "
+                        f"but the plan has {len(set(planned))} distinct cells")
+
+
 def completeness(plan: Mapping[str, Any], result: Mapping[str, Any]) -> Completeness:
     """Planned minus completed cells of ``result`` against ``plan``.
 
     - ``invalid``: the result's ``plan_digest`` is not this plan's, the plan repeats a cell
       id, ``cells`` is not a list, a cell has no string ``cell_id``, or a result cell has a
       status outside :data:`STATUSES`; or the result names a cell the plan lacks or gives one
-      cell two statuses. An ``invalid`` result reports ``measured=0``.
+      cell two statuses; or a plan cell's id is not :func:`cell_id` of its coordinates, or
+      the plan's ``budget.cells`` is not its number of distinct cells. An ``invalid`` result
+      reports ``measured=0``, empty ``statuses`` and every planned cell in ``missing``.
     - ``incomplete``: some planned cell has no measured status (absent, ``not_run``,
       ``infra_error`` or ``invalid``); those ids are in ``missing``, in plan order.
     - ``complete``: every planned cell is ``pass``, ``fail`` or ``inconclusive``. Complete
@@ -121,9 +153,7 @@ def completeness(plan: Mapping[str, Any], result: Mapping[str, Any]) -> Complete
     expected, actual = plan_digest(plan), result.get("plan_digest")
     if actual != expected:
         problems.append(f"result is for plan {actual}, not {expected}")
-    dup_planned = sorted(k for k, n in Counter(planned).items() if n > 1)
-    if dup_planned:
-        problems.append(f"plan repeats cell ids: {dup_planned}")
+    _plan_problems(plan, planned, problems)
     result_cells = result.get("cells", [])
     seen = Counter(_ids("result", result_cells, problems))
     dup_result = sorted(k for k, n in seen.items() if n > 1)
@@ -133,15 +163,17 @@ def completeness(plan: Mapping[str, Any], result: Mapping[str, Any]) -> Complete
     if unplanned:
         problems.append(f"result has cells the plan does not: {unplanned}")
     status = _statuses(result_cells, problems)
+    if problems:  # a rejected result measures nothing: no statuses, every planned cell missing
+        status = {}
     counts = Counter(status.get(cid, "not_run") for cid in dict.fromkeys(planned))
     missing = tuple(cid for cid in dict.fromkeys(planned) if status.get(cid, "not_run") not in MEASURED)
     if problems:
-        state = "invalid"
+        state, counts = "invalid", Counter()
     elif missing or not planned:
         state = "incomplete"
     else:
         state = "complete"
-    measured = 0 if problems else len(set(planned)) - len(missing)
+    measured = len(set(planned)) - len(missing)
     return Completeness(state=state, planned=len(set(planned)), measured=measured,
                         missing=missing, statuses={s: counts[s] for s in STATUSES if counts[s]},
                         problems=tuple(problems))

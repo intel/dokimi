@@ -171,6 +171,46 @@ def test_an_invalid_result_reports_no_measured_cells(tmp_path):
     got = completeness(plan, _result(plan, ["pass"] * 6, plan_digest="sha256:other"))
     assert got.state == "invalid"
     assert got.measured == 0
+    assert got.statuses == {}  # no pass is reported from a rejected run
+    assert got.missing == tuple(c["cell_id"] for c in plan["cells"])
+
+
+def test_a_plan_digested_before_saving_matches_the_saved_plan(tmp_path):
+    raw = {"subjects": [], "suites": [{"id": "s", "hash": "h", "reasons": []}], "models": ["m1"],
+           "harnesses": ["h"], "grader": {"id": "g", "digest": None}, "varied_variable": "skill",
+           "cells": plan_cells(["a"], ["m1"], ["t1"]), "budget": {"cells": 1}}
+    digest = plan_digest(raw)
+    save_artifact("plan", copy.deepcopy(raw), tmp_path / "plan.json")
+    result = {"plan_digest": digest, "cells": [{"cell_id": raw["cells"][0]["cell_id"], "status": "pass"}]}
+    save_artifact("result", result, tmp_path / "result.json")
+    found = completeness(load_artifact("plan", tmp_path / "plan.json"),
+                         load_artifact("result", tmp_path / "result.json"))
+    assert found.complete, found.problems
+
+
+def test_the_plan_schema_constant_matches_artifacts():
+    from dokimi.artifacts import SCHEMA_VERSIONS
+    from dokimi.runner import plan as plan_module
+
+    assert plan_module._PLAN_SCHEMA == SCHEMA_VERSIONS["plan"]
+
+
+def test_a_plan_cell_whose_id_does_not_match_its_coordinates_is_invalid(tmp_path):
+    plan = _plan(tmp_path)
+    edited = copy.deepcopy(plan)
+    edited["cells"][0]["arm"] = "renamed"  # old id kept
+    found = completeness(edited, _result(edited, ["pass"] * 6))
+    assert found.state == "invalid"
+    assert any("does not match its coordinates" in p for p in found.problems)
+    edited["cells"][0]["rep"] = "x"  # coordinates that cell_id cannot hash
+    assert completeness(edited, _result(edited, ["pass"] * 6)).state == "invalid"
+
+
+def test_a_budget_that_miscounts_the_cells_is_invalid(tmp_path):
+    plan = _plan(tmp_path, budget={"cells": 5})
+    found = completeness(plan, _result(plan, ["pass"] * 6))
+    assert found.state == "invalid"
+    assert any("budget.cells is 5" in p for p in found.problems)
 
 
 @pytest.mark.parametrize("bad", [{"status": "PASS"}, {"status": ["pass"]}, {}])
