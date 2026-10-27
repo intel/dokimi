@@ -114,7 +114,7 @@ def test_apply_correction_on_an_empty_family_adds_nothing():
 
 def _three_runs(monkeypatch, p_ttest, p_wilcoxon=None):
     fake = {"p_ttest": p_ttest, "p_wilcoxon": p_wilcoxon, "significant": True}
-    monkeypatch.setattr(model_compare, "significance_test", lambda *_: dict(fake))
+    monkeypatch.setattr(model_compare, "significance_test", lambda *_, **__: dict(fake))
     run_ids = ["a", "b", "c"]
     all_run_scores = {rid: [{"with_docs": 60, "without_docs": 50}] * 6 for rid in run_ids}
     return model_compare._adjusted_significance(run_ids, all_run_scores, "holm")
@@ -134,9 +134,34 @@ def test_model_compare_boundary_just_above_alpha_is_not_significant(monkeypatch)
     assert all(sig["significant_adjusted"] is False for sig in sigs.values())
 
 
+# Real scores whose per-run t-test p is 0.0166623, displayed 0.0167.
+SHIFTS = [-10, -5, 0, 5, 10, 15, 20, -15, 25, 30]
+
+
+def test_paired_test_rounds_by_default_and_on_request_leaves_p_exact():
+    treatment, control = [56.543 + s for s in SHIFTS], [50.0] * len(SHIFTS)
+    assert stats.paired_test(treatment, control)["p_ttest"] == 0.0167
+    exact = stats.paired_test(treatment, control, rounded=False)["p_ttest"]
+    assert 0.01665 < exact < 0.05 / 3
+
+
+def test_model_compare_corrects_real_scores_before_rounding():
+    # Unmocked: Holm on the exact p is 0.049987 (significant); on the displayed
+    # 0.0167 it would be 0.0501.
+    rows = [{"with_docs": 56.543 + s, "without_docs": 50.0} for s in SHIFTS]
+    run_ids = ["a", "b", "c"]
+    sigs, tested = model_compare._adjusted_significance(
+        run_ids, {rid: rows for rid in run_ids}, "holm"
+    )
+    assert tested == 3
+    for sig in sigs.values():
+        assert (sig["p_ttest"], sig["p_adjusted"]) == (0.0167, 0.05)  # displayed rounded
+        assert sig["significant_adjusted"] is True
+
+
 def test_model_compare_skips_runs_without_pairs(monkeypatch):
     fake = {"p_ttest": BOUNDARY_IN, "p_wilcoxon": None, "significant": True}
-    monkeypatch.setattr(model_compare, "significance_test", lambda *_: dict(fake))
+    monkeypatch.setattr(model_compare, "significance_test", lambda *_, **__: dict(fake))
     all_run_scores = {
         "a": [{"with_docs": 60, "without_docs": 50}] * 6,
         "b": [{"with_docs": None, "without_docs": 50}] * 6,

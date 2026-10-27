@@ -488,18 +488,21 @@ def paired_test(
     *,
     confidence: float = 0.95,
     seed: int = 0,
+    rounded: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Paired comparison of ``treatment`` against ``control``.
 
     Returns ``None`` when the vectors are empty, mismatched in length, or hold
     fewer than two pairs. Effect size and CI are always computed;
     ``p_ttest``/``p_wilcoxon`` are ``None`` without SciPy or below
-    :data:`MIN_PAIRS_FOR_TEST` pairs.
+    :data:`MIN_PAIRS_FOR_TEST` pairs. ``rounded=False`` leaves the p-values
+    unrounded for a caller that corrects them first, then :func:`_finalize`.
     """
     if len(treatment) != len(control) or len(treatment) < 2:
         return None
     deltas = [t - c for t, c in zip(treatment, control, strict=True)]
-    return _finalize(_describe_deltas(deltas, confidence=confidence, seed=seed))
+    result = _describe_deltas(deltas, confidence=confidence, seed=seed)
+    return _finalize(result) if rounded else result
 
 
 def arm_significance(
