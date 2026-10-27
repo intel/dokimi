@@ -128,6 +128,7 @@ nav:
       - preparing-a-repository-evidence.md
   - Extending Dokimi:
       - architecture.md
+      - contributing-cli-flags.md
       - contributing-metric.md
       - contributing-terminal-bench-task.md
       - releasing.md

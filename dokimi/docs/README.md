@@ -304,6 +304,8 @@ code.
 
 - [architecture.md](architecture.md) — module map and data flow across the
   static, LLM, and executable-task tracks.
+- [contributing-cli-flags.md](contributing-cli-flags.md) — add or rename a CLI
+  flag: the flag registry, the allowlist and `make cli-snapshot`.
 - [contributing-metric.md](contributing-metric.md) — add a new static
   documentation metric (module + spec + tests + docs).
 - [contributing-terminal-bench-task.md](contributing-terminal-bench-task.md)
