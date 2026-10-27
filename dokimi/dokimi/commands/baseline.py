@@ -185,7 +185,7 @@ def cmd_baseline_list(args: argparse.Namespace) -> None:
 
     if not baselines:
         print("No baselines saved yet.")
-        print("Run: python cli.py baseline save --from-eval eval/oneTBB.json --product oneTBB")
+        print("Run: dokimi baseline save --from-eval eval/oneTBB.json --product oneTBB")
         return
 
     print(f"{'Name':<35} {'Product':<12} {'Saved':<17} {'n':>4} {'with':>6} {'without':>8} {'delta':>7}")
@@ -259,7 +259,7 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
 
     if not baselines:
         print("No baselines found. Save one first:")
-        print("  python cli.py baseline save --from-eval eval/oneTBB.json --product oneTBB")
+        print("  dokimi baseline save --from-eval eval/oneTBB.json --product oneTBB")
         raise SystemExit(1)
 
     entry = _pick_entry(args, baselines, eval_data)

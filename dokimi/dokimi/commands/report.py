@@ -10,8 +10,6 @@ import sys
 import json
 from pathlib import Path
 
-from dokimi.report.markdown_report import write_compare_report, write_run_report
-
 
 def _write_combined_report(args, regular_runs, golden_runs, run_ids, warnings) -> None:
     """Write the combined model-compare report, exiting cleanly if the output is unwritable."""
@@ -87,17 +85,6 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
         print(w, file=sys.stderr)
 
     _write_combined_report(args, regular_runs, golden_runs, run_ids, all_warnings)
-
-
-def cmd_report(args: argparse.Namespace) -> None:
-    """Generate markdown report from JSON snapshot."""
-    data = json.loads(Path(args.input).read_text(encoding="utf-8"))
-    out_md = Path(args.out_md).resolve()
-
-    if "diff" in data:
-        write_compare_report(data, out_md)
-    else:
-        write_run_report(data, out_md)
 
 
 def cmd_report_eval(args: argparse.Namespace) -> None:
