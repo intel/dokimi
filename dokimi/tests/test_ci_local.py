@@ -569,8 +569,15 @@ def test_gitleaks_linux_x64_keeps_the_workflow_scan(env, monkeypatch, capsys):
 @pytest.mark.parametrize("version,scan", [("8.30.1", True), ("8.29.0", False)])
 @pytest.mark.parametrize("scan_exit", [0, 1])
 def test_native_gitleaks_uses_exact_workflow_version(env, monkeypatch, capsys, version, scan, scan_exit):
-    workflow = Path(__file__).resolve().parents[2] / ".github/workflows/gitleaks.yml"
-    (cl.WORKFLOWS / "x.yml").write_text(workflow.read_text())
+    workflow = next(
+        p for p in (Path(__file__).resolve().parents[2] / ".github/workflows").glob("*.yml")
+        if "name: Install gitleaks" in p.read_text()
+    )
+    original_job = next(job for job in cl.yaml.safe_load(workflow.read_text())["jobs"].values()
+                        if any(s.get("name") == "Install gitleaks" for s in job.get("steps", [])))
+    scan_steps = [s for s in original_job["steps"] if "gitleaks/gitleaks" in str(s.get("run", ""))]
+    (cl.WORKFLOWS / "x.yml").write_text(cl.yaml.safe_dump(
+        {"on": "pull_request", "jobs": {"gitleaks": {"steps": scan_steps}}}))
     monkeypatch.setattr(cl.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(cl.platform, "machine", lambda: "arm64")
     native = env["root"] / "native gitleaks"
@@ -591,10 +598,41 @@ def test_native_gitleaks_uses_exact_workflow_version(env, monkeypatch, capsys, v
     scripts = [call["cmd"][-1] for call in env["calls"]]
     output = capsys.readouterr().out
     if scan:
-        original = cl.yaml.safe_load(workflow.read_text())["jobs"]["gitleaks"]["steps"][-1]["run"]
+        original = scan_steps[-1]["run"]
         assert original.strip() in scripts
         assert not any('curl -fsSL' in script for script in scripts)
         assert "native gitleaks" in output and "8.30.1" in output
     else:
         assert scripts == []
         assert "unsupported host" in output and "8.29.0" in output
+
+
+@pytest.mark.parametrize("version", ["8.30.1", "8.29.0"])
+def test_native_gitleaks_in_a_combined_static_job_keeps_other_checks(env, monkeypatch, capsys, version):
+    job = {"steps": [
+        {"name": "Lint", "run": "echo lint"},
+        {"name": "Install gitleaks", "env": {"GITLEAKS_VERSION": "8.30.1"},
+         "run": 'curl linux-x64 && "$RUNNER_TEMP/gitleaks/gitleaks" version'},
+        {"name": "Scan commits", "run": '"$RUNNER_TEMP/gitleaks/gitleaks" git --redact .'},
+    ]}
+    (cl.WORKFLOWS / "x.yml").write_text(cl.yaml.safe_dump(
+        {"on": "pull_request", "jobs": {"static": job}}))
+    monkeypatch.setattr(cl.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(cl.platform, "machine", lambda: "arm64")
+    native = env["root"] / "gitleaks"
+    native.write_text("native placeholder")
+    monkeypatch.setattr(cl.shutil, "which", lambda name: str(native) if name == "gitleaks" else None)
+    previous = cl.subprocess.run
+
+    def run(cmd, **kwargs):
+        if cmd == [str(native), "version"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=version + "\n")
+        return previous(cmd, **kwargs)
+
+    monkeypatch.setattr(cl.subprocess, "run", run)
+    assert cl.run(ns(jobs="static")) == 0
+    scripts = [call["cmd"][-1] for call in env["calls"]]
+    assert "echo lint" in scripts and not any("curl linux-x64" in s for s in scripts)
+    assert any("git --redact" in s for s in scripts) == (version == "8.30.1")
+    if version != "8.30.1":
+        assert "unsupported host" in capsys.readouterr().out

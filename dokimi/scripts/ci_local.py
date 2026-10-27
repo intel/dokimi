@@ -283,9 +283,21 @@ def native_gitleaks(job: dict) -> str | None:
 
 def unavailable_job(job_id: str, online: bool, job: dict) -> str | None:
     """Native scans need an exact installed version; Linux x64 keeps the download."""
-    if job_id == "gitleaks" and (platform.system(), platform.machine()) != ("Linux", "x86_64"):
-        return native_gitleaks(job)
+    install = any(s.get("name") == "Install gitleaks" for s in job.get("steps", []))
+    if (job_id == "gitleaks" or install) and (platform.system(), platform.machine()) != ("Linux", "x86_64"):
+        reason = native_gitleaks(job)
+        if not reason or job_id == "gitleaks":
+            return reason
+        disable_native_scan(job, reason)
     return "needs network" if job_id in NEEDS_NETWORK and not online else None
+
+
+def disable_native_scan(job: dict, reason: str) -> None:
+    """A consolidated static job still runs its unrelated checks on an unsupported host."""
+    for step in job.get("steps", []):
+        if "gitleaks/gitleaks" in str(step.get("run", "")):
+            step["if"] = False
+            step["name"] = f"{step.get('name', 'gitleaks')} ({reason})"
 
 
 def run(args: argparse.Namespace) -> int:
