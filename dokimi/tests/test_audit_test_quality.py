@@ -578,6 +578,54 @@ def test_a_called_check_on_a_patched_mock_is_still_a_mock_echo(source):
     "        run(llm)\n    assert llm.called",
     "@pytest.fixture\ndef llm():\n    return MagicMock()\ndef test_x(llm, /):\n    with patch('m.y'):\n"
     "        run(llm)\n    assert llm.called",
+    # setUp puts a local mock on self
+    "class TestX:\n    def setUp(self):\n        m = MagicMock()\n        self.m = m\n    def test_x(self):\n"
+    "        with patch('m.y'):\n            run(self.m)\n        assert self.m.called",
+    # a fixture of the test's own class
+    "class TestX:\n    @pytest.fixture\n    def llm(self):\n        return MagicMock()\n    def test_x(self, llm):\n"
+    "        with patch('m.y'):\n            run(llm)\n        assert llm.called",
+    # a fixture that yields the mock of a patch
+    "@pytest.fixture\ndef llm():\n    with patch('m.llm') as m:\n        yield m\ndef test_x(llm):\n"
+    "    with patch('m.y'):\n        run()\n    assert llm.called",
+    # a fixture that returns its mock in a dict or a tuple
+    "@pytest.fixture\ndef llm():\n    return {'a': MagicMock()}\ndef test_x(llm):\n    with patch('m.y'):\n"
+    "        run(llm)\n    assert llm['a'].called",
+    "@pytest.fixture\ndef pair():\n    m = MagicMock()\n    return (m, 1)\ndef test_x(pair):\n"
+    "    with patch('m.y'):\n        run(pair)\n    assert pair[0].called",
+    # a test, a fixture or a setUp under `if`, `try` or `except` is in the scope around it
+    "import sys\n@pytest.fixture\ndef llm():\n    return MagicMock()\nif sys:\n    def test_x(llm):\n"
+    "        with patch('m.y'):\n            run(llm)\n        assert llm.called",
+    "try:\n    import m\nexcept ImportError:\n    @pytest.fixture\n    def llm():\n        return MagicMock()\n"
+    "def test_x(llm):\n    with patch('m.y'):\n        run(llm)\n    assert llm.called",
+    "class TestX:\n    try:\n        def setUp(self):\n            self.m = MagicMock()\n    finally:\n        pass\n"
+    "    if True:\n        def test_x(self):\n            with patch('m.y'):\n                run(self.m)\n"
+    "            assert self.m.called",
+    # a comprehension's own `llm`, or a store after the last read, does not rebind the parameter
+    "@pytest.fixture\ndef llm():\n    return MagicMock()\ndef test_x(llm):\n    with patch('m.y'):\n"
+    "        run(llm)\n    names = [llm for llm in run()]\n    assert llm.called",
+    "@pytest.fixture\ndef llm():\n    return MagicMock()\ndef test_x(llm):\n    with patch('m.y'):\n"
+    "        run(llm)\n    assert llm.called\n    llm = None",
+    # `indirect` hands the parametrized value to the fixture, and the test gets the fixture's mock
+    "@pytest.fixture\ndef llm():\n    return MagicMock()\n@pytest.mark.parametrize('llm', [1], indirect=True)\n"
+    "def test_x(llm):\n    with patch('m.y'):\n        run(llm)\n    assert llm.called",
+    "@pytest.fixture\ndef llm():\n    return MagicMock()\n@pytest.mark.parametrize('n,llm', [(1, 2)], True)\n"
+    "def test_x(n, llm):\n    with patch('m.y'):\n        run(llm)\n    assert llm.called",
+    "@pytest.fixture\ndef llm():\n    return MagicMock()\n"
+    "@pytest.mark.parametrize('n,llm', [(1, 2)], indirect=['llm'])\n"
+    "def test_x(n, llm):\n    with patch('m.y'):\n        run(llm)\n    assert llm.called",
+    # a test under `match`; a fixture that returns its mock in a SimpleNamespace or dict(...)
+    "import sys\n@pytest.fixture\ndef llm():\n    return MagicMock()\nmatch sys.platform:\n    case _:\n"
+    "        def test_x(llm):\n            with patch('m.y'):\n                run(llm)\n"
+    "            assert llm.called",
+    "@pytest.fixture\ndef env():\n    m = MagicMock()\n    return SimpleNamespace(llm=m)\ndef test_x(env):\n"
+    "    with patch('m.y'):\n        run(env)\n    assert env.llm.called",
+    "@pytest.fixture\ndef env():\n    return dict(llm=MagicMock())\ndef test_x(env):\n"
+    "    with patch('m.y'):\n        run(env)\n    assert env['llm'].called",
+    # a mock read off the fixture's mock, or off a mock setUp holds, is a mock too
+    "@pytest.fixture\ndef llm():\n    return MagicMock()\ndef test_x(llm):\n    with patch('m.y'):\n"
+    "        run(llm)\n    llm = llm.return_value\n    assert llm.called",
+    "class TestX:\n    def setUp(self):\n        self.m = MagicMock()\n    def test_x(self):\n"
+    "        with patch('m.y'):\n            run(self.m)\n        m = self.m\n        assert m.called",
 ])
 def test_a_mock_bound_outside_the_test_body_is_still_a_mock_echo(source):
     audits = {a.test.rsplit(".", 1)[-1]: a.flags for a in atq.audit_source(textwrap.dedent(source))}
@@ -610,6 +658,53 @@ def test_a_fixture_that_returns_data_is_not_a_mock():
             assert stats.call_count == 2
         """)
     assert "mock_echo" not in flags["test_x"]
+
+
+@pytest.mark.parametrize("source", [
+    # a local of setUp is gone when the test runs: the test's own `m` is what run() returned
+    "class TestX:\n    def setUp(self):\n        m = MagicMock()\n        self.x = m\n    def test_x(self):\n"
+    "        with patch('m.y'):\n            m = run()\n        assert m.call_count == 2",
+    # setUp holds self.result, not the test's local result
+    "class TestX:\n    def setUp(self):\n        self.result = MagicMock()\n    def test_x(self):\n"
+    "        with patch('m.y'):\n            result = run()\n        assert result.call_count == 2",
+    # the fixture builds a mock to make its data, and returns the data
+    "@pytest.fixture\ndef stats():\n    m = MagicMock()\n    return run(m)\ndef test_x(stats):\n"
+    "    with patch('m.y'):\n        run()\n    assert stats.call_count == 2",
+    # ... also in a dict: only a mock among the items makes it a mock
+    "@pytest.fixture\ndef stats():\n    m = MagicMock()\n    return {'n': run(m)}\ndef test_x(stats):\n"
+    "    with patch('m.y'):\n        run()\n    assert stats['n'].call_count == 2",
+    # ... and a SimpleNamespace holding only data made with one
+    "@pytest.fixture\ndef env():\n    m = MagicMock()\n    return SimpleNamespace(n=run(m))\ndef test_x(env):\n"
+    "    with patch('m.y'):\n        run()\n    assert env.n.call_count == 2",
+    # a fixture of another class is not in the test's scope
+    "class TestA:\n    @pytest.fixture\n    def stats(self):\n        return MagicMock()\nclass TestX:\n"
+    "    def test_x(self, stats):\n        with patch('m.y'):\n            run()\n        assert stats.call_count == 2",
+    # the class's own fixture of the name wins over the module's
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\nclass TestX:\n    @pytest.fixture\n    def stats(self):\n"
+    "        return run()\n    def test_x(self, stats):\n        with patch('m.y'):\n            run()\n"
+    "        assert stats.call_count == 2",
+    # parametrize fills the parameter, not the fixture of that name: by position, by keyword, on the class
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\n@pytest.mark.parametrize('stats', [run()])\n"
+    "def test_x(stats):\n    with patch('m.y'):\n        run()\n    assert stats.call_count == 2",
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\n"
+    "@pytest.mark.parametrize(argnames=['n', 'stats'], argvalues=[(1, run())])\n"
+    "def test_x(n, stats):\n    with patch('m.y'):\n        run()\n    assert stats.call_count == 2",
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\n@pytest.mark.parametrize('n, stats', [(1, run())])\n"
+    "class TestX:\n    def test_x(self, n, stats):\n        with patch('m.y'):\n            run()\n"
+    "        assert stats.call_count == 2",
+    # `indirect` names another parameter, so this one is parametrize's value
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\n"
+    "@pytest.mark.parametrize('n,stats', [(1, run())], indirect=['n'])\n"
+    "def test_x(n, stats):\n    with patch('m.y'):\n        run()\n    assert stats.call_count == 2",
+    # the test rebinds the parameter before the check, by assignment or as a loop variable
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\ndef test_x(stats):\n    with patch('m.y'):\n"
+    "        for stats in run():\n            pass\n    assert stats.call_count == 2",
+    "@pytest.fixture\ndef stats():\n    return MagicMock()\ndef test_x(stats):\n    with patch('m.y'):\n"
+    "        stats = run()\n    assert stats.call_count == 2",
+])
+def test_a_name_that_only_shares_a_mock_s_name_is_data(source):
+    audits = {a.test.rsplit(".", 1)[-1]: a.flags for a in atq.audit_source(textwrap.dedent(source))}
+    assert "mock_echo" not in audits["test_x"]
 
 
 def test_tuple_of_mock_attrs_and_literals_is_mock_echo():
