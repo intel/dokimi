@@ -51,11 +51,13 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from dokimi import process
 from dokimi.metrics.usage import UsageRecord
 
-#: Variables a Claude Code session sets for its own children. Dropped, so a call made
-#: from inside a session is a session of its own.
+#: Variables a Claude Code session sets for its own children, plus the API key. Dropped, so
+#: a call made from inside a session is a session of its own and runs on the CLI's login.
 CLAUDE_ENV_DROP = frozenset({
     "CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION",
     "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT",
+    # Set, it wins over the CLI's login: the run would bill the key, not the subscription.
+    "ANTHROPIC_API_KEY",
 })
 
 #: The flags that strip the CLI to a bare completion; see the module docstring.

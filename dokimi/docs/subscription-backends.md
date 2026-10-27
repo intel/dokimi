@@ -83,7 +83,8 @@ carries about 37k tokens of agent prompt, tool schemas and `CLAUDE.md`.
 - The child gets the caller's environment minus the variables a Claude Code
   session sets for its children (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, …). If
   dokimi itself runs inside Claude Code and they were passed on, the child would
-  join the parent's session.
+  join the parent's session. `ANTHROPIC_API_KEY` is dropped too: set, it would
+  win over the login and the run would bill the key.
 - The CLI keeps its own config directory, because that is where the login is
   stored. User settings and `CLAUDE.md` stay out because of
   `--setting-sources ""`.

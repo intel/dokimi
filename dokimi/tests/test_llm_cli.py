@@ -67,6 +67,7 @@ def test_a_reply_reads_text_tokens_and_model_and_leaves_cost_unknown(runner):
 def test_the_call_is_isolated_and_the_prompt_goes_on_stdin(runner, monkeypatch):
     monkeypatch.setenv("CLAUDECODE", "1")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "parent")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-would-bill")
     monkeypatch.setenv("DOKIMI_TEST_KEEP", "kept")
     runner.answers.extend([reply(_ok()), reply(_ok())])
     llm_cli.call("claude-cli", model="haiku", prompt="x" * 300_000, system="Grade it.")
@@ -79,7 +80,8 @@ def test_the_call_is_isolated_and_the_prompt_goes_on_stdin(runner, monkeypatch):
     assert argv[argv.index("--tools") + 1] == "" and argv[argv.index("--setting-sources") + 1] == ""
     assert argv[argv.index("--system-prompt") + 1] == "Grade it."
     assert first.input == b"x" * 300_000 and "x" * 100 not in " ".join(argv)
-    assert "CLAUDECODE" not in first.env and "CLAUDE_CODE_SESSION_ID" not in first.env
+    for name in ("CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "ANTHROPIC_API_KEY"):
+        assert name not in first.env
     assert first.env["DOKIMI_TEST_KEEP"] == "kept"
     # One fixed, empty directory: the cwd the CLI states is the same in every call.
     assert first.cwd == second.cwd and list(first.cwd.iterdir()) == []
@@ -129,6 +131,9 @@ def test_tools_or_a_conversation_are_refused_before_any_call(runner):
     with pytest.raises(llm_cli.CliCallError, match="one prompt"):
         model.chat([{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"},
                     {"role": "user", "content": "c"}])
+    from dokimi.eval.judge import Judge
+    with pytest.raises(llm_cli.CliCallError, match="temperature"):  # --judge-temperature
+        Judge(model="sonnet", provider="claude-cli", temperature=0.0).llm.invoke("grade")
     assert runner.calls == []
 
 
@@ -199,3 +204,14 @@ def test_the_default_judge_runs_on_the_cli():
     from dokimi.defaults import DEFAULT_JUDGE_MODEL, default_judge_model
 
     assert default_judge_model("claude-cli") == DEFAULT_JUDGE_MODEL
+
+
+def test_answerer_and_generators_accept_the_cli_provider(runner):
+    from dokimi.eval.answerer import Answerer
+    from dokimi.personas.generator import PersonaGenerator
+    from dokimi.questions.llm_gen import QuestionGenerator
+
+    Answerer(model="haiku", provider="claude-cli")
+    runner.answers.extend([reply(_ok("persona")), reply(_ok("question"))])
+    assert PersonaGenerator(model="haiku", provider="claude-cli").llm.invoke("p").content == "persona"
+    assert QuestionGenerator(model="haiku", provider="claude-cli").llm.invoke("q").content == "question"

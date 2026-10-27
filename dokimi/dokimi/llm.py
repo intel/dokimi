@@ -530,9 +530,9 @@ def _stream(completion: Any, request: Request) -> Reply:
 def _cli_reply(request: Request) -> Reply:
     """A request for a CLI provider (:mod:`dokimi.llm_cli`): one prompt, an optional system."""
     turns = [m for m in request.messages if m.get("role") != "system"]
-    if request.tools or len(turns) != 1:
-        raise llm_cli.CliCallError(f"{request.provider} takes one prompt: no tools, no conversation",
-                                   retryable=False)
+    if request.tools or len(turns) != 1 or request.temperature is not None or request.seed is not None:
+        raise llm_cli.CliCallError(f"{request.provider} takes one prompt: no tools, no conversation, "
+                                   "no temperature or seed", retryable=False)
     system = [prompt_text(replace(request, messages=[m]))
               for m in request.messages if m.get("role") == "system"]
     out = llm_cli.call(request.provider, model=request.model, prompt=prompt_text(request),
