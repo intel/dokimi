@@ -41,6 +41,18 @@ def test_marker_inside_a_longer_word_is_not_a_leak():
     assert [lk.marker for lk in audit_payload({"t": "see eval_queries.json"}, ["eval"])] == ["eval"]
 
 
+def test_markers_match_any_case_only_between_non_alphanumerics_and_inside_tuples():
+    assert [lk.marker for lk in audit_payload({"t": "Run by DOKIMI"}, ["dokimi"])] == ["dokimi"]
+    assert audit_payload({"t": "xdokimi and dokimix"}, ["dokimi"]) == []
+    assert [(lk.path, lk.marker) for lk in audit_payload({"t": ("ok", "the judge")}, ["judge"])] == [
+        ("$.t[1]", "judge")]
+
+
+def test_allowed_texts_blank_longest_first():
+    # Shortest first would blank "skill" inside the longer allowance, leaving "eval" visible.
+    assert audit_payload({"t": "eval the skill"}, ["eval"], allowed=["skill", "eval the skill"]) == []
+
+
 def test_operator_content_is_blanked_but_dokimi_text_around_it_is_not():
     desc = "Compare against a baseline run before tuning."
     payload = {"tools": [{"description": f"Load skill. {desc}"}],

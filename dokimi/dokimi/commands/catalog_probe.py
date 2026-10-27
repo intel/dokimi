@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -18,10 +19,19 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     from dokimi.eval.arm_summary import summarize_skill_selection
     from dokimi.external import trigger_set as ts
     from dokimi.harnesses import trigger_probe as tp
+    from dokimi.skills import discover_skills
 
     catalog = Path(args.catalog)
     if not catalog.is_dir():
         raise SystemExit(f"--catalog is not a directory: {catalog}")
+    names = {s.name for s in discover_skills(catalog)}
+    if args.target and args.target not in names:
+        raise SystemExit(f"--target {args.target!r} is not a skill in --catalog "
+                         f"(have: {', '.join(sorted(names))})")
+    # Checked before any paid run, so a bad --out costs nothing.
+    out_path = Path(args.out)
+    if not out_path.parent.is_dir():
+        raise SystemExit(f"--out: directory does not exist: {out_path.parent}")
     # Absolute: each run's cwd is a scratch dir, where a relative path names nothing.
     claude = shutil.which(args.claude)
     if claude is None:
@@ -36,8 +46,14 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
                          stock=not args.sealed, listing_budget_fraction=args.listing_budget_fraction,
                          claude=os.path.abspath(claude))
 
+    done: list = []
+    lock = threading.Lock()
+
     def one(q):
         rec = tp.probe_trigger_set([q], catalog, cfg, trials=args.trials)[0]
+        with lock:  # what has run so far survives an interrupt or a later failure
+            done.append(rec)
+            _write(out_path, {"partial": True, "answers": done})
         print(f"{q.id}: " + ", ".join(
             f"{a}={'+'.join(v['tool_usage']['skill']['first_turn_loaded']) or '-'}"
             + (f" ({v['error']})" if v["error"] else "") for a, v in rec["arms"].items()),
@@ -46,6 +62,11 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
 
     with ThreadPoolExecutor(max(1, args.concurrency)) as pool:
         records = list(pool.map(one, queries))
+    runs = [v for r in records for v in r["arms"].values()]
+    listed = {s.rsplit(":", 1)[-1] for v in runs for s in v["tool_usage"]["skill"]["listed"]}
+    # A skill the harness never offered (a frontmatter name that is not its directory's,
+    # a nested layout) reads as a 0% recall; say so instead of scoring it.
+    not_listed = sorted(names - listed) if listed else []
     cost = sum(v["metrics"]["cost_usd"] or 0 for r in records for v in r["arms"].values())
     out = {
         "harness": "claude-code",
@@ -59,14 +80,25 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
                                      for v in r["arms"].values()
                                      if v["tool_usage"]["skill"]["claude_code_version"]), None),
         "cost_usd": round(cost, 4),
+        "max_turns_hit": sum(v["metrics"].get("stop") == "error_max_turns" for v in runs),
+        "not_listed": not_listed,
         "answers": records,
         "skill_selection_summary": summarize_skill_selection(records),
     }
-    Path(args.out).write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    _write(out_path, out)
     print(json.dumps({"cost_usd": out["cost_usd"], "claude_code_version": out["claude_code_version"],
+                      "max_turns_hit": out["max_turns_hit"], "not_listed": not_listed,
                       "summary": {a: {k: s[k] for k in ("recall", "false_trigger_rate", "misroute_rate", "n_failed")}
                                   for a, s in out["skill_selection_summary"].items()}}, indent=2))
     print(f"wrote {args.out}")
+    if not_listed:
+        raise SystemExit(f"catalog skills Claude Code did not list: {', '.join(not_listed)}")
+
+
+def _write(path: Path, data: dict) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def register(catalog_sub, positive_int) -> None:
@@ -83,7 +115,7 @@ def register(catalog_sub, positive_int) -> None:
     p.add_argument("--model", help="--model passed to claude (default: the harness default)")
     p.add_argument("--trials", type=positive_int, default=1, help="Fresh runs per query (default: 1)")
     p.add_argument("--max-turns", type=positive_int, default=3, dest="max_turns",
-                   help="claude --max-turns (default: 3)")
+                   help="claude --max-turns (default: 3); runs that hit it are counted in max_turns_hit")
     p.add_argument("--timeout", type=float, default=300.0, help="Seconds per run (default: 300)")
     p.add_argument("--concurrency", type=positive_int, default=4, help="Queries run at once (default: 4)")
     p.add_argument("--limit", type=positive_int, help="Only the first N labelled queries")

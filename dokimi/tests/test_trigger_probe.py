@@ -54,6 +54,15 @@ def test_parse_stream_takes_the_first_skill_turn_as_the_choice():
     assert tp.parse_stream(_stream())["selected"] is None
 
 
+def test_tools_after_the_choice_are_not_counted_before_it():
+    events = [{"type": "assistant", "message": {"id": "m1", "content": [
+                  {"type": "tool_use", "name": "Skill", "input": {"skill": "sum-fast"}}]}},
+              {"type": "assistant", "message": {"id": "m2", "content": [
+                  {"type": "tool_use", "name": "Bash", "input": {}}]}}]
+    s = tp.parse_stream("\n".join(json.dumps(e) for e in events))
+    assert s["first_turn_loaded"] == ["sum-fast"] and s["tools_before_choice"] == []
+
+
 def test_parse_stream_groups_per_block_events_by_message_id():
     # Claude Code streams each content block as its own event; one turn shares message.id.
     def block(mid, block, parent=None):
@@ -215,3 +224,115 @@ def test_cli_runs_a_relative_claude_from_the_scratch_cwd(tmp_path, monkeypatch, 
     out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
     arm = out["answers"][0]["arms"]["claude_code#1"]
     assert arm["error"] is None and arm["tool_usage"]["skill"]["first_turn_loaded"] == ["sum-fast"]
+
+
+def test_run_query_passes_argv_env_timeout_and_empty_stdin(tmp_path):
+    seen = {}
+
+    def runner(argv, **kw):
+        if argv[0] == "git":
+            return process.run(argv, **kw)
+        seen.update(kw, argv=list(argv))
+        return process.reply(_stream(["sum-fast"]))
+
+    cfg = tp.ProbeConfig(model="haiku", max_turns=7, timeout_sec=12.5, stock=False,
+                         listing_budget_fraction=0.02, claude="/opt/claude")
+    tp.run_query("sum it", _catalog(tmp_path), cfg, runner=runner, source_env={"PATH": "/bin"})
+    argv = seen["argv"]
+    assert argv[:3] == ["/opt/claude", "-p", "sum it"]
+    for flag, value in (("--output-format", "stream-json"), ("--max-turns", "7"), ("--model", "haiku")):
+        assert argv[argv.index(flag) + 1] == value
+    assert "--verbose" in argv and "--no-session-persistence" in argv
+    assert json.loads(argv[argv.index("--settings") + 1])["skillListingBudgetFraction"] == 0.02
+    env = seen["env"].resolve()
+    root = Path(env["HOME"]).parent
+    assert env["TMPDIR"] == env["HOME"] == str(root / "home") and env["CLAUDE_CONFIG_DIR"] == str(root / "config")
+    assert env["CLAUDE_CODE_DISABLE_BUNDLED_SKILLS"] == "1"
+    assert seen["timeout"] == 12.5 and seen["input"] == "" and seen["cwd"] == root / "work"
+
+
+def test_staging_copies_symlinked_skills_as_files(tmp_path):
+    cat = _catalog(tmp_path)
+    (tmp_path / "ext").mkdir()
+    (tmp_path / "ext" / "ref.md").write_text("ref", encoding="utf-8")
+    (cat / "io-read" / "ref.md").symlink_to(tmp_path / "ext" / "ref.md")
+    ws = tp.new_workspace()
+    try:
+        copied = tp.stage_workspace(cat, ws) / ".claude" / "skills" / "io-read" / "ref.md"
+        assert not copied.is_symlink() and copied.read_text(encoding="utf-8") == "ref"
+    finally:
+        ws.cleanup()
+
+
+@pytest.mark.skipif(not Path("/proc/self/cwd").exists(), reason="reads /proc")
+def test_kill_strays_ends_a_backgrounded_process_left_in_the_workspace(tmp_path):
+    import subprocess
+
+    (tmp_path / "work").mkdir()
+    # Its own session, as the Bash tool's background job is: a group kill does not reach it.
+    proc = subprocess.Popen(["sleep", "60"], cwd=tmp_path / "work", start_new_session=True)
+    try:
+        assert tp.kill_strays(tmp_path) == [proc.pid]
+        assert proc.wait(timeout=5) == -9
+    finally:
+        proc.kill()
+
+
+def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read")):
+    from dokimi.commands import catalog_probe
+
+    seen = {}
+
+    def fake_probe(queries, catalog, cfg, *, trials=1, **kw):
+        seen.update(cfg=cfg, trials=trials, catalog=catalog)
+        seen.setdefault("queries", []).extend(q.id for q in queries)
+        skill = tp.parse_stream(_stream(["sum-fast"]).replace(
+            '["sum-fast", "io-read", "dataviz"]', json.dumps(list(init_skills))))
+        return [{"question_id": q.id, "question_text": q.text, "expected_skill": q.expected_skill,
+                 "arms": {"claude_code#1": {"answer": None, "error": None, "tool_usage": {"skill": skill},
+                                            "metrics": {"cost_usd": 0.01, "num_turns": 3,
+                                                        "stop": "error_max_turns"}}}} for q in queries]
+
+    class Pool(catalog_probe.ThreadPoolExecutor):
+        def __init__(self, n):
+            seen["concurrency"] = n
+            super().__init__(n)
+
+    monkeypatch.setattr(tp, "probe_trigger_set", fake_probe)
+    monkeypatch.setattr(catalog_probe, "ThreadPoolExecutor", Pool)
+    (tmp_path / "ts.json").write_text(json.dumps({"questions": [
+        {"id": q, "question": f"q {q}", "expected_skill": "sum-fast"} for q in ("a", "b", "c")]}),
+        encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    if not (tmp_path / "cat").exists():
+        _catalog(tmp_path)
+    args = build_parser().parse_args(["catalog", "trigger-probe", "--catalog", "cat", "--trigger-set",
+                                      "ts.json", "--claude", "sh", *extra])
+    args.func(args)
+    return seen
+
+
+def test_cli_passes_every_flag_to_the_probe(tmp_path, monkeypatch):
+    seen = _cli(tmp_path, monkeypatch, "--model", "haiku", "--limit", "2", "--trials", "3",
+                "--max-turns", "6", "--timeout", "9", "--listing-budget-fraction", "0.04",
+                "--concurrency", "5", "--sealed", "--out", "probe.json")
+    cfg = seen["cfg"]
+    assert (cfg.model, cfg.max_turns, cfg.timeout_sec, cfg.stock, cfg.listing_budget_fraction) == (
+        "haiku", 6, 9.0, False, 0.04)
+    assert os.path.isabs(cfg.claude) and seen["trials"] == 3 and seen["concurrency"] == 5
+    assert sorted(seen["queries"]) == ["a", "b"]
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["mode"] == "sealed" and out["max_turns_hit"] == 2 and out["not_listed"] == []
+
+
+def test_cli_refuses_a_bad_out_or_target_before_any_run(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="directory does not exist"):
+        _cli(tmp_path, monkeypatch, "--out", "nodir/probe.json")
+    with pytest.raises(SystemExit, match="not a skill in --catalog"):
+        _cli(tmp_path, monkeypatch, "--target", "sum-fsat", "--out", "probe.json")
+
+
+def test_cli_fails_when_claude_code_did_not_list_a_catalog_skill(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="did not list: io-read"):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", init_skills=("sum-fast", "dataviz"))
+    assert json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))["not_listed"] == ["io-read"]

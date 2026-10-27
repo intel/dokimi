@@ -584,8 +584,9 @@ uv run reach diff --vary description control.json treatment.json   # A/B vs nois
 
 **Real harness, in dokimi: `catalog trigger-probe`.** Runs each query in a fresh
 `claude -p`: a new git repository with the catalog committed in `.claude/skills/`, a
-scratch `HOME` and `CLAUDE_CONFIG_DIR` (your own skills, settings and `CLAUDE.md` never
-reach it), the query sent verbatim with no notice or task framing, and bundled skills
+scratch `HOME` and `CLAUDE_CONFIG_DIR` (your own skills, settings and `CLAUDE.md` are not
+loaded; the model can still read any host path it has access to, the trigger set and its
+labels included), the query sent verbatim with no notice or task framing, and bundled skills
 left on as a user has them (`--sealed` turns them off). The skill chosen is read from the
 transcript's `Skill` calls, and the output's `skill_selection_summary` is scored by the
 same code as the `skill-catalog:` arm, one column per trial:

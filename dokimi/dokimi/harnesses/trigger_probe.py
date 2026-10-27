@@ -13,7 +13,8 @@ that harness as shipped:
   no checkout to walk), with the catalog committed in ``.claude/skills/``, where
   Claude Code looks for project skills, so ``git status`` shows nothing unusual;
 * ``HOME`` and ``CLAUDE_CONFIG_DIR`` are fresh and the env is the sandbox allowlist,
-  so the operator's skills, settings and ``CLAUDE.md`` never reach the run;
+  so the operator's skills, settings and ``CLAUDE.md`` are not loaded (the model can
+  still read any host path it is allowed to, the trigger set included);
 * the prompt is the query verbatim: no treatment notice, no task framing;
 * in ``stock`` mode (the default) the bundled skills and tools stay on, as a user
   has them; ``sealed`` switches them off like the docker-claude arms do.
@@ -27,7 +28,9 @@ reads, so both arms are scored by the same code.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import signal
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -151,7 +154,8 @@ def parse_stream(stream: str) -> Dict[str, Any]:
         message = ev.get("message") or {}
         uses = [c for c in message.get("content") or [] if isinstance(c, dict) and c.get("type") == "tool_use"]
         skills = [_skill_name((c.get("input") or {}).get("skill")) for c in uses if c.get("name") == "Skill"]
-        other_tools += [str(c.get("name")) for c in uses if c.get("name") != "Skill"]
+        if not by_turn:  # tools after the choice are not "before" it
+            other_tools += [str(c.get("name")) for c in uses if c.get("name") != "Skill"]
         if skills:
             turn = by_turn.setdefault(str(message.get("id") or f"#{n}"), [])
             turn += [s for s in dict.fromkeys(skills) if s not in turn]
@@ -192,9 +196,36 @@ def run_query(query: str, catalog: Path, cfg: ProbeConfig, *, runner: process.Ru
         elif result.get("is_error") and result.get("subtype") != "error_max_turns":
             error = str(result.get("subtype") or "error")
         return {"skill": skill, "cost_usd": result.get("total_cost_usd"),
-                "num_turns": result.get("num_turns"), "error": error}
+                "num_turns": result.get("num_turns"), "stop": result.get("subtype"), "error": error}
     finally:
+        kill_strays(ws.root)
         ws.cleanup()
+
+
+def kill_strays(root: Path) -> List[int]:
+    """SIGKILL every process whose cwd is under *root*; return their pids (Linux only).
+
+    A command the model backgrounds in its Bash tool runs in a session of its own, so
+    the timeout's process-group kill misses it and it outlives the run and its workspace.
+    """
+    if not Path("/proc").is_dir():
+        return []
+    prefix = str(Path(root).resolve())
+    killed = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit() or int(entry) == os.getpid():
+            continue
+        try:
+            cwd = os.readlink(f"/proc/{entry}/cwd")
+        except OSError:  # exited meanwhile, or not ours to read
+            continue
+        if cwd == prefix or cwd.startswith(prefix + os.sep):
+            try:
+                os.kill(int(entry), signal.SIGKILL)
+                killed.append(int(entry))
+            except OSError:
+                pass
+    return killed
 
 
 def probe_trigger_set(queries: Sequence[Any], catalog: Path, cfg: ProbeConfig, *, trials: int = 1,
@@ -215,13 +246,13 @@ def probe_trigger_set(queries: Sequence[Any], catalog: Path, cfg: ProbeConfig, *
                 r = run_query(q.text, catalog, cfg, runner=runner)
             except (OSError, RuntimeError) as exc:
                 # One failed run (staging, spawn) is that trial's error, not the lost set.
-                r = {"skill": parse_stream(""), "cost_usd": None, "num_turns": None,
+                r = {"skill": parse_stream(""), "cost_usd": None, "num_turns": None, "stop": None,
                      "error": f"{type(exc).__name__}: {exc}"}
             arms[f"{arm_name}#{k + 1}"] = {
                 "answer": None,
                 "error": r["error"],
                 "tool_usage": {"skill": r["skill"]},
-                "metrics": {"cost_usd": r["cost_usd"], "num_turns": r["num_turns"]},
+                "metrics": {"cost_usd": r["cost_usd"], "num_turns": r["num_turns"], "stop": r.get("stop")},
             }
         rec = {"question_id": q.id, "question_text": q.text, "expected_skill": q.expected_skill, "arms": arms}
         out.append(rec)
