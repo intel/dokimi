@@ -416,8 +416,8 @@ def _print_routing_summary(payload: dict, n_competitors: int, self_derived: bool
         if not cost["llm_calls"]:
             print("cost     0 calls")
         else:
-            spent = (f"${cost['usd']:.4f}" if cost["usd"] is not None
-                     else "USD not known: a call had no price or no usage")
+            spent = ("USD not known: a call had no price or no usage" if cost["usd"] is None
+                     else "<$0.0001" if 0 < cost["usd"] < 0.00005 else f"${cost['usd']:.4f}")
             replayed = (f", {cost['replayed_calls']} replayed from the cache and not counted"
                         if cost["replayed_calls"] else "")
             print(f"cost     {cost['llm_calls']} calls, {cost['input_tokens']} input / "

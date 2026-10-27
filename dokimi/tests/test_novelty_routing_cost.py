@@ -63,6 +63,19 @@ def test_a_model_run_records_its_calls_tokens_and_cost(tmp_path, monkeypatch, ca
     assert "replayed" not in out
 
 
+def test_a_paid_run_under_a_hundredth_of_a_cent_is_not_printed_as_free(
+        tmp_path, monkeypatch, capsys):
+    from dokimi.metrics.usage import UsageRecord
+
+    # Two short routing calls on a small model cost about this much; $0.0000 reads as free.
+    _stub_provider(monkeypatch, UsageRecord(prompt_tokens=50, completion_tokens=1,
+                                            cost_usd=0.00001))
+    payload = _model_run(tmp_path)
+    assert payload["cost"]["usd"] == 0.00002
+    assert ("cost     2 calls, 100 input / 2 output tokens, cache read 0 / write 0, "
+            "<$0.0001") in capsys.readouterr().out.splitlines()
+
+
 def test_a_model_run_with_an_unpriced_call_reports_no_usd_figure(tmp_path, monkeypatch, capsys):
     from dokimi.metrics.usage import UsageRecord
 
