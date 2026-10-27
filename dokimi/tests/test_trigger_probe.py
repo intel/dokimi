@@ -291,7 +291,7 @@ def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read")):
         return [{"question_id": q.id, "question_text": q.text, "expected_skill": q.expected_skill,
                  "arms": {"claude_code#1": {"answer": None, "error": None, "tool_usage": {"skill": skill},
                                             "metrics": {"cost_usd": 0.01, "num_turns": 3,
-                                                        "stop": "error_max_turns"}}}} for q in queries]
+                                                        "result_subtype": "error_max_turns"}}}} for q in queries]
 
     class Pool(catalog_probe.ThreadPoolExecutor):
         def __init__(self, n):
@@ -322,13 +322,16 @@ def test_cli_passes_every_flag_to_the_probe(tmp_path, monkeypatch):
     assert os.path.isabs(cfg.claude) and seen["trials"] == 3 and seen["concurrency"] == 5
     assert sorted(seen["queries"]) == ["a", "b"]
     out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert not (tmp_path / "probe.json.partial").exists()
     assert out["mode"] == "sealed" and out["max_turns_hit"] == 2 and out["not_listed"] == []
 
 
 def test_cli_refuses_a_bad_out_or_target_before_any_run(tmp_path, monkeypatch):
-    with pytest.raises(SystemExit, match="directory does not exist"):
+    from dokimi.utils import InputError
+
+    with pytest.raises(InputError, match="not a writable file path"):
         _cli(tmp_path, monkeypatch, "--out", "nodir/probe.json")
-    with pytest.raises(SystemExit, match="not a skill in --catalog"):
+    with pytest.raises(InputError, match="not a skill in --catalog"):
         _cli(tmp_path, monkeypatch, "--target", "sum-fsat", "--out", "probe.json")
 
 

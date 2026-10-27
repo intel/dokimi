@@ -196,7 +196,7 @@ def run_query(query: str, catalog: Path, cfg: ProbeConfig, *, runner: process.Ru
         elif result.get("is_error") and result.get("subtype") != "error_max_turns":
             error = str(result.get("subtype") or "error")
         return {"skill": skill, "cost_usd": result.get("total_cost_usd"),
-                "num_turns": result.get("num_turns"), "stop": result.get("subtype"), "error": error}
+                "num_turns": result.get("num_turns"), "result_subtype": result.get("subtype"), "error": error}
     finally:
         kill_strays(ws.root)
         ws.cleanup()
@@ -246,13 +246,13 @@ def probe_trigger_set(queries: Sequence[Any], catalog: Path, cfg: ProbeConfig, *
                 r = run_query(q.text, catalog, cfg, runner=runner)
             except (OSError, RuntimeError) as exc:
                 # One failed run (staging, spawn) is that trial's error, not the lost set.
-                r = {"skill": parse_stream(""), "cost_usd": None, "num_turns": None, "stop": None,
+                r = {"skill": parse_stream(""), "cost_usd": None, "num_turns": None, "result_subtype": None,
                      "error": f"{type(exc).__name__}: {exc}"}
             arms[f"{arm_name}#{k + 1}"] = {
                 "answer": None,
                 "error": r["error"],
                 "tool_usage": {"skill": r["skill"]},
-                "metrics": {"cost_usd": r["cost_usd"], "num_turns": r["num_turns"], "stop": r.get("stop")},
+                "metrics": {"cost_usd": r["cost_usd"], "num_turns": r["num_turns"], "result_subtype": r.get("result_subtype")},
             }
         rec = {"question_id": q.id, "question_text": q.text, "expected_skill": q.expected_skill, "arms": arms}
         out.append(rec)

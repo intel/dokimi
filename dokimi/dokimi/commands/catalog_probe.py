@@ -20,18 +20,23 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     from dokimi.external import trigger_set as ts
     from dokimi.harnesses import trigger_probe as tp
     from dokimi.skills import discover_skills
+    from dokimi.utils import InputError
 
     catalog = Path(args.catalog)
     if not catalog.is_dir():
-        raise SystemExit(f"--catalog is not a directory: {catalog}")
-    names = {s.name for s in discover_skills(catalog)}
+        raise InputError(f"--catalog is not a directory: {catalog}")
+    try:
+        names = {s.name for s in discover_skills(catalog)}
+    except (OSError, ValueError) as exc:
+        raise InputError(f"--catalog: {exc}") from exc
     if args.target and args.target not in names:
-        raise SystemExit(f"--target {args.target!r} is not a skill in --catalog "
+        raise InputError(f"--target {args.target!r} is not a skill in --catalog "
                          f"(have: {', '.join(sorted(names))})")
     # Checked before any paid run, so a bad --out costs nothing.
     out_path = Path(args.out)
-    if not out_path.parent.is_dir():
-        raise SystemExit(f"--out: directory does not exist: {out_path.parent}")
+    partial = out_path.with_name(out_path.name + ".partial")
+    if out_path.is_dir() or not out_path.parent.is_dir() or not os.access(out_path.parent, os.W_OK):
+        raise InputError(f"--out: not a writable file path: {out_path}")
     # Absolute: each run's cwd is a scratch dir, where a relative path names nothing.
     claude = shutil.which(args.claude)
     if claude is None:
@@ -51,9 +56,9 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
 
     def one(q):
         rec = tp.probe_trigger_set([q], catalog, cfg, trials=args.trials)[0]
-        with lock:  # what has run so far survives an interrupt or a later failure
+        with lock:  # what has run so far survives a later failure or a kill
             done.append(rec)
-            _write(out_path, {"partial": True, "answers": done})
+            _write(partial, {"partial": True, "answers": done})
         print(f"{q.id}: " + ", ".join(
             f"{a}={'+'.join(v['tool_usage']['skill']['first_turn_loaded']) or '-'}"
             + (f" ({v['error']})" if v["error"] else "") for a, v in rec["arms"].items()),
@@ -80,12 +85,13 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
                                      for v in r["arms"].values()
                                      if v["tool_usage"]["skill"]["claude_code_version"]), None),
         "cost_usd": round(cost, 4),
-        "max_turns_hit": sum(v["metrics"].get("stop") == "error_max_turns" for v in runs),
+        "max_turns_hit": sum(v["metrics"].get("result_subtype") == "error_max_turns" for v in runs),
         "not_listed": not_listed,
         "answers": records,
         "skill_selection_summary": summarize_skill_selection(records),
     }
     _write(out_path, out)
+    partial.unlink(missing_ok=True)
     print(json.dumps({"cost_usd": out["cost_usd"], "claude_code_version": out["claude_code_version"],
                       "max_turns_hit": out["max_turns_hit"], "not_listed": not_listed,
                       "summary": {a: {k: s[k] for k in ("recall", "false_trigger_rate", "misroute_rate", "n_failed")}
