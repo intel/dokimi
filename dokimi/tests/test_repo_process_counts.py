@@ -80,6 +80,7 @@ def test_process_on_one_arm_only_does_not_flood_unpaired(tmp_path, arm_with_proc
     # ...but the skipped counts are named once per treatment and model, not dropped silently
     skipped = [w for w in summary["warnings"] if "only one arm reports" in w]
     assert len(skipped) == 1 and "process:tool_calls" in skipped[0] and "counter:bazel" in skipped[0]
+    assert skipped[0].startswith("guidance:raw ")
 
 
 @pytest.mark.parametrize("null_rep", [1, 2, 3])
