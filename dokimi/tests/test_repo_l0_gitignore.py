@@ -39,6 +39,11 @@ IGNORES = {
         "d[!a]e/f",  # nor does a bracket match one
         "[]a]q",
         "a[",  # unclosed: matches nothing
+        r"\!bang",
+        "sp\\ ",  # an escaped trailing space is kept
+        "[^x]z.bin",
+        "[a-]w",
+        "[[:digit:]]9.d",
         "",
     ]),
     "sub/.gitignore": "!*.o\nlocal\n",
@@ -60,6 +65,7 @@ PATHS = [
     "z.h", "y.h", "1.d", "a.d", "]x.e", "ax", "bx", "sub/ax", "a[",
     "d/e/f", "dbe/f", "]q", "aq",
     "sub/local", "local", "sub/deeper/local",
+    "!bang", "sp ", "sp", "yz.bin", "xz.bin", "-w", "aw", "99.d",
 ]
 
 
