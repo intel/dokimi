@@ -31,6 +31,7 @@ recorded in ``meta.json`` and flagged by the report.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import math
 import os
@@ -59,12 +60,15 @@ from .container import (
     Mount,
     docker_network,
 )
+from .arms import skill_unmeasured, skill_usage, slug
+from .bases import MCP_CONFIG, NOT_UTF8, mcp_config_error
 from .events import convert
 from .uptake import arm_uptake
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
 from .host import probe_host, unmet, validate_tasks
-from .manifest import scratch_name
+from .manifest import match_glob, scratch_name
+from .process_metrics import process_metrics
 from .workspace import PrepError, Task, prepare_workspace
 
 SUPPORT_HOST = Path(__file__).resolve().parent / "support"
@@ -82,17 +86,63 @@ class AgentOptions:
     agent_network: str | None = None  # explicit opt-in while the egress proxy is missing
     harness_version: str | None = None
     tools: str = "all"
+    delegation: str = "native"     # DELEGATION_MODES; "none" runs the profile's no-subagent tool arguments
     timeout_s: float = 2700
     max_turns: int = 200
     budget_usd: float = 2.0
 
 
-def slug(text: str) -> str:
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("_") or "x"
-
-
 def cell_name(task: str, arm: str, model: str, rep: int) -> str:
     return f"{task}__{slug(arm.replace(':', '-'))}__{slug(model)}__r{rep}"
+
+
+def harness_sha256(path: Path) -> str:
+    """Digest of the harness executable's bytes: the same file gives the same id wherever it lives."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def execution_record(opts: AgentOptions) -> dict[str, str]:
+    """How the cell's agent was started, as ``meta.json`` and ``result.json`` record it."""
+    return {"id": opts.profile.execution_id(opts.tools, opts.delegation, harness_sha256(opts.harness_bin),
+                                             opts.harness_version),
+            "tools": opts.tools, "delegation": opts.profile.effective_delegation(opts.tools, opts.delegation)}
+
+
+def recorded_execution(result: Any) -> dict[str, Any]:
+    """The ``execution`` record of a parsed ``result.json``; empty when there is none or it is not an object."""
+    ran = result.get("execution") if isinstance(result, dict) else None
+    return ran if isinstance(ran, dict) else {}
+
+
+class ExecutionMismatch(PrepError):
+    """A finished cell of the batch ran with another execution than the one asked for."""
+
+
+def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replacing: set[str] | None = None) -> None:
+    """Refuse, before anything runs, a batch dir whose finished cells ran with another execution.
+
+    ``replacing`` (the cells of a ``--force`` run) are skipped: ``--force`` rewrites those, but not the others,
+    which would stay in the report next to the new ones."""
+    wanted = {execution_record(o)["id"] for o in options}
+    found: set[str] = set()
+    for path in sorted(batch_dir.glob("*/result.json")):
+        if replacing is not None and path.parent.name in replacing:
+            continue
+        try:
+            ran = recorded_execution(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+        found.add(ran["id"] if isinstance(ran.get("id"), str) else "unrecorded")
+    other = found - wanted
+    if other:
+        raise ExecutionMismatch(
+            f"{batch_dir} holds cells of another execution ({', '.join(sorted(other))}) than this run "
+            f"({', '.join(sorted(wanted))}); use another --batch, or --force to replace them"
+            + (" (--force replaces only the cells of this run's plan)" if replacing is not None else ""))
 
 
 def agent_network(opts: AgentOptions, ctx: EvalContext, task: Task) -> str:
@@ -147,24 +197,60 @@ def task_caps(task: Task, opts: AgentOptions) -> dict[str, float]:
     return caps
 
 
+def _add_arm_use(record: dict[str, Any], meta: dict[str, Any], task: Task, skills: dict[str, Any] | None,
+                 uptake_of: tuple[list[str], list[str]], events: list[Any] | None) -> None:
+    """Did the agent use what the arm installed (skills) or added (files, MCP servers)?"""
+    if meta.get("skills"):  # without a trace the usage is unmeasured, not zero
+        record["skills"] = skills if skills is not None else skill_unmeasured(
+            [s["name"] for s in meta["skills"]], task.expected_skill)
+    if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
+        record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
+
+
+def _workspace_args(task: Task, opts: AgentOptions, rd: Path, meta: dict[str, Any]) -> frozenset[str]:
+    """Record the ``args_if_present`` the cell runs with, and check the MCP config it gets; returns the files present."""
+    present = frozenset(n for n in opts.profile.args_if_present if (rd / "workspace" / n).exists())
+    meta["args_if_present"] = opts.profile.applied_args(opts.tools, present)  # the ones the cell runs with
+    if MCP_CONFIG in meta["args_if_present"]:  # the arm may have written it: check what the agent is given
+        try:
+            problem = mcp_config_error((rd / "workspace" / MCP_CONFIG).read_text(encoding="utf-8"))
+        except UnicodeDecodeError:
+            problem = NOT_UTF8
+        if problem:
+            raise PrepError(f"task {task.id}: {MCP_CONFIG} in the workspace is {problem}; the agent's CLI would exit "
+                            "on it before its first turn")
+    return present
+
+
 def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, opts: AgentOptions,
              force: bool = False, host: dict[str, Any] | None = None) -> dict[str, Any]:
     """Prepare, run the agent, grade. Returns the cell's ``result.json`` (``skipped`` when it existed).
 
     ``host`` (the probed facts of :func:`.host.probe_host`) is recorded in ``meta.json``."""
     rd = batch_dir / cell_name(task.id, arm, opts.model, rep)
+    execution = execution_record(opts)
     if (rd / "result.json").is_file() and not force:
-        return {**json.loads((rd / "result.json").read_text(encoding="utf-8")), "skipped": True}
+        done = json.loads((rd / "result.json").read_text(encoding="utf-8"))
+        ran = recorded_execution(done)
+        # A result from before execution ids carries none: nothing says how it ran, so it is not reused.
+        if ran.get("id") != execution["id"]:
+            raise ExecutionMismatch(
+                f"the cell finished with another execution ({ran.get('id', 'unrecorded')}, delegation "
+                f"{ran.get('delegation', 'native')}) than this run ({execution['id']}, delegation "
+                f"{execution['delegation']}); use another --batch, or --force to replace it")
+        return {**done, "skipped": True}
     network = agent_network(opts, ctx, task)
     grade_network = docker_network(ctx.manifest.image.network if ctx.manifest.image else "none", task.egress)
     caps = task_caps(task, opts)
     if rd.exists():
         _rmtree(rd)
     rd.mkdir(parents=True)
-    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile)
+    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir)
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
-                batch=batch_dir.name, agent_network=network, egress_proxy=False, host=host)
+                batch=batch_dir.name, agent_network=network, egress_proxy=False, execution=execution, host=host)
+    present = _workspace_args(task, opts, rd, meta)
     _write_json(rd / "meta.json", meta)
+    skills: dict[str, Any] | None = None
 
     mounts, env = agent_layout(ctx, rd, task)
     bin_in = f"{HARNESS_DIR}/{opts.harness_bin.name}"
@@ -178,8 +264,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     env["DOKIMI_HOOK_LOG"] = f"{CONFIG_DIR}/hook.log"
     opts.profile.write_config(rd / "config", {"config_dir": CONFIG_DIR, "support_dir": SUPPORT_DIR})
     argv = opts.profile.argv(prompt=opts.profile.prompt(str(task.raw["prompt"])), model=opts.model,
-                             tools=opts.tools, max_turns=int(caps["max_turns"]), budget_usd=caps["budget_usd"],
-                             bin_path=bin_in)
+                             tools=opts.tools, delegation=opts.delegation, max_turns=int(caps["max_turns"]),
+                             budget_usd=caps["budget_usd"], bin_path=bin_in, present=present)
     spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts, env=env, pass_env=passed,
                          network=network, name=container_name(rd.name, "agent"))
     result = ctx.runner.run(spec, stdout=rd / "agent.stdout", stderr=rd / "agent.stderr",
@@ -193,6 +279,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
         "cache_write_tokens": None, "usage_scope": None, "subagent_calls": None,
         "plugins": [], "over_budget": False, "caps": caps, "network": network, "trace_errors": []}
+    process: dict[str, Any] | None = None  # null when the trace could not be read
     added = meta.get("arm_patch") or {}
     uptake_of = (added.get("added") or [], added.get("mcp_servers") or [])
     events = None  # the trace's events once it parsed; none: the uptake is unmeasured
@@ -216,6 +303,10 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             cache_write_tokens=transcript.cache_write_tokens, usage_scope=transcript.usage_scope,
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
+        if events is not None:  # after the cost is recorded: a metric that fails must not cost the cell its record
+            process = _process_or_null(ctx, events, agent["trace_errors"])
+        if meta.get("skills") and (transcript.events or transcript.num_turns is not None):  # else it never started
+            skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
         grade = outcome(task, rd, graded)
     except Exception as exc:  # noqa: BLE001  # the grade run failed to start, or the host failed around it
@@ -226,16 +317,32 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     record: dict[str, Any] = {"task": task.id, "family": task.family, "arm": arm, "model": opts.model,
                               "model_resolved": meta.get("model_resolved"), "rep": rep,
                               "harness": opts.profile.name, "harness_version": meta["harness_version"],
-                              "base_date": meta["base_date"], "score_task": bool(task.score),
-                              "score_max": task.score["max"] if task.score else None, "agent": agent, "grade": grade}
-    if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
-        record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
+                              "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
+                              "score_max": task.score["max"] if task.score else None, "agent": agent,
+                              "process": process, "grade": grade}
+    _add_arm_use(record, meta, task, skills, uptake_of, events)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
         _write_json(rd / "result.json", record)
     except OSError as exc:
         raise CellCrash(f"cannot write result.json: {exc}", float(agent["charged_usd"])) from exc
     return record
+
+
+def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]]) -> dict[str, Any]:
+    """``result.json`` ``process``: the framework's counts and the manifest's ``process_metrics`` (contract §4.1)."""
+    globs = ctx.manifest.guidance_globs
+    return process_metrics(events, lambda path: any(match_glob(g, path) for g in globs),
+                           ctx.manifest.process_metrics)
+
+
+def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: list[str]) -> dict[str, Any] | None:
+    """The cell's ``process``, or None when its metrics raise: a best-effort count must not fail the task."""
+    try:
+        return run_process_metrics(ctx, events)
+    except Exception as exc:  # noqa: BLE001  # a metric that fails is recorded, the grade still counts
+        errors.append(f"process metrics failed ({type(exc).__name__}): {str(exc)[:200]}")
+        return None
 
 
 class CellCrash(Exception):
@@ -252,6 +359,28 @@ def _own_dir(path: Path) -> None:
         os.chmod(path, stat.S_IMODE(mode) | stat.S_IRWXU)
 
 
+def _log_cell(log, name: str, rec: dict[str, Any]) -> None:
+    g, a = rec["grade"], rec["agent"]
+    verdict = ("GRADER FAILURE" if g["status"] == "grader_failure"
+               else f"score {g['score']}" if g["score_only"] else "pass" if g["success"] else "fail")
+    log(f"{name}: {verdict}; ${a['cost_usd'] or 0:.4f}, {a['num_turns']} turns, {a['wall_s']}s"
+        + (" (agent timed out)" if a["timed_out"] else ""))
+
+
+def _probe_failed(batch_dir: Path, cells: list, verdicts: dict) -> list[str]:
+    """Tasks whose host probe failed and that still have an unrun cell: a finished cell keeps its result."""
+    return [task_id for task_id, (_, by) in verdicts.items() if by == "host-probe"
+            and any(not _done(batch_dir / cell_name(t.id, a, o.model, r))
+                    for t, a, o, r in cells if t.id == task_id)]
+
+
+def _clear_unsupported_markers(batch_dir: Path, cells: list, unsupported: dict) -> None:
+    """This host meets the requirements of the other tasks: an old marker would hide a cell this run never reaches."""
+    for t, a, o, r in cells:
+        if t.id not in unsupported:
+            (batch_dir / cell_name(t.id, a, o.model, r) / UNSUPPORTED_FILE).unlink(missing_ok=True)
+
+
 def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: list[AgentOptions], reps: int,
               batch_dir: Path, jobs: int = 1, force: bool = False, max_batch_usd: float | None = None,
               log=print) -> dict[str, Any]:
@@ -262,20 +391,19 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     ``result.json`` (from a host that met them) keeps it, even with ``force``."""
     validate_tasks(tasks)
     cells = [(t, a, o, r) for t in tasks for a in arms for o in options for r in range(1, reps + 1)]
-    _record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
+    check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None)
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
     verdicts = {t.id: unmet(t, host) for t in tasks}
     unsupported = {task_id: why for task_id, (why, _) in verdicts.items() if why}
-    # A probe failure only costs the run when a cell of the task is left unrun: a finished cell keeps its result.
-    probe_failed = [task_id for task_id, (_, by) in verdicts.items() if by == "host-probe"
-                    and any(not _done(batch_dir / cell_name(t.id, a, o.model, r))
-                            for t, a, o, r in cells if t.id == task_id)]
+    if force and unsupported:  # --force keeps their finished cells, so those must match this run too
+        check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells
+                                                    if t.id not in unsupported})
+    _record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
+    probe_failed = _probe_failed(batch_dir, cells, verdicts)
     for task_id, why in unsupported.items():
         log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
-    for t, a, o, r in cells:  # this host meets them: an old marker would hide a cell this run never reaches
-        if t.id not in unsupported:
-            (batch_dir / cell_name(t.id, a, o.model, r) / UNSUPPORTED_FILE).unlink(missing_ok=True)
+    _clear_unsupported_markers(batch_dir, cells, unsupported)
     lock = threading.Lock()
     state: dict[str, Any] = {"spent": 0.0, "ran": 0, "skipped": 0, "errors": [], "budget_stopped": 0,
                              "unsupported": 0}
@@ -313,11 +441,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
                 return
             state["ran"] += 1
             state["spent"] += rec["agent"].get("charged_usd", rec["agent"]["cost_usd"]) or 0.0
-        g, a = rec["grade"], rec["agent"]
-        verdict = ("GRADER FAILURE" if g["status"] == "grader_failure"
-                   else f"score {g['score']}" if g["score_only"] else "pass" if g["success"] else "fail")
-        log(f"{name}: {verdict}; ${a['cost_usd'] or 0:.4f}, {a['num_turns']} turns, {a['wall_s']}s"
-            + (" (agent timed out)" if a["timed_out"] else ""))
+        _log_cell(log, name, rec)
 
     with ThreadPoolExecutor(max(1, jobs)) as pool:
         list(pool.map(one, cells))

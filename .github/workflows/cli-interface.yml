@@ -12,8 +12,18 @@ name: cli-interface
 # matches the base again. The check reports; it never fails a PR for a change.
 # Fork PRs get a read-only token, so there the label and comment are skipped and
 # the CLI diff is shown only in the job summary.
+# Only for a PR that touches what the surface is dumped from (the package and
+# cli.py), the dump script or the lock it runs on. Once a PR touches one of
+# them the filter keeps matching (it compares the whole PR with its base), so a
+# later push that reverts the change still runs and clears the label.
 on:
   pull_request:
+    paths:
+      - 'dokimi/dokimi/**'
+      - 'dokimi/cli.py'
+      - 'dokimi/scripts/cli_surface.py'
+      - 'dokimi/requirements.lock.txt'
+      - '.github/workflows/cli-interface.yml'
 
 permissions:
   contents: read
@@ -26,11 +36,11 @@ defaults:
   run:
     working-directory: dokimi
 
-# intel-ubuntu-latest: see ci.yml.
+# ubuntu-latest: see ci.yml.
 jobs:
   cli-surface:
     name: CLI interface diff
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write  # create/apply the label, write the comment
@@ -103,7 +113,7 @@ jobs:
           if-no-files-found: error
       # A fork PR's token is read-only: the diff is then in the job summary only.
       - name: Label and comment on the PR
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8.0.0
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
         env:
           CHANGED: ${{ steps.diff.outputs.changed }}
           DIFF_FILE: ${{ steps.diff.outputs.file }}

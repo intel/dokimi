@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from dokimi.cli import build_parser
 from dokimi.repos.container import CONTENT_DIR, GRADERS_DIR, SOURCE_DIR, ContainerError, ContainerResult
@@ -175,6 +176,7 @@ def test_an_infinite_line_is_unreadable_not_a_grader_crash(tmp_path, line):
     assert review.grade_replay({}, replay, text)["threads_hit"] == []
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_seeds_parse_error_and_clean_control(tmp_path):
     seeds, clean = _task_dir(tmp_path, "seeds_mul"), _task_dir(tmp_path, "clean_mul")
     unparsed = {"pass": False, "parse_error": True, "recall": 0.0}
@@ -202,6 +204,7 @@ def test_replay_is_one_to_one_nearest_first_within_the_window(tmp_path):
                                                   "recall_addressed": 0.0}
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_matching_rules_as_the_contract_states_them(tmp_path):
     """§4.5: same file only, kw case-insensitive, replay within ``window`` (default 5) inclusive."""
     seeds, replay = _task_dir(tmp_path, "seeds_mul"), _task_dir(tmp_path, "replay_mul")
@@ -221,6 +224,7 @@ def test_matching_rules_as_the_contract_states_them(tmp_path):
     assert review.last_json(review.oracle_replay({}, tmp_path / "c"))[0]["message"] == "x" * 200
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_oracles_reach_full_recall(tmp_path):
     for task_id, grade, oracle in (("seeds_mul", review.grade_seeds, review.oracle_seeds),
                                    ("replay_mul", review.grade_replay, review.oracle_replay)):
@@ -322,6 +326,7 @@ def _check(root, out, runner, monkeypatch, *tasks):
     return {t["task"]: t for t in json.loads((out / "check/check.json").read_text())["tasks"]}
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_tasks_check_runs_builtin_graders_not_the_repository_grade(tmp_path, monkeypatch):
     runner = FakeRunner()
     res = _check(_repo(tmp_path), tmp_path / "chk", runner, monkeypatch, *TASKS, "fix_add")
@@ -347,6 +352,7 @@ def test_tasks_check_runs_builtin_graders_not_the_repository_grade(tmp_path, mon
     assert all(GRADERS_DIR not in {m.container for m in s.mounts} for s in repo)
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_repo_validate_finds_a_builtin_task_without_its_data_file_or_a_wrong_name(tmp_path, capsys):
     root = _repo(tmp_path, {"nodata": {**REVIEW, "grader": "dokimi:review_seeds"},  # no manifest.json
                             "typo": {**REVIEW, "grader": "dokimi:review_seed"}})
@@ -359,6 +365,7 @@ def test_repo_validate_finds_a_builtin_task_without_its_data_file_or_a_wrong_nam
     assert any("unknown built-in grader 'dokimi:review_seed'" in e for e in errors), errors
 
 
+@pytest.mark.outcome("cjm-builtin-review-graders")
 def test_an_unknown_builtin_grader_is_refused_not_given_to_the_repository(tmp_path, monkeypatch):
     root = _repo(tmp_path, {"typo": {**REVIEW, "grader": "dokimi:review_seed"}})
     res = _check(root, tmp_path / "chk", FakeRunner(), monkeypatch, "typo")
@@ -583,3 +590,46 @@ def test_a_replay_window_is_checked_only_for_replay_and_defaults_to_five(tmp_pat
     out = capsys.readouterr().out
     errors = json.loads(out).get("errors", []) if out.strip() else []
     assert not any(t in e for e in errors for t in ("replay_nowin", "replay_win3", "seeds_strwin")), errors
+
+
+def test_a_cell_graded_by_a_builtin_grader_needs_no_grade_entry_point(tmp_path, monkeypatch):
+    # `repo validate` accepts a manifest without entry_points.grade when every grader is `dokimi:`;
+    # `repo run` must then grade with the built-in one instead of failing every cell.
+    root = _repo(tmp_path)
+    manifest = {**MANIFEST, "entry_points": {}}
+    write(root, ".agent-eval/repo-eval.yaml", yaml.safe_dump(manifest))
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "no grade entry point")
+    exe, profile = fake_harness(tmp_path)
+    runner = FakeRunner()
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    monkeypatch.setenv("FAKE_ACTION", "fix")
+    out = tmp_path / "runs"
+    args = build_parser().parse_args(
+        ["repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
+         "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(out), "--cache-root", str(out / "caches"),
+         "--agent-network", "host", "--arm", "guidance:raw", "--task", "seeds_mul"])
+    args.func(args)
+    rec = json.loads((out / "b1/seeds_mul__guidance-raw__m-1__r1/result.json").read_text())
+    assert rec["grade"]["status"] == "graded", rec["grade"]["reasons"]
+    assert any(f"{GRADERS_DIR}/main.py" in s.argv for s in runner.specs)
+
+
+def test_a_repository_grader_without_a_grade_entry_point_is_refused_before_any_agent_runs(tmp_path, monkeypatch, capsys):
+    # Without the check every cell would run, be paid for, and grade as grader_failure.
+    root = _repo(tmp_path)
+    write(root, ".agent-eval/repo-eval.yaml", yaml.safe_dump({**MANIFEST, "entry_points": {}}))
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "no grade entry point")
+    exe, profile = fake_harness(tmp_path)
+    runner = FakeRunner()
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
+    out = tmp_path / "runs"
+    args = build_parser().parse_args(
+        ["repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
+         "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(out), "--cache-root", str(out / "caches"),
+         "--agent-network", "host", "--arm", "guidance:raw", "--task", "fix_add"])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    assert runner.specs == [] and not (out / "b1/_eval/batch.json").exists()
+    assert "entry_points/grade: required" in capsys.readouterr().err

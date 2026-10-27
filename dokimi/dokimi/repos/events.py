@@ -9,6 +9,7 @@ Graders and probes read only these events, never a harness-specific trace:
     {"t": 3.1,  "kind": "read",    "path": "AGENTS.md"}
     {"t": 5.0,  "kind": "edit",    "path": "src/foo.cpp"}
     {"t": 20.2, "kind": "tool",    "name": "WebFetch", "denied": true}
+    {"t": 2.0,  "kind": "tool",    "name": "Skill", "skill": "lint-fix"}
 
 ``t`` is seconds since the first timestamped trace line, or ``null`` when the
 format has no timestamps. Paths inside the workspace are made relative to it.
@@ -114,6 +115,28 @@ def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
     return out
 
 
+def _apply_result(block: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> None:
+    """Attach one tool_result to the event of its tool_use."""
+    result_of = by_id.get(block.get("tool_use_id", ""))
+    if result_of is None:
+        return
+    output = _result_text(block.get("content"))
+    # A PreToolUse hook that refuses the call (exit 2) comes back as an error result
+    # naming the hook; the command never ran, so it has no rc.
+    denied = bool(block.get("is_error")) and bool(_HOOK_DENIAL.match(output or ""))
+    if denied:
+        result_of["denied"] = True
+    if result_of["kind"] == "read" and not denied:
+        # A read that failed (the file does not exist) shows nothing of the file.
+        result_of["rc"] = 1 if block.get("is_error") else 0
+    if result_of["kind"] == "command":
+        # Claude Code reports success or failure only, with stdout and stderr merged into one text.
+        if not denied:
+            result_of["rc"] = 1 if block.get("is_error") else 0
+        if output is not None:
+            result_of["output"], result_of["output_truncated"] = clip_output(output)
+
+
 def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
            by_id: dict[str, dict[str, Any]], workdir: str | None) -> None:
     kind = rec.get("type")
@@ -141,22 +164,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
     elif kind == "user":
         for block in _content(rec):
             if block.get("type") == "tool_result":
-                result_of = by_id.get(block.get("tool_use_id", ""))
-                if result_of is None:
-                    continue
-                output = _result_text(block.get("content"))
-                # A PreToolUse hook that refuses the call (exit 2) comes back as an error result
-                # naming the hook; the command never ran, so it has no rc.
-                denied = bool(block.get("is_error")) and bool(_HOOK_DENIAL.match(output or ""))
-                if denied:
-                    result_of["denied"] = True
-                if result_of["kind"] == "command":
-                    # Claude Code reports success or failure only, with stdout
-                    # and stderr merged into one text.
-                    if not denied:
-                        result_of["rc"] = 1 if block.get("is_error") else 0
-                    if output is not None:
-                        result_of["output"], result_of["output_truncated"] = clip_output(output)
+                _apply_result(block, by_id)
     elif kind == "result":
         out.answer = str(rec.get("result") or "").strip()
         out.cost_usd = rec.get("total_cost_usd")
@@ -188,6 +196,8 @@ def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> 
         event.update(kind="read" if name in _READ_TOOLS else "edit", path=_relative(str(path), workdir))
     else:
         event.update(kind="tool", name=name)
+        if name == "Skill":  # Claude Code names the skill in `skill`; older versions in `command`
+            event["skill"] = str(args.get("skill") or args.get("command") or "")
     return event
 
 

@@ -69,14 +69,83 @@ Jekyll or Hugo, an unclosed block) is an author's note, and the task loads
 from `task.toml` with a warning (none for a note without frontmatter, or with
 Hugo's TOML `+++` frontmatter, which is not frontmatter here).
 
-Discovery skips a lone `task.md` without frontmatter with a warning;
-`load_task` on it raises. A lone `task.md` with frontmatter is a task, whatever
+Discovery skips a lone `task.md` without frontmatter, and a `task.yaml`
+mapping with no `instruction`, with a warning; `load_task` on either raises. A lone `task.md` with frontmatter is a task, whatever
 its keys. One that opens with `---` but does not parse (a horizontal rule, an
 unclosed block, invalid YAML, a non-mapping) fails discovery of the whole
 root, as a malformed `task.toml` does; `coverage` skips it. YAML aliases are
 refused (a few hundred bytes of nested aliases expand without bound), and
 frontmatter nested too deeply to parse is a parse error. YAML and TOML dates
 and times become ISO strings, and YAML sets sorted lists.
+
+### Other eval formats: `tasks inspect`
+
+`python cli.py tasks inspect <path> [--json] [--out FILE]` names the eval-task format of a
+file, a task directory, or every item under a tree, and reports its structure:
+kind, item count, which parts are present or missing (instruction,
+environment, oracle, verifier, metadata), lint problems, and what in dokimi
+can consume it today. It only reads: nothing is run or converted, a Python
+file is scanned as text and never imported, and a file that does not parse is
+a problem on its report, not an error. A path no format claims is reported as
+`unknown` with its files (or keys) and likely prompt and verifier files; when
+two formats claim a path about equally, the report lists the other as
+`ambiguous` with its evidence. `--json` prints and `--out` writes the report
+as a `task_inspect.v1` artifact (`schemas/task_inspect.v1.json`).
+
+A dataset file a config in the same tree names is read as that config says:
+an Inspect `@task` file's `json_dataset("x.jsonl", FieldSpec(input="question",
+target="answer"))` makes `x.jsonl` Inspect samples under those keys, an OpenAI
+evals registry spec makes its `samples_jsonl` OpenAI evals (with no `ideal`
+needed when the spec's class is model-graded), and promptfoo `tests:
+file://tests.csv` makes that file promptfoo tests. The report says which file
+named it. A file that is a git-LFS pointer stub (a clone without `git lfs
+pull`) is reported as `git-lfs-pointer`, with the format a config expects it
+to be when one names it. `tests/fixtures/task_formats/` holds a small corpus of
+real files in each format, with their sources in its `MANIFEST.yaml`.
+
+| Format | Recognised by | Kind | Consumed by |
+|---|---|---|---|
+| `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` (with `environment/Dockerfile`) |
+| `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` (with `environment/Dockerfile`) |
+| `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | `docker-*` run it as it is; `harbor`, `benchflow` through a cached Harbor export (not a `solution.yaml` task) |
+| `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | none yet |
+| `inspect-samples` | JSON/JSONL/CSV rows with `input` and `target` (or the keys a `FieldSpec` names) | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
+| `inspect-task` | `.py` importing `inspect_ai` with a `@task` function | answer-only (executable with a `sandbox=`) | `questions import` ([answer-only formats](answer-formats.md)) |
+| `openai-evals` | JSONL rows with `input` (chat messages) and `ideal` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
+| `openai-evals-spec` | registry YAML with `class: evals.elsuite.*` run specs | answer-only | none yet |
+| `skill-creator-evals` | `evals.json` with `skill_name` and `evals[].prompt` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
+| `promptfoo` | `promptfooconfig*.yaml`/`.json`, or a config with `prompts`, `providers`/`targets` and `tests`/`scenarios`/`redteam` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
+| `skill-creator-trigger` | rows with `query` and `should_trigger` | trigger | `catalog trigger-set` |
+| `skill-reach` | `QuerySet` (`queries[]` with `query_id`/`id`, `text`, `expected_skill`) | trigger | `catalog trigger-set` |
+| `promptfoo-tests` | CSV with `__expected` columns, or rows of `{vars, assert}` | answer-only | none yet |
+| `dokimi-questions` | questions.v1/v2 JSON | answer-only (trigger with `expected_skill`) | questions track |
+| `dokimi-explore-task` | YAML with `id`, `query` and `references[].path` | localization | explore track |
+| `git-lfs-pointer` | a git-LFS spec v1 pointer stub | unknown | none (fetch it first) |
+
+A terminal-bench v1 task (`task.yaml`, laude-institute/terminal-bench
+`original-tasks/`) runs as it is under `docker-*`: `solution.sh` is copied to
+`/oracle/solution.sh`, `run-tests.sh` and `tests/` to `/tests`, both run as the
+image's user with `TEST_DIR=/tests` and the compose `environment`, and the
+verdict is the pytest `short test summary info` (every listed test passed, skipped or
+xfailed), not the exit code, as terminal-bench reads it. `docker-*` refuses,
+with the reason, a task whose `docker-compose.yaml` needs more than one
+`docker run` of its default build stage (a second service, volumes, tmpfs,
+ports, a service `command` other than `sleep infinity`, `build.args` or
+`build.target`, an `environment` value read from the host), a `parser_name` other
+than `pytest`, `run_tests_in_same_shell`, or (oracle only) a `solution.yaml`.
+The Harbor-backed harnesses and `benchflow*` run a Harbor copy written on first
+use to `~/.cache/dokimi/harbor-export/<content hash>/` (mode 0700) by
+[`harbor_export.py`](../dokimi/harnesses/harbor_export.py); its `test.sh` scores
+the same pytest summary, so a task gets one verdict on every backend.
+
+Memory: terminal-bench sets no limit, so a v1 task gets
+`environment.memory_mb = 8192` (not the 2048 of other formats; tasks such as
+`predicate-pushdown-bench` are OOM-killed at 2 GB), unless its compose file
+sets `deploy.resources.limits.memory`, which `docker compose` honours and
+dokimi reads as the task's own value. `DOKIMI_TBENCH_V1_MEMORY_MB` changes the
+8192 default. The Harbor export writes the same value to `task.toml`.
+
+`tasks list` and `tasks run` still read only the first three.
 
 The `docker-*` harnesses mount the oracle at `/solution` and `/oracle` and the
 verifier at `/tests` and `/verifier`, because a script written for one layout
@@ -256,16 +325,19 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
       data, and `scripts/check_smoke_runs.py` fails the run on it. No
       `egress.jsonl` is written for an `unknown` cell: a missing file is not
       "no requests". The file is also absent when no sandbox ran
-      (`docker-oracle`, the `-host` variants, a build failure), so use
-      `metrics.egress.status` to tell unknown from a cell that ran no sandbox.
+      (`docker-oracle` and the `-host` variants with no allowlisted phase, a
+      build failure), so use `metrics.egress.status` to tell unknown from a
+      cell that ran no sandbox. The file and `metrics.egress` cover the
+      solve's sidecar only: an allowlisted verifier's decisions are
+      `metrics.network.verify_egress`, also saved in `network.json`.
       `docker-probe` reads `violated` on a passing
       cell, because the probe requests denied hosts (`example.com`) by design;
       judge a probe by `isolation_probe.json`, not by `egress.status`.
-- **`network_mode = "public"`.** It applies to the verifier only. The
-  container joins the default bridge after the agent exits. Every
-  uxlfoundation/skills task declares it, and none of their solutions or tests
-  uses the network, so a task whose solve needs a host must list it under
-  `environment.egress`.
+- **`network_mode = "public"`.** An `[environment]`-level `public` applies
+  to the oracle and the verifier, not to an agent: every uxlfoundation/skills
+  task declares it, and none of their solutions or tests uses the network. A
+  task whose agent needs a host lists it under `environment.egress`. See
+  [Network policy](#network-policy) for the other sources.
 - **Environment.** HOME is its own tmpfs, `/run/abhome`; the image's `/tmp`
   is left alone. The environment is:
     - the provider-credential allowlist;
@@ -473,6 +545,43 @@ Both now land as errored cells.
 A `command:` harness (including a `--command-template` that wraps `harbor`)
 keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else a
 `reward: x` on its output, else exit code 0 is a pass.
+
+### Network policy
+
+Every `docker-*` run has a network per phase, recorded in
+`metrics.network` with the source of each phase's setting, so two runs can
+be checked for the same network before their verdicts are compared:
+
+| Phase | Default | What runs |
+|---|---|---|
+| `build` | `public` (host network, host proxy as build args) | `docker build` |
+| `solve` | `none` (an in-container agent still reaches its LLM through the sidecar) | the oracle, or the agent |
+| `verify` | `none` | `tests/test.sh` |
+
+The modes are Harbor's: `none` (Harbor's `no-network`), `public` (the
+default bridge plus the host's proxy variables), and `allowlist` (the listed
+`host[:port]` entries only, through an egress sidecar; the verifier's
+decisions land in `metrics.network.verify_egress`). Later sources win:
+
+1. The defaults above.
+2. The task: `[environment]` `network_mode` and `allowed_hosts` (or Harbor's
+   deprecated `allow_internet`), then `[agent]` and `[verifier]` overrides,
+   and `environment.egress` for an agent's solve. An unknown mode refuses
+   the cell, and its `network.json` holds the reason.
+3. The operator: `dokimi tasks run --network PHASE=MODE[:host,...]`,
+   repeatable, with `all` for every phase. For example
+   `--network verify=none` grades a public task offline, and
+   `--network solve=allowlist:pypi.org,files.pythonhosted.org` lets every
+   arm install packages.
+
+A skill that needs the network at solve time declares it in its `SKILL.md`
+frontmatter as `metadata.network` (`allowlist:host,...` or `public`), with
+the reason for people in `compatibility`, the Agent Skills spec's field for
+environment needs. The run does not widen the skill arm for it: its baseline
+would then run on another network. `metrics.network.skill.missing` lists the
+declared hosts this run did not grant; pass them with `--network solve=...`
+so every arm gets them. A value that does not parse is recorded as it is, with
+`error` and `missing: null`, and the arm still runs.
 
 ## BenchFlow Cells
 

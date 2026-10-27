@@ -79,6 +79,7 @@ def test_reads_and_calls_of_the_arms_mcp_servers_count_others_do_not():
     assert unmeasured["measured"] is False and unmeasured["used"] is False
 
 
+@pytest.mark.outcome("cjm-arm-uptake")
 def test_a_call_the_harness_denied_is_not_a_use():
     def use(i, name, args):
         return {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": i, "name": name, "input": args}]}}
@@ -176,6 +177,7 @@ def _run(s, batch, *arms, model="m-1"):
     args.func(args)
 
 
+@pytest.mark.outcome("cjm-arm-uptake")
 def test_repo_run_records_uptake_and_compare_warns_when_nothing_was_used(setup, monkeypatch):  # noqa: F811
     patch = setup["tmp"] / "kit.diff"
     patch.write_text(KIT_PATCH)
@@ -222,6 +224,7 @@ def _used_none(summary):
     return [w for w in summary["warnings"] if "used none" in w]
 
 
+@pytest.mark.outcome("cjm-arm-uptake")
 def test_an_agent_that_left_no_trace_is_unmeasured_one_that_called_no_tool_is_measured(setup, monkeypatch):  # noqa: F811
     patch = setup["tmp"] / "kit.diff"
     patch.write_text(KIT_PATCH)
@@ -231,6 +234,9 @@ def test_an_agent_that_left_no_trace_is_unmeasured_one_that_called_no_tool_is_me
         _run(setup, action, "guidance:raw", f"patch:{patch}")
     silent, idle = setup["out"] / "silent", setup["out"] / "idle"
     assert json.loads(next(silent.glob("*patch*__r1/result.json")).read_text())["uptake"]["measured"] is False
+    # an agent that left no trace has no process counts; a run that started and made no call has zeros
+    assert json.loads(next(silent.glob("*patch*__r1/result.json")).read_text())["process"] is None
+    assert json.loads(next(idle.glob("*patch*__r1/result.json")).read_text())["process"]["tool_calls"] == 0
     assert json.loads(next(idle.glob("*patch*__r1/result.json")).read_text())["uptake"]["measured"] is True
     unmeasured = compare([silent], "guidance:raw", [arm])
     assert unmeasured["uptake"] == {arm: {"cells": 0, "used": 0, "unmeasured": 2}} and not _used_none(unmeasured)

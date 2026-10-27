@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -509,109 +510,275 @@ def test_catalog_competitors_with_name_in_competitors_excludes_it_from_catalog(t
     assert set(names) == {"xpu", "cache"}, f"Expected xpu and cache, got {names}"
 
 
-def _stub_provider(monkeypatch, usage):
-    """Replace the provider call the --model path makes; every reply picks card 1."""
-    from dokimi import llm
 
-    def stub(prompt, model, **_kwargs):
-        return '{"pick": 1}', usage
+def _answer_as(name: str):
+    """A transport reply that picks the card called ``name``, wherever it is shown."""
+    def reply(prompt: str) -> str:
+        lines = prompt.split("TOOLS:", 1)[1].strip().splitlines()
+        return json.dumps({"pick": next(i + 1 for i, line in enumerate(lines)
+                                        if line.split(" ", 1)[1].startswith(name))})
+    return reply
 
-    monkeypatch.setattr(llm, "llm_call_with_usage", stub)
+
+@pytest.mark.parametrize("reply", [
+    "I think the best one is the third.", '{"pick": 0}', '{"pick": 999}',
+])
+def test_a_declined_reply_is_recorded_verbatim(reply):
+    client = LLMClient(model="m", role="selector", transport=lambda p, s: (reply, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert row["abstained"] is True
+    assert row["raw_reply"] == reply
 
 
-def _model_run(tmp_path):
+def test_a_very_long_declined_reply_is_cut_at_the_recording_limit():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: ("x" * 5000, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert len(row["raw_reply"]) == 2000
+
+
+def test_a_long_declined_reply_keeps_its_head_not_its_tail():
+    reply = "a" * 2000 + "b" * 3000
+    client = LLMClient(model="m", role="selector", transport=lambda p, s: (reply, None))
+    row = model_routing([PERF, TBB], ["q1"], client=client)["per_query"][0]
+    assert row["raw_reply"] == reply[:2000]
+
+
+def test_repeats_below_one_are_refused():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: (json.dumps({"pick": 1}), None))
+    with pytest.raises(ValueError, match="at least 1"):
+        model_routing([PERF, TBB], ["q1"], client=client, repeats=0)
+
+
+def test_one_repeat_has_no_noise_block():
+    client = LLMClient(model="m", role="selector",
+                       transport=lambda p, s: (json.dumps({"pick": 1}), None))
+    result = model_routing([PERF, TBB], ["q1", "q2"], client=client)
+    assert (result["repeats"], result["noise"]) == (1, None)
+    assert [row["repeat"] for row in result["per_query"]] == [0, 0]
+
+
+def test_noise_reports_each_query_s_agreement_and_the_spread_between_repeats():
+    # Query 1 is answered PERF, PERF, TBB; query 2 is PERF three times. Calls run query by
+    # query, repeat by repeat, so this script is the order the model is asked in.
+    script = iter([PERF.name, PERF.name, TBB.name, PERF.name, PERF.name, PERF.name])
+
+    def transport(prompt: str, system: str | None):
+        return _answer_as(next(script))(prompt), None
+
+    client = LLMClient(model="m", role="selector", transport=transport)
+    result = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=3)
+    noise = result["noise"]
+    assert result["repeats"] == 3
+    assert [q["modal_pick"] for q in noise["per_query"]] == [PERF.name, PERF.name]
+    assert noise["per_query"][0]["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+    assert noise["per_query"][1]["agreement"] == 1.0
+    assert noise["per_query"][0]["n_correct"] == 2
+    assert noise["unstable_queries"] == 1
+    # Repeat 2 gets query 1 wrong: the rate goes 1.0, 1.0, 0.5, so the half range is 0.25.
+    assert noise["selection_rate_by_repeat"] == [1.0, 1.0, 0.5]
+    assert noise["half_range"] == 0.25
+    assert [row["repeat"] for row in result["per_query"]] == [0, 1, 2, 0, 1, 2]
+
+
+def test_a_query_that_failed_on_every_repeat_has_no_agreement_to_report():
+    def transport(prompt: str, system: str | None):
+        raise RuntimeError("provider down")
+
+    client = LLMClient(model="m", role="selector", transport=transport)
+    noise = model_routing([PERF, TBB], ["q1"], client=client, repeats=2)["noise"]
+    assert noise == {
+        "mean_agreement": None, "unstable_queries": 0,
+        "selection_rate_by_repeat": [None, None], "half_range": None,
+        "n_queries_compared": 0,
+        "per_query": [{"query": "q1", "modal_pick": None, "agreement": None, "picks": [],
+                       "n_correct": 0}],
+    }
+
+
+def _completions(monkeypatch, tmp_path, replies: list[str]) -> list[list[dict]]:
+    """Route the real default transport into scripted completions, with the cache on."""
+    import litellm
+
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "responses"))
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    asked: list[list[dict]] = []
+
+    def completion(model, messages, api_key=None, **kw):
+        reply = replies[min(len(asked), len(replies) - 1)]
+        asked.append(messages)
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=reply),
+                                     finish_reason="stop")],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+
+    monkeypatch.setattr(litellm, "completion", completion)
+    return asked
+
+
+def test_with_the_response_cache_on_each_repeat_is_asked_again(monkeypatch, tmp_path):
+    # Identical prompts: without a draw index the cache would replay the first reply and
+    # every repeat would agree by construction, reporting a noise floor of zero.
+    asked = _completions(monkeypatch, tmp_path,
+                         [json.dumps({"pick": 1}), json.dumps({"pick": 2}),
+                          json.dumps({"pick": 3})])
+    client = LLMClient(model="m", provider="openai", role="selector")
+    result = model_routing([PERF, TBB, MKL], ["q1"], client=client, repeats=3)
+    assert result["n_failed"] == 0          # a refused draw would read as zero calls
+    assert len(asked) == 3
+    assert [row["picked_at"] for row in result["per_query"]] == [1, 2, 3]
+
+
+def test_a_repeat_run_through_the_cli_writes_the_noise_block(tmp_path, monkeypatch, capsys):
+    import dokimi.commands.novelty as novelty
+
+    def answer(prompt: str) -> str:
+        return _answer_as("perf")(prompt)
+
+    monkeypatch.setattr(
+        novelty, "_client",
+        lambda model, provider, role, args: LLMClient(
+            model=model, role=role, transport=lambda p, s: (answer(p), None)),
+    )
+    artifact = _skill(tmp_path, "perf", "record and annotate a perf profile")
+    competitor = _skill(tmp_path, "tbb", "parallelize C++ loops with task groups")
     queries = tmp_path / "q.json"
-    queries.write_text(json.dumps(["profile a binary", "tune a slow query"]), encoding="utf-8")
+    queries.write_text(json.dumps(["record a perf profile", "profile my binary"]),
+                       encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--model", "selector-m", "--out", str(out))
+    args = _parse("novelty", "routing", "--artifact", artifact, "--competitors", competitor,
+                  "--queries", str(queries), "--model", "m", "--repeats", "2",
+                  "--out", str(out))
     args.func(args)
-    return json.loads(out.read_text(encoding="utf-8"))
+    model = json.loads(out.read_text(encoding="utf-8"))["model"]
+    assert model["repeats"] == 2
+    assert model["noise"]["selection_rate_by_repeat"] == [1.0, 1.0]
+    assert model["noise"]["half_range"] == 0.0
+    assert "noise    2 repeats per query" in capsys.readouterr().out
 
 
-def test_a_model_run_records_its_calls_tokens_and_cost(tmp_path, monkeypatch, capsys):
-    from dokimi.metrics.usage import UsageRecord
-
-    _stub_provider(monkeypatch, UsageRecord(prompt_tokens=100, completion_tokens=5,
-                                            cache_read_tokens=60, cache_write_tokens=30,
-                                            cost_usd=0.002))
-    payload = _model_run(tmp_path)
-    assert payload["cost"]["llm_calls"] == 2
-    assert payload["cost"]["input_tokens"] == 200
-    assert payload["cost"]["output_tokens"] == 10
-    assert payload["cost"]["cache_read_tokens"] == 120
-    assert payload["cost"]["cache_write_tokens"] == 60
-    assert payload["cost"]["usd"] == 0.004
-    out = capsys.readouterr().out
-    assert ("cost     2 calls, 200 input / 10 output tokens, cache read 120 / write 60, "
-            "$0.0040") in out.splitlines()
-    assert "replayed" not in out
-
-
-def test_a_model_run_with_an_unpriced_call_reports_no_usd_figure(tmp_path, monkeypatch, capsys):
-    from dokimi.metrics.usage import UsageRecord
-
-    _stub_provider(monkeypatch, UsageRecord(prompt_tokens=10, completion_tokens=1))
-    payload = _model_run(tmp_path)
-    assert payload["cost"]["usd"] is None   # one unpriced call must not be read as free
-    assert "USD not known: a call had no price or no usage" in capsys.readouterr().out
-
-
-def test_a_lexical_run_spends_nothing_and_has_no_cost_block(tmp_path):
+@pytest.mark.parametrize("repeats", ["2", "3"])
+def test_repeats_without_a_model_are_refused_on_the_cli(tmp_path, repeats):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
     out = tmp_path / "routing.json"
     args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
+                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(out))
-    args.func(args)
-    assert "cost" not in json.loads(out.read_text(encoding="utf-8"))
+                  "--queries", str(queries), "--repeats", repeats, "--out", str(out))
+    with pytest.raises(SystemExit, match="needs --model"):
+        args.func(args)
+    assert not out.exists()
 
 
-def test_a_model_run_whose_every_call_fails_prints_no_price_blame(tmp_path, monkeypatch, capsys):
-    from dokimi import llm
-
-    def failing(prompt, model, **_kwargs):
-        raise RuntimeError("provider refused")
-
-    monkeypatch.setattr(llm, "llm_call_with_usage", failing)
-    payload = _model_run(tmp_path)
-    assert payload["cost"]["llm_calls"] == 0
-    assert payload["cost"]["usd"] is None   # no calls: nothing known, not "free"
-    out = capsys.readouterr().out
-    assert "cost     0 calls\n" in out
-    assert "USD not known" not in out
-
-
-def test_a_call_with_no_usage_makes_the_total_unknown_not_the_priced_subset(
+def test_a_declining_model_is_named_on_the_cli_with_where_its_replies_are(
         tmp_path, monkeypatch, capsys):
-    from dokimi import llm
-    from dokimi.metrics.usage import UsageRecord
+    import dokimi.commands.novelty as novelty
 
-    replies = iter([None, UsageRecord(prompt_tokens=10, completion_tokens=1, cost_usd=0.001)])
-    monkeypatch.setattr(llm, "llm_call_with_usage",
-                        lambda prompt, model, **_kw: ('{"pick": 1}', next(replies)))
-    payload = _model_run(tmp_path)
-    assert payload["cost"]["llm_calls"] == 2
-    assert payload["cost"]["usd"] is None
-    assert "$0.0010" not in capsys.readouterr().out
+    monkeypatch.setattr(
+        novelty, "_client",
+        lambda model, provider, role, args: LLMClient(
+            model=model, role=role,
+            transport=lambda p, s: ("I would rather not choose.", None)),
+    )
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["record a perf profile"]), encoding="utf-8")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "perf", "record and annotate a perf profile"),
+                  "--competitors", _skill(tmp_path, "tbb", "parallelize C++ loops"),
+                  "--queries", str(queries), "--model", "m", "--out", str(out))
+    args.func(args)
+    model = json.loads(out.read_text(encoding="utf-8"))["model"]
+    assert model["per_query"][0]["raw_reply"] == "I would rather not choose."
+    assert "1 abstained or unparseable" in capsys.readouterr().out
 
 
-def test_replayed_calls_are_counted_apart_and_not_billed(tmp_path, monkeypatch, capsys):
-    from dokimi.metrics.usage import UsageRecord
+class _Boom(Exception):
+    pass
 
-    _stub_provider(monkeypatch, UsageRecord(prompt_tokens=100, completion_tokens=5,
-                                            cache_read_tokens=60, cache_write_tokens=30,
-                                            cost_usd=0.002, replayed=True))
-    payload = _model_run(tmp_path)
-    cost = payload["cost"]
-    assert (cost["llm_calls"], cost["replayed_calls"]) == (2, 2)
-    assert (cost["input_tokens"], cost["output_tokens"], cost["usd"]) == (0, 0, 0.0)
-    assert (cost["cache_read_tokens"], cost["cache_write_tokens"]) == (0, 0)
-    assert "2 replayed from the cache and not counted" in capsys.readouterr().out
+
+def _scripted(script):
+    """A selector whose n-th call answers a card name, abstains ("-"), or fails ("!")."""
+    calls = iter(script)
+
+    def transport(prompt: str, system: str | None):
+        step = next(calls)
+        if step == "!":
+            raise _Boom("provider down")
+        if step == "-":
+            return json.dumps({"pick": 0}), None
+        return _answer_as(step)(prompt), None
+
+    return LLMClient(model="m", role="selector", transport=transport)
+
+
+def test_a_failed_repeat_is_not_reported_as_sampling_noise():
+    # q1 is wrong in both repeats. q2 fails in repeat 0 and is right in repeat 1. Per-repeat
+    # rates over each repeat's own answered rows would be [0.0, 0.5]: a half range of 0.25
+    # from an error, not from the model.
+    client = _scripted([TBB.name, TBB.name, "!", PERF.name])
+    noise = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=2)["noise"]
+    assert noise["selection_rate_by_repeat"] == [0.0, 0.0]
+    assert noise["half_range"] == 0.0
+    assert noise["n_queries_compared"] == 1
+
+
+def test_noise_counts_an_abstention_as_a_pick_and_an_error_as_no_answer():
+    # One query, three repeats: PERF, abstained, failed. Agreement is over the two answered
+    # repeats (1/2), not the three calls (1/3), and the abstention has its own label.
+    client = _scripted([PERF.name, "-", "!"])
+    noise = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"]
+    (query,) = noise["per_query"]
+    assert query["picks"] == [PERF.name, "(abstained)"]
+    assert query["agreement"] == 0.5
+    assert noise["mean_agreement"] == 0.5 and noise["unstable_queries"] == 1
+    assert noise["n_queries_compared"] == 0
+    assert noise["selection_rate_by_repeat"] == [None, None, None]
+    assert noise["half_range"] is None
+
+
+def test_the_output_counts_calls_and_the_noise_means_each_agreement():
+    # q1: PERF, PERF, TBB (agreement 2/3). q2: PERF three times (agreement 1.0).
+    client = _scripted([PERF.name, PERF.name, TBB.name, PERF.name, PERF.name, PERF.name])
+    result = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=3)
+    assert result["n_calls"] == 6  # queries x repeats, not queries
+    assert result["noise"]["mean_agreement"] == pytest.approx(5 / 6, abs=1e-3)  # the mean of 2/3 and 1.0, not the max
+
+
+def test_a_failed_call_elsewhere_does_not_change_the_rate_of_the_complete_queries():
+    # q1 is right in both repeats; q2 fails once. The rate is over the complete queries only
+    # (q1), so 1.0 in each repeat; dividing by all queries would give 0.5.
+    client = _scripted([PERF.name, PERF.name, "!", TBB.name])
+    noise = model_routing([PERF, TBB, MKL], ["q1", "q2"], client=client, repeats=2)["noise"]
+    assert noise["selection_rate_by_repeat"] == [1.0, 1.0]
+    assert noise["n_queries_compared"] == 1
+
+
+def test_an_abstention_can_be_the_modal_pick():
+    client = _scripted(["-", "-", PERF.name])
+    (query,) = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"][
+        "per_query"]
+    assert query["modal_pick"] == "(abstained)"
+    assert query["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+
+
+def test_the_modal_pick_is_the_most_frequent_not_the_first():
+    client = _scripted([TBB.name, PERF.name, PERF.name])
+    (query,) = model_routing([PERF, TBB], ["q1"], client=client, repeats=3)["noise"][
+        "per_query"]
+    assert query["modal_pick"] == PERF.name
+    assert query["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+
+
+def test_a_single_usable_repeat_has_no_half_range():
+    from dokimi.novelty.routing import _noise
+
+    noise = _noise([[{"query": "q", "repeat": 0, "picked": PERF.name, "correct": True}]])
+    assert noise["selection_rate_by_repeat"] == [1.0]
+    assert noise["half_range"] is None
 
 
 def test_headings_inside_code_only_refuse_the_run_and_say_why(tmp_path):

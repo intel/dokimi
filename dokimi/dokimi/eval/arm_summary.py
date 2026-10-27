@@ -130,7 +130,7 @@ def summarize_skill_selection(records: Iterable[RecordLike]) -> Dict[str, Any]:
     or ``None`` — no skill should load. Arms that offered no skill are skipped.
 
     The skills loaded in the first turn that loaded any are one choice. ``recall``
-    is strict: a hit needs every one of them acceptable. ``recall_any`` (one
+    and ``precision`` (hits over questions where any skill loaded) are strict: a hit needs every one of them acceptable. ``recall_any`` (one
     acceptable skill among them), ``multi_load_rate`` and ``mean_first_turn_loads``
     show how far the strict figure depends on multi-loading.
     """
@@ -192,6 +192,9 @@ def summarize_skill_selection(records: Iterable[RecordLike]) -> Dict[str, Any]:
             "n_failed": s["failed"],
             "selection_accuracy": rate(s["correct"], s["n"]),
             "recall": rate(s["hit"], s["pos"]),
+            # Of the questions where the arm loaded a skill, the share where every
+            # loaded skill was acceptable (misroutes and false triggers count against).
+            "precision": rate(s["hit"], s["loaded_n"]),
             # Lenient: the right skill was among those loaded in the first turn.
             "recall_any": rate(s["hit_any"], s["pos"]),
             "multi_load_rate": rate(s["multi"], s["loaded_n"]),

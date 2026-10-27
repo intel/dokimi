@@ -13,6 +13,7 @@ re-render. A break between two steps -- a file one command writes and the next c
 from __future__ import annotations
 
 import json
+from decimal import ROUND_FLOOR, Decimal
 import re
 import shlex
 from pathlib import Path
@@ -153,6 +154,30 @@ def test_a_cheap_tier_run_writes_its_forfeits_into_the_artifact(tmp_path, skill,
     # The cheap run measured the entry point only, and the artifact says how much it skipped.
     assert artifact["bundle"]["include_resources"] is False
     assert any("--include-resources" in w for w in artifact["warnings"])
+
+
+def test_the_stdout_headline_says_how_much_of_the_artifact_was_read(tmp_path, skill,
+                                                                     stub_models, capsys):
+    # The fixture's reference is larger than the body: an entry-point run reads under half.
+    entry_out = tmp_path / "entry"
+    _run("novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "triage",
+         "--model", "model-a", "--judge-model", "judge-m", "--out-dir", str(entry_out))
+    printed = capsys.readouterr().out
+    measured = json.loads((entry_out / "novelty.json").read_text(encoding="utf-8"))[
+        "bundle"]["measured_share"]
+    assert measured < 0.5
+    assert f"coverage: {int(Decimal(str(measured)).scaleb(2).to_integral_value(ROUND_FLOOR))}% of the artifact's readable words were measured " \
+           "(entry point only)" in printed
+    assert "WARNING: only" in printed and "pass --include-resources" in printed
+
+    # A bundle run that reads everything it can says so, and does not warn.
+    bundle_out = tmp_path / "bundle"
+    _run("novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "triage",
+         "--include-resources", "--model", "model-a", "--judge-model", "judge-m",
+         "--out-dir", str(bundle_out))
+    printed = capsys.readouterr().out
+    assert "coverage: 100% of the artifact's readable words were measured\n" in printed
+    assert "WARNING: only" not in printed
 
 
 @pytest.mark.outcome("cjm-novelty-stale-inventory")

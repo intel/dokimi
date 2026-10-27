@@ -74,14 +74,19 @@ from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
 from .command import _parse_reward_text
 from .container_agent import AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, ContainerSandbox, Docker
 from .models import HarnessResult, OperationRecord
+from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, enter_phase, needs_sandbox,
+                             resolve_recorded, skill_needs, start_args, redact as _redact)
 from .skill_treatment import Treatment, build_plugin, check_skill, skill_listing, treatment_notice
 from .solver_stream import record_solver, run_solver
+from .task_env import _exec_env, unresolved_env  # noqa: F401  (re-exported)
+from .tbench_v1 import reward as _pytest_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
     _DEFAULT_BUILD_TIMEOUT,
     _DEFAULT_VERIFY_TIMEOUT,
     FORMAT_TASK_MD,
+    FORMAT_TBENCH_V1,
+    ContainerStep,
     TaskSpec,
-    _is_public,
     _task_build_timeout,
     _task_verify_timeout,
 )
@@ -89,7 +94,6 @@ from .tasks import (  # noqa: F401  (timeouts re-exported)
 # Recompile commands embedded in instruction.md, e.g. `g++ -O3 ... -o /app/bench`.
 # C tasks (missing-restrict) use gcc, C++ tasks use g++.
 _RECOMPILE_RE = re.compile(r"(g\+\+|gcc) [^`\n]*-o /app/[^ `\n]*")
-_PROXY_VARS = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
 _DEFAULT_SOLVE_TIMEOUT = 600.0
 _CONTAINER_PLUGIN = "/opt/abskill"
 # The only tree a docker-* agent edits: the host agent's snapshot and copy-back,
@@ -124,6 +128,7 @@ class DockerSolverHarness:
     kind: str = "docker"
     env: dict[str, str] = field(default_factory=dict)
     agent_location: str = "container"
+    network: tuple[str, ...] = ()  # --network PHASE=MODE overrides (see :mod:`.network_policy`)
     runner: process.Runner = field(default=process.run, compare=False, repr=False)
     skill_notice: bool = True
 
@@ -138,6 +143,7 @@ class DockerSolverHarness:
     ) -> HarnessResult:
         _refuse_unrunnable(task, self.mode, self.agent_location)
         output_dir = Path(output_dir) if output_dir else None
+        plan = self._plan(task, record=None if dry_run else output_dir)
         if output_dir:
             output_dir.mkdir(parents=True, exist_ok=True)
         model = model or self.model_default
@@ -169,6 +175,7 @@ class DockerSolverHarness:
                 operations=operations,
                 metrics={
                     "dry_run": dry_run, "mode": self.mode, "unresolved_env": unresolved,
+                    "network": self._network_metrics(plan),
                     "error": "task needs host env not forwarded: "
                     + "; ".join(f"{t}.env {', '.join(n)}" for t, n in unresolved.items()),
                 },
@@ -185,7 +192,7 @@ class DockerSolverHarness:
                 passed=False,
                 output_dir=str(output_dir) if output_dir else None,
                 operations=operations,
-                metrics={"dry_run": True, "mode": self.mode},
+                metrics={"dry_run": True, "mode": self.mode, "network": self._network_metrics(plan)},
             )
 
         if output_dir is None:
@@ -198,16 +205,17 @@ class DockerSolverHarness:
         log = log_path.open("w", encoding="utf-8")
         usage: Optional[UsageRecord] = None
         image = f"dokimi/{task.name}:latest"
-        container = f"dokimi-run-{task.name}-{os.getpid()}"
+        container = f"dokimi-run-{task.name}-{os.getpid()}-{os.urandom(3).hex()}"  # two cells in one process
         solve_timeout = timeout_sec or task.timeout_sec or _DEFAULT_SOLVE_TIMEOUT
         start = time.time()
         returncode = 0
         extra_metrics: dict[str, Any] = {}
+        network = self._network_metrics(plan)
         reward: Optional[float] = None
         sandbox: Optional[ContainerSandbox] = None
         try:
             try:
-                self._build_image(task, image, log)
+                self._build_image(task, image, log, plan.build)
             except subprocess.TimeoutExpired as exc:
                 # The image never got built, so no agent ran and there is no
                 # verdict: raise so the cell is errored like a build that fails
@@ -216,15 +224,12 @@ class DockerSolverHarness:
                 raise RuntimeError(
                     f"docker build timed out after {exc.timeout}s; see run.log"
                 ) from exc
-            if self.mode in ("claude", "probe") and self.agent_location == "container":
-                sandbox = ContainerSandbox.open(container, self._docker, log, source_env=operator_source_env(),
-                                                task_egress=task.environment.get("egress"),
-                                                with_agent=self.mode == "claude", runner=self.runner)
+            sandbox = self._open_sandbox(plan, container, log)
             try:
-                self._start_container(task, image, container, log, sandbox)
+                bridged = self._start_container(task, image, container, log, sandbox, plan)
                 try:
                     if self.mode == "oracle":
-                        self._solve_oracle(task, container, log, timeout=solve_timeout)
+                        self._solve_oracle(task, container, log, plan.solve, timeout=solve_timeout)
                     elif self.mode == "claude":
                         usage = self._solve_claude(
                             task, container, output_dir, model, solve_timeout,
@@ -235,12 +240,9 @@ class DockerSolverHarness:
                                                    sandbox)
                     else:
                         raise ValueError(f"unknown mode {self.mode!r}")
-                    if sandbox is not None:
-                        sandbox.stop_proxy(self._docker, log)  # the verifier gets no route out either
-                        if _is_public(task):  # "public" is the verifier's, after the agent exits
-                            self._docker(["network", "connect", "bridge", container], log)
                     if self.mode != "probe":  # the probe's reward is its own verdict
-                        reward = self._verify(task, container, output_dir, log)
+                        reward = self._verify_phase(task, plan.verify, container, output_dir, log,
+                                                    sandbox, bridged, network)
                 finally:
                     self._docker(["rm", "-f", container], log, check=False)
             finally:
@@ -252,8 +254,7 @@ class DockerSolverHarness:
             returncode = 124
             reward = 0.0
         except Exception as exc:
-            # Nothing recorded yet (a build failure): let the runner mark it errored.
-            # After a solve (a failed copy back), keep its cost and isolation record.
+            # A build failure: the runner errors the cell. After a solve, keep its cost and isolation record.
             if not extra_metrics:
                 raise
             log.write(f"\nERROR: {type(exc).__name__}: {exc}\n")
@@ -262,9 +263,10 @@ class DockerSolverHarness:
             reward = None
         finally:
             log.close()
+            (output_dir / "network.json").write_text(json.dumps(network, indent=1), encoding="utf-8")
 
         elapsed = time.time() - start
-        metrics: dict[str, Any] = {"dry_run": False, "mode": self.mode}
+        metrics: dict[str, Any] = {"dry_run": False, "mode": self.mode, "network": network}
         passed = reward is not None and reward >= 1.0
         if usage is not None:
             metrics.update(usage.as_metrics_dict())
@@ -291,8 +293,8 @@ class DockerSolverHarness:
 
     # ── pipeline steps ──────────────────────────────────────────────────────
 
-    def _build_image(self, task: TaskSpec, image: str, log) -> None:
-        """Build the task image; pass host proxy through (corporate networks).
+    def _build_image(self, task: TaskSpec, image: str, log, net: Optional[PhasePolicy] = None) -> None:
+        """Build the task image under *net*: ``public`` passes the host proxy through.
 
         Task-bundled skills (``environment/skills``) are agent capabilities, not
         image content: a ``COPY . /x`` in the Dockerfile would otherwise bake
@@ -300,12 +302,8 @@ class DockerSolverHarness:
         built from a copy of ``environment/`` without that directory — the
         same rule BenchFlow applies to its no-skill runs.
         """
-        env_dir = task.path / "environment"
-        build_args: list[str] = ["--network", "host"]
-        for var in _PROXY_VARS:
-            val = os.environ.get(var)
-            if val:
-                build_args += ["--build-arg", f"{var}={val}"]
+        env_dir = task.build_context
+        flags = build_args(net or DEFAULTS["build"])
         # Honor the task's own build_timeout_sec (some images need >10 min);
         # _DEFAULT_BUILD_TIMEOUT is only the fallback when the task omits it.
         timeout = _task_build_timeout(task)
@@ -323,20 +321,18 @@ class DockerSolverHarness:
                 # a missing source fails the build in every arm.
                 (context / "skills").mkdir()
             self._docker(
-                ["build", "-q", *build_args, "-t", image,
-                 "-f", str(context / "Dockerfile"), str(context)],
+                ["build", "-q", *flags, "-t", image,
+                 "-f", str(context / task.dockerfile), str(context)],
                 log, timeout=timeout,
             )
 
     def _start_container(self, task: TaskSpec, image: str, container: str, log,
-                         sandbox: Optional[ContainerSandbox] = None) -> None:
-        # --network none unless the task declares environment.network_mode =
-        # "public"; then bridge (NAT'd internet), not host, so host-local
-        # services stay out of reach. Build always gets host network. An
-        # in-container agent brings its own internal network + egress proxy,
-        # and a "public" task joins bridge only for its verifier.
-        net_args = (sandbox.run_args() if sandbox is not None
-                    else ["--network", "bridge" if _is_public(task) else "none"])
+                         sandbox: Optional[ContainerSandbox] = None,
+                         plan: Optional[NetworkPlan] = None) -> bool:
+        """Start the task container on the solve phase's network; returns whether it is on bridge."""
+        plan = plan or self._plan(task)
+        inside = self._solve_in_container()
+        net_args = sandbox.run_args() if sandbox is not None else start_args(plan, solve_in_container=inside)
 
         cpus_raw = task.environment.get("cpus")
         cpus = str(cpus_raw) if cpus_raw is not None else "4"
@@ -355,13 +351,16 @@ class DockerSolverHarness:
         lifetime = int(max(1800.0, (task.timeout_sec or _DEFAULT_SOLVE_TIMEOUT)
                            + _task_verify_timeout(task) + 600))
         self._docker(["rm", "-f", container], log, check=False)
+        env_args = [a for k, v in task.container_env.items() for a in ("-e", f"{k}={v}")]
         self._docker(
-            ["run", "-d", "--name", container, *net_args,
+            ["run", "-d", "--name", container, *net_args, *env_args,
              "--cpus", cpus, "--memory", memory, image, "sleep", str(lifetime)],
             log,
         )
+        return enter_phase(plan.solve if inside else DEFAULTS["solve"], container, self._docker, log,
+                           bridged="bridge" in net_args)
 
-    def _solve_oracle(self, task: TaskSpec, container: str, log,
+    def _solve_oracle(self, task: TaskSpec, container: str, log, net: Optional[PhasePolicy] = None,
                       timeout: float = _DEFAULT_SOLVE_TIMEOUT) -> None:
         """Apply the oracle's solve.sh as root (some images set a non-root USER), within the
         agent's ``timeout``: an oracle that runs out of time is a failed cell, like an agent.
@@ -373,10 +372,10 @@ class DockerSolverHarness:
         ``/solution`` (Harbor) and ``/oracle`` (BenchFlow), because a script
         written for one layout refers to its siblings by that layout's path.
         """
-        _copy_dir_into(task.solution_dir, container, ("/solution", "/oracle"), log, self._docker)
+        step = task.oracle_step
+        _copy_into(step, container, log, self._docker)
         self._docker(
-            ["exec", "-u", "root", *_exec_env(task, "oracle"), container, "bash", "-lc",
-             "chmod +x /solution/solve.sh && /solution/solve.sh"],
+            ["exec", *_user(step), *_exec_env(task, "oracle", net), container, "bash", "-lc", step.command],
             log, check=False, timeout=timeout,
         )
 
@@ -393,7 +392,7 @@ class DockerSolverHarness:
         # A rerun must not find its own previous tree or verdict during the solve.
         _rmtree(output_dir / "work")
         (output_dir / "reward.txt").unlink(missing_ok=True)
-        if sandbox is not None:
+        if sandbox is not None and self.agent_location == "container":  # a host arm stays on the host
             return self._solve_claude_in_container(task, container, output_dir, model, timeout,
                                                    operations, log, extra_metrics, sandbox)
         workdir = _require_agent_workdir(task, container, log, self._docker)
@@ -575,7 +574,7 @@ class DockerSolverHarness:
         untested = {k: "untested" for k in LEAK_CLASSES}
         # Where docker-claude is refused, its probe would vouch for an arm that never runs.
         workdir = _require_agent_workdir(task, container, log, self._docker)
-        if sandbox is not None:
+        if sandbox is not None and self.agent_location == "container":  # not for a verify allowlist
             sandbox.workdir = workdir
             sandbox.prepare(container, self._docker, log)
             skill_dir = self._resolve_skill_dir()  # docker-probe:<skill>: forbidden, never offered
@@ -625,23 +624,29 @@ class DockerSolverHarness:
                 failed.append(cc)
         return failed
 
-    def _verify(self, task: TaskSpec, container: str, output_dir: Path, log) -> Optional[float]:
+    def _verify(self, task: TaskSpec, container: str, output_dir: Path, log,
+                net: Optional[PhasePolicy] = None) -> Optional[float]:
         """Run the verifier in-container; pull /logs/verifier/reward.txt back out.
 
         Mounted at both ``/tests`` (Harbor) and ``/verifier`` (BenchFlow): a
         SkillsBench ``test.sh`` runs ``pytest /verifier/test_outputs.py`` even
         after ``bench tasks export`` has renamed the directory to ``tests/``.
         """
-        _copy_dir_into(task.tests_dir, container, ("/tests", "/verifier"), log, self._docker)
+        step = task.verifier_step
+        _copy_into(step, container, log, self._docker)
         # After an in-container agent the verifier runs its /app code as root: no
         # proxy credentials then (the sidecar kept them from the agent; see :func:`_exec_env`).
         agent_code = self.mode == "claude" and self.agent_location == "container"
         proc = self._docker(
-            ["exec", "-u", "root", *_exec_env(task, "verifier", credentials=not agent_code),
-             container, "bash", "-lc",
-             "mkdir -p /logs/verifier && chmod +x /tests/test.sh && /tests/test.sh"],
+            ["exec", *_user(step), *_exec_env(task, "verifier", net, credentials=not agent_code),
+             container, "bash", "-lc", step.command],
             log, check=False, timeout=_task_verify_timeout(task),
         )
+        if step.parser != "reward-file":  # terminal-bench: the pytest summary is the verdict
+            verdict, tests = _pytest_reward((proc.stdout or "") + (proc.stderr or ""))
+            (output_dir / "verifier_tests.json").write_text(json.dumps(
+                {"parser": step.parser, "exit_code": proc.returncode, "tests": tests}, indent=2), encoding="utf-8")
+            return verdict
         reward_file = output_dir / "reward.txt"
         pulled = self._docker(
             ["cp", f"{container}:/logs/verifier/reward.txt", str(reward_file)],
@@ -661,6 +666,41 @@ class DockerSolverHarness:
                 raise RuntimeError(f"task container {container} is not running at verify time; see run.log")
         # No reward file written: fall back to verifier exit code.
         return 1.0 if proc.returncode == 0 else 0.0
+
+    def _plan(self, task: TaskSpec, record: Optional[Path] = None) -> NetworkPlan:
+        return resolve_recorded(task, self.network, agent=self.mode != "oracle", record=record)
+
+    def _solve_in_container(self) -> bool:
+        return self.mode == "oracle" or self.agent_location == "container"
+
+    def _network_metrics(self, plan: NetworkPlan) -> dict[str, Any]:  # a host agent's solve is not ours
+        skill = skill_needs(self._resolve_skill_dir(), plan) if self.mode == "claude" else None
+        return {**plan.as_metrics(), "solve_enforced": self._solve_in_container(), "skill": skill}
+
+    def _open_sandbox(self, plan: NetworkPlan, container: str, log) -> Optional[ContainerSandbox]:
+        """The internal network and sidecar: always for an in-container agent, else when a phase needs one."""
+        agent = self.mode != "oracle" and self.agent_location == "container"
+        if not (agent or needs_sandbox(plan, solve_in_container=self._solve_in_container())):
+            return None
+        return ContainerSandbox.open(container, self._docker, log, source_env=operator_source_env(),
+                                     task_egress=list(plan.solve.hosts), with_agent=agent and self.mode == "claude",
+                                     include_llm=agent, runner=self.runner)
+
+    def _verify_phase(self, task: TaskSpec, net: PhasePolicy, container: str, output_dir: Path, log,
+                      sandbox: Optional[ContainerSandbox], bridged: bool, network: dict[str, Any]) -> Optional[float]:
+        """Stop the solve's sidecar, give the container the verifier's network, verify."""
+        side = None
+        if sandbox is not None:
+            sandbox.stop_proxy(self._docker, log)  # nothing the solve was allowed carries over
+        enter_phase(net, container, self._docker, log, bridged=bridged)
+        if sandbox is not None and net.mode == "allowlist":
+            side = sandbox.verifier_sidecar(self._docker, log, list(net.hosts))
+        try:
+            return self._verify(task, container, output_dir, log, net)
+        finally:
+            if side is not None:
+                side.stop_proxy_quietly(self._docker, log)
+                network["verify_egress"] = side.egress_summary()
 
     # ── helpers ─────────────────────────────────────────────────────────────
 
@@ -706,16 +746,20 @@ def _refuse_unrunnable(task: TaskSpec, mode: str, agent_location: str) -> None:
     that never runs. It copies neither directory. Oracle mode is refused only
     for a missing directory.
     """
+    problem = task.local_docker_problem(oracle=mode == "oracle")
+    if problem:
+        raise ValueError(f"{task.name}: a docker-* harness cannot run it: {problem}")
     if mode != "probe":
-        needed = [("tests", task.tests_dir)] + ([("solution", task.solution_dir)] if mode == "oracle" else [])
-        for role, directory in needed:
-            if not directory.is_dir():
-                raise ValueError(f"{task.name}: no {directory.name}/ directory to copy to /{role}")
+        steps = [task.verifier_step] + ([task.oracle_step] if mode == "oracle" else [])
+        for src, dest in (c for step in steps for c in step.copies):
+            if not src.exists():
+                what = f"{src.name}/ directory" if src in (task.solution_dir, task.tests_dir) else src.name
+                raise ValueError(f"{task.name}: no {what} to copy to {dest}")
     if mode not in ("claude", "probe"):
         return
-    if agent_location == "host" and task.format == FORMAT_TASK_MD:
+    if agent_location == "host" and task.format in (FORMAT_TASK_MD, FORMAT_TBENCH_V1):
         raise ValueError(
-            f"{task.name}: a task.md task cannot be solved by a host-side agent "
+            f"{task.name}: a {task.format} task cannot be solved by a host-side agent "
             f"(its instruction names absolute container paths); {_IN_CONTAINER}"
         )
     declared = _declared_workdir(task)
@@ -789,65 +833,18 @@ def _task_workdir(task: TaskSpec, container: str, log, docker: "Docker") -> str:
     return found if found != "/" else "/app"
 
 
-def _copy_dir_into(src: Path, container: str, dests: tuple[str, ...], log, docker: "Docker") -> None:
-    """Copy *src*'s contents to each dest: ``docker cp src c:dest`` nests ``src``
-    inside a dest the image already has (``RUN mkdir -p /tests/...``), so the
+def _copy_into(step: ContainerStep, container: str, log, docker: "Docker") -> None:
+    """Copy a step's files in. A directory's contents go to its dest: ``docker cp src c:dest``
+    nests ``src`` inside a dest the image already has (``RUN mkdir -p /tests/...``), so the
     entry script would be missing. Same as BenchFlow: ``mkdir -p``, then ``src/.``."""
-    docker(["exec", "-u", "root", container, "mkdir", "-p", *dests], log)
-    for dest in dests:
-        docker(["cp", f"{src}/.", f"{container}:{dest}"], log)
+    dirs = [d if src.is_dir() else posixpath.dirname(d) for src, d in step.copies]
+    docker(["exec", "-u", "root", container, "mkdir", "-p", *dict.fromkeys(dirs)], log)
+    for src, dest in step.copies:
+        docker(["cp", f"{src}/." if src.is_dir() else str(src), f"{container}:{dest}"], log)
 
 
-def _exec_env(task: TaskSpec, table: str, *, credentials: bool = True) -> list[str]:
-    """``docker exec -e`` flags for the oracle or verifier step.
-
-    A public-network task gets the host's proxy variables: behind a corporate
-    proxy a verifier that installs ``uv`` or pytest at verify time (52 of 101
-    SkillsBench ``test.sh`` install both, 90 install something) otherwise fails
-    with reward 0 (measured on ``parallel-tfidf-search``). They go on the exec,
-    not on ``docker run``, so they reach only the steps the task's
-    ``network_mode`` is about. With ``credentials=False`` (the verifier after
-    an in-container agent, which runs the agent's code) their ``user:pw@`` is
-    dropped: the egress sidecar holds the credentials so the agent never sees
-    them, and a planted ``conftest.py`` must not read them at verify time.
-
-    Then the task's ``[verifier.env]`` / ``[oracle.env]``: only literal values
-    are forwarded; BenchFlow's ``${VAR}`` host references are left to
-    BenchFlow, so a secret is never read from our environment on a task
-    file's say-so.
-    """
-    flags: list[str] = []
-    if str(task.environment.get("network_mode") or "none") == "public":
-        for var in _PROXY_VARS:
-            val = os.environ.get(var)
-            if val:
-                if not credentials:
-                    val = _USERINFO_RE.sub(r"\1", val)
-                flags += ["-e", f"{var}={val}"]
-    source = task.verifier if table == "verifier" else task.oracle
-    env = source.get("env")
-    if not isinstance(env, dict):
-        return flags
-    for key, value in env.items():
-        if isinstance(value, bool):
-            flags += ["-e", f"{key}={'true' if value else 'false'}"]  # YAML true, not Python True
-        elif isinstance(value, (str, int, float)) and "${" not in str(value):
-            flags += ["-e", f"{key}={value}"]
-    return flags
-
-
-def unresolved_env(task: TaskSpec, table: str) -> list[str]:
-    """Names in ``[verifier.env]`` / ``[oracle.env]`` that :func:`_exec_env`
-    does not forward: a ``${VAR}`` host reference (with or without a default),
-    or a value that is not a scalar (list, table, null)."""
-    source = task.verifier if table == "verifier" else task.oracle
-    env = source.get("env")
-    if not isinstance(env, dict):
-        return []
-    return sorted(
-        str(k) for k, v in env.items()
-        if not isinstance(v, (str, int, float)) or (isinstance(v, str) and "${" in v)
-    )
+def _user(step: ContainerStep) -> list[str]:
+    return ["-u", step.user] if step.user else []
 
 
 def _ignore_top_level_skills(env_dir: Path):
@@ -855,30 +852,6 @@ def _ignore_top_level_skills(env_dir: Path):
     def ignore(directory: str, names: list[str]) -> list[str]:
         return ["skills"] if Path(directory) == env_dir and "skills" in names else []
     return ignore
-
-
-# userinfo after a scheme or right after "VAR=" (a scheme-less proxy); greedy,
-# so a raw "@" or "=" in the password (base64 "==") is covered up to the last
-# "@" before the host.
-_CREDENTIALS_RE = re.compile(r"(://|=)[^/\s]+@")
-# The same userinfo in a bare proxy value (no "VAR="), to drop it.
-_USERINFO_RE = re.compile(r"(^|://)[^/\s]+@")
-
-
-def _redact(arg: str) -> str:
-    """Hide ``user:password@`` in proxy URLs written to run.log.
-
-    The pattern needs ``://`` or ``VAR=`` before the userinfo; a step that
-    echoes a scheme-less proxy on its own (``u:pw@proxy:912``) is caught by
-    the host's own proxy userinfo, matched literally.
-    """
-    out = _CREDENTIALS_RE.sub(r"\1***@", arg)
-    for var in _PROXY_VARS:
-        found = _USERINFO_RE.search(os.environ.get(var, ""))
-        userinfo = found.group(0)[len(found.group(1)):-1] if found else ""
-        if ":" in userinfo:  # a password: a bare user name is too short to match safely
-            out = out.replace(userinfo + "@", "***@")
-    return out
 
 
 def _describe_timeout(exc: subprocess.TimeoutExpired) -> str:

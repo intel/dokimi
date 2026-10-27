@@ -57,6 +57,9 @@ SPDX-License-Identifier: Apache-2.0
 > python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on-warning]
 > ```
 >
+> `--out` and `--json` carry the inventory as a `repo_budget.v1` artifact (`schemas/repo_budget.v1.json`),
+> stamped with its `schema_version`, so a CI gate on the JSON can tell a changed shape.
+>
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
 >
 > ```bash
@@ -74,7 +77,7 @@ SPDX-License-Identifier: Apache-2.0
 > and agent runs with their report:
 >
 > ```bash
-> python cli.py repo tasks check <source> --manifest <path> [--task <id>] [--warm]
+> python cli.py repo tasks check <source> --manifest <path> [--task <id>] [--warm] [--allow-unsupported]
 > python cli.py repo run <source> --manifest <path> --arm guidance:raw --model <id> --reps N --batch NAME
 >     --agent-network host
 > python cli.py repo report <out>/<batch>
@@ -191,6 +194,10 @@ tasks: dev/agent_evals/tasks
 explore_tasks: null                       # optional ExploreBench YAML directory
 
 build_systems: [bazel, make]              # selects L0 claim-check adapters
+
+process_metrics:                          # optional repository counters, result.json `process.counters` (§4.1)
+  bazel_cmds: '\bbazel(?:isk)?\b'          # a plain regex searches the command text
+  icpx_missing: {regex: "icpx is not found", match: output}   # match: text (default), output or any
 ```
 
 Rules:
@@ -199,7 +206,18 @@ Rules:
 - `eval_dir`, `tasks` and `entry_points` come together or not at all. Without them the
   manifest is *guidance-only*: `scan` and `reach` run on it and `validate` checks its
   globs, while `tasks check` and `run` refuse it. `image` and `explore_tasks` need
-  `eval_dir`.
+  `eval_dir`, and so does `process_metrics`.
+- `entry_points.grade` is required only when some task's `grader` does not
+  start with `dokimi:` (a grader built into the framework); `repo validate`
+  names the tasks that need it.
+- `process_metrics` maps a name (letters, digits, `_`; not
+  starting with a digit) to a Python regex,
+  given as a string or as `{regex: <regex>, match: text|output|any}`. For each
+  name the framework counts the `command` events of the run whose `text`
+  (default), `output` or either contains a match (`re.search`); denied commands
+  count too, since the agent asked for them, but a denied command is searched in
+  its `text` only (its `output` is the hook's refusal message). `repo validate` refuses a regex
+  that does not compile.
 - `eval_dir` is a proper subdirectory, and `tasks` and `explore_tasks` sit inside it: it is the
   one directory deleted from every workspace (§3).
 - `{eval_dir}`, `{source_dir}`, `{run_dir}`, `{out}` and `{task}` are the only
@@ -260,6 +278,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | `timeout_s`, `max_turns`, `budget_usd` | no | framework | per-task caps, overriding run defaults; each a finite number > 0 |
 | `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
+| `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. `result.json` `skills` records whether the agent used it and whether it used it first |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
 `setup_patch` (a single string) is accepted as a synonym for a one-element
@@ -311,16 +330,31 @@ with `git apply` on top of `guidance:raw` (after `setup_patches`). It is for
 tooling or layout treatments, such as a new script or a Makefile target, that
 no task carries. The file is read once per batch, so every cell applies the
 same bytes, and the arm is named `patch:<name>@<first 12 hex of its
-sha256>`, where `<name>` is the file name without its directory, with every
-character outside `[A-Za-z0-9.-]` replaced by `_` and cut to 40 characters, so
-the name holds no `/` for `BATCH/ARM` selectors. The exact name is printed on
-the `repo run` stderr line `arm <name> = <path>, sha256 ...`. A patch that does not apply to a task's base, or that writes into
-`eval_dir`, fails that cell's preparation. A cell has one arm: `guidance:rev:`
-and `patch:` do not combine.
+sha256>`, where `<name>` is the file name without its directory: each run of
+characters outside `[A-Za-z0-9.-]` becomes one `_`, a leading or trailing `_` is
+dropped, the result is cut to 40 characters and a `_` the cut leaves at the end
+is dropped too (`patch` if nothing is left), so `my fix (v2).diff` gives
+`my_fix_v2_.diff`. The name holds no `/` for `BATCH/ARM` selectors; the exact
+name is printed on the `repo run` stderr line `arm <name> = <path>, sha256 ...`.
+A patch that does not apply to a task's base, or that writes into `eval_dir`,
+fails that cell's preparation. A cell has one arm: `guidance:rev:` and `patch:`
+do not combine.
 
 Both write files, as step 1 does: no object of the source's git dir is copied
 into the workspace, so its object store gains only the blobs of the files the
 arm wrote, and step 8 drops the guidance the arm replaced.
+
+A skill arm (`skill:<path>`, `skill-catalog:<dir>`, joined to a guidance part
+with `+`) installs skill directories into `.claude/skills/<dir name>/` after the
+guidance part, so `guidance:none+skill:x` keeps `x`. The arm is named by the
+directory names (`guidance:none+skill:x`, no `/`), so `repo compare` can select it.
+The `name` in a skill's `SKILL.md` has to equal its directory name. A skill is refused before
+any cell runs if it holds a link that copying cannot take (out of the skill,
+dangling, looping, to a directory) or a file that is not regular. Preparation
+also refuses to write through a `.claude` or `.claude/skills` the repository
+ships as a link. A batch records the content of each skill arm it ran
+(`_eval/skills.json`), so resuming it with another path of the same
+directory name, or with edited skill content, is refused.
 
 `meta.json` records the base (`base_rev`, `base_sha`, `base_date`), the arm,
 the SHA of every applied patch, and `start_sha`: the workspace `HEAD` after
@@ -332,7 +366,9 @@ grader diffs the agent's changes from `start_sha`. With the arm come
 files with no counterpart at `<rev>`); for `patch:` an `arm_patch` object (the
 file's absolute `path` and full `sha256`, `added`: the files the patch added
 that neither the guidance globs nor `.mcp.json` match, and `mcp_servers`: the servers
-the patch added to the `.mcp.json` at the root, read before the agent runs).
+the patch added to the `.mcp.json` at the root, read before the agent runs). `args_if_present` lists the profile's
+`args_if_present` files the cell's command line carries (§6): `[]` when the
+workspace has none of them, and always outside the `all` tool mode.
 
 Step 3 removes history only. A fix that landed upstream before a model's
 training cutoff may still be known to the model, so reports split results by
@@ -383,6 +419,31 @@ reads the upstream base (`base_sha`) and the workspace start commit
 Code's `modelUsage`), `main` when the harness reported the parent's only, and
 `null` when it reported none. `subagent_calls` counts the parent's and
 subagents' `Agent`/`Task` calls; `null` when the harness wrote no result record.
+
+`result.json` `process` holds what the framework counts in the events, the
+parent's and subagents' together, so a grader need not:
+
+| Key | Meaning |
+|---|---|
+| `tool_calls` | every event: each tool call the agent made |
+| `commands` | `command` events |
+| `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
+| `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
+| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events (the Read tool only, in a Claude Code trace), neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. Guidance opened through Bash (`cat AGENTS.md`) is not counted, so `[]` means no Read-tool read; to count it, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
+| `counters` | each `process_metrics` name (§2) and its count |
+
+`process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).
+
+A cell of an arm that installs skills also has a `skills` object in
+`result.json`: `measured`, `skills_installed` (the installed skill names),
+`skills_used` (the installed skills the agent called with the `Skill` tool or
+whose `SKILL.md` it read, in order of first use), `expected_skill` (the task's,
+or `null`), `skill_invoked` (the expected skill was used; any installed skill
+when the task names none) and `skill_selected_correct` (the expected skill was
+the first one used; `null` when the task names none). When the trace could not
+be read (the harness never started), `measured` is `false` and `skill_invoked`
+and `skill_selected_correct` are `null`: the usage is unknown, not "did not use
+the skill". `repo report` leaves such cells out of its skill counts.
 
 For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 `uptake` object: whether the agent used what the arm added. `files` and
@@ -462,12 +523,21 @@ For every task, before any paid run:
 A task whose `host` requirements (§3) the probe container does not meet is
 `unsupported` with the reason, like a task whose `egress` needs the missing
 proxy, and `tasks check` exits 1 for it. With `--allow-unsupported` it is
-still printed with its reason but does not make the exit code 1; broken tasks,
-tasks that need egress and tasks whose host probe failed still do. `repo run` does not run its cells:
+still printed with its reason but does not make the exit code 1 unless no task
+is ok (below); broken tasks, tasks that need egress and tasks whose host probe
+failed still do. The probed facts are recorded in `check.json` `host`, and for
+`repo run` in the batch's `_eval/host.json`. `repo run` does not run its cells:
 each holds an `unsupported.json` with the reason, and `repo report` lists them
 apart, neither failed nor missing. If the probe itself fails, a task with
 `host` requirements is not run either, and `repo run` exits 1 when one of its
 cells is left unrun; a cell that already has a `result.json` keeps it.
+
+Nothing checked is not a pass. Both commands refuse an export with no task, and
+exit 1 as `incomplete` when nothing was measured: `tasks check` when no task
+passed the self-check (every one unsupported, even with `--allow-unsupported`),
+`repo run` when no cell of the batch has a result (every one unsupported). The
+`repo run` summary line counts unsupported cells beside ran, done, crashed and
+not started.
 
 Each task runs with its own network (`image.network` plus its `egress`).
 `tasks check --warm` runs the same null and oracle steps with network and
@@ -524,8 +594,8 @@ A review task with `pass: null` is scored, not gated: give it `score`. A `gate`
 on its metrics is not applied (`success` is null), and without `score` the run
 is a grader failure. A clean-diff control (no seeds) has `recall: null`, so it
 takes no `score`; its gate is the default `["pass"]`. The manifest's
-`entry_points.grade` is still required (`repo_manifest.v1`), even when every
-task uses a built-in grader.
+`entry_points.grade` is optional when every task's `grader` starts with
+`dokimi:`.
 
 Both review graders read the answer the same way. Its last parseable
 ` ```json ` fence (one nesting arrays or objects more than 100 deep counts
@@ -622,6 +692,11 @@ tools:                               # what the "{tools}" element expands to
   none: ["--tools", ""]
   read: ["--tools", "Read"]
   all:  ["--disallowedTools", "WebFetch", "WebSearch"]
+delegation:                          # --delegation none: these replace the tool mode's arguments
+  none:
+    none: ["--tools", ""]            # list every tool mode a run may use, even if unchanged
+    read: ["--tools", "Read"]
+    all: ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task", "Workflow"]
 config_dir_env: CLAUDE_CONFIG_DIR    # a fresh directory per run
 env_allow: [PATH, HOME, AWS_REGION, AWS_BEARER_TOKEN_BEDROCK, ANTHROPIC_API_KEY,
             CLAUDE_CODE_USE_BEDROCK, https_proxy, no_proxy, ...]
@@ -634,6 +709,8 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
+args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
+  .mcp.json: ["--mcp-config", ".mcp.json"]
 ```
 
 - `invoke` and `version_cmd` are argv lists. Each element becomes exactly one
@@ -650,6 +727,30 @@ bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
   directory, with `{config_dir}` and `{support_dir}` (the framework's helper
   scripts) as the agent's container sees them. The built-in `claude-code`
   profile uses them for a hook that refuses backgrounded shell commands.
+- Optional `delegation.none` maps a tool mode to the arguments `repo run
+  --delegation none` uses instead, so the agent cannot start a subagent. It
+  is an allow-list: list every tool mode the run may use (for `none` and
+  `read` the arguments are the native ones); a tool mode it leaves out is
+  refused. A profile without `delegation.none` refuses `--delegation none`
+  before anything runs. The default, `--delegation native`, runs the tool mode
+  as written: under `all`, Claude Code may start subagents.
+  `--delegation none` limits the tools the agent is given, not the skills it
+  loads: a skill whose frontmatter says `context: fork` can still start a
+  subagent under `none`. Do not read a `none` cell as subagent-free when the
+  run's skills include one (tracked in intel/dokimi, "repo run: block
+  fork-context skills under --delegation none").
+- `args_if_present` checks that the file exists, not that the harness accepts
+  it. The built-in `claude-code` profile passes `.mcp.json` as `--mcp-config`
+  in the `all` tool mode, and the CLI exits 1 before its first turn on a file
+  that is not valid MCP configuration (`{` for one). So a `.mcp.json` that is
+  not a JSON object, or whose `mcpServers` is not an object, is caught up
+  front: `repo validate` warns about the one at each task base (at
+  the eval tree when the source has no git history) and still succeeds, `repo run --tools all`
+  exits 1 before any cell, and a cell whose arm wrote
+  such a file (a `patch:` arm) is a cell error, not a graded run. The check
+  reads the task base, so a `patch:` arm that repairs the file does not help.
+  Fix or remove the file in the task base; `--tools read` or `none` do not
+  pass it, so `repo run` does not check it there.
 
 Profiles for other harnesses (Codex, Gemini CLI, Copilot CLI, Cursor agent,
 Aider, OpenCode, in-house agents) follow the same shape. Their `guidance`
@@ -961,7 +1062,8 @@ prompts disabled`) and the fix; any other git failure shows its last `fatal:`
 line, else its last `error:` line, else its last line.
 
 ```bash
-# self-check: no LLM; exits 1 if any task is broken or unsupported
+# self-check: no LLM; exits 1 if any task is broken or unsupported, or none is ok
+# (with --allow-unsupported, a task this host cannot run does not fail it on its own)
 python cli.py repo tasks check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
     --task fix_finiteness_mut --build-network host --cache bazel-repo-cache=/cache/bazel-repo -j 3
 
@@ -977,9 +1079,26 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
 - Each cell holds the §4 inputs plus `agent.stdout` (the raw trace) and
   `result.json`, the framework's verdict. A cell with `result.json` is skipped
   on a rerun unless `--force`; a cell without one is reported as missing, not
-  failed, and the next run of the batch fills it. A batch stays on the eval
-  tree it started with: its revision, or for a working tree the digests of
-  its `eval_dir` and of the image build context. A batch with a task that
+  failed, and the next run of the batch fills it. `meta.json` and
+  `result.json` record `execution`: the tool mode, the delegation mode (the one
+  whose arguments ran; a skill with `context: fork` can still start a subagent
+  under `none`) and an
+  `id` hashing the profile's name, `invoke`, tool arguments, `env_set`,
+  `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`,
+  `bridge`, the SHA-256 of the harness executable (`--bin`) and harness version.
+  A rerun whose `id` differs (another `--tools`, a `--delegation` that changes the tool arguments, profile,
+  harness binary or harness version, or an edited `invoke`, `env_set`, `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress` or `bridge`) is refused before any agent starts, and
+  `--force` or another `--batch` runs it. `--force` replaces the cells of the
+  run's plan only: if the batch dir holds finished cells outside that plan
+  whose `id` differs from this run's (e.g. `--reps 2`, then `--reps 1
+  --delegation none --force`), the run is refused before any agent starts, because
+  the report would pool both executions in one row; use another `--batch`. The
+  same goes for the finished cells of a task this host cannot run, which
+  `--force` keeps; that refusal comes after the host probe, before any agent starts. A result from before `execution` was
+  recorded is refused as `unrecorded`, not counted as native; `--force` or
+  another `--batch` runs it. A batch stays on the eval tree it
+  started with: its revision, or for a working tree the digests of its `eval_dir`
+  and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
 - The agent's container mounts the workspace, the per-run `home`, `config` and
   scratch directories (each `image.env` value under `{run_dir}/`), the caches,

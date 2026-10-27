@@ -188,7 +188,7 @@ Marketplaces rank agent artifacts by popularity, which buries niche expert
 tooling such as HPC and performance libraries (the bundled examples use
 oneTBB, oneDAL and oneMKL).
 Here, every shipped skill, doc source, or profile carries the **scorecard
-that earned it**, kept alive as models and docs change. See the
+that earned it**, built from the run that measured it. See the
 [repository overview](../../README.md) for what this framework is and where the
 content it measures comes from.
 
@@ -255,6 +255,8 @@ code.
 - [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
   through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
   verifier pass rate against a baseline.
+- [answer-formats.md](answer-formats.md) — run Inspect AI, OpenAI evals,
+  skill-creator and promptfoo answer-only sets on the answers track
 - [context-window.md](context-window.md) — read a run's context window from
   its Claude Code trace with `cli.py context trace`: start-up load, growth,
   compactions, tool-result weight. No LLM call.

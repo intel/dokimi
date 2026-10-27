@@ -9,7 +9,7 @@
 # `pre-commit autoupdate --freeze` writes); Renovate's pre-commit manager
 # bumps both. The ruff and zizmor revs are the versions dokimi/requirements-ci.txt
 # pins for the tools lock CI installs (ruff's is also the dev extra's), the gitleaks
-# rev the version gitleaks.yml downloads, and Renovate updates each tool's pins in
+# rev the version ci.yml's static job downloads, and Renovate updates each tool's pins in
 # one PR (.github/renovate.json5).
 #
 # Not here, measured on the tree this was added to: end-of-file-fixer and
@@ -18,7 +18,7 @@
 # `unparseable`, `ttest`, `ans`, deliberate misspellings).
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: 44b5042edab9382aba712eed4f9c7bab7a3d6a3e  # frozen: v0.17.0
+    rev: 38bfb07c0c64c304f47eb52090f8288150c77730  # frozen: v0.17.1
     hooks:
       # Lint only, like the CI job. Ruff reads dokimi/pyproject.toml, the closest
       # config to each file, so extend-exclude and per-file-target-version
@@ -56,5 +56,5 @@ repos:
       # The staged changes of a commit, redacted output (the hook's own entry).
       # The first run builds gitleaks with Go (pre-commit fetches the
       # toolchain), about 20 s; then well under a second per commit. CI skips
-      # it: there is nothing staged there, and gitleaks.yml scans the commits.
+      # it: there is nothing staged there, and the Scan commits step in ci.yml scans the commits.
       - id: gitleaks
