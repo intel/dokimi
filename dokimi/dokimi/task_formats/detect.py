@@ -31,6 +31,7 @@ from dokimi.task_formats.datasets import (
 from dokimi.task_formats.dirs import HarborProbe, TaskMdProbe, TerminalBenchV1Probe
 from dokimi.task_formats.model import (
     AMBIGUITY_MARGIN, FORMAT_UNKNOWN, KIND_UNKNOWN, MATCH_THRESHOLD, Fingerprint, Probe, Report,
+    mark_importable,
 )
 from dokimi.task_formats.pointers import LfsPointerProbe
 from dokimi.task_formats.source import FileSource
@@ -80,7 +81,7 @@ def _best(subject: Any, probes: Sequence[Probe]) -> Report | None:
     if not claims:
         return None
     (best_fp, best), rest = claims[0], claims[1:]
-    report = best.describe(subject)
+    report = mark_importable(best.describe(subject))
     report.confidence = best_fp.confidence
     report.evidence = _evidence(best_fp)
     report.alternatives = [

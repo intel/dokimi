@@ -145,14 +145,14 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 | `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` (with `environment/Dockerfile`) |
 | `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | `docker-*` run it as it is; `harbor`, `benchflow` through a cached Harbor export (not a `solution.yaml` task) |
 | `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | `docker-*` via `tasks run --swe-bench` (Python SWE-bench repos) |
-| `inspect-samples` | JSON/JSONL/CSV rows with `input` and `target` (or the keys a `FieldSpec` names) | answer-only | none yet |
-| `inspect-task` | `.py` importing `inspect_ai` with a `@task` function | answer-only (executable with a `sandbox=`) | none yet |
-| `openai-evals` | JSONL rows with `input` (chat messages) and `ideal` | answer-only | none yet |
+| `inspect-samples` | JSON/JSONL/CSV rows with `input` and `target` (or the keys a `FieldSpec` names) | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
+| `inspect-task` | `.py` importing `inspect_ai` with a `@task` function | answer-only (executable with a `sandbox=`) | `questions import` ([answer-only formats](answer-formats.md)) |
+| `openai-evals` | JSONL rows with `input` (chat messages) and `ideal` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
 | `openai-evals-spec` | registry YAML with `class: evals.elsuite.*` run specs | answer-only | none yet |
-| `skill-creator-evals` | `evals.json` with `skill_name` and `evals[].prompt` | answer-only | none yet |
+| `skill-creator-evals` | `evals.json` with `skill_name` and `evals[].prompt` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
+| `promptfoo` | `promptfooconfig*.yaml`/`.json`, or a config with `prompts`, `providers`/`targets` and `tests`/`scenarios`/`redteam` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
 | `skill-creator-trigger` | rows with `query` and `should_trigger` | trigger | `catalog trigger-set` |
 | `skill-reach` | `QuerySet` (`queries[]` with `query_id`/`id`, `text`, `expected_skill`) | trigger | `catalog trigger-set` |
-| `promptfoo` | `promptfooconfig*.yaml`/`.json`, or a config with `prompts`, `providers`/`targets` and `tests`/`scenarios`/`redteam` | answer-only | none yet |
 | `promptfoo-tests` | CSV with `__expected` columns, or rows of `{vars, assert}` | answer-only | none yet |
 | `dokimi-questions` | questions.v1/v2 JSON | answer-only (trigger with `expected_skill`) | questions track |
 | `dokimi-explore-task` | YAML with `id`, `query` and `references[].path` | localization | explore track |
