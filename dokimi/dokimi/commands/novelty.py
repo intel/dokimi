@@ -118,7 +118,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         result = analyze(artifact_bundle.text, config,
                          extractor=extractor, answerer=answerer, judge=judge,
                          artifact_bundle=artifact_bundle)
-    except (SelfJudgeError, ExtractionError) as exc:
+    except (SelfJudgeError, ExtractionError, ValueError) as exc:
         raise SystemExit(str(exc)) from None
 
     out_dir = Path(args.out_dir) if args.out_dir else _default_dir(args.artifact)
