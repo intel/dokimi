@@ -8,7 +8,7 @@
     "tests/test_arm_runner.py": {"lines": 1176, "rationale": "pre-existing when the gate was introduced"},
     "tests/test_benchflow_harness.py": {"lines": 1716, "rationale": "pre-existing when the gate was introduced"},
     "tests/test_container_agent.py": {"lines": 1251, "rationale": "pre-existing when the gate was introduced"},
-    "tests/test_judge_reliability.py": {"lines": 1695, "rationale": "grew on main in #73 (judge-validity --context stored), 1505 -> 1695, before the ratchet landed; split it in its own PR"},
+    "tests/test_judge_reliability.py": {"lines": 1694, "rationale": "grew on main in #73 (judge-validity --context stored), 1505 -> 1695, before the ratchet landed; split it in its own PR"},
     "tests/test_judge_validity.py": {"lines": 2235, "rationale": "grew on main in #73 (judge-validity --context stored), 1423 -> 2235, before the ratchet landed; split it in its own PR"},
     "tests/test_pipeline_question_set.py": {"lines": 1223},
     "tests/test_repo_environment.py": {"lines": 1305, "rationale": "grew on main in #147 before the ratchet landed; +2 for the instructions assert of two crash tests (#103 review); split it in its own PR"},

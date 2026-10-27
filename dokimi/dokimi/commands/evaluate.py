@@ -435,13 +435,13 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
             # --sequential ignores --bases, so pointing at it would send the user nowhere.
             more = "Raise --max-bases or add answers (see above)." if args.sequential else "Re-run with more --bases."
             print(
-                "\n⚠️  Pass is inconclusive at this sample size: "
+                "\n⚠️  INCONCLUSIVE at this sample size: "
                 f"{', '.join(summary['inconclusive_variants'])}. {more}",
                 file=sys.stderr,
             )
         if summary["unmeasured_variants"]:
             print(
-                f"\n⚠️  Pass is inconclusive: no pair was built for {', '.join(summary['unmeasured_variants'])} "
+                f"\n⚠️  INCONCLUSIVE: no pair was built for {', '.join(summary['unmeasured_variants'])} "
                 "(the degradation left every answer unchanged).",
                 file=sys.stderr,
             )
@@ -515,7 +515,7 @@ def register(sub, positive_int) -> None:
                             help=f"Pairwise accuracy gate, per degradation (default: {DEFAULT_MIN_ACCURACY}); "
                                  "with --sequential it must lie in 0.03-0.97")
     validity_p.add_argument("--strict", action="store_true",
-                            help="Also exit 1 when a PASS is inconclusive — its 95%% CI "
+                            help="Also exit 1 when an above-threshold result is INCONCLUSIVE — its 95%% CI "
                                  "straddles the gate, so the run cannot tell it from a FAIL")
     validity_p.add_argument("--sequential", action="store_true",
                             help="Add bases in rounds and stop each degradation once an SPRT can call "

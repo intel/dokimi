@@ -202,15 +202,105 @@ def test_tasks_run_with_every_cell_errored_is_incomplete(tmp_path, monkeypatch, 
     out, err = capsys.readouterr()
     assert code == 1
     assert "codex: 0/0 pass (n/a), 1 errored" in out
-    assert "incomplete: every cell errored (0 scored, 2 errored of 2 cells)" in err
+    assert "incomplete: 0 scored, 2 errored, 0 unscored, 0 missing of 2 planned cells" in err
     assert (tmp_path / "runs.json").is_file()  # the artifact is still written
 
 
-def test_tasks_run_with_some_cells_errored_keeps_exit_0_and_counts(tmp_path, monkeypatch, capsys):
+def test_tasks_run_with_some_cells_errored_is_incomplete(tmp_path, monkeypatch, capsys):
     code = _run_tasks(tmp_path, monkeypatch, lambda hid: _RaisingHarness() if hid == "codex" else None)
     out, err = capsys.readouterr()
-    assert code == 0
-    assert "codex: 0/0 pass (n/a), 1 errored" in out and "incomplete" not in err
+    assert code == 1
+    assert "codex: 0/0 pass (n/a), 1 errored" in out and "incomplete" in err
+
+
+@pytest.mark.parametrize("reward, expected", [(1.0, 0), (0.0, 0), (None, 1)])
+def test_native_completion_preserves_grade_failures(tmp_path, monkeypatch, capsys, reward, expected):
+    from dokimi.harnesses.models import HarnessResult
+
+    class Harness:
+        def __init__(self, hid):
+            self.hid = hid
+
+        def run(self, task, **kwargs):
+            return HarnessResult(self.hid, task.name, [], 0, 0, reward, reward == 1.0)
+
+    code = _run_tasks(tmp_path, monkeypatch, lambda hid: Harness(hid))
+    assert code == expected
+    assert (tmp_path / "runs.json").exists()
+    if reward is None:
+        assert "2 unscored" in capsys.readouterr().err
+
+
+@pytest.mark.outcome("cjm-tasks-completion")
+@pytest.mark.parametrize("rows", [[], [{"task": "t", "harness": "h", "reward": 1.0}]])
+def test_task_completion_refuses_missing_planned_cells(rows, capsys):
+    from dokimi.commands.tasks import _check_completion
+
+    output = {"tasks": [{"name": "t"}], "harnesses": ["h"], "repeats": 2, "results": rows}
+    with pytest.raises(SystemExit) as exc:
+        _check_completion(output)
+    assert exc.value.code == 1
+    assert "missing" in capsys.readouterr().err
+
+
+@pytest.mark.outcome("cjm-tasks-completion")
+def test_task_completion_refuses_an_empty_plan(capsys):
+    from dokimi.commands.tasks import _check_completion
+
+    with pytest.raises(SystemExit) as exc:
+        _check_completion({"tasks": [], "harnesses": [], "results": []})
+    assert exc.value.code == 1
+    assert "0 planned cells" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("extra", ["duplicate", "unplanned"])
+def test_task_completion_refuses_ambiguous_cell_identity(extra, capsys):
+    from dokimi.commands.tasks import _check_completion
+
+    row = {"task": "t", "harness": "h", "reward": 1.0}
+    other = dict(row, task="other") if extra == "unplanned" else dict(row)
+    output = {"tasks": [{"name": "t"}], "harnesses": ["h"], "results": [row, other]}
+    with pytest.raises(SystemExit) as exc:
+        _check_completion(output)
+    assert exc.value.code == 1
+    assert extra in capsys.readouterr().err
+
+
+def test_unsupported_dry_run_preserves_artifacts(tmp_path, capsys):
+    task = _fixture_task(tmp_path)
+    (task / "tests" / "test.sh").unlink()
+    out = tmp_path / "plan.json"
+    args = build_parser().parse_args([
+        "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
+        "--harnesses", "codex", "--dry-run", "--out-json", str(out),
+    ])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert "1 errored" in capsys.readouterr().err
+    assert out.is_file() and out.with_suffix(".md").is_file()
+
+
+@pytest.mark.outcome("cjm-tasks-completion")
+def test_partial_suite_writes_remaining_results_before_refusing(tmp_path, monkeypatch, capsys):
+    import json
+    from dokimi.harnesses import TaskSuiteRunner
+
+    real_run = TaskSuiteRunner.run
+
+    def partial_run(self):
+        output = real_run(self)
+        output["results"].pop()
+        return output
+
+    monkeypatch.setattr(TaskSuiteRunner, "run", partial_run)
+    code = _run_tasks(tmp_path, monkeypatch, lambda hid: None)
+    assert code == 1
+    assert "missing: toy-task / codex / repeat 1" in capsys.readouterr().err
+    data = json.loads((tmp_path / "runs.json").read_text())
+    assert len(data["results"]) == 1 and data["results"][0]["harness"] == "claude-code"
+    assert (tmp_path / "runs.md").is_file()
+
 
 
 def test_tasks_run_with_a_missing_task_exits_with_a_message(tmp_path):

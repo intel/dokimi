@@ -236,3 +236,119 @@ def test_compare_counts_only_questions_scored_on_both_sides(compare, capsys):
     cur["evaluations"] += extra
     compare(base, cur)
     assert "(1 of 3 questions compared)" in capsys.readouterr().out
+
+
+@pytest.mark.outcome("cjm-baseline-regression")
+@pytest.mark.parametrize("flag", ["--max-context-drop", "--max-lift-drop"])
+def test_regression_gate_uses_unrounded_scores_not_stored_delta(compare, capsys, flag):
+    base, cur = _eval(), _eval()
+    cur["evaluations"][0]["with_docs"]["aggregate"] = 6.999
+    with pytest.raises(SystemExit) as exc:
+        compare(base, cur, flag, "0")
+    assert exc.value.code == 1
+    assert "REGRESSION" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("flag", ["--max-context-drop", "--max-lift-drop"])
+def test_regression_gate_allows_equality(compare, capsys, flag):
+    base, cur = _eval(), _eval()
+    cur["evaluations"][0]["with_docs"]["aggregate"] = 6.5
+    compare(base, cur, flag, "0.5")
+    assert "Regression gate: PASS" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("kind", ["empty", "unmatched", "unscored", "nan", "duplicate", "unknown", "mismatch"])
+def test_regression_gate_refuses_incomplete_evidence(compare, capsys, kind):
+    base, cur = _eval(), _eval()
+    row = cur["evaluations"][0]
+    if kind == "empty":
+        cur["evaluations"] = []
+    elif kind == "unmatched":
+        row["question_id"] = "another"
+    elif kind == "unscored":
+        row["without_docs"] = None
+    elif kind == "nan":
+        row["with_docs"]["aggregate"] = float("nan")
+    elif kind == "duplicate":
+        cur["evaluations"].append(dict(row))
+    elif kind == "unknown":
+        cur.pop("run_metadata")
+    else:
+        cur["judge_model"] = "other"
+    with pytest.raises(SystemExit) as exc:
+        compare(base, cur, "--max-context-drop", "0")
+    assert exc.value.code == 1
+    assert "Regression gate: PASS" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-1", "oops"])
+def test_regression_threshold_requires_finite_nonnegative_number(value, capsys):
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["baseline", "compare", "--eval", "x", "--max-lift-drop", value])
+    assert exc.value.code == 2
+    assert "finite non-negative" in capsys.readouterr().err
+
+
+def test_regression_minimum_matched_count(compare, capsys):
+    with pytest.raises(SystemExit) as exc:
+        compare(_eval(), _eval(), "--max-context-drop", "0", "--min-matched", "2")
+    assert exc.value.code == 1
+    assert "insufficient" in capsys.readouterr().err
+
+
+def test_strict_remains_identity_only_even_for_large_regression(compare, capsys):
+    cur = _eval(delta=-5)
+    cur["evaluations"][0]["with_docs"]["aggregate"] = 0
+    compare(_eval(), cur, "--strict")
+    assert "Regression gate" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("score, limit", [(6.9, "0.1"), (6.8, "0.2"), (6.7, "0.3")])
+def test_decimal_threshold_equality_passes(compare, capsys, score, limit):
+    base, cur = _eval(), _eval()
+    cur["evaluations"][0]["with_docs"]["aggregate"] = score
+    compare(base, cur, "--max-context-drop", limit, "--max-lift-drop", limit)
+    assert "Regression gate: PASS" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("flag, fails", [("--max-context-drop", False), ("--max-lift-drop", True)])
+def test_context_score_and_lift_are_distinct_metrics(compare, capsys, flag, fails):
+    base, cur = _eval(), _eval()
+    # Context quality is unchanged, but the unaided model improved: lift fell.
+    cur["evaluations"][0]["without_docs"]["aggregate"] = 6.0
+    if fails:
+        with pytest.raises(SystemExit) as exc:
+            compare(base, cur, flag, "0")
+        assert exc.value.code == 1
+        assert "paired lift: drop=1" in capsys.readouterr().out
+    else:
+        compare(base, cur, flag, "0")
+        assert "Regression gate: PASS" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("side", ["base", "current"])
+def test_gate_refuses_partial_question_coverage(compare, capsys, side):
+    base, cur = _eval(), _eval()
+    data = base if side == "base" else cur
+    data["evaluations"].append({**data["evaluations"][0], "question_id": "extra"})
+    with pytest.raises(SystemExit) as exc:
+        compare(base, cur, "--max-lift-drop", "100")
+    assert exc.value.code == 1
+    assert "complete unique coverage required" in capsys.readouterr().err
+
+
+def test_gate_matches_questions_by_id_not_list_position(compare, capsys):
+    base, cur = _eval(), _eval()
+    base["evaluations"].append({**_eval(delta=3)["evaluations"][0], "question_id": "q2"})
+    cur["evaluations"] = list(reversed(base["evaluations"]))
+    compare(base, cur, "--max-context-drop", "0", "--max-lift-drop", "0", "--min-matched", "2")
+    out = capsys.readouterr().out
+    assert "(2 matched)" in out and "Regression gate: PASS" in out
+
+
+@pytest.mark.parametrize("model", ["unknown/unknown", "openai/ Unknown ", "bare-model"])
+def test_regression_gate_refuses_unknown_panel_members(compare, capsys, model):
+    with pytest.raises(SystemExit) as exc:
+        compare(_panel(model), _panel(model), "--max-context-drop", "0")
+    assert exc.value.code == 1
+    assert "cannot verify the judge model" in capsys.readouterr().err

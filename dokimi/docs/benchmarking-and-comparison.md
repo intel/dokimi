@@ -484,8 +484,11 @@ The report gives, per
 degradation, the pairs scored, the gate accuracy with its 95% CI and PASS or
 FAIL; `--sequential` adds a `mode` line and marks a degradation still undecided
 at the stop `continue`, with the reason under INCONCLUSIVE (cap reached, or the
-answer pool exhausted). Exit 1 on FAIL, and on an inconclusive pass with
-`--strict`. A malformed input, such as a record that would be judged with no
+answer pool exhausted). An undecided result prints `RESULT: INCONCLUSIVE`,
+never PASS. Exit policy is unchanged: a below-threshold point estimate exits 1;
+an above-threshold inconclusive result warns and exits 0 by default, or 1 with
+`--strict`. A settled PASS exits 0. JSON retains `passed` (the point-estimate
+check) and `conclusive`; promotion requires both to be true. A malformed input, such as a record that would be judged with no
 question text, exits 2, so it never reads as a failed gate.
 
 `--mode pairwise` shows the judge both answers, in both orders, and asks which
@@ -801,6 +804,26 @@ on a bad eval file or `manifest.json`, and `baseline list` exits 1 on a bad
 `manifest.json`. A `manifest.json` whose `baselines` is not a list, or whose entries
 lack a string `name` and `path` or have a `summary` that is not an object, is rejected
 the same way.
+
+Regression promotion is opt-in and separate from identity-only `--strict`:
+
+```bash
+python cli.py baseline compare --baseline onetbb-gpt55-docs \
+  --eval results/onetbb_candidate/eval/onetbb.json \
+  --max-context-drop 1 --max-lift-drop 0.5 --min-matched 20
+```
+
+`--max-context-drop` limits the mean saved-minus-current context score.
+`--max-lift-drop` limits the mean saved-minus-current paired lift, where lift
+is context score minus the no-context score for the same question. Both use
+unrounded per-question aggregates, not stored rounded deltas or manifest means.
+Thresholds are finite, non-negative score points; equality passes. Either flag
+enables the gate; when both are supplied both must pass. `--min-matched` defaults
+to 1 and only applies with a threshold. The gate exits 1 on a regression,
+unknown or mismatched answer/judge identity, or insufficient evidence: every
+question in both artifacts must match uniquely and have finite scores in both
+conditions. Unmatched questions, duplicates, errors and partial scoring cannot
+promote a candidate. Invalid thresholds and malformed records exit 2.
 
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.

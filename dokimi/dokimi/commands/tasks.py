@@ -181,11 +181,45 @@ def _print_summary(output: dict) -> None:
         cost_delta = cmp_row.get("cost_delta_usd")
         cost_s = "" if cost_delta is None else f", cost delta ${cost_delta:+.4f}"
         print(f"{harness} vs {cmp_row['baseline_harness']}: pass-rate delta {delta_s}{cost_s}")
-    per_harness = output["summary"]["per_harness"].values()
-    cells = sum(s["n"] for s in per_harness)
-    errored = sum(s.get("errored", 0) for s in per_harness)
-    if cells and errored == cells:  # no cell has a verdict: "0/0 pass (n/a)" is not a result
-        print(f"✗ incomplete: every cell errored (0 scored, {errored} errored of {cells} cells)", file=sys.stderr)
+
+
+def _cell_state(row: dict, dry_run: bool) -> str:
+    from math import isfinite
+    from dokimi.harnesses.runner import is_errored
+
+    if is_errored(row):
+        return "errored"
+    if dry_run and row.get("metrics", {}).get("dry_run"):
+        return "planned"
+    reward = row.get("reward")
+    if isinstance(reward, bool) or not isinstance(reward, (int, float)):
+        return "unscored"
+    return "scored" if isfinite(reward) else "unscored"
+
+
+def _check_completion(output: dict, *, dry_run: bool = False) -> None:
+    """A completed failing grade is evidence; an errored or absent cell is not."""
+    from collections import Counter
+
+    planned = {(task["name"], harness, rep)
+               for task in output["tasks"] for harness in output["harnesses"]
+               for rep in range(1, output.get("repeats", 1) + 1)}
+    seen = {(r["task"], r["harness"], r.get("repeat", 1)) for r in output["results"]}
+    counts = Counter(_cell_state(row, dry_run) for row in output["results"])
+    missing = planned - seen
+    duplicate = len(output["results"]) - len(seen)
+    unplanned = seen - planned
+    if dry_run:
+        print(f"Plan: {counts['planned']} supported cells; not executed")
+    incomplete = counts["errored"] + counts["unscored"] + len(missing) + duplicate + len(unplanned)
+    if incomplete or not planned:
+        print(f"✗ incomplete: {counts['scored']} scored, {counts['errored']} errored, "
+              f"{counts['unscored']} unscored, {len(missing)} missing of {len(planned)} planned cells",
+              file=sys.stderr)
+        if duplicate or unplanned:
+            print(f"  invalid identities: {duplicate} duplicate, {len(unplanned)} unplanned", file=sys.stderr)
+        for task, harness, rep in sorted(missing):
+            print(f"  missing: {task} / {harness} / repeat {rep}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -245,6 +279,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     print(f"Saved task run report:   {out_md}")
 
     _print_summary(output)
+    _check_completion(output, dry_run=args.dry_run)
 
 
 def register(sub, positive_int) -> None:

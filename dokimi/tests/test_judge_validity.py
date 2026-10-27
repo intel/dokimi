@@ -685,7 +685,7 @@ class TestGateResolution:
     def test_inconclusive_is_stated_in_the_summary_text(self):
         text = self._report(20, 3).format_summary()
         assert "INCONCLUSIVE" in text
-        assert "RESULT: PASS (inconclusive" in text
+        assert "RESULT: INCONCLUSIVE" in text
 
     def test_interval_narrows_as_pairs_are_added(self):
         def half_width(n):
@@ -793,7 +793,7 @@ class TestGateResolution:
     def test_a_fail_that_only_straddles_stays_inconclusive(self):
         summary = self._report(20, 5).summary()
         assert (summary["passed"], summary["conclusive"]) == (False, False)
-        assert self._report(20, 5).format_summary().endswith("RESULT: FAIL (inconclusive — see above)")
+        assert self._report(20, 5).format_summary().endswith("RESULT: INCONCLUSIVE (see above)")
 
     def test_an_accuracy_on_the_gate_does_not_say_more_pairs_cannot_help(self):
         summary = self._report(20, 4).summary()
@@ -974,12 +974,12 @@ class TestStrictCli:
     def test_an_inconclusive_pass_warns_and_exits_zero(self, tmp_path, monkeypatch, capsys):
         code, err = self._run(tmp_path, monkeypatch, capsys, 5)
         assert code == 0
-        assert "Pass is inconclusive at this sample size: truncate_20" in err
+        assert "INCONCLUSIVE at this sample size: truncate_20" in err
 
     def test_the_hint_names_the_knob_the_mode_reads(self, tmp_path, monkeypatch, capsys):
         assert "more --bases" in self._run(tmp_path, monkeypatch, capsys, 5)[1]
         err = self._run(tmp_path, monkeypatch, capsys, 5, "--sequential")[1]
-        assert "inconclusive" in err and "--max-bases" in err and "more --bases" not in err
+        assert "INCONCLUSIVE" in err and "--max-bases" in err and "more --bases" not in err
 
     def test_strict_turns_an_inconclusive_pass_into_a_failure(self, tmp_path, monkeypatch, capsys):
         assert self._run(tmp_path, monkeypatch, capsys, 5, "--strict")[0] == 1
@@ -1120,7 +1120,7 @@ def test_a_requested_variant_with_no_pair_is_reported_and_blocks_a_conclusive_pa
     assert s["conclusive"] is False
     text = report.format_summary()
     assert "strip_code" in text and "not measured: no pair, 20 no-op" in text
-    assert "RESULT: PASS (inconclusive" in text
+    assert "RESULT: INCONCLUSIVE" in text
 
 
 def test_table_cells_sit_under_their_headers():

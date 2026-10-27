@@ -413,7 +413,7 @@ class ValidityReport:
         if not s["n_pairs"]:
             result += " (no graded pair was scored)"
         elif not s["conclusive"]:
-            result += " (inconclusive — see above)"
+            result = "INCONCLUSIVE (see above)"
         lines.append("  RESULT: " + result)
         return "\n".join(lines)
 
