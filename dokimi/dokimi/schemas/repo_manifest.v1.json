@@ -62,7 +62,6 @@
     "entry_points": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["grade"],
       "properties": {
         "grade": {"type": "string", "minLength": 1},
         "oracle": {"type": "string", "minLength": 1},
@@ -75,6 +74,24 @@
       "type": "array",
       "uniqueItems": true,
       "items": {"enum": ["bazel", "make", "cmake", "pytest", "pre-commit"]}
+    },
+    "process_metrics": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+      "additionalProperties": {
+        "oneOf": [
+          {"type": "string", "minLength": 1},
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["regex"],
+            "properties": {
+              "regex": {"type": "string", "minLength": 1},
+              "match": {"enum": ["text", "output", "any"]}
+            }
+          }
+        ]
+      }
     }
   }
 }

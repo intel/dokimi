@@ -110,9 +110,22 @@ def _print_plan(plan: dict) -> None:
             print(f"  {key}: {value}")
 
 
+def _check_questions_from(questions_from: str, key: str) -> tuple[Path, list, str | None]:
+    """The resolved --questions-from file, its records, and a message when it is unusable."""
+    from dokimi.orchestrator.pipeline import load_questions_payload, resolve_questions_from_path
+
+    qf = resolve_questions_from_path(Path(questions_from), key)
+    if not qf.exists():
+        return qf, [], f"questions source not found: {qf}"
+    try:
+        return qf, load_questions_payload(qf), None
+    except Exception as exc:
+        return qf, [], f"questions source invalid: {qf} ({exc})"
+
+
 def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     """Validate the resolved benchmark plan without running LLM calls."""
-    from dokimi.orchestrator.pipeline import load_questions_payload, resolve_questions_from_path
+    from dokimi.orchestrator.pipeline import load_questions_payload
     from dokimi.mcp.factory import create_doc_source_client
 
     registry = _load_registry(args)
@@ -149,15 +162,11 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
         errors.append(f"doc source invalid: {plan['doc_source']} ({exc})")
 
     if plan["questions_from"]:
-        qf = resolve_questions_from_path(Path(plan["questions_from"]), entry.key)
-        if not qf.exists():
-            errors.append(f"questions source not found: {qf}")
+        qf, questions, problem = _check_questions_from(plan["questions_from"], entry.key)
+        if problem:
+            errors.append(problem)
         else:
-            try:
-                questions = load_questions_payload(qf)
-                print(f"  questions: {qf} ({len(questions)} items)")
-            except Exception as exc:
-                errors.append(f"questions source invalid: {qf} ({exc})")
+            print(f"  questions: {qf} ({len(questions)} items)")
 
     # Check golden set only if no external questions source (--questions-from takes precedence)
     if plan["questions_root"] and not plan["questions_from"]:
@@ -217,6 +226,12 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
     concurrency = getattr(args, "concurrency", DEFAULT_CONCURRENCY)
     questions_from = getattr(args, "questions_from", None)
     questions_root = getattr(args, "questions_root", None)
+
+    if questions_from:
+        _, _, problem = _check_questions_from(questions_from, entry.key)
+        if problem:
+            print(f"Error: {problem}", file=sys.stderr)
+            sys.exit(1)
 
     if n_runs == 1:
         _run_single_library(

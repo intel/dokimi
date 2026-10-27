@@ -83,6 +83,18 @@ def test_load_run_invalid_json(tmp_path):
         load_run(str(p))
 
 
+def test_load_run_non_utf8_file_names_the_file(tmp_path):
+    p = tmp_path / "latin1.json"
+    p.write_bytes(b'{"note": "caf\xe9"}')
+    with pytest.raises(SystemExit, match=r"Error: Invalid JSON in .*latin1\.json: .*utf-8"):
+        load_run(str(p))
+
+
+def test_load_run_directory_is_an_error_message_not_a_traceback(tmp_path):
+    with pytest.raises(SystemExit, match=r"Error: cannot read .*Is a directory"):
+        load_run(str(tmp_path))
+
+
 # ---------------------------------------------------------------------------
 # check_run_consistency
 # ---------------------------------------------------------------------------

@@ -34,6 +34,7 @@ DOCS = [
     PROJECT / "CONTRIBUTING.md",
     PROJECT.parent / "README.md",
     PROJECT.parent / "AGENTS.md",
+    PROJECT.parent / "REVIEW.md",
 ]
 DOCS = [d for d in DOCS if d.exists()]
 

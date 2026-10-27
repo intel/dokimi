@@ -14,6 +14,24 @@ import argparse
 import sys
 
 
+def _load_custom(cls, flag: str, value):
+    """``cls()`` for the bundled file, else ``cls`` over the file named by ``flag``; exit 1 if it cannot be read."""
+    import yaml
+    from pathlib import Path as _Path
+
+    if not value:
+        return cls()
+    path = _Path(value)
+    if not path.is_file():
+        print(f"Error: {flag} {value}: not a file", file=sys.stderr)
+        sys.exit(1)
+    try:
+        return cls(path=path)
+    except (OSError, ValueError, yaml.YAMLError) as exc:  # unreadable, not UTF-8, not YAML
+        print(f"Error: cannot read {flag} {value}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def _load_registry(args):
     from dokimi.registry import ProductRegistry
     from pathlib import Path as _Path
@@ -21,16 +39,20 @@ def _load_registry(args):
     return ProductRegistry(path=reg_path)
 
 
+def _load_registry_checked(args):
+    """`_load_registry` for the `library` commands: a bad --registry file exits 1 (benchmark keeps its own)."""
+    from dokimi.registry import ProductRegistry
+    return _load_custom(ProductRegistry, "--registry", getattr(args, "registry", None))
+
+
 def _load_intents(args=None):
     from dokimi.intents import IntentRegistry
-    from pathlib import Path as _Path
-    intents_path = _Path(args.intents) if getattr(args, "intents", None) else None
-    return IntentRegistry(path=intents_path)
+    return _load_custom(IntentRegistry, "--intents", getattr(args, "intents", None))
 
 
 def cmd_library_list(args: argparse.Namespace) -> None:
     """List all products in the registry, optionally filtered by intent domain."""
-    registry = _load_registry(args)
+    registry = _load_registry_checked(args)
     entries = registry.list()
     domain = getattr(args, "domain", None)
     if domain:
@@ -56,7 +78,7 @@ def cmd_library_list(args: argparse.Namespace) -> None:
 
 def cmd_library_show(args: argparse.Namespace) -> None:
     """Show full details for a single product."""
-    registry = _load_registry(args)
+    registry = _load_registry_checked(args)
     try:
         entry = registry.get(args.name)
     except KeyError as exc:

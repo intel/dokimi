@@ -46,6 +46,15 @@ Answer the question based on your training knowledge. Be specific and include co
 **Answer:**"""
 
 
+#: Context arm for ``prompt_style: verbatim`` questions: docs first, then the prompt unchanged.
+ANSWER_PROMPT_WITH_DOCS_VERBATIM = """Relevant documentation:
+{docs}
+
+---
+
+{question}"""
+
+
 class Answerer:
     """
     Generate answers to questions using LLM.
@@ -226,6 +235,9 @@ class Answerer:
         )
         qid = question_id(question)
         qid = "unknown_q" if qid is None else qid
+        # Imported eval formats grade the answer to the prompt as written (exact match,
+        # "ANSWER: X"); the expert-answer wrapper would change what is asked.
+        verbatim = question.get("prompt_style") == "verbatim"
         
         # Context arm
         with_docs_answer = None
@@ -237,7 +249,8 @@ class Answerer:
             if retrieved_docs:
                 # Generate answer with retrieved context
                 with_docs_answer = self._generate_with_docs(
-                    question_text, retrieved_docs, retrieval_metadata
+                    question_text, retrieved_docs, retrieval_metadata,
+                    verbatim=verbatim,
                 )
             else:
                 # Fallback: no relevant docs found
@@ -262,7 +275,7 @@ class Answerer:
             logger.warning(f"No MCP client - skipping context arm for {qid}")
         
         # Baseline
-        without_docs_answer = self._generate_without_docs(question_text)
+        without_docs_answer = self._generate_without_docs(question_text, verbatim=verbatim)
         
         result = {
             "question_id": qid,
@@ -342,7 +355,8 @@ class Answerer:
         self,
         question: str,
         docs: List[Dict[str, Any]],
-        retrieval_metadata: Optional[Dict[str, Any]] = None
+        retrieval_metadata: Optional[Dict[str, Any]] = None,
+        verbatim: bool = False,
     ) -> Dict[str, Any]:
         """Generate context-arm answer."""
         if not docs:
@@ -371,10 +385,8 @@ class Answerer:
         docs_text_trimmed = docs_text[:MAX_DOC_CHARS]
 
         # Generate answer
-        prompt = ANSWER_PROMPT_WITH_DOCS.format(
-            question=question,
-            docs=docs_text_trimmed,
-        )
+        template = ANSWER_PROMPT_WITH_DOCS_VERBATIM if verbatim else ANSWER_PROMPT_WITH_DOCS
+        prompt = template.format(question=question, docs=docs_text_trimmed)
 
         answer_text, usage = llm_call_with_usage(
             prompt=prompt,
@@ -410,9 +422,9 @@ class Answerer:
 
         return result
 
-    def _generate_without_docs(self, question: str) -> Dict[str, Any]:
-        """Generate baseline answer."""
-        prompt = ANSWER_PROMPT_WITHOUT_DOCS.format(question=question)
+    def _generate_without_docs(self, question: str, verbatim: bool = False) -> Dict[str, Any]:
+        """Generate baseline answer (the bare prompt when ``verbatim``)."""
+        prompt = question if verbatim else ANSWER_PROMPT_WITHOUT_DOCS.format(question=question)
 
         answer_text, usage = llm_call_with_usage(
             prompt=prompt,

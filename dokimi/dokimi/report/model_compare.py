@@ -63,13 +63,12 @@ except ImportError:
 def load_run(path: str) -> dict[str, Any]:
     """Load a judged arms JSON file.  Raises SystemExit with a clear message on failure."""
     try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise SystemExit(f"Error: File not found: {path}") from exc
-    except PermissionError as exc:
-        raise SystemExit(f"Error: Permission denied reading {path}") from exc
-    except json.JSONDecodeError as exc:
+    except OSError as exc:  # permission denied, a directory, an I/O error
+        raise SystemExit(f"Error: cannot read {path}: {exc.strerror or exc}") from exc
+    except ValueError as exc:  # JSONDecodeError, or bytes that are not UTF-8
         raise SystemExit(f"Error: Invalid JSON in {path}: {exc}") from exc
     if isinstance(data, dict):
         for section in ("answers", "evaluations"):
