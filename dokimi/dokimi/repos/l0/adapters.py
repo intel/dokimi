@@ -59,6 +59,8 @@ _MAKE_OPT_NUM = frozenset({"-j", "-l", "--jobs", "--load-average"})  # take a nu
 _PYTEST_OPT_ARG = frozenset({"-k", "-m", "-p", "-c", "-o", "-W", "-r", "--rootdir", "--confcutdir", "--basetemp", "-n",
                              "--cov", "--cov-report", "--cov-config", "--log-level", "--import-mode", "--timeout",
                              "--deselect", "--ignore", "--junitxml", "--durations", "--maxfail", "--tb"})
+# a dotted module name for `pytest --pyargs`; `test_x.py` is a file name, which pytest reads as a path
+_MODULE_NAME = re.compile(r"^[A-Za-z_]\w*(?:\.(?!py$)[A-Za-z_]\w*)*$")
 
 Handler = Callable[[Scan, str, int, list[str], str], None]
 
@@ -678,6 +680,7 @@ def _cmake_source(scan: Scan, file: str, line: int, src: str, text: str) -> None
 # ---------------------------------------------------------------- pytest
 def _pytest(scan: Scan, file: str, line: int, toks: list[str], text: str) -> None:
     args = iter(toks[1:])
+    pyargs = "--pyargs" in toks
     for t in args:
         if t in _PYTEST_OPT_ARG:
             next(args, None)
@@ -685,15 +688,38 @@ def _pytest(scan: Scan, file: str, line: int, toks: list[str], text: str) -> Non
         if t.startswith("-"):
             continue
         path, _, node = t.partition("::")
-        r = scan.resolve_path(file, path)
+        kind, r = "pytest_path", scan.resolve_path(file, path)
+        # with --pyargs pytest imports the name first, and reads it as a path only when no module has it
+        if pyargs and _MODULE_NAME.match(path) and not (r and r[0].startswith("ok")):
+            kind, r = "pytest_module", _pytest_module(scan, path)
         if r is None:
             continue
-        scan.add(file, line, "pytest_path", path, r[0], r[1], text)
+        scan.add(file, line, kind, path, r[0], r[1], text)
         if node and r[0] == "ok" and r[1] in scan.file_set and not dynamic(node):
             name = node.split("[")[0].split("::")[-1]  # a parameter id may hold `::`
             ok = re.search(rf"^\s*(?:async\s+)?(?:def|class)\s+{re.escape(name)}\b", scan.text(r[1]), re.M)
             scan.add(file, line, "pytest_node", t, "ok" if ok else "fail",
                      f"{'defined' if ok else 'not defined'} in {r[1]}", text)
+
+
+def _pytest_module(scan: Scan, name: str) -> tuple[str, str]:
+    """A ``--pyargs`` module: ``a.b`` is ``a/b.py`` or ``a/b/__init__.py`` below any directory of the tree.
+
+    A directory with no ``__init__.py`` is no module (pytest skips namespace packages by default). A module
+    missing from a package the tree holds is ``fail``; any other missing module may be installed from elsewhere.
+    """
+    def find(rel: str) -> str | None:
+        return next((f for f in scan.by_name.get(posixpath.basename(rel), []) if f == rel or f.endswith("/" + rel)), None)
+
+    rel = name.replace(".", "/")
+    hit = find(rel + ".py") or find(rel + "/__init__.py")
+    if hit:
+        return "ok", hit
+    package, _, leaf = name.rpartition(".")
+    home = find(package.replace(".", "/") + "/__init__.py") if package else None
+    if home:
+        return "fail", f"package {package} ({posixpath.dirname(home)}/) has no module {leaf}"
+    return "unresolved", f"no module {name} in the tree; it may be installed from elsewhere"
 
 
 def _python(scan: Scan, file: str, line: int, toks: list[str], text: str) -> None:
