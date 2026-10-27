@@ -13,11 +13,30 @@ from pathlib import Path
 from dokimi.report.markdown_report import write_compare_report, write_run_report
 
 
+def _write_combined_report(args, regular_runs, golden_runs, run_ids, warnings) -> None:
+    """Write the combined model-compare report, exiting cleanly if the output is unwritable."""
+    from dokimi.report.model_compare import generate_combined_report
+
+    try:
+        generate_combined_report(
+            regular_runs,
+            golden_runs,
+            run_ids,
+            args.out,
+            treatment_arm=getattr(args, "treatment_arm", None),
+            correction=getattr(args, "stats_correction", "holm"),
+            pool_replicates=getattr(args, "pool_replicates", False),
+            warnings=warnings,
+        )
+    except OSError as exc:
+        print(f"Error: cannot write {args.out}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+
 def cmd_report_model_compare(args: argparse.Namespace) -> None:
     """Compare multiple model runs and write a Markdown report."""
     from dokimi.report.model_compare import (
         check_run_consistency,
-        generate_combined_report,
         load_run,
     )
 
@@ -67,16 +86,7 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
     for w in all_warnings:
         print(w, file=sys.stderr)
 
-    generate_combined_report(
-        regular_runs,
-        golden_runs,
-        run_ids,
-        args.out,
-        treatment_arm=pinned_arm,
-        correction=getattr(args, "stats_correction", "holm"),
-        pool_replicates=pool_replicates,
-        warnings=all_warnings,
-    )
+    _write_combined_report(args, regular_runs, golden_runs, run_ids, all_warnings)
 
 
 def cmd_report(args: argparse.Namespace) -> None:
@@ -106,6 +116,9 @@ def cmd_report_eval(args: argparse.Namespace) -> None:
     except RecordError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
+    except OSError as exc:
+        print(f"Error: cannot write {out}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
 
 
 def cmd_report_generate(args: argparse.Namespace) -> None:
@@ -129,6 +142,9 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
 
     try:
         questions_data = load_questions(args.questions).artifact
+    except OSError as exc:
+        print(f"Error: cannot read {args.questions}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
     except ValueError as exc:  # ArtifactValidationError: names the record and the fix
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
@@ -150,8 +166,12 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
 
     # Save output
     output_path = Path(args.output) if args.output else Path(f"reports/{args.product}.{args.format}")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(report, encoding="utf-8")
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(report, encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot write {output_path}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
 
     print(f"\n✅ Generated report: {output_path}")
 

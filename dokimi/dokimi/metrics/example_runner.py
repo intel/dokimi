@@ -40,6 +40,10 @@ EXECUTORS: dict[str, tuple[str, list[str]]] = {
 }
 
 
+_FENCE_OPEN_RE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
+_FENCE_CLOSE_RE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
+
+
 @dataclass
 class ExampleResult:
     """Single example execution result.
@@ -93,15 +97,49 @@ class ExecutionPolicy:
         return policy
 
 
+def _keep_example(examples: list[tuple[str, str]], opener: re.Match[str], body: list[str]) -> None:
+    """Append the block as an example when its opening fence has a language tag."""
+    lang = re.match(r"\w+", opener.group(3).strip())
+    if lang:
+        examples.append((lang.group().lower(), "\n".join(body).strip()))
+
+
 def extract_examples(markdown: str) -> list[tuple[str, str]]:
     """Extract fenced code blocks with language tags from markdown.
 
     Supports optional metadata after the language tag (e.g.
     ```python title="x.py"```). Normalizes language tags to lowercase.
+    A fence is ``` or ~~~, closed by a fence of the same character at least as
+    long, so a shorter fence inside is content. Any indentation is accepted so
+    that blocks nested in list items are found; each body line loses up to
+    the opening fence's indentation. A fence that is never closed runs to the
+    end of the document, as in CommonMark. A fence without a language tag yields
+    no example.
     Returns a list of (language, code) tuples.
     """
-    pattern = re.compile(r"```(\w+)[^\n]*\n(.*?)```", re.DOTALL)
-    return [(m.group(1).lower(), m.group(2).strip()) for m in pattern.finditer(markdown)]
+    examples: list[tuple[str, str]] = []
+    opener: re.Match[str] | None = None
+    body: list[str] = []
+    for line in re.split(r"\r\n|\r|\n", markdown):
+        if opener is None:
+            m = _FENCE_OPEN_RE.match(line)
+            if m and not (m.group(2)[0] == "`" and "`" in m.group(3)):
+                opener, body = m, []
+            continue
+        close = _FENCE_CLOSE_RE.match(line)
+        fence = opener.group(2)
+        if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
+            _keep_example(examples, opener, body)
+            opener = None
+        else:
+            # Drop up to the opener's indentation, as CommonMark does, so a
+            # block nested in a list item keeps its relative indentation.
+            indent = len(opener.group(1))
+            stripped = len(line) - len(line.lstrip())
+            body.append(line[min(indent, stripped):])
+    if opener is not None:
+        _keep_example(examples, opener, body)
+    return examples
 
 
 def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,

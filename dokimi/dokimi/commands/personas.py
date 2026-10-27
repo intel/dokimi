@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.commands._output import exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.personas.analyzer import PersonaAnalyzer
 from dokimi.personas.generator import PersonaGenerator
@@ -38,7 +39,8 @@ def cmd_personas_discover(args: argparse.Namespace) -> None:
         if args.save_analysis:
             output_path = Path(args.output) if args.output else Path(f"personas/{args.product}.json")
             analysis_path = output_path.parent / f"{args.product}_analysis.json"
-            analyzer.save_analysis(analysis, analysis_path)
+            with exit_on_unwritable(analysis_path):
+                analyzer.save_analysis(analysis, analysis_path)
             print(f"✓ Saved analysis to {analysis_path}")
     else:
         # Description-only
@@ -60,7 +62,8 @@ def cmd_personas_discover(args: argparse.Namespace) -> None:
 
     # Save personas
     output_path = Path(args.output) if args.output else Path(f"personas/{args.product}.json")
-    generator.save_personas(personas, output_path)
+    with exit_on_unwritable(output_path):
+        generator.save_personas(personas, output_path)
 
     print(f"\n✓ Generated {len(personas['personas'])} personas for {args.product}")
     print(f"✓ Saved to {output_path}")
@@ -81,27 +84,40 @@ def cmd_personas_approve(args: argparse.Namespace) -> None:
     # Validate JSON structure
     try:
         personas = json.loads(persona_file.read_text(encoding="utf-8"))
-        required_keys = {"product", "personas"}
-        if not required_keys.issubset(personas.keys()):
-            print(f"✗ Invalid persona file. Missing keys: {required_keys - personas.keys()}", file=sys.stderr)
+    except OSError as e:
+        print(f"✗ Cannot read {persona_file}: {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:  # JSONDecodeError and bad UTF-8
+        print(f"✗ Cannot parse {persona_file}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    required_keys = {"product", "personas"}
+    if not isinstance(personas, dict):
+        print("✗ Invalid persona file. Expected a JSON object with keys: "
+              f"{sorted(required_keys)}", file=sys.stderr)
+        sys.exit(1)
+    if not required_keys.issubset(personas.keys()):
+        print(f"✗ Invalid persona file. Missing keys: {required_keys - personas.keys()}", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(personas["personas"], list):
+        print("✗ Invalid persona file. `personas` must be a list", file=sys.stderr)
+        sys.exit(1)
+
+    # Check each persona
+    for p in personas["personas"]:
+        if not isinstance(p, dict):
+            print(f"✗ Invalid persona file. Each persona must be an object, got: {p!r}", file=sys.stderr)
+            sys.exit(1)
+        required_fields = {"id", "name", "skill_level"}
+        missing = required_fields - set(p.keys())
+        if missing:
+            print(f"✗ Persona '{p.get('id', '?')}' missing fields: {missing}", file=sys.stderr)
             sys.exit(1)
 
-        # Check each persona
-        for p in personas["personas"]:
-            required_fields = {"id", "name", "skill_level"}
-            missing = required_fields - set(p.keys())
-            if missing:
-                print(f"✗ Persona '{p.get('id', '?')}' missing fields: {missing}", file=sys.stderr)
-                sys.exit(1)
-
-        print(f"✓ Validated {len(personas['personas'])} personas")
-        print(f"✓ File approved: {persona_file}")
-        print("\nReady for question generation:")
-        print(f"  python cli.py questions generate --product {personas['product']} --personas {persona_file}")
-
-    except json.JSONDecodeError as e:
-        print(f"✗ Invalid JSON: {e}", file=sys.stderr)
-        sys.exit(1)
+    print(f"✓ Validated {len(personas['personas'])} personas")
+    print(f"✓ File approved: {persona_file}")
+    print("\nReady for question generation:")
+    print(f"  python cli.py questions generate --product {personas['product']} --personas {persona_file}")
 
 
 def register(sub, positive_int) -> None:

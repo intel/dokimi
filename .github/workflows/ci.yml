@@ -6,7 +6,10 @@ name: ci
 on:
   push:
     branches: [ main ]
+  # labeled/unlabeled: skip-changelog and schema-break-ok are read from the labels of the
+  # event that started the run, so a label change re-runs the matrix to pick it up.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
   schedule:
     # Weekly: the unpinned-dependency canary (test-latest) runs only here.
@@ -15,17 +18,17 @@ on:
 permissions:
   contents: read
 
-# Runners: every PR check runs on intel-ubuntu-latest, Intel's ephemeral runner
-# pool, the seconds-long `static` job too. ubuntu-latest is shared by every
-# intel/ repository: a job there waited 28 min or more for a runner one time in
-# ten (October 2026), and a PR's CI finishes when its last job does. The pool
-# boots a runner per job, a wait of about 4 min (median), p90 8 min. Both ends
-# of a `needs:` chain are on the pool (`changes` -> external-catalog-smoke in
-# agent-quality.yml, `build` -> `deploy` in docs.yml), so no chain waits on both
-# queues. Fork PRs against intel/dokimi run on the pool as well
-# (repository_owner is the base repository's); an outside contributor's runs
-# need a maintainer's approval first. A fork's own pushes fall back to
-# ubuntu-latest. release.yml and stack-health.yml, not PR checks, stay on
+# Runners: a job that takes more than 3 minutes runs on intel-ubuntu-latest,
+# Intel's ephemeral runner pool; a shorter one runs on ubuntu-latest. ubuntu-latest
+# is shared by every intel/ repository: a job there waited 28 min or more for a
+# runner one time in ten (October 2026). The pool boots a fresh runner per job, a
+# wait of about 4 min (median), p90 8 min, so a seconds-long check costs more on
+# the pool than it takes to run. That is why the small checks share `static`
+# instead of each booting a runner, and why only the test matrix (`test` and
+# `test-latest`, about 4-5 min each) is on the pool. Fork PRs against intel/dokimi
+# run on the pool as well (repository_owner is the base repository's); an outside
+# contributor's runs need a maintainer's approval first. A fork's own pushes fall
+# back to ubuntu-latest. release.yml and stack-health.yml, not PR checks, stay on
 # ubuntu-latest. windows-smoke, a PR check, runs on windows-latest.
 
 # A new push to a PR supersedes the run in flight. Every other run gets a group of its
@@ -39,7 +42,7 @@ defaults:
   run:
     working-directory: dokimi
 
-# Single-version jobs (here, in agent-quality.yml, contracts.yml, docs.yml and
+# Single-version jobs (here, in agent-quality.yml, docs.yml and
 # stack-health.yml) and `make dev` use Python 3.13, not 3.14: scikit-network
 # (pulled in by ragas) has no cp314 wheels yet, so on 3.14 every install builds
 # it from source (C++ with OpenMP, unpinned build deps); the pip cache keeps the
@@ -49,14 +52,19 @@ jobs:
   # The checks that need no dependency lock, in one job: each takes seconds, and
   # as separate jobs each waited for a runner of its own. Every step after the
   # install runs even when an earlier one fails (!cancelled()), so one finding
-  # does not hide the next.
+  # does not hide the next. The PR-only checks at the end (the commit secret scan,
+  # the changelog fragment, the docs review list, schema compatibility) share the
+  # runner for the same reason.
   static:
-    name: Static checks (ruff, schema, zizmor, license headers, pre-commit, bandit)
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    name: Static checks (ruff, schema, zizmor, licenses, pre-commit, bandit, secrets, changelog, schema compat)
+    runs-on: ubuntu-latest
     steps:
+      # Full history: the commit scan, the changelog and schema checks diff
+      # against the base branch's tip (fetched by this checkout).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
@@ -107,8 +115,8 @@ jobs:
       # The hooks in .pre-commit-config.yaml, so they stay green on main: a change
       # that fails one fails here, not on the next contributor's commit. ruff-check
       # and zizmor are skipped: the steps above run the same versions. gitleaks
-      # checks staged changes only, so it has nothing to do here; gitleaks.yml
-      # scans the PR's commits.
+      # checks staged changes only, so it has nothing to do here; the Scan commits
+      # step below scans the PR's commits.
       - name: pre-commit
         if: ${{ !cancelled() }}
         working-directory: .
@@ -121,10 +129,120 @@ jobs:
       - name: bandit
         if: ${{ !cancelled() }}
         run: bandit -r . -ll -q
+      # Secret scan of git history with the gitleaks CLI: on a PR, the commits it
+      # adds over the base branch (a secret committed and then deleted is still in
+      # them); on a push to main, the whole history (seconds: about 280 commits).
+      # The CLI, not gitleaks/gitleaks-action: the action needs a license key for
+      # repositories owned by an organization, and is under its own license.
+      # The findings are redacted in the log, which is public. A false positive (a
+      # test fixture, a placeholder key): append `gitleaks:allow` in a comment on the
+      # line, or allowlist it in a `.gitleaks.toml` at the repo root (gitleaks reads
+      # it on its own; start it with `[extend] useDefault = true`), path plus rule or
+      # regex, with the reason. A finding in a merge commit (a conflict resolution)
+      # is reported under `b/<path>`, so a path entry must match that (`^(b/)?f\.txt$`).
+      # A finding in a commit already on main goes in `.gitleaksignore` by its
+      # fingerprint (printed with each finding); copy the fingerprint as printed.
+      # A real secret: revoke it first; deleting it from the tree does not remove it
+      # from history or from the copies forks and clones already have.
+      # The release tarball, checked against a SHA-256 kept here rather than the
+      # release's own checksums file, which comes from the same place as the
+      # tarball. The version is the gitleaks rev in .pre-commit-config.yaml;
+      # Renovate bumps the two in one PR (.github/renovate.json5), and that PR
+      # fails here until GITLEAKS_SHA256 is updated from the release's
+      # gitleaks_<version>_checksums.txt (linux_x64 line).
+      - name: Install gitleaks
+        if: ${{ !cancelled() }}
+        working-directory: .
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$tarball"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$tarball" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/gitleaks" gitleaks
+          "$RUNNER_TEMP/gitleaks/gitleaks" version
+      # On a PR, the commits reachable from HEAD but not from the base branch's
+      # current tip (fetched by the checkout), as in the other diff-against-base
+      # steps. --redact: the finding's location and rule, never the value.
+      - name: Scan commits
+        if: ${{ !cancelled() }}
+        working-directory: .
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # --log-opts replaces gitleaks' own git-log arguments, so the push scan repeats
+          # --full-history --all to cover every ref, not only HEAD's history. A merge shows
+          # only what it adds over the automatic merge (a conflict resolution), so a line
+          # from a parent is reported once, under its own commit, as .gitleaksignore expects.
+          # gitleaks scans 0 commits and passes when the range does not resolve.
+          range=()
+          if [ "$EVENT" = pull_request ]; then
+            git rev-parse --verify --quiet "origin/$BASE_REF^{commit}" >/dev/null || { echo "::error::origin/$BASE_REF is not fetched"; exit 1; }
+            range=(--log-opts="--diff-merges=remerge origin/$BASE_REF..HEAD")
+          else
+            range=(--log-opts="--diff-merges=remerge --full-history --all")
+          fi
+          "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --verbose --no-banner "${range[@]}" .
+      # The base branch's current tip (fetched by the checkout), as in the other
+      # diff-against-base steps.
+      - name: Fragment for package changes
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          SKIP: ${{ contains(github.event.pull_request.labels.*.name, 'skip-changelog') }}
+        run: |
+          skip=()
+          if [ "$SKIP" = true ]; then skip=(--skip-label); fi
+          python scripts/check_changelog_fragment.py --base "origin/$BASE_REF" --head HEAD "${skip[@]}"
+      # Lists the docs pages whose `depends_on` front matter matches a file this PR
+      # changes while the PR leaves the page alone, in the job summary and as a
+      # warning on each page (scripts/check_docs_review_triggers.py). A prompt to
+      # reread the page, not a gate: findings never fail the step (only a malformed
+      # depends_on or an undiffable base does). It posts no PR comment. That every
+      # glob still matches a file is checked by tests/test_docs_review_triggers.py.
+      - name: Docs pages to review
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python scripts/check_docs_review_triggers.py --base "origin/$BASE_REF" --head HEAD
+      # A PR that changes the schemas (dokimi/schemas/) may not narrow an existing
+      # schema version in place (dokimi/schema_compat.py says why and what to do
+      # instead). A reviewer who has decided a narrowing is safe (it states an
+      # invariant every written artifact already met) applies the `schema-break-ok`
+      # label; the findings are still printed, the job just does not fail on them.
+      # WARNING lines (narrowings no base fixture hits) never fail the step; they go
+      # to the step summary and as annotations so a reviewer sees them.
+      # Diffs against the base branch's current tip, not base.sha (the base as it
+      # stood when the PR was opened), or main's own later edits get blamed on the PR.
+      - name: schema_compat vs the PR base
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          OVERRIDE: ${{ contains(github.event.pull_request.labels.*.name, 'schema-break-ok') }}
+        run: |
+          set -o pipefail
+          status=0
+          python -m dokimi.schema_compat --base "origin/$BASE_REF" | tee compat.txt || status=$?
+          if grep -qE '^(BREAKING|WARNING)' compat.txt; then
+            { echo '### Schema compatibility'; echo '```'; cat compat.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          { grep '^WARNING' compat.txt || true; } | sed 's/^WARNING */::warning title=schema_compat::/'
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          if [ "$OVERRIDE" = true ]; then
+            echo "::warning::breaking schema edits accepted by the schema-break-ok label"
+            exit 0
+          fi
+          exit 1
 
   typecheck:
     name: mypy
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -146,11 +264,11 @@ jobs:
         if: ${{ !cancelled() }}
         run: deptry .
 
-  # The pool jobs that cost the most (the test matrix, package-smoke) wait for
-  # `static`: a PR that fails lint stops there instead of taking six more
-  # runners. The cost is the wall time of `static` plus one more pool boot on a
-  # green run. typecheck, one job, still runs alongside `static`; windows-smoke,
-  # on windows-latest, does not wait, so no chain spans both queues.
+  # The test matrix waits for `static` (ubuntu-latest): a PR that fails lint
+  # stops there instead of booting the matrix on the pool. That includes the PR-only
+  # checks in `static` (the secret scan, the changelog fragment, schema compatibility).
+  # A green run waits in both queues in turn. typecheck, one job, still runs alongside `static`;
+  # windows-smoke, on windows-latest, does not wait.
   test:
     name: Tests (py${{ matrix.python-version }})
     needs: static
@@ -285,7 +403,7 @@ jobs:
   package-smoke:
     name: Package install smoke test (py${{ matrix.python-version }})
     needs: static
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:

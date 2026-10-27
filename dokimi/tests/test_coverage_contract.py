@@ -120,6 +120,29 @@ def test_registry_tag_aliases_widen_the_work_half(tmp_path):
         )
 
 
+def test_a_single_string_tag_counts_as_work(tmp_path):
+    """`tags = "onednn"` names one tag; it must not be read as the letters o, n, e..."""
+    tasks_dir = tmp_path / "tasks"
+    task = tasks_dir / "scalar-tag"
+    task.mkdir(parents=True)
+    (task / "task.toml").write_text('[metadata]\ntags = "OneDNN"\n', encoding="utf-8")
+
+    covs = {c.key: c for c in resolve_coverage({"onednn": {}, "openvino": {}}, tasks_dir=tasks_dir)}
+
+    assert covs["onednn"].tasks == ["scalar-tag"]
+    assert covs["openvino"].tasks == []
+
+
+def test_a_mixed_case_registry_key_matches_lowercased_task_tags(tmp_path):
+    """Task tags are compared lowercased, so the product key must be too."""
+    tasks_dir = tmp_path / "tasks"
+    _write_task(tasks_dir, "dal-task", ["oneDAL"])
+
+    covs = {c.key: c for c in resolve_coverage({"oneDAL": {}}, tasks_dir=tasks_dir)}
+
+    assert covs["oneDAL"].tasks == ["dal-task"]
+
+
 def test_roots_are_injectable(tmp_path):
     """Both halves resolve against caller-supplied roots (no in-repo default)."""
     tasks_dir = tmp_path / "tasks"

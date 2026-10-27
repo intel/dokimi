@@ -460,7 +460,7 @@ def _shape_flags(fn: _FuncDef, names: frozenset[str], helpers: frozenset[str],
                  value_helpers: frozenset[str], outer: frozenset[str] = frozenset()) -> set[str]:
     t = _collect(fn)
     inputs = _constructor_inputs(t.nodes)
-    mocks = _mock_names(fn, t.nodes) | outer
+    mocks = _mock_names(fn, t.nodes, outer)
     checks = bool(t.asserts or t.raises or t.assert_calls)
     # A test that calls a helper with a behavioral assert has behavioral checks even if its
     # direct asserts are weak; a helper that only checks a shape does not count.

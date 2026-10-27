@@ -369,6 +369,39 @@ def test_preflight_rejects_an_unwritable_output_dir(monkeypatch, tmp_path, capsy
     assert "output dir not writable" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "make_source, message",
+    [
+        (lambda p: p / "nowhere", "questions source not found"),
+        (lambda p: p / "bad.json", "questions source invalid"),
+        (lambda p: p / "adir", "questions source invalid"),
+    ],
+    ids=["missing", "invalid", "directory"],
+)
+@pytest.mark.parametrize("multi_run", [1, 3])
+def test_run_rejects_an_unusable_questions_from_before_any_call(
+    monkeypatch, tmp_path, capsys, make_source, message, multi_run
+):
+    """benchmark run exits 1 with a message, not a traceback, and starts no pipeline."""
+    calls: list[object] = []
+    (tmp_path / "bad.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
+    (tmp_path / "adir" / "questions" / "onetbb.json").mkdir(parents=True)
+    monkeypatch.setattr(benchmark, "_load_registry", lambda args: _Registry())
+    monkeypatch.setattr(benchmark, "_run_single_library", lambda *a, **k: calls.append(k))
+
+    args = build_parser().parse_args([
+        "benchmark", "run", "--library", "onetbb", "--multi-run", str(multi_run),
+        "--output-dir", str(tmp_path / "out"),
+        "--questions-from", str(make_source(tmp_path)),
+    ])
+    with pytest.raises(SystemExit) as exc:
+        benchmark.cmd_benchmark_run(args)
+
+    assert exc.value.code == 1
+    assert message in capsys.readouterr().err
+    assert calls == []
+
+
 @pytest.mark.outcome("pinned-questions-reuse")
 def test_multi_run_forwards_questions_root_to_every_run(monkeypatch, tmp_path):
     """Every run in a multi-run forwards the same --questions-root."""
