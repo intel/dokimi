@@ -238,12 +238,14 @@ def _manifest_tasks(data: object, manifest_path: Path) -> list[dict]:
 
     if not isinstance(data, dict):
         raise invalid(f"top level must be an object, got {type(data).__name__}")
-    suites = data.get("suites") or []
+    suites = data.get("suites")
+    suites = [] if suites is None else suites
     if not isinstance(suites, list) or not all(isinstance(s, dict) for s in suites):
         raise invalid("suites must be a list of objects")
     tasks: list[dict] = []
     for suite in suites:
-        suite_tasks = suite.get("tasks") or []
+        suite_tasks = suite.get("tasks")
+        suite_tasks = [] if suite_tasks is None else suite_tasks
         if not isinstance(suite_tasks, list) or not all(isinstance(t, dict) for t in suite_tasks):
             raise invalid("each suite's tasks must be a list of objects")
         tasks.extend(suite_tasks)

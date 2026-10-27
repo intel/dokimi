@@ -242,7 +242,8 @@ def test_catalog_scan_reports_clean_error_on_non_utf8_suites_manifest(tmp_path):
     assert "invalid suites.json" in str(exc_info.value)
 
 
-@pytest.mark.parametrize("text", ["[]", "null", '{"suites": 5}', '{"suites": [1]}', '{"suites": [{"tasks": [3]}]}',
+@pytest.mark.parametrize("text", ["[]", "null", '{"suites": 5}', '{"suites": {}}', '{"suites": 0}',
+                                  '{"suites": [{"tasks": {}}]}', '{"suites": [1]}', '{"suites": [{"tasks": [3]}]}',
                                   '{"suites": [{"tasks": 3}]}', pytest.param("[" * 200000, id="deeply-nested")])
 def test_catalog_scan_reports_clean_error_on_wrong_shaped_suites_manifest(tmp_path, text):
     manifest = tmp_path / "evaluation" / "harbor" / "suites.json"
@@ -253,6 +254,16 @@ def test_catalog_scan_reports_clean_error_on_wrong_shaped_suites_manifest(tmp_pa
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert f"invalid suites.json at {manifest}" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("text", ["{}", '{"suites": null}', '{"suites": [{"tasks": null}]}'])
+def test_catalog_scan_reads_a_null_or_missing_suites_manifest_list_as_empty(tmp_path, capsys, text):
+    (tmp_path / "evaluation" / "harbor" / "tasks").mkdir(parents=True)
+    (tmp_path / "evaluation" / "harbor" / "suites.json").write_text(text, encoding="utf-8")
+
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"])
+    args.func(args)
+    assert f"# tasks (0 declared under {tmp_path})" in capsys.readouterr().out
 
 
 def test_catalog_scan_reports_clean_error_on_deeply_nested_skills_manifest(tmp_path):
