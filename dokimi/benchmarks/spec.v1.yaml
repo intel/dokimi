@@ -76,7 +76,7 @@ future:
 # on the include/exclude globs, not a target: min_docs catches a glob that
 # matched almost nothing, max_docs catches one that escaped into the tree (8
 # markdown files live outside docs/). Measured selection at the time of
-# writing: 32 files. Adding a doc past the ceiling is meant to be a deliberate
+# writing: 33 files. Adding a doc past the ceiling is meant to be a deliberate
 # edit here, so raise max_docs in the same commit that adds the doc.
 golden_manifest:
   min_docs: 10
