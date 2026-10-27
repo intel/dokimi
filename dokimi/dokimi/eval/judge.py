@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 from dokimi import caching
 from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatModel, ask_parsed
+from dokimi.llm_cli import BACKENDS as CLI_BACKENDS
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
@@ -161,7 +162,8 @@ JUDGE_PROMPT_SHA256 = "sha256:" + hashlib.sha256(
 MAX_GROUND_TRUTH_CHARS = 4000
 
 #: Providers ``Judge.__init__`` accepts; CLI ``--judge-provider`` choices read this.
-JUDGE_PROVIDERS = ("openai", "anthropic", "google", "google-vertex", "openrouter", "amazon-bedrock")
+JUDGE_PROVIDERS = ("openai", "anthropic", "google", "google-vertex", "openrouter", "amazon-bedrock",
+                   *CLI_BACKENDS)
 
 
 def _clip_ground_truth(ground_truth: Optional[str], limit: int = MAX_GROUND_TRUTH_CHARS) -> str:
@@ -250,7 +252,7 @@ class Judge:
             self.llm = ChatAnthropic(model=model, api_key=api_key,
                                      temperature=temperature, seed=seed)
         elif provider in ("google", "gemini", "google-vertex", "openrouter",
-                          "amazon-bedrock", "vertex_ai"):
+                          "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
             from dokimi.utils import get_llm
             import os
             fallback_key = os.environ.get("OPENROUTER_API_KEY") if provider == "openrouter" else None

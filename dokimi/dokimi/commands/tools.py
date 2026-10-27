@@ -15,9 +15,10 @@ import threading
 import time
 from pathlib import Path
 
+from dokimi.llm import PROVIDERS as API_PROVIDERS
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
 
-PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"]
+PROVIDERS = list(API_PROVIDERS)  # tool calling: no CLI backend
 
 
 class CutBeforeToolCall(RuntimeError):

@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from dokimi.commands import (
     answers,
     arms,
+    backends,
     baseline,
     benchmark,
     catalog,
@@ -81,6 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     repo.register(sub, positive_int)            # repo (repositories as subjects)
     tools.register(sub, positive_int)           # tools (tool-choice probes)
     context.register(sub, positive_int)         # context (context window of a run)
+    backends.register(sub, positive_int)        # backends (CLI providers)
 
     return p
 

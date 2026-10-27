@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, List, cast
 
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -82,6 +83,21 @@ def _credential_env_var(provider: str) -> str:
     }.get(provider, "OPENAI_API_KEY")
 
 
+def _credential_error(provider: str) -> str | None:
+    """Why *provider* cannot run here, or ``None``: a missing key, or a CLI not signed in."""
+    from dokimi import llm_cli
+
+    if llm_cli.backend(provider) is None:
+        key = _credential_env_var(provider)
+        return None if os.environ.get(key) else f"missing {key} for provider {provider}"
+    status = llm_cli.detect(provider)
+    if not status.installed:
+        return f"{provider}: '{status.binary}' is not installed"
+    if status.authenticated is False:
+        return f"{provider}: '{status.binary}' is not signed in ({status.hint})"
+    return None
+
+
 def _resolved_benchmark_plan(entry, args: argparse.Namespace) -> dict:
     doc_source = getattr(args, "doc_source", None) or (entry.doc_sources[0] if entry.doc_sources else "context7")
     output_dir = getattr(args, "output_dir", None) or f"results/{entry.key}{DEFAULT_RESULTS_SUFFIX}"
@@ -141,10 +157,7 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     errors: list[str] = []
     warnings: list[str] = []
 
-    for provider in {args.provider, args.judge_provider}:
-        key = _credential_env_var(provider)
-        if not os.environ.get(key):
-            errors.append(f"missing {key} for provider {provider}")
+    errors.extend(e for e in map(_credential_error, sorted({args.provider, args.judge_provider})) if e)
 
     try:
         Path(plan["output_dir"]).mkdir(parents=True, exist_ok=True)
@@ -364,7 +377,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--output-dir", default=None, dest="output_dir",
                              help="Output directory (default: results/{target}_final)")
     bench_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
     bench_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
@@ -400,7 +413,7 @@ def register(sub, positive_int) -> None:
     bench_pre_p.add_argument("--doc-source", default=None, dest="doc_source", help="Override doc/context source")
     bench_pre_p.add_argument("--output-dir", default=None, dest="output_dir", help="Output directory (default: results/{target}_final)")
     bench_pre_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
     bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
@@ -422,7 +435,7 @@ def register(sub, positive_int) -> None:
                                help="Run for all libraries in registry")
     bench_batch_p.add_argument("--output-dir", default="results", dest="output_dir")
     bench_batch_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
     bench_batch_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                                help=JUDGE_MODEL_HELP)
     bench_batch_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",

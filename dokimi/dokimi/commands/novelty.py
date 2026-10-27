@@ -27,11 +27,10 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
 )
+from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
 
 if TYPE_CHECKING:
     from dokimi.novelty.tiers import RunSettings
-
-PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"]
 
 
 def cmd_novelty_analyze(args: argparse.Namespace) -> None:

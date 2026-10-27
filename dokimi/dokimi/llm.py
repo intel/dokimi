@@ -28,7 +28,9 @@ What a caller can rely on:
   :data:`PROVIDER_ALIASES`. :func:`resolve_model` is this module's model-name map and
   :func:`api_key_env` its key-variable map. A provider outside the table is
   passed to litellm as its own route prefix (``azure/<model>``), reading
-  ``OPENAI_API_KEY``. An explicit ``api_key`` wins over the environment; either
+  ``OPENAI_API_KEY``. A provider in :data:`dokimi.llm_cli.BACKENDS` (``claude-cli``)
+  is a logged-in coding-agent CLI, not an API: no key, no tools, no sampling
+  control (:mod:`dokimi.llm_cli`). An explicit ``api_key`` wins over the environment; either
   may be ``file:<path>``, and an unreadable file raises ``ValueError``.
 - **Bedrock bare names.** A name in :data:`dokimi.defaults.BEDROCK_MODEL_IDS`
   runs under its inference profile (:func:`dokimi.defaults.bedrock_profile`);
@@ -68,7 +70,6 @@ process default; ``LLM(..., adapter=...)`` overrides it for one object.
 from __future__ import annotations
 
 import contextlib
-import json
 import logging
 import os
 import re
@@ -77,8 +78,10 @@ import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, Iterator, List, Optional, Protocol, Tuple, TypeVar, cast
 
-from dokimi import caching
+from dokimi import caching, llm_cli
 from dokimi.defaults import bedrock_profile
+from dokimi.llm_json import extract_json_array as extract_json_array
+from dokimi.llm_json import extract_json_object as extract_json_object
 from dokimi.metrics.usage import UsageRecord
 
 logger = logging.getLogger(__name__)
@@ -96,6 +99,9 @@ PROVIDERS: Dict[str, str] = {
     "google-vertex": "GEMINI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
 }
+
+#: ``--provider`` choices: the API providers, then the CLI backends.
+ANSWER_PROVIDERS: Tuple[str, ...] = (*PROVIDERS, *llm_cli.BACKENDS)
 
 #: Other spellings of a canonical provider.
 PROVIDER_ALIASES: Dict[str, str] = {
@@ -198,6 +204,9 @@ def unsupported_sampling_params(
     requested = list(_sampling_kwargs(temperature=temperature, seed=seed))
     if not requested:
         return []
+    cli = llm_cli.backend(_canonical(provider))
+    if cli is not None:
+        return [n for n in requested if n not in cli.supports]
     try:
         from litellm import get_supported_openai_params
 
@@ -263,6 +272,9 @@ def is_retryable(exc: BaseException) -> bool:
     if its message happens to contain a transient-sounding word, so the
     non-retryable set is consulted first.
     """
+    flag = getattr(exc, "retryable", None)  # set by an error that knows (llm_cli.CliCallError)
+    if isinstance(flag, bool):
+        return flag
     name = type(exc).__name__.lower()
     if name in _NON_RETRYABLE_EXC_NAMES:
         return False
@@ -515,10 +527,28 @@ def _stream(completion: Any, request: Request) -> Reply:
     return Reply(text="".join(parts), usage=usage, finish_reason=finish_reason)
 
 
+def _cli_reply(request: Request) -> Reply:
+    """A request for a CLI provider (:mod:`dokimi.llm_cli`): one prompt, an optional system."""
+    turns = [m for m in request.messages if m.get("role") != "system"]
+    if request.tools or len(turns) != 1:
+        raise llm_cli.CliCallError(f"{request.provider} takes one prompt: no tools, no conversation",
+                                   retryable=False)
+    system = [prompt_text(replace(request, messages=[m]))
+              for m in request.messages if m.get("role") == "system"]
+    out = llm_cli.call(request.provider, model=request.model, prompt=prompt_text(request),
+                       system="\n\n".join(system) or None)
+    return Reply(text=out.text, usage=out.usage, finish_reason=out.finish_reason)
+
+
 class LiteLLMAdapter:
-    """The production adapter: one ``litellm.completion`` call, priced by litellm."""
+    """The production adapter: one ``litellm.completion`` call, priced by litellm.
+
+    A CLI provider (:data:`dokimi.llm_cli.BACKENDS`) goes to its CLI instead.
+    """
 
     def __call__(self, request: Request) -> Reply:
+        if llm_cli.backend(request.provider) is not None:
+            return _cli_reply(request)
         from litellm import completion
 
         if request.stream:
@@ -1059,60 +1089,3 @@ def chat_completion(
     llm = LLM(model, provider, api_key, max_tokens=max_tokens, temperature=temperature,
               seed=seed, max_retries=max_retries, retry_delay=retry_delay)
     return llm.chat(messages, tools=tools, tool_choice=tool_choice).response
-
-
-# ── Robust JSON extraction ─────────────────────────────────────────────────────
-
-
-def extract_json_object(text: str) -> dict:
-    """Extract a JSON object from LLM output, handling markdown fences and leading text."""
-    text = (text or "").strip()
-    if not text:
-        raise ValueError("LLM returned empty response")
-    # Direct parse
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
-    # Markdown fence
-    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if fence:
-        try:
-            return json.loads(fence.group(1).strip())
-        except Exception:
-            pass
-    # First { ... } block
-    m = re.search(r"\{[\s\S]*\}", text)
-    if m:
-        return json.loads(m.group(0))
-    raise ValueError(f"No JSON object found in LLM response: {text[:200]!r}")
-
-
-def extract_json_array(text: str) -> list:
-    """Extract a JSON array from LLM output, handling markdown fences and leading text."""
-    text = (text or "").strip()
-    if not text:
-        raise ValueError("LLM returned empty response")
-    # Direct parse
-    try:
-        result = json.loads(text)
-        if isinstance(result, list):
-            return result
-    except Exception:
-        pass
-    # Markdown fence
-    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if fence:
-        try:
-            result = json.loads(fence.group(1).strip())
-            if isinstance(result, list):
-                return result
-        except Exception:
-            pass
-    # First [ ... ] block
-    m = re.search(r"\[[\s\S]*\]", text)
-    if m:
-        result = json.loads(m.group(0))
-        if isinstance(result, list):
-            return result
-    raise ValueError(f"No JSON array found in LLM response: {text[:200]!r}")

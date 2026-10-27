@@ -114,6 +114,7 @@ nav:
       - evaluating-treatments.md
       - tool-preference.md
       - coding-harnesses.md
+      - subscription-backends.md
       - answer-formats.md
       - context-window.md
   - Content novelty:
