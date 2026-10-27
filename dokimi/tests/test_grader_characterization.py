@@ -159,6 +159,21 @@ def test_judge_parse_fail_then_ok_adds_the_reminder_when_pinned(provider_calls, 
     assert _usage(judge)["redrawn_judgements"] == 1
 
 
+@pytest.mark.parametrize("pin", [{"temperature": 0.0}, {"seed": 7}],
+                         ids=["temperature_only", "seed_only"])
+def test_judge_pinned_by_either_knob_adds_the_reminder(provider_calls, sent, pin):
+    # The pinned rule is "temperature or seed is set"; each knob alone must pin.
+    provider_calls.push(BAD, REPLY)
+    judge = _judge(**pin)
+    out = _grade_judge(judge)
+    sampling = (pin.get("temperature"), pin.get("seed"))
+    assert sent == [
+        (JUDGE_PROMPT, 0, False, (True, False), *sampling),
+        (JUDGE_REMINDER_1, 1, True, (True, False), *sampling),
+    ]
+    assert out["aggregate"] == 76.0
+
+
 def test_judge_all_three_unparseable_raises_the_last_parse_error(provider_calls, sent):
     provider_calls.push(BAD, "still not", "nope")
     judge = _judge(**PINNED)
@@ -226,6 +241,22 @@ def test_judge_rerun_with_the_cache_on_replays_the_stored_redraw(provider_calls,
     assert _usage(judge)["redrawn_judgements"] == 2
 
 
+def test_judge_rerun_at_a_later_draw_replays_its_own_stored_reply(provider_calls, sent, cache_dir):
+    # draw=1 owns the attempt draws 3..5 (draw * 3 + i). Its rerun must probe those,
+    # not draws 0..2, or the stored reply is missed and asked live again.
+    provider_calls.push(REPLY)
+    judge = _judge()
+    assert _grade_judge(judge, draw=1)["aggregate"] == 76.0
+    assert len(provider_calls.calls) == 1
+
+    sent.clear()
+    provider_calls.calls.clear()
+    out = _grade_judge(judge, draw=1)
+    assert out["aggregate"] == 76.0
+    assert provider_calls.calls == []  # replayed, nothing sent
+    assert sent == [(JUDGE_PROMPT, 3, False, (True, False), None, None)]
+
+
 def test_judge_all_fail_stores_nothing_in_the_cache(provider_calls, sent, cache_dir):
     provider_calls.push(BAD, BAD, BAD)
     with pytest.raises(ValueError):
@@ -269,6 +300,21 @@ def test_panel_parse_fail_then_ok_adds_the_reminder_when_pinned(provider_calls, 
     assert sent == [
         (PANEL_PROMPT, 0, False, (True, False), 0.0, 7),
         (PANEL_REMINDER_1, 1, True, (True, False), 0.0, 7),
+    ]
+    assert vote.aggregate == 72.3
+
+
+@pytest.mark.parametrize("pin", [{"temperature": 0.0}, {"seed": 7}],
+                         ids=["temperature_only", "seed_only"])
+def test_panel_pinned_by_either_knob_adds_the_reminder(provider_calls, sent, pin):
+    # The pinned rule is "temperature or seed is set"; each knob alone must pin.
+    provider_calls.push(BAD, REPLY)
+    panel, cfg = _panel(**pin)
+    vote = _grade_panel(panel, cfg)
+    sampling = (pin.get("temperature"), pin.get("seed"))
+    assert sent == [
+        (PANEL_PROMPT, 0, False, (True, False), *sampling),
+        (PANEL_REMINDER_1, 1, True, (True, False), *sampling),
     ]
     assert vote.aggregate == 72.3
 
