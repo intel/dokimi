@@ -284,6 +284,22 @@ def test_catalog_scan_reports_a_malformed_skill_as_an_error_row(tmp_path, capsys
     assert f"broken\t-\t{skill_md.parent}\tERROR:" in capsys.readouterr().out
 
 
+def test_catalog_scan_reports_a_deep_manifest_listed_skill_as_an_error_row(tmp_path, capsys):
+    _write_skill(tmp_path, "good")
+    deep = tmp_path / "skills" / "deep"
+    deep.mkdir()
+    (deep / "SKILL.md").write_bytes(_DEEP_FRONTMATTER)
+    (tmp_path / "skills.yaml").write_text("- name: good\n- name: deep\n", encoding="utf-8")
+
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert exc_info.value.code == 1
+    out = capsys.readouterr().out
+    assert f"deep\t-\t{deep}\tERROR:" in out
+    assert f"good\t-\t{tmp_path / 'skills' / 'good'}\tok" in out
+
+
 def test_catalog_scan_reports_a_task_name_the_filesystem_rejects(tmp_path, monkeypatch):
     from dokimi.external import catalog as cat
 
