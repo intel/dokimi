@@ -60,10 +60,6 @@ provider request with no retry, cache or metering. :class:`LiteLLMAdapter` is
 production; :class:`FakeAdapter` answers from a script and records every
 request, for tests (the ``fake_llm`` fixture). :func:`use_adapter` swaps the
 process default; ``LLM(..., adapter=...)`` overrides it for one object.
-
-``llm_call``, ``llm_call_with_usage``, ``chat_completion``, the
-``ChatOpenAI``/``ChatAnthropic`` shims and ``utils.get_llm`` are delegates to
-:class:`LLM` until their callers move.
 """
 
 from __future__ import annotations
@@ -136,17 +132,22 @@ def resolve_api_key(provider: str, api_key: Optional[str] = None) -> Optional[st
 def resolve_model(model: str, provider: str) -> str:
     """The litellm model string for *model* at *provider*.
 
-    A name that already carries a litellm route (contains ``/``) passes through,
-    except on OpenRouter and openai-codex, which add their own prefix.
+    A name with a ``/`` passes through, except on OpenRouter and openai-codex, which
+    add their own prefix, and on openai, where only a litellm provider prefix counts.
     """
     name = _canonical(provider)
     if name == "openrouter":
         return model if model.startswith("openrouter/") else f"openrouter/{model}"
     if name == "openai-codex":
         return f"openai/{model}"
-    if "/" in model:
-        return model
     if name == "openai":
+        # litellm refuses a name off its OpenAI lists (glm-5.3 on OPENAI_API_BASE, meta-llama/x)
+        # or sends it elsewhere (claude-*): those get openai/. The rest keep route and cache key.
+        import litellm
+        known = litellm.open_ai_chat_completion_models | litellm.open_ai_text_completion_models
+        routed = model.split("/", 1)[0] in litellm.provider_list if "/" in model else model in known
+        return model if routed else f"openai/{model}"
+    if "/" in model:
         return model
     if name == "google-vertex":
         return f"vertex_ai/{model}"
@@ -881,7 +882,6 @@ def ask_parsed(ask: Ask, prompt: str, parse: Callable[[str], Optional[T]], *,
 # Delegates for the callers that have not moved to :class:`LLM` yet; each is the
 # module's behaviour under the old call shape. They go once nothing imports them.
 
-# Backward-compatibility shims for existing tests/modules.
 LANGCHAIN_AVAILABLE = True
 
 _build_litellm_model = resolve_model

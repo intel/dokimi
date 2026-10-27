@@ -56,7 +56,13 @@ def _no_ambient_bedrock_env(monkeypatch):
 
 
 @pytest.mark.parametrize("provider, model, expected", [
-    ("openai", "gpt-6.1-sol", "gpt-6.1-sol"),
+    ("openai", "gpt-6.1-sol", "gpt-6.1-sol"),  # on litellm's lists: bare, so its cache key holds
+    ("openai", "gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct"),  # litellm's text-completion route
+    ("openai", "glm-5.3", "openai/glm-5.3"),  # off the lists: an OPENAI_API_BASE server's model
+    ("openai", "claude-sonnet-5-5", "openai/claude-sonnet-5-5"),  # bare, litellm would pick anthropic
+    ("openai", "meta-llama/Llama-3.1-8B", "openai/meta-llama/Llama-3.1-8B"),  # an org, not a route
+    ("openai", "openai/glm-5.3", "openai/glm-5.3"),
+    ("openai", "azure/gpt-4o", "azure/gpt-4o"),  # an explicit litellm route passes through
     ("openai-codex", "gpt-5", "openai/gpt-5"),
     ("anthropic", "claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"),
     ("openrouter", "openai/gpt-oss-120b", "openrouter/openai/gpt-oss-120b"),
