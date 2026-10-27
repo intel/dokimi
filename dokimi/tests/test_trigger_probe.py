@@ -278,6 +278,39 @@ def test_kill_strays_ends_a_backgrounded_process_left_in_the_workspace(tmp_path)
         proc.kill()
 
 
+@pytest.mark.skipif(not Path("/proc/self/cwd").exists(), reason="reads /proc")
+def test_run_query_kills_what_the_run_left_in_its_workspace_only(tmp_path):
+    import shutil
+    import subprocess
+
+    procs = {}
+
+    def runner(argv, **kw):
+        if argv[0] == "git":
+            return process.run(argv, **kw)
+        sibling = Path(str(kw["cwd"].parent) + "d")  # a concurrent run's root, same prefix
+        sibling.mkdir()
+        procs["sibling_dir"] = sibling
+        # Own sessions, as the Bash tool's background jobs: the timeout's group kill misses them.
+        for name, cwd in (("left", kw["cwd"]), ("sibling", sibling)):
+            procs[name] = subprocess.Popen(["sleep", "60"], cwd=cwd, start_new_session=True)
+        return process.reply(_stream(["sum-fast"]))
+
+    try:
+        r = tp.run_query("q", _catalog(tmp_path), tp.ProbeConfig(), runner=runner,
+                         source_env={"PATH": "/usr/bin:/bin"})
+        assert r["error"] is None
+        assert procs["left"].wait(timeout=5) == -9
+        assert procs["sibling"].poll() is None
+    finally:
+        for name in ("left", "sibling"):
+            if name in procs:
+                procs[name].kill()
+                procs[name].wait()
+        if "sibling_dir" in procs:
+            shutil.rmtree(procs["sibling_dir"], ignore_errors=True)
+
+
 def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read")):
     from dokimi.commands import catalog_probe
 
