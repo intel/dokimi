@@ -86,3 +86,27 @@ def test_paired_summary_of_nothing_is_all_zero():
 
     s = paired_summary([])
     assert (s.total, s.paired, s.unpaired, s.with_mean, s.delta_mean) == (0, 0, 0, 0.0, 0.0)
+
+
+# Pairs whose arm means are not exact at one decimal: (80.67, 70.33). Rounding each mean first
+# gives 80.7 - 70.3 = +10.4; the delta of the unrounded means is +10.3, which both reports print.
+INEXACT = [
+    {"question_id": f"q{i}", "question_text": f"Question {i}?",
+     "with_docs": {"aggregate": w}, "without_docs": {"aggregate": wo}, "delta": w - wo}
+    for i, (w, wo) in enumerate([(80.0, 70.0), (81.0, 70.0), (81.0, 71.0)], 1)
+]
+
+
+def test_both_reports_take_the_delta_from_unrounded_means(tmp_path):
+    path = tmp_path / "eval" / "lib.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"evaluations": INEXACT}), encoding="utf-8")
+    md = tmp_path / "lib.md"
+    generate_report(str(path), str(md), str(tmp_path / "lib.qa.json"))
+    eval_md = md.read_text(encoding="utf-8")
+    assert _eval_report_all_row(eval_md) == {"with": 80.7, "without": 70.3, "delta": 10.3}
+    assert "| **Total** | 3 | 80.7 | 70.3 | **+10.3** | 3 | 0 | 0 |" in eval_md
+
+    generated = json.loads(ReportGenerator().generate_report({"evaluations": INEXACT}, {"questions": []}, "json"))["stats"]
+    assert generated["delta"] == {"avg": 10.3, "min": 10.0, "max": 11.0}
+    assert (generated["doc_improvements"], generated["doc_degradations"]) == (3, 0)
