@@ -1,6 +1,6 @@
 {
   "files": {
-    "dokimi/commands/novelty.py": {"lines": 1174, "rationale": "main's estimate-only projection plus #172 routing field, --all-vs-all, tied/unscored caveat and blind-skill warning; file split tracked separately"},
+    "dokimi/commands/novelty.py": {"lines": 1176, "rationale": "main's estimate-only projection plus #172 routing field, --all-vs-all, tied/unscored caveat and blind-skill warning, --repeats refused under --all-vs-all; file split tracked separately"},
     "dokimi/harnesses/benchflow.py": {"lines": 869},
     "dokimi/harnesses/docker_solver.py": {"lines": 900, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/llm.py": {"lines": 1118, "rationale": "grew on main in #180 (replay a stored retry) after #93 seeded this baseline; split it in its own PR"},

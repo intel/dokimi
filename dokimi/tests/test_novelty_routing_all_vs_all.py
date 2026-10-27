@@ -473,6 +473,25 @@ def test_all_vs_all_refuses_the_single_artifact_query_flags(tmp_path, flag):
         args.func(args)
 
 
+def test_all_vs_all_refuses_repeats_it_would_not_make(tmp_path, monkeypatch):
+    # all_vs_all makes one call per query, so --repeats 3 would be dropped without a word.
+    import dokimi.commands.novelty as novelty_cmd
+
+    calls = []
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role,
+        transport=lambda prompt, system: calls.append(prompt) or (json.dumps({"pick": 1}), None)))
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m", "--repeats", "3")
+    with pytest.raises(SystemExit, match="takes no --repeats"):
+        args.func(args)
+    assert calls == [] and not (tmp_path / "o.json").exists()
+
+
 def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})

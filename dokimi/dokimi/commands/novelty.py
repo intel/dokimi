@@ -419,6 +419,8 @@ def _check_all_vs_all_args(args: argparse.Namespace) -> None:
     if args.queries or args.queries_from_headings:
         raise SystemExit("--all-vs-all takes --queries-by-skill, not --queries or "
                          "--queries-from-headings")
+    if args.repeats > 1:
+        raise SystemExit("--all-vs-all takes no --repeats: it makes one call per query")
     if not args.queries_by_skill:
         raise SystemExit("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
                          "name to the requests that should select it")

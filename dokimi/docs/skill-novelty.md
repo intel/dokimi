@@ -659,8 +659,8 @@ the skills whose queries it took (`from`). Every rate is over the queries that w
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
 field rule under `field` (`include_disabled`, the `competitors` and what was `left_out`); a
-single-artifact run records it too. It takes no `--artifact`, `--queries` or
-`--queries-from-headings`. The model arm also records the selector `model`, so two runs with
+single-artifact run records it too. It takes no `--artifact`, `--queries`,
+`--queries-from-headings` or `--repeats` (one model call per query). The model arm also records the selector `model`, so two runs with
 different models can be told apart. It is refused with fewer than two skills, a name repeated
 in the field, a query file that names a skill outside the field, or no queries at all.
 
