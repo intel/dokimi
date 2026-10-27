@@ -429,7 +429,7 @@ parent's and subagents' together, so a grader need not:
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
-| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match |
+| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events (the Read tool only, in a Claude Code trace), neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. Guidance opened through Bash (`cat AGENTS.md`) is not counted, so `[]` means no Read-tool read; to count it, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
 | `counters` | each `process_metrics` name (§2) and its count |
 
 `process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).

@@ -10,8 +10,9 @@ The framework counts what every repository asks of a trace:
 - ``failed_commands``: commands not denied whose ``rc`` is neither ``0`` nor ``null`` (``null`` means
   no result came back, which is not a failure; a permission denial carries ``rc`` 1 but never ran);
 - ``denied_commands``: commands a hook or the harness's permissions refused (``denied``);
-- ``guidance_read``: the sorted workspace paths of ``read`` events not denied that the manifest's guidance
-  globs match; a path outside the workspace (absolute, or with ``..``) is no repository file.
+- ``guidance_read``: the sorted workspace paths of ``read`` events (the Read tool only; a Bash ``cat`` is not
+  counted, a ``process_metrics`` counter can) not denied that the manifest's guidance globs match; a path
+  outside the workspace (absolute, or with ``..``) is no repository file.
 
 ``counters`` holds the manifest's ``process_metrics``: for each name, how many ``command`` events
 its regex finds a match in (``re.search``). A counter matches the command text unless it names
