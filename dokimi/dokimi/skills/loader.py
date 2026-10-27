@@ -160,14 +160,15 @@ def load_skill(path) -> Skill:
 
 
 def walk_skill_files(root: Path) -> List[Path]:
-    """Every ``SKILL.md`` below *root*, sorted, without walking :data:`VENDORED_DIR_NAMES`."""
+    """Every entry named ``SKILL.md`` below *root*, sorted, without walking :data:`VENDORED_DIR_NAMES`.
+
+    A dangling symlink or a directory is kept: ``catalog scan`` reports it as an error row.
+    """
     found: List[Path] = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in VENDORED_DIR_NAMES]
-        skill_file = Path(dirpath) / "SKILL.md"
-        # A dangling symlink named SKILL.md lands in filenames; only real files count.
-        if "SKILL.md" in filenames and skill_file.is_file():
-            found.append(skill_file)
+        if "SKILL.md" in filenames or "SKILL.md" in dirnames:
+            found.append(Path(dirpath) / "SKILL.md")
     return sorted(found)
 
 
@@ -205,6 +206,8 @@ def skill_files(root, *, notes: Optional[List[str]] = None) -> List[Path]:
     root = Path(root)
     found: List[Path] = []
     for skill_file in walk_skill_files(root):
+        if not skill_file.is_file():
+            continue
         if TEMPLATE_DIR_NAMES.intersection(skill_file.relative_to(root).parts[:-1]):
             if notes is not None:
                 notes.append(f"left out {skill_file}: a template, not a skill")
