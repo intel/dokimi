@@ -114,13 +114,19 @@ class SweBenchProbe:
 
 
 def _swe_bench_consumers(report: Report, rows: list[dict[str, Any]]) -> None:
-    """``docker-*`` (``tasks run --swe-bench``) when every row's repo has a test spec."""
+    """``docker-*`` (``tasks run --swe-bench``) when every row's repo and version has a test spec."""
     from dokimi.harnesses.swebench import specs
 
     known = specs()["repos"]
     unsupported = sorted({str(r.get("repo")) for r in rows if r.get("repo") not in known})
     if unsupported:
         report.details["repos_without_test_spec"] = unsupported[:20]
+        return
+    # `tasks run` refuses a version the table lacks, as `repo_spec` does.
+    versions = sorted({f"{r.get('repo')} {r.get('version')}" for r in rows
+                       if "test_cmd" not in known[r.get("repo")]["versions"].get(str(r.get("version")), {})})
+    if versions:
+        report.details["versions_without_test_spec"] = versions[:20]
     elif rows and not report.problems:
         report.consumers.append(BY_DOCKER)
 

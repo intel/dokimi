@@ -195,8 +195,13 @@ def grade(log: str, config: dict) -> dict:
     for key in ("FAIL_TO_PASS", "PASS_TO_PASS"):
         tests: List[str] = config[key]
         passed = [t for t in tests if found.get(t) in ("PASSED", "XFAIL")]
-        # Missing counts as failed; a SKIPPED test is neither, as upstream.
+        # Missing counts as failed; a SKIPPED PASS_TO_PASS test is neither, as upstream.
         failed = [t for t in tests if found.get(t, "FAILED") in ("FAILED", "ERROR")]
+        if key == "FAIL_TO_PASS":
+            # Unlike upstream: a fix is shown only by a test that ran and passed, so a
+            # skipped FAIL_TO_PASS test (an offline skip) is a failure, and so is none.
+            failed = [t for t in tests if t not in passed]
+            resolved = resolved and bool(tests)
         report[key] = {"success": passed, "failure": failed}
         resolved = resolved and not failed
     report["resolved"] = resolved
@@ -219,7 +224,8 @@ def main(argv: List[str]) -> int:
             print(f"  {key} failed: {test}")
         if len(failed) > 10:
             print(f"  {key}: {len(failed) - 10} more failed")
-    return 0
+    # The verdict is the exit code too: a reward.txt that cannot be copied out reads as a fail.
+    return 0 if report["resolved"] else 1
 
 
 if __name__ == "__main__":

@@ -97,20 +97,34 @@ as a task the harness already runs, by `dokimi/harnesses/swebench.py`:
   `test_patch`, run the repo's test command on the files it touches), then
   `swebench_grade.py`, which parses the log with the repo's SWE-bench parser:
   reward 1 only when every `FAIL_TO_PASS` and `PASS_TO_PASS` test passes.
+  Unlike upstream, a skipped `FAIL_TO_PASS` test (or a row with none) does
+  not resolve. The end of the eval log goes to `run.log`; the grader's exit
+  code is the verdict too.
+
+The image's `testbed` conda env is first on `PATH`, so an in-container agent's
+`python` and `pytest` are the repo's. A host-side agent
+(`docker-claude-host`) is refused: the instruction names container paths and
+the host has no `testbed` env.
 
 The per-repo test commands and parsers are a table,
 `dokimi/harnesses/swebench_specs.json`, generated from the `swebench`
 package by `scripts/gen_swebench_specs.py`; dokimi does not depend on
 `swebench`. Rows from a repo outside the table (SWE-bench Multilingual,
-SWE-smith, SWE-Gym repos) are refused with the repo's name. The task sets no
-network, so the solve and the verifier run offline (see
-[Network policy](#network-policy)); the image already has the repo's
-dependencies, and `--network verify=public` gives the verifier upstream's
-network.
+SWE-smith, SWE-Gym repos) are refused with the repo's name, and so is a
+version the table lacks. The solve runs offline (see
+[Network policy](#network-policy)); the verifier gets an allowlist of
+`pypi.org` and `files.pythonhosted.org`, because the eval script's install
+step fetches build requirements and the packages a gold patch adds
+(`pylint-dev__pylint-4661`, `astropy__astropy-12907` fail offline).
+`--network verify=none` runs fully offline, `--network verify=public` gives
+the verifier upstream's network. A file is checked row by row before any task
+is written.
 
 `--all` skips the rows in `swebench.KNOWN_BAD`, whose gold patch fails in the
-prebuilt image: `psf__requests-863`, `-1724` and `-2317` (their tests fetch
-httpbin.org), and the six Harbor's SWE-bench adapter lists as failing under its
+prebuilt image under that default: `psf__requests-863`, `-1724`, `-1766`,
+`-1921`, `-1963`, `-2148`, `-2317` and `-2674` (their tests fetch httpbin.org),
+`sphinx-doc__sphinx-7985`, `-8269` and `-8475` (`test_build_linkcheck.py`
+checks live links), and the six Harbor's SWE-bench adapter lists as failing under its
 oracle (harbor 6099b8c, `adapters/swebench/README.md`, Known Issues). Naming
 one in `--tasks` still runs it.
 

@@ -110,7 +110,35 @@ def test_all_skips_the_known_bad_rows_and_an_explicit_id_still_runs(tmp_path):
     assert "psf__requests-863" in KNOWN_BAD
     assert "psf__requests-863" not in {t.name for t in load_swebench(data, tmp_path / "a")}
     (task,) = load_swebench(data, tmp_path / "b", ["psf__requests-863"])
-    assert resolve(task).verify.mode == "none"  # offline unless the operator opens it
+    plan = resolve(task, agent=True)
+    assert plan.solve.mode == "none"  # the agent gets no network
+    assert (plan.verify.mode, plan.verify.hosts) == ("allowlist", ("files.pythonhosted.org:443", "pypi.org:443"))
+    assert resolve(task, agent=False).solve.mode == "none"  # nor does the oracle's apply
+    assert resolve(task, ["verify=none"]).verify.mode == "none"
+
+
+def test_the_testbed_env_is_first_on_the_agents_path(tmp_path):
+    task = stage(_row(PYTEST_ID), tmp_path)
+    dockerfile = (task.path / "environment" / "Dockerfile").read_text()
+    assert "ENV PATH=/opt/miniconda3/envs/testbed/bin:$PATH" in dockerfile.splitlines()
+
+
+def test_a_host_side_agent_is_refused_a_swe_bench_task(tmp_path):
+    from dokimi.harnesses.docker_solver import _refuse_unrunnable
+
+    task = stage(_row(PYTEST_ID), tmp_path)
+    with pytest.raises(ValueError, match="cannot be solved by a host-side agent"):
+        _refuse_unrunnable(task, "claude", "host")
+    _refuse_unrunnable(task, "claude", "container")
+
+
+def test_a_bad_row_late_in_the_file_stages_nothing(tmp_path):
+    rows = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    data = tmp_path / "rows.json"
+    data.write_text(json.dumps([*rows, dict(rows[0], instance_id="x__y-1", version="0.0")]), encoding="utf-8")
+    with pytest.raises(SweBenchError, match="version '0.0'"):
+        load_swebench(data, tmp_path / "root")
+    assert not (tmp_path / "root").exists()
 
 
 def test_the_all_banner_names_only_the_known_bad_rows_the_file_holds(tmp_path, capsys):
@@ -253,10 +281,18 @@ def test_a_missing_or_failed_fail_to_pass_test_does_not_resolve():
     assert report["resolved"] is False
 
 
-def test_a_skipped_test_counts_neither_way_as_upstream():
+def test_a_skipped_pass_to_pass_test_counts_neither_way_as_upstream():
     report = grader.grade(_log("PASSED t.py::f\nSKIPPED t.py::p"), _CONFIG)
     assert report["PASS_TO_PASS"] == {"success": [], "failure": []}
     assert report["resolved"] is True
+
+
+def test_a_skipped_fail_to_pass_test_or_none_at_all_does_not_resolve():
+    report = grader.grade(_log("SKIPPED t.py::f\nPASSED t.py::p"), _CONFIG)
+    assert report["FAIL_TO_PASS"] == {"success": [], "failure": ["t.py::f"]}
+    assert report["resolved"] is False
+    empty = dict(_CONFIG, FAIL_TO_PASS=[], PASS_TO_PASS=[])
+    assert grader.grade(_log("PASSED t.py::f"), empty)["resolved"] is False
 
 
 def test_an_xfail_fail_to_pass_test_counts_as_a_success():
@@ -336,10 +372,20 @@ def test_the_grader_script_writes_reward_and_report(tmp_path, capsys):
     (tmp_path / "config.json").write_text(json.dumps(_CONFIG))
     (tmp_path / "test.log").write_text(_log("PASSED t.py::f\nFAILED t.py::p"))
     out = tmp_path / "verifier"
-    assert grader.main(["grade.py", str(tmp_path / "config.json"), str(tmp_path / "test.log"), str(out)]) == 0
+    argv = ["grade.py", str(tmp_path / "config.json"), str(tmp_path / "test.log"), str(out)]
+    assert grader.main(argv) == 1  # the exit code carries the verdict when reward.txt is lost
     assert (out / "reward.txt").read_text() == "0\n"
     assert json.loads((out / "report.json").read_text())["PASS_TO_PASS"]["failure"] == ["t.py::p"]
     assert "PASS_TO_PASS failed: t.py::p" in capsys.readouterr().out
+    (tmp_path / "test.log").write_text(_log("PASSED t.py::f\nPASSED t.py::p"))
+    assert grader.main(argv) == 0
+
+
+def test_the_verifier_prints_the_end_of_the_eval_log(tmp_path):
+    test_sh = (stage(_row(PYTEST_ID), tmp_path).tests_dir / "test.sh").read_text().splitlines()
+    tail = test_sh.index("tail -n 200 /logs/verifier/test_output.log")
+    assert test_sh.index("bash /tests/eval.sh > /logs/verifier/test_output.log 2>&1") < tail
+    assert tail < next(i for i, line in enumerate(test_sh) if "grade.py" in line)
 
 
 # ── the command line ─────────────────────────────────────────────────────────
@@ -404,3 +450,6 @@ def test_tasks_inspect_names_docker_as_the_consumer_of_a_supported_dataset(tmp_p
     other.write_text(json.dumps(dict(_row(PYTEST_ID), repo="someone/else")) + "\n")
     [report] = inspect_path(other)
     assert report.consumers == [] and report.details["repos_without_test_spec"] == ["someone/else"]
+    other.write_text(json.dumps(dict(_row(PYTEST_ID), version="9.9")) + "\n")
+    [report] = inspect_path(other)
+    assert report.consumers == [] and report.details["versions_without_test_spec"] == ["pytest-dev/pytest 9.9"]

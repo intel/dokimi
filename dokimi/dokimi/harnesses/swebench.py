@@ -51,12 +51,24 @@ _NON_TEST_EXTS = (".json", ".png", "csv", ".txt", ".md", ".jpg", ".jpeg", ".pkl"
 _APPLY_CMDS = ("git apply --verbose", "git apply --verbose --reject", "patch --batch --fuzz=5 -p1 -i")
 _HEREDOC = "EOF_114329324912"
 _DEFAULT_TIMEOUT = 1800.0
+# The verifier's default network: eval.sh's install step fetches build requirements
+# and the packages a gold patch adds (pylint-4661 `appdirs`, astropy-12907 setuptools).
+PYPI_HOSTS = ("pypi.org", "files.pythonhosted.org")
 _HARBOR = "harbor 6099b8c adapters/swebench/README.md, Known Issues: fails under the oracle"
-# Rows whose gold patch does not pass in the prebuilt image: --all skips them, --tasks still runs them.
+# Rows whose gold patch does not pass in the prebuilt image under the default network
+# (verify on the PyPI allowlist): --all skips them, --tasks still runs them.
 KNOWN_BAD = {
     "psf__requests-863": "tests fetch httpbin.org live; fail offline and when httpbin is down",
     "psf__requests-2317": "tests fetch httpbin.org live; fail offline and when httpbin is down",
     "psf__requests-1724": "tests fetch httpbin.org live; fail offline and when httpbin is down",
+    "psf__requests-1766": "tests fetch httpbin.org live; fail offline and when httpbin is down",
+    "psf__requests-1921": "tests fetch httpbin.org live; fail offline and when httpbin is down",
+    "psf__requests-1963": "tests fetch httpbin.org live; fail offline and when httpbin is down",
+    "psf__requests-2148": "tests fetch httpbin.org live; fail offline and when httpbin is down",
+    "psf__requests-2674": "tests fetch httpbin.org live; fail offline and when httpbin is down",
+    "sphinx-doc__sphinx-7985": "test_build_linkcheck.py::test_defaults checks live google.com and sphinx-doc.org links",
+    "sphinx-doc__sphinx-8269": "test_build_linkcheck.py::test_defaults checks live google.com and sphinx-doc.org links",
+    "sphinx-doc__sphinx-8475": "test_build_linkcheck.py::test_defaults checks live google.com and sphinx-doc.org links",
     "astropy__astropy-7606": f"missing test in the dataset ({_HARBOR})",
     "astropy__astropy-8707": f"test infrastructure failure ({_HARBOR})",
     "astropy__astropy-8872": f"distutils/pytest deprecation ({_HARBOR})",
@@ -191,6 +203,8 @@ def _solve_script() -> str:
 _TEST_SH = """#!/bin/bash
 mkdir -p /logs/verifier
 bash /tests/eval.sh > /logs/verifier/test_output.log 2>&1
+# The log stays in the container: its end goes to run.log for a row that scores 0.
+tail -n 200 /logs/verifier/test_output.log
 PY=/opt/miniconda3/bin/python; [ -x "$PY" ] || PY=python3
 "$PY" /tests/grade.py /tests/config.json /logs/verifier/test_output.log /logs/verifier
 """
@@ -199,6 +213,8 @@ _DOCKERFILE = """FROM {image}
 # A docker-* agent edits /app; the eval scripts and the conda env name /testbed.
 RUN mv {upstream} {workdir} && ln -s {workdir} {upstream}
 WORKDIR {workdir}
+# `conda activate testbed` is only in /root/.bashrc; the agent (uid 10001, tmpfs HOME) needs it on PATH.
+ENV PATH=/opt/miniconda3/envs/testbed/bin:$PATH
 """
 
 
@@ -215,6 +231,21 @@ def stage(row: dict[str, Any], root: Path, *, patch: str | None = None,
 
     *patch* replaces the gold patch as the oracle (``""``: the empty-patch control).
     """
+    task, files = _build(row, root, patch=patch, namespace=namespace)
+    _write(task.path, files)
+    return task
+
+
+def _write(task_dir: Path, files: dict[str, str]) -> None:
+    for rel, text in files.items():
+        dest = task_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
+
+
+def _build(row: dict[str, Any], root: Path, *, patch: str | None,
+           namespace: str) -> tuple[TaskSpec, dict[str, str]]:
+    """*row*'s spec and files, checked but not written."""
     missing = [k for k in REQUIRED if k not in row]
     if missing:
         raise SweBenchError(f"{row.get('instance_id', '?')}: missing {', '.join(missing)}")
@@ -238,10 +269,6 @@ def stage(row: dict[str, Any], root: Path, *, patch: str | None = None,
         "tests/config.json": json.dumps({"instance_id": iid, "parser": parser, **tests}, indent=1),
         "instruction.md": instruction(row),
     }
-    for rel, text in files.items():
-        dest = task_dir / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(text, encoding="utf-8")
     return TaskSpec(
         name=iid,
         path=task_dir.resolve(),
@@ -249,14 +276,15 @@ def stage(row: dict[str, Any], root: Path, *, patch: str | None = None,
         metadata={"source": "swe-bench", "instance_id": iid, "repo": row["repo"],
                   "base_commit": row["base_commit"], "version": str(row["version"]),
                   "parser": parser, "oracle_patch": "gold" if patch is None else "override"},
-        verifier={"timeout_sec": _DEFAULT_TIMEOUT},
+        # Solve stays offline (the agent gets no network); the verifier reaches PyPI only.
+        # `--network verify=none` runs fully offline, `verify=public` is upstream's network.
+        verifier={"timeout_sec": _DEFAULT_TIMEOUT, "network_mode": "allowlist",
+                  "allowed_hosts": list(PYPI_HOSTS)},
         agent={"timeout_sec": _DEFAULT_TIMEOUT},
-        # No network_mode: the run's default (offline solve and verify). The image has
-        # the repo installed; `--network verify=public` restores upstream's network.
         environment={"docker_image": image, "workdir": WORKDIR,
                      "cpus": 4, "memory_mb": 8192, "build_timeout_sec": _DEFAULT_TIMEOUT},
         format=FORMAT_SWE_BENCH,
-    )
+    ), files
 
 
 def load_swebench(path: Path, root: Path, ids: Iterable[str] | None = None, *,
@@ -268,11 +296,16 @@ def load_swebench(path: Path, root: Path, ids: Iterable[str] | None = None, *,
     if dups:  # two rows would stage into one directory and both run the last one
         raise SweBenchError(f"{path}: duplicate instance_id {', '.join(dups)}")
     if ids is None:
-        return [stage(r, root, namespace=namespace) for r in rows
-                if str(r.get("instance_id")) not in KNOWN_BAD]
-    by_id = {str(r.get("instance_id")): r for r in rows}
-    wanted = list(ids)
-    unknown = [i for i in wanted if i not in by_id]
-    if unknown:
-        raise SweBenchError(f"{path}: no instance {', '.join(unknown)}")
-    return [stage(by_id[i], root, namespace=namespace) for i in wanted]
+        selected = [r for r in rows if str(r.get("instance_id")) not in KNOWN_BAD]
+    else:
+        by_id = {str(r.get("instance_id")): r for r in rows}
+        wanted = list(ids)
+        unknown = [i for i in wanted if i not in by_id]
+        if unknown:
+            raise SweBenchError(f"{path}: no instance {', '.join(unknown)}")
+        selected = [by_id[i] for i in wanted]
+    # Every row is checked before any is written: a bad row late in the file stages nothing.
+    built = [_build(r, root, patch=None, namespace=namespace) for r in selected]
+    for task, files in built:
+        _write(task.path, files)
+    return [task for task, _ in built]
