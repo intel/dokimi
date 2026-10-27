@@ -37,6 +37,8 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     partial = out_path.with_name(out_path.name + ".partial")
     if out_path.is_dir() or not out_path.parent.is_dir() or not os.access(out_path.parent, os.W_OK):
         raise InputError(f"--out: not a writable file path: {out_path}")
+    if not args.timeout > 0:
+        raise InputError(f"--timeout must be > 0, got {args.timeout}")
     # Absolute: each run's cwd is a scratch dir, where a relative path names nothing.
     claude = shutil.which(args.claude)
     if claude is None:
