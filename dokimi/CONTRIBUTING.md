@@ -133,13 +133,13 @@ CI additionally holds a PR to:
 - **Changelog fragment** — a PR that changes the package (`dokimi/`) adds one to
   `changelog.d/` (`scriv create`) instead of editing `CHANGELOG.md`; see
   [changelog.d/README.md](changelog.d/README.md). A change with no user-visible
-  effect gets the `skip-changelog` label instead.
+  effect gets the `skip-changelog` label instead; adding or removing the label re-runs the check.
 
 **pre-commit.** `.pre-commit-config.yaml` at the repo root runs the fast
 offline checks on the files a commit stages: `ruff check` (the version and
 config CI uses), zizmor on the workflows, YAML/JSON/TOML syntax, conflict
 markers, files over 500 KB, and gitleaks on the staged changes (the
-`gitleaks` workflow scans a PR's commits the same way). From the repo root:
+`Scan commits` step in `ci.yml`'s `static` job scans a PR's commits the same way). From the repo root:
 
 ```bash
 pip install pre-commit && pre-commit install   # `make dev` already installs pre-commit
@@ -171,7 +171,7 @@ major, a monthly lock refresh, and security fixes as soon as an advisory
 appears. A pre-commit hook rev and the tool's pin in `requirements-ci.txt` (the
 tools lock CI and `.agent-eval/Dockerfile` install) come in one PR of their own
 for ruff and zizmor, with ruff's pin in the dev extra too; gitleaks in
-`gitleaks.yml` follows the same rule. Renovate does not update
+the gitleaks pin in `ci.yml` follows the same rule. Renovate does not update
 `requirements-docs.lock.txt` yet; pip-audit in CI still audits it.
 
 Guidelines:
@@ -226,7 +226,7 @@ When your change touches user-facing behavior, confirm:
 A page in `docs/` names the code it documents in YAML front matter above its
 license header: `depends_on:`, a list of globs from the repository root
 (`dokimi/dokimi/novelty/**`; `**` crosses `/`, while `*` and `?` stay within one
-path segment). The docs review triggers step of the `changelog` check is advisory: it lists the page on
+path segment). The `Docs pages to review` step in `ci.yml`'s `static` job is advisory: it lists the page on
 any PR that changes a matching file without touching the page, and those findings
 exit 0. Only a malformed `depends_on` (exit 1) or an undiffable base (exit 2) fails
 the job. `tests/test_docs_review_triggers.py` fails on a glob that matches no

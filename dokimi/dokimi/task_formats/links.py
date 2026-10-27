@@ -19,7 +19,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from dokimi.task_formats.model import Probe, Report
+from dokimi.task_formats.model import Probe, Report, mark_importable
 from dokimi.task_formats.pointers import FORMAT_LFS_POINTER
 from dokimi.task_formats.source import FileSource
 
@@ -46,7 +46,7 @@ def _targets(ref: dict[str, Any], by_path: dict[str, int], by_name: dict[str, li
 def _hinted(path: Path, ref: dict[str, Any], referrer: Path, probe: Probe) -> Report:
     hint = {k: v for k, v in ref.items() if k not in ("path", "format", "match")}
     hint["referenced_by"] = str(referrer)
-    report = probe.describe(FileSource(path, hint))
+    report = mark_importable(probe.describe(FileSource(path, hint)))
     report.confidence = REFERENCED_CONFIDENCE
     report.evidence = [f"named by {referrer.name}"]
     if hint.get("fields"):

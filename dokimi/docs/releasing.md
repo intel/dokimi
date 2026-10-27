@@ -34,7 +34,8 @@ two versions are comparable only when the scoring is the same, and the version
 in the `dokimi run` manifest or the scorecard is how a reader tells.
 
 Artifact formats are versioned separately, by the `schema_version` of each file
-under `dokimi/schemas/` and the `contracts` workflow; a package release does not
+under `dokimi/schemas/` and the `schema_compat vs the PR base` step in `ci.yml`'s
+`static` job; a package release does not
 replace that.
 
 Between releases `main` keeps the version of the last release; the release PR
@@ -45,7 +46,7 @@ bumps it.
 `CHANGELOG.md` is generated: each PR that changes the package adds a fragment to
 `changelog.d/`, and the release PR collects them. See
 [changelog.d/README.md](../changelog.d/README.md) for how to write one and when
-the `changelog` workflow asks for it.
+the `Fragment for package changes` step in `ci.yml`'s `static` job asks for it.
 
 ## Cutting a release
 
