@@ -319,3 +319,21 @@ def test_a_cell_shape_the_checks_miss_exits_1_without_a_traceback(tmp_path, caps
         _run(cmd[0], str(batch), *cmd[1:])
     assert exc.value.code == 1
     assert "unexpected shape" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("cmd", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
+@pytest.mark.parametrize("exc", [KeyError("k"), TypeError("t"), AttributeError("a"), OverflowError("o"), ValueError("v")],
+                         ids=lambda e: type(e).__name__)
+def test_each_cell_shape_error_exits_1_without_a_traceback(tmp_path, capsys, monkeypatch, cmd, exc):
+    from dokimi.repos import compare, report
+
+    def boom(batch_dir):
+        raise exc
+
+    monkeypatch.setattr(report, "load_cells", boom)
+    monkeypatch.setattr(compare, "load_cells", boom)
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(_GOOD).encode()})
+    with pytest.raises(SystemExit) as raised:
+        _run(cmd[0], str(batch), *cmd[1:])
+    assert raised.value.code == 1
+    assert f"unexpected shape ({type(exc).__name__}" in capsys.readouterr().err
