@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """The usage and cost block ``novelty routing --model`` writes and prints."""
 
 from __future__ import annotations
