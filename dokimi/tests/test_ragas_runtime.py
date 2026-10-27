@@ -13,6 +13,7 @@ it, and nothing else noticed that ``eval ragas`` could not start.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import subprocess
 import sys
@@ -36,6 +37,12 @@ for provider in ("openai", "anthropic"):
 
 
 def test_ragas_imports_and_evaluator_builds_from_installed_deps():
+    # The lock leaves the `[ragas]` extra out; test-latest installs it and sets
+    # DOKIMI_REQUIRE_RAGAS=1, so there a missing ragas fails instead of skipping.
+    if importlib.util.find_spec("ragas") is None:
+        if os.environ.get("DOKIMI_REQUIRE_RAGAS") == "1":
+            pytest.fail("DOKIMI_REQUIRE_RAGAS=1 but ragas is not installed")
+        pytest.skip("the [ragas] extra is not installed")
     proc = subprocess.run(
         [sys.executable, "-c", _PROBE],
         cwd=REPO,
