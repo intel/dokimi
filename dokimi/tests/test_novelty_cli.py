@@ -166,6 +166,28 @@ def test_placebo_text_is_read_before_a_model_client_is_built(tmp_path, monkeypat
         args.func(args)
 
 
+@pytest.mark.parametrize(("arms", "placebo", "message"), [
+    ("no_artifact,full,placebo", "", "^the placebo arm needs --placebo-text"),
+    ("no_artifact,full,placebo", None, "^the placebo arm needs --placebo-text"),
+    ("no_artifact,full,bogus", None, r"^unknown novelty arms: \['bogus'\]"),
+])
+def test_analyze_exits_with_the_message_when_the_arms_cannot_run(
+        tmp_path, monkeypatch, arms, placebo, message):
+    from tests.test_novelty_analyze import SKILL, _clients
+
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(SKILL, encoding="utf-8")
+    argv = ["novelty", "analyze", "--artifact", f"skill:{skill}", "--arms", arms]
+    if placebo is not None:
+        (tmp_path / "placebo.txt").write_text(placebo, encoding="utf-8")
+        argv += ["--placebo-text", str(tmp_path / "placebo.txt")]
+    monkeypatch.setattr("dokimi.commands.novelty._clients", lambda _args: _clients())
+    args = _parse(*argv)
+    with pytest.raises(SystemExit, match=message):
+        args.func(args)
+
+
 def test_coverage_note_printed_to_stderr_for_atoms(tmp_path, monkeypatch, capsys):
     """The coverage note is printed to stderr on entry-point run."""
     skill = tmp_path / "s" / "SKILL.md"
