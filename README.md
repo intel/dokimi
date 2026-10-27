@@ -231,8 +231,9 @@ How to read the results:
   (`<name>`, `caseNN_*`) can show up as `fail` too. `unresolved` also needs
   a look: it can be a path the scan could not check, or one whose directory
   is gone. The scan checks that a path, identifier or command exists, not
-  that what the guidance says about it is true: a Python range, a count or
-  a description of the code can be stale while every claim is `ok`. A review
+  that what the guidance says about it is true: a count or a description of
+  the code (`public api` where the code declares `cdef api`) can be stale
+  while every claim is `ok`. A review
   that lists the scan under what it checked names what the scan covers.
 - **Reach:** a guidance file nobody loads cannot help anyone. Run `reach`
   before you judge the guidance's content. `loaded` comes from the harness
