@@ -11,3 +11,9 @@
   (`gpt-*`, `o*`), or one with a litellm provider prefix (`azure/…`), keeps its route and
   its response-cache entries. The double-prefix workaround (`openai/openai/<model>`) still
   works.
+
+### Documentation
+
+- **README: running against an OpenAI-compatible server** — provider `openai` with
+  `OPENAI_API_BASE` / `OPENAI_BASE_URL`, a placeholder `OPENAI_API_KEY` for a server that
+  ignores it, and why cost is unknown and `--max-usd` stops after one call.

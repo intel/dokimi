@@ -147,9 +147,16 @@ Credentials are read from the environment: `OPENAI_API_KEY`,
 `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AWS_REGION` with
 `AWS_BEARER_TOKEN_BEDROCK` for Bedrock, and Google application-default
 credentials (`GOOGLE_APPLICATION_CREDENTIALS`, with `VERTEXAI_PROJECT` and
-`VERTEXAI_LOCATION`) for Vertex. The judge must be a different model from the
-one under measurement, because a model that grades its own answers inflates
-the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
+`VERTEXAI_LOCATION`) for Vertex. For an OpenAI-compatible server (vLLM, a
+gateway), use provider `openai` with `OPENAI_API_BASE` (or `OPENAI_BASE_URL`)
+set to its `/v1` URL. Any model name the server serves works, such as
+`--judges openai/glm-5.3` in `eval cross-judge`. `OPENAI_API_KEY` must be set
+even when the server ignores it. litellm has no price for such a model, so cost
+is reported as unknown and a `--max-usd` run stops after its first call.
+
+The judge must be a different model from the one under measurement, because a
+model that grades its own answers inflates the scores. `novelty` refuses a
+self-judge; `arms run` does not check, so name
 `--judge --judge-model <other> --judge-provider <judge-provider>` yourself.
 
 ### A skill
