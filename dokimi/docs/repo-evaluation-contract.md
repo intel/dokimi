@@ -1134,7 +1134,8 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   gate and score, a t interval for cost, turns, metrics and process counts, `-` for a single
   task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
   changed tasks; at one cell per task and arm it equals McNemar's exact test).
-  Holm's correction runs over the gate and score comparisons of one call; the
+  A `process` count only one arm reports for the shared tasks of a
+  (treatment, model) is not compared; a warning names it. Holm's correction runs over the gate and score comparisons of one call; the
   rest are descriptive. A gate or score comparison carries `headroom`:
   `ceiling` (both arms at 1.0 or the task's `score.max` on every paired
   task), `floor` (both at 0 on every one), `near_ceiling` (the baseline at

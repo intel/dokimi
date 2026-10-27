@@ -9,4 +9,5 @@
   reports as a descriptive measure (`process:<key>`, `counter:<name>`): a
   paired delta with a t interval and a raw p, outside Holm's family. Cells
   whose `process` is absent or `null` are left out, so batches written before
-  `process` existed compare as before.
+  `process` existed compare as before; a count only one arm reports for a
+  (treatment, model) is not compared, and a warning names it.

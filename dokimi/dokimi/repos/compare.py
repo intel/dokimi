@@ -43,7 +43,9 @@ p and Holm are unchanged.
 
 Every ``result.json`` ``process`` count a cell of the compared arms reports
 (:mod:`.process_counts`: ``process:<key>``, ``counter:<name>``) is a measure
-too, the per-task mean over the cells that have it, descriptive like cost.
+too, the per-task mean over the cells that have it, descriptive like cost. A
+count only one arm reports for the shared tasks of a (treatment, model) (an
+older batch, a counter one arm added) is not compared and a warning names it.
 
 Each selector's batches are reported with the stamp ``repo run`` pins a batch
 to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
@@ -146,17 +148,23 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics)
     rows: list[dict[str, Any]] = []
     unpaired: list[dict[str, Any]] = []
+    one_arm: list[str] = []
     measures += _process_measures(cells, [baseline, *treatments])
     for text in treatments:
         treat_vals = _task_values([c for c in cells if selector_matches(parse_selector(text), c)], metrics)
         unpaired += _one_arm_models(text, base_vals, treat_vals, models)
         shared_models = sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals})
         for model in [m for m in shared_models if not models or m in models]:
-            _compare_model(text, model, base_vals, treat_vals, measures, seed, rows, unpaired)
+            skipped = _compare_model(text, model, base_vals, treat_vals, measures, seed, rows, unpaired)
+            if skipped:
+                one_arm.append(f"{text} {model}: only one arm reports {', '.join(skipped)} for a shared task; "
+                               "not compared")
     _check_models(models, rows, unpaired)
     _holm(rows)
+    provenance = _provenance(batch_dirs, cells, baseline, treatments, models)
+    provenance["warnings"] += one_arm
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
-            "cells": len(cells), "missing": missing, **_provenance(batch_dirs, cells, baseline, treatments, models),
+            "cells": len(cells), "missing": missing, **provenance,
             "comparisons": rows, "unpaired": unpaired}
 
 
@@ -296,8 +304,11 @@ def _holm(rows: list[dict[str, Any]]) -> None:
 
 def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], dict[str, Any]],
                    treat_vals: dict[tuple[str, str], dict[str, Any]], measures: list[str], seed: int,
-                   rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> None:
-    """Append one row per measure of one (treatment, model), and the tasks only one arm has."""
+                   rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> list[str]:
+    """Append one row per measure of one (treatment, model), and the tasks only one arm has.
+
+    Returns the process measures only one arm reports for a shared task: they are skipped, not unpaired.
+    """
     base_tasks = {t for m, t in base_vals if m == model}
     treat_tasks = {t for m, t in treat_vals if m == model}
     for task in sorted(base_tasks ^ treat_tasks):
@@ -308,13 +319,19 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
         b, t = base_vals[(model, task)]["kind"], treat_vals[(model, task)]["kind"]
         if b != t:  # batches of different eval trees: the primary result of this task has no pair
             unpaired.append(_unpaired(treatment, model, task, None, f"{b} task in baseline, {t} in treatment"))
+    skipped = []
     for measure in measures:
-        if measure.startswith(("process:", "counter:")) and not all(
-                any(vals[(model, t)]["values"].get(measure) is not None for t in shared) for vals in (base_vals, treat_vals)):
-            continue  # an arm that reports no such count at all (an older batch) leaves no task out of a pair
+        if measure.startswith(("process:", "counter:")):
+            has = [any(vals[(model, t)]["values"].get(measure) is not None for t in shared)
+                   for vals in (base_vals, treat_vals)]
+            if not all(has):  # an arm that reports no such count at all (an older batch) leaves no task out of a pair
+                if any(has):
+                    skipped.append(measure)
+                continue
         row = _compare_measure(treatment, model, measure, shared, base_vals, treat_vals, seed, unpaired)
         if row is not None:
             rows.append(row)
+    return skipped
 
 
 def _compare_measure(treatment: str, model: str, measure: str, shared: list[str],
