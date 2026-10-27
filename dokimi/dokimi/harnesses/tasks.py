@@ -52,6 +52,8 @@ NO_TASKS_ROOT_MESSAGE = (
 
 FORMAT_HARBOR = "harbor"
 FORMAT_TASK_MD = "task-md"
+# A SWE-bench dataset row staged by dokimi.harnesses.swebench (solution/ and tests/).
+FORMAT_SWE_BENCH = "swe-bench"
 FORMAT_TBENCH_V1 = tbench_v1.FORMAT
 PARSER_REWARD_FILE = "reward-file"
 
@@ -61,9 +63,9 @@ PARSER_REWARD_FILE = "reward-file"
 # verifier/, while a Harbor-layout directory that holds both pairs uses
 # solution/ and tests/ here, the names Harbor itself reads.
 _SOLUTION_DIRS = {FORMAT_HARBOR: ("solution", "oracle"), FORMAT_TASK_MD: ("oracle", "solution"),
-                  FORMAT_TBENCH_V1: ("solution",)}
+                  FORMAT_TBENCH_V1: ("solution",), FORMAT_SWE_BENCH: ("solution",)}
 _TESTS_DIRS = {FORMAT_HARBOR: ("tests", "verifier"), FORMAT_TASK_MD: ("verifier", "tests"),
-               FORMAT_TBENCH_V1: ("tests",)}
+               FORMAT_TBENCH_V1: ("tests",), FORMAT_SWE_BENCH: ("tests",)}
 
 
 @dataclass(frozen=True)

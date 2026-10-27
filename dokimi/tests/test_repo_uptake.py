@@ -234,6 +234,9 @@ def test_an_agent_that_left_no_trace_is_unmeasured_one_that_called_no_tool_is_me
         _run(setup, action, "guidance:raw", f"patch:{patch}")
     silent, idle = setup["out"] / "silent", setup["out"] / "idle"
     assert json.loads(next(silent.glob("*patch*__r1/result.json")).read_text())["uptake"]["measured"] is False
+    # an agent that left no trace has no process counts; a run that started and made no call has zeros
+    assert json.loads(next(silent.glob("*patch*__r1/result.json")).read_text())["process"] is None
+    assert json.loads(next(idle.glob("*patch*__r1/result.json")).read_text())["process"]["tool_calls"] == 0
     assert json.loads(next(idle.glob("*patch*__r1/result.json")).read_text())["uptake"]["measured"] is True
     unmeasured = compare([silent], "guidance:raw", [arm])
     assert unmeasured["uptake"] == {arm: {"cells": 0, "used": 0, "unmeasured": 2}} and not _used_none(unmeasured)

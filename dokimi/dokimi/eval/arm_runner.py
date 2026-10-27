@@ -274,7 +274,8 @@ class ArmRunner:
         for treatment in self.treatments:
             if turns is None:
                 arms[treatment.name] = self._answer_one_arm(
-                    treatment, question_text, library_name, library_id, qid
+                    treatment, question_text, library_name, library_id, qid,
+                    verbatim=q.get("prompt_style") == "verbatim",
                 )
                 continue
             arms[treatment.name] = self._answer_session_arm(
@@ -315,6 +316,7 @@ class ArmRunner:
         library_name: str,
         library_id: Optional[str],
         question_id: str = "unknown_q",
+        verbatim: bool = False,
     ) -> Dict[str, Any]:
         t0 = time.time()
         try:
@@ -363,7 +365,8 @@ class ArmRunner:
         if cfg.has_context:
             context = join_injected(cfg.injected_context)
             prefix = CONTEXT_PROMPT_PREFIX.format(context=context[:MAX_CONTEXT_CHARS])
-            prompt = CONTEXT_PROMPT_SUFFIX.format(question=question_text)
+            # A verbatim (imported) prompt follows the context unchanged, as `answers generate` sends it.
+            prompt = question_text if verbatim else CONTEXT_PROMPT_SUFFIX.format(question=question_text)
             if cfg.context_is_static:
                 # Hand the halves over separately so the provider can cache the
                 # first one; what the model sees is the same concatenation.
@@ -371,7 +374,7 @@ class ArmRunner:
             else:
                 prompt = prefix + prompt
         else:
-            prompt = ANSWER_PROMPT_PLAIN.format(question=question_text)
+            prompt = question_text if verbatim else ANSWER_PROMPT_PLAIN.format(question=question_text)
 
         try:
             answer_text, usage = llm_call_with_usage(

@@ -188,6 +188,36 @@ def test_generate_writes_answers_to_output_path(tmp_path, monkeypatch, capsys,
     assert f"Saved answers to {out}" in capsys.readouterr().out
 
 
+def test_doc_source_none_asks_the_baseline_without_a_doc_client(tmp_path, monkeypatch, capsys):
+    _point_config(monkeypatch, tmp_path / "absent.yaml")
+    monkeypatch.setattr(dokimi.questions.artifact, "load_questions",
+                        lambda path: SimpleNamespace(questions=["q1"]))
+
+    def no_client(*args, **kwargs):
+        raise AssertionError("--doc-source none must not build a documentation client")
+
+    monkeypatch.setattr(dokimi.mcp.factory, "create_doc_source_client", no_client)
+    monkeypatch.setattr(dokimi.mcp.factory, "resolve_library_id_for_product", no_client)
+    calls: dict = {}
+
+    class FakeAnswerer:
+        def __init__(self, **kwargs):
+            calls["init"] = kwargs
+
+        def generate_answers(self, **kwargs):
+            return ["a1"]
+
+        def save_answers(self, answers_, path):
+            calls["saved"] = path
+
+    monkeypatch.setattr(dokimi.eval, "Answerer", FakeAnswerer)
+
+    answers.cmd_answers_generate(_args(output=str(tmp_path / "out.json"), doc_source="none"))
+
+    assert calls["init"]["mcp_client"] is None
+    assert "Documentation source: none" in capsys.readouterr().out
+
+
 def _stub_generate(monkeypatch, tmp_path, answerer_cls):
     _point_config(monkeypatch, tmp_path / "absent.yaml")
     monkeypatch.setattr(dokimi.questions.artifact, "load_questions",

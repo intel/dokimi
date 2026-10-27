@@ -35,6 +35,8 @@ dependencies = [
   "PyGithub>=2.1.0",
   "datasets>=2.20,<6",
   "openai>=1.51,<3",
+  # The reference `regex` check runs with a timeout, which `re` lacks.
+  "regex>=2024.11.6",
 ]
 
 [project.optional-dependencies]
@@ -101,6 +103,7 @@ dokimi = [
   "schemas/*.json",
   "repos/profiles/*.yaml",
   "repos/support/*.py",
+  "harnesses/swebench_specs.json",
 ]
 
 [tool.scriv]

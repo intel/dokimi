@@ -107,6 +107,14 @@ if action != "idle":  # idle: the agent starts and ends without a tool call
     lines.append({"type": "assistant", "message": {"model": answered, "content": [
         {"type": "tool_use", "id": "t1", "name": "Edit",
          "input": {"file_path": os.environ.get("FAKE_CONTAINER_CWD", str(cwd)) + "/src/calc.py"}}]}})
+if os.environ.get("FAKE_PROCESS"):  # a guidance read and one build command, for the process metrics
+    lines.append({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t3", "name": "Read",
+         "input": {"file_path": os.environ.get("FAKE_CONTAINER_CWD", str(cwd)) + "/AGENTS.md"}},
+        {"type": "tool_use", "id": "t4", "name": "Bash", "input": {"command": "bazel build //x"}}]}})
+    lines.append({"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "t4", "is_error": True, "content": "ERROR: icpx is not found"}]}})
+
 for name in filter(None, os.environ.get("FAKE_SKILLS", "").split(",")):  # use installed skills, in order
     if (cwd / ".claude/skills" / name / "SKILL.md").is_file():
         lines.append({"type": "assistant", "message": {"content": [
@@ -136,7 +144,7 @@ PROFILE = {
                "--max-budget-usd", "{budget}", "{tools}"],
     "tools": {"none": ["--tools", ""], "read": ["--tools", "Read"], "all": []},
     "config_dir_env": "FAKE_CONFIG_DIR",
-    "env_allow": ["FAKE_ACTION", "FAKE_ANSWER_MODEL", "FAKE_MARKER", "FAKE_SKILLS", "FAKE_USAGE", "FAKE_TOOL_USES", "PATH"],
+    "env_allow": ["FAKE_ACTION", "FAKE_ANSWER_MODEL", "FAKE_MARKER", "FAKE_SKILLS", "FAKE_USAGE", "FAKE_PROCESS", "FAKE_TOOL_USES", "PATH"],
     "egress": ["api.example.com"], "trace": "claude-stream-json",
     "prompt_suffix": "Stay in the foreground.",
     "config_files": {"settings.json": '{"hook": "python3 {support_dir}/no_background.py"}'},
@@ -147,6 +155,7 @@ MANIFEST = {
     "schema": "repo_manifest.v1", "id": "toy", "source": {"url": "https://example.invalid/toy"},
     "eval_dir": ".agent-eval",
     "guidance": {"globs": ["**/AGENTS.md"]},
+    "process_metrics": {"bazel": r"\bbazel\b", "icpx_missing": {"regex": "icpx is not found", "match": "output"}},
     "image": {"dockerfile": ".agent-eval/Dockerfile",
               "caches": [{"name": "build-cache", "path": "/cache/build"}],
               "env": {"TOY_STATE": "{run_dir}/state"}, "network": "none"},
