@@ -83,6 +83,7 @@ from .tbench_v1 import reward as _pytest_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
     _DEFAULT_BUILD_TIMEOUT,
     _DEFAULT_VERIFY_TIMEOUT,
+    FORMAT_SWE_BENCH,
     FORMAT_TASK_MD,
     FORMAT_TBENCH_V1,
     ContainerStep,
@@ -728,15 +729,14 @@ class DockerSolverHarness:
 def _refuse_unrunnable(task: TaskSpec, mode: str, agent_location: str) -> None:
     """Refuse, from the task file alone, what a docker-* agent cannot run.
 
-    - A ``task.md`` task, for a host-side agent: its instruction names absolute
-      container paths (``/root/...``, ``/app/...``) and the agent runs on the
-      host in a copy of ``/app``, so it writes to the operator's machine and the
-      verifier, in the container, finds nothing: a false fail plus a host write.
-      The in-container agent runs such a task when it works in ``/app``.
+    - A ``task.md``, terminal-bench-v1 or SWE-bench task, for a host-side
+      agent: its instruction names container paths (``/root/...``, ``/app/...``)
+      and the agent runs on the host in a copy of ``/app``: a host write plus a
+      false fail, as the verifier in the container finds nothing. The
+      in-container agent runs such a task when it works in ``/app``.
     - A declared ``environment.workdir`` outside ``/app``, for either agent:
       both edit ``/app`` only (see :func:`_require_agent_workdir` for the
       image's own ``WORKDIR``, which needs the built image).
-
     - A task without the directory a mode copies in: ``tests/`` (``verifier/``)
       for the verifier, and ``solution/`` (``oracle/``) for ``docker-oracle``.
       ``docker cp`` would fail only at that step, after the image build and,
@@ -757,7 +757,7 @@ def _refuse_unrunnable(task: TaskSpec, mode: str, agent_location: str) -> None:
                 raise ValueError(f"{task.name}: no {what} to copy to {dest}")
     if mode not in ("claude", "probe"):
         return
-    if agent_location == "host" and task.format in (FORMAT_TASK_MD, FORMAT_TBENCH_V1):
+    if agent_location == "host" and task.format in (FORMAT_TASK_MD, FORMAT_TBENCH_V1, FORMAT_SWE_BENCH):
         raise ValueError(
             f"{task.name}: a {task.format} task cannot be solved by a host-side agent "
             f"(its instruction names absolute container paths); {_IN_CONTAINER}"

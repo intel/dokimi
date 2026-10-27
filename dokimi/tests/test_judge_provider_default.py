@@ -49,7 +49,7 @@ def test_the_commands_that_take_a_judge_provider_are_all_covered():
     assert set(COMMANDS) == {
         "evaluate", "eval score", "eval judge-validity", "eval checklist", "eval judge-wording",
         "eval pairwise", "benchmark run", "benchmark preflight", "benchmark batch", "arms run",
-        "arms matrix-run", "subjects run",
+        "arms matrix-run", "subjects run", "eval reference",
     }
 
 
