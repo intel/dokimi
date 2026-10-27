@@ -214,6 +214,9 @@ def test_a_plan_cell_whose_id_does_not_match_its_coordinates_is_invalid(tmp_path
     found = completeness(edited, _result(edited, ["pass"] * 6))
     assert found.state == "invalid"
     assert any("does not match its coordinates" in p for p in found.problems)
+    renumbered = copy.deepcopy(plan)
+    renumbered["cells"][0]["rep"] = 2  # old id kept
+    assert completeness(renumbered, _result(renumbered, ["pass"] * 6)).state == "invalid"
     edited["cells"][0]["rep"] = "x"  # coordinates that cell_id cannot hash
     assert completeness(edited, _result(edited, ["pass"] * 6)).state == "invalid"
 
