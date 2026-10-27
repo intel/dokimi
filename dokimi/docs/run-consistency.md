@@ -42,7 +42,8 @@ A command followed by another after `;`, a newline, `||` or `&` is hidden the
 same way (`pytest; echo done` reports `echo`'s status), unless `set -e` makes `;`
 and a newline stop the chain. `&&` alone does not hide it, but a later `||` does
 (`pytest && echo PASS || echo FAIL`), and so does a `;` or newline after
-`pytest && git diff`, even under `set -e`. `last_ok` does not accept such
+`pytest && git diff`, for `pytest` (even under `set -e`; `git diff` is then the
+last command of the list and exits on failure). `last_ok` does not accept such
 a step as a passing check.
 
 The line is read for what it runs, not parsed as a shell would: quotes,
