@@ -98,7 +98,7 @@ class RecordingDocClient:
 
     ``get_library_docs`` takes ``**kwargs`` and applies :data:`CONTEXT7_DEFAULTS`,
     so ``passed`` says what the caller sent and ``max_results``/``max_tokens``
-    the effective values the server would have seen. An empty query returns no docs.
+    the effective values the server would have seen. The ``EMPTY_QUERY`` question returns no docs.
     """
 
     def __init__(self) -> None:
