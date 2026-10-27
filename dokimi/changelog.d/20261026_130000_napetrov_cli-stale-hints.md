@@ -1,0 +1,3 @@
+### Fixed
+
+- **The next-step hints name the `dokimi` command, and the `arms run` example in a baseline-only report runs as written** — `dokimi personas discover`, `dokimi personas approve`, `dokimi baseline list` and `dokimi baseline compare` used to print `python cli.py …` as the command to run; they now print `dokimi …`, the console script, with the same arguments. The example `arms run` command in a model-comparison report that has only baseline arms now carries the `--product` and `--questions` that `dokimi arms run` requires, in place of a `[other parameters]` placeholder. No command, flag or output changes otherwise.
