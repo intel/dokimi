@@ -40,7 +40,9 @@ passing `git diff`. A command piped into another (`pytest | tail`) without
 `set -o pipefail` has its status hidden: the call's status is the last stage's.
 A command followed by another after `;`, a newline, `||` or `&` is hidden the
 same way (`pytest; echo done` reports `echo`'s status), unless `set -e` makes `;`
-and a newline stop the chain; `&&` does not hide it. `last_ok` does not accept such
+and a newline stop the chain. `&&` alone does not hide it, but a later `||` does
+(`pytest && echo PASS || echo FAIL`), and so does a `;` or newline after
+`pytest && git diff`, even under `set -e`. `last_ok` does not accept such
 a step as a passing check.
 
 The line is read for what it runs, not parsed as a shell would: quotes,

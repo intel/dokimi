@@ -170,6 +170,10 @@ LAST_OK = parse_contract({"actions": {"test": {"tool": "Bash", "command": "pytes
     ("{ for f in a b; do pytest $f; done; }", True),
     ('grep -nE "for|while" x.py && pytest -q', False), ('git commit -m "do for later" && pytest -q', False),
     ("files=$(for f in a; do echo $f; done); pytest -q", False),
+    ("pytest -q && echo PASS || echo FAIL", True), ("pytest -q && git diff; echo done", True),
+    ("pytest -q && echo ok &", True), ("set -e; pytest -q && echo ok; echo end", True),
+    ("cd x && pytest -q && git status", False), ("set -e; cd x && pytest -q; echo end", False),
+    ("{ pytest -q && echo ok; }", False),
 ])
 def test_a_later_command_hides_the_status_of_an_earlier_one(command, hidden):
     for grain in ("split", "call"):

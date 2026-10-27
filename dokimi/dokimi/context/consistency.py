@@ -241,6 +241,19 @@ def _hides_status(sep: str, errexit: bool) -> bool:
     return sep in shell.HIDING and not (errexit and sep in (";", "\n"))
 
 
+def _list_hides(parts: list[tuple[str, str]], i: int) -> bool:
+    """Whether a later command of the ``&&`` / ``||`` list holding command ``i`` hides its status:
+    a later ``||`` (``pytest && echo ok || echo bad``), or a ``;``, newline or ``&`` after the list
+    when ``i`` is not its last command (`set -e` does not stop at it either)."""
+    j = i
+    while j < len(parts) and parts[j][1] in ("&&", "||"):
+        if parts[j][1] == "||":
+            return True
+        j += 1
+    end = parts[j][1] if j < len(parts) else ""
+    return j > i and (end == "&" or (end in (";", "\n") and any(shell.clean(s) for s, _ in parts[j + 1:])))
+
+
 def _opens_loop(seg: str) -> bool:
     """A loop header as a shell word (not in quotes or ``$(...)``): first, or after a pipe, ``(``,
     ``{``, ``!``, ``then``, ``do``, ``else``, ``elif``."""
@@ -263,7 +276,7 @@ def _masks(parts: list[tuple[str, str]], command: str) -> list[bool]:
         # `done`, `fi` after the last command close it: its status is the call's
         sep = sep if sep == "&" or any(shell.clean(later) for later, _ in parts[i + 1:]) else ""
         out.append((not pipefail and "|" in shell.tokens(seg)) or _hides_status(sep, errexit)
-                   or (loops > 0 and not errexit))
+                   or _list_hides(parts, i) or (loops > 0 and not errexit))
     return out
 
 
