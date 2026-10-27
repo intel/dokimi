@@ -59,6 +59,15 @@ def _shell(*lines: str) -> str:
     return f"{FENCE}bash\n" + "\n".join(lines) + f"\n{FENCE}\n"
 
 
+def _wf(matrix: str) -> dict[str, str]:
+    """A tree with one workflow, `.github/workflows/ci.yml`, whose one job has this matrix (YAML flow style)."""
+    return {".github/workflows/ci.yml": f"jobs:\n  test:\n    strategy:\n      matrix: {matrix}\n"}
+
+
+# 3.13, 3.14 and 3.15, plus a free-threaded 3.14 named only by its conda build tag
+CONDA = ("{python: ['3.13'], include: [{python: '3.14', spec: '3.14.* *_cp314'}, "
+         "{python: '3.14', spec: '3.14.* *_cp314t'}, {python: '3.15'}]}")
+
 CASES = [
     # paths
     ("parent dir exists: a rename", "`sub/gone.h`", {"sub/x.h": "", "other/sub/gone.h": ""},
@@ -262,6 +271,52 @@ CASES = [
     ("a path named from the root is gated, a bare one is not", "`config/gone.yaml` `dokimi/config/gone.yaml`",
      {"dokimi/config/x.yaml": ""},
      {("path", "config/gone.yaml"): "unresolved", ("path", "dokimi/config/gone.yaml"): "fail"}),
+    # Python versions on a line that names a workflow
+    ("a stale Python range in a table row", "| tests, py3.12-3.14t | `ci.yml` |", _wf(CONDA),
+     {("python_versions", "py3.12-3.14t"): "fail"}),
+    ("a Python range that matches the matrix", "Python 3.13–3.15 (`.github/workflows/ci.yml`)", _wf(CONDA),
+     {("python_versions", "Python 3.13–3.15"): "ok"}),
+    ("a range end written with t must run free-threaded", "py3.13-3.15t in [CI](.github/workflows/ci.yml)",
+     _wf(CONDA), {("python_versions", "py3.13-3.15t"): "fail"}),
+    ("a free-threaded range", "Python 3.13t-3.14t, `ci.yml`", _wf("{python-version: ['3.13t', '3.14t', '3.15']}"),
+     {("python_versions", "Python 3.13t-3.14t"): "ok"}),
+    ("a list: each version must run", "Python 3.13, 3.14 and 3.15 run in `ci.yml`; py3.12/3.13 in `ci.yml` too",
+     _wf(CONDA), {("python_versions", "Python 3.13, 3.14 and 3.15"): "ok", ("python_versions", "py3.12/3.13"): "fail"}),
+    ("a range inside the matrix is stale too", "py3.13-3.14 in `ci.yml`; py3.14-3.15 in `ci.yml`", _wf(CONDA),
+     {("python_versions", "py3.13-3.14"): "fail", ("python_versions", "py3.14-3.15"): "fail"}),
+    ("exclude and keys that are not Python are not read", "py3.13-3.14 `ci.yml`; Python 3.13t and 3.14t, `ci.yml`",
+     _wf("{python: ['3.13', '3.14'], cmake: ['3.27'], spec: [a, '*_cp314t'], exclude: [{spec: '*_cp313t'}]}"),
+     {("python_versions", "py3.13-3.14"): "ok", ("python_versions", "Python 3.13t and 3.14t"): "fail"}),
+    ("a .yaml workflow, and a link from a nested file", "py3.12-3.13 | `check.yaml`",
+     {".github/workflows/check.yaml": "jobs:\n  c:\n    strategy:\n      matrix: {python: ['3.12', '3.13']}\n",
+      "docs/AGENTS.md": "Python 3.12–3.13 in [CI](../.github/workflows/check.yaml)\n"},
+     {("python_versions", "py3.12-3.13"): "ok", ("python_versions", "Python 3.12–3.13"): "ok"}),
+    ("a local reusable workflow is followed", "py3.12-3.13 | `cf.yml`",
+     {".github/workflows/cf.yml": "jobs:\n  linux:\n    uses: ./.github/workflows/build.yml\n",
+      ".github/workflows/build.yml": "jobs:\n  b:\n    strategy:\n      matrix: {python: ['3.12', '3.13']}\n"},
+     {("python_versions", "py3.12-3.13"): "ok"}),
+    ("a computed matrix, a remote, missing or broken workflow, no Python: unresolved; a loop is read once",
+     "py3.12-3.13 `ci.yml`\n\nPython 3.12-3.13 `remote.yml`\n\npy312-py313 `gone.yml`\n\npy3.9-3.13 `nopy.yml`\n\n"
+     "py3.8-3.13 `bad.yml`\n\nPython 3.12–3.13 `loop.yml`",
+     {".github/workflows/ci.yml": "jobs:\n  t:\n    strategy:\n      matrix: {python: '${{ fromJSON(inputs.py) }}'}\n",
+      ".github/workflows/remote.yml": "jobs:\n  m:\n    strategy:\n      matrix: {python: ['3.12', '3.13']}\n  t:\n    uses: acme/ci/.github/workflows/t.yml@v1\n",
+      ".github/workflows/gone.yml": "jobs:\n  m:\n    strategy:\n      matrix: {python: ['3.12', '3.13']}\n  t:\n    uses: ./.github/workflows/t.yml\n",
+      ".github/workflows/nopy.yml": "jobs:\n  t:\n    strategy:\n      matrix: {os: [a, b]}\n",
+      ".github/workflows/bad.yml": "jobs: [unclosed\n",
+      ".github/workflows/loop.yml": "jobs:\n  m:\n    strategy:\n      matrix: {python: ['3.12', '3.13']}\n  t:\n    uses: ./.github/workflows/loop.yml\n"},
+     {("python_versions", "py3.12-3.13"): "unresolved", ("python_versions", "Python 3.12-3.13"): "unresolved",
+      ("python_versions", "py312-py313"): "unresolved", ("python_versions", "py3.9-3.13"): "unresolved",
+      ("python_versions", "py3.8-3.13"): "unresolved", ("python_versions", "Python 3.12–3.13"): "ok"}),
+    ("no workflow on the line, or one version: no claim",
+     "Python 3.12-3.14 everywhere\n\nThe py3.13 job in `ci.yml`; Python 3.13 and CMake 3.27 in `ci.yml`\n\n"
+     "`ci.yml` moved from Python 3.11 to 3.13\n\n`i.yml` runs py3.10-3.11\n\n`environment.yml` pins py3.8-3.9",
+     {**_wf(CONDA), "environment.yml": "dependencies: [python=3.8]\n"}, {("python_versions", "Python 3.12-3.14"): None, ("python_versions", "py3.13"): None,
+                  ("python_versions", "Python 3.13"): None, ("python_versions", "Python 3.11"): None,
+                  ("python_versions", "Python 3.11 to 3.13"): None, ("python_versions", "py3.10-3.11"): None,
+                  ("python_versions", "py3.8-3.9"): None}),
+    ("a version in the workflow's own name is not read", "`build-py3.11-3.12.yml` builds Python 3.13 and 3.14",
+     {".github/workflows/build-py3.11-3.12.yml": "jobs:\n  w:\n    strategy:\n      matrix: {python: ['3.13', '3.14']}\n"},
+     {("python_versions", "Python 3.13 and 3.14"): "ok", ("python_versions", "py3.11-3.12"): None}),
 ]
 
 
@@ -271,6 +326,18 @@ def test_rule(tmp_path, name, agents, files, expected):
     if not expected:
         assert got == {}, got
     assert {k: got.get(k) for k in expected} == expected, got
+
+
+def test_an_unresolved_python_range_says_why(tmp_path):
+    payload = _scan(tmp_path, "py3.12-3.13 `bad.yml`\n\npy3.11-3.13 `remote.yml`\n\npy3.10-3.13 `gone.yml`\n", {
+        ".github/workflows/bad.yml": "jobs: [unclosed\n",
+        ".github/workflows/remote.yml": "jobs:\n  t:\n    uses: acme/ci/.github/workflows/t.yml@v1\n",
+        ".github/workflows/gone.yml": "jobs:\n  t:\n    uses: ./.github/workflows/t.yml\n"})
+    assert {c["claim"]: c["why"] for c in payload["claims"] if c["kind"] == "python_versions"} == {
+        "py3.12-3.13": ".github/workflows/bad.yml is not valid YAML",
+        "py3.11-3.13": "a job of .github/workflows/remote.yml calls acme/ci/.github/workflows/t.yml@v1, "
+                       "a workflow outside this tree",
+        "py3.10-3.13": "a job of .github/workflows/gone.yml calls .github/workflows/t.yml, which the tree does not hold"}
 
 
 def test_a_path_into_a_submodule_says_so(tmp_path):
