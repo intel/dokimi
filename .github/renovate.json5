@@ -64,11 +64,11 @@
 
   customManagers: [
     {
-      // The gitleaks release gitleaks.yml downloads. Its SHA-256 has no
+      // The gitleaks release ci.yml's static job downloads. Its SHA-256 has no
       // datasource: the bump PR fails that workflow until GITLEAKS_SHA256 is
       // updated by hand from the release's checksums file.
       customType: "regex",
-      managerFilePatterns: ["/^\\.github/workflows/gitleaks\\.yml$/"],
+      managerFilePatterns: ["/^\\.github/workflows/ci\\.yml$/"],
       matchStrings: ["GITLEAKS_VERSION: '?(?<currentValue>\\d+\\.\\d+\\.\\d+)'?"],
       depNameTemplate: "gitleaks/gitleaks",
       datasourceTemplate: "github-releases",
@@ -105,7 +105,7 @@
       matchDepNames: ["zizmor", "zizmorcore/zizmor-pre-commit"],
     },
     {
-      // The pre-commit hook rev and gitleaks.yml's download (both depName
+      // The pre-commit hook rev and ci.yml's gitleaks download (both depName
       // gitleaks/gitleaks).
       groupName: "gitleaks",
       groupSlug: "gitleaks",

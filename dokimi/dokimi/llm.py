@@ -285,18 +285,18 @@ _COST_UNKNOWN_LOGGED: set = set()
 
 
 def _has_price_entry(litellm_model: str, model: str) -> bool:
-    """Whether litellm's price map has an entry for this model.
-
-    Looks up the routed name (``bedrock/us.anthropic.x``), the name without its
-    route prefixes (``us.anthropic.x``; ``bedrock/converse/openai.x`` ->
-    ``openai.x``) and the caller's bare model name.
-    """
+    """Whether litellm's price map has an entry for the routed name, the name without its
+    route prefixes (``bedrock/converse/openai.x`` -> ``openai.x``) or the bare model name."""
     from litellm import model_cost
 
-    candidates = {litellm_model, model, litellm_model.rsplit("/", 1)[-1]}
-    if "/" in litellm_model:
-        candidates.add(litellm_model.split("/", 1)[1])
+    candidates = {litellm_model, model, *litellm_model.split("/", 1)[1:],
+                  litellm_model.rsplit("/", 1)[-1]}
     return any(c in model_cost for c in candidates)
+
+
+def cost_per_token(**kwargs: Any) -> tuple[float, float]:  # litellm's, for llm_pricing
+    from litellm import cost_per_token as price
+    return price(**kwargs)
 
 
 def _safe_completion_cost(resp: Any, model: str, litellm_model: Optional[str] = None) -> Optional[float]:

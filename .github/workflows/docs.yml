@@ -46,11 +46,11 @@ env:
   NO_MKDOCS_2_WARNING: 'true'
   DISABLE_MKDOCS_2_WARNING: 'true'
 
-# Both jobs on intel-ubuntu-latest: see ci.yml.
+# Both jobs on ubuntu-latest: see ci.yml.
 jobs:
   build:
     name: Build docs (strict)
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -76,7 +76,7 @@ jobs:
     name: Deploy to GitHub Pages
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
-    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     permissions:
       pages: write     # to deploy to Pages
       id-token: write  # OIDC token the Pages API verifies

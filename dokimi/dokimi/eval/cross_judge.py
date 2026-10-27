@@ -49,6 +49,7 @@ comparisons; it is evidence the other one was never checked.
 
 from __future__ import annotations
 
+import math
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -234,20 +235,55 @@ def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional
     return m if m.scores else None
 
 
+def _number(x: Any) -> float:
+    """A score or coverage from a result file: a finite JSON number, not a bool or a string.
+
+    Raises TypeError, ValueError, or OverflowError for an integer past a float's range."""
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        raise TypeError(x)
+    value = float(x)
+    if not math.isfinite(value):
+        raise ValueError(x)
+    return value
+
+
 def coverage_measure(checklist: Dict[str, Any], name: str) -> Measure:
+    """An `eval checklist` report as a measure: each arm scores its coverage.
+
+    Raises ValueError naming the first question that is not ``{question_id, arms: {arm:
+    {coverage}}}`` with a finite number or null as the coverage.
+    """
     m = Measure(name=name, kind="coverage")
-    for q in checklist.get("questions") or []:
-        for arm, v in (q.get("arms") or {}).items():
-            m.scores[(q["question_id"], arm)] = v.get("coverage")
+    for i, q in enumerate(checklist.get("questions") or []):
+        try:
+            qid, arms = q["question_id"], q["arms"]
+            if qid is None or isinstance(qid, bool):
+                raise TypeError(qid)
+            for arm, v in arms.items():
+                coverage = v.get("coverage")
+                m.scores[(qid, arm)] = None if coverage is None else _number(coverage)
+        except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+            raise ValueError(f"questions[{i}] is not a checklist question: a question_id and an arms "
+                             "object of {arm: {coverage: a finite number or null}}") from None
     return m
 
 
 def pairwise_measure(pairwise: Dict[str, Any], name: str, baseline_arm: str) -> Measure:
-    """An `eval pairwise` report as a measure: the arm scores its verdict, the baseline 0."""
+    """An `eval pairwise` report as a measure: the arm scores its verdict, the baseline 0.
+
+    Raises ValueError naming the first verdict that is not an object with a finite number as
+    its ``score``.
+    """
     m = Measure(name=name, kind="pairwise")
     for arm, by_q in (pairwise.get("verdicts") or {}).items():
+        if not isinstance(by_q, dict):
+            raise ValueError(f"verdicts.{arm} is not an object of per-question verdicts")
         for qid, v in by_q.items():
-            m.scores[(qid, arm)] = float(v["score"])
+            try:
+                score = _number(v["score"])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                raise ValueError(f"verdicts.{arm}.{qid} has no score that is a finite number") from None
+            m.scores[(qid, arm)] = score
             m.scores[(qid, baseline_arm)] = 0.0
     return m
 

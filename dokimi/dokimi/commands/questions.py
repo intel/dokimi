@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
+from dokimi.commands._output import exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 
@@ -36,6 +37,30 @@ def _extract_questions(questions_data, source: str) -> list:
         print(f"Error: 'questions' must be a list in {source}", file=sys.stderr)
         sys.exit(1)
     return raw
+
+
+def _read_json_input(path: str):
+    """The parsed JSON at ``path``, or exit 1 with a message naming the file."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
+        print(f"Error: cannot read {path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _load_personas(path: str) -> list:
+    """The ``personas`` list of a personas file, or exit 1 with a message naming the file."""
+    data = _read_json_input(path)
+    personas = data.get("personas") if isinstance(data, dict) else None
+    if not isinstance(personas, list):
+        print(f"Error: {path} must be a JSON object with a 'personas' list", file=sys.stderr)
+        sys.exit(1)
+    for persona in personas:
+        if not isinstance(persona, dict) or not {"id", "name", "skill_level"} <= persona.keys():
+            print(f"Error: each persona in {path} must be an object with 'id', 'name' and "
+                  f"'skill_level', got: {persona!r}", file=sys.stderr)
+            sys.exit(1)
+    return personas
 
 
 def cmd_questions_panel_review(args: argparse.Namespace) -> None:
@@ -87,8 +112,9 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
         reviewers=reviewers, model=args.model,
         provider=args.provider, concurrency=args.concurrency,
     )
-    report = reviewer.review_questions(questions, library_name=args.product,
-                                        output_path=output_path, limit=args.limit)
+    with exit_on_unwritable(output_path):
+        report = reviewer.review_questions(questions, library_name=args.product,
+                                            output_path=output_path, limit=args.limit)
 
     s = report.summary
     print(f"\n{'─'*55}")
@@ -113,6 +139,9 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
     # set is validated when it is written.
     try:
         raw = load_questions(args.questions, validate=False).questions
+    except OSError as exc:
+        print(f"Error: cannot read {args.questions}: {exc}", file=sys.stderr)
+        sys.exit(1)
     except ValueError as exc:  # ArtifactValidationError: malformed JSON structure
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -161,12 +190,13 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
 
         out = Path(args.output) if args.output else Path(f"questions/{args.product}_refined.json")
         try:
-            save_questions_artifact({
-                "library": args.product,
-                "total": len(report.questions),
-                "difficulty_distribution": report.difficulty_after,
-                "questions": report.questions,
-            }, out)
+            with exit_on_unwritable(out):
+                save_questions_artifact({
+                    "library": args.product,
+                    "total": len(report.questions),
+                    "difficulty_distribution": report.difficulty_after,
+                    "questions": report.questions,
+                }, out)
         except ValueError as exc:  # ArtifactValidationError: the refined set is not valid v2
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
@@ -218,7 +248,8 @@ def cmd_questions_analyze(args: argparse.Namespace) -> None:
             print(f"  … and {len(report.trivial_questions) - 5} more (see report file)")
 
     output_path = Path(args.output) if args.output else Path(f"reports/{args.product}_question_quality.json")
-    analyzer.save_report(report, output_path)
+    with exit_on_unwritable(output_path):
+        analyzer.save_report(report, output_path)
     print(f"\n✅ Full report saved to {output_path}")
 
 
@@ -251,31 +282,26 @@ def print_validation_stats(stats: Dict[str, Any]) -> None:
 
 def cmd_questions_generate(args: argparse.Namespace) -> None:
     """Generate questions from personas and seed topics."""
-    import yaml
+    from dokimi.commands.answers import _load_runtime_config
     from dokimi.questions import RagasSeedExtractor, QuestionGenerator, QuestionValidator
 
-    # Load config
-    from dokimi.config import runtime_config_path
+    config = _load_runtime_config()
 
-    config_path = runtime_config_path()
-    if config_path.exists():
-        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    else:
-        config = {}
-
-    _product_config = config.get("products", {}).get(args.product, {})
-    _retrieval_cfg = config.get("retrieval", {})
+    _product_config = (config.get("products") or {}).get(args.product, {})
+    _retrieval_cfg = config.get("retrieval") or {}
     if args.top_k is None:
         args.top_k = _retrieval_cfg.get("top_k", 3)
 
     # Load personas
-    personas_data = json.loads(Path(args.personas).read_text(encoding="utf-8"))
-    personas = personas_data["personas"]
+    personas = _load_personas(args.personas)
     print(f"Loaded {len(personas)} personas from {args.personas}")
 
     # Get or extract topics
     if args.topics:
-        topics = json.loads(Path(args.topics).read_text(encoding="utf-8"))
+        topics = _read_json_input(args.topics)
+        if not isinstance(topics, list):
+            print(f"Error: {args.topics} must be a JSON list of topics", file=sys.stderr)
+            sys.exit(1)
     else:
         print(f"Extracting seed topics for {args.product}...")
 
@@ -334,7 +360,12 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
 
     # Save output
     output_path = Path(args.output) if args.output else Path(f"questions/{args.product}.json")
-    generator.save_questions(questions, output_path)
+    try:
+        with exit_on_unwritable(output_path):
+            generator.save_questions(questions, output_path)
+    except ValueError as exc:  # ArtifactValidationError: the generated set is not valid v2
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     print(f"\n✅ Saved {len(questions)} questions to {output_path}")
 
@@ -409,3 +440,7 @@ def register(sub, positive_int) -> None:
     panel_q_p.add_argument("--limit", type=positive_int, default=None,
                             help="Review only first N questions")
     panel_q_p.set_defaults(func=cmd_questions_panel_review)
+
+    from dokimi.commands import answer_formats
+
+    answer_formats.register_questions(questions_sub)  # questions import
