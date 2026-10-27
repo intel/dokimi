@@ -39,13 +39,15 @@ def _run(tmp_path, monkeypatch: pytest.MonkeyPatch, evaluations):
     return pipeline.run(concurrency=1)
 
 
-def test_summary_averages_the_judged_scores_and_skips_a_failed_question(tmp_path, monkeypatch):
-    """Each average is over the questions that have that score; a question whose judge
-    failed (null conditions, no delta) adds to none of them."""
+def test_summary_averages_the_complete_pairs_and_skips_a_failed_question(tmp_path, monkeypatch):
+    """Each average is over the complete pairs. A question whose judge failed (null
+    conditions, no delta) adds to none of them, and neither does a question scored in
+    one arm only: the context mean must not cover a question its baseline mean lacks."""
     result = _run(tmp_path, monkeypatch, [
         _evaluation("q1", 80.5, 50),
         _evaluation("q2", 59.5, 40),
         _evaluation("q3", None, None),
+        _evaluation("q4", 100, None),
     ])
 
     assert result["steps"]["evaluation"]["summary"] == {"with_avg": 70.0, "without_avg": 45.0, "delta_avg": 25.0}

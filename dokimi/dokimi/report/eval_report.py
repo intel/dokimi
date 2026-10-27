@@ -35,10 +35,6 @@ except ImportError:
     _TZ = None
 
 
-def avg(lst):
-    return round(sum(lst) / len(lst), 1) if lst else 0.0
-
-
 def significance_test(evals):
     """Paired t-test, Wilcoxon, and Cohen's d_z on (with_docs - without_docs) pairs.
 
@@ -91,20 +87,39 @@ def _difficulty(e: Record, default):
 
 
 def stats(qs):
-    valid = [e for e in qs if has_scores(e)]
-    with_s = [e.score(CONTEXT) for e in valid]
-    without_s = [e.score(BASELINE) for e in valid]
-    deltas = [d for e in valid if (d := e.delta) is not None]
+    """The arms and delta over the complete pairs (:func:`eval.stats.paired_summary`).
+
+    ``count`` is every question in ``qs``, ``unpaired`` the ones left out of the means.
+    Rounded here, once, for display: the delta is the difference of the unrounded means.
+    """
+    s = eval_stats.paired_summary(qs)
     return {
-        "count": len(qs),
-        "valid": len(valid),
-        "with_avg": avg(with_s),
-        "without_avg": avg(without_s),
-        "delta_avg": round(avg(with_s) - avg(without_s), 1),
-        "improvements": sum(1 for d in deltas if d > 0),
-        "degradations": sum(1 for d in deltas if d < 0),
-        "neutral": sum(1 for d in deltas if d == 0),
+        "count": s.total,
+        "valid": s.paired,
+        "unpaired": s.unpaired,
+        "with_avg": round(s.with_mean, 1),
+        "without_avg": round(s.without_mean, 1),
+        "delta_avg": round(s.delta_mean, 1),
+        "improvements": s.improvements,
+        "degradations": s.degradations,
+        "neutral": s.neutral,
     }
+
+
+def _count_cell(s: dict) -> str:
+    """The question count, with the unpaired questions the arm means leave out, if any."""
+    return str(s["count"]) if not s["unpaired"] else f'{s["count"]} ({s["unpaired"]} unpaired)'
+
+
+def _unpaired_note(s: dict) -> list[str]:
+    """A line saying what the Summary means leave out; nothing when every question is paired."""
+    if not s["unpaired"]:
+        return []
+    return [
+        f'_Arm means and delta are over the {s["valid"]} complete pairs; '
+        f'{s["unpaired"]} unpaired (scored in one arm only) left out._',
+        "",
+    ]
 
 
 def fmt_delta(d):
@@ -267,11 +282,12 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "## Summary",
         "| Set | Count | Context arm | Baseline | Delta |",
         "|---|---:|---:|---:|---:|",
-        f'| **All** | {all_stats["count"]} | {all_stats["with_avg"]} | {all_stats["without_avg"]} | **{all_stats["delta_avg"]:+}** |',
-        f'| Generated (dynamic) | {dyn_stats["count"]} | {dyn_stats["with_avg"]} | {dyn_stats["without_avg"]} | **{dyn_stats["delta_avg"]:+}** |',
-        f'| Golden (static) | {static_stats["count"]} | {static_stats["with_avg"]} | {static_stats["without_avg"]} | **{static_stats["delta_avg"]:+}** |',
+        f'| **All** | {_count_cell(all_stats)} | {all_stats["with_avg"]} | {all_stats["without_avg"]} | **{all_stats["delta_avg"]:+}** |',
+        f'| Generated (dynamic) | {_count_cell(dyn_stats)} | {dyn_stats["with_avg"]} | {dyn_stats["without_avg"]} | **{dyn_stats["delta_avg"]:+}** |',
+        f'| Golden (static) | {_count_cell(static_stats)} | {static_stats["with_avg"]} | {static_stats["without_avg"]} | **{static_stats["delta_avg"]:+}** |',
         "",
     ]
+    lines += _unpaired_note(all_stats)
 
     # Statistical significance
     sig = significance_test(evals)
@@ -322,7 +338,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         ("**Total**", all_stats),
     ]:
         lines.append(
-            f'| {label} | {s["count"]} | {s["with_avg"]} | {s["without_avg"]} '
+            f'| {label} | {_count_cell(s)} | {s["with_avg"]} | {s["without_avg"]} '
             f'| **{s["delta_avg"]:+}** | {s["improvements"]} | {s["degradations"]} | {s["neutral"]} |'
         )
     lines.append("")
@@ -337,7 +353,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         if d in diff_groups:
             s = stats(diff_groups[d])
             lines.append(
-                f'| {d} | {s["count"]} | {s["with_avg"]} | {s["without_avg"]} '
+                f'| {d} | {_count_cell(s)} | {s["with_avg"]} | {s["without_avg"]} '
                 f'| **{s["delta_avg"]:+}** | {s["improvements"]} | {s["degradations"]} |'
             )
     lines.append("")

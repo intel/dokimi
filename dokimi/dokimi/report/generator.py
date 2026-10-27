@@ -14,6 +14,7 @@ from dokimi.eval.diagnoser import (
     DIAGNOSIS_LABELS,
     DIAGNOSIS_DESCRIPTIONS,
 )
+from dokimi.eval.stats import paired_summary
 from dokimi.records import BASELINE, CONTEXT, Record, records
 
 #: The persisted condition key each report column reads.
@@ -151,28 +152,19 @@ class ReportGenerator:
             )
     
     def _compute_stats(self, evaluations: Sequence[Record]) -> Dict[str, Any]:
-        """Compute overall statistics."""
-        with_scores, without_scores, deltas = _columns(evaluations)
-        
+        """Compute overall statistics over the complete pairs (see ``paired_summary``)."""
+        s = paired_summary(evaluations)
         return {
-            "total_questions": len(evaluations),
-            "with_docs": {
-                "avg": round(sum(with_scores) / len(with_scores), 1) if with_scores else 0,
-                "min": round(min(with_scores), 1) if with_scores else 0,
-                "max": round(max(with_scores), 1) if with_scores else 0,
-            },
+            "total_questions": s.total,
+            "paired_questions": s.paired,
+            "unpaired_questions": s.unpaired,
+            "with_docs": {"avg": round(s.with_mean, 1), "min": round(s.with_min, 1), "max": round(s.with_max, 1)},
             "without_docs": {
-                "avg": round(sum(without_scores) / len(without_scores), 1) if without_scores else 0,
-                "min": round(min(without_scores), 1) if without_scores else 0,
-                "max": round(max(without_scores), 1) if without_scores else 0,
+                "avg": round(s.without_mean, 1), "min": round(s.without_min, 1), "max": round(s.without_max, 1),
             },
-            "delta": {
-                "avg": round(sum(deltas) / len(deltas), 1) if deltas else 0,
-                "min": round(min(deltas), 1) if deltas else 0,
-                "max": round(max(deltas), 1) if deltas else 0,
-            },
-            "doc_improvements": sum(1 for d in deltas if d > 0),
-            "doc_degradations": sum(1 for d in deltas if d < 0),
+            "delta": {"avg": round(s.delta_mean, 1), "min": round(s.delta_min, 1), "max": round(s.delta_max, 1)},
+            "doc_improvements": s.improvements,
+            "doc_degradations": s.degradations,
         }
     
     def _top_performers(self, evaluations: Sequence[Record], mode: str, limit: int) -> List[Dict]:
@@ -258,15 +250,7 @@ class ReportGenerator:
         # Compute stats per cluster
         clusters = []
         for topic, evals in topic_map.items():
-            with_scores, without_scores, deltas = _columns(evals)
-            
-            clusters.append({
-                "topic": topic,
-                "count": len(evals),
-                "with_avg": round(sum(with_scores) / len(with_scores), 1) if with_scores else 0,
-                "without_avg": round(sum(without_scores) / len(without_scores), 1) if without_scores else 0,
-                "delta_avg": round(sum(deltas) / len(deltas), 1) if deltas else 0,
-            })
+            clusters.append({"topic": topic, **_arm_means(evals)})
         
         # Sort by delta (worst first)
         clusters.sort(key=lambda x: x["delta_avg"])
@@ -284,15 +268,7 @@ class ReportGenerator:
 
         results = []
         for stype, evals in source_map.items():
-            with_scores, without_scores, deltas = _columns(evals)
-
-            results.append({
-                "source_type": stype,
-                "count": len(evals),
-                "with_avg": round(sum(with_scores) / len(with_scores), 1) if with_scores else 0,
-                "without_avg": round(sum(without_scores) / len(without_scores), 1) if without_scores else 0,
-                "delta_avg": round(sum(deltas) / len(deltas), 1) if deltas else 0,
-            })
+            results.append({"source_type": stype, **_arm_means(evals)})
             
         results.sort(key=lambda x: x["source_type"])
         return results
@@ -337,6 +313,9 @@ class ReportGenerator:
             f"| Min | {stats['with_docs']['min']} | {stats['without_docs']['min']} | {stats['delta']['min']:+.1f} |",
             f"| Max | {stats['with_docs']['max']} | {stats['without_docs']['max']} | {stats['delta']['max']:+.1f} |",
             "",
+        ]
+        lines += _unpaired_note(stats)
+        lines += [
             f"- **Improvements:** {stats['doc_improvements']} questions (context helped)",
             f"- **Degradations:** {stats['doc_degradations']} questions (context hurt)",
             "",
@@ -429,7 +408,7 @@ class ReportGenerator:
         
         for cluster in clusters:
             lines.append(
-                f"| {cluster['topic']} | {cluster['count']} | "
+                f"| {cluster['topic']} | {_count_cell(cluster)} | "
                 f"{cluster['with_avg']:.1f} | {cluster['without_avg']:.1f} | "
                 f"**{cluster['delta_avg']:+.1f}** |"
             )
@@ -447,7 +426,7 @@ class ReportGenerator:
             ])
             for src in sources_summary:
                 lines.append(
-                    f"| {src['source_type']} | {src['count']} | "
+                    f"| {src['source_type']} | {_count_cell(src)} | "
                     f"{src['with_avg']:.1f} | {src['without_avg']:.1f} | "
                     f"**{src['delta_avg']:+.1f}** |"
                 )
@@ -533,16 +512,29 @@ class ReportGenerator:
         return "\n".join(lines)
 
 
-def _columns(evaluations: Sequence[Record]) -> "tuple[List[float], List[float], List[float]]":
-    """Each arm's scores and the persisted deltas, each over the records that have one.
+def _arm_means(evaluations: Sequence[Record]) -> Dict[str, Any]:
+    """The arms, delta and unpaired count of one group, rounded for display."""
+    s = paired_summary(evaluations)
+    return {
+        "count": s.total,
+        "unpaired": s.unpaired,
+        "with_avg": round(s.with_mean, 1),
+        "without_avg": round(s.without_mean, 1),
+        "delta_avg": round(s.delta_mean, 1),
+    }
 
-    The arms are averaged over different question sets when a question is scored
-    in one arm only. The deltas are the persisted ``delta`` values, whatever the
-    arms' scores: a record with a delta and one unscored arm counts in the delta
-    mean but not in that arm's, so the delta mean need not equal the difference
-    of the arm means (and the top/bottom tables, which need both arms, leave it out).
-    """
-    with_scores = [s for e in evaluations if (s := e.score(CONTEXT)) is not None]
-    without_scores = [s for e in evaluations if (s := e.score(BASELINE)) is not None]
-    deltas = [d for e in evaluations if (d := e.delta) is not None]
-    return with_scores, without_scores, deltas
+
+def _count_cell(entry: Dict[str, Any]) -> str:
+    """The question count, with the unpaired questions the arm means leave out, if any."""
+    return str(entry["count"]) if not entry["unpaired"] else f"{entry['count']} ({entry['unpaired']} unpaired)"
+
+
+def _unpaired_note(stats: Dict[str, Any]) -> List[str]:
+    """A line saying what the overall means leave out; nothing when every question is paired."""
+    if not stats["unpaired_questions"]:
+        return []
+    return [
+        f"_Averages, min/max and delta are over the {stats['paired_questions']} complete pairs; "
+        f"{stats['unpaired_questions']} unpaired (scored in one arm only) left out._",
+        "",
+    ]
