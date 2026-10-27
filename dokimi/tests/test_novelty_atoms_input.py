@@ -70,8 +70,19 @@ _WRONG_SHAPES = {
     "bundle_file_words_is_a_string": _bundle('', end='5, "words": "x"'),
     "bundle_file_role_is_a_list": _bundle('', end='5, "role": ["entry"]'),
     "bundle_file_path_is_a_number": _bundle('', end='5, "path": 5'),
-    "span_has_no_id": json.dumps({"atoms": [], "spans": [
-        {k: v for k, v in _SPAN.items() if k != "id"}]}),
+    **{f"span_has_no_{key}": json.dumps({"atoms": [], "spans": [
+        {k: v for k, v in _SPAN.items() if k != key}]})
+       for key in ("id", "kind", "text", "start", "end")},
+    "atoms_is_a_number": '{"atoms": 5, "spans": []}',
+    "spans_is_null": '{"atoms": [], "spans": null}',
+    **{f"bundle_{key}_is_falsy": json.dumps({"atoms": [], "spans": [], "bundle": {key: value}})
+       for key, value in (("max_file_words", False), ("max_total_words", False),
+                          ("n_files", False), ("resource_words_measured", False),
+                          ("artifact_name", 0), ("resource_roles", ""),
+                          ("files", 0), ("excluded", 0))},
+    "extraction_is_falsy": json.dumps({"atoms": [], "spans": [], "extraction": 0}),
+    "extraction_unread_is_falsy": json.dumps(
+        {"atoms": [], "spans": [], "extraction": {"unread_span_ids": ""}}),
     "span_atom_ids_has_a_number": _record(span={"atom_ids": [1]}),
     "atom_answer_is_a_number": _record(atom={"answer": 5}),
     "atom_kind_is_a_list": _record(atom={"kind": ["x"]}),
@@ -125,7 +136,8 @@ def test_an_unreadable_atoms_file_exits_with_a_message_naming_it(tmp_path, sub, 
     assert "has no attribute" not in message
 
 
-@pytest.mark.parametrize("bundle", ['null', '{}', '{"files": []}'])
+@pytest.mark.parametrize("bundle", ['null', '{}', '{"files": []}',
+                                    '{"files": [{"path": "SKILL.md", "sha256": null}]}'])
 def test_a_bundle_block_of_the_right_shape_is_not_refused(tmp_path, bundle):
     from dokimi.novelty.atoms import load_atoms_or_exit
 
