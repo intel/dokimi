@@ -506,6 +506,8 @@ def _pump(pipe: IO[bytes], cap: _Capture) -> None:
             cap.add(chunk)
     except (OSError, ValueError):  # the pipe was closed under the reader
         pass
+    finally:
+        pipe.close()  # Windows readers own these handles, including after EOF.
 
 
 def _wait(proc: subprocess.Popen[bytes], deadline: float) -> bool:
