@@ -54,6 +54,16 @@ def test_ragas_imports_and_evaluator_builds_from_installed_deps():
     assert proc.returncode == 0, proc.stderr[-3000:]
 
 
+def test_the_real_import_check_fails_instead_of_skipping_when_ragas_is_required(monkeypatch):
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setenv("DOKIMI_REQUIRE_RAGAS", "1")
+    with pytest.raises(pytest.fail.Exception, match="DOKIMI_REQUIRE_RAGAS=1"):
+        test_ragas_imports_and_evaluator_builds_from_installed_deps()
+    monkeypatch.delenv("DOKIMI_REQUIRE_RAGAS")
+    with pytest.raises(pytest.skip.Exception):
+        test_ragas_imports_and_evaluator_builds_from_installed_deps()
+
+
 def test_ragas_without_the_extra_exits_with_the_install_command(monkeypatch, tmp_path):
     from dokimi.commands.evaluate import _run_ragas_eval
 
