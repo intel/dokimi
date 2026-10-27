@@ -42,7 +42,10 @@ REGRESSION = {
     "regress_pass": ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "-x",
                      "--deselect", "tests/test_example_runner_processes.py",
                      "--deselect", "tests/test_container_agent.py::test_probe_finds_a_proxy_that_forwards_plain_http",
-                     "--deselect", "tests/test_benchflow_harness.py::test_run_bench_kills_the_process_group_on_timeout"],
+                     "--deselect", "tests/test_benchflow_harness.py::test_run_bench_kills_the_process_group_on_timeout",
+                     # Needs the [ragas] extra, which the image (built from the lock) leaves out;
+                     # task bases older than its skip-when-missing would fail it.
+                     "--deselect", "tests/test_ragas_runtime.py::test_ragas_imports_and_evaluator_builds_from_installed_deps"],
     "ruff_ok": ["ruff", "check", "."],
     "mypy_ok": ["mypy"],
     "config_ok": ["python", "-m", "dokimi.config_check"],
