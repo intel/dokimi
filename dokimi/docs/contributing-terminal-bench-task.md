@@ -186,9 +186,10 @@ spending model tokens.
 The solve and the verifier run in a container without Linux capabilities
 beyond `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETUID` and `SETGID`, so a setuid
 binary cannot raise its privileges and the process count is capped at 32768.
-A step that signals another user's process, binds a port below 1024 (on a host
-whose `ip_unprivileged_port_start` is 1024) or opens a raw socket fails;
-`docker-oracle` will show it. See
+A step that signals another user's process, opens a raw socket, or runs `mknod`
+or `chroot` fails; `docker-oracle` will show it. One loss is silent: setting the
+setgid bit on a file whose group root is not in exits 0 and leaves the bit off.
+A port below 1024 still binds. See
 [What the agent can reach](coding-harnesses.md#what-the-agent-can-reach).
 
 ## 8 — Local verification
