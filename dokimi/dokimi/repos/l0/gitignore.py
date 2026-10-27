@@ -97,7 +97,7 @@ def parse(source: str, text: str) -> list[Rule]:
         if not pat:
             continue
         anchored = "/" in pat
-        rules.append(Rule(source, n, raw.strip(), base, re.compile(_regex(pat.lstrip("/")) + r"\Z"),
+        rules.append(Rule(source, n, line, base, re.compile(_regex(pat.lstrip("/")) + r"\Z"),
                           anchored, dir_only, negated))
     return rules
 
