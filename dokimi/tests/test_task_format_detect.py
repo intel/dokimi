@@ -394,7 +394,7 @@ def test_cli_inspect_prints_a_table_line_per_item(tmp_path, capsys):
     _run(["tasks", "inspect", str(tmp_path)])
     out = capsys.readouterr().out.splitlines()
     assert out[0] == f"{tmp_path / 'hb'}\tharbor\texecutable\t-> harbor, docker-*"
-    assert f"{tmp_path / 'm.jsonl'}\topenai-evals\tanswer-only\t1 item\t-> none-yet" in out
+    assert f"{tmp_path / 'm.jsonl'}\topenai-evals\tanswer-only\t1 item\t-> questions import" in out
     assert out[-1] == "2 items: harbor 1, openai-evals 1"
 
 

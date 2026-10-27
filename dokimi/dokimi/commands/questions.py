@@ -440,3 +440,7 @@ def register(sub, positive_int) -> None:
     panel_q_p.add_argument("--limit", type=positive_int, default=None,
                             help="Review only first N questions")
     panel_q_p.set_defaults(func=cmd_questions_panel_review)
+
+    from dokimi.commands import answer_formats
+
+    answer_formats.register_questions(questions_sub)  # questions import
