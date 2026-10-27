@@ -10,7 +10,11 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.novelty.routing import catalog_competitors, disables_model_invocation
+from dokimi.novelty.routing import (
+    RoutingInputError,
+    catalog_competitors,
+    disables_model_invocation,
+)
 
 
 def _parse(*argv):
@@ -270,3 +274,15 @@ def test_two_manifest_entries_with_identical_text_and_different_names_both_stay(
     names = [c.name for c in catalog_competitors(str(tmp_path), set(), notes)]
     assert names == ["a", "b"]
     assert not any("identical to" in note for note in notes)
+
+
+def test_two_same_name_copies_that_differ_only_late_in_the_body_are_refused(tmp_path):
+    # The copies share the frontmatter and the first 100+ bytes, so a digest of a prefix would
+    # call them mirrors; the whole file decides, and they clash.
+    head = "---\nname: db\ndescription: tune a slow database query\n---\n\n" + "x" * 120
+    for branch, tail in (("a", "\nfirst ending\n"), ("b", "\nsecond ending\n")):
+        copy = tmp_path / branch / "skills" / "db"
+        copy.mkdir(parents=True)
+        (copy / "SKILL.md").write_text(head + tail, encoding="utf-8")
+    with pytest.raises(RoutingInputError, match="catalog has db at .* different content"):
+        catalog_competitors(str(tmp_path), set(), [])

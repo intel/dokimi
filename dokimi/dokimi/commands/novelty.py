@@ -348,7 +348,7 @@ def _routing_field(args: argparse.Namespace, exclude: set[str],
 def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     """Every skill in the field is the gold in turn: confusion matrix and attractors."""
     from dokimi.novelty.all_vs_all import all_vs_all, load_queries_by_skill
-    from dokimi.novelty.routing import RoutingInputError
+    from dokimi.novelty.routing import RoutingInputError, tokenize
 
     _check_all_vs_all_args(args)
     left_out: list[str] = []
@@ -365,8 +365,8 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
             raise SystemExit(f"cannot read the queries: {exc}") from None
         selector = _client(args.model, args.provider, "selector", args) if args.model else None
         if selector is not None:
-            # One selector call per query, each sending every card in the field.
-            calls = sum(len(queries) for queries in queries_by_skill.values())
+            # One call per query with a content word, each sending every card in the field.
+            calls = sum(bool(tokenize(q)) for qs in queries_by_skill.values() for q in qs)
             print(
                 f"all-vs-all: --model makes {calls} model calls, one per query, over "
                 f"{len(field)} cards each",
@@ -383,6 +383,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
 
     model_arm = result.get("model") or {}
     failed = model_arm.get("n_failed", 0)
+    sent = sum(model_arm.get("n_scored", {}).values()) + failed  # contentless ones are not sent
     if failed:
         print(f"WARNING: {failed} model call(s) failed (first error: "
               f"{model_arm['first_error']}); those queries are left out of "
@@ -395,7 +396,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     payload["field"] = _field_record(args, field, left_out)
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     if failed:
-        raise SystemExit(f"{failed} of {result['n_queries']} model call(s) failed "
+        raise SystemExit(f"{failed} of {sent} model call(s) failed "
                          f"({model_arm['first_error']}); the partial result, with those queries "
                          f"left out of every rate, is in {out}")
     print(f"OK Saved all-vs-all routing: {out}")

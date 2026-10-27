@@ -158,7 +158,11 @@ def _lexical_picks(candidates: list[Candidate], queries_by_skill: dict[str, list
 
 def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str]],
                names: list[str], client: LLMClient, seed: int) -> dict:
-    """The model arm of :func:`all_vs_all`: attractor table plus failure counts."""
+    """The model arm of :func:`all_vs_all`: attractor table plus failure counts.
+
+    A query with no content word is not sent: it is unscored here as in the lexical arm, so
+    both arms' rates cover the same queries and no call is spent on it.
+    """
     model: dict[str, Counter] = {}
     unscored: dict[str, int] = {}
     n_failed = n_abstained = 0
@@ -166,7 +170,13 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     for index, name in enumerate(names):
         if name not in queries_by_skill:
             continue
-        routed = model_routing(candidates, queries_by_skill[name], client=client,
+        queries = [q for q in queries_by_skill[name] if tokenize(q)]
+        if len(queries) < len(queries_by_skill[name]):
+            unscored[name] = len(queries_by_skill[name]) - len(queries)
+        if not queries:
+            model[name] = Counter()
+            continue
+        routed = model_routing(candidates, queries, client=client,
                                gold=index, seed=seed + index)
         rows = routed["per_query"]
         n_failed += routed["n_failed"]
@@ -176,7 +186,7 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         # A failed call measured nothing: it is not a pick, so it is left out of every rate.
         model[name] = Counter(row.get("picked") or NO_PICK for row in rows if not row.get("error"))
         if routed["n_failed"]:
-            unscored[name] = routed["n_failed"]
+            unscored[name] = unscored.get(name, 0) + routed["n_failed"]
     return dict(_attractor_table(model, unscored, names), model=client.model, seed=seed,
                 n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
 

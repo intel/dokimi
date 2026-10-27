@@ -524,3 +524,86 @@ def test_two_contentless_queries_of_one_skill_are_two_unscored_and_no_rate():
     assert lexical["n_unscored"] == {"alpha": 2}
     assert lexical["n_scored"] == {"alpha": 0}
     assert lexical["own_rate"]["alpha"] is None
+
+
+def _run_console(tmp_path, capsys, skills, queries_by_skill):
+    root = tmp_path / "catalog"
+    for name, description in skills.items():
+        _catalog_skill(root, name, description)
+    queries = _write_queries(tmp_path, queries_by_skill)
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args.func(args)
+    return capsys.readouterr().out
+
+
+def test_console_counts_unscored_queries_when_nothing_tied(tmp_path, capsys):
+    stdout = _run_console(tmp_path, capsys,
+                          {"fft": "fast transforms", "gold": "something unrelated entirely"},
+                          {"gold": ["something unrelated", "the of and"]})
+    assert "lexical: 0 tied and 1 unscored queries are not counted as picks" in stdout
+
+
+def test_console_counts_tied_queries_when_nothing_is_unscored(tmp_path, capsys):
+    stdout = _run_console(tmp_path, capsys,
+                          {"fft": "fast transforms", "linalg": "fast transforms",
+                           "gold": "something unrelated entirely"},
+                          {"gold": ["fast transforms", "transforms fast"]})
+    assert "lexical: 2 tied and 0 unscored queries are not counted as picks" in stdout
+
+
+def test_console_sums_unscored_queries_over_every_skill(tmp_path, capsys):
+    stdout = _run_console(tmp_path, capsys,
+                          {"fft": "fast transforms", "gold": "something unrelated entirely"},
+                          {"gold": ["the of and", "a an the", "something unrelated"],
+                           "fft": ["the and", "fast transforms"]})
+    assert "lexical: 0 tied and 3 unscored queries are not counted as picks" in stdout
+
+
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)])
+def test_exactly_two_other_cards_tied_at_the_top_are_a_tie(order):
+    cards = [Candidate("fft", "fast transforms"), Candidate("linalg", "fast transforms")]
+    field = [cards[i] for i in order] + [Candidate("gold", "something unrelated entirely")]
+    lexical = all_vs_all(field, {"gold": ["fast transforms"]})["lexical"]
+    assert lexical["confusion"]["gold"] == {"(tie)": 1}
+    assert lexical["attractors"] == []
+
+
+def test_the_model_arm_does_not_send_a_query_with_no_content_word():
+    prompts: list[str] = []
+
+    def transport(prompt: str, system: str | None):
+        prompts.append(prompt)
+        return '{"pick": 1}', None
+
+    field = [Candidate("alpha", "convert a json file to yaml"),
+             Candidate("beta", "tune a slow database query")]
+    client = LLMClient(model="m", provider="p", role="selector", transport=transport)
+    result = all_vs_all(field, {"alpha": ["the of and", "convert json"],
+                                "beta": ["a an the"]}, client=client)
+    model, lexical = result["model"], result["lexical"]
+    assert len(prompts) == 1
+    assert model["n_scored"] == lexical["n_scored"] == {"alpha": 1, "beta": 0}
+    assert model["n_unscored"] == lexical["n_unscored"] == {"alpha": 1, "beta": 1}
+    assert model["own_rate"]["beta"] is None and model["n_failed"] == 0
+
+
+def test_the_failed_call_count_is_over_the_calls_sent_not_every_query(
+        tmp_path, monkeypatch, capsys):
+    import dokimi.commands.novelty as novelty_cmd
+
+    def transport(prompt: str, system: str | None):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role, transport=transport))
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf")
+    _catalog_skill(root, "db", "tune a slow database query")
+    queries = _write_queries(tmp_path, {"db": ["add an index", "the of and"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m")
+    with pytest.raises(SystemExit, match="^1 of 1 model call"):
+        args.func(args)
+    assert "makes 1 model calls" in capsys.readouterr().err

@@ -665,8 +665,8 @@ different models can be told apart. It is refused with fewer than two skills, a 
 in the field, a query file that names a skill outside the field, or no queries at all.
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query, across
-every skill in the field: the call count is the total number of requests in `queries.json`, and
-a failed call still counts. Each call sends the whole field's cards, so a large field costs
+every skill in the field: the call count is the number of queries in `queries.json` that have a
+content word (one without is unscored in both arms and not sent), and a failed call still counts. Each call sends the whole field's cards, so a large field costs
 more per call as well as in calls. Before the first call the run prints that count to stderr
 (`all-vs-all: --model makes N model calls, one per query, ...`). The run does not pause for it,
 so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
