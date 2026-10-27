@@ -14,6 +14,8 @@ Covers the two slices that land independently of any LLM/Docker integration:
 
 from __future__ import annotations
 
+import pytest
+
 from dokimi.harnesses.exploration import summarize_exploration
 from dokimi.harnesses.models import HarnessResult, OperationRecord
 from dokimi.metrics.exploration import (
@@ -104,6 +106,30 @@ def test_fallback_scan_without_block():
     assert cs.malformed == ()
 
 
+def test_backticked_path_followed_by_range_is_a_citation():
+    # Models often quote only the path: `src/a.py`:10-20, not `src/a.py:10-20`.
+    cs = parse_final_answer(
+        "<final_answer>\n- `src/a.py`:10-20\n`src/b.py`:7\n</final_answer>"
+    )
+    assert cs.citations == (Citation("src/a.py", 10, 20), Citation("src/b.py", 7, 7))
+    assert cs.malformed == ()
+    assert citation_path("`src/a.py`:10-20") == "src/a.py"
+
+
+def test_loose_scan_reads_backticked_path_followed_by_range():
+    cs = parse_final_answer("The bug is in `src/pkg/mod.py`:42-58 near the top.")
+    assert cs.citations == (Citation("src/pkg/mod.py", 42, 58),)
+
+
+def test_fallback_scan_ignores_wrapping_punctuation():
+    # A citation in parentheses, brackets or quotes names the file, not "(src/a.py".
+    cs = parse_final_answer(
+        "The bug (src/a.py:10-20) and [src/b.py:5], also \"src/c.py:7\" and <src/d.py:1>."
+    )
+    assert [c.path for c in cs.citations] == ["src/a.py", "src/b.py", "src/c.py", "src/d.py"]
+    assert cs.citations[0] == Citation("src/a.py", 10, 20)
+
+
 def test_normalize_path_variants():
     assert normalize_path("./a/b.py") == "a/b.py"
     assert normalize_path("/a/b.py") == "a/b.py"
@@ -170,6 +196,18 @@ def test_overbroad_citation_compactness_above_one():
     assert score.citation_compactness == 10.0
     assert round(score.line_precision, 4) == 0.1
     assert score.line_recall == 1.0
+
+
+def test_reference_keys_that_normalize_alike_pool_their_ranges():
+    # ``a.py`` and ``./a.py`` are one file: citing both reference ranges recalls
+    # all of them, not just the range of whichever key came last.
+    pred = parse_final_answer(
+        "<final_answer>\na.py:1-5\na.py:10-12\n</final_answer>"
+    )
+    score = score_localization(pred, _ref({"a.py": ((1, 5),), "./a.py": ((10, 12),)}))
+    assert score.line_recall == 1.0
+    assert score.line_precision == 1.0
+    assert score.citation_compactness == 1.0
 
 
 def test_mixed_wholefile_and_ranged_refs_score_lines_only_for_ranged():
@@ -584,3 +622,30 @@ def test_fastcontext_skill_fixture_loads():
     assert skill.name == "fastcontext"
     assert skill.description
     assert "<final_answer>" in skill.body
+
+
+@pytest.mark.parametrize("path", ["(app)/page.tsx", "[id].tsx", "[...slug]/page.tsx"])
+def test_fallback_scan_keeps_leading_brackets_of_a_path(path):
+    cs = parse_final_answer(f"See {path}:10-20 for it.")
+    assert cs.citations == (Citation(path, 10, 20),)
+
+
+def test_fallback_scan_strips_a_wrapping_pair_but_keeps_a_bracketed_path():
+    cs = parse_final_answer("Seen in ([id].tsx:5) and (app)/x.tsx:3.")
+    assert [c.path for c in cs.citations] == ["[id].tsx", "(app)/x.tsx"]
+
+
+@pytest.mark.parametrize(
+    ("text", "paths"),
+    [
+        ("(see (app)/page.tsx:10)", ["(app)/page.tsx"]),
+        ("see [id].tsx:3", ["[id].tsx"]),
+        ("see [...slug]/page.tsx:3", ["[...slug]/page.tsx"]),
+        ("(src/a.py:10, src/b.py:20)", ["src/a.py", "src/b.py"]),
+        ("(src/a.py:10 and more)", ["src/a.py"]),
+    ],
+)
+def test_loose_scan_keeps_a_bracket_only_when_the_path_closes_it(text, paths):
+    from dokimi.metrics.exploration import _parse_loose
+
+    assert [c.path for c in _parse_loose(text).citations] == paths

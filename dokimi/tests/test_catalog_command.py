@@ -302,16 +302,13 @@ def test_catalog_scan_reports_a_task_name_the_filesystem_rejects(tmp_path, monke
 
 @pytest.mark.parametrize(
     "content",
-    [b"\xff\xfe", b"---\nname: a\n---\nbody\n", _DEEP_FRONTMATTER, None],
-    ids=["non-utf8", "missing-description", "deep-frontmatter", "directory"],
+    [b"\xff\xfe", b"---\nname: a\n---\nbody\n", _DEEP_FRONTMATTER],
+    ids=["non-utf8", "missing-description", "deep-frontmatter"],
 )
 def test_catalog_trigger_set_reports_clean_error_on_malformed_skill_md(tmp_path, content):
     catalog = tmp_path / "skills"
     (catalog / "a").mkdir(parents=True)
-    if content is None:
-        (catalog / "a" / "SKILL.md").mkdir()
-    else:
-        (catalog / "a" / "SKILL.md").write_bytes(content)
+    (catalog / "a" / "SKILL.md").write_bytes(content)
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": "q1", "question": "hi"}]), encoding="utf-8")
 

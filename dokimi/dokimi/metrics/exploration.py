@@ -26,7 +26,7 @@ nothing.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable, Mapping, Optional, Sequence
 
 # A citation line: a path token, optionally followed by ``:start`` or
@@ -39,10 +39,16 @@ _RANGE_RE = re.compile(
 _FINAL_ANSWER_RE = re.compile(
     r"<final_answer>(.*?)</final_answer>", re.IGNORECASE | re.DOTALL
 )
-# Fallback when no <final_answer> block exists: scan for path:line(-line) tokens.
+# Fallback when no <final_answer> block exists: scan for path:line(-line) tokens. A
+# wrapping pair around the whole citation, ``(src/a.py:10)``, is not part of the path;
+# a leading bracket with no closer after the range, ``(app)/page.tsx:10``, is.
 _LOOSE_CITATION_RE = re.compile(
-    r"(?P<path>[^\s:`]+\.[A-Za-z0-9_+]+):(?P<start>\d+)(?:\s*[-–:]\s*(?P<end>\d+))?"
+    r"(?P<open>[(\[{<\"'])?"
+    r"(?P<path>[^\s:`]+\.[A-Za-z0-9_+]+)`?"
+    r":(?P<start>\d+)(?:\s*[-–:]\s*(?P<end>\d+))?"
+    r"(?P<close>[)\]}>\"'])?"
 )
+_WRAPPERS = {"(": ")", "[": "]", "{": "}", "<": ">", '"': '"', "'": "'"}
 
 
 @dataclass(frozen=True)
@@ -160,6 +166,8 @@ def _clean_citation_line(line: str) -> str:
     # with nothing after it (``\s*`` — the outer strip already removed trailing
     # space, so a bullet-only line like "- " arrives as "-").
     text = re.sub(r"^([-*+]\s*|\d+[.)]\s*)", "", text)
+    # The model quoted only the path, so the backticks close before the range.
+    text = re.sub(r"^`([^\s:`]+)`(?=:\d)", r"\1", text.strip())
     text = text.strip().strip("`").strip()
     # A line with no alphanumerics (a stray/unicode bullet) is not a citation;
     # treat it as blank so it never parses into a phantom Citation(path="-").
@@ -200,7 +208,11 @@ def _parse_block(block: str) -> CitationSet:
 def _parse_loose(text: str) -> CitationSet:
     citations: list[Citation] = []
     for m in _LOOSE_CITATION_RE.finditer(text):
-        citations.append(_citation_from_match(m))
+        opener = m.group("open")
+        cite = _citation_from_match(m)
+        if opener in _WRAPPERS and _WRAPPERS[opener] in m.group("path"):
+            cite = replace(cite, path=normalize_path(opener + m.group("path")))
+        citations.append(cite)
     return _finish(citations, [])
 
 
@@ -283,11 +295,13 @@ def score_localization(
         ref_total=len(ref_paths),
     )
 
-    ref_intervals = {
-        normalize_path(p): _merge(list(ranges))
-        for p, ranges in reference.files.items()
-        if ranges
-    }
+    # Two keys that normalize to one path (``a.py`` and ``./a.py``) pool their
+    # ranges rather than the later key replacing the earlier.
+    pooled: dict[str, list[tuple[int, int]]] = {}
+    for p, ranges in reference.files.items():
+        if ranges:
+            pooled.setdefault(normalize_path(p), []).extend(ranges)
+    ref_intervals = {p: _merge(ranges) for p, ranges in pooled.items()}
     # Line metrics are only defined over files that have ranged ground truth.
     # Predicted ranges for a file referenced whole-file (or not referenced at
     # all) have no line-level truth to score against, so they must not count as
