@@ -958,3 +958,9 @@ def test_reach_resalts_when_a_guidance_file_already_holds_its_token(tmp_path, mo
                         profile=load_profile(_profile(tmp_path)), model="m", out_dir=tmp_path / "out",
                         work_dir=tmp_path, salt="s", kinds=("root",))
     assert payload["salt"] == "s-1"
+
+
+@pytest.mark.parametrize("turns, expected", [(3, 3), ("3", None), (True, None), (2.5, None), (None, None)])
+def test_num_turns_is_an_int_or_none(turns, expected):
+    raw = json.dumps({"type": "result", "result": "ok", "num_turns": turns})
+    assert convert("claude-stream-json", raw).num_turns == expected

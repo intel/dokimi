@@ -161,7 +161,8 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
     elif kind == "result":
         out.answer = str(rec.get("result") or "").strip()
         out.cost_usd = rec.get("total_cost_usd")
-        out.num_turns = rec.get("num_turns")
+        turns = rec.get("num_turns")
+        out.num_turns = turns if isinstance(turns, int) and not isinstance(turns, bool) else None
         out.is_error = bool(rec.get("is_error"))
         out.result_subtype = rec.get("subtype")
         out.subagent_calls = out.subagent_calls or 0
