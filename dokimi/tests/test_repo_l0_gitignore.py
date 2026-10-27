@@ -70,7 +70,9 @@ PATHS = [
 
 
 def _git_ignored(root: Path) -> set[str]:
-    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    # HOME and XDG_CONFIG_HOME too: the default core.excludesFile is $XDG_CONFIG_HOME/git/ignore
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "HOME": str(root), "XDG_CONFIG_HOME": str(root)}
     out = subprocess.run(["git", "-C", str(root), "check-ignore", "--no-index", "--", *PATHS],
                          capture_output=True, text=True, env=env, check=False)
     assert out.returncode in (0, 1), out.stderr  # 1: nothing ignored
@@ -121,3 +123,19 @@ def test_many_stars_do_not_backtrack():
     assert rules.ignored_by("pkg/" + "a" * 45) is None
     assert rules.ignored_by("pkg/" + "a" * 45 + "b") is not None
     assert time.perf_counter() - start < 1
+
+
+@pytest.mark.parametrize("line, name, path", [
+    ("gen.h", "gen.h", "pkg/gen.h"), ("[0-9]*.png", "0x.png", "img/0x.png"),
+    ("gen_[a-c].h", "gen_a.h", "gen_a.h"), ("[!x]?.o", "ax.o", "ax.o"), ("[[:upper:]]*", "Ax", "Ax"),
+    ("\\*.h", "*.h", "*.h"), ("build/out*/", "outx", "build/outx/f"),
+])
+def test_a_rule_names_a_file_it_ignores(line, name, path):
+    rules = GitIgnore({".gitignore": line}, lambda _: line)
+    assert rules.names("x") == [name]
+    assert rules.ignored_by(path) is not None
+
+
+def test_a_class_no_candidate_fits_and_a_negation_name_nothing():
+    line = "[!a-zA-Z0-9_.-]*.o\n!keep.o\n"
+    assert GitIgnore({".gitignore": line}, lambda _: line).names("x") == []

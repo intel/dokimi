@@ -33,6 +33,7 @@ class Rule:
     anchored: bool
     dir_only: bool
     negated: bool
+    name: str = ""  # the last segment of the pattern, wildcards kept; "" for a line git cannot read
 
     def matches(self, path: str, is_dir: bool) -> bool:
         if self.dir_only and not is_dir:
@@ -154,6 +155,28 @@ def _regex(pat: str) -> str:
 
 
 _NEVER = re.compile(r"(?!)")
+_MEMBERS = "xad0_-.AZ9"  # tried in turn for a ``[...]``: the first one it matches stands for it
+
+
+def example(pat: str, fill: str) -> str | None:
+    """A name the one-segment ``pat`` matches: each ``*`` as ``fill``, each ``?`` as its first letter,
+    each ``[...]`` as a member; ``None`` when no candidate member fits a class."""
+    out, i = [], 0
+    while i < len(pat):
+        c = pat[i]
+        if c == "[":
+            atom, i = _bracket(pat, i)
+            out.append(next((m for m in fill[0] + _MEMBERS if re.fullmatch(atom, m)), ""))
+            if not out[-1]:
+                return None
+            continue
+        if c == "\\":
+            i += 1
+            out.append(pat[i])
+        else:
+            out.append({"*": fill, "?": fill[0]}.get(c, c))
+        i += 1
+    return "".join(out)
 
 
 def parse(source: str, text: str) -> list[Rule]:
@@ -173,10 +196,10 @@ def parse(source: str, text: str) -> list[Rule]:
             continue
         anchored = "/" in pat
         try:
-            regex = re.compile(_regex(pat.lstrip("/")) + r"\Z")
+            regex, name = re.compile(_regex(pat.lstrip("/")) + r"\Z"), _split(pat.lstrip("/"))[-1]
         except _Invalid:
-            regex = _NEVER
-        rules.append(Rule(source, n, line, base, regex, anchored, dir_only, negated))
+            regex, name = _NEVER, ""
+        rules.append(Rule(source, n, line, base, regex, anchored, dir_only, negated, name))
     return rules
 
 
@@ -190,6 +213,12 @@ class GitIgnore:
 
     def _last(self, path: str, is_dir: bool) -> Rule | None:
         return next((r for r in reversed(self.rules) if r.matches(path, is_dir)), None)
+
+    def names(self, fill: str, negated: bool = False) -> list[str]:
+        """A name the last segment of each ignoring rule matches (``gen_a.h`` for ``gen_[a-c].h``),
+        or with ``negated`` of each ``!`` rule."""
+        found = (example(r.name, fill) for r in self.rules if r.name and r.negated == negated)
+        return list(dict.fromkeys(n for n in found if n))
 
     def ignored_by(self, path: str, is_dir: bool = False) -> Rule | None:
         """The rule that ignores ``path`` or one of its directories, or ``None`` when git would not."""
