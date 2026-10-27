@@ -1000,12 +1000,12 @@ def _adjusted_significance(
             sigs[run_id] = None
 
     tested = [sig for rid in run_ids if (sig := sigs[rid]) and sig["p_ttest"] is not None]
-    adjusted = arm_stats.adjust_pvalues([sig["p_ttest"] for sig in tested], method=correction)
-    for sig, p_adj in zip(tested, adjusted, strict=True):
+    decided = arm_stats.correct_family([sig["p_ttest"] for sig in tested], method=correction)
+    for sig, (p_adj, adj_significant) in zip(tested, decided, strict=True):
         sig["p_adjusted"] = p_adj
-        # Same conjunction as the raw verdict, with the adjusted p in place of the raw one.
+        # Same conjunction as the raw verdict, with the adjusted verdict in place of the raw one.
         sig["significant_adjusted"] = bool(
-            p_adj is not None and p_adj < arm_stats.ALPHA
+            adj_significant
             and (sig["p_wilcoxon"] is None or sig["p_wilcoxon"] < arm_stats.ALPHA)
         )
     return sigs, len(tested)
