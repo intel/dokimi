@@ -121,4 +121,31 @@ def test_replayed_calls_are_counted_apart_and_not_billed(tmp_path, monkeypatch, 
     assert (cost["llm_calls"], cost["replayed_calls"]) == (2, 2)
     assert (cost["input_tokens"], cost["output_tokens"], cost["usd"]) == (0, 0, 0.0)
     assert (cost["cache_read_tokens"], cost["cache_write_tokens"]) == (0, 0)
-    assert "2 replayed from the cache and not counted" in capsys.readouterr().out
+    assert ("cost     2 calls, 0 input / 0 output tokens, cache read 0 / write 0, $0.0000, "
+            "2 replayed from the cache and not counted") in capsys.readouterr().out.splitlines()
+
+
+def test_a_live_a_replayed_and_a_usageless_call_are_told_apart(tmp_path, monkeypatch, capsys):
+    from dokimi import llm
+    from dokimi.metrics.usage import UsageRecord
+
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary", "tune a slow query", "trace a syscall"]),
+                       encoding="utf-8")
+    replies = iter([UsageRecord(prompt_tokens=10, completion_tokens=1, cost_usd=0.001),
+                    UsageRecord(prompt_tokens=10, completion_tokens=1, cost_usd=0.001,
+                                replayed=True),
+                    None])
+    monkeypatch.setattr(llm, "llm_call_with_usage",
+                        lambda prompt, model, **_kw: ('{"pick": 1}', next(replies)))
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries", str(queries), "--model", "selector-m", "--out", str(out))
+    args.func(args)
+    cost = json.loads(out.read_text(encoding="utf-8"))["cost"]
+    assert (cost["llm_calls"], cost["replayed_calls"], cost["usd"]) == (3, 1, None)
+    assert ("cost     3 calls, 10 input / 1 output tokens, cache read 0 / write 0, "
+            "USD not known: a call had no price or no usage, "
+            "1 replayed from the cache and not counted") in capsys.readouterr().out.splitlines()

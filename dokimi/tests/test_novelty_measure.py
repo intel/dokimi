@@ -227,11 +227,13 @@ def test_cost_rolls_up_cache_tokens_and_replays_across_every_role():
         return LLMClient(model=role, role=role, transport=lambda p, s: ("x", next(rows)))
 
     extractor = client("extractor", [
-        UsageRecord(prompt_tokens=10, cache_read_tokens=4, cache_write_tokens=1, cost_usd=0.1),
-        UsageRecord(prompt_tokens=10, cost_usd=0.1, replayed=True),
+        UsageRecord(prompt_tokens=10, completion_tokens=3, cache_read_tokens=4,
+                    cache_write_tokens=1, cost_usd=0.1),
+        UsageRecord(prompt_tokens=10, completion_tokens=50, cost_usd=0.1, replayed=True),
     ])
     judge = client("judge", [
-        UsageRecord(prompt_tokens=20, cache_read_tokens=8, cache_write_tokens=4, cost_usd=0.2),
+        UsageRecord(prompt_tokens=20, completion_tokens=4, cache_read_tokens=8,
+                    cache_write_tokens=4, cost_usd=0.2),
         UsageRecord(prompt_tokens=20, cost_usd=0.2, replayed=True),
     ])
     for c in (extractor, judge):
@@ -241,6 +243,7 @@ def test_cost_rolls_up_cache_tokens_and_replays_across_every_role():
     # analyze rolls up several roles: a total taken from one of them would pass a
     # single-client test, so each new field is summed over two.
     assert total["llm_calls"] == 4
+    assert total["output_tokens"] == 7   # live rows of both roles; replayed 50 left out
     assert total["cache_read_tokens"] == 12
     assert total["cache_write_tokens"] == 5
     assert total["replayed_calls"] == 2

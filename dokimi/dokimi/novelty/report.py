@@ -489,7 +489,10 @@ def render_novelty_markdown(artifact: dict) -> str:
         lines.append(
             f"Cost: {cost.get('llm_calls', 0)} LLM calls, "
             f"{cost.get('input_tokens', 0)} in / {cost.get('output_tokens', 0)} out, "
-            f"usd {cost.get('usd')}."
+            f"usd {cost.get('usd')}"
+            + (f", {cost['replayed_calls']} replayed from the cache and not counted"
+               if cost.get("replayed_calls") else "")
+            + "."
         )
         lines.append("")
 
