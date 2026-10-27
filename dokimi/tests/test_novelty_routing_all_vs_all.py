@@ -588,6 +588,18 @@ def test_the_model_arm_does_not_send_a_query_with_no_content_word():
     assert model["own_rate"]["beta"] is None and model["n_failed"] == 0
 
 
+def test_a_failed_call_adds_to_the_contentless_queries_of_the_same_skill():
+    def transport(prompt: str, system: str | None):
+        raise RuntimeError("boom")
+
+    field = [Candidate("alpha", "convert a json file to yaml"),
+             Candidate("beta", "tune a slow database query")]
+    client = LLMClient(model="m", provider="p", role="selector", transport=transport)
+    model = all_vs_all(field, {"alpha": ["the of and", "convert json"]}, client=client)["model"]
+    assert model["n_unscored"] == {"alpha": 2}
+    assert model["n_scored"] == {"alpha": 0}
+
+
 def test_the_failed_call_count_is_over_the_calls_sent_not_every_query(
         tmp_path, monkeypatch, capsys):
     import dokimi.commands.novelty as novelty_cmd
