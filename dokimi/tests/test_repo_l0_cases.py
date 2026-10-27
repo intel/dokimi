@@ -307,6 +307,9 @@ CASES = [
      {("python_versions", "py3.12-3.13"): "unresolved", ("python_versions", "Python 3.12-3.13"): "unresolved",
       ("python_versions", "py312-py313"): "unresolved", ("python_versions", "py3.9-3.13"): "unresolved",
       ("python_versions", "py3.8-3.13"): "unresolved", ("python_versions", "Python 3.12–3.13"): "ok"}),
+    ("wrong-shaped jobs and matrices hold no Python version", "py3.12-3.13 `ci.yml`",
+     {".github/workflows/ci.yml": "jobs: {a: 5, b: {strategy: 5}, c: {strategy: {matrix: [1, 2]}}, d: {uses: 5}}\n"},
+     {("python_versions", "py3.12-3.13"): "unresolved"}),
     ("no workflow on the line, or one version: no claim",
      "Python 3.12-3.14 everywhere\n\nThe py3.13 job in `ci.yml`; Python 3.13 and CMake 3.27 in `ci.yml`\n\n"
      "`ci.yml` moved from Python 3.11 to 3.13\n\n`i.yml` runs py3.10-3.11\n\n`environment.yml` pins py3.8-3.9",
