@@ -16,3 +16,5 @@ SPDX-License-Identifier: Apache-2.0
 - Close reader-owned process streams at EOF on Windows instead of leaving handles for garbage collection.
 
 - Retain caller ownership of streams until Windows readers start, so interrupted launches also close their handles.
+
+- Synchronize reader ownership with caller cleanup so interruption during thread startup cannot block on an active reader or leak an unclaimed stream.

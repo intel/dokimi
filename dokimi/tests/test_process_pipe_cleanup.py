@@ -63,3 +63,74 @@ def test_interrupt_before_windows_readers_start_closes_unowned_streams(monkeypat
     finally:
         for pipe in streams:
             pipe.close()
+
+
+def test_interrupt_after_reader_start_never_blocks_caller_on_owned_pipe(monkeypatch):
+    import io
+    import os
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    import pytest
+
+    entered = threading.Event()
+    started = []
+    original_start = threading.Thread.start
+
+    class BlockingReader(io.BufferedReader):
+        def read1(self, size=-1):
+            entered.set()
+            return super().read1(size)
+
+    read_fd, write_fd = os.pipe()
+    pipe = BlockingReader(io.FileIO(read_fd, 'rb'))
+    proc = SimpleNamespace(stdout=pipe, stderr=None, wait=lambda **_: 0)
+
+    def start_then_interrupt(reader):
+        original_start(reader)
+        started.append(reader)
+        assert entered.wait(5), 'reader never entered its blocking read'
+        raise KeyboardInterrupt
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(threading.Thread, 'start', start_then_interrupt)
+            with pytest.raises(KeyboardInterrupt):
+                process._thread_pipes(proc, [(pipe, process._Capture(16))],
+                                      time.monotonic() + 10, None)
+        cleanup = threading.Thread(target=process._close_pipes, args=(proc,))
+        cleanup.start()
+        cleanup.join(2)
+        assert not cleanup.is_alive(), 'caller blocked closing a reader-owned stream'
+    finally:
+        os.close(write_fd)
+        for reader in started:
+            reader.join(5)
+        if 'cleanup' in locals():
+            cleanup.join(5)
+        pipe.close()
+
+
+def test_a_cancelled_reader_can_start_late_without_reopening_its_stream():
+    import io
+    import os
+    import threading
+
+    from dokimi.process_io import PipeReader
+
+    read_fd, write_fd = os.pipe()
+    pipe = io.BufferedReader(io.FileIO(read_fd, 'rb'))
+    cap = process._Capture(16)
+    owner = PipeReader(pipe, cap.add, 16)
+    late_reader = threading.Thread(target=owner.pump, daemon=True)
+    try:
+        owner.close_unclaimed()
+        late_reader.start()
+        late_reader.join(2)
+        assert pipe.closed and not late_reader.is_alive()
+        assert cap.value() == (b'', False)
+    finally:
+        os.close(write_fd)
+        late_reader.join(5)
+        pipe.close()

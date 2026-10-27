@@ -55,6 +55,8 @@ Code that spawns takes a ``runner`` argument defaulting to :func:`run`.
 
 from __future__ import annotations
 
+from .process_io import PipeReader, PipeReaderOwner
+
 import dataclasses
 import os
 import selectors
@@ -67,7 +69,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from typing import IO, Protocol
+from typing import cast, IO, Protocol
 
 TIMEOUT_RC = 124
 DRAIN_GRACE_SEC = 2.0
@@ -489,30 +491,17 @@ def _thread_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float,
                   term_grace: float = 0.0) -> bool:
     """Windows has no select() on pipes: one reader thread per pipe. No SIGTERM there either:
     ``term_grace`` is ignored and the job is terminated at once."""
-    readers = [threading.Thread(target=_pump, args=(pipe, cap), daemon=True) for pipe, cap in pipes]
-    for reader, (pipe, _) in zip(readers, pipes, strict=True):
+    owners = {pipe: PipeReader(pipe, cap.add, _CHUNK) for pipe, cap in pipes}
+    cast(PipeReaderOwner, proc)._dokimi_pipe_readers = owners
+    readers = [threading.Thread(target=owner.pump, daemon=True) for owner in owners.values()]
+    for reader in readers:
         reader.start()
-        # A started reader closes its own stream; unstarted streams remain caller-owned.
-        if proc.stdout is pipe:
-            proc.stdout = None
-        if proc.stderr is pipe:
-            proc.stderr = None
     timed_out = _wait(proc, deadline)
     _kill_tree(proc, job)
     grace_end = time.monotonic() + DRAIN_GRACE_SEC
     for reader in readers:
         reader.join(max(0.0, grace_end - time.monotonic()))
     return timed_out
-
-
-def _pump(pipe: IO[bytes], cap: _Capture) -> None:
-    try:
-        while chunk := pipe.read1(_CHUNK):  # type: ignore[attr-defined]
-            cap.add(chunk)
-    except (OSError, ValueError):  # the pipe was closed under the reader
-        pass
-    finally:
-        pipe.close()  # Windows readers own these handles, including after EOF.
 
 
 def _wait(proc: subprocess.Popen[bytes], deadline: float) -> bool:
@@ -600,12 +589,16 @@ def _close_pipes(proc: subprocess.Popen[bytes]) -> None:
         proc.wait(timeout=DRAIN_GRACE_SEC)
     except subprocess.TimeoutExpired:
         pass
-    # Streams transferred to Windows readers are detached. Close every unowned handle,
-    # including when an interrupt arrives before the reader threads start.
+    owners: dict[IO[bytes], PipeReader] = getattr(proc, "_dokimi_pipe_readers", {})
     for pipe in (proc.stdout, proc.stderr):
+        if pipe is None:
+            continue
         try:
-            if pipe:
+            owner = owners.get(pipe)
+            if owner is None:
                 pipe.close()
+            else:
+                owner.close_unclaimed()
         except OSError:
             pass
 
