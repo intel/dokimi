@@ -251,7 +251,7 @@ def test_result_cells_that_are_not_a_list_do_not_raise(tmp_path):
     assert not completeness(plan, {"plan_digest": plan_digest(plan), "cells": None}).complete
 
 
-@pytest.mark.parametrize("cells", [{"c-1": "pass"}, None, "pass"])
+@pytest.mark.parametrize("cells", [{"c-1": "pass"}, None, "pass", 5, 1.5, True])
 def test_cells_that_are_not_a_list_are_invalid_not_empty(tmp_path, cells):
     # A mapping or null used to read as zero cells: no problem, and every planned cell "not_run".
     plan = _plan(tmp_path)

@@ -118,7 +118,8 @@ def _plan_problems(plan: Mapping[str, Any], planned: list[str], problems: list[s
     dup_planned = sorted(k for k, n in Counter(planned).items() if n > 1)
     if dup_planned:
         problems.append(f"plan repeats cell ids: {dup_planned}")
-    for cell in plan.get("cells") or []:
+    cells = plan.get("cells")
+    for cell in cells if isinstance(cells, list) else []:  # a non-list is reported by _ids
         if not isinstance(cell, Mapping) or not isinstance(cell.get("cell_id"), str):
             continue  # reported by _ids
         try:
