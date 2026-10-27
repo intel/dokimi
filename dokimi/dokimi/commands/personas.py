@@ -70,7 +70,7 @@ def cmd_personas_discover(args: argparse.Namespace) -> None:
     print("\nNext steps:")
     print(f"  1. Review: cat {output_path}")
     print("  2. Edit if needed")
-    print(f"  3. Approve: python cli.py personas approve --file {output_path}")
+    print(f"  3. Approve: dokimi personas approve --file {output_path}")
 
 
 def cmd_personas_approve(args: argparse.Namespace) -> None:
@@ -117,7 +117,7 @@ def cmd_personas_approve(args: argparse.Namespace) -> None:
     print(f"✓ Validated {len(personas['personas'])} personas")
     print(f"✓ File approved: {persona_file}")
     print("\nReady for question generation:")
-    print(f"  python cli.py questions generate --product {personas['product']} --personas {persona_file}")
+    print(f"  dokimi questions generate --product {personas['product']} --personas {persona_file}")
 
 
 def register(sub, positive_int) -> None:
