@@ -71,7 +71,6 @@ QUESTIONS: List[Dict[str, Any]] = [
         "difficulty": "easy",
     },
 ]
-QID_BY_QUERY = {q["question"]: q["id"] for q in QUESTIONS}
 
 # Context7Client.get_library_docs defaults. The recording client applies them
 # so a request that leaves a keyword out is visible as its effective value.
