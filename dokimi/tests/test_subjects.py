@@ -999,23 +999,6 @@ plugins = []
     assert cell["run_config"]["grounded_from_topics"] is True
 
 
-def test_forwarded_run_config_covers_fields_read_with_a_default():
-    """The forwarded set must stay a superset of what _build_arms_output consults.
-
-    Anything read there with a getattr default is silently absent when a caller
-    building its own Namespace omits it, which is how a flag stops propagating.
-    """
-    import inspect
-    import re
-
-    from dokimi.commands import arms as arms_mod
-
-    source = inspect.getsource(arms_mod._build_arms_output)
-    read_with_default = set(re.findall(r'getattr\(args,\s*"([a-z_0-9]+)"', source))
-    missing = read_with_default - set(arms_mod.FORWARDED_RUN_CONFIG_FIELDS)
-    assert not missing, f"read with a getattr default but never forwarded: {sorted(missing)}"
-
-
 def test_subjects_list_without_a_root_names_the_flag():
     """Descriptors live in a content checkout, so there is no in-repo default root."""
     parser = build_parser()

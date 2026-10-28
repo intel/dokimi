@@ -1,19 +1,75 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""What an arms run checks and resolves before the first answer is paid for.
+"""One arms run from a typed run configuration.
 
-The arm-run commands (``arms run``, ``arms matrix-run``, and ``subjects run`` through
-``matrix-run``) and ``eval`` judge-reliability share these: the doc arm's library id, the
-``expected_skill`` labels, the harnesses a matrix cell may name, and the sampling probe.
+``arms run``, ``arms matrix-run`` and ``subjects run`` each build an :class:`ArmsRunConfig`
+once from their parsed flags; a matrix cell is that config with the cell's model, provider,
+harness and plugins put in (:func:`cell_config`). :func:`run_arms` checks the config, builds
+the arms, the judge and the :class:`~dokimi.eval.arm_runner.ArmRunner`, and returns the
+``arms.v1`` output. Paths, saving, the rollup and exit codes stay with the commands.
 """
 
 from __future__ import annotations
 
 import functools
+from dataclasses import dataclass, replace
 
-from dokimi.eval.cells import HARNESS_ARMS_RUNNER
+from dokimi.defaults import (
+    DEFAULT_ANSWER_MODEL,
+    DEFAULT_ANSWER_PROVIDER,
+    DEFAULT_JUDGE_MODEL,
+    DEFAULT_JUDGE_PROVIDER,
+)
+from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.utils import question_id
+
+
+@dataclass(frozen=True)
+class ArmsRunConfig:
+    """Everything an arms run reads besides its arm specs and its questions.
+
+    The field names are the ``dest`` names of the ``arms run`` flags, and a value is in the
+    flag's form (``plugins`` and ``judge_panel`` stay comma-separated). A default is what
+    ``arms run`` runs with when the flag is left out, so a command without the flag
+    (``subjects run`` has no ``--temperature``) runs with it too.
+    """
+
+    product: str
+    model: str = DEFAULT_ANSWER_MODEL
+    provider: str = DEFAULT_ANSWER_PROVIDER
+    harness: str = HARNESS_ARMS_RUNNER
+    plugins: str = ""
+    #: The matrix cell this run is, stamped into the output; ``None`` outside a matrix.
+    matrix_cell: str | None = None
+    context7_id: str | None = None
+    baseline_arm: str = "baseline"
+    stats_correction: str = "holm"
+    judge: bool = False
+    judge_model: str = DEFAULT_JUDGE_MODEL
+    judge_provider: str = DEFAULT_JUDGE_PROVIDER
+    judge_temperature: float | None = None
+    judge_panel: str = ""
+    top_k: int = 5
+    rerank_threshold: float = 0.3
+    max_iterations: int = 6
+    max_tokens: int | None = None
+    grounded_from_topics: bool = False
+    temperature: float | None = None
+    seed: int | None = None
+    session_turns: int | None = None
+    turn_reminder: str | None = None
+    concurrency: int = 5
+
+
+class LibraryIdError(ValueError):
+    """No library id can be named for a doc arm, so the run stops before any answer."""
+
+
+def cell_config(config: ArmsRunConfig, cell: MatrixCellDescriptor) -> ArmsRunConfig:
+    """*config* as matrix cell *cell* runs it: the cell's name, model, provider, harness, plugins."""
+    return replace(config, matrix_cell=cell.name, model=cell.model, provider=cell.provider,
+                   harness=cell.harness, plugins=",".join(cell.plugin_specs))
 
 
 def validate_supported_matrix_harnesses(cells) -> None:
@@ -105,6 +161,24 @@ def validate_expected_skills(questions: list[dict], treatments) -> None:
                              f"{', '.join(unknown)}")
 
 
+def check_sampling_support(config: ArmsRunConfig) -> None:
+    """Reject sampling flags the answer provider would refuse on every answer."""
+    from dokimi.llm import unsupported_sampling_params
+
+    bad = unsupported_sampling_params(
+        config.model, config.provider,
+        temperature=config.temperature,
+        seed=config.seed,
+    )
+    if bad:
+        raise ValueError(
+            f"Provider '{config.provider}' does not support {', '.join(bad)} for "
+            f"model '{config.model}'. Drop the flag(s); every answer would "
+            "otherwise fail and the report would show null scores."
+        )
+    probe_sampling(config.model, config.provider, config.temperature, config.seed)
+
+
 @functools.lru_cache(maxsize=None)
 def probe_sampling(model: str, provider: str, temperature, seed) -> None:
     """One short real call with the requested sampling, so a value the provider
@@ -121,3 +195,152 @@ def probe_sampling(model: str, provider: str, temperature, seed) -> None:
             f"Probe call to '{provider}/{model}' with temperature={temperature}, "
             f"seed={seed} failed, so every call in the run would too: {exc}"
         ) from exc
+
+
+def _refuse_judged_session(config: ArmsRunConfig) -> None:
+    """Refused before any answer is paid for: a session is measured, not judged."""
+    if config.session_turns is not None and config.judge:
+        raise ValueError("--session-turns is measurement-only; drop --judge")
+
+
+def _treatments(config: ArmsRunConfig, specs: list[str], questions: list[dict]):
+    """The arms of *specs*, wrapped in the config's plugins: (treatments, library id, plugin set)."""
+    from dokimi.plugins import (
+        create_plugins,
+        plugin_set_metadata,
+        validate_plugins_for_harness,
+        wrap_treatments,
+    )
+    from dokimi.treatments import create_treatments
+
+    treatments = create_treatments(specs, top_k=config.top_k, rerank_threshold=config.rerank_threshold)
+    validate_expected_skills(questions, treatments)
+    try:
+        library_id = resolve_doc_library_id(treatments, config.product, config.context7_id)
+    except ValueError as exc:
+        raise LibraryIdError(str(exc)) from exc
+    plugins = create_plugins([s.strip() for s in config.plugins.split(",") if s.strip()])
+    validate_plugins_for_harness(plugins, config.harness)
+    treatments = wrap_treatments(treatments, plugins)
+    plugin_set = plugin_set_metadata(plugins)
+    print(f"Arms: {', '.join(t.name for t in treatments)}")
+    if config.matrix_cell:
+        print(f"Matrix cell: {config.matrix_cell}")
+    if plugin_set["plugins"]:
+        print(f"Plugins: {plugin_set['plugin_set']} ({plugin_set['plugin_set_id']})")
+    return treatments, library_id, plugin_set
+
+
+def _check_judge(config: ArmsRunConfig, questions: list[dict]) -> None:
+    """Refuse what the judge would refuse on every score, before any answer is paid for."""
+    from dokimi.eval.question_text import require_question_text
+    from dokimi.llm import unsupported_sampling_params
+    from dokimi.utils import bedrock_litellm_model
+
+    # The judge refuses a blank question; here, that is before any answer is paid for.
+    # Every question is answered and then judged, so every one is checked.
+    for i, q in enumerate(questions):
+        require_question_text(q, i)
+    judge_model = config.judge_model
+    if config.judge_provider == "amazon-bedrock" and not config.judge_panel:
+        # A single Bedrock judge goes through get_llm, which maps a bare name first.
+        judge_model = bedrock_litellm_model(config.judge_model)
+    bad_judge = unsupported_sampling_params(
+        judge_model, config.judge_provider,
+        temperature=config.judge_temperature,
+    )
+    if bad_judge:
+        raise ValueError(
+            f"Judge provider '{config.judge_provider}' does not support "
+            f"{', '.join(bad_judge)} for model '{config.judge_model}'. Drop the "
+            "flag; every score would otherwise be null."
+        )
+    probe_sampling(judge_model, config.judge_provider, config.judge_temperature, None)
+
+
+def _build_judge(config: ArmsRunConfig):
+    """The single judge or the panel the config names; an unsupported judge provider raises here."""
+    from dokimi.eval import Judge, JudgePanel
+    from dokimi.eval.panel import JUDGE_ROLES, JudgeConfig
+
+    panel_roles = [r.strip() for r in config.judge_panel.split(",") if r.strip()]
+    if not panel_roles:
+        return Judge(model=config.judge_model, provider=config.judge_provider,
+                     temperature=config.judge_temperature)
+    unknown = [r for r in panel_roles if r not in JUDGE_ROLES]
+    if unknown:
+        raise ValueError(
+            f"Unknown --judge-panel role(s): {', '.join(unknown)}. "
+            f"Available: {', '.join(JUDGE_ROLES)}"
+        )
+    # A panel reports grader spread and agreement per answer, which a
+    # single judge structurally cannot — judge choice alone moves scores.
+    return JudgePanel(
+        judges=[
+            JudgeConfig(role=r, model=config.judge_model,
+                        provider=config.judge_provider,
+                        temperature=config.judge_temperature)
+            for r in panel_roles
+        ],
+    )
+
+
+def _judge_records(runner, judge, config: ArmsRunConfig, records: list[dict]):
+    from dokimi.eval import JudgePanel
+
+    if isinstance(judge, JudgePanel):
+        roles = [j.role for j in judge.judges]
+        print(f"Judging arms with a {len(roles)}-judge panel: {', '.join(roles)}")
+    else:
+        print("Judging arms...")
+    return runner.judge(
+        judge, config.product, records,
+        baseline_arm=config.baseline_arm, concurrency=config.concurrency,
+    )
+
+
+def run_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict]) -> dict:
+    """Answer *questions* in every arm of *specs*, judge them when ``config.judge``, and
+    return the ``arms.v1`` output.
+
+    Everything that can be refused (the config, the arms, the plugins, the sampling, the
+    judge) is refused before the first answer is paid for. A doc arm with no library id
+    raises :class:`LibraryIdError`; anything else refused raises ``ValueError``.
+    """
+    from dokimi.eval.arm_runner import ArmRunner
+
+    _refuse_judged_session(config)
+    treatments, library_id, plugin_set = _treatments(config, specs, questions)
+    check_sampling_support(config)
+    judge = None
+    if config.judge:
+        _check_judge(config, questions)
+        judge = _build_judge(config)
+
+    runner = ArmRunner(
+        treatments,
+        model=config.model,
+        provider=config.provider,
+        max_iterations=config.max_iterations,
+        harness=config.harness,
+        plugin_set=plugin_set,
+        matrix_cell=config.matrix_cell,
+        max_tokens=config.max_tokens,
+        grounded_from_topics=config.grounded_from_topics,
+        stats_correction=config.stats_correction,
+        temperature=config.temperature,
+        seed=config.seed,
+        session_turns=config.session_turns,
+        turn_reminder=config.turn_reminder,
+    )
+    records = runner.run(
+        library_name=config.product,
+        questions=questions,
+        library_id=library_id,
+        concurrency=config.concurrency,
+    )
+    evaluations = None if judge is None else _judge_records(runner, judge, config, records)
+    return runner.build_output(
+        config.product, records, evaluations=evaluations, baseline_arm=config.baseline_arm,
+        judge=judge,
+    )

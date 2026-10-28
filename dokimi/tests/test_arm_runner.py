@@ -485,22 +485,21 @@ def test_build_output_records_judge_temperature_and_prompt_digest(monkeypatch):
 
 
 def test_an_unbuildable_judge_fails_before_any_answer_is_generated(monkeypatch):
-    from dokimi.commands.arms import _build_arms_output
+    from dokimi.eval.arms_run import ArmsRunConfig, run_arms
 
     calls = []
     monkeypatch.setattr(ArmRunner, "run", lambda self, *a, **kw: calls.append(1) or [])
-    args = _parse_arms_run(["--judge", "--judge-model", "m"])
     # The CLI no longer offers a provider Judge rejects, so set one the way a
-    # caller building its own Namespace could.
-    args.judge_provider = "openai-codex"
+    # caller building its own config could.
+    config = ArmsRunConfig(product="oneTBB", judge=True, judge_model="m", judge_provider="openai-codex")
     with pytest.raises(ValueError, match="openai-codex"):
-        _build_arms_output(args, ["baseline"], QUESTIONS[:1])
+        run_arms(config, ["baseline"], QUESTIONS[:1])
     assert calls == []
 
 
 def test_matrix_run_checks_every_cell_before_running_the_first(monkeypatch, tmp_path):
     import json
-    import dokimi.commands.arms as arms_mod
+    import dokimi.eval.arms_run as arms_run
     from dokimi.cli import build_parser
 
     cells = tmp_path / "cells.json"
@@ -513,9 +512,9 @@ def test_matrix_run_checks_every_cell_before_running_the_first(monkeypatch, tmp_
 
     monkeypatch.setattr("dokimi.llm.unsupported_sampling_params",
                         lambda model, provider, **kw: ["seed"] if model == "m-bad" else [])
-    monkeypatch.setattr("dokimi.eval.arms_run.probe_sampling", lambda *a: None)
+    monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
     ran = []
-    monkeypatch.setattr(arms_mod, "_build_arms_output", lambda *a, **kw: ran.append(1))
+    monkeypatch.setattr(arms_run, "run_arms", lambda *a, **kw: ran.append(1))
     args = build_parser().parse_args(
         ["arms", "matrix-run", "--product", "oneTBB", "--questions", str(questions),
          "--arms", "baseline", "--matrix-cells", str(cells), "--seed", "1",
@@ -948,7 +947,7 @@ def _litellm_resp(text):
 def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypatch):
     import litellm
     import dokimi.eval.arms_run as arms_run
-    from dokimi.commands.arms import _build_arms_output
+    from dokimi.commands.arms import run_config_from_args
     from dokimi.utils import get_llm
 
     mapped = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
@@ -971,7 +970,7 @@ def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypa
     arms_run.probe_sampling.cache_clear()
     args = _parse_arms_run(["--judge", "--judge-provider", "amazon-bedrock",
                             "--judge-model", "claude-sonnet-4-5", "--judge-temperature", "0"])
-    _build_arms_output(args, ["baseline"], QUESTIONS[:1])
+    arms_run.run_arms(run_config_from_args(args), ["baseline"], QUESTIONS[:1])
     get_llm("amazon-bedrock", "claude-sonnet-4-5", temperature=0.0).invoke("p")
 
     assert [m for m in checked if m.startswith("bedrock/")] == [f"bedrock/{mapped}"]
