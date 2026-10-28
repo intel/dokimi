@@ -619,13 +619,13 @@ def test_arms_run_refuses_bad_expected_skill_before_any_call(monkeypatch, tmp_pa
 
 
 def test_arms_run_accepts_labels_from_any_skill_arm(catalog):
-    from dokimi.commands.arms import _validate_expected_skills
+    from dokimi.eval.arms_run import validate_expected_skills
 
     arms = [create_treatment(f"skill-agent:{catalog / 'linux-perf'}+skill-agent:{catalog / 'dpnp-io'}")]
-    _validate_expected_skills([{"expected_skill": ["dpnp-io", "linux-perf"]},
+    validate_expected_skills([{"expected_skill": ["dpnp-io", "linux-perf"]},
                                {"expected_skill": None}], arms)
     # Without a skill arm only the type is checked: the label is not scored.
-    _validate_expected_skills([{"expected_skill": "anything"}], [create_treatment("baseline")])
+    validate_expected_skills([{"expected_skill": "anything"}], [create_treatment("baseline")])
 
 
 def test_catalog_arm_judge_reference_names_the_catalog_entries(monkeypatch, catalog):

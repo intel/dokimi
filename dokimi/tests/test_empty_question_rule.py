@@ -176,7 +176,7 @@ def test_cli_reports_the_record_and_exits_2(tmp_path, monkeypatch, capsys):
 def test_arms_run_refuses_a_blank_question_before_any_answer_is_paid_for(tmp_path, monkeypatch, capsys):
     """The question-set reader accepts a whitespace-only question; the judge would refuse it
     only after every arm had answered, and the run's output is never written."""
-    import dokimi.commands.arms as arms_mod
+    import dokimi.eval.arms_run as arms_run
     from dokimi import cli
 
     questions = tmp_path / "q.json"
@@ -185,7 +185,7 @@ def test_arms_run_refuses_a_blank_question_before_any_answer_is_paid_for(tmp_pat
     answered = []
     monkeypatch.setattr(ArmRunner, "run", lambda self, library_name, questions, **kw: answered.append(1) or [
         _arms_record(q["id"], q["question"]) for q in questions])
-    monkeypatch.setattr(arms_mod, "_probe_sampling", lambda *a: None)
+    monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
     out = tmp_path / "arms.json"
     monkeypatch.setattr(sys, "argv", ["dokimi", "arms", "run", "--product", "lib", "--questions", str(questions),
                                       "--arms", "baseline", "--judge", "--out-json", str(out)])
@@ -325,7 +325,7 @@ def test_no_probe_call_before_the_refusal(cmd, tmp_path, monkeypatch, capsys):
         {"id": "q1", "question": "How?", "expected_topics": ["fit"]},
         {"id": "q2", "question": "Why?", "expected_topics": ["predict"]}]}), encoding="utf-8")
     calls = []
-    monkeypatch.setattr("dokimi.commands.arms._probe_sampling", lambda *a: calls.append(a))
+    monkeypatch.setattr("dokimi.eval.arms_run.probe_sampling", lambda *a: calls.append(a))
     monkeypatch.setattr("dokimi.llm.unsupported_sampling_params", lambda *a, **k: [])
     argv = [a.format(questions=questions) for a in cmd]
     monkeypatch.setattr(sys, "argv", ["dokimi", *argv, "--answers", str(answers), "--judge-temperature", "0.2"])

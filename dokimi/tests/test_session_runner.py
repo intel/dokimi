@@ -506,7 +506,7 @@ def test_a_session_artifact_is_refused_by_every_judge_command(cmd, fake_llm, tmp
                        encoding="utf-8")
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps({"questions": [q]}), encoding="utf-8")
-    monkeypatch.setattr("dokimi.commands.arms._probe_sampling", lambda *a: None)
+    monkeypatch.setattr("dokimi.eval.arms_run.probe_sampling", lambda *a: None)
     argv = [a.format(questions=questions) for a in cmd]
     monkeypatch.setattr(sys, "argv", ["dokimi", *argv, "--answers", str(answers)])
 

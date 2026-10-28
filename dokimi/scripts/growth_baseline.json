@@ -17,7 +17,6 @@
   },
   "functions": {
     "dokimi/commands/arms.py::_build_arms_output": {"complexity": 13},
-    "dokimi/commands/arms.py::_validate_expected_skills": {"complexity": 11},
     "dokimi/commands/benchmark.py::cmd_benchmark_batch": {"complexity": 11},
     "dokimi/commands/benchmark.py::cmd_benchmark_preflight": {"complexity": 21},
     "dokimi/commands/catalog.py::cmd_catalog_trigger_set": {"complexity": 15},

@@ -513,7 +513,7 @@ def test_matrix_run_checks_every_cell_before_running_the_first(monkeypatch, tmp_
 
     monkeypatch.setattr("dokimi.llm.unsupported_sampling_params",
                         lambda model, provider, **kw: ["seed"] if model == "m-bad" else [])
-    monkeypatch.setattr(arms_mod, "_probe_sampling", lambda *a: None)
+    monkeypatch.setattr("dokimi.eval.arms_run.probe_sampling", lambda *a: None)
     ran = []
     monkeypatch.setattr(arms_mod, "_build_arms_output", lambda *a, **kw: ran.append(1))
     args = build_parser().parse_args(
@@ -526,30 +526,30 @@ def test_matrix_run_checks_every_cell_before_running_the_first(monkeypatch, tmp_
 
 
 def test_probe_rejects_a_sampling_value_the_provider_refuses(monkeypatch):
-    import dokimi.commands.arms as arms_mod
+    import dokimi.eval.arms_run as arms_run
     import dokimi.llm as llm_mod
 
     def refuse(prompt, model, provider, **kw):
         raise Exception("UnsupportedParamsError: gpt-5 models don't support temperature=0.0")
 
     monkeypatch.setattr(llm_mod, "llm_call_with_usage", refuse)
-    arms_mod._probe_sampling.cache_clear()
+    arms_run.probe_sampling.cache_clear()
     with pytest.raises(ValueError, match="temperature=0.0"):
-        arms_mod._probe_sampling("gpt-5", "openai", 0.0, None)
+        arms_run.probe_sampling("gpt-5", "openai", 0.0, None)
 
 
 def test_probe_makes_no_call_without_sampling_flags_and_one_per_configuration(monkeypatch):
-    import dokimi.commands.arms as arms_mod
+    import dokimi.eval.arms_run as arms_run
     import dokimi.llm as llm_mod
 
     calls = []
     monkeypatch.setattr(llm_mod, "llm_call_with_usage",
                         lambda prompt, model, provider, **kw: calls.append(kw) or ("OK", None))
-    arms_mod._probe_sampling.cache_clear()
-    arms_mod._probe_sampling("m", "openai", None, None)
+    arms_run.probe_sampling.cache_clear()
+    arms_run.probe_sampling("m", "openai", None, None)
     assert calls == []
-    arms_mod._probe_sampling("m", "openai", 0.0, None)
-    arms_mod._probe_sampling("m", "openai", 0.0, None)
+    arms_run.probe_sampling("m", "openai", 0.0, None)
+    arms_run.probe_sampling("m", "openai", 0.0, None)
     assert len(calls) == 1 and calls[0]["temperature"] == 0.0
 
 
@@ -947,7 +947,7 @@ def _litellm_resp(text):
 
 def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypatch):
     import litellm
-    import dokimi.commands.arms as arms_mod
+    import dokimi.eval.arms_run as arms_run
     from dokimi.commands.arms import _build_arms_output
     from dokimi.utils import get_llm
 
@@ -968,7 +968,7 @@ def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypa
     monkeypatch.setattr(litellm, "get_supported_openai_params", supported)
     monkeypatch.setattr(litellm, "completion", completion)
     monkeypatch.setattr(ArmRunner, "run", lambda self, *a, **kw: [])
-    arms_mod._probe_sampling.cache_clear()
+    arms_run.probe_sampling.cache_clear()
     args = _parse_arms_run(["--judge", "--judge-provider", "amazon-bedrock",
                             "--judge-model", "claude-sonnet-4-5", "--judge-temperature", "0"])
     _build_arms_output(args, ["baseline"], QUESTIONS[:1])
