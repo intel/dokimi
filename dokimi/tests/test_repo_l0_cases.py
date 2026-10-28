@@ -317,6 +317,33 @@ CASES = [
                   ("python_versions", "Python 3.13"): None, ("python_versions", "Python 3.11"): None,
                   ("python_versions", "Python 3.11 to 3.13"): None, ("python_versions", "py3.10-3.11"): None,
                   ("python_versions", "py3.8-3.9"): None}),
+    ("a wheel's tags are no range", "Wheels such as `pkg-1.0-cp313-cp313-linux_x86_64.whl` come from `ci.yml`",
+     _wf("{python: ['3.13', '3.14']}"), {("python_versions", "cp313"): None, ("python_versions", "cp313-cp313"): None}),
+    ("a pre-release runs its minor version", "py3.13-3.15 in `ci.yml`",
+     _wf("{python: ['3.13', '3.14.0-rc.1', '3.15.0a1']}"), {("python_versions", "py3.13-3.15"): "ok"}),
+    ("a Python value that names no one version: unresolved", "py3.12-3.14 in `ci.yml`",
+     _wf("{python: ['3.12', '3.x']}"), {("python_versions", "py3.12-3.14"): "unresolved"}),
+    ("a version a setup step pins runs too", "py3.12-3.14 in `ci.yml`",
+     {".github/workflows/ci.yml": "jobs:\n  lint:\n    steps:\n      - uses: actions/setup-python@v6\n"
+      "        with: {python-version: '3.12'}\n  test:\n    strategy:\n      matrix: {python: ['3.13', '3.14']}\n"},
+     {("python_versions", "py3.12-3.14"): "ok"}),
+    ("a setup step's matrix key holds Python versions", "py3.12-3.14 in `ci.yml`",
+     {".github/workflows/ci.yml": "jobs:\n  a:\n    strategy: {matrix: {v: ['3.12', '3.13']}}\n"
+      "    steps: [{with: {python-version: '${{ matrix.v }}'}}]\n  b:\n    strategy: {matrix: {include: [{w: '3.14'}]}}\n"
+      "    steps: [{with: {python-version: \"${{ matrix['w'] }}\"}}]\n  c:\n    strategy: {matrix: {v: ['3.9']}}\n"},
+     {("python_versions", "py3.12-3.14"): "ok"}),
+    ("a computed setup version or a version file: unresolved", "py3.12-3.13 in `ci.yml`\n\nPython 3.12-3.13 in `f.yml`",
+     {".github/workflows/ci.yml": "jobs:\n  a:\n    strategy: {matrix: {python: ['3.12', '3.13']}}\n"
+      "    steps: [{with: {python-version: '${{ inputs.py }}'}}]\n",
+      ".github/workflows/f.yml": "jobs:\n  a:\n    steps: [{with: {python-version-file: .python-version}}]\n"
+      "  b:\n    strategy: {matrix: {python: ['3.12', '3.13']}}\n"},
+     {("python_versions", "py3.12-3.13"): "unresolved", ("python_versions", "Python 3.12-3.13"): "unresolved"}),
+    ("a bare workflow name: the one GitHub runs, else ambiguous", "py3.12-3.13 `ci.yml`\n\npy3.10-3.11 `x.yml`",
+     {".github/workflows/ci.yml": "jobs:\n  t:\n    strategy: {matrix: {python: ['3.12', '3.13']}}\n",
+      ".github/workflows/archive/ci.yml": "jobs:\n  t:\n    strategy: {matrix: {python: ['3.9']}}\n",
+      ".github/workflows/a/x.yml": "jobs:\n  t:\n    strategy: {matrix: {python: ['3.10', '3.11']}}\n",
+      ".github/workflows/b/x.yml": "jobs:\n  t:\n    strategy: {matrix: {python: ['3.10', '3.11']}}\n"},
+     {("python_versions", "py3.12-3.13"): "ok", ("python_versions", "py3.10-3.11"): None}),
     ("a version in the workflow's own name is not read", "`build-py3.11-3.12.yml` builds Python 3.13 and 3.14",
      {".github/workflows/build-py3.11-3.12.yml": "jobs:\n  w:\n    strategy:\n      matrix: {python: ['3.13', '3.14']}\n"},
      {("python_versions", "Python 3.13 and 3.14"): "ok", ("python_versions", "py3.11-3.12"): None}),
@@ -332,15 +359,39 @@ def test_rule(tmp_path, name, agents, files, expected):
 
 
 def test_an_unresolved_python_range_says_why(tmp_path):
-    payload = _scan(tmp_path, "py3.12-3.13 `bad.yml`\n\npy3.11-3.13 `remote.yml`\n\npy3.10-3.13 `gone.yml`\n", {
+    payload = _scan(tmp_path, "py3.12-3.13 `bad.yml`\n\npy3.11-3.13 `remote.yml`\n\npy3.10-3.13 `gone.yml`\n\n"
+                    "py3.9-3.13 `latest.yml`\n\npy3.8-3.13 `step.yml`\n\npy3.7-3.13 `file.yml`\n", {
         ".github/workflows/bad.yml": "jobs: [unclosed\n",
         ".github/workflows/remote.yml": "jobs:\n  t:\n    uses: acme/ci/.github/workflows/t.yml@v1\n",
-        ".github/workflows/gone.yml": "jobs:\n  t:\n    uses: ./.github/workflows/t.yml\n"})
+        ".github/workflows/gone.yml": "jobs:\n  t:\n    uses: ./.github/workflows/t.yml\n",
+        ".github/workflows/latest.yml": "jobs:\n  t:\n    strategy: {matrix: {python: ['3.9', '3.x']}}\n",
+        ".github/workflows/step.yml": "jobs:\n  t:\n    steps: [{with: {python-version: '${{ inputs.py }}'}}]\n",
+        ".github/workflows/file.yml": "jobs:\n  t:\n    steps: [{with: {python-version-file: .python-version}}]\n"})
     assert {c["claim"]: c["why"] for c in payload["claims"] if c["kind"] == "python_versions"} == {
         "py3.12-3.13": ".github/workflows/bad.yml is not valid YAML",
         "py3.11-3.13": "a job of .github/workflows/remote.yml calls acme/ci/.github/workflows/t.yml@v1, "
                        "a workflow outside this tree",
-        "py3.10-3.13": "a job of .github/workflows/gone.yml calls .github/workflows/t.yml, which the tree does not hold"}
+        "py3.10-3.13": "a job of .github/workflows/gone.yml calls .github/workflows/t.yml, which the tree does not hold",
+        "py3.9-3.13": "a matrix of .github/workflows/latest.yml gives Python 3.x, not one CPython 3 version",
+        "py3.8-3.13": "a setup step of .github/workflows/step.yml gives a computed Python version (${{ inputs.py }})",
+        "py3.7-3.13": "a setup step of .github/workflows/file.yml reads its Python version from .python-version"}
+
+
+def test_a_python_range_says_what_the_jobs_run(tmp_path):
+    payload = _scan(tmp_path, "| tests, py3.12-3.14t | `ci.yml` |\n\nPython 3.13–3.15 (`ci.yml`)\n", _wf(CONDA))
+    assert {c["claim"]: c["why"] for c in payload["claims"] if c["kind"] == "python_versions"} == {
+        "py3.12-3.14t": "the jobs of .github/workflows/ci.yml run 3.13, 3.14, 3.14t, 3.15, not 3.12 to 3.14t",
+        "Python 3.13–3.15": "the jobs of .github/workflows/ci.yml run 3.13, 3.14, 3.14t, 3.15"}
+
+
+def test_a_workflow_is_read_once_per_scan(tmp_path, monkeypatch):
+    from dokimi.repos.l0 import versions
+    reads: list[str] = []
+    real = versions.workflow_versions
+    monkeypatch.setattr(versions, "workflow_versions", lambda scan, path, *a: reads.append(path) or real(scan, path, *a))
+    payload = _scan(tmp_path, "py3.12-3.13 `ci.yml`\n\nPython 3.12 and 3.13, `ci.yml`\n", _wf("{python: ['3.12', '3.13']}"))
+    assert [c["status"] for c in payload["claims"] if c["kind"] == "python_versions"] == ["ok", "ok"]
+    assert reads == [".github/workflows/ci.yml"]
 
 
 def test_a_path_into_a_submodule_says_so(tmp_path):

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from dokimi.repos.l0.versions import _RUN, matrix_versions, parse
+from dokimi.repos.l0.versions import _RUN, matrix_versions, parse, setup_versions
 
 
 def _runs(text: str) -> list[tuple[str, object]]:
@@ -25,6 +25,8 @@ def _runs(text: str) -> list[tuple[str, object]]:
     ("moved from Python 3.11 to 3.13", [("Python 3.11", None)]),         # `to` is no range
     ("Python 3.12.4 and 3.12.5", []),                                    # patch releases are not matrix versions
     ("numpy3.1-3.2 and dpctl 0.22", []),                                 # no marker at a word start
+    ("`pkg-1.0-cp313-cp313-linux_x86_64.whl`", [("cp313", None), ("cp313", None)]),  # a wheel's tags, no range
+    ("cp312-cp314 wheels", [("cp312", None), ("cp314", None)]),         # a `cp` tag starts no range
 ])
 def test_runs_of_versions(text, expected):
     assert _runs(text) == expected
@@ -33,14 +35,36 @@ def test_runs_of_versions(text, expected):
 @pytest.mark.parametrize("matrix, expected", [
     ({"python-version": ["3.12", "3.13t", "3.14-dev", "3.15.0"]}, {(12, False), (13, True), (14, False), (15, False)}),
     ({"python": [3.10, "3.11"]}, {(1, False), (11, False)}),             # unquoted 3.10 is the float 3.1, as in GitHub
-    ({"py": ["pypy3.10", "3.x", "3.12"]}, {(12, False)}),                # not a CPython 3.N version: not read
+    ({"py": ["pypy3.10", "graalpy-24.1", "x64", "3.12"]}, {(12, False)}),  # not a CPython version: not read
+    ({"python": ["3.14.0-rc.1", "3.15.0-alpha.1", "3.13.0b2", "3.11.0rc1", "3.14t-dev", "3.12.x", "3.13.1t"]},
+     {(14, False), (15, False), (13, False), (11, False), (14, True), (12, False), (13, True)}),  # a pre-release: its minor
+    ({"version": ["3.12"], "os": ["3.13"]}, {(12, False)}),               # a setup step names `version`
     ({"os": ["a"], "include": [{"python": "3.14", "spec": "3.14.* *_cp314t"}]}, {(14, False), (14, True)}),
     ({"python": ["3.12"], "exclude": [{"python": "3.11"}]}, {(12, False)}),
 ])
 def test_matrix_versions(matrix, expected):
     unknown: list[str] = []
-    assert matrix_versions(matrix, "ci.yml", unknown) == expected
+    assert matrix_versions(matrix, "ci.yml", unknown, {"version"}) == expected
     assert unknown == []
+
+
+def test_a_python_value_that_names_no_one_version_is_unknown():
+    unknown: list[str] = []
+    assert matrix_versions({"python": ["3.x", ">=3.12", "3.12 - 3.14", 3, "3.13"]}, "ci.yml", unknown) == {(13, False)}
+    assert unknown == [f"a matrix of ci.yml gives Python {v}, not one CPython 3 version"
+                       for v in ("3.x", ">=3.12", "3.12 - 3.14", "3")]
+
+
+def test_setup_versions():
+    keys: set[str] = set()
+    unknown: list[str] = []
+    steps = [{"uses": "actions/checkout@v6"}, "run: x", {"with": "x"},
+             {"with": {"python-version": "3.12\n3.13t"}}, {"with": {"python-version": 3.14}},
+             {"with": {"python-version": "${{ matrix.py }}"}}, {"with": {"python-version": "${{ matrix['ver'] }}"}},
+             {"with": {"python-version": ["3.9"]}}]
+    assert setup_versions(steps, "ci.yml", unknown, keys) == {(12, False), (13, True), (14, False)}
+    assert keys == {"py", "ver"} and unknown == []
+    assert setup_versions({"with": {"python-version": "3.12"}}, "ci.yml", unknown, keys) == set()  # not a list
 
 
 @pytest.mark.timeout(5)  # str() of the bomb never returns
@@ -56,4 +80,4 @@ def test_a_computed_matrix_is_unknown():
     assert matrix_versions("${{ fromJSON(needs.plan.outputs.matrix) }}", "ci.yml", unknown) == set()
     assert matrix_versions({"python": ["${{ inputs.python }}"]}, "ci.yml", unknown) == set()
     assert unknown == ["a matrix of ci.yml is computed (${{ fromJSON(needs.plan.outputs.matrix) }})",
-                       "a matrix of ci.yml is computed (${{ inputs.python }})"]
+                       "a matrix of ci.yml gives a computed Python version (${{ inputs.python }})"]

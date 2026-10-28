@@ -844,7 +844,7 @@ in one request.
 
 | Check | Claims |
 |---|---|
-| generic | Markdown links (inline and reference definitions, `<angle-bracket>` targets; relative, and blob/tree links to `source.url`), paths and globs in code spans (see below), identifiers (a word in some tracked file that is not prose; a missing ALL_CAPS name is `unresolved`, since a tool outside the tree may read it), `python <script>` paths, a command wrapped in backticks inside a shell fence, Python versions on a line that names a workflow, against its matrices (see below) |
+| generic | Markdown links (inline and reference definitions, `<angle-bracket>` targets; relative, and blob/tree links to `source.url`), paths and globs in code spans (see below), identifiers (a word in some tracked file that is not prose; a missing ALL_CAPS name is `unresolved`, since a tool outside the tree may read it), `python <script>` paths, a command wrapped in backticks inside a shell fence, Python versions on a line that names a workflow, against what its jobs run (see below) |
 | `bazel` | `--config` values against `.bazelrc` and its imports, flag aliases, labels against the target and output names (`name`, `outs`, and the files of a top-level `exports_files([...])`) that the package's `BUILD.bazel`, else `BUILD`, spells out in either quote style (a package that calls a macro or computes a name, `"t_" + s`, a comprehension or `exports_files(glob(...))`, gives `unresolved`, not `fail`), macros and keyword arguments in Starlark fences against tracked `.bzl` files, `load()` symbols against the public top-level names (a `def` or an assignment) of the in-tree `.bzl` an absolute label names, labels of an external repository against its BUILD file when the tree holds one (see below), and `@<module>//` alone as this repository |
 | `make` | targets against the rules of every makefile (a `%:` catch-all or a rule named by a variable gives `unresolved`), `VAR=value` against the makefiles |
 | `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json`, `-S <dir>` against a `CMakeLists.txt` in that directory (`ok` when any ancestor directory of the guidance file holds it; `fail` only after a literal `cd`, and there a miss inside a declared submodule is `unresolved`; without a `cd` the directory the command runs in is not known, so a miss is `unresolved`; a glob such as `examples/*` is not a literal directory and gets no claim; a `%VAR%`, a drive path such as `C:/x`, and a `-S` word holding a backslash get no claim) |
@@ -941,22 +941,30 @@ link to a directory inside the tree is followed, as in a checkout, so
 `linkdir/core.py` with `linkdir -> src/pkg` is `ok`.
 
 A line that names a workflow of the tree (a code span or a link ending in
-`.yml` or `.yaml` under `.github/workflows/`) is also checked for the Python
-versions it gives. A run of versions that `py`, `Python` or `cp` starts is a
-`python_versions` claim when it is a range written with a dash (`py3.12-3.14t`,
-`Python 3.12–3.14`) or a list of two or more (`Python 3.12, 3.13 and 3.14`); a
-single version gets no claim, and `to` is no range ("moved from Python 3.11 to
-3.13"). What the workflow runs is the values of every matrix key whose name
-holds `python`, the keys of `include` entries too (`exclude` is not read), over
-its jobs and the workflows of this tree its jobs call with `uses: ./…`; a
-`3.14t` value or a `cp314t` tag in any matrix string is a free-threaded build.
-A range is `ok` when its ends are the lowest and highest version the matrices
-run (both ends written with `t`: of the free-threaded builds), a list when each
+`.yml` or `.yaml` under `.github/workflows/`; a bare file name that several
+workflows end in is the one in `.github/workflows/` itself, else none of them)
+is also checked for the Python versions it gives. A run of versions that `py`,
+`Python` or `cp` starts is a `python_versions` claim when it is a range written
+with a dash (`py3.12-3.14t`, `Python 3.12–3.14`) or a list of two or more
+(`Python 3.12, 3.13 and 3.14`); a single version gets no claim, `to` is no
+range ("moved from Python 3.11 to 3.13"), and a `cp` tag starts no range
+(`cp313-cp313` is the two tags of a wheel's name). What the workflow runs is
+the values of every matrix key whose name holds `python`, the keys of `include`
+entries too (`exclude` is not read), and the `python-version` its steps set up
+(`actions/setup-python`, or another action's input of that name;
+`${{ matrix.<key> }}` there makes `<key>` a Python key), over its jobs and the
+workflows of this tree its jobs call with `uses: ./…`. A pre-release
+(`3.14.0-rc.1`, `3.14.0a1`, `3.14-dev`) runs its minor version, and a `3.14t`
+value or a `cp314t` tag in any matrix string is a free-threaded build. A range
+is `ok` when its ends are the lowest and highest version the workflow runs
+(both ends written with `t`: of the free-threaded builds), a list when each
 version runs, and a version written with `t` must run free-threaded; anything
-else is `fail`. A matrix computed from an expression (`${{ fromJSON(…) }}`), a
-call to another repository's workflow or to one the tree lacks, a workflow that
-is not valid YAML, and matrices with no Python version make the claim
-`unresolved`.
+else is `fail`. A matrix or a step version computed from an expression
+(`${{ fromJSON(…) }}`), a Python value that names no one version (`3.x`,
+`>=3.12`), a `python-version-file`, a call to another repository's workflow or
+to one the tree lacks, a workflow that is not valid YAML, and a workflow with no
+Python version make the claim `unresolved`. Python that a job installs any other
+way (a `run:` step, a container image) is not read.
 
 Not checked by L0 (a follow-up): the `#fragment` of a link (`docs/x.md#setup`
 is checked as `docs/x.md`; a bare `#anchor` is skipped), and HTML in Markdown

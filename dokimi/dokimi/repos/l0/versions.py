@@ -8,22 +8,26 @@ matrix moves on, and every path and name on the line still resolves. Only a line
 tree holds (a code span or a link ending in ``.yml``/``.yaml`` under ``.github/workflows/``) is checked, and
 only a run of versions that a ``py``, ``Python`` or ``cp`` marker starts: a range written with a dash
 (``Python 3.12-3.14``, ``py310–py313``) or a list of two or more (``Python 3.12, 3.13 and 3.14``). A single version is often one
-job of many and gets no claim.
+job of many and gets no claim. A ``cp`` tag starts no range: ``cp313-cp313`` is the two tags of a wheel's name.
 
 What a workflow runs is the values of every matrix key whose name holds ``python`` (``python``,
-``python-version``, the keys of ``include`` entries; ``exclude`` is not read), over all its jobs and the
-reusable workflows of this tree its jobs call (``uses: ./.github/workflows/x.yml``). A free-threaded build is
-a ``3.14t`` value or a ``cp314t`` tag in any matrix string. A range is ``ok`` when its ends are the lowest and
-highest version the matrices run (both ends written with ``t``: the lowest and highest free-threaded one), a
-list when each version it names runs; a version written with ``t`` must run free-threaded. A matrix computed
-from an expression (``${{ fromJSON(...) }}``) or a call to another repository's workflow makes the claim
-``unresolved``.
+``python-version``, the keys of ``include`` entries; ``exclude`` is not read), and the ``python-version`` a
+step sets up (``actions/setup-python``, or another action's input of that name; ``${{ matrix.<key> }}``
+there makes ``<key>`` a Python key), over all its jobs and the reusable workflows of this tree its jobs call
+(``uses: ./.github/workflows/x.yml``). A pre-release (``3.14.0-rc.1``, ``3.14.0a1``) runs its minor
+version. A free-threaded build is a ``3.14t`` value or a ``cp314t`` tag in any matrix string. A range is
+``ok`` when its ends are the lowest and highest version the workflow runs (both ends written with ``t``: the
+lowest and highest free-threaded one), a list when each version it names runs; a version written with ``t``
+must run free-threaded. A matrix or step version computed from an expression (``${{ fromJSON(...) }}``), one
+that names no one version (``3.x``, ``>=3.12``), a ``python-version-file``, or a call to another
+repository's workflow makes the claim ``unresolved``.
 """
 
 from __future__ import annotations
 
 import posixpath
 import re
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -35,14 +39,20 @@ if TYPE_CHECKING:
 WORKFLOWS = ".github/workflows/"
 Version = tuple[int, bool]  # (minor, free-threaded) of a CPython 3 version
 
-_MARK = r"(?<![\w.])(?:[Cc][Pp]ython ?|[Pp]ython ?|[Pp]y|cp)"
+_PY = r"(?:[Cc][Pp]ython ?|[Pp]ython ?|[Pp]y)"
 _VER = r"3(?:\.\d{1,2}|\d{1,2})t?(?![\d.]*\d)"
 _DASH = r"\s*[-–—]\s*"  # not `to`: "moved from Python 3.11 to 3.13" is no range
 _SEP = r"\s*(?:,|/|&|\band\b|\bor\b)\s*"
-_ITEM = rf"{_VER}(?:{_DASH}(?:{_MARK})?{_VER})?"
-_RUN = re.compile(rf"{_MARK}{_ITEM}(?:{_SEP}(?:{_MARK})?{_ITEM})*")
-_ONE = re.compile(rf"(?:{_MARK})?(?P<a>{_VER})(?:{_DASH}(?:{_MARK})?(?P<b>{_VER}))?")
-_MATRIX_VALUE = re.compile(r"^3\.(\d{1,2})(t)?(?:\.[\dx*]+)?(?:-dev)?$")
+_SPAN = rf"{_VER}(?:{_DASH}(?:{_PY}|cp)?{_VER})?"  # one version, or a range written with a dash
+# a `cp` tag is one version and starts no range: `cp313-cp313` is the two tags of a wheel's name
+_ITEM = rf"(?<![\w.])(?:cp{_VER}|{_PY}{_SPAN})"
+_RUN = re.compile(rf"{_ITEM}(?:{_SEP}(?:{_ITEM}|{_SPAN}))*")
+_ONE = re.compile(rf"(?:cp|{_PY})?(?P<a>{_VER})(?:{_DASH}(?:cp|{_PY})?(?P<b>{_VER}))?")
+# `3.14`, `3.14t`, `3.14.2`, `3.12.x`, and a pre-release: `3.14-dev`, `3.14.0-rc.1`, `3.15.0-alpha.1`, `3.14.0a1`
+_MATRIX_VALUE = re.compile(r"^3\.(\d{1,2})(t)?(?:\.[\dx*]+)?(?:-?(?:dev|alpha|beta|rc|a|b)[.\d]*)?(t)?$")
+# a CPython version spec that names no one version: the latest (`3.x`) or a range (`>=3.12`, `3.12 - 3.14`)
+_OPEN = re.compile(r"^(?:3(?:\.[x*])?|[<>=~^!].*|3[\d.]*\s+-\s+3[\d.]*)$")
+_MATRIX_REF = re.compile(r"^\$\{\{\s*matrix(?:\.([\w-]+)|\[\s*['\"]([\w-]+)['\"]\s*\])\s*\}\}$")
 _CP_TAG = re.compile(r"(?<![A-Za-z0-9])cp3(\d{1,2})t(?![A-Za-z0-9])")
 
 
@@ -68,13 +78,21 @@ def check(scan: Scan, file: str, pieces: Pieces) -> None:
 
 
 def workflow(scan: Scan, name: str) -> str | None:
-    """The workflow file a code span or link names, by its path or its bare file name."""
+    """The workflow file a code span or link names, by its path or its bare file name.
+
+    A bare name is the file in ``.github/workflows/`` itself, the directory GitHub runs workflows from; else
+    the one workflow path the name ends. A name that several of them end, and none there, names no workflow.
+    """
     s = name.strip().strip("<>").split("#")[0]
     if not s.endswith((".yml", ".yaml")) or " " in s:
         return None
     s = re.sub(r"^(?:\.{1,2}/)+", "", s)
     flows = scan.cached("workflows", lambda: [f for f in scan.files if f.startswith(WORKFLOWS)])
-    return next((f for f in flows if f == s or f.endswith("/" + s)), None)
+    for exact in (s, WORKFLOWS + s):
+        if exact in flows:
+            return exact
+    hits = [f for f in flows if f.endswith("/" + s)]
+    return hits[0] if len(hits) == 1 else None
 
 
 def _version(text: str) -> Version:
@@ -106,20 +124,22 @@ def judge(scan: Scan, claim: tuple[list[tuple[Version, Version]], list[Version]]
     runs: set[Version] = set()
     unknown: list[str] = []
     for wf in flows:
-        runs |= workflow_versions(scan, wf, unknown, set())
+        got, why = scan.cached(f"python_versions:{wf}", lambda wf=wf: _read(scan, wf))
+        runs |= got
+        unknown += why
     where = ", ".join(flows)
     if unknown:
         return "unresolved", "; ".join(dict.fromkeys(unknown))
     if not runs:
-        return "unresolved", f"no Python version in the matrices of {where}"
+        return "unresolved", f"no Python version in the matrices or setup steps of {where}"
     ranges, singles = claim
     wrong = [f"3.{a[0]}{'t' if a[1] else ''} to 3.{b[0]}{'t' if b[1] else ''}" for a, b in ranges
              if not _range_holds(a, b, runs)]
     named = [v for a, b in ranges for v in (a, b) if v[1]] + singles
     wrong += [show([v]) for v in named if v not in runs]
     if wrong:
-        return "fail", f"the matrices of {where} run {show(runs)}, not {', '.join(wrong)}"
-    return "ok", f"the matrices of {where} run {show(runs)}"
+        return "fail", f"the jobs of {where} run {show(runs)}, not {', '.join(wrong)}"
+    return "ok", f"the jobs of {where} run {show(runs)}"
 
 
 def _range_holds(a: Version, b: Version, runs: set[Version]) -> bool:
@@ -128,8 +148,14 @@ def _range_holds(a: Version, b: Version, runs: set[Version]) -> bool:
     return bool(minors) and min(minors) == a[0] and max(minors) == b[0]
 
 
+def _read(scan: Scan, path: str) -> tuple[frozenset[Version], tuple[str, ...]]:
+    """What ``path`` runs and why that is not known, read once per scan: many lines can name one workflow."""
+    unknown: list[str] = []
+    return frozenset(workflow_versions(scan, path, unknown, set())), tuple(unknown)
+
+
 def workflow_versions(scan: Scan, path: str, unknown: list[str], seen: set[str]) -> set[Version]:
-    """What the matrices of ``path`` and the local workflows it calls run; why that is not known goes to ``unknown``."""
+    """What the jobs of ``path`` and the local workflows it calls run; why that is not known goes to ``unknown``."""
     if path in seen:
         return set()
     seen.add(path)
@@ -141,12 +167,38 @@ def workflow_versions(scan: Scan, path: str, unknown: list[str], seen: set[str])
     jobs = doc.get("jobs") if isinstance(doc, dict) else None
     out: set[Version] = set()
     for job in (jobs.values() if isinstance(jobs, dict) else []):
-        if not isinstance(job, dict):
+        if isinstance(job, dict):
+            out |= _job(scan, path, job, unknown, seen)
+    return out
+
+
+def _job(scan: Scan, path: str, job: dict[Any, Any], unknown: list[str], seen: set[str]) -> set[Version]:
+    """What one job runs: a local workflow it calls, the Python its steps set up, and its matrix."""
+    keys: set[str] = set()  # the matrix keys a setup step takes its version from
+    out = _called(scan, path, job.get("uses"), unknown, seen) | setup_versions(job.get("steps"), path, unknown, keys)
+    strategy = job.get("strategy")
+    if isinstance(strategy, dict) and "matrix" in strategy:
+        out |= matrix_versions(strategy["matrix"], path, unknown, keys)
+    return out
+
+
+def setup_versions(steps: Any, path: str, unknown: list[str], keys: set[str]) -> set[Version]:
+    """The versions a job's steps set up with ``with: python-version``; ``${{ matrix.<key> }}`` goes to ``keys``."""
+    out: set[Version] = set()
+    where = f"a setup step of {path}"
+    for step in steps if isinstance(steps, list) else []:
+        given = step.get("with") if isinstance(step, dict) else None
+        if not isinstance(given, dict):
             continue
-        out |= _called(scan, path, job.get("uses"), unknown, seen)
-        strategy = job.get("strategy")
-        if isinstance(strategy, dict) and "matrix" in strategy:
-            out |= matrix_versions(strategy["matrix"], path, unknown)
+        if "python-version-file" in given:
+            unknown.append(f"{where} reads its Python version from {given['python-version-file']}")
+        value = given.get("python-version")
+        ref = _MATRIX_REF.match(value.strip()) if isinstance(value, str) else None
+        if ref:
+            keys.add(ref.group(1) or ref.group(2))
+        elif isinstance(value, (str, int, float)):
+            for item in str(value).strip().splitlines():  # setup-python takes one version per line
+                out |= _value("python-version", item, where, unknown)
     return out
 
 
@@ -164,8 +216,8 @@ def _called(scan: Scan, path: str, uses: Any, unknown: list[str], seen: set[str]
     return workflow_versions(scan, target, unknown, seen)
 
 
-def matrix_versions(matrix: Any, path: str, unknown: list[str]) -> set[Version]:
-    """The versions one ``strategy.matrix`` runs."""
+def matrix_versions(matrix: Any, path: str, unknown: list[str], keys: Collection[str] = ()) -> set[Version]:
+    """The versions one ``strategy.matrix`` runs; ``keys`` hold Python versions too, whatever their names."""
     if isinstance(matrix, str):
         unknown.append(f"a matrix of {path} is computed ({matrix.strip()})")
         return set()
@@ -178,21 +230,23 @@ def matrix_versions(matrix: Any, path: str, unknown: list[str]) -> set[Version]:
         for value in values if isinstance(values, list) else [values]:
             pairs = value.items() if key == "include" and isinstance(value, dict) else [(key, value)]
             for k, v in pairs:
-                out |= _value(str(k), v, path, unknown)
+                out |= _value(str(k), v, f"a matrix of {path}", unknown, str(k) in keys)
     return out
 
 
-def _value(key: str, value: Any, path: str, unknown: list[str]) -> set[Version]:
+def _value(key: str, value: Any, where: str, unknown: list[str], python: bool = False) -> set[Version]:
+    """What one value runs: a ``cp3XYt`` tag in it, and its version under a Python key (or with ``python``)."""
     if not isinstance(value, (str, int, float)):  # a nested list or mapping: str() of YAML aliases can explode
         return set()
     text = str(value).strip()
     out = {(int(m), True) for m in _CP_TAG.findall(text)}
-    if "python" not in key.lower() and key.lower() != "py":
-        return out
-    if "${{" in text:
-        unknown.append(f"a matrix of {path} is computed ({text})")
+    if not python and "python" not in key.lower() and key.lower() != "py":
         return out
     m = _MATRIX_VALUE.match(text)
     if m:
-        out.add((int(m.group(1)), bool(m.group(2))))
+        out.add((int(m.group(1)), bool(m.group(2) or m.group(3))))
+    elif "${{" in text:
+        unknown.append(f"{where} gives a computed Python version ({text})")
+    elif _OPEN.match(text):
+        unknown.append(f"{where} gives Python {text}, not one CPython 3 version")
     return out
