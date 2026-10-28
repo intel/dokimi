@@ -1,0 +1,125 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""A re-scoring judge that fails says so: how many answers it left unscored, and why.
+
+``score_measure`` keeps going past a failed judge call (the answer drops out of the
+pairing), but it used to drop the error with it: a judge with no key, an unknown
+model or a dead endpoint gave ``NOT MEASURED``, exit 0, and no reason anywhere.
+"""
+
+import json
+import logging
+
+from dokimi.cli import build_parser
+from dokimi.eval import cross_judge as cj
+from dokimi.eval import judge as judge_mod
+
+KEY_ERROR = "litellm.AuthenticationError: Missing Anthropic API Key - set ANTHROPIC_API_KEY"
+
+
+def _records(n=3):
+    return [{"question_id": f"Q{i}", "question_text": "How do I use X?", "arms": {
+        "baseline": {"answer": f"b{i}"}, "skill": {"answer": f"s{i}"}}} for i in range(n)]
+
+
+def _scorer(failing):
+    """Scores 50, except an answer in *failing*, which raises naming that answer."""
+    def score(library, question, answer, ground_truth, context):
+        if answer in failing:
+            raise RuntimeError(f"judge down on {answer}")
+        return 50.0
+    return score
+
+
+def _warnings(caplog):
+    return [r.getMessage() for r in caplog.records if r.name == cj.__name__]
+
+
+def test_score_measure_counts_the_unscored_answers_and_keeps_the_first_error(caplog):
+    with caplog.at_level(logging.WARNING, logger="dokimi.eval.cross_judge"):
+        m = cj.score_measure(_records(), _scorer({"s1", "b2"}), name="p/m", library="L", concurrency=4)
+
+    assert (m.asked, m.unscored) == (6, 2)
+    # The first failure in answer order, whichever thread finished first.
+    assert m.first_error == "RuntimeError: judge down on s1"
+    assert _warnings(caplog) == [
+        "p/m (aggregate): 2 of 6 answers unscored, first error: RuntimeError: judge down on s1"]
+
+
+def test_score_measure_with_every_answer_scored_warns_nothing(caplog):
+    with caplog.at_level(logging.WARNING, logger="dokimi.eval.cross_judge"):
+        m = cj.score_measure(_records(), _scorer(set()), name="p/m", library="L")
+
+    assert (m.asked, m.unscored, m.first_error) == (6, 0, None)
+    assert _warnings(caplog) == []
+
+
+def test_the_reason_is_the_first_line_of_the_message_without_a_repeated_type():
+    multiline = RuntimeError("Connection error.\nTraceback (most recent call last): ...")
+    m = cj.score_measure(_records(1), lambda *a: (_ for _ in ()).throw(multiline), name="p/m", library="L")
+    assert m.first_error == "RuntimeError: Connection error."
+
+    m = cj.score_measure(_records(1), lambda *a: (_ for _ in ()).throw(RuntimeError(KEY_ERROR)),
+                         name="p/m", library="L")
+    assert m.first_error == "RuntimeError: " + KEY_ERROR  # the type is not in the message
+
+    class AuthenticationError(Exception):
+        pass
+
+    m = cj.score_measure(_records(1), lambda *a: (_ for _ in ()).throw(AuthenticationError(KEY_ERROR)),
+                         name="p/m", library="L")
+    assert m.first_error == KEY_ERROR  # litellm already names its type
+
+
+def test_a_measure_read_from_a_file_asked_no_judge():
+    m = cj.coverage_measure({"questions": [{"question_id": "Q1", "arms": {"skill": {"coverage": None}}}]}, "c")
+    assert (m.asked, m.unscored, m.first_error) == (0, 0, None)
+
+
+def _cross_judge(tmp_path, monkeypatch, failing, *extra, data=None):
+    """``eval cross-judge --judges anthropic/m`` with a judge that raises on *failing* answers.
+
+    Returns ``(exit code, stderr, the written JSON report)``; the code is 0 when it did not exit.
+    """
+    class FailingJudge:
+        def __init__(self, **_):
+            pass
+
+        def score_answer(self, *, answer, **_):
+            if failing is all or answer in failing:
+                raise RuntimeError(KEY_ERROR)
+            return {"aggregate": 50.0}
+
+    monkeypatch.setattr(judge_mod, "Judge", FailingJudge)
+    answers = tmp_path / "run.json"
+    answers.write_text(json.dumps(data or {"library_name": "L", "answers": _records()}), encoding="utf-8")
+    out = tmp_path / "cj.json"
+    args = build_parser().parse_args(["eval", "cross-judge", "--answers", str(answers), "--judges", "anthropic/m",
+                                      "--output", str(out), *extra])
+    code = 0
+    try:
+        args.func(args)
+    except SystemExit as exc:
+        code = exc.code
+    return code, json.loads(out.read_text(encoding="utf-8"))
+
+
+def test_a_judge_that_scored_some_answers_warns_and_keeps_exit_0(tmp_path, monkeypatch, caplog):
+    with caplog.at_level(logging.WARNING, logger="dokimi.eval.cross_judge"):
+        code, report = _cross_judge(tmp_path, monkeypatch, {"s0"}, "--no-stored")
+
+    assert code == 0
+    assert "anthropic/m (aggregate): 1 of 6 answers unscored, first error: RuntimeError: " + KEY_ERROR \
+        in caplog.text
+    assert report["unscored"][0]["unscored"] == 1
+    assert report["summary"]["arms"]["skill"]["rows"][0]["n"] == 2
+    assert (tmp_path / "cj.md").read_text(encoding="utf-8").endswith(
+        f"`anthropic/m` (aggregate): 1 of 6 answers unscored, first error: RuntimeError: {KEY_ERROR}\n")
+
+
+def test_a_clean_run_has_no_unscored_section(tmp_path, monkeypatch):
+    code, report = _cross_judge(tmp_path, monkeypatch, set(), "--no-stored")
+    assert code == 0
+    assert report["unscored"] == []
+    assert "unscored" not in (tmp_path / "cj.md").read_text(encoding="utf-8")
