@@ -15,6 +15,7 @@
 --agent-network
 --all
 --all-atoms
+--all-vs-all  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
 --allow-self-judge
 --allow-unsafe
 --allow-unsupported
@@ -37,6 +38,7 @@
 --candidate
 --catalog
 --checklist
+--claude  # catalog trigger-probe (#217) adds it: backend choice has no registry concept yet
 --command-template
 --competitors
 --context
@@ -74,6 +76,7 @@
 --groups
 --harnesses
 --image
+--include-disabled  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
 --include-resources
 --input
 --intents
@@ -92,6 +95,7 @@
 --libraries
 --library
 --limit
+--listing-budget-fraction  # catalog trigger-probe (#217) adds it: no registry concept yet
 --manifest
 --manifest-file
 --matrix-cell
@@ -139,6 +143,7 @@
 --product
 --provider
 --queries
+--queries-by-skill  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
 --queries-from-headings
 --questions-from
 --questions-per-topic
@@ -164,6 +169,7 @@
 --save-analysis
 --scenarios
 --scorer
+--sealed  # catalog trigger-probe (#217) adds it: no registry concept yet
 --sequential
 --session-turns
 --sim-threshold
@@ -187,6 +193,7 @@
 --top-n
 --topics
 --treatment-arm
+--trials  # catalog trigger-probe (#217) adds it: a banned synonym of reps; renaming it changes the CLI, so it waits for F1b
 --trigger-set
 --turn-reminder
 --typed-max-len
