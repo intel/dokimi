@@ -73,14 +73,17 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
 
     An attractor is a skill picked for queries written for other skills. ``wrongly_picked``
     counts those queries, ``sibling_queries`` is how many queries the other skills have, and
-    ``from`` names the skills whose queries it took.
+    ``from`` names the skills whose queries it took. Skills with the same description are a
+    tied group (``tied_groups``): a pick between them is in the confusion matrix but is no
+    attractor, and their queries are no sibling queries of each other.
 
     Returns:
-        ``n_skills``, ``n_queries``, and per arm (``lexical``, ``model``): ``confusion`` (gold
-        skill to picked skill to count, ``(none)`` and ``(tie)`` included), ``own_rate`` per gold
-        skill (``None`` when none of its queries was scored), ``n_scored`` and ``n_unscored``
-        per gold skill, and ``attractors`` ordered by ``wrongly_picked``. The model arm also records ``model``,
-        ``seed``, ``n_failed``, ``n_abstained`` and ``first_error``.
+        ``n_skills``, ``n_queries``, ``tied_groups``, and per arm (``lexical``, ``model``):
+        ``confusion`` (gold skill to picked skill to count, ``(none)`` and ``(tie)`` included),
+        ``own_rate`` per gold skill (``None`` when none of its queries was scored), ``n_scored``
+        and ``n_unscored`` per gold skill, and ``attractors`` ordered by ``wrongly_picked``. The
+        model arm also records ``model``, ``seed``, ``n_failed``, ``n_abstained`` and
+        ``first_error``.
 
     Raises:
         RoutingInputError: Fewer than two skills in the field; a name repeated in the field; a
@@ -91,12 +94,26 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     result: dict = {
         "n_skills": len(candidates),
         "n_queries": sum(len(q) for q in queries_by_skill.values()),
+        "tied_groups": _tied_groups(candidates),
         "lexical": _attractor_table(*_lexical_picks(candidates, queries_by_skill, names),
-                                    names),
+                                    names, _tied_groups(candidates)),
     }
     if client is not None:
         result["model"] = _model_arm(candidates, queries_by_skill, names, client, seed)
     return result
+
+
+def _tied_groups(candidates: list[Candidate]) -> list[list[str]]:
+    """Groups of two or more skills with the same non-empty description, in field order.
+
+    Such skills tie on every query their description matches (the name differs, so the card
+    does not), so neither is the other's attractor: the group is reported once instead.
+    """
+    by_description: dict[str, list[str]] = {}
+    for candidate in candidates:
+        if candidate.description.strip():
+            by_description.setdefault(candidate.description, []).append(candidate.name)
+    return [group for group in by_description.values() if len(group) > 1]
 
 
 def _check_all_vs_all_input(names: list[str], queries_by_skill: dict[str, list[str]]) -> None:
@@ -187,26 +204,33 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         model[name] = Counter(row.get("picked") or NO_PICK for row in rows if not row.get("error"))
         if routed["n_failed"]:
             unscored[name] = unscored.get(name, 0) + routed["n_failed"]
-    return dict(_attractor_table(model, unscored, names), model=client.model, seed=seed,
-                n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
+    return dict(_attractor_table(model, unscored, names, _tied_groups(candidates)),
+                model=client.model, seed=seed, n_failed=n_failed, n_abstained=n_abstained,
+                first_error=first_error)
 
 
 def _attractor_table(picks_by_gold: dict[str, Counter], unscored: dict[str, int],
-                     names: list[str]) -> dict:
+                     names: list[str], tied_groups: list[list[str]]) -> dict:
     """The confusion matrix, own rate and attractor table for one arm of :func:`all_vs_all`.
 
     Every rate is over the queries that were scored: ``n_scored`` per gold skill, with
     ``n_unscored`` beside it. A skill with none scored has an ``own_rate`` of ``None``, which
-    is not the 0.0 of a skill the arm really never picked.
+    is not the 0.0 of a skill the arm really never picked. A pick between skills of one tied
+    group is no attractor, and their queries are not sibling queries of each other.
     """
+    tied = {name: set(group) for group in tied_groups for name in group}
+
+    def same_group(gold: str, name: str) -> bool:
+        return gold == name or name in tied.get(gold, ())
+
     scored = {gold: sum(picks.values()) for gold, picks in picks_by_gold.items()}
     attractors: list[dict] = []
     for name in names:
         wrong = {gold: picks[name] for gold, picks in picks_by_gold.items()
-                 if gold != name and picks[name]}
+                 if not same_group(gold, name) and picks[name]}
         if not wrong:
             continue
-        sibling_queries = sum(n for gold, n in scored.items() if gold != name)
+        sibling_queries = sum(n for gold, n in scored.items() if not same_group(gold, name))
         attractors.append({
             "skill": name,
             "wrongly_picked": sum(wrong.values()),

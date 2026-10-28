@@ -235,6 +235,33 @@ def test_two_identical_cards_tie_and_neither_is_scored_a_win(order):
     assert result["confusion"] == {"a": {"b": 1}, "b": {"a": 1}}
 
 
+@pytest.mark.parametrize("order", [("a", "b"), ("b", "a")])
+def test_two_identical_cards_are_one_tied_group_and_no_attractor(order):
+    result = all_vs_all(_two_identical_cards(order),
+                        {"a": ["format json"], "b": ["format json"]})
+    assert result["tied_groups"] == [list(order)]
+    assert result["lexical"]["attractors"] == []
+
+
+def test_an_attractor_outside_the_tied_group_is_still_reported():
+    field = [Candidate(name="a", description="format json output"),
+             Candidate(name="b", description="format json output"),
+             Candidate(name="c", description="profile binary")]
+    result = all_vs_all(field, {"a": ["profile"], "c": ["profile"]})
+    assert result["tied_groups"] == [["a", "b"]]
+    assert result["lexical"]["attractors"] == [{
+        "skill": "c", "wrongly_picked": 1, "sibling_queries": 1, "rate": 1.0, "from": ["a"],
+    }]
+
+
+def test_a_tied_group_member_is_not_counted_as_a_sibling_query():
+    field = [Candidate(name="a", description="format json output"),
+             Candidate(name="b", description="format json output"),
+             Candidate(name="c", description="profile binary")]
+    result = all_vs_all(field, {"a": ["format json", "format json"], "c": ["profile"]})
+    assert result["lexical"]["attractors"] == []
+
+
 def test_a_three_way_tie_is_not_a_perfect_pick():
     field = [Candidate(name=f"s{i}", description="common words") for i in range(3)]
     lexical = all_vs_all(field, {"s0": ["common"]})["lexical"]
@@ -569,6 +596,16 @@ def test_console_counts_tied_queries_when_nothing_is_unscored(tmp_path, capsys):
                            "gold": "something unrelated entirely"},
                           {"gold": ["fast transforms", "transforms fast"]})
     assert "lexical: 2 tied and 0 unscored queries are not counted as picks" in stdout
+
+
+def test_console_names_a_tied_group_once_and_not_as_attractors(tmp_path, capsys):
+    stdout = _run_console(tmp_path, capsys,
+                          {"fft": "fast transforms", "linalg": "fast transforms",
+                           "gold": "something unrelated entirely"},
+                          {"gold": ["something unrelated"]})
+    assert ("tied: fft, linalg have the same description; one group, not attractors of each "
+            "other") in stdout
+    assert "sibling queries" not in stdout
 
 
 def test_console_sums_unscored_queries_over_every_skill(tmp_path, capsys):

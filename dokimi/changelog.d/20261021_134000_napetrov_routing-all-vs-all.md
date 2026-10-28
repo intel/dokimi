@@ -10,3 +10,5 @@
   to the model); a lexical tie among other cards is `(tie)`; a failed model call
   exits non-zero; a repeated skill key in the queries file is refused; routing results record
   the field rule under `field`.
+- `--all-vs-all` names skills with the same description as one tied group (`tied_groups`), not
+  as each other's attractor: a pick between them is in the confusion matrix only.

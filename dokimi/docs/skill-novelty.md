@@ -640,6 +640,15 @@ Two numbers, reported side by side and never merged:
   queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
   carries its `repeat` index.
 
+A `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
+write tokens, and `usd`, which is `null` when any call this run paid for had no known price) and prints the
+same totals on stdout. Cache tokens are reported separately from input tokens, and depending on
+the provider they may or may not be counted inside `input_tokens`. A run without `--model` makes
+no calls and has no `cost` block. `usd` is also `null` when a call returned no usage, and a
+call that raised is not counted. A call replayed from the response cache is counted in
+`replayed_calls` and left out of the token and `usd` totals, since this run did not pay for it;
+`llm_calls` still counts it.
+
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
 next to `n_queries_scored`, since a query with no content words is dropped rather than
@@ -654,7 +663,9 @@ matrix (gold to picked to count, with `(none)` for a query no card shares a word
 the model arm, an abstention, and `(tie)` for a query on which two or more other cards tie for
 the top lexical score, so no field order decides it), an own rate per skill, and an attractor
 table: a skill picked for other skills' queries, with `wrongly_picked` of `sibling_queries` and
-the skills whose queries it took (`from`). Every rate is over the queries that were scored:
+the skills whose queries it took (`from`). Skills with the same description are a tied group
+(`tied_groups`, named once on the console): a pick between them is in the confusion matrix but
+is no attractor. Every rate is over the queries that were scored:
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
