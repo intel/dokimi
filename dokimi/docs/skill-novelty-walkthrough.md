@@ -41,7 +41,7 @@ python cli.py novelty routing --artifact skill:skills/my-skill \
 ```
 
 The competitors are the skills a harness lists next to this one: `--catalog <dir>` takes
-every other skill the catalog lists (a `template/` copy is left out), and `--competitors` adds or
+every other skill the catalog lists (a `template/` copy and vendored or VCS directories such as `.git` are left out), and `--competitors` adds or
 names them one by one. With no real siblings at hand, skip this step and say so; a field of
 competitors made up for the run measures nothing.
 

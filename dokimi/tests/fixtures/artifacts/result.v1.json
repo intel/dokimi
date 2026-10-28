@@ -1,0 +1,44 @@
+{
+  "schema_version": "result.v1",
+  "generated_at": "2026-10-21T01:00:00Z",
+  "plan_digest": "sha256:6bbd76a2642039efd7b9d8fee6ffe85ec785ee3ec0985f4fc0fcd56c521f2348",
+  "execution_id": null,
+  "cells": [
+    {
+      "cell_id": "c-10d62354d75a76ad",
+      "status": "pass",
+      "model": "claude-sonnet-4-6",
+      "detail": null
+    },
+    {
+      "cell_id": "c-0dcdf544e6633536",
+      "status": "fail",
+      "model": "claude-sonnet-4-6",
+      "detail": null
+    },
+    {
+      "cell_id": "c-76d4abb63bbedfa5",
+      "status": "inconclusive",
+      "model": "claude-sonnet-4-6",
+      "detail": null
+    },
+    {
+      "cell_id": "c-c496602cb859e4b5",
+      "status": "invalid",
+      "model": "claude-sonnet-4-6",
+      "detail": null
+    },
+    {
+      "cell_id": "c-c072b8552ce95b52",
+      "status": "infra_error",
+      "model": "claude-sonnet-4-6",
+      "detail": null
+    },
+    {
+      "cell_id": "c-59a34a383f800169",
+      "status": "not_run",
+      "model": "claude-sonnet-4-6",
+      "detail": null
+    }
+  ]
+}
