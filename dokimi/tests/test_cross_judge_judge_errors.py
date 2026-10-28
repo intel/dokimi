@@ -62,6 +62,12 @@ def test_the_reason_is_the_first_line_of_the_message_without_a_repeated_type():
     m = cj.score_measure(_records(1), lambda *a: (_ for _ in ()).throw(multiline), name="p/m", library="L")
     assert m.first_error == "RuntimeError: Connection error."
 
+    m = cj.score_measure(_records(1), lambda *a: (_ for _ in ()).throw(RuntimeError("\n  Connection error.\n")),
+                         name="p/m", library="L")
+    assert m.first_error == "RuntimeError: Connection error."  # the first line with text
+    m = cj.score_measure(_records(1), lambda *a: (_ for _ in ()).throw(RuntimeError()), name="p/m", library="L")
+    assert m.first_error == "RuntimeError"  # no message: the type alone
+
     m = cj.score_measure(_records(1), lambda *a: (_ for _ in ()).throw(RuntimeError(KEY_ERROR)),
                          name="p/m", library="L")
     assert m.first_error == "RuntimeError: " + KEY_ERROR  # the type is not in the message
@@ -122,17 +128,22 @@ def test_a_judge_that_scored_nothing_exits_2_after_writing_the_report(tmp_path, 
         f"`anthropic/m` (aggregate): 6 of 6 answers unscored, first error: RuntimeError: {KEY_ERROR}\n")
 
 
-def test_a_judge_that_scored_some_answers_warns_and_keeps_exit_0(tmp_path, monkeypatch, caplog):
+@pytest.mark.parametrize("failing, compared", [
+    ({"s0"}, 2),
+    ({"b0", "s0", "b1", "s1", "b2"}, 0),  # all but one: the edge of "scored none"
+])
+def test_a_judge_that_scored_some_answers_warns_and_keeps_exit_0(tmp_path, monkeypatch, caplog, capsys,
+                                                                 failing, compared):
     with caplog.at_level(logging.WARNING, logger="dokimi.eval.cross_judge"):
-        code, report = _cross_judge(tmp_path, monkeypatch, {"s0"}, "--no-stored")
+        code, report = _cross_judge(tmp_path, monkeypatch, failing, "--no-stored")
+    note = f"(aggregate): {len(failing)} of 6 answers unscored, first error: RuntimeError: {KEY_ERROR}"
 
     assert code == 0
-    assert "anthropic/m (aggregate): 1 of 6 answers unscored, first error: RuntimeError: " + KEY_ERROR \
-        in caplog.text
-    assert report["unscored"][0]["unscored"] == 1
-    assert report["summary"]["arms"]["skill"]["rows"][0]["n"] == 2
-    assert (tmp_path / "cj.md").read_text(encoding="utf-8").endswith(
-        f"`anthropic/m` (aggregate): 1 of 6 answers unscored, first error: RuntimeError: {KEY_ERROR}\n")
+    assert "Error:" not in capsys.readouterr().err
+    assert f"anthropic/m {note}" in caplog.text
+    assert report["unscored"][0]["unscored"] == len(failing)
+    assert report["summary"]["arms"]["skill"]["rows"][0]["n"] == compared
+    assert (tmp_path / "cj.md").read_text(encoding="utf-8").endswith(f"`anthropic/m` {note}\n")
 
 
 def test_a_scored_nothing_judge_fails_the_run_even_when_the_stored_measure_carries_the_label(
