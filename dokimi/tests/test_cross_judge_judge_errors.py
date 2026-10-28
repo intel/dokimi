@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""A re-scoring judge that fails says so: how many answers it left unscored, and why.
+"""A re-scoring judge that fails says so, and one that scored nothing fails the run.
 
 ``score_measure`` keeps going past a failed judge call (the answer drops out of the
 pairing), but it used to drop the error with it: a judge with no key, an unknown
@@ -10,6 +10,8 @@ model or a dead endpoint gave ``NOT MEASURED``, exit 0, and no reason anywhere.
 
 import json
 import logging
+
+import pytest
 
 from dokimi.cli import build_parser
 from dokimi.eval import cross_judge as cj
@@ -105,6 +107,21 @@ def _cross_judge(tmp_path, monkeypatch, failing, *extra, data=None):
     return code, json.loads(out.read_text(encoding="utf-8"))
 
 
+@pytest.mark.parametrize("strict", [[], ["--strict"]])  # a failed run, not --strict's NOT MEASURED exit 1
+def test_a_judge_that_scored_nothing_exits_2_after_writing_the_report(tmp_path, monkeypatch, capsys, strict):
+    code, report = _cross_judge(tmp_path, monkeypatch, all, "--no-stored", *strict)
+    err = capsys.readouterr().err
+
+    assert code == 2
+    assert f"Error: anthropic/m (aggregate) scored none of its 6 answers, first error: RuntimeError: {KEY_ERROR}\n" \
+        in err
+    assert report["summary"]["arms"]["skill"]["label"] == "NOT MEASURED"
+    assert report["unscored"] == [{"measure": "anthropic/m", "kind": "aggregate", "asked": 6, "unscored": 6,
+                                   "first_error": f"RuntimeError: {KEY_ERROR}"}]
+    assert (tmp_path / "cj.md").read_text(encoding="utf-8").endswith(
+        f"`anthropic/m` (aggregate): 6 of 6 answers unscored, first error: RuntimeError: {KEY_ERROR}\n")
+
+
 def test_a_judge_that_scored_some_answers_warns_and_keeps_exit_0(tmp_path, monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="dokimi.eval.cross_judge"):
         code, report = _cross_judge(tmp_path, monkeypatch, {"s0"}, "--no-stored")
@@ -118,8 +135,35 @@ def test_a_judge_that_scored_some_answers_warns_and_keeps_exit_0(tmp_path, monke
         f"`anthropic/m` (aggregate): 1 of 6 answers unscored, first error: RuntimeError: {KEY_ERROR}\n")
 
 
+def test_a_scored_nothing_judge_fails_the_run_even_when_the_stored_measure_carries_the_label(
+        tmp_path, monkeypatch, capsys):
+    data = {"library_name": "L", "answers": _records(8), "evaluations": [
+        {"question_id": f"Q{i}", "scores": {"baseline": {"aggregate": 50}, "skill": {"aggregate": 90}}}
+        for i in range(8)]}
+    code, report = _cross_judge(tmp_path, monkeypatch, all, "--strict", data=data)
+
+    assert report["summary"]["arms"]["skill"]["label"] == "CONSISTENT + (one judge)"  # --strict alone passes
+    assert code == 2
+    assert "Error: anthropic/m (aggregate) scored none of its 16 answers" in capsys.readouterr().err
+
+
 def test_a_clean_run_has_no_unscored_section(tmp_path, monkeypatch):
     code, report = _cross_judge(tmp_path, monkeypatch, set(), "--no-stored")
     assert code == 0
     assert report["unscored"] == []
     assert "unscored" not in (tmp_path / "cj.md").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("both", [False, True])
+def test_every_measure_of_a_dead_judge_is_named(tmp_path, monkeypatch, capsys, both):
+    questions = tmp_path / "q.json"
+    topics = ["X is configured with a single call before the first use"]
+    questions.write_text(json.dumps([{"id": f"Q{i}", "question": "How do I use X?", "expected_topics": topics}
+                                     for i in range(3)]), encoding="utf-8")
+    extra = ["--no-stored", "--grounded", "--questions", str(questions)] + (["--both"] if both else [])
+    code, _ = _cross_judge(tmp_path, monkeypatch, all, *extra)
+    err = capsys.readouterr().err
+
+    assert code == 2
+    assert ("anthropic/m (aggregate) scored none" in err) is both
+    assert "anthropic/m (grounded) scored none" in err
