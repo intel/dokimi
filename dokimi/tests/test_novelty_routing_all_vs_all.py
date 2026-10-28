@@ -367,6 +367,16 @@ def test_a_transport_that_raises_is_counted_not_reported_as_a_clean_zero():
     assert "boom" in model["first_error"]
 
 
+def test_a_transport_that_raises_with_no_message_is_still_counted_as_failed():
+    def transport(prompt: str, system: str | None):
+        raise RuntimeError()
+
+    client = LLMClient(model="m", role="selector", transport=transport)
+    model = all_vs_all(ALL_FIELD, ALL_QUERIES, client=client)["model"]
+    assert model["n_failed"] == 4 and model["n_abstained"] == 0
+    assert model["first_error"]
+
+
 def test_all_vs_all_exits_nonzero_when_every_model_call_fails(tmp_path, capsys, monkeypatch):
     import dokimi.commands.novelty as novelty_cmd
 

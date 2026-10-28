@@ -780,6 +780,7 @@ def test_a_single_usable_repeat_has_no_half_range():
     assert noise["selection_rate_by_repeat"] == [1.0]
     assert noise["half_range"] is None
 
+
 def test_headings_inside_code_only_refuse_the_run_and_say_why(tmp_path):
     out = tmp_path / "routing.json"
     args = _parse("novelty", "routing",

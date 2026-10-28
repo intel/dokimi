@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import math
+import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -91,13 +94,54 @@ def _print_skipped(skipped: dict, n_groups: int) -> None:
         print(f"  {factor}: skipped for {len(ids)} of {n_groups} groups ({', '.join(ids)})")
 
 
+def _write_items(path: str, items: list) -> None:
+    """Write the probe items to ``path``, or exit 1 naming it when it cannot be written."""
+    try:
+        Path(path).write_text(json.dumps(items, indent=1), encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot write --items-out {path}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+
+def _save_result(data: dict, path: str) -> None:
+    """Save the tool_preference artifact to ``path``, or exit 1 naming it when it cannot be written."""
+    from dokimi.artifacts import ArtifactValidationError, save_artifact
+
+    try:
+        save_artifact("tool_preference", data, path)
+    except ArtifactValidationError as exc:  # the path was writable; the payload failed the schema
+        print(f"Error: tool_preference artifact rejected: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+    except (OSError, ValueError) as exc:  # unwritable path, including an empty one (pathlib ValueError)
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+
+
+def _check_out_json_writable(path: str) -> None:
+    """Exit 2 before any probe call when a save to ``path`` would fail, probed with a temp file that is removed."""
+    from dokimi.artifacts import _write_target
+
+    target = Path(path)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        resolved = _write_target(target)
+        if resolved.is_dir():
+            raise IsADirectoryError(errno.EISDIR, "Is a directory", path)
+        tmp = resolved.with_name(f"{resolved.name}.{os.getpid()}.{threading.get_ident()}.tmp")  # the save's name
+        with tmp.open("xb"):
+            pass
+        tmp.unlink()
+    except (OSError, ValueError) as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        raise SystemExit(2) from None
+
+
 def cmd_tools_preference(args: argparse.Namespace) -> None:
-    from dokimi.artifacts import save_artifact
     from dokimi import tool_preference as tp
 
     try:
         doc = tp.load_groups(json.loads(Path(args.groups).read_text(encoding="utf-8")))
-    except (OSError, json.JSONDecodeError, tp.GroupsError) as exc:
+    except (OSError, RecursionError, ValueError, tp.GroupsError) as exc:
         raise SystemExit(f"--groups {args.groups}: {exc}") from exc
     factors = list(dict.fromkeys(f for f in args.factors.split(",") if f)) if args.factors else list(tp.FACTORS)
     unknown = sorted(set(factors) - set(tp.FACTORS))
@@ -110,12 +154,13 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
           + (f", stopping at ${args.max_cost_usd:g}" if args.max_cost_usd else ""))
     _print_skipped(tp.skipped_factors(doc, factors), len(doc["groups"]))
     if args.items_out:
-        Path(args.items_out).write_text(json.dumps(items, indent=1), encoding="utf-8")
+        _write_items(args.items_out, items)
         print(f"items -> {args.items_out}")
     if args.dry_run:
         return
     if not args.model:
         raise SystemExit("--model is required unless --dry-run")
+    _check_out_json_writable(args.out_json)
 
     def progress(done: int, total: int) -> None:
         if done % 100 == 0 or done == total:
@@ -127,7 +172,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     data = tp.payload(doc, items, results, model=args.model, provider=args.provider,
                       reps=args.reps, factors=factors, max_tokens=args.max_tokens,
                       max_cost_usd=args.max_cost_usd)
-    save_artifact("tool_preference", data, args.out_json)
+    _save_result(data, args.out_json)
     _print_summary(data["summary"])
     u = data["usage"]
     print(f"cost: {u['cost_usd']} USD over {u['n_calls']} calls ({u['cost_known_calls']} priced)")

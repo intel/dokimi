@@ -28,7 +28,8 @@ offline. No grader calls an LLM.
 
 Every code task also gets these metrics:
 - `regress_pass`: the whole suite, except timing- and process-sensitive tests: all of
-  `test_example_runner_processes.py` (4 tests, 7 cases) and 2 single tests (`REGRESSION` in `run.py`)
+  `test_example_runner_processes.py` (4 tests, 7 cases) and 2 single tests (`REGRESSION` in `run.py`),
+  and the real ragas import check, which needs the `[ragas]` extra the image does not install
 - `ruff_ok`, `mypy_ok`, `config_ok`, `schema_ok`
 - `compat_ok`: `schema_compat` against the start commit
 - `diffcov_*`: CI's changed-line coverage gate
