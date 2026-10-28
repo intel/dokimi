@@ -477,6 +477,42 @@ def test_trigger_set_cli_writes_each_format(tmp_path, catalog, capsys):
     assert "skill-reach credits only the first" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("fmt", ["reach", "skill-creator", "questions"])
+def test_trigger_set_cli_exits_with_a_message_when_out_cannot_be_written(tmp_path, catalog, fmt):
+    q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])
+    out = tmp_path / "taken"
+    out.mkdir()  # a directory where the file should go
+    with pytest.raises(SystemExit, match=rf"Error: cannot write --out {re.escape(str(out))}: ") as exc:
+        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(out),
+                  "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
+    assert exc.value.code != 0 and isinstance(exc.value.code, str)
+    assert list(out.iterdir()) == []
+
+
+def test_trigger_set_cli_reports_a_schema_rejection_not_a_write_failure(tmp_path, catalog, monkeypatch):
+    from dokimi.artifacts import ArtifactValidationError
+    from dokimi.questions import artifact
+
+    def reject(*_a, **_k):
+        raise ArtifactValidationError("record 1: bad shape")
+
+    monkeypatch.setattr(artifact, "save_questions_artifact", reject)
+    q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])
+    with pytest.raises(SystemExit, match=r"Error: questions set rejected: record 1: bad shape") as exc:
+        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(tmp_path / "o.json"),
+                  "--questions", f"{q}=@skills", "--format", "questions"])
+    assert "cannot write" not in exc.value.code
+
+
+@pytest.mark.parametrize("fmt", ["reach", "skill-creator", "questions"])
+def test_trigger_set_cli_exits_with_a_message_when_out_is_empty(tmp_path, catalog, fmt):
+    q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])
+    with pytest.raises(SystemExit, match=r"Error: cannot write --out : ") as exc:
+        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", "",
+                  "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
+    assert isinstance(exc.value.code, str)
+
+
 # ── review round 3 ───────────────────────────────────────────────────────
 def _loop_result(answer="a", skill=None):
     return {"answer": answer, "transcript": [], "iterations": 1, "tool_call_count": 0,

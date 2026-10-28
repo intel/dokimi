@@ -358,17 +358,21 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         "lexical": lexical,
     }
     if args.model:
+        from dokimi.novelty.client import roll_up_cost
+
         selector = _client(args.model, args.provider, "selector", args)
         payload["model"] = dict(
             model_routing(candidates, queries, client=selector, gold=0, seed=args.seed,
                           repeats=args.repeats),
             queries_self_derived=self_derived,
         )
+        payload["cost"] = roll_up_cost([selector])
 
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"OK Saved routing measurement: {out}")
 
     _print_routing_summary(payload, len(competitors), self_derived)
+
 
 def _print_routing_summary(payload: dict, n_competitors: int, self_derived: bool) -> None:
     """The lexical line, the model line and their caveats, printed after a routing run."""
@@ -405,9 +409,20 @@ def _print_routing_summary(payload: dict, n_competitors: int, self_derived: bool
                   f"{noise['half_range']} (a crude sampling floor)")
         print("The model figure is an upper bound on harness behaviour: a harness that "
               "truncates descriptions in its own listing selects on less text.")
+        cost = payload["cost"]
+        if not cost["llm_calls"]:
+            print("cost     0 calls")
+        else:
+            spent = ("USD not known: a call had no price or no usage" if cost["usd"] is None
+                     else "<$0.0001" if 0 < cost["usd"] < 0.00005 else f"${cost['usd']:.4f}")
+            replayed = (f", {cost['replayed_calls']} replayed from the cache and not counted"
+                        if cost["replayed_calls"] else "")
+            print(f"cost     {cost['llm_calls']} calls, {cost['input_tokens']} input / "
+                  f"{cost['output_tokens']} output tokens, cache read "
+                  f"{cost['cache_read_tokens']} / write {cost['cache_write_tokens']}, "
+                  f"{spent}{replayed}")
     if self_derived:
         print("Self-derived queries: read as triage only.")
-
 
 
 def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derived: bool,
@@ -650,11 +665,11 @@ def register(sub, positive_int) -> None:
                                 "candidate is not routing: the sibling confusion is the "
                                 "failure mode (every `dpnp-*` skill scored 0.0 lexically)")
     routing_p.add_argument("--catalog", default=None,
-                           help="Directory of skills to take the competitors from: every "
-                                "SKILL.md under it except the artifact itself (a template/ "
-                                "copy and a byte-identical mirror that loads under the same "
-                                "skill name are left out), i.e. the siblings a harness "
-                                "lists next to it. Combines with --competitors")
+                           help="Directory of skills to take the competitors from: every SKILL.md "
+                                "under it except the artifact itself (a template/ copy, a byte-"
+                                "identical mirror that loads under the same skill name, and "
+                                "vendored or VCS directories like .git are left out), i.e. the "
+                                "siblings a harness lists next to it. Combines with --competitors")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")
