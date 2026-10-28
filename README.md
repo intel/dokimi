@@ -29,6 +29,13 @@ shorter version that keeps what matters.
 
 ![1. Does it help? Ship it or cut it. 2. Which parts help? Edit it. 3. Does guidance land? Fix the repo](dokimi/docs/assets/readme/three-questions.png)
 
+**Which parts help: novelty.** Dokimi asks the model about each claim in a
+skill twice, without the skill and with it, and a different model grades both
+answers. Every claim lands in one of four outcomes
+([more](dokimi/docs/skill-novelty.md)):
+
+![A 2x2 grid. Wrong without, right with: added, keep it. Right without and with: redundant, cut it for this model. Wrong both times: still missing, rewrite it. Right without, wrong with: degraded, fix it first](dokimi/docs/assets/readme/novelty-outcomes.png)
+
 What measuring shows so far ([evidence](dokimi/docs/skill-novelty-evidence.md)):
 most of a skill repeats what a frontier model already knows; a plausible wrong
 value planted in a skill is repeated 94% of the time; and what a small model
