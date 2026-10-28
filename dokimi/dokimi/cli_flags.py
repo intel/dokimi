@@ -19,6 +19,7 @@ yet.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 __all__ = [
@@ -302,11 +303,13 @@ def _index() -> tuple[dict[str, str], dict[str, str]]:
 CANONICAL, BANNED = _index()
 
 
-def registry_problems() -> list[str]:
+def registry_problems(concepts: Iterable[Concept] = CONCEPTS) -> list[str]:
     """Self-check of the registry data: empty when it is consistent."""
+    concepts = tuple(concepts)
     problems: list[str] = []
     canonical_owner: dict[str, str] = {}
-    for concept in CONCEPTS:
+    banned_owner: dict[str, str] = {}
+    for concept in concepts:
         for flag in concept.canonical:
             if not flag.spelling.startswith("-"):
                 problems.append(f"{concept.name}: canonical `{flag.spelling}` is not an option")
@@ -314,14 +317,15 @@ def registry_problems() -> list[str]:
                 problems.append(f"`{flag.spelling}` is canonical in both "
                                 f"{canonical_owner[flag.spelling]} and {concept.name}")
             canonical_owner[flag.spelling] = concept.name
-    for concept in CONCEPTS:
+    for concept in concepts:
         for spelling in concept.banned:
+            banned_owner.setdefault(spelling, concept.name)
             if not spelling.startswith("--"):
                 problems.append(f"{concept.name}: banned `{spelling}` is not a long option")
             if spelling in canonical_owner:
                 problems.append(f"`{spelling}` is canonical in {canonical_owner[spelling]} and "
                                 f"banned in {concept.name}")
-            if BANNED[spelling] != concept.name:
-                problems.append(f"`{spelling}` is banned in both {BANNED[spelling]} and "
+            if banned_owner[spelling] != concept.name:
+                problems.append(f"`{spelling}` is banned in both {banned_owner[spelling]} and "
                                 f"{concept.name}")
     return problems

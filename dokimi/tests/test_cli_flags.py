@@ -145,6 +145,26 @@ def test_registry_data_is_consistent():
     assert cli_flags.registry_problems() == []
 
 
+def _concept(name: str, canonical: Sequence[str] = (), banned: Sequence[str] = ()) -> cli_flags.Concept:
+    return cli_flags.Concept(name=name, help=name,
+                             canonical=tuple(cli_flags.Flag(s) for s in canonical),
+                             banned=tuple(banned))
+
+
+@pytest.mark.parametrize(("concepts", "message"), [
+    ([_concept("a", canonical=["out"])], "a: canonical `out` is not an option"),
+    ([_concept("a", canonical=["--out"]), _concept("b", canonical=["--out"])],
+     "`--out` is canonical in both a and b"),
+    ([_concept("a", banned=["-o"])], "a: banned `-o` is not a long option"),
+    ([_concept("a", canonical=["--out"]), _concept("b", banned=["--out"])],
+     "`--out` is canonical in a and banned in b"),
+    ([_concept("a", banned=["--old"]), _concept("b", banned=["--old"])],
+     "`--old` is banned in both a and b"),
+])
+def test_registry_problems_flags_each_inconsistency(concepts, message):
+    assert message in cli_flags.registry_problems(concepts)
+
+
 def test_every_spelling_on_the_tree_is_canonical_or_allowlisted():
     problems = _tree_violations()
     assert problems == [], "\n".join(problems)
