@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from dokimi.llm import ANSWER_PROVIDERS
+from dokimi.llm_cli import check_sampling
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -27,6 +28,11 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
 
     if not getattr(args, "repo", None) and not getattr(args, "description", None):
         print("Error: either --repo or --description must be provided.", file=sys.stderr)
+        sys.exit(1)
+    try:  # before any persona, question or answer is paid for; the judge would refuse later
+        check_sampling(args.judge_provider, getattr(args, "judge_temperature", None), None)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
     print(f"Starting full evaluation pipeline for {args.product}")

@@ -122,12 +122,12 @@ def api_key_env(provider: str) -> str:
 def resolve_api_key(provider: str, api_key: Optional[str] = None) -> Optional[str]:
     """*api_key*, else the provider's environment variable; a ``file:<path>`` value is read.
 
-    Returns ``None`` when there is no key.
+    Returns ``None`` when there is no key; a CLI provider takes its login, never a key.
 
     Raises:
         ValueError: a ``file:`` key is unreadable.
     """
-    key = api_key or os.environ.get(api_key_env(provider), "")
+    key = "" if llm_cli.backend(provider) else (api_key or os.environ.get(api_key_env(provider), ""))
     if key.startswith("file:"):
         path = os.path.expanduser(key[len("file:"):])
         try:

@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -56,8 +55,10 @@ from dokimi.metrics.usage import UsageRecord
 CLAUDE_ENV_DROP = frozenset({
     "CLAUDECODE", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION",
     "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT",
-    # Set, it wins over the CLI's login: the run would bill the key, not the subscription.
-    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID",
+    "CLAUDE_EFFORT", "CLAUDE_CODE_SESSION_ATTENDED",
+    # Set, they win over the CLI's login: the run would bill the key or token, not the subscription.
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
 })
 
 #: The flags that strip the CLI to a bare completion; see the module docstring.
@@ -117,6 +118,7 @@ class CliBackend:
     supports: frozenset = frozenset()  # of "temperature", "seed", "max_tokens"
     login_hint: str = ""
     aliases: Tuple[str, ...] = ()
+    model_prefixes: Tuple[str, ...] = ()  # full model ids the CLI takes, by prefix
 
 
 # ── claude-cli ────────────────────────────────────────────────────────────────
@@ -197,6 +199,7 @@ CLAUDE_CLI = CliBackend(
     env_drop=CLAUDE_ENV_DROP,
     login_hint="claude setup-token (headless) or claude, then /login",
     aliases=("haiku", "sonnet", "opus"),
+    model_prefixes=("claude-",),
 )
 
 #: CLI backends by provider name.
@@ -206,6 +209,12 @@ BACKENDS: Dict[str, CliBackend] = {CLAUDE_CLI.name: CLAUDE_CLI}
 def backend(provider: str) -> Optional[CliBackend]:
     """The CLI backend for *provider*, or ``None`` for an API provider."""
     return BACKENDS.get(provider)
+
+
+def accepts_model(provider: str, model: str) -> bool:
+    """Whether *provider*'s CLI takes *model*: one of its aliases, or a full id it names."""
+    cli = BACKENDS[provider]
+    return model in cli.aliases or model.startswith(cli.model_prefixes)
 
 
 def check_sampling(provider: str, temperature: Optional[float], seed: Optional[int]) -> None:
@@ -219,9 +228,15 @@ def work_dir(name: str) -> Path:
 
     Fixed, not fresh per call: the CLI states its working directory in the prompt, and
     a random path would make every request, and its response-cache key, differ.
+    Under the user's cache dir, not the shared temp dir: another account there could
+    pre-create it, and the CLI reads the git status of its working directory into the prompt.
     """
-    path = Path(tempfile.gettempdir()) / "dokimi-cli" / name
-    path.mkdir(parents=True, exist_ok=True)
+    base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    path = base / "dokimi" / "cli" / name
+    try:
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError as exc:
+        raise CliCallError(f"{name}: cannot create the work dir {path} ({exc})", retryable=False) from exc
     return path
 
 

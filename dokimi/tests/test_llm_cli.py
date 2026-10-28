@@ -43,7 +43,7 @@ NO_LOGIN = _err("Authentication error · This may be a temporary network issue, 
 @pytest.fixture
 def runner(monkeypatch, tmp_path):
     """Every CLI call answers from ``runner.answers`` (a list, consumed in order)."""
-    monkeypatch.setattr(llm_cli.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     fake = FakeRunner(lambda call: fake.answers.pop(0))
     fake.answers = []  # type: ignore[attr-defined]
     monkeypatch.setattr(llm_cli.process, "run", fake)
@@ -83,7 +83,8 @@ def test_the_call_is_isolated_and_the_prompt_goes_on_stdin(runner, monkeypatch):
     assert argv[argv.index("--system-prompt") + 1] == "Grade it."
     assert first.input == b"x" * 300_000 and "x" * 100 not in " ".join(argv)
     assert not llm_cli.CLAUDE_ENV_DROP & set(first.env)
-    assert {"CLAUDE_CODE_ENTRYPOINT", "ANTHROPIC_API_KEY"} <= llm_cli.CLAUDE_ENV_DROP
+    assert {"CLAUDE_CODE_ENTRYPOINT", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+            "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID"} <= llm_cli.CLAUDE_ENV_DROP
     assert first.env["DOKIMI_TEST_KEEP"] == "kept"
     # One fixed, empty directory: the cwd the CLI states is the same in every call.
     assert first.cwd == second.cwd and list(first.cwd.iterdir()) == []
@@ -107,8 +108,51 @@ def test_a_failed_call_says_whether_another_attempt_can_help(runner, answer, ret
     assert llm.is_retryable(info.value) is retryable
 
 
+@pytest.mark.parametrize("status", sorted(llm_cli._RETRYABLE_STATUS))
+def test_each_retryable_status_is_retried_whatever_the_message(runner, status):
+    runner.answers.append(reply(_err("something went wrong", status), returncode=1))
+    with pytest.raises(llm_cli.CliCallError) as info:
+        llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    assert info.value.retryable is True
+
+
+@pytest.mark.parametrize("word", llm_cli._RETRYABLE_WORDS)
+def test_each_retryable_word_is_retried_without_a_status(runner, word):
+    runner.answers.append(reply(_err(f"API said: {word}", None), returncode=1))
+    with pytest.raises(llm_cli.CliCallError) as info:
+        llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    assert info.value.retryable is True
+
+
+@pytest.mark.parametrize("answer", [
+    reply(_ok("bad", is_error=True), returncode=0),  # is_error alone, exit 0
+    reply(_ok("boom"), returncode=1),                # exit 1 alone, is_error false
+])
+def test_is_error_and_the_exit_code_each_mark_a_failure(runner, answer):
+    runner.answers.append(answer)
+    with pytest.raises(llm_cli.CliCallError) as info:
+        llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    assert info.value.retryable is False
+
+
+def test_an_unusable_work_dir_is_a_permanent_cli_error(runner, monkeypatch, tmp_path):
+    blocker = tmp_path / "a-file"
+    blocker.write_text("not a directory", encoding="utf-8")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(blocker))
+    with pytest.raises(llm_cli.CliCallError, match="work dir") as info:
+        llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    assert info.value.retryable is False and runner.calls == []
+
+
+def test_a_cli_provider_never_reads_an_api_key_file(runner, monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENAI_API_KEY", f"file:{tmp_path / 'missing'}")
+    assert llm.resolve_api_key("claude-cli") is None
+    runner.answers.append(reply(_ok("4")))
+    assert llm.LLM("sonnet", provider="claude-cli", max_tokens=50).complete("2+2?").text == "4"
+
+
 def test_a_missing_binary_is_a_permanent_error(monkeypatch, tmp_path):
-    monkeypatch.setattr(llm_cli.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 
     def missing(call):
         raise FileNotFoundError("claude")
@@ -211,10 +255,37 @@ def test_benchmark_preflight_checks_the_login_not_a_key(monkeypatch):
     assert "not installed" in _credential_error("claude-cli")
 
 
+def test_a_judge_panel_refuses_sampling_on_the_cli_with_explicit_judges():
+    from dokimi.eval.panel import JudgeConfig, JudgePanel
+
+    with pytest.raises(ValueError, match="takes no temperature"):
+        JudgePanel(judges=[JudgeConfig(role="a", model="sonnet", provider="claude-cli", temperature=0.0)])
+
+
+def test_an_unanswered_login_check_is_a_warning_not_a_pass(monkeypatch):
+    from dokimi.commands.benchmark import _credential_error, _login_warning
+
+    monkeypatch.setattr(process, "run", _auth_runner("no answer"))
+    assert _credential_error("claude-cli") is None
+    assert "could not check the login" in _login_warning("claude-cli")
+    monkeypatch.setattr(process, "run", _auth_runner({"loggedIn": True}))
+    assert _login_warning("claude-cli") is None
+
+
 def test_the_default_judge_runs_on_the_cli():
     from dokimi.defaults import DEFAULT_JUDGE_MODEL, default_judge_model
 
     assert default_judge_model("claude-cli") == DEFAULT_JUDGE_MODEL
+
+
+def test_a_cli_provider_needs_a_claude_model_on_the_command_line():
+    from dokimi.cli import parse_args
+
+    base = ["answers", "generate", "--product", "p", "--questions", "q.json", "--provider", "claude-cli"]
+    with pytest.raises(SystemExit):
+        parse_args(base)  # the default answer model is not a Claude model
+    assert parse_args([*base, "--model", "haiku"]).model == "haiku"
+    assert parse_args([*base, "--model", "claude-sonnet-5-5"]).model == "claude-sonnet-5-5"
 
 
 def test_answerer_and_generators_accept_the_cli_provider(runner):

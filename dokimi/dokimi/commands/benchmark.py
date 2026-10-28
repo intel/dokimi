@@ -98,6 +98,18 @@ def _credential_error(provider: str) -> str | None:
     return None
 
 
+def _login_warning(provider: str) -> str | None:
+    """A warning when a CLI provider's login could not be checked (no answer from ``auth status``)."""
+    from dokimi import llm_cli
+
+    if llm_cli.backend(provider) is None:
+        return None
+    status = llm_cli.detect(provider)
+    if status.installed and status.authenticated is None:
+        return f"{provider}: could not check the login ('{status.binary} auth status' gave no answer)"
+    return None
+
+
 def _resolved_benchmark_plan(entry, args: argparse.Namespace) -> dict:
     doc_source = getattr(args, "doc_source", None) or (entry.doc_sources[0] if entry.doc_sources else "context7")
     output_dir = getattr(args, "output_dir", None) or f"results/{entry.key}{DEFAULT_RESULTS_SUFFIX}"
@@ -158,6 +170,7 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     warnings: list[str] = []
 
     errors.extend(e for e in map(_credential_error, sorted({args.provider, args.judge_provider})) if e)
+    warnings.extend(w for w in map(_login_warning, sorted({args.provider, args.judge_provider})) if w)
 
     try:
         Path(plan["output_dir"]).mkdir(parents=True, exist_ok=True)

@@ -36,7 +36,7 @@ from dokimi.commands import (
     tasks,
     tools,
 )
-from dokimi import __version__, process
+from dokimi import __version__, llm_cli, process
 from dokimi.console import tolerate_console_encoding
 from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER, default_judge_model
 
@@ -101,6 +101,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             parser.error(f"--judge-provider {args.judge_provider} has no default judge model; "
                          f"pass --judge-model")
         args.judge_model = model
+    provider, model = getattr(args, "provider", None), getattr(args, "model", None)
+    if provider in llm_cli.BACKENDS and model is not None and not llm_cli.accepts_model(provider, model):
+        # The default answer model is not a Claude model: left out, every call would fail.
+        parser.error(f"--provider {provider} takes a Claude model (sonnet, haiku, opus or a claude-* id), "
+                     f"not {model!r}: pass --model")
     return args
 
 
